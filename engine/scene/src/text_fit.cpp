@@ -66,7 +66,7 @@ TextFitSpec text_fit_spec(const Text& t) {
     s.wrap = t.maxWidth;
     s.boxW = t.maxWidth;
     s.boxH = t.maxHeight;
-    s.style = {t.markup, t.bold};
+    s.style = {t.markup, t.bold, t.wordBreak};
     return s;
 }
 
@@ -79,6 +79,7 @@ TextExtent text_extent_of(const VisualMeasure& measure) {
         t.maxWidth = wrap;
         t.markup = style.markup;
         t.bold = style.bold;
+        t.wordBreak = style.wordBreak;
         t.space = RenderSpace::World;  // px is final: no text scale
         return measure.textSize ? measure.textSize(t) : approx_text_size(text, px, wrap, style.markup);
     };

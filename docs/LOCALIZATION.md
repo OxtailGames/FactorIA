@@ -257,6 +257,10 @@ i18n.t("ship_ready", { name: i18n.t("ship.skiff"), gender: i18n.gender("ship.ski
 
 [TEXT.md](TEXT.md) describes how text is drawn; what a localized game has to do about it:
 
+- **Korean line breaks.** A wrapped Korean Text ends its lines at spaces and keeps each word whole with no setting
+  (`Text.wordBreak` `auto`, TEXT.md, "Line breaking"). A reveal letter by letter is `Text.visibleCharacters` (TEXT.md,
+  "Typewriter reveal"): the box has the size of the whole translation from the first character, so no script has to wrap
+  or pad a line by hand.
 - **Fonts per language.** DejaVu Sans, the built-in font, has Latin, Greek, Cyrillic, Hebrew and Arabic letters; nothing
   else is built in. For Japanese, Korean, Chinese, Thai or an Indic script, ship a `.ttf` (Noto Sans has one per script)
   and list it in `factoria.json`: `languageFonts` for a font only that language needs, `fallbackFonts` for one every

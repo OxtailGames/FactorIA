@@ -32,8 +32,14 @@ bool is_extender(char32_t c) {
     }
 }
 
-// Ideographs, kana and Hangul syllables: a line may end before or after each of them (no spaces in these scripts).
-bool breaks_everywhere(char32_t c) {
+// Hangul syllables and the compatibility jamo (written with spaces between words).
+bool is_hangul(char32_t c) { return (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x3130 && c <= 0x318F); }
+
+// Ideographs, kana and (with WordBreak::Normal) Hangul syllables: a line may end before or after each of them. Hangul is
+// not one of them in Auto and KeepAll, and neither is anything else in KeepAll: those lines end at spaces only.
+bool breaks_everywhere(char32_t c, WordBreak wb) {
+    if (wb == WordBreak::KeepAll) return false;
+    if (is_hangul(c)) return wb == WordBreak::Normal;
     return (c >= 0x2E80 && c <= 0x2FDF) || (c >= 0x3000 && c <= 0x4DBF) || (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0xAC00 && c <= 0xD7A3) ||
            (c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFF00 && c <= 0xFFEF) || (c >= 0x20000 && c <= 0x3FFFF);
 }
@@ -56,11 +62,11 @@ bool is_break_space(char32_t c) {
 bool is_break_hyphen(char32_t c) { return c == U'-' || c == 0x2010; }
 
 // A line may break between two clusters whose first code points are `a` and `b`.
-bool can_break_between(char32_t a, char32_t b) {
+bool can_break_between(char32_t a, char32_t b, WordBreak wb) {
     if (is_break_space(b)) return false;  // spaces hang on the end of the line
     if (is_break_space(a)) return true;
     if (is_break_hyphen(a) && !is_break_hyphen(b) && !(b >= U'0' && b <= U'9') && kNoBreakBefore.find(b) == std::u32string_view::npos) return true;
-    if (!breaks_everywhere(a) && !breaks_everywhere(b)) return false;
+    if (!breaks_everywhere(a, wb) && !breaks_everywhere(b, wb)) return false;
     return kNoBreakBefore.find(b) == std::u32string_view::npos && kNoBreakAfter.find(a) == std::u32string_view::npos;
 }
 
@@ -171,8 +177,8 @@ void shape_run(hb_buffer_t* buf, std::u32string_view p, std::size_t a, std::size
     for (std::size_t k = first; k < clusters.size(); ++k) clusters[k].end = k + 1 < clusters.size() ? clusters[k + 1].first : std::uint32_t(b);
 }
 
-void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float maxW, Chain& chain, HbBuffer& buf, const RichShaping* rich,
-                     ShapedText& out) {
+void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float maxW, WordBreak wordBreak, Chain& chain, HbBuffer& buf,
+                     const RichShaping* rich, ShapedText& out) {
     const std::size_t n = p.size();
     if (n == 0) {
         out.lines.emplace_back();
@@ -279,7 +285,7 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
         cur = Span{};
         curEmpty = true;
     };
-    auto can_break_before = [&](std::size_t k) { return can_break_between(p[clusters[k - 1].first], p[clusters[k].first]); };
+    auto can_break_before = [&](std::size_t k) { return can_break_between(p[clusters[k - 1].first], p[clusters[k].first], wordBreak); };
     for (std::size_t k = 0; k < clusters.size();) {
         std::size_t j = k + 1;
         while (j < clusters.size() && !can_break_before(j)) ++j;
@@ -329,13 +335,33 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
 
 }  // namespace
 
+std::vector<std::uint32_t> grapheme_index(std::u32string_view text) {
+    std::vector<std::uint32_t> out(text.size(), 0);
+    std::uint32_t g = 0;
+    bool oddRegional = false;  // the previous code point was the first of a pair of regional indicators (a flag)
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char32_t c = text[i];
+        const bool regional = c >= 0x1F1E6 && c <= 0x1F1FF;
+        bool joins = false;
+        if (i > 0) {
+            const char32_t prev = text[i - 1];
+            joins = is_extender(c) || (c >= 0x1F3FB && c <= 0x1F3FF) || prev == 0x200D || (prev == U'\r' && c == U'\n') ||
+                    (regional && oddRegional);
+        }
+        if (!joins) ++g;
+        oddRegional = regional && !(joins && oddRegional);
+        out[i] = g - 1;
+    }
+    return out;
+}
+
 ShapedText shape_text(std::string_view utf8, int px, float maxWidth, std::size_t chainSize,
-                      const std::function<FontFace*(std::size_t)>& chainFn) {
-    return shape_text(decode_text(utf8), px, maxWidth, chainSize, chainFn, nullptr);
+                      const std::function<FontFace*(std::size_t)>& chainFn, WordBreak wordBreak) {
+    return shape_text(decode_text(utf8), px, maxWidth, chainSize, chainFn, nullptr, wordBreak);
 }
 
 ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::size_t chainSize,
-                      const std::function<FontFace*(std::size_t)>& chainFn, const RichShaping* rich) {
+                      const std::function<FontFace*(std::size_t)>& chainFn, const RichShaping* rich, WordBreak wordBreak) {
     ShapedText out;
     Chain chain(std::max<std::size_t>(chainSize, 1), chainFn);
     if (!chain.at(0)) {
@@ -346,7 +372,7 @@ ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::siz
     for (std::size_t start = 0;;) {
         const std::size_t nl = text.find(U'\n', start);
         const std::size_t end = nl == std::u32string::npos ? text.size() : nl;
-        shape_paragraph(text.substr(start, end - start), std::uint32_t(start), px, maxWidth, chain, buf, rich, out);
+        shape_paragraph(text.substr(start, end - start), std::uint32_t(start), px, maxWidth, wordBreak, chain, buf, rich, out);
         if (nl == std::u32string::npos) break;
         start = nl + 1;
     }

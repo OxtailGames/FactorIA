@@ -95,6 +95,13 @@ constexpr const char* kBoldDoc =
     "is emboldened by the engine, and `factoria validate` suggests adding one. [b] in markup does the same for a part of the "
     "text. false (default): regular weight.";
 
+constexpr const char* kWordBreakDoc =
+    "Where a wrapped line (maxWidth > 0) may end inside a run of letters with no space. auto (default): Korean keeps its words "
+    "(Hangul lines end at spaces only, as Korean is written for screens), Chinese and Japanese break between any two characters "
+    "(kinsoku keeps closing punctuation off the start of a line). normal: Hangul also breaks between syllables. keepAll: Hangul, "
+    "Chinese and Japanese all break at spaces only; a run longer than maxWidth then overflows the box instead of splitting. "
+    "No effect without maxWidth.";
+
 // autoShrink and minFontSize of Text, Button, Toggle, Slider and TouchButton.
 constexpr const char* kAutoShrinkDoc =
     "true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made "
@@ -485,6 +492,15 @@ void register_builtin_components(TypeRegistry& r) {
         .field("maxTextScale", &Text::maxTextScale, kMaxTextScaleDoc).range(0, 3)
         .field("markup", &Text::markup, kMarkupDoc)
         .field("bold", &Text::bold, kBoldDoc)
+        .enum_field("wordBreak", &Text::wordBreak, {"auto", "normal", "keepAll"}, kWordBreakDoc)
+        .field("visibleCharacters", &Text::visibleCharacters,
+               "Typewriter reveal. -1 (default) draws the whole text. n >= 0 draws only its first n characters, counted in grapheme "
+               "clusters (a letter with its accents, an emoji sequence or a Hangul syllable is one; spaces and line breaks count, "
+               "the tags of `markup` do not and a [icon:name] picture is one). The text is laid out as a whole and only "
+               "clipped, so the box, its wrapping, its alignment, ui.rectOf and a Panel that fits it keep the size of the full line while it "
+               "reveals, and no word jumps to the next line. Reveal order is the order of the text, so a right-to-left line "
+               "appears from its right end. Raise it from a script a few characters per second; a value above the length shows "
+               "everything.").range(-1, 1000000)
         .field("layer", &Text::layer, "Draw order. Higher layers draw on top. Text defaults above sprites.")
         .enum_field("space", &Text::space, {"world", "screen"},
                     "world: affected by cameras. screen: HUD/UI in design pixels, origin TOP-LEFT, +Y down.")

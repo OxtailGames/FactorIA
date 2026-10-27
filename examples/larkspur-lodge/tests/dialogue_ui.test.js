@@ -1,7 +1,7 @@
 // The dialogue box: reveal at the player's text speed, skip/complete, choices with the mouse, keyboard, gamepad and a finger,
 // the backlog, the porter standing still, and a conversation that dies with its scene. Screenshots go to .factoria/screenshots/.
 import { test, describe, expect, game, beforeEach } from "factoria:test";
-import { scene } from "factoria";
+import { scene, ui } from "factoria";
 import { enter, porter, stand } from "./helpers/lodge.js";
 import * as dialogue from "../scripts/dialogue.js";
 import * as story from "../scripts/story.js";
@@ -66,7 +66,8 @@ group("a line", () => {
     expect(view().revealed).toBeLessThan(view().total);
     game.step(240);
     expect(view().revealed).toBe(view().total);
-    expect(text().replace(/\n/g, " ")).toBe(strings.dlg.ch1_mara.greet);
+    expect(text()).toBe(strings.dlg.ch1_mara.greet);
+    expect(game.find("dlg_text").get("Text").visibleCharacters).toBe(-1);
   });
 
   test("a press completes the line, the next one goes on", () => {
@@ -101,11 +102,17 @@ group("a line", () => {
     settings.save({ ...settings.load(), textSpeed: 45 });
     dialogue.start("ch1_mara", { speaker: "npc_mara" });
     game.step(2);
-    const lines = (s) => s.split("\n").length;
-    const whole = lines(view().full);
-    expect(lines(text())).toBe(whole);
+    // The Text holds the whole line from its first character and only shows part of it, so the box never changes size.
+    const label = () => game.find("dlg_text").get("Text");
+    const rect = () => ui.rectOf("dlg_text");
+    const whole = rect().h;
+    expect(label().visibleCharacters).toBeLessThan(view().total);
+    expect(text()).toBe(strings.dlg.ch1_mara.greet);
     game.step(60);
-    expect(lines(text())).toBe(whole);
+    expect(label().visibleCharacters).toBeGreaterThan(0);
+    expect(label().visibleCharacters).toBeLessThan(view().total);
+    expect(rect().h).toBe(whole);
+    expect(whole).toBeGreaterThan(28 * 1.5); // it wraps: more than one line tall
   });
 
   test("a click on the box completes it, a click on a button is its own", () => {
