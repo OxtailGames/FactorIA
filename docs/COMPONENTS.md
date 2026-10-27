@@ -499,7 +499,7 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
@@ -520,6 +520,7 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 | `minSize` | vec2 | `[0.0,0.0]` | Lower bound [w, h] of the panel's size in UI units; 0 on an axis = no bound. The size is raised to it, also when `fit` is true (a fitted panel never gets smaller than this, so a menu keeps one width while its texts change) and also when `layout` is none. Children are laid out inside the panel as clamped. `ui.scale` multiplies it like `size`. (not released yet, on main after 0.2.0) |
 | `maxSize` | vec2 | `[0.0,0.0]` | Upper bound [w, h] of the panel's size in UI units; 0 on an axis = no bound. The size is cut to it, also when `fit` is true (a fitted panel stops growing and its content overflows: use a ScrollList or `autoShrink`/`maxWidth` on the texts to keep it readable). When both bounds are set and cross, `minSize` wins. `ui.scale` multiplies it like `size`. Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
 | `uniformSize` | bool | `false` | true: every Button, Toggle and Slider with autoSize anywhere inside this panel (children, and the children of the panels and lists inside it; active ones only) takes the size of the largest of them, width and height separately, every layout. Widgets without autoSize keep their size and do not count. Use it for a grid of level buttons as wide as the widest label. (since 0.2.0) |
+| `modal` | bool | `false` | true: while this panel is active (in the hierarchy) it is a modal: the pointer, the wheel and keyboard / gamepad navigation reach only the widgets inside it (the panel and its descendants). Everything else under it gets no hover, press, click, focus, tooltip or drop, the focus leaves a widget outside and stays inside (an autoFocus widget in the panel takes it), `ui.pointerOverUi` is true everywhere so the game's own mouse handling stands down, and the wheel is consumed unless a ScrollList inside scrolls. With several modal panels active the one with the highest `layer` (the later entity on a tie) is the scope. It does not pause the game: a script that wants that holds the clock itself (the menu kit's card does, with its `holdClock` option). A fully transparent panel draws nothing and is not hit, but still scopes the input; give it a dim `color` as a backdrop to block clicks on the sprites too. (not released yet, on main after 0.2.0) |
 | `fallbackLayout` | enum: none \\| row \\| column \\| grid | `"none"` | Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen (none = never switch). The panel leaves the screen when its content size + padding, or the size of the outermost fit Panel around it, is wider than the screen and `layout` is row or grid, or taller and `layout` is column or grid. The deepest panels switch first, so a menu changes one level at a time until it fits; the choice is made again every frame, so it follows the text size and the language and goes back to `layout` when the texts shrink. Example: a column of two blocks with fallbackLayout "row" stands them side by side at a big text size; a row of buttons with fallbackLayout "column" stacks them. Scripts that must adapt read `usingFallback`. (since 0.2.0) |
 | `usingFallback` | bool | `false` | Runtime: true while the panel is laid out with `fallbackLayout` instead of `layout`. Read-only. Runtime-only (not saved). (since 0.2.0) |
 
@@ -531,7 +532,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[240.0,56.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[240.0,56.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
@@ -573,7 +574,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[240.0,40.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[240.0,40.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
@@ -612,7 +613,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[320.0,40.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[320.0,40.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
@@ -658,7 +659,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[320.0,48.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[320.0,48.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
@@ -693,7 +694,7 @@ Scrolling container: its children are stacked in a column (aligned left, packed 
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
@@ -718,7 +719,7 @@ On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[200.0,200.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[200.0,200.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
@@ -743,7 +744,7 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[96.0,96.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[96.0,96.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
@@ -777,7 +778,7 @@ The subtitles of the game (docs/TEXT.md, "Captions"): draws the lines that `audi
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[960.0,180.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[960.0,180.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.0]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.5,1.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
@@ -805,7 +806,7 @@ A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec2 | `[640.0,360.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `size` | vec2 | `[640.0,360.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
 | `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
@@ -826,6 +827,47 @@ A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-
 | `ended` | bool | `false` | Runtime: true once the video reached its end (never while `loop`); false again after a seek or a restart. Read-only. Runtime-only (not saved). |
 | `time` | float | `0.0` | Runtime: seconds into the video, 0 .. duration. Assign to seek (the picture and the sound jump there). Range 0.0..1000000.0. Runtime-only (not saved). |
 | `duration` | float | `0.0` | Runtime: length of the video in seconds; 0 while the file is not open. Read-only. Runtime-only (not saved). |
+
+### Chart
+
+Not released yet (on main after 0.2.0).
+
+A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines inside this entity's rectangle, scaled to the axis, in one batch by the UI layer, with a baseline rule, the axis maximum and minimum written in the current language's number format, and optional vertical `marks`. `values` is one series ([3, 5, 2]) or several ([[3, 5, 2], [1, 4, 4]]); write it from a script (`chart.values = history`) whenever the data changes. The axis is automatic (the lowest and highest value, always including the baseline, zero by default) unless `min` / `max` are set. The sample under the pointer is reported: the game event `ui.chartHover` ({id, index, series, value}; index and series are -1 when the pointer leaves), `ui.on("chartHover", fn)` in scripts, and `hoverIndex` / `hoverSeries` on the component. A Chart is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Defaults: 480 x 200, a dark translucent background, bars.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[480.0,200.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
+| `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
+| `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
+| `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
+| `color` | color | `[0.0,0.0,0.0,0.35]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
+| `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". |
+| `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". |
+| `values` | json | `[]` | The data: an array of numbers (one series), or an array of arrays of numbers (a series each, oldest value first). Anything that is not a number counts as 0. Series may have different lengths; the samples line up from the newest (right) end. |
+| `kind` | enum: bar \\| line | `"bar"` | bar (default): one column per sample, the series side by side in it, each bar growing from `baseline`. line: one polyline per series through its points, spanning the plot from edge to edge. |
+| `colors` | json | `[]` | Colour of each series: an array of colours ("#rrggbb", a name or [r, g, b, a]). Series beyond the list start over from its first colour; an empty list uses a built-in palette. |
+| `min` | json | `null` | Lowest value of the axis. null (default) = automatic. |
+| `max` | json | `null` | Highest value of the axis. null (default) = automatic. |
+| `baseline` | float | `0.0` | The value bars grow from and where the baseline rule is drawn (0 by default, the line between gains and losses). |
+| `showBaseline` | bool | `true` | true (default): draw a thin rule at `baseline` when it is inside the axis. |
+| `includeBaseline` | bool | `true` | true (default): the automatic axis always includes `baseline`, so bars of a series that is all large numbers still start at zero. false: the axis fits the data tightly (a line of coins that stays near 5000). Ignored for a side set by `min` / `max`. |
+| `slots` | int | `0` | How many samples the plot has room for. With fewer values the series is right-aligned, so a chart that fills up keeps each sample's width. 0 (default) = as many as the longest series. Range 0.0..100000.0. |
+| `marks` | json | `null` | Sample indexes (counted from the first value of the longest series) where a thin vertical rule is drawn, e.g. the first day of each season: [7, 14]. null = none. |
+| `baselineColor` | color | `[1.0,1.0,1.0,0.35]` | Colour of the baseline rule. |
+| `markColor` | color | `[1.0,1.0,1.0,0.16]` | Colour of the vertical rules of `marks`. |
+| `lineWidth` | float | `2.0` | Thickness of a line chart's lines, in UI units. Range 0.0..64.0. |
+| `barGap` | float | `0.2` | Fraction of a sample's column left empty between neighbouring bars, 0 to 0.9. Range 0.0..0.9. |
+| `padding` | float | `6.0` | Space in UI units between the box and the plot area. Range 0.0..1000.0. |
+| `showLabels` | bool | `true` | true (default): write the axis maximum at the top-left and the minimum at the bottom-left of the plot, in the current language's number format ("1,234.5" in English, "1.234,5" in Spanish). |
+| `decimals` | int | `-1` | Digits after the decimal separator in the labels, 0 to 9. -1 (default) = as many as the value has, rounded to two. Range -1.0..9.0. |
+| `font` | asset (font) | `""` | Font of the labels: project path of a .ttf, empty = the built-in font (same values as Text.font). |
+| `fontSize` | float | `14.0` | Label glyph height in design pixels, before ui.textScale. Range 1.0..4096.0. |
+| `textColor` | color | `[1.0,1.0,1.0,0.7]` | Colour of the axis labels. |
+| `hoverIndex` | int | `-1` | Runtime: the sample under the pointer (0 = the first value of the series), -1 when none. Written by the UI every frame. Read-only. Runtime-only (not saved). |
+| `hoverSeries` | int | `-1` | Runtime: the series of the sample under the pointer, -1 when none. Read-only. Runtime-only (not saved). |
 
 ## Scripting
 
@@ -1145,6 +1187,23 @@ Example: assets.list {"folder":"assets","extension":".png"}
 |---|---|---|---|
 | `folder` | string | no | Project-relative folder. Default "assets". |
 | `extension` | string | no | Only files with this extension, e.g. .png |
+
+### `assets.pack_atlas` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads.
+
+Every image under `folder` (png, jpg, tga, bmp; subfolders too) is a frame named by its path without the extension ("ship/0.png" is "ship/0"). They are packed into the smallest square page up to maxSize (tallest first), each with `padding` pixels of its own edge repeated around it so bilinear filtering and mipmaps never bleed a neighbour (the same padding as the export's atlas groups). The page is written to `out`, and the table to `table` (default `out` with .json): {"texture":"assets/atlas.png","size":[w,h],"frames":{"ship/0":{"rect":[x,y,w,h],"pivot":[px,py]}}}. rect is in texture pixels from the top-left, exactly Sprite.region; pivot is Sprite.pivot (+Y up). Pivots come from `<folder>/pivots.json` ({"ship/0":[0.5,0.2]}); a frame without one is [0.5, 0.5]. Keys of an existing table other than texture, size and frames are kept, so your own data can live in the same file.
+Packing again is stable: a frame whose size did not change keeps its rectangle (the page grows, never reshuffles), so a new picture changes the table by one line and a scene that copied a rect keeps drawing the same picture. Frames removed from the folder leave holes that new frames fill. Nothing is written when the result would be the same bytes. The result lists what was added, moved (changed size) and removed. Use this while developing, when many sprites must share one texture (a map of thousands of tiles, characters of one screen) and you want to pick frames by name; `factoria export` packs `atlas` groups by itself and Sprites keep naming the source PNGs (docs/ASSETS.md, "Atlases"). Example: {"folder":"assets/src/frames","out":"assets/atlas.png","table":"data/atlas.json"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `folder` | string | yes | Project-relative folder of images; each image (subfolders too) is one frame named by its path without the extension. An optional pivots.json inside gives pivots. |
+| `out` | string | yes | Project-relative .png to write, e.g. "assets/atlas.png". Replaced if it exists. |
+| `table` | string | no | Project-relative .json for the frame table. Default: out with the .json extension. |
+| `maxSize` | integer | no | Largest side of the page in pixels. Default 2048 (what every phone samples); 4096 is fine on desktop. Frames that do not fit are an error. |
+| `padding` | integer | no | Pixels of the frame's own edge repeated around each frame. Default 2. |
 
 ### `assets.provenance`
 
@@ -2058,7 +2117,7 @@ The menu kit of docs/MENUS.md (templates/menus/ in the FactorIA install): `parts
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).; cameraRig: The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it. |
+| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).; card: A choice card for events, stories and decisions (scripts/ui/card.js, prefabs/ui/card.prefab.json): a modal panel (Panel.modal) with a title, a wrapped body, choice buttons that each have a detail line, a choice greyed out with its reason, a result stage with Continue, and an option to hold the game clock (game.paused) while it is open. The mouse, the arrows and the pad reach only the card. tests/card.test.js checks it.; cameraRig: The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it. |
 | `overwrite` | boolean | no | Replace a kit file the game has changed (a file that is the same is left alone). Without it that file is left as it is and listed in `skipped`. String keys the game has are never replaced. Default false. |
 
 ### `project.create` (modifies state)
@@ -4858,6 +4917,43 @@ declare module "factoria" {
   }
 
   /**
+   * What ui.on("chartHover", ...) receives: the sample of a Chart under the pointer changed.
+   * @since unreleased
+   */
+  export interface UiChartEvent {
+    /**
+     * The event type.
+     * @since unreleased
+     */
+    readonly type: "chartHover";
+    /**
+     * Id of the Chart entity.
+     * @since unreleased
+     */
+    readonly id: string;
+    /**
+     * The Chart entity.
+     * @since unreleased
+     */
+    readonly entity: Entity | null;
+    /**
+     * Position of the sample in its series (0 = the first value of `values`), -1 when the pointer left the chart.
+     * @since unreleased
+     */
+    readonly index: number;
+    /**
+     * Which series (0 for a chart with one), -1 when the pointer left the chart.
+     * @since unreleased
+     */
+    readonly series: number;
+    /**
+     * The value of the sample; absent when the pointer left the chart.
+     * @since unreleased
+     */
+    readonly value?: number;
+  }
+
+  /**
    * What a ui.on("dragStart" | "dragOver" | "drop" | "dragCancel", ...) callback receives: one step of a drag that started on a widget with `draggable`.
    * @since unreleased
    */
@@ -5034,6 +5130,16 @@ declare module "factoria" {
      * @since 0.1.6
      */
     on(type: "scale" | "textScale", fn: (e: UiScaleEvent) => void): () => void;
+    /**
+     * Listens to the pointer moving over the samples of a Chart (a bar, or the nearest point of a line): the callback gets { type, id, entity, index, series, value } each time the sample under the pointer changes, and index -1 when the pointer leaves the chart. Returns the function that stops listening; listeners end with the scene.
+     * @since 0.1.6
+     */
+    on(type: "chartHover", fn: (e: UiChartEvent) => void): () => void;
+    /**
+     * Like on("chartHover", fn) for one Chart, e.g. ui.on("chartHover", "sales_chart", (e) => showDay(e.index)).
+     * @since 0.1.6
+     */
+    on(type: "chartHover", target: Entity | string, fn: (e: UiChartEvent) => void): () => void;
     /**
      * Listens to the steps of a drag that began on a widget with `draggable` (UiBox.draggable): dragStart, dragOver, drop (released over a target that accepts: a widget with a rule from ui.setDropTarget, or the world) and dragCancel (rejected, cancelled with ui_cancel, the source gone or ui.cancelDrag()). The event has the source, its payload, the pointer (x, y) and the target (null over the world). Returns the function that stops listening; listeners end with the scene.
      * @since 0.1.6
@@ -8316,7 +8422,7 @@ declare module "factoria" {
    */
   export interface PanelComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -8429,6 +8535,11 @@ declare module "factoria" {
      */
     uniformSize: boolean;
     /**
+     * true: while this panel is active (in the hierarchy) it is a modal: the pointer, the wheel and keyboard / gamepad navigation reach only the widgets inside it (the panel and its descendants). Everything else under it gets no hover, press, click, focus, tooltip or drop, the focus leaves a widget outside and stays inside (an autoFocus widget in the panel takes it), `ui.pointerOverUi` is true everywhere so the game's own mouse handling stands down, and the wheel is consumed unless a ScrollList inside scrolls. With several modal panels active the one with the highest `layer` (the later entity on a tie) is the scope. It does not pause the game: a script that wants that holds the clock itself (the menu kit's card does, with its `holdClock` option). A fully transparent panel draws nothing and is not hit, but still scopes the input; give it a dim `color` as a backdrop to block clicks on the sprites too.
+     * @since unreleased
+     */
+    modal: boolean;
+    /**
      * Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen (none = never switch). The panel leaves the screen when its content size + padding, or the size of the outermost fit Panel around it, is wider than the screen and `layout` is row or grid, or taller and `layout` is column or grid. The deepest panels switch first, so a menu changes one level at a time until it fits; the choice is made again every frame, so it follows the text size and the language and goes back to `layout` when the texts shrink. Example: a column of two blocks with fallbackLayout "row" stands them side by side at a big text size; a row of buttons with fallbackLayout "column" stacks them. Scripts that must adapt read `usingFallback`.
      * @since 0.2.0
      */
@@ -8447,7 +8558,7 @@ declare module "factoria" {
    */
   export interface ButtonComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -8631,7 +8742,7 @@ declare module "factoria" {
    */
   export interface ToggleComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -8796,7 +8907,7 @@ declare module "factoria" {
    */
   export interface SliderComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -8996,7 +9107,7 @@ declare module "factoria" {
    */
   export interface TextFieldComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -9141,7 +9252,7 @@ declare module "factoria" {
    */
   export interface ScrollListComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -9235,7 +9346,7 @@ declare module "factoria" {
    */
   export interface TouchStickComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.2.0
      */
     get size(): Vec2;
@@ -9329,7 +9440,7 @@ declare module "factoria" {
    */
   export interface TouchButtonComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.2.0
      */
     get size(): Vec2;
@@ -9468,7 +9579,7 @@ declare module "factoria" {
    */
   export interface CaptionsComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.2.0
      */
     get size(): Vec2;
@@ -9579,7 +9690,7 @@ declare module "factoria" {
    */
   export interface VideoComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since unreleased
      */
     get size(): Vec2;
@@ -9691,6 +9802,182 @@ declare module "factoria" {
     readonly duration: number;
   }
   /**
+   * A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines inside this entity's rectangle, scaled to the axis, in one batch by the UI layer, with a baseline rule, the axis maximum and minimum written in the current language's number format, and optional vertical `marks`. `values` is one series ([3, 5, 2]) or several ([[3, 5, 2], [1, 4, 4]]); write it from a script (`chart.values = history`) whenever the data changes. The axis is automatic (the lowest and highest value, always including the baseline, zero by default) unless `min` / `max` are set. The sample under the pointer is reported: the game event `ui.chartHover` ({id, index, series, value}; index and series are -1 when the pointer leaves), `ui.on("chartHover", fn)` in scripts, and `hoverIndex` / `hoverSeries` on the component. A Chart is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Defaults: 480 x 200, a dark translucent background, bars.
+   * 
+   * Category: UI
+   * @since unreleased
+   */
+  export interface ChartComponent {
+    /**
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * @since unreleased
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since unreleased
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since unreleased
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
+     */
+    safeArea: boolean;
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since unreleased
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since unreleased
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since unreleased
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since unreleased
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
+    /**
+     * The data: an array of numbers (one series), or an array of arrays of numbers (a series each, oldest value first). Anything that is not a number counts as 0. Series may have different lengths; the samples line up from the newest (right) end. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    values: any;
+    /**
+     * bar (default): one column per sample, the series side by side in it, each bar growing from `baseline`. line: one polyline per series through its points, spanning the plot from edge to edge.
+     * @since unreleased
+     */
+    kind: "bar" | "line";
+    /**
+     * Colour of each series: an array of colours ("#rrggbb", a name or [r, g, b, a]). Series beyond the list start over from its first colour; an empty list uses a built-in palette. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    colors: any;
+    /**
+     * Lowest value of the axis. null (default) = automatic. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    min: any;
+    /**
+     * Highest value of the axis. null (default) = automatic. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    max: any;
+    /**
+     * The value bars grow from and where the baseline rule is drawn (0 by default, the line between gains and losses).
+     * @since unreleased
+     */
+    baseline: number;
+    /**
+     * true (default): draw a thin rule at `baseline` when it is inside the axis.
+     * @since unreleased
+     */
+    showBaseline: boolean;
+    /**
+     * true (default): the automatic axis always includes `baseline`, so bars of a series that is all large numbers still start at zero. false: the axis fits the data tightly (a line of coins that stays near 5000). Ignored for a side set by `min` / `max`.
+     * @since unreleased
+     */
+    includeBaseline: boolean;
+    /**
+     * How many samples the plot has room for. With fewer values the series is right-aligned, so a chart that fills up keeps each sample's width. 0 (default) = as many as the longest series.
+     * @since unreleased
+     */
+    slots: number;
+    /**
+     * Sample indexes (counted from the first value of the longest series) where a thin vertical rule is drawn, e.g. the first day of each season: [7, 14]. null = none. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    marks: any;
+    /**
+     * Colour of the baseline rule.
+     * @since unreleased
+     */
+    get baselineColor(): Color;
+    set baselineColor(value: ColorLike);
+    /**
+     * Colour of the vertical rules of `marks`.
+     * @since unreleased
+     */
+    get markColor(): Color;
+    set markColor(value: ColorLike);
+    /**
+     * Thickness of a line chart's lines, in UI units.
+     * @since unreleased
+     */
+    lineWidth: number;
+    /**
+     * Fraction of a sample's column left empty between neighbouring bars, 0 to 0.9.
+     * @since unreleased
+     */
+    barGap: number;
+    /**
+     * Space in UI units between the box and the plot area.
+     * @since unreleased
+     */
+    padding: number;
+    /**
+     * true (default): write the axis maximum at the top-left and the minimum at the bottom-left of the plot, in the current language's number format ("1,234.5" in English, "1.234,5" in Spanish).
+     * @since unreleased
+     */
+    showLabels: boolean;
+    /**
+     * Digits after the decimal separator in the labels, 0 to 9. -1 (default) = as many as the value has, rounded to two.
+     * @since unreleased
+     */
+    decimals: number;
+    /**
+     * Font of the labels: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     * @since unreleased
+     */
+    font: string;
+    /**
+     * Label glyph height in design pixels, before ui.textScale.
+     * @since unreleased
+     */
+    fontSize: number;
+    /**
+     * Colour of the axis labels.
+     * @since unreleased
+     */
+    get textColor(): Color;
+    set textColor(value: ColorLike);
+    /**
+     * Runtime: the sample under the pointer (0 = the first value of the series), -1 when none. Written by the UI every frame. Read-only.
+     * @since unreleased
+     */
+    readonly hoverIndex: number;
+    /**
+     * Runtime: the series of the sample under the pointer, -1 when none. Read-only.
+     * @since unreleased
+     */
+    readonly hoverSeries: number;
+  }
+  /**
    * Attaches JavaScript behaviour to the entity. `path` is an ES module whose default export is a class extending Behaviour (see docs/SCRIPTING.md).
    * 
    * Category: Scripting
@@ -9800,6 +10087,7 @@ declare module "factoria" {
     TouchButton: TouchButtonComponent;
     Captions: CaptionsComponent;
     Video: VideoComponent;
+    Chart: ChartComponent;
     Script: ScriptComponent;
     SceneSettings: SceneSettingsComponent;
   }
@@ -9830,7 +10118,7 @@ declare module "factoria" {
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number; zoom?: number };
-    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
+    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
@@ -9840,6 +10128,7 @@ declare module "factoria" {
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
+    Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number };
   }

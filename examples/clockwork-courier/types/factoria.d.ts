@@ -2128,6 +2128,43 @@ declare module "factoria" {
   }
 
   /**
+   * What ui.on("chartHover", ...) receives: the sample of a Chart under the pointer changed.
+   * @since unreleased
+   */
+  export interface UiChartEvent {
+    /**
+     * The event type.
+     * @since unreleased
+     */
+    readonly type: "chartHover";
+    /**
+     * Id of the Chart entity.
+     * @since unreleased
+     */
+    readonly id: string;
+    /**
+     * The Chart entity.
+     * @since unreleased
+     */
+    readonly entity: Entity | null;
+    /**
+     * Position of the sample in its series (0 = the first value of `values`), -1 when the pointer left the chart.
+     * @since unreleased
+     */
+    readonly index: number;
+    /**
+     * Which series (0 for a chart with one), -1 when the pointer left the chart.
+     * @since unreleased
+     */
+    readonly series: number;
+    /**
+     * The value of the sample; absent when the pointer left the chart.
+     * @since unreleased
+     */
+    readonly value?: number;
+  }
+
+  /**
    * What a ui.on("dragStart" | "dragOver" | "drop" | "dragCancel", ...) callback receives: one step of a drag that started on a widget with `draggable`.
    * @since unreleased
    */
@@ -2304,6 +2341,16 @@ declare module "factoria" {
      * @since 0.1.6
      */
     on(type: "scale" | "textScale", fn: (e: UiScaleEvent) => void): () => void;
+    /**
+     * Listens to the pointer moving over the samples of a Chart (a bar, or the nearest point of a line): the callback gets { type, id, entity, index, series, value } each time the sample under the pointer changes, and index -1 when the pointer leaves the chart. Returns the function that stops listening; listeners end with the scene.
+     * @since 0.1.6
+     */
+    on(type: "chartHover", fn: (e: UiChartEvent) => void): () => void;
+    /**
+     * Like on("chartHover", fn) for one Chart, e.g. ui.on("chartHover", "sales_chart", (e) => showDay(e.index)).
+     * @since 0.1.6
+     */
+    on(type: "chartHover", target: Entity | string, fn: (e: UiChartEvent) => void): () => void;
     /**
      * Listens to the steps of a drag that began on a widget with `draggable` (UiBox.draggable): dragStart, dragOver, drop (released over a target that accepts: a widget with a rule from ui.setDropTarget, or the world) and dragCancel (rejected, cancelled with ui_cancel, the source gone or ui.cancelDrag()). The event has the source, its payload, the pointer (x, y) and the target (null over the world). Returns the function that stops listening; listeners end with the scene.
      * @since 0.1.6
@@ -5586,7 +5633,7 @@ declare module "factoria" {
    */
   export interface PanelComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -5699,6 +5746,11 @@ declare module "factoria" {
      */
     uniformSize: boolean;
     /**
+     * true: while this panel is active (in the hierarchy) it is a modal: the pointer, the wheel and keyboard / gamepad navigation reach only the widgets inside it (the panel and its descendants). Everything else under it gets no hover, press, click, focus, tooltip or drop, the focus leaves a widget outside and stays inside (an autoFocus widget in the panel takes it), `ui.pointerOverUi` is true everywhere so the game's own mouse handling stands down, and the wheel is consumed unless a ScrollList inside scrolls. With several modal panels active the one with the highest `layer` (the later entity on a tie) is the scope. It does not pause the game: a script that wants that holds the clock itself (the menu kit's card does, with its `holdClock` option). A fully transparent panel draws nothing and is not hit, but still scopes the input; give it a dim `color` as a backdrop to block clicks on the sprites too.
+     * @since unreleased
+     */
+    modal: boolean;
+    /**
      * Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen (none = never switch). The panel leaves the screen when its content size + padding, or the size of the outermost fit Panel around it, is wider than the screen and `layout` is row or grid, or taller and `layout` is column or grid. The deepest panels switch first, so a menu changes one level at a time until it fits; the choice is made again every frame, so it follows the text size and the language and goes back to `layout` when the texts shrink. Example: a column of two blocks with fallbackLayout "row" stands them side by side at a big text size; a row of buttons with fallbackLayout "column" stacks them. Scripts that must adapt read `usingFallback`.
      * @since 0.2.0
      */
@@ -5717,7 +5769,7 @@ declare module "factoria" {
    */
   export interface ButtonComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -5901,7 +5953,7 @@ declare module "factoria" {
    */
   export interface ToggleComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -6066,7 +6118,7 @@ declare module "factoria" {
    */
   export interface SliderComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -6266,7 +6318,7 @@ declare module "factoria" {
    */
   export interface TextFieldComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -6411,7 +6463,7 @@ declare module "factoria" {
    */
   export interface ScrollListComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
@@ -6505,7 +6557,7 @@ declare module "factoria" {
    */
   export interface TouchStickComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.2.0
      */
     get size(): Vec2;
@@ -6599,7 +6651,7 @@ declare module "factoria" {
    */
   export interface TouchButtonComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.2.0
      */
     get size(): Vec2;
@@ -6738,7 +6790,7 @@ declare module "factoria" {
    */
   export interface CaptionsComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.2.0
      */
     get size(): Vec2;
@@ -6849,7 +6901,7 @@ declare module "factoria" {
    */
   export interface VideoComponent {
     /**
-     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since unreleased
      */
     get size(): Vec2;
@@ -6961,6 +7013,182 @@ declare module "factoria" {
     readonly duration: number;
   }
   /**
+   * A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines inside this entity's rectangle, scaled to the axis, in one batch by the UI layer, with a baseline rule, the axis maximum and minimum written in the current language's number format, and optional vertical `marks`. `values` is one series ([3, 5, 2]) or several ([[3, 5, 2], [1, 4, 4]]); write it from a script (`chart.values = history`) whenever the data changes. The axis is automatic (the lowest and highest value, always including the baseline, zero by default) unless `min` / `max` are set. The sample under the pointer is reported: the game event `ui.chartHover` ({id, index, series, value}; index and series are -1 when the pointer leaves), `ui.on("chartHover", fn)` in scripts, and `hoverIndex` / `hoverSeries` on the component. A Chart is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Defaults: 480 x 200, a dark translucent background, bars.
+   * 
+   * Category: UI
+   * @since unreleased
+   */
+  export interface ChartComponent {
+    /**
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * @since unreleased
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since unreleased
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since unreleased
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
+     */
+    safeArea: boolean;
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since unreleased
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since unreleased
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since unreleased
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since unreleased
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    draggable: any;
+    /**
+     * The data: an array of numbers (one series), or an array of arrays of numbers (a series each, oldest value first). Anything that is not a number counts as 0. Series may have different lengths; the samples line up from the newest (right) end. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    values: any;
+    /**
+     * bar (default): one column per sample, the series side by side in it, each bar growing from `baseline`. line: one polyline per series through its points, spanning the plot from edge to edge.
+     * @since unreleased
+     */
+    kind: "bar" | "line";
+    /**
+     * Colour of each series: an array of colours ("#rrggbb", a name or [r, g, b, a]). Series beyond the list start over from its first colour; an empty list uses a built-in palette. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    colors: any;
+    /**
+     * Lowest value of the axis. null (default) = automatic. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    min: any;
+    /**
+     * Highest value of the axis. null (default) = automatic. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    max: any;
+    /**
+     * The value bars grow from and where the baseline rule is drawn (0 by default, the line between gains and losses).
+     * @since unreleased
+     */
+    baseline: number;
+    /**
+     * true (default): draw a thin rule at `baseline` when it is inside the axis.
+     * @since unreleased
+     */
+    showBaseline: boolean;
+    /**
+     * true (default): the automatic axis always includes `baseline`, so bars of a series that is all large numbers still start at zero. false: the axis fits the data tightly (a line of coins that stays near 5000). Ignored for a side set by `min` / `max`.
+     * @since unreleased
+     */
+    includeBaseline: boolean;
+    /**
+     * How many samples the plot has room for. With fewer values the series is right-aligned, so a chart that fills up keeps each sample's width. 0 (default) = as many as the longest series.
+     * @since unreleased
+     */
+    slots: number;
+    /**
+     * Sample indexes (counted from the first value of the longest series) where a thin vertical rule is drawn, e.g. the first day of each season: [7, 14]. null = none. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    marks: any;
+    /**
+     * Colour of the baseline rule.
+     * @since unreleased
+     */
+    get baselineColor(): Color;
+    set baselineColor(value: ColorLike);
+    /**
+     * Colour of the vertical rules of `marks`.
+     * @since unreleased
+     */
+    get markColor(): Color;
+    set markColor(value: ColorLike);
+    /**
+     * Thickness of a line chart's lines, in UI units.
+     * @since unreleased
+     */
+    lineWidth: number;
+    /**
+     * Fraction of a sample's column left empty between neighbouring bars, 0 to 0.9.
+     * @since unreleased
+     */
+    barGap: number;
+    /**
+     * Space in UI units between the box and the plot area.
+     * @since unreleased
+     */
+    padding: number;
+    /**
+     * true (default): write the axis maximum at the top-left and the minimum at the bottom-left of the plot, in the current language's number format ("1,234.5" in English, "1.234,5" in Spanish).
+     * @since unreleased
+     */
+    showLabels: boolean;
+    /**
+     * Digits after the decimal separator in the labels, 0 to 9. -1 (default) = as many as the value has, rounded to two.
+     * @since unreleased
+     */
+    decimals: number;
+    /**
+     * Font of the labels: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     * @since unreleased
+     */
+    font: string;
+    /**
+     * Label glyph height in design pixels, before ui.textScale.
+     * @since unreleased
+     */
+    fontSize: number;
+    /**
+     * Colour of the axis labels.
+     * @since unreleased
+     */
+    get textColor(): Color;
+    set textColor(value: ColorLike);
+    /**
+     * Runtime: the sample under the pointer (0 = the first value of the series), -1 when none. Written by the UI every frame. Read-only.
+     * @since unreleased
+     */
+    readonly hoverIndex: number;
+    /**
+     * Runtime: the series of the sample under the pointer, -1 when none. Read-only.
+     * @since unreleased
+     */
+    readonly hoverSeries: number;
+  }
+  /**
    * Attaches JavaScript behaviour to the entity. `path` is an ES module whose default export is a class extending Behaviour (see docs/SCRIPTING.md).
    * 
    * Category: Scripting
@@ -7070,6 +7298,7 @@ declare module "factoria" {
     TouchButton: TouchButtonComponent;
     Captions: CaptionsComponent;
     Video: VideoComponent;
+    Chart: ChartComponent;
     Script: ScriptComponent;
     SceneSettings: SceneSettingsComponent;
   }
@@ -7100,7 +7329,7 @@ declare module "factoria" {
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number; zoom?: number };
-    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
+    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
@@ -7110,6 +7339,7 @@ declare module "factoria" {
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
     Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
     Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
+    Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number };
   }
