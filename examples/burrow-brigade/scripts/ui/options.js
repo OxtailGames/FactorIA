@@ -322,7 +322,7 @@ export default class Options extends Behaviour {
     this.release = true;
     // Escape cancels; a mouse or touch press is not a binding. A key replaces the keyboard list of the action for this player,
     // a gamepad button or stick direction replaces its gamepad list: rebinding one does not take the other away.
-    if (pressed !== "Escape" && !/^(Mouse|Touch)/.test(pressed)) {
+    if (pressed !== "Escape" && !/(^|\+)(Mouse|Touch)/.test(pressed)) {
       try {
         controls.rebind(this.seat, pressed.startsWith("Gamepad") ? "pad" : "keys", action, [pressed]);
       } catch (e) {

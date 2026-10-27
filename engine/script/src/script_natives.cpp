@@ -1413,10 +1413,13 @@ NATIVE(inVector) {
 
 Key parse_key(Impl*, JSContext* ctx, const std::string& name, JSValue& exc, bool& ok) {
     Key k = key_from_name(name);
+    if (k == Key::Unknown)  // "Ctrl", "Shift", "Alt", "Super": a test presses the left key
+        if (std::uint8_t bit = modifier_from_name(name)) k = modifier_key(bit);
     ok = k != Key::Unknown;
     if (!ok) {
         std::vector<std::string> names;
         for (int i = 1; i < static_cast<int>(Key::Count); ++i) names.push_back(key_name(static_cast<Key>(i)));
+        for (const char* m : {"Ctrl", "Shift", "Alt", "Super"}) names.emplace_back(m);
         exc = throw_err(ctx, "unknown key '" + name + "'. " + did_you_mean(name, names, 20));
     }
     return k;
@@ -1427,9 +1430,12 @@ NATIVE(inKey) {
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     JSValue exc = JS_UNDEFINED;
     bool ok = false;
+    Input& in = I->host->input();
+    if (key_from_name(arg_str(ctx, argc, argv, 1)) == Key::Unknown)  // "Ctrl", "Shift", "Alt", "Super": either side's key
+        if (std::uint8_t bit = modifier_from_name(arg_str(ctx, argc, argv, 1)))
+            return JS_NewBool(ctx, kind == 0 ? in.modifier_down(bit) : kind == 1 ? in.modifier_pressed(bit) : in.modifier_released(bit));
     Key k = parse_key(I, ctx, arg_str(ctx, argc, argv, 1), exc, ok);
     if (!ok) return exc;
-    Input& in = I->host->input();
     return JS_NewBool(ctx, kind == 0 ? in.key_down(k) : kind == 1 ? in.key_pressed(k) : in.key_released(k));
 }
 

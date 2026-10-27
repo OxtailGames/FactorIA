@@ -177,6 +177,21 @@ TEST_CASE("validate: reports missing feedback file, bad scene content and assets
     (*p)["input"]["actions"]["jump"] = Json::array({"Space"});
     REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
 
+    // Modifier chords: a good one passes, a typo in the modifier is an error with the pointer and a suggestion.
+    (*p)["input"]["actions"]["jump"] = Json::array({"Ctrl+Z", "Crtl+Y"});
+    REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
+    int chordErrors = 0;
+    bool chordSuggestion = false;
+    for (auto& e : validate_project(tmp.sub("game")).errors)
+        if (e.file == "factoria.json" && e.pointer.rfind("/input/actions/jump/", 0) == 0) {
+            ++chordErrors;
+            chordSuggestion = e.pointer == "/input/actions/jump/1" && e.hint.find("Ctrl") != std::string::npos;
+        }
+    CHECK(chordErrors == 1);
+    CHECK(chordSuggestion);
+    (*p)["input"]["actions"]["jump"] = Json::array({"Space"});
+    REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
+
     // Unknown component => scene load error with a did-you-mean hint.
     (*scene)["entities"][1]["components"]["Sprit"] = Json::object();
     REQUIRE(save_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());

@@ -359,7 +359,7 @@ void check_prefab_loads(Ctx& c, const std::string& rel) {
 
 void check_binding(Ctx& c, const std::string& pointer, const std::string& binding) {
     if (Input::is_binding_name(binding)) return;
-    c.error(kProjectFileName, pointer, "Unknown input binding '" + binding + "'.", did_you_mean(binding, Input::binding_names()));
+    c.error(kProjectFileName, pointer, "Unknown input binding '" + binding + "'.", Input::binding_problem(binding));
 }
 
 // An icon file named by factoria.json (`pointer` says which setting): it must exist and decode; a size or shape that

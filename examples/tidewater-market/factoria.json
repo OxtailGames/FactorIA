@@ -37,6 +37,7 @@
   "input": {
     "actions": {
       "primary": ["MouseLeft", "Touch", "GamepadA"],
+      "primary_shift": ["Shift+MouseLeft"],
       "pan_drag": ["MouseRight"],
       "pan_latch": ["MouseMiddle"],
       "pan_left": ["A", "Left", "GamepadRightStickLeft"],
@@ -46,8 +47,8 @@
       "zoom_in": ["PageUp", "GamepadRightTrigger"],
       "zoom_out": ["PageDown", "GamepadLeftTrigger"],
       "rotate": ["R", "GamepadY"],
-      "undo": ["Z"],
-      "redo": ["Y"],
+      "undo": ["Ctrl+Z", "Z"],
+      "redo": ["Ctrl+Y", "Y"],
       "tool_cancel": ["Q", "GamepadB"],
       "tool_demolish": ["X", "GamepadX"],
       "tool_next": ["E"],

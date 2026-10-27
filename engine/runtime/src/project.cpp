@@ -492,7 +492,7 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
                 for (std::size_t k = 0; k < ai->size(); ++k)
                     if (!(*ai)[k].is_string())
                         return field_error("/input/actions/" + ai.key() + "/" + std::to_string(k), "a binding name string",
-                                           (*ai)[k], "Binding names look like \"Space\", \"A\", \"MouseLeft\".");
+                                           (*ai)[k], "Binding names look like \"Space\", \"A\", \"MouseLeft\" or, with modifiers held, \"Ctrl+Z\", \"Shift+MouseLeft\".");
             }
             s.inputActions = *a;
         }
@@ -709,7 +709,7 @@ constexpr const char* kSchemaText =
       "properties": {
         "actions": {
           "type": "object",
-          "description": "Named input actions. Each maps to a list of bindings: key names (\"Space\", \"A\", \"Left\"), \"MouseLeft\"/\"MouseRight\"/\"MouseMiddle\", \"Touch\", gamepad buttons (\"GamepadA\", \"GamepadStart\", \"GamepadDpadLeft\"...) and gamepad half axes (\"GamepadLeftStickLeft\", \"GamepadRightStickUp\", \"GamepadRightTrigger\"...). Gamepad bindings match any connected pad.",
+          "description": "Named input actions. Each maps to a list of bindings: key names (\"Space\", \"A\", \"Left\"), \"MouseLeft\"/\"MouseRight\"/\"MouseMiddle\", \"Touch\", gamepad buttons (\"GamepadA\", \"GamepadStart\", \"GamepadDpadLeft\"...) and gamepad half axes (\"GamepadLeftStickLeft\", \"GamepadRightStickUp\", \"GamepadRightTrigger\"...). Gamepad bindings match any connected pad. A key, mouse button or \"Touch\" takes modifiers joined by \"+\": \"Ctrl+Z\", \"Shift+MouseLeft\", \"Ctrl+Shift+S\" (Ctrl, Shift, Alt and Super each name either side's key; \"Shift\" alone is a binding too). When one action binds Z and another Ctrl+Z, Z does not fire while Ctrl is held.",
           "additionalProperties": {
             "type": "array",
             "items": {

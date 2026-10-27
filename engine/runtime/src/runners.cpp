@@ -316,6 +316,7 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     if (entry.contains("keys") && entry["keys"].is_object())
         for (auto it = entry["keys"].begin(); it != entry["keys"].end(); ++it) {
             Key k = key_from_name(it.key());
+            if (k == Key::Unknown) k = modifier_key(modifier_from_name(it.key()));  // "Ctrl", "Shift", "Alt", "Super": the left key
             if (k == Key::Unknown) {
                 std::vector<std::string> names;
                 for (int i = 1; i < int(Key::Count); ++i) names.emplace_back(key_name(Key(i)));
