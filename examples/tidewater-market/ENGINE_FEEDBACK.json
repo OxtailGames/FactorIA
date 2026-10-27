@@ -188,7 +188,10 @@
       "suggestion": "Button.draggable plus ui.onDrag(start|over|drop) events carrying the source entity and screen position, and a ui.dragging flag that input consumers can read.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.14): draggable, ui.on(dragStart|dragOver|drop|dragCancel), ui.setDropTarget, ui.dragging and game.drag exist in the engine. ui_hud.js uses them; only the hold-free carry mode stays its own."
+      ]
     },
     {
       "id": "FB-0009",

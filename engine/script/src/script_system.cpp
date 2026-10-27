@@ -915,6 +915,29 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
         };
         th.world = [this, ask](Vec2 p) { return ask("ui.setWorldTooltip function", "worldTooltip", JS_NewFloat64(ctx, p.x), JS_NewFloat64(ctx, p.y)); };
         ui->set_tooltip_hooks(std::move(th));
+        // Drop targets that are functions (ui.setDropTarget(widget, fn)): asked while a drag is over them.
+        UiDropHooks dh;
+        dh.widget = [this](Entity e, const Json& drag) {
+            if (!initialized) return false;
+            ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
+            JSValue info = from_json(drag);
+            JSValue r = call_method("ui.setDropTarget function", "", hooks.get(), "dropAccepts", {JS_NewFloat64(ctx, static_cast<double>(e.bits())), info});
+            const bool ok = JS_ToBool(ctx, r) > 0;
+            JS_FreeValue(ctx, r);
+            JS_FreeValue(ctx, info);
+            return ok;
+        };
+        dh.world = [this](const Json& drag) {
+            if (!initialized) return false;
+            ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
+            JSValue info = from_json(drag);
+            JSValue r = call_method("ui.setWorldDropTarget function", "", hooks.get(), "worldDropAccepts", {info, JS_UNDEFINED});
+            const bool ok = JS_ToBool(ctx, r) > 0;
+            JS_FreeValue(ctx, r);
+            JS_FreeValue(ctx, info);
+            return ok;
+        };
+        ui->set_drop_hooks(std::move(dh));
     }
     reload_tools();
     return true;
@@ -927,7 +950,10 @@ void ScriptSystem::Impl::shutdown() {
     if (host && observerId >= 0) host->world().remove_observer(observerId);
     observerId = -1;
     if (host)
-        if (UiSystem* ui = host->ui()) ui->set_tooltip_hooks({});
+        if (UiSystem* ui = host->ui()) {
+            ui->set_tooltip_hooks({});
+            ui->set_drop_hooks({});
+        }
     behaviours.clear();  // JsVal destructors free values
     byEntity.clear();
     namespaces.clear();

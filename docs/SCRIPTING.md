@@ -884,6 +884,12 @@ the press is released over the same widget; a Slider follows the pointer while p
   pixels or a scene load, and `ui.tooltip` reads the one on screen (`null` or `{ title, lines, rect, source, widget }`;
   the same as `tooltip` in `ui.state`). The rest is counted in UI time, so `game.step` tests are exact. Look, touch and
   recipes: [MENUS.md](MENUS.md), "Tooltips".
+- **Drag and drop.** `draggable` on a widget (`true` or `{ "payload", "slop" }`) lets the player drag it. `ui.on("dragStart" |
+  "dragOver" | "drop" | "dragCancel", fn)` gets `{ id, entity, source, payload, x, y, target, accepts, reason }` (`target` is
+  `null` over the world); `ui.setDropTarget(widget, true | false | fn | null)` and `ui.setWorldDropTarget(...)` say what
+  accepts a drop, `ui.setDragImage(widget)` makes a widget follow the pointer, `ui.cancelDrag()` ends the drag and
+  `ui.dragging` is `null` or `{ source, payload, from, x, y, target, accepts }`. The click the release would make never
+  happens. In tests `game.drag(from, to)`. Details: [MENUS.md](MENUS.md), "Drag and drop".
 - **`active` and `activeInHierarchy`.** `entity.active = false` hides the entity and everything under it, but it does not
   change the `active` of the children: a child of a hidden Panel keeps `active` true. `activeInHierarchy` is true only when
   the entity and every ancestor are active, so ask that to know whether a menu is open (`panel.activeInHierarchy`), not
