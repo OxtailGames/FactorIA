@@ -22,7 +22,7 @@ The game is built in packages. Each one adds to the contracts below and replaces
 | P3 | Items, clues and puzzles: the inventory page with a 3D item view and combining, the notebook, the deduction board with undo, four puzzles (drawer lock, timetable, torn letter, cellar fuse box) whose chain ends the storm | done |
 | P4 | Cut-scenes and voice: the player in `scripts/cutscene.js`, ten cut-scenes, captions, the voice pipeline | done (no voice clips yet: see Cut-scenes) |
 | P5 | Saves: five slots and an autosave, the save / load screen, versioned format (v1 -> v2), cloud, chapter select, achievements and stats | done |
-| P6 | Sound, options, accessibility | pending (the menu kit's options exist; the game plays no sound yet) |
+| P6 | Sound, options, accessibility: ambience per room, footsteps per floor, music per chapter, five options tabs, rebinding, glyphs, read aloud | done (the ambience and the score are generated, not recorded: see Sound and options) |
 | P7 | Shipping: store builds, icons, listings | pending |
 | P8 | Languages: es, de, ko, he | pending (only `locales/en.json`) |
 
@@ -391,6 +391,41 @@ later chapter is open once a game has begun it and starts a new run from the sto
 (`endings_seen`, `play_minutes`, `saves_made`) are declared in `factoria.json` "platform" and sent best effort to the store.
 Not tested: saving during a real cut-scene (`cutscene.active()` is always false until P4 lands; the check is in `cannotSave()`).
 
+### Sound and options (P6)
+
+**Sound** (`scripts/sound.js`, tuned in `data/sound.json`). One `sound` entity per area scene (added by `assets/src/build_lodge.py`).
+It finds the room under the porter from the floor entities `f_<room>` and gives each room a surface and a level for four looping
+beds: `wind`, `fire`, `clock` and `cellar_air`. A bed is a looping voice on the project bus `ambience` (a child of `sfx`, in
+`factoria.json` "audio.buses"); it starts silent the first time a room wants it and is faded with `audio.setVoiceVolume`, so
+walking between rooms crossfades. After the flag `storm_over` the wind is `stormOverWind` (0.35) of what it was. Footsteps play
+on `sfx` every `stride` metres walked while grounded, from three clips of the surface (carpet, wood, concrete), taking turns by a
+counter (never `rng`, so the story bot is unaffected). Chapter music: `audio.music(track, {persist: true})` when the chapter
+changes (`session.musicTrack` remembers what runs); chapter 0 has none, the title screen plays `music_title.wav` from
+`scripts/main_menu.js`. `scripts/mix.js` (P4) still ducks `music` and `sfx` (so `ambience`) under `voiceover`; `sound.js` only
+calls `mix.setup()`. Test fields of the behaviour: `room`, `surface`, `bedLevels`, `steps`, `track`, `rects`.
+The footsteps are Kenney CC0 clips imported with `assets.import`; the beds and the five chapter scores plus the title
+theme are written by `assets/src/make_sound.py` (seeded, pure Python) and recorded as `origin: "original"`: there was no audio tooling
+to convert and no CC0 pack for them (FB-0701). They are placeholders in quality: replace the files, keep the names.
+
+**Options** (`scripts/settings.js`, saved in `storage "settings"`, never in a save slot). `settings.save()` emits
+`EVENTS.settingsChanged`; the camera, the dialogue box, the cut-scene player and the glyph prompts listen to it, and it applies the
+caption background to the `captions` entity at once. Keys: the six volumes (`volume.master, music, sfx, ambience, voiceover, ui`),
+`textScale` (1, 1.25, 1.5, 2), `reducedMotion`, `colorFilter`, `subtitles`, `captionBackground` (clear, dark, solid),
+`captionSpeakers`, `textSpeed`, `autoAdvance` (off, slow, normal, fast), `glyphs` (auto, keyboard, gamepad, touch),
+`cameraSensitivity` (0.25 to 2), `cameraInvertX`, `cameraInvertY`, `readAloud` and `bindings` (action -> binding names).
+The options panel (`prefabs/ui/options.prefab.json`, `scripts/ui/options.js`) has a column of tabs (Video, Audio, Accessibility,
+Controls, Language, Back) and a scrolling page for each, so it fits at 200 % text.
+- Reduced motion: no head bob (`lodge_camera.bobOffset` is 0) and a cut-scene `camera` step cuts to its shot (`seconds` 0).
+- Auto-advance: `dialogue_view.autoTimer` counts down the reading time of a finished line without choices; choices always wait.
+- Rebinding: `bind_<action>` rows in Controls; the new key replaces the bindings of the device pressed and is saved in
+  `bindings`; `settings.apply` puts them back at start. Reset restores the defaults.
+- Glyphs: `scripts/glyphs.js` gives the key or button of an action for the device in use (`input.lastDevice`, or the forced one).
+  The interaction prompt and the cut-scene Skip button use it; touch says "Tap" and "Skip".
+- Read aloud: `readAloud` makes `scripts/ui/read_aloud.js` call `ui.speak` as focus moves (tests: `game.spoken()`).
+Tests: `tests/sound.test.js` (beds per room, footsteps per surface, music per chapter, the ducking set-up) and
+`tests/options.test.js` (every option, each tab at 100 % and 200 % through `ui.overflowed`, mouse, gamepad and touch, rebinding,
+read aloud). The story bot hashes did not change (dawn 764bcd5e, quiet 7b2010b5, long 8388b733).
+
 ## Tests
 
 `tests/` has movement, interaction, camera, areas, flow, data, screenshot and kit tests (`factoria test`);
@@ -414,5 +449,6 @@ documentation gaps met while writing the UI and its tests. P5 adds: slots are wr
 fake store's `stats.add` is not atomic (FB-0502), a TextField and the pause action share Escape and P (FB-0503) and the store's
 answer time is undocumented (FB-0504).
 P3 adds LL/FB-0012 to LL/FB-0017 (no wheel through a modal panel, no viewport widget, camera viewports count the window, late `destroy`, how the lodge lights overexpose a far stage, a disabled button cannot take focus); `UiSystem::update_drag` (FB-0001) is avoided: no widget of P3 is draggable, the item turns by reading `input.mouse`, and every ancestor of a widget has a Panel.
+P6 adds FB-0701 to FB-0704 (no way to get ambience clips, tests cannot call `ui.check_layout`, a spurious panel size warning in a ScrollList, persisted music survives `game.resetState`).
 P4 adds: no voice provider for `assets.generate_voice` (FB-0601) and a
 reload of the same scene that `scene.current` cannot tell apart (FB-0602); it met FB-0001 and FB-0006 again.

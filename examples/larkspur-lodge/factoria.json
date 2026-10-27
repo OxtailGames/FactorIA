@@ -134,7 +134,8 @@
   },
   "audio": {
     "buses": {
-      "voiceover": {}
+      "voiceover": {},
+      "ambience": { "parent": "sfx" }
     }
   },
   "platform": {

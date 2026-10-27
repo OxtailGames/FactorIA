@@ -13,11 +13,10 @@
 import { Behaviour, world, ui, input, game, scene, i18n } from "factoria";
 import * as cutscene from "./cutscene.js";
 import { EVENTS } from "./events.js";
+import * as glyphs from "./glyphs.js";
 
 /** Seconds a card takes to fade in and out (each). */
 const CARD_FADE = 0.6;
-/** The key or button that skips, as the Skip button names it, for each device. */
-const SKIP_NAME = Object.freeze({ keyboard: "Space", mouse: "Space", gamepad: "B" });
 
 export default class CutsceneView extends Behaviour {
   /** The pause menu keeps working: this behaviour runs while the game is paused to tell the player. */
@@ -39,6 +38,7 @@ export default class CutsceneView extends Behaviour {
     this.setShown(false);
     ui.on("click", "cs_skip", () => scene.current === this.scenePath && cutscene.skip());
     world.on(EVENTS.deviceChanged, () => this.labelSkip());
+    world.on(EVENTS.settingsChanged, () => this.labelSkip());
     cutscene.attach(this);
   }
 
@@ -69,7 +69,7 @@ export default class CutsceneView extends Behaviour {
   /** The Skip button says which key skips on the device in use; on a phone it is just "Skip" (tap it). */
   labelSkip() {
     if (!this.shown || !this.skippable) return;
-    const key = SKIP_NAME[input.lastDevice];
+    const key = glyphs.device() === "touch" ? "" : glyphs.label("skip_cutscene");
     this.skipButton.get("Button").text = key ? i18n.t("cutscene.hint", { key }) : i18n.t("cutscene.skip");
   }
 
