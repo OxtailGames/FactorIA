@@ -1,12 +1,15 @@
 // The four puzzles as logic (scripts/puzzles.js), combining items (scripts/items.js) and the deduction board with undo
 // (scripts/notebook.js). The screens that show them are tested in tests/screens.test.js.
 import { test, describe, expect, beforeEach, game } from "factoria:test";
-import { session, world } from "factoria";
+import { session, world, scene } from "factoria";
 import { EVENTS } from "../scripts/events.js";
 import * as puzzles from "../scripts/puzzles.js";
 import * as notebook from "../scripts/notebook.js";
 import * as items from "../scripts/items.js";
 import * as story from "../scripts/story.js";
+import * as save_data from "../scripts/save_data.js";
+import * as chapters from "../scripts/chapters.js";
+import * as saves from "../scripts/saves.js";
 import { enter } from "./helpers/lodge.js";
 import strings from "../locales/en.json";
 
@@ -289,5 +292,85 @@ describe("the deduction board", () => {
     expect(notebook.made()).toEqual(["d_trail"]);
     expect(notebook.redoable()).toEqual([]);
     expect(session.notebook.seen).toEqual(["oil"]);
+  });
+});
+
+/** A running game in chapter 1 (the game can only be saved in one), with nothing solved yet. */
+function startGame() {
+  enter("ground");
+  chapters.begin();
+  game.step(120);
+  puzzles.reset();
+  notebook.reset();
+}
+
+describe("saving and loading (P5's save_data parts)", () => {
+  beforeEach(fresh);
+
+  test("the puzzles, the notebook and the board with its undo history are in the save, and a new game forgets them", () => {
+    expect(save_data.partKeys()).toContain("puzzles");
+    expect(save_data.partKeys()).toContain("notebook");
+    startGame();
+    story.set("know_oil");
+    story.set("know_cellar");
+    story.set("know_page");
+    items.add("torn_letter");
+    dial("0402");
+    puzzles.tryCode(); // wrong: counted
+    puzzles.swapStrips(0, puzzles.state("letter").order.indexOf(0)); // a letter in progress
+    expect(notebook.link("oil", "cellar").made).toBe("d_trail");
+    notebook.markSeen();
+    notebook.undo(); // the deduction is on the redo stack
+    expect(notebook.redoable()).toEqual(["d_trail"]);
+    const wasDials = puzzles.dialsText();
+    const wasLetter = puzzles.letterOrder();
+    const wasSeen = notebook.snapshot().notebook.seen;
+    expect(saves.write(1, { name: "p3" })).not.toBeNull();
+
+    // a new game: every registered part goes back to its start
+    save_data.resetAll();
+    story.reset();
+    items.reset();
+    expect(puzzles.state("drawer").tries).toBe(0);
+    expect(notebook.made()).toEqual([]);
+    expect(notebook.redoable()).toEqual([]);
+    expect(notebook.snapshot().notebook.seen).toEqual([]);
+
+    // loading the slot brings everything back
+    expect(saves.load(1).ok).toBe(true);
+    for (let i = 0; i < 400 && scene.current !== "scenes/ground.scene.json"; i++) game.step(1);
+    game.step(30);
+    expect(scene.current).toBe("scenes/ground.scene.json");
+    expect(puzzles.dialsText()).toBe(wasDials);
+    expect(puzzles.state("drawer").tries).toBe(1);
+    expect(puzzles.letterOrder()).toEqual(wasLetter);
+    expect(notebook.snapshot().notebook.seen).toEqual(wasSeen);
+    expect(notebook.made()).toEqual([]);
+    expect(notebook.redoable()).toEqual(["d_trail"]);
+    // the history still works: redo brings the deduction back, undo takes it away again
+    expect(notebook.redo().ok).toBe(true);
+    expect(notebook.made()).toEqual(["d_trail"]);
+    expect(story.has("ded.d_trail")).toBe(true);
+    expect(notebook.undo().ok).toBe(true);
+    expect(notebook.made()).toEqual([]);
+    expect(story.has("ded.d_trail")).toBe(false);
+  });
+
+  test("a solved puzzle stays solved after a load (its flag and the used-up item are in the save)", () => {
+    startGame();
+    dial("0403");
+    expect(puzzles.tryCode().ok).toBe(true);
+    expect(story.has(puzzles.data.drawer.solvedFlag)).toBe(true);
+    expect(saves.write(2, { name: "p3 solved" })).not.toBeNull();
+    save_data.resetAll();
+    story.reset();
+    items.reset();
+    expect(story.has(puzzles.data.drawer.solvedFlag)).toBe(false);
+    expect(saves.load(2).ok).toBe(true);
+    for (let i = 0; i < 400 && scene.current !== "scenes/ground.scene.json"; i++) game.step(1);
+    game.step(10);
+    expect(puzzles.solved("drawer")).toBe(true);
+    expect(items.has("fuse_wire")).toBe(true);
+    expect(puzzles.tryCode()).toMatchObject({ ok: false });
   });
 });

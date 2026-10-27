@@ -21,7 +21,7 @@ The game is built in packages. Each one adds to the contracts below and replaces
 | P2 | Dialogue and story: the runner in `scripts/dialogue.js`, dialogue files and their validator, the dialogue box, six characters, five chapters, three endings, the story bot | done |
 | P3 | Items, clues and puzzles: the inventory page with a 3D item view and combining, the notebook, the deduction board with undo, four puzzles (drawer lock, timetable, torn letter, cellar fuse box) whose chain ends the storm | done |
 | P4 | Cut-scenes and voice: the player in `scripts/cutscene.js`, subtitles | pending (stub) |
-| P5 | Saves: slots, autosave, versioning, cloud | pending (the data shape exists, nothing is written to storage) |
+| P5 | Saves: five slots and an autosave, the save / load screen, versioned format (v1 -> v2), cloud, chapter select, achievements and stats | done |
 | P6 | Sound, options, accessibility | pending (the menu kit's options exist; the game plays no sound yet) |
 | P7 | Shipping: store builds, icons, listings | pending |
 | P8 | Languages: es, de, ko, he | pending (only `locales/en.json`) |
@@ -287,20 +287,79 @@ state: check the change is meant, then update the hash.
 sends `cutscene_requested`; `active()` is false. P4 fills in the body: while one plays the porter is locked
 (`lock("cutscene")`) and the pause menu still works.
 
-### Save data shape (stub)
+### Save data (P5)
 
-`scripts/save_data.js` builds and applies the plain object of a saved game and writes nothing to storage in P1:
+`scripts/save_data.js` builds and applies the plain object of a saved game; `scripts/saves.js` keeps it in the slots.
+The current format is **version 2**, `larkspur.save/2`:
 
 ```json
-{ "format": "larkspur.save/1", "area": "ground",
-  "spawn": { "position": [x, y, z], "yaw": 0 },
-  "story": { "flags": {}, "counters": {} },
-  "inventory": ["library_key"] }
+{ "format": "larkspur.save/2",
+  "playTime": 3725.5,
+  "place": { "area": "ground", "position": [x, y, z], "yaw": 0 },
+  "state": { "story": { "flags": {}, "counters": {} },
+             "inventory": ["library_key"],
+             "dialogue": { "history": [], "log": [] } } }
 ```
 
-`snapshot()` reads the current game; `apply(data)` restores story and inventory, stores the place to stand in
-`session.restoreSpawn` and returns `{ ok, area, message, hint }` (a save of another format is refused with a hint). The caller
-then loads the area scene with `scene.load(path, { restore: true })`. P5 adds the slots, autosave and versioning.
+Version 1 (`larkspur.save/1`, P1 and P2) kept the place as `area` + `spawn`, had `story` and `inventory` at the top and no play
+time. v2 gathers the place in one object, moves every part under `state` (one entry per registered part) and adds the play
+time and the dialogue history. `upgrade(raw)` migrates a v1 save (play time 0, empty history) and checks the result (area
+against the lodge's areas with a "did you mean", position, story): a damaged save is refused with a message and a hint, a save
+of a newer version says to update the game. Fixtures of both versions are in `tests/fixtures/` (`save_v1.json`,
+`save_v2.json`); `tests/saves.test.js` loads the v1 one in the v2 game.
+
+`snapshot()` reads the current game; `apply(data)` accepts any version, restores every part and the play time, stores the
+place to stand in `session.restoreSpawn` and returns `{ ok, area, message, hint }`. `saves.launch(data)` then goes through the
+loading screen (`session.loadRestore`) and loads the area with `{ restore: true }`.
+
+**Plugging a part in (for P3: inventory extras, the notebook, the deduction board).** The state that is not the place is a
+table of named parts. A package registers its own without editing `save_data.js`:
+
+```js
+import * as save_data from "./save_data.js";
+// a plain JSON object kept in session.board: saved as it is, restored by assigning it, reset to a copy of the fallback
+save_data.registerSession("board", { links: [] });
+// anything else: snapshot() returns a JSON value, restore(data) puts it back, reset() is a new game (or a save without the part)
+save_data.register("notebook", {
+  snapshot: () => session.notebook,
+  restore: (data) => { session.notebook = data; },
+  reset: () => { session.notebook = { entries: [] }; },
+});
+```
+
+Call it when the module loads (at the top level). A save that was applied before the module was imported keeps its entry in
+`session.savePending`; `register()` hands it over, and `snapshot()` writes it back untouched meanwhile, so no part is lost by
+a scene that does not import it. The title screen's Play, and the chapter select, call `save_data.resetAll()`.
+
+**Slots.** `scripts/saves.js`: five manual slots (`slot1`..`slot5`) and the autosave (`slot_auto`) in `storage`. A slot holds
+a record `{ counter, name, chapter, playTime, pic, data }`: `data` is the versioned save, `pic` a 192x108 PNG of the game
+(base64, or null when nothing could be drawn), `counter` goes up on every save and decides which copy wins between a cloud
+copy and a local one (the wall clock is never read). A slot that holds a bare v1 file reads as a record with no name or
+picture. **Saving is refused** (`saves.cannotSave()` gives the locale key of the reason, the Save button is greyed) when no
+game is running, during a cut-scene (`cutscene.active()`), during a conversation, and while the porter changes area or chapter.
+Anywhere else, in any area, the pause menu's Save game works.
+
+**Autosave.** `scripts/pause_menu.js` (one per level) autosaves once per chapter, as soon as the chapter has begun and the game
+may be saved; the same record is what the chapter select starts from. Loading a slot does not autosave over anything.
+
+**Screens.** Pause menu: Save game and Load game; title screen: Load game. Six rows (the autosave, which is never a save
+target, and the slots), each with its picture, name, chapter and play time and a Delete button that asks first. A click or a
+tap on a slot saves or loads; the gamepad walks the same buttons. Saving opens a dialog with a TextField for the name
+(default: the chapter's title); a gamepad player gets the on-screen keyboard of the menu kit (`scripts/ui/keyboard.js`)
+because the TextField is focused, and the first B closes the keyboard, the second the dialog. While the name is typed the pause
+action does not open or close the menus (P is a letter), Escape cancels the dialog.
+
+**Cloud.** With a signed-in store (`platform.has("cloudSave")`) every save is uploaded under the slot's key, a delete removes the
+copy, and opening the save / load screen compares each slot with its copy: the higher `counter` wins (a cloud copy replaces
+a damaged or older local one, a better local one is uploaded). A store that is down or a player who is signed out changes
+nothing locally. The screen redraws after the sync only if its scene is still the current one.
+
+**Chapter select, achievements and stats.** `scripts/progress.js` keeps in `storage "progress"` the endings reached and the save
+data taken at each chapter start. After the first ending the title screen shows Chapter select: chapter 1 is a new game, a
+later chapter is open once a game has begun it and starts a new run from the story the player had then. Achievements
+(`ending_dawn`, `ending_quiet`, `ending_long`, `all_endings`, `all_clues`: every clue flag in one game) and stats
+(`endings_seen`, `play_minutes`, `saves_made`) are declared in `factoria.json` "platform" and sent best effort to the store.
+Not tested: saving during a real cut-scene (`cutscene.active()` is always false until P4 lands; the check is in `cannotSave()`).
 
 ## Tests
 
@@ -308,7 +367,9 @@ then loads the area scene with `scene.load(path, { restore: true })`. P5 adds th
 `tests/helpers/lodge.js` has `enter(area, spawn)`, `stand(x, z, yaw)`, `porter()` and `cam()`. The screenshot test writes
 `.factoria/screenshots/hall.png` for a look at the lighting. P2 adds `dialogue_data`, `dialogue_runner`, `dialogue_ui`,
 `cast_chapters` and `story_bot` tests; the dialogue UI and ending tests write `dialogue_line.png`, `dialogue_choices.png` and
-`ending_quiet.png` there. `tests/helpers/bot.js` has the `Bot` (`play`, `use`, `go`, `talk`, `state`, and from P3 `openPuzzle`, `closePuzzle`, `fixTheFuse`) and `fnv1a`.
+`ending_quiet.png` there. `tests/helpers/bot.js` has the `Bot` (`play`, `use`, `go`, `talk`, `state`, and from P3 `openPuzzle`, `closePuzzle`, `fixTheFuse`) and `fnv1a`. P5 adds `saves.test.js` (the formats and their
+migration, every slot, the screens with mouse, gamepad and touch, the cloud on the fake store, chapter select, achievements and stats;
+it writes `slots_load.png` and `chapter_select.png`).
 
 ## Known limits and engine gaps
 
@@ -317,5 +378,7 @@ crashes the click handling (FB-0001), the camera and the click rays re-cast to f
 removes its collider because `Collider3D` has no `enabled` (FB-0003). P2 adds: the dialogue text reveal pads the text because
 `Text` cannot show part of a line (FB-0004), the data files are imported by hand (FB-0005), Escape is both cancel and pause
 (FB-0008), and the options menu got a text speed row by hand (FB-0011). FB-0006, FB-0007, FB-0009 and FB-0010 are
-documentation gaps met while writing the UI and its tests.
+documentation gaps met while writing the UI and its tests. P5 adds: slots are written by hand on top of `storage` (FB-0501), the
+fake store's `stats.add` is not atomic (FB-0502), a TextField and the pause action share Escape and P (FB-0503) and the store's
+answer time is undocumented (FB-0504).
 P3 adds LL/FB-0012 to LL/FB-0017 (no wheel through a modal panel, no viewport widget, camera viewports count the window, late `destroy`, how the lodge lights overexpose a far stage, a disabled button cannot take focus); `UiSystem::update_drag` (FB-0001) is avoided: no widget of P3 is draggable, the item turns by reading `input.mouse`, and every ancestor of a widget has a Panel.

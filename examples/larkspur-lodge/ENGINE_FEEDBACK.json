@@ -241,6 +241,92 @@
       "status": "open"
     },
     {
+      "id": "FB-0501",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "other",
+      "severity": "nice-to-have",
+      "title": "No save-slot helper: slots are written by hand on top of storage",
+      "missing": "A game with five named slots, an autosave, a picture and a play time needs the same code every time: the key names, a revision counter to settle cloud copies, damaged-text handling and the delete that also removes the cloud copy. The engine offers storage and platform.cloud only.",
+      "workaround": "scripts/saves.js writes each slot as one JSON text under slotN / slot_auto with a counter, name, chapter, play time and base64 picture, and scripts/ui/slot_screen.js draws them.",
+      "workaroundFiles": [
+        "scripts/saves.js",
+        "scripts/ui/slot_screen.js"
+      ],
+      "suggestion": "A slots module in the menu kit (project.add_menu_kit part 'slots') with the record, the cloud merge by counter and a slot screen prefab, like the keyboard part.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0502",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "The fake store's stats.add is not atomic: two calls in one frame count once",
+      "missing": "platform.stats.add reads the value (stats.get) and writes it (stats.set). Two adds made before the first answer arrives both read the old value, so the second one is lost. A real store (Steam) adds atomically.",
+      "workaround": "tests/saves.test.js lets the first answer through (settle()) before the second save. The game itself makes at most one add per player action, so nothing else changed.",
+      "workaroundFiles": [
+        "tests/saves.test.js"
+      ],
+      "suggestion": "Make the fake apply add() on the stored value when the request is served, or document that stats.add calls must be awaited one after another.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0503",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A TextField and the pause action share Escape and P: the game must route them by hand",
+      "missing": "Typing a save name in a TextField while the pause menu is open: P is a letter but also the pause key, and Escape is ui_cancel and pause at once (see FB-0008). MenuStack.busy is a static flag that survives scene loads, so a scene that goes while a dialog is open leaves the pause key blocked.",
+      "workaround": "pause_menu.js ignores the pause key while MenuStack.busy, routes ui_cancel to SlotScreen.cancel() first (it closes the dialog, and the on-screen keyboard's own close is told apart by the state at the start of the frame), and SlotScreen resets busy when it is built.",
+      "workaroundFiles": [
+        "scripts/pause_menu.js",
+        "scripts/ui/slot_screen.js"
+      ],
+      "suggestion": "input.pressed('pause') could be false while a TextField has the focus (text input mode), and MenuStack.busy should reset on scene.load.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0504",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Store answers arrive on the next frames, not at once: nothing says so for a request made inside a frame",
+      "missing": "docs/PLATFORM.md says platform.* answers are ready at once, but a request made from an event handler (world.on) during game.step is answered only after the following steps: a test that awaits microtasks right after sees fake.achievements without the new entry, and the fake lists only the unlocked achievements.",
+      "workaround": "tests/saves.test.js settle() awaits microtasks, steps two frames and awaits again.",
+      "workaroundFiles": [
+        "tests/saves.test.js"
+      ],
+      "suggestion": "State in docs/PLATFORM.md when a request is answered (same call vs. next frame) and that fake.achievements only has the ids that were touched.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
       "id": "FB-0012",
       "date": "2026-10-27",
       "reporter": {
