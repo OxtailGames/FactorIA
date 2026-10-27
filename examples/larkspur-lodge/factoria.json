@@ -125,7 +125,16 @@
       "view_zoom_out": [
         "V",
         "GamepadLeftTrigger"
+      ],
+      "skip_cutscene": [
+        "Space",
+        "GamepadB"
       ]
+    }
+  },
+  "audio": {
+    "buses": {
+      "voiceover": {}
     }
   },
   "platform": {

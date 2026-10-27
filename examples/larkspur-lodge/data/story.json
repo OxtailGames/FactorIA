@@ -23,7 +23,7 @@
     },
     "intro_seen": {
       "type": "boolean",
-      "doc": "The opening cut-scene has played. Set by the cut-scene player (P4)."
+      "doc": "The opening cut-scene (intro) has played or was skipped. Set by that cut-scene's end block (data/cutscenes/intro.cutscene.json); read by scripts/chapters.js so it plays once."
     },
     "vale_missing": {
       "type": "boolean",
@@ -211,6 +211,30 @@
     },
     "adit_rescue": {
       "doc": "The porter brings Dr. Vale up the steps into the lamplight. Played by P4."
+    },
+    "intro": {
+      "doc": "The opening: the hall at eleven at night, the porter coming in out of the snow. Played when a new game starts (sets intro_seen)."
+    },
+    "chapter_2": {
+      "doc": "Lead-in to chapter 2: a card and a narrated line on a black screen."
+    },
+    "chapter_3": {
+      "doc": "Lead-in to chapter 3: a card and a narrated line on a black screen."
+    },
+    "chapter_4": {
+      "doc": "Lead-in to chapter 4: a card and a narrated line on a black screen."
+    },
+    "chapter_5": {
+      "doc": "Lead-in to chapter 5: the hall at dawn, the camera finding Dr. Vale on the sofa."
+    },
+    "ending_dawn": {
+      "doc": "The dawn ending in the hall, before the ending screen."
+    },
+    "ending_quiet": {
+      "doc": "The quiet ending in the hall, before the ending screen."
+    },
+    "ending_long": {
+      "doc": "The long ending in the hall, before the ending screen."
     }
   },
   "places": {

@@ -9,7 +9,16 @@ import * as dialogue from "../scripts/dialogue.js";
 import * as story from "../scripts/story.js";
 import * as items from "../scripts/items.js";
 import * as chapters from "../scripts/chapters.js";
+import * as cutscene from "../scripts/cutscene.js";
 import strings from "../locales/en.json";
+
+/** Steps `n` frames and skips every cut-scene on the way: these tests are about the chapters, not the films (cutscene.test.js). */
+function step(n) {
+  for (let i = 0; i < n; i++) {
+    if (cutscene.active()) cutscene.skip();
+    game.step(1);
+  }
+}
 
 const hud = () => game.find("hud").behaviour;
 const castOf = () => game.find("cast").behaviour;
@@ -152,18 +161,18 @@ describe("the chapters", () => {
     const seen = [];
     world.on(EVENTS.chapterChanged, (d) => seen.push(d));
     story.set("vale_missing");
-    game.step(5);
+    step(5);
     expect(chaptersOf().stage).toBe("out");
     expect(porter().behaviour.locked).toBe(true); // nobody walks while the screen goes dark
-    game.step(60);
+    step(60);
     expect(chapters.current()).toBe(2);
     expect(seen).toEqual([{ chapter: 2, previous: 1 }]);
     expect(castOf().present().sort()).toEqual(expected(2, "ground"));
     expect(castOf().npc("hedda")).toBeNull(); // she went up
-    game.step(120);
+    step(120);
     expect(chaptersOf().cardShown).toBe(2);
     expect(hud().message).toBe(strings.chapter["2"].intro);
-    game.step(60);
+    step(60);
     expect(chaptersOf().stage).toBe("");
     expect(porter().behaviour.locked).toBe(false);
   });
@@ -187,11 +196,11 @@ describe("the chapters", () => {
     at(4, "cellar", { vale_missing: true });
     expect(scene.current).toBe("scenes/cellar.scene.json");
     story.set("vale_found");
-    game.step(60);
+    step(60);
     const arrived = () => scene.current === "scenes/ground.scene.json";
-    for (let i = 0; i < 400 && !arrived(); i++) game.step(1);
+    for (let i = 0; i < 400 && !arrived(); i++) step(1);
     expect(arrived()).toBe(true);
-    game.step(30);
+    step(30);
     expect(chapters.current()).toBe(5);
     expect(chaptersOf().cardShown).toBe(5);
     expect(castOf().present().sort()).toEqual(expected(5, "ground"));
@@ -204,7 +213,7 @@ describe("the chapters", () => {
     world.on(EVENTS.storyEnded, (d) => ended.push(d.ending));
     expect(game.find("ending_ui").active).toBe(false);
     story.set("ending", "quiet");
-    game.step(240);
+    step(240);
     expect(chaptersOf().endingShown).toBe(true);
     expect(game.find("ending_ui").active).toBe(true);
     expect(game.find("ending_title").get("Text").text).toBe(strings.ending.quiet.title);
@@ -212,7 +221,7 @@ describe("the chapters", () => {
     expect(porter().behaviour.locked).toBe(true);
     game.screenshot(".factoria/screenshots/ending_quiet.png");
     game.click(game.find("ending_menu"));
-    game.step(10);
+    step(10);
     expect(scene.current).toBe("scenes/menu.scene.json");
   });
 
