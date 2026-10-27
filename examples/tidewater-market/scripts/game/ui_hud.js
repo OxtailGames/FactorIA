@@ -20,7 +20,7 @@ import { cellToWorld } from "./iso.js";
 import { COLORS as MAP_COLORS, LAYER as MAP_LAYER } from "./map_view.js";
 import { footprintCells } from "./rules.js";
 import { amountText, buildingName, compactText, coinsText, dateText, goodsBagText, listText, numberText, villagersText } from "./format.js";
-import { DESIGN } from "./camera_math.js";
+import { DESIGN } from "./design.js";
 import {
   COLORS, FONT, LAYER, button, buttonIcon, icon, inside, isActive, label, panel, setActive, setIcon, toUnits,
 } from "./ui_kit.js";

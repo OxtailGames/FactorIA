@@ -1,7 +1,7 @@
 // The clock in the game scene: the speed buttons and keys, Space, the population readout, the harbour at the start and the music
 // of the season. (The clock and the simulation themselves are in clock.test.js and sim.test.js.)
 import { test, expect, game } from "factoria:test";
-import { DESIGN } from "../scripts/game/camera_math.js";
+import { DESIGN } from "../scripts/game/design.js";
 import { cellToWorld } from "../scripts/game/iso.js";
 import { harbourCell } from "../scripts/game/harbour.js";
 
