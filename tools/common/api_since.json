@@ -1064,6 +1064,7 @@
     "I18nAPI.defaultLanguage": "0.2.0",
     "I18nAPI.direction": "0.2.0",
     "I18nAPI.duration": "unreleased",
+    "I18nAPI.gender": "unreleased",
     "I18nAPI.has": "0.2.0",
     "I18nAPI.language": "0.2.0",
     "I18nAPI.languages": "0.2.0",

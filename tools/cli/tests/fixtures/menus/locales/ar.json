@@ -9,7 +9,7 @@
     "quit": "خروج",
     "back": "رجوع"
   },
-  "loading": { "text": "جارٍ التحميل..." },
+  "loading": { "progress": "جارٍ التحميل... {percent}%" },
   "captions": { "welcome": "مرحبًا أيها المسافر.", "hint": "احذر من الحافة!", "guide": "المرشدة" },
   "pause": { "title": "إيقاف مؤقت", "resume": "متابعة", "mainMenu": "القائمة الرئيسية" },
   "options": {

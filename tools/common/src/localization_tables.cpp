@@ -62,9 +62,10 @@ std::set<std::string> placeholders_of(std::string_view text) {
 }
 
 std::set<std::string> placeholders_of(const StringEntry& entry) {
-    if (!entry.plural()) return placeholders_of(entry.text);
+    if (!entry.plural() && !entry.select()) return placeholders_of(entry.text);
     std::set<std::string> names;
     for (const auto& [category, text] : entry.forms) names.merge(placeholders_of(text));
+    for (const auto& [form, text] : entry.selects) names.merge(placeholders_of(text));
     return names;
 }
 
@@ -77,6 +78,10 @@ std::string describe_names(const std::set<std::string>& names) {
 
 std::vector<EntryText> texts_of(const StringEntry& entry) {
     std::vector<EntryText> out;
+    if (entry.select()) {
+        for (const auto& [form, text] : entry.selects) out.push_back({entry.pointer + "/" + form, form, &text});
+        return out;
+    }
     if (!entry.plural()) {
         out.push_back({entry.pointer, "", &entry.text});
         return out;

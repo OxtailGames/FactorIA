@@ -113,7 +113,7 @@ AdsIosSettings ads_ios_settings(const std::string& projectDir, bool release) {
                 if (!table.ok()) return {};
                 auto it = table->entries.find(s.catalog.adsTrackingDescriptionKey);
                 if (it == table->entries.end()) return {};
-                return it->second.plural() ? it->second.forms.at(PluralCategory::Other) : it->second.text;
+                return it->second.fallback_text();
             };
             const std::string base = read(localization.defaultLanguage);
             if (!base.empty()) out.trackingDescription = base;

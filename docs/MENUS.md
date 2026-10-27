@@ -2487,7 +2487,7 @@ test("the card blocks the pointer by being modal, not only by its backdrop", () 
     { "id": "loading",
       "components": {
         "Transform": { "position": [-48, -48, 0] },
-        "Text": { "text": "Loading...", "key": "loading.text", "fontSize": 36, "space": "screen", "anchor": [1, 1], "pivot": [1, 0] },
+        "Text": { "text": "Loading...", "fontSize": 36, "space": "screen", "anchor": [1, 1], "pivot": [1, 0] },
         "Script": { "path": "scripts/loading.js" } } }
   ]
 }
@@ -2500,7 +2500,7 @@ test("the card blocks the pointer by being modal, not only by its backdrop", () 
 // scenes/loading.scene.json: reads the scene the main menu put in session.nextScene ahead of time, a few files every
 // frame, so this scene keeps running (and drawing) meanwhile; then loads it, which reads nothing from the disk.
 // A full recipe with a bar: set the width of a Shape2D from `job.progress` in onUpdate, like the text below.
-import { Behaviour, scene, session } from "factoria";
+import { Behaviour, i18n, scene, session } from "factoria";
 
 export default class Loading extends Behaviour {
   onStart() {
@@ -2520,7 +2520,8 @@ export default class Loading extends Behaviour {
   }
 
   onUpdate() {
-    this.entity.get("Text").text = `Loading... ${Math.round(this.job.progress * 100)}%`;
+    // No key on the Text: the line is built here, so the percentage sits inside the translated sentence.
+    this.entity.get("Text").text = i18n.t("loading.progress", { percent: Math.round(this.job.progress * 100) });
   }
 }
 ```
@@ -3039,7 +3040,7 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "quit": "Quit",
     "back": "Back"
   },
-  "loading": { "text": "Loading..." },
+  "loading": { "progress": "Loading... {percent}%" },
   "captions": { "welcome": "Welcome, traveller.", "hint": "Watch the edge!", "guide": "Guide" },
   "pause": { "title": "Paused", "resume": "Resume", "mainMenu": "Main menu" },
   "options": {
@@ -3137,7 +3138,7 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "quit": "Salir",
     "back": "Atrás"
   },
-  "loading": { "text": "Cargando..." },
+  "loading": { "progress": "Cargando... {percent}%" },
   "captions": { "welcome": "Bienvenido, viajero.", "hint": "¡Cuidado con el borde!", "guide": "Guía" },
   "pause": { "title": "En pausa", "resume": "Reanudar", "mainMenu": "Menú principal" },
   "options": {
