@@ -452,8 +452,8 @@ describe("saves", () => {
     puzzles.turnDial(2, 3);
     puzzles.moveService(0, 1);
     const data = JSON.parse(JSON.stringify(save.snapshot()));
-    expect(data.puzzles.drawer.dials).toEqual([0, 0, 3, 0]);
-    expect(data.notebook.board.deductions).toEqual(["d_trail"]);
+    expect(data.state.puzzles.drawer.dials).toEqual([0, 0, 3, 0]);
+    expect(data.state.notebook.board.deductions).toEqual(["d_trail"]);
     puzzles.reset();
     notebook.reset();
     expect(save.apply(data).ok).toBe(true);
