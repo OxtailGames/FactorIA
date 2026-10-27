@@ -261,6 +261,7 @@ struct ParticleEmitter {
 // Behaviour lives in fa_ui (layout, focus, input, events) and fa_render (drawing); the geometry both need is in
 // scene/ui_rect.h. components.cpp registers them (category "UI") with ui_box_fields(), so the shared doc strings exist once.
 enum class UiLayout : std::int32_t { None, Row, Column, Grid };
+enum class ButtonIconPosition : std::int32_t { Left, Top, Alone };
 enum class UiAlign : std::int32_t { Start, Center, End };
 // Panel.direction: Ltr = start is left; Rtl = start is right (rows run right to left); Auto = follows the current language.
 enum class UiDirection : std::int32_t { Ltr, Auto, Rtl };
@@ -319,6 +320,10 @@ struct Button : UiControl {
     float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
     bool markup = false;                      // true: [b], [c:colour] and [icon:name] in the label are tags (Text.markup)
     bool bold = false;                        // true: the whole label is bold
+    std::string icon;                         // texture of an icon drawn inside the button ("" = none)
+    Rect iconRegion{0, 0, 0, 0};              // part of `icon` in texture pixels (top-left origin); 0 size = the whole texture
+    Vec2 iconSize{32, 32};                    // the icon's size in design pixels
+    ButtonIconPosition iconPosition = ButtonIconPosition::Left;  // left of the label, above it, or alone (no label)
     Button() { size = {240, 56}; }
 };
 

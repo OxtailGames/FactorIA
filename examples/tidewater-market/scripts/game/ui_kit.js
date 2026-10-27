@@ -100,6 +100,14 @@ export function icon(id, parent, atlas, frameName, box, props = {}) {
   return world.spawn(spec, parent ? { parent } : undefined);
 }
 
+/** The Button fields (icon, iconRegion, iconSize) that draw an atlas frame inside a button, scaled into the box (its aspect ratio stays). */
+export function buttonIcon(atlas, frameName, box) {
+  const f = atlas.frames[frameName];
+  const [, , w, h] = f.rect;
+  const k = Math.min(box / w, box / h);
+  return { icon: atlas.texture, iconRegion: f.rect, iconSize: [Math.round(w * k), Math.round(h * k)] };
+}
+
 /** Point the sprite of `entity` at another atlas frame, scaled into the box. */
 export function setIcon(entity, atlas, frameName, box) {
   const f = atlas.frames[frameName];
