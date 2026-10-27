@@ -1920,7 +1920,7 @@
     get speechAvailable() { return N.speechAvailable(); },
     // Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears it). Throws, saying why, when
     // the entity cannot take focus.
-    focus(target) { N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
+    focus(target) { return N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
     // The topmost visible widget (Button, Toggle, Slider, TextField, Panel, ScrollList...) under the screen point, or null over empty
     // space or what a ScrollList clips away. x, y in design pixels, y down, like ui.rectOf.
     widgetAt(x, y) {

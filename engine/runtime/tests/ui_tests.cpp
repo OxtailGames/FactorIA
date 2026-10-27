@@ -44,7 +44,7 @@ const char* kMenu = R"({
 
 const char* kMenuTest = R"JS(
 import { test, expect, game } from "factoria:test";
-import { ui } from "factoria";
+import { ui, world } from "factoria";
 import menu from "../scenes/main.scene.json";
 
 function record() {
@@ -122,6 +122,21 @@ test("ui.on can listen to one widget; ui.focus and ui.on explain mistakes", () =
   ui.focus(null);
   expect(ui.focused).toBeNull();
   expect(ui.hovered).toBeNull();
+});
+
+test("ui.focus on a disabled Button returns false instead of throwing", () => {
+  game.loadJson(menu);
+  game.step(1);
+  expect(ui.focus("options")).toBe(true);
+  world.find("options").get("Button").interactable = false;
+  game.step(1);
+  expect(ui.focused.id).not.toBe("options");       // the focused widget was disabled: it lost the focus
+  ui.focus(null);
+  expect(ui.focus("options")).toBe(false);
+  expect(ui.focused).toBeNull();                   // nothing changed
+  expect(ui.focus("play")).toBe(true);             // a screen falls back to an enabled button
+  expect(ui.focused.id).toBe("play");
+  expect(() => ui.focus("menu")).toThrow(/container/);
 });
 )JS";
 
@@ -371,7 +386,7 @@ TEST_CASE("ui: a menu is driven by gamepad taps from a JavaScript test") {
     auto t = e.commands().call("project.test", Json::object());
     REQUIRE_MESSAGE(t.ok, t.error.dump());
     CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump(2));
-    CHECK(t.result["passed"].get<int>() == 3);
+    CHECK(t.result["passed"].get<int>() == 4);
     e.shutdown();
 }
 

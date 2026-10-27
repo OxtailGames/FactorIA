@@ -2468,10 +2468,10 @@ declare module "factoria" {
      */
     on(type: "click" | "change" | "submit" | "focus" | "cancel", target: Entity | string, fn: (e: UiEvent) => void): () => void;
     /**
-     * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false).
+     * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Returns true when the widget took focus, and false (changing nothing) when it is a Button, Toggle, Slider or TextField with interactable false, so a screen that restores a remembered focus can fall back to another widget. Throws, saying why and what to do, when the entity cannot take focus at all (not a focusable widget, or inactive).
      * @since 0.1.6
      */
-    focus(target: Entity | string | null): void;
+    focus(target: Entity | string | null): boolean;
     /**
      * Says `text` aloud with the system's text to speech (Windows SAPI, macOS/iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's speechSynthesis), in the current language (i18n.language): the system voice for it when there is one. `interrupt` (default true) stops what is being said first; false queues the line after the ones before it. Speech is output only and never touches the simulation. Where the system has no speech (ui.speechAvailable is false) it does nothing and logs one warning per run. Headless runs and tests say nothing and record the line for game.spoken(). Pass an already localized string: ui.speak(i18n.t("menu.play")). Example: ui.on("focus", (e) => ui.speak(e.entity.get("Button").text)). Same as the ui.speak command.
      * @since 0.2.0
