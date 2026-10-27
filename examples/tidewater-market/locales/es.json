@@ -1058,5 +1058,8 @@
     "toast": {
       "rotated": "Girado: {name}."
     }
+  },
+  "card": {
+    "continue": "Continuar"
   }
 }

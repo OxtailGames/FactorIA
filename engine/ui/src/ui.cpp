@@ -55,10 +55,12 @@ struct Item {
     Rect rect;
     int layer = 0;
     bool interactable = true;
+    bool inScope = true;   // false: outside the modal Panel that scopes the input (listed as not interactable)
 };
 
 // Active Button / Toggle / Slider / TextField in creation order.
-std::vector<Item> controls(const World& w, Vec2 design) {
+// Under a modal Panel the widgets outside it are listed as not interactable: no focus, navigation, hover or press.
+std::vector<Item> controls(const World& w, Vec2 design, Entity modal) {
     std::vector<Item> out;
     bool any = false;
     for (const TypeInfo* t : {&World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(), &World::type_of<TextField>()})
@@ -68,7 +70,12 @@ std::vector<Item> controls(const World& w, Vec2 design) {
         const UiKind k = ui_kind(w, e);
         if (!ui_is_control(k) || !w.active_in_hierarchy(e)) continue;
         const UiControl* c = control_of(w, e);
-        out.push_back({e, k, *ui_rect(w, e, design), c->layer, c->interactable});
+        bool inScope = true;
+        if (modal) {
+            inScope = false;
+            for (Entity a = e; a && !inScope; a = w.parent(a)) inScope = a == modal;
+        }
+        out.push_back({e, k, *ui_rect(w, e, design), c->layer, c->interactable && inScope, inScope});
     }
     return out;
 }
@@ -132,12 +139,37 @@ bool scrollable(const World& w, Entity e, Vec2 design, const VisualMeasure& meas
 
 }  // namespace
 
+Entity ui_modal_panel(const World& w) {
+    Entity best;
+    int bestLayer = 0;
+    if (w.entities_with(&World::type_of<Panel>()).empty()) return best;
+    for (Entity e : w.entities()) {
+        const Panel* p = w.get<Panel>(e);
+        if (!p || !p->modal || !w.active_in_hierarchy(e)) continue;
+        if (!best || p->layer >= bestLayer) {
+            best = e;
+            bestLayer = p->layer;
+        }
+    }
+    return best;
+}
+
+namespace {
+bool within(const World& w, Entity e, Entity scope) {
+    for (Entity a = e; a; a = w.parent(a))
+        if (a == scope) return true;
+    return false;
+}
+}  // namespace
+
 Entity ui_widget_at(const World& w, Vec2 design, Vec2 p, Entity ignore) {
     Entity best;
     int bestLayer = 0;
+    const Entity modal = ui_modal_panel(w);
     for (Entity e : w.entities()) {
         const UiKind k = ui_kind(w, e);
         if (k == UiKind::None || k == UiKind::Captions || !w.active_in_hierarchy(e)) continue;
+        if (modal && !within(w, e, modal)) continue;
         if (ignore) {
             bool under = false;
             for (Entity a = e; a && !under; a = w.parent(a)) under = a == ignore;
@@ -286,7 +318,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     layout(w, design, measure);
     touch_controls(w, in, design);
     clock_ += dt;
-    const std::vector<Item> items = controls(w, design);  // creation order
+    const Entity modal = ui_modal_panel(w);
+    const std::vector<Item> items = controls(w, design, modal);  // creation order
     std::vector<Item> ordered = items;                    // reading order: top, then left
     reading_order(ordered);
     auto find = [&](Entity e) -> const Item* {
@@ -313,14 +346,14 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     }
     if (!focus_ && !focusCleared_) {
         for (const Item& it : ordered) {
-            if (!it.interactable || !control_of(w, it.e)->autoFocus) continue;
+            if (!it.interactable || !control_of(w, it.e)->autoFocus) continue;  // out of scope: not interactable
             set_focus(w, it.e);
             break;
         }
         // The panel's autoFocus widget is greyed out: the first interactable widget takes the focus instead.
         if (!focus_) {
-            bool anyAuto = false;
-            for (const Item& it : ordered) anyAuto = anyAuto || control_of(w, it.e)->autoFocus;
+            bool anyAuto = modal != kNullEntity;  // a modal keeps the focus inside whatever its widgets are
+            for (const Item& it : ordered) anyAuto = anyAuto || (it.inScope && control_of(w, it.e)->autoFocus);
             if (anyAuto)
                 for (const Item& it : ordered)
                     if (it.interactable) {
@@ -428,7 +461,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     const bool ptrPressed = pointerOn_ ? pointerDown_ && !pointerPrevDown_ : in.mouse_pressed(MouseButton::Left);
     const bool ptrReleased = pointerOn_ ? !pointerDown_ && pointerPrevDown_ : in.mouse_released(MouseButton::Left);
     pointerPrevDown_ = pointerOn_ && pointerDown_;
-    pointerOverUi_ = ui_widget_at(w, design, mouse, dragImage_) != kNullEntity;
+    pointerOverUi_ = modal || ui_widget_at(w, design, mouse, dragImage_) != kNullEntity;
     hover_ = kNullEntity;
     int hoverLayer = 0;
     for (const Item& it : items) {  // creation order, so on equal layers the later entity wins
@@ -485,6 +518,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         int targetDepth = -1;
         w.each<ScrollList>([&](Entity e, ScrollList& s) {
             if (!w.active_in_hierarchy(e) || !ui_rect(w, e, design)->contains(mouse)) return;
+            if (modal && !within(w, e, modal)) return;
             const std::optional<Rect> clip = ui_clip_rect(w, e, design);
             if (clip && !clip->contains(mouse)) return;
             const int depth = depth_of(w, e);
@@ -503,6 +537,11 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
                 in.consume_mouse_wheel();
             }
         }
+    }
+
+    if (modal && in.mouse_wheel() != 0.0f && !wheelConsumed_) {  // the wheel stays in the modal: the game below must not zoom
+        wheelConsumed_ = true;
+        in.consume_mouse_wheel();
     }
 
     // ---- tooltips: the rest timer, what shows and where (tooltip.cpp)

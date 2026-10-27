@@ -118,5 +118,8 @@
     "change": "Puedes cambiar de opinión en Opciones cuando quieras. Si dices que no, no se envía nada.",
     "allow": "Permitir",
     "deny": "No, gracias"
+  },
+  "card": {
+    "continue": "Continuar"
   }
 }
