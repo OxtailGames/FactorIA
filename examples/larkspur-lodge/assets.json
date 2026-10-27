@@ -191,6 +191,18 @@
         "notes": "Synthesised by assets/src/make_sound.py (seeded noise and sines, a seamless loop). No recording or sample; no CC0 pack found had wind, a fire, a clock or a lodge score."
       }
     },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "1024x1024 icon cropped from an in-game render of the lodge by assets/src/make_store.py (ffmpeg crop); the lodge models are Kenney CC0 and the lighting is the game's own.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
     "assets/models/characters/Textures/texture-a.png": {
       "provenance": {
         "origin": "imported",
@@ -918,6 +930,318 @@
         "source": "https://kenney.nl/assets/furniture-kit",
         "license": "CC0-1.0",
         "author": "Kenney"
+      }
+    },
+    "store/capsules/appstore/larkspur-lodge_2622x1206.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/appstore/larkspur-lodge_2752x2064.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/appstore/larkspur-lodge_2778x1284.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/appstore/larkspur-lodge_2868x1320.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/itch/larkspur-lodge_630x500.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/microsoft/larkspur-lodge_1080x1080.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/microsoft/larkspur-lodge_1920x1080.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/microsoft/larkspur-lodge_300x300.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/microsoft/larkspur-lodge_720x1080.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_1232x706.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_1280x720.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_1438x810.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_1920x1080.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_3840x1240.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_462x174.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_600x900.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_748x896.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_920x430.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/keyart.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless render of the game itself (Kenney CC0 models, the game's own lights), no HUD, lifted by assets/src/make_store.py; the capsules are built from it with assets.draw_capsules.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/cellar.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/dining.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/hall.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/hall2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/kitchen.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/landing.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/library.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
       }
     }
   }
