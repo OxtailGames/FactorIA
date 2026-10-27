@@ -90,6 +90,11 @@ enum class BlendMode : std::int32_t { Alpha, Additive, Multiply };
 // Start / End are the left / right edge in a left-to-right language and the right / left edge in a right-to-left one.
 enum class Align : std::int32_t { Left, Center, Right, Start, End };
 
+// Where a wrapped Text may start a new line inside a run of letters that have no spaces. Auto: Hangul breaks at spaces only
+// (Korean), ideographs and kana between any two characters. Normal: Hangul between syllables too. KeepAll: Hangul and
+// ideographs and kana at spaces only.
+enum class WordBreak : std::int32_t { Auto, Normal, KeepAll };
+
 struct Sprite {
     std::string texture;              // asset path; "" draws a solid quad of `color`
     Rect region{0, 0, 0, 0};          // source rect in texture pixels (top-left origin); 0 size = whole texture
@@ -159,6 +164,8 @@ struct Text {
     float maxTextScale = 0.0f;        // > 0: ui.textScale stops growing this text at this scale (screen space); 0 = no cap
     bool markup = false;              // true: [b], [c:colour] and [icon:name] in `text` are tags (fa/scene/rich_text.h)
     bool bold = false;                // true: the whole text is bold (the project's bold face, else emboldened by the engine)
+    WordBreak wordBreak = WordBreak::Auto;  // where a wrapped line may break without a space: Hangul at spaces only (auto), anywhere (normal), keepAll
+    std::int32_t visibleCharacters = -1;    // >= 0: only the first n characters (grapheme clusters) are drawn; the box keeps the size of the whole text. -1 = all
     std::int32_t layer = 100;
     RenderSpace space = RenderSpace::World;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to

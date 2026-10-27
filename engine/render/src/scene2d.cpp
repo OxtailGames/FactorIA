@@ -548,6 +548,7 @@ void gather_2d(World& world, Frame& f) {
                                       : t.fontSize * (screen ? effective_text_scale(f.textScale, t.maxTextScale) : 1.0f);
         TextLayout lay = f.fonts->layout(*drawn, px, eff);
         if (lay.quads.empty() && lay.icons.empty()) return;
+        if (t.visibleCharacters == 0) return;
         if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
         if ((screen || !f.cam.perspective) && axis_aligned(m)) {
@@ -556,8 +557,8 @@ void gather_2d(World& world, Frame& f) {
             m.at(3, 0) = std::round((m.at(3, 0) - ox) * k) / k + ox;
             m.at(3, 1) = std::round((m.at(3, 1) - oy) * k) / k + oy;
         }
-        emit_text(pick(t.space), m, screen, lay, t.color, *f.fonts, assets, t.layer, secondary_key(f, m, false), clip);
-        f.stats->textGlyphs += int(lay.quads.size());
+        f.stats->textGlyphs += emit_text(pick(t.space), m, screen, lay, t.color, *f.fonts, assets, t.layer, secondary_key(f, m, false), clip,
+                                         t.visibleCharacters);
     });
 }
 

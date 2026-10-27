@@ -4,6 +4,18 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A typewriter reveal and Korean that keeps its words
+
+- `Text.visibleCharacters` (-1 = all, the default) draws only the first n characters of a Text, counted in grapheme clusters
+  (a letter with its accents, an emoji sequence or a Hangul syllable is one). The text is laid out as a whole and then
+  clipped, so the box keeps the size of the full line while it reveals; a right-to-left line appears from its right end
+  (LL/FB-0004). docs/TEXT.md, "Typewriter reveal".
+- `Text.wordBreak`: `auto` (default), `normal` or `keepAll`. A wrapped Korean line now ends at spaces and keeps its words
+  whole by default; `normal` also breaks between Hangul syllables (the old behaviour), `keepAll` makes Chinese and Japanese
+  break at spaces only too (LL/FB-0902). Chinese and Japanese without spaces still wrap between characters under `auto`.
+- Larkspur Lodge's dialogue box lays its line out with `maxWidth` and reveals it with `visibleCharacters`: no hand-written
+  wrapping, no blank lines padding the box.
+
 Every hit of a ray, and colliders you can switch off
 
 - `physics.raycast3dAll(origin, dir, maxDistance, opts)` and `raycast2dAll(from, to, opts)` return every collider the ray

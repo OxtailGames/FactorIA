@@ -4727,6 +4727,16 @@ declare module "factoria" {
      */
     bold: boolean;
     /**
+     * Where a wrapped line (maxWidth > 0) may end inside a run of letters with no space. auto (default): Korean keeps its words (Hangul lines end at spaces only, as Korean is written for screens), Chinese and Japanese break between any two characters (kinsoku keeps closing punctuation off the start of a line). normal: Hangul also breaks between syllables. keepAll: Hangul, Chinese and Japanese all break at spaces only; a run longer than maxWidth then overflows the box instead of splitting. No effect without maxWidth.
+     * @since unreleased
+     */
+    wordBreak: "auto" | "normal" | "keepAll";
+    /**
+     * Typewriter reveal. -1 (default) draws the whole text. n >= 0 draws only its first n characters, counted in grapheme clusters (a letter with its accents, an emoji sequence or a Hangul syllable is one; spaces and line breaks count, the tags of `markup` do not and a [icon:name] picture is one). The text is laid out as a whole and only clipped, so the box, its wrapping, its alignment, ui.rectOf and a Panel that fits it keep the size of the full line while it reveals, and no word jumps to the next line. Reveal order is the order of the text, so a right-to-left line appears from its right end. Raise it from a script a few characters per second; a value above the length shows everything.
+     * @since unreleased
+     */
+    visibleCharacters: number;
+    /**
      * Draw order. Higher layers draw on top. Text defaults above sprites.
      */
     layer: number;
@@ -7454,7 +7464,7 @@ declare module "factoria" {
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
-    Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
+    Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };

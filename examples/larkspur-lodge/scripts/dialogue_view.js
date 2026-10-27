@@ -2,7 +2,7 @@
 // The dialogue box: shows the lines scripts/dialogue.js plays. One entity of every area scene has this behaviour (the build script
 // assets/src/build_lodge.py adds it); it spawns prefabs/ui/dialogue.prefab.json on start, so the scenes need no UI of their own.
 //
-// A line shows the speaker's name and the text, revealed character by character at the player's text speed
+// A line shows the speaker's name and the text, revealed character by character (Text.visibleCharacters) at the player's text speed
 // (settings.textSpeed, characters per second, 0 = at once). A press of Enter, Space, the gamepad's A, a click or a tap anywhere
 // on the box completes the line first and goes on with the next press. When a line has choices they appear under the text once
 // it is complete: click or tap one, move the focus with the arrows or the d-pad and press Enter / A, or press 1 to 4.
@@ -26,31 +26,11 @@ import { MenuStack } from "./ui/menu_stack.js";
 
 /** Seconds after a line appears during which presses do nothing: the press that opened or ended the last line is still down. */
 const SETTLE = 0.2;
-/** Width in design pixels the text wraps at (the box is 1040 wide with 28 of padding). */
-const TEXT_WIDTH = 980;
-const FONT = 28;
 /** Widgets whose click is the same as a click on the box itself. */
 const BOX_IDS = new Set(["dlg_box", "dlg_stack", "dlg_speaker", "dlg_text", "dlg_footer", "dialogue_ui"]);
 const NAME_COLOR = { porter: "#8fc7ff" };
 const DEFAULT_NAME_COLOR = "#e8c070";
 const rgba = (hex) => [parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255, 1];
-
-/** Breaks `text` into lines no wider than `width` (design pixels, at the current text size) with "\n", so a line never re-wraps while it is being revealed. */
-export function wrap(text, width, fontSize = FONT) {
-  const lines = [];
-  let line = "";
-  for (const word of String(text).split(" ")) {
-    const trial = line === "" ? word : `${line} ${word}`;
-    if (line !== "" && ui.measureText(trial, { fontSize }).width > width) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = trial;
-    }
-  }
-  lines.push(line);
-  return lines.join("\n");
-}
 
 /** The name the box shows for a speaker id: a character's name, "You" for the porter, nothing for the narrator. */
 export function speakerName(speaker) {
@@ -77,7 +57,7 @@ export default class DialogueView extends Behaviour {
 
     /** The line on screen as { speaker, text, choices }, or null. */
     this.shown = null;
-    /** The wrapped text of the line and how many of its characters show. */
+    /** The text of the line and how many of its characters show (the Text wraps it by itself: prefabs/ui/dialogue.prefab.json maxWidth). */
     this.full = "";
     this.revealed = 0;
     this.total = 0;
@@ -108,11 +88,10 @@ export default class DialogueView extends Behaviour {
     const key = this.shown.textKey;
     this.speakerLabel.text = (this.showNames && speakerName(this.shown.speaker)) || " ";
     this.shown.text = i18n.t(key);
-    this.full = wrap(this.shown.text, TEXT_WIDTH);
-    this.total = this.full.length;
+    this.setFull(this.shown.text);
     this.revealed = this.total;
     this.progress = this.total;
-    this.textLabel.text = this.full === "" ? " " : this.full;
+    this.textLabel.visibleCharacters = -1;
     if (this.choicesShown) {
       this.shown.choices.forEach((c, i) => {
         this.choiceButtons[i].get("Button").text = `${i + 1}.  ${i18n.t(c.textKey)}`;
@@ -146,11 +125,10 @@ export default class DialogueView extends Behaviour {
     this.speakerLabel.text = name || " ";
     this.speakerLabel.color = rgba(color);
     this.shown = { speaker: line.speaker, textKey: line.textKey, text: i18n.t(line.textKey), choices: line.choices };
-    this.full = wrap(this.shown.text, TEXT_WIDTH);
-    this.total = this.full.length;
+    this.setFull(this.shown.text);
     this.progress = speed > 0 ? 0 : this.total;
     this.revealed = Math.floor(this.progress);
-    this.textLabel.text = this.visibleText(this.revealed);
+    this.textLabel.visibleCharacters = this.revealed;
     this.speed = speed;
     this.settle = SETTLE;
     this.autoTimer = 0;
@@ -161,13 +139,11 @@ export default class DialogueView extends Behaviour {
     if (this.revealed >= this.total) this.revealDone();
   }
 
-  /** The line with `n` characters showing, followed by one blank line for each line break still to come: the box keeps the height of the whole line. */
-  visibleText(n) {
-    if (n >= this.total) return this.full === "" ? " " : this.full;
-    if (n > 0 && this.full[n - 1] === "\n") n++; // never end on a line break: the last line is not empty
-    const rest = this.full.slice(n);
-    const pad = (rest.match(/\n/g) ?? []).length;
-    return (n > 0 ? this.full.slice(0, n) : " ") + "\n ".repeat(pad);
+  /** Puts the whole line in the box. The Text lays all of it out, so the box has its final size from the first character. */
+  setFull(text) {
+    this.full = text;
+    this.total = [...text].length;
+    this.textLabel.text = text === "" ? " " : text;
   }
 
   hide() {
@@ -182,7 +158,7 @@ export default class DialogueView extends Behaviour {
   /** The text is complete: the choices (if any) appear and the focus goes to the first one. */
   revealDone() {
     this.revealed = this.total;
-    this.textLabel.text = this.full === "" ? " " : this.full;
+    this.textLabel.visibleCharacters = -1;
     const choices = this.shown ? this.shown.choices : [];
     if (choices.length === 0) {
       this.nextButton.active = true;
@@ -243,7 +219,7 @@ export default class DialogueView extends Behaviour {
       const n = Math.min(this.total, Math.floor(this.progress));
       if (n !== this.revealed) {
         this.revealed = n;
-        this.textLabel.text = this.visibleText(n);
+        this.textLabel.visibleCharacters = n;
         if (n >= this.total) this.revealDone();
       }
     }
