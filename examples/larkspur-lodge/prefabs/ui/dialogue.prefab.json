@@ -109,6 +109,7 @@
                 "spacing": 6,
                 "padding": [28, 16, 28, 12],
                 "align": "start",
+                "direction": "auto",
                 "minSize": [1040, 184],
                 "fit": true
               }
@@ -120,6 +121,7 @@
                   "Text": {
                     "text": " ",
                     "fontSize": 26,
+                    "align": "start",
                     "layer": 227,
                     "space": "screen",
                     "color": [1, 0.82, 0.4, 1]
@@ -132,6 +134,7 @@
                   "Text": {
                     "text": " ",
                     "fontSize": 28,
+                    "align": "start",
                     "layer": 227,
                     "space": "screen",
                     "color": [0.96, 0.95, 0.92, 1]
@@ -148,6 +151,7 @@
                     "spacing": 12,
                     "padding": [0, 0, 0, 0],
                     "justify": "end",
+                    "direction": "auto",
                     "minSize": [984, 0],
                     "fit": true
                   }

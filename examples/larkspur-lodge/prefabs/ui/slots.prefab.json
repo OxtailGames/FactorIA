@@ -81,7 +81,7 @@
                     "layer": 303,
                     "fontSize": 22,
                     "autoShrink": true,
-                    "minFontSize": 14
+                    "minFontSize": 10
                   }
                 }
               },
@@ -133,7 +133,7 @@
                     "layer": 303,
                     "fontSize": 22,
                     "autoShrink": true,
-                    "minFontSize": 14
+                    "minFontSize": 10
                   }
                 }
               },
@@ -185,7 +185,7 @@
                     "layer": 303,
                     "fontSize": 22,
                     "autoShrink": true,
-                    "minFontSize": 14
+                    "minFontSize": 10
                   }
                 }
               },
@@ -237,7 +237,7 @@
                     "layer": 303,
                     "fontSize": 22,
                     "autoShrink": true,
-                    "minFontSize": 14
+                    "minFontSize": 10
                   }
                 }
               },
@@ -289,7 +289,7 @@
                     "layer": 303,
                     "fontSize": 22,
                     "autoShrink": true,
-                    "minFontSize": 14
+                    "minFontSize": 10
                   }
                 }
               },
@@ -341,7 +341,7 @@
                     "layer": 303,
                     "fontSize": 22,
                     "autoShrink": true,
-                    "minFontSize": 14
+                    "minFontSize": 10
                   }
                 }
               },

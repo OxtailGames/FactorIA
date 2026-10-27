@@ -18,7 +18,7 @@ export const BODIES = Object.freeze(["a", "e", "f"]);
 
 /**
  * @typedef {{ file: string, pointer: string, message: string, hint: string, didYouMean: string }} Problem
- * @typedef {{ strings?: any, story?: any, cast?: any, items?: any, doors?: string[], areas?: string[], cutscenes?: string[] }} Context
+ * @typedef {{ strings?: any, story?: any, cast?: any, items?: any, doors?: string[], areas?: string[], cutscenes?: string[], translations?: Record<string, any> }} Context
  */
 
 function makeReporter(file, out) {
@@ -33,6 +33,16 @@ export function hasKey(strings, key) {
     node = node[part];
   }
   return typeof node === "string" || (node !== null && typeof node === "object" && "text" in node);
+}
+
+/**
+ * Reports, for every language of ctx.translations (language tag -> parsed locales/<tag>.json), a string key that language lacks.
+ * The English table is checked by the callers; this is the "translated into every language" half.
+ */
+function checkTranslated(key, ctx, report, pointer, what) {
+  for (const [lang, tree] of Object.entries(ctx.translations ?? {})) {
+    if (!hasKey(tree, key)) report(pointer, `${what} has no translation: no string '${key}' in locales/${lang}.json`, `Add '${key}' to locales/${lang}.json (the line id is the key; keep the names the other languages use).`);
+  }
 }
 
 const near = (word, list) => didYouMean(String(word), [...list]) ?? "";
@@ -212,6 +222,7 @@ export function validateDialogue(tables, ctx = {}, opts = {}) {
       }
       if (node.voice !== undefined && (typeof node.voice !== "string" || !/^[a-z][a-z0-9_]*$/.test(node.voice))) report(`${nat}/voice`, `node '${nodeId}' has the voice id ${JSON.stringify(node.voice)}`, "A voice clip id is snake_case (P4 plays it); leave it out when there is none.");
       if (ctx.strings && !hasKey(ctx.strings, nodeId)) report(nat, `the text of node '${nodeId}' is missing: no string '${nodeId}' in locales/en.json`, "Add the line to locales/en.json (and to every other language).");
+      else if (ctx.strings) checkTranslated(nodeId, ctx, report, nat, `the text of node '${nodeId}'`);
       const hasChoices = Array.isArray(node.choices) && node.choices.length > 0;
       const ends = (node.effects ?? []).some((fx) => fx && fx.end === true);
       if (node.choices !== undefined && !hasChoices) report(`${nat}/choices`, `node '${nodeId}' has an empty 'choices' list`, "Remove it, or add at least one choice.");
@@ -231,6 +242,7 @@ export function validateDialogue(tables, ctx = {}, opts = {}) {
           else seen.add(c.id);
           if (typeof c.text !== "string" || c.text === "") report(`${cat}/text`, `choice ${i} of '${nodeId}' has no text key`, `Add "text": "${nodeId}_c${i + 1}" and the string in locales/en.json.`);
           else if (ctx.strings && !hasKey(ctx.strings, c.text)) report(`${cat}/text`, `the text of choice '${c.id ?? i}' of '${nodeId}' is missing: no string '${c.text}' in locales/en.json`, "Add it to locales/en.json (and to every other language).");
+          else if (ctx.strings) checkTranslated(c.text, ctx, report, `${cat}/text`, `the text of choice '${c.id ?? i}' of '${nodeId}'`);
           (c.if ?? []).forEach((cond, j) => checkCondition(cond, vocab, ctx, report, `${cat}/if/${j}`, `choice '${c.id ?? i}' of '${nodeId}'`));
           if (!(c.if?.length > 0)) unconditional = true;
           (c.effects ?? []).forEach((fx, j) => {
@@ -317,6 +329,7 @@ export function validateStory(story, ctx = {}) {
       for (const field of ["titleKey", "introKey"]) {
         if (typeof ch?.[field] !== "string") report(`${at}/${field}`, `chapter ${i + 1} has no ${field}`, `Add "${field}": "chapter.${i + 1}.${field === "titleKey" ? "title" : "intro"}" and the string in locales/en.json.`);
         else if (ctx.strings && !hasKey(ctx.strings, ch[field])) report(`${at}/${field}`, `chapter ${i + 1}: no string '${ch[field]}' in locales/en.json`, "Add it to locales/en.json.");
+        else if (ctx.strings) checkTranslated(ch[field], ctx, report, `${at}/${field}`, `chapter ${i + 1} ${field}`);
       }
       const last = i === chapters.length - 1;
       if (last) {
@@ -338,6 +351,7 @@ export function validateStory(story, ctx = {}) {
     for (const field of ["titleKey", "textKey"]) {
       if (typeof e?.[field] !== "string") report(`/endings/${id}/${field}`, `ending '${id}' has no ${field}`, `Add "${field}": "ending.${id}.${field === "titleKey" ? "title" : "text"}".`);
       else if (ctx.strings && !hasKey(ctx.strings, e[field])) report(`/endings/${id}/${field}`, `ending '${id}': no string '${e[field]}' in locales/en.json`, "Add it to locales/en.json.");
+      else if (ctx.strings) checkTranslated(e[field], ctx, report, `/endings/${id}/${field}`, `ending '${id}' ${field}`);
     }
   }
   for (const [name, p] of Object.entries(story.places ?? {})) {
@@ -371,6 +385,7 @@ export function validateCast(cast, ctx = {}) {
     if (!/^[a-z][a-z0-9_]*$/.test(id) || EXTRA_SPEAKERS.includes(id)) report(at, `character id '${id}' is not allowed`, `Use a snake_case name that is not ${EXTRA_SPEAKERS.join(" or ")}.`);
     if (typeof ch?.nameKey !== "string") report(`${at}/nameKey`, `character '${id}' has no nameKey`, `Add "nameKey": "cast.${id}.name" and the string.`);
     else if (ctx.strings && !hasKey(ctx.strings, ch.nameKey)) report(`${at}/nameKey`, `no string '${ch.nameKey}' in locales/en.json`, "Add the name to locales/en.json.");
+    else if (ctx.strings) checkTranslated(ch.nameKey, ctx, report, `${at}/nameKey`, `character '${id}' name`);
     if (!BODIES.includes(ch?.body)) report(`${at}/body`, `character '${id}' has the body ${JSON.stringify(ch?.body)}`, suggest(ch?.body ?? "", BODIES, "Bodies"), near(ch?.body ?? "", BODIES));
     if (!Array.isArray(ch?.tint) || ch.tint.length !== 4 || ch.tint.some((v) => typeof v !== "number" || v < 0 || v > 1)) report(`${at}/tint`, `character '${id}' has the tint ${JSON.stringify(ch?.tint)}`, "A tint is [r, g, b, a] with numbers between 0 and 1.");
     for (const [chapter, place] of Object.entries(ch?.schedule ?? {})) {

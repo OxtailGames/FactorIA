@@ -44,6 +44,8 @@ const DARK = [0.045, 0.055, 0.085, 1];
 const TABS = ["items", "notebook", "board"];
 /** The hole of the Items page where the 3D view shows, in design pixels: x, y, w, h. */
 const HOLE = { x: 430, y: 84, w: 400, h: 360 };
+/** Where the hole really is: the screens are mirrored in a right-to-left language (kit.mx), so is the 3D view. */
+const hole = () => ({ x: kit.mx(HOLE.x, HOLE.w), y: HOLE.y, w: HOLE.w, h: HOLE.h });
 /** Where the 3D stage stands: far above the lodge, so no lodge mesh or light reaches it. */
 const STAGE_Y = 300;
 const HINT_Y = 692;
@@ -80,8 +82,12 @@ export default class Screens extends Behaviour {
     this.pinchLast = 0;
     this.hudShown = null;
 
-    this.hudItems = world.spawn(this.hudButton("hud_items", 800, i18n.t("screens.hudItems"), 220));
-    this.hudNotebook = world.spawn(this.hudButton("hud_notebook", 1030, i18n.t("screens.hudNotebook"), 240));
+    this.makeHud();
+    // The HUD buttons are written by this script (their text, and their side of the screen in Hebrew): again in the new language.
+    i18n.on("change", () => {
+      this.makeHud();
+      this.dirty = true;
+    });
 
     notebook.markSeen();
     world.on(EVENTS.flagChanged, () => this.announceClues());
@@ -98,6 +104,15 @@ export default class Screens extends Behaviour {
     this.mode = null;
     this.releaseIn = 0;
     this.destroyView();
+  }
+
+  /** The two HUD buttons, in the current language (a language change builds them again). */
+  makeHud() {
+    this.hudItems?.destroy();
+    this.hudNotebook?.destroy();
+    this.hudItems = world.spawn(this.hudButton("hud_items", 800, i18n.t("screens.hudItems"), 220));
+    this.hudNotebook = world.spawn(this.hudButton("hud_notebook", 1030, i18n.t("screens.hudNotebook"), 240));
+    this.hudItems.active = this.hudNotebook.active = this.hudShown ?? false;
   }
 
   hudButton(id, x, text, w) {
@@ -310,7 +325,7 @@ export default class Screens extends Behaviour {
     });
     out.push(kit.button(this.id("close"), 1100, 16, 140, 52, i18n.t("screens.close")));
     this.on("close", () => this.close());
-    out.push(kit.label(this.id("hint"), 40, HINT_Y, 1200, i18n.t("screens.hintJournal"), { size: 17, color: GREY }));
+    out.push(kit.label(this.id("hint"), 40, HINT_Y, 1200, i18n.t("screens.hintJournal"), { size: 17, color: GREY, height: 26 }));
     if (this.tab === "items") out.push(...this.itemsChildren());
     else if (this.tab === "notebook") out.push(...this.notebookChildren());
     else out.push(...this.boardChildren());
@@ -323,7 +338,7 @@ export default class Screens extends Behaviour {
     const list = items.list();
     if (!list.includes(this.selItem)) this.selItem = list[0] ?? "";
     if (list.length === 0) {
-      out.push(kit.label(this.id("empty"), 50, 100, 340, i18n.t("screens.empty"), { size: 22, color: GREY }));
+      out.push(kit.label(this.id("empty"), 50, 100, 340, i18n.t("screens.empty"), { size: 22, color: GREY, height: 60 }));
       return out;
     }
     const rows = list.map((id) => {
@@ -338,9 +353,9 @@ export default class Screens extends Behaviour {
 
     const it = items.get(this.selItem);
     const kinds = { key: "screens.kindKey", clue: "screens.kindClue", tool: "screens.kindTool" };
-    out.push(kit.label(this.id("name"), 852, 96, 390, i18n.t(it.nameKey), { size: 30, color: GOLD }));
-    out.push(kit.label(this.id("kind"), 852, 140, 390, i18n.t(kinds[it.kind] ?? "screens.kindTool"), { size: 18, color: GREY }));
-    out.push(kit.label(this.id("desc"), 852, 176, 390, i18n.t(it.descriptionKey), { size: 21 }));
+    out.push(kit.label(this.id("name"), 852, 96, 390, i18n.t(it.nameKey), { size: 30, color: GOLD, height: 40 }));
+    out.push(kit.label(this.id("kind"), 852, 140, 390, i18n.t(kinds[it.kind] ?? "screens.kindTool"), { size: 18, color: GREY, height: 32 }));
+    out.push(kit.label(this.id("desc"), 852, 176, 390, i18n.t(it.descriptionKey), { size: 21, height: 120 }));
     if (it.readKey) {
       let key = it.readKey;
       let args = {};
@@ -348,10 +363,10 @@ export default class Screens extends Behaviour {
         key = puzzles.solved("letter") ? `${it.readKey}Whole` : it.readKey;
         args = { strips: puzzles.letterKeys().map((k) => i18n.t(k)).join("\n") };
       }
-      out.push(kit.label(this.id("read"), 852, 300, 390, i18n.t(key, args), { size: 19, markup: true }));
+      out.push(kit.label(this.id("read"), 852, 300, 390, i18n.t(key, args), { size: 19, markup: true, height: 280 }));
     }
 
-    out.push(kit.label(this.id("viewhint"), HOLE.x + 4, HOLE.y + HOLE.h + 10, HOLE.w - 8, i18n.t("item.view.hint"), { size: 17, color: GREY }));
+    out.push(kit.label(this.id("viewhint"), HOLE.x + 4, HOLE.y + HOLE.h + 10, HOLE.w - 8, i18n.t("item.view.hint"), { size: 17, color: GREY, height: 70 }));
     const combining = this.combineFrom !== "";
     // Combine and Piece together sit under the list: the pad's Down from the last item reaches them.
     out.push(kit.button(this.id("combine"), 40, 606, 170, 52, i18n.t(combining ? "screens.cancel" : "screens.combine"), { enabled: combining || list.length >= 2, accent: combining }));
@@ -368,7 +383,7 @@ export default class Screens extends Behaviour {
       out.push(kit.button(this.id("piece"), 220, 606, 190, 52, i18n.t("screens.pieceTogether")));
       this.on("piece", () => this.openPuzzle("letter", true));
     }
-    out.push(kit.label(this.id("msg"), 440, 530, 390, this.message || " ", { size: 20, color: GOLD }));
+    out.push(kit.label(this.id("msg"), 440, 530, 390, this.message || " ", { size: 20, color: GOLD, height: 70 }));
     // Zoom buttons in the corner of the view, for a mouse or a finger without a pinch (a modal panel keeps the wheel for itself).
     out.push(kit.button(this.id("zoom_out"), HOLE.x + HOLE.w - 100, HOLE.y + HOLE.h - 52, 44, 44, "-", { size: 28 }));
     out.push(kit.button(this.id("zoom_in"), HOLE.x + HOLE.w - 50, HOLE.y + HOLE.h - 52, 44, 44, "+", { size: 28 }));
@@ -416,7 +431,7 @@ export default class Screens extends Behaviour {
             depth: 50,
             clear: true,
             clearColor: [0.09, 0.1, 0.15, 1],
-            viewport: [HOLE.x / kit.W, HOLE.y / kit.H, HOLE.w / kit.W, HOLE.h / kit.H],
+            viewport: [hole().x / kit.W, HOLE.y / kit.H, HOLE.w / kit.W, HOLE.h / kit.H],
           },
         },
       });
@@ -487,7 +502,8 @@ export default class Screens extends Behaviour {
     if (!this.viewCam || !this.viewCam.alive) return;
     const m = input.mouse;
     const v = this.view;
-    const inside = (p) => p.x >= HOLE.x && p.x < HOLE.x + HOLE.w && p.y >= HOLE.y && p.y < HOLE.y + HOLE.h;
+    const hl = hole();
+    const inside = (p) => p.x >= hl.x && p.x < hl.x + hl.w && p.y >= hl.y && p.y < hl.y + hl.h;
     const touches = input.touches;
     if (m.pressed("left") && inside(m.position) && touches.length < 2 && !ui.hovered?.has("Button")) this.dragging = true;
     if (!m.down("left")) this.dragging = false;
@@ -515,7 +531,7 @@ export default class Screens extends Behaviour {
   // --------------------------------------------------------------------------------------------------------------- notebook
   notebookChildren() {
     const entries = notebook.entries();
-    if (entries.length === 0) return [kit.label(this.id("empty"), 50, 100, 1100, i18n.t("screens.noClues"), { size: 24, color: GREY })];
+    if (entries.length === 0) return [kit.label(this.id("empty"), 50, 100, 1100, i18n.t("screens.noClues"), { size: 24, color: GREY, height: 60 })];
     const rows = entries.map((e) => {
       const color = e.deduction ? "#9fd9a5" : "#e8c070";
       const text = `[c:${color}][b]${i18n.t(e.titleKey)}[/b][/c]\n${i18n.t(e.textKey)}`;
@@ -542,8 +558,8 @@ export default class Screens extends Behaviour {
 
   boardChildren() {
     const out = [];
-    out.push(kit.label(this.id("h_clues"), 40, 88, 400, i18n.t("screens.clues"), { size: 20, color: GREY }));
-    out.push(kit.label(this.id("h_ded"), 800, 88, 400, i18n.t("screens.deductions"), { size: 20, color: GREY }));
+    out.push(kit.label(this.id("h_clues"), 40, 88, 400, i18n.t("screens.clues"), { size: 20, color: GREY, height: 34 }));
+    out.push(kit.label(this.id("h_ded"), 800, 88, 400, i18n.t("screens.deductions"), { size: 20, color: GREY, height: 34 }));
     const centre = (id) => {
       const b = this.cardBox(id);
       return [b.x + b.w / 2, b.y + b.h / 2];
@@ -578,7 +594,7 @@ export default class Screens extends Behaviour {
     }
     this.defaultFocus = first || "tab_board";
     if (this.sel && notebook.known(this.sel)) {
-      out.push(kit.label(this.id("detail"), 40, 440, 720, `[c:#e8c070][b]${i18n.t(notebook.titleKey(this.sel))}[/b][/c]\n${i18n.t(notebook.textKey(this.sel))}`, { size: 20, markup: true }));
+      out.push(kit.label(this.id("detail"), 40, 440, 720, `[c:#e8c070][b]${i18n.t(notebook.titleKey(this.sel))}[/b][/c]\n${i18n.t(notebook.textKey(this.sel))}`, { size: 20, markup: true, height: 230 }));
     }
     const undoable = notebook.made().length > 0;
     const redoable = notebook.redoable().length > 0;
@@ -586,7 +602,7 @@ export default class Screens extends Behaviour {
     out.push(kit.button(this.id("redo"), 970, 570, 150, 48, i18n.t("screens.redo"), { enabled: redoable }));
     this.on("undo", () => this.undo());
     this.on("redo", () => this.redo());
-    out.push(kit.label(this.id("msg"), 800, 630, 440, this.message || " ", { size: 20, color: GOLD }));
+    out.push(kit.label(this.id("msg"), 800, 630, 440, this.message || " ", { size: 20, color: GOLD, height: 56 }));
     return out;
   }
 
@@ -624,9 +640,9 @@ export default class Screens extends Behaviour {
     out.push(kit.rect(this.id("dim"), 0, 0, kit.W, kit.H, [0, 0, 0, 0.72]));
     out.push(kit.rect(this.id("win_f"), 237, 57, 806, 606, [0.78, 0.62, 0.28, 1], kit.LAYER.back + 1));
     out.push(kit.rect(this.id("win"), 240, 60, 800, 600, [0.07, 0.08, 0.12, 1], kit.LAYER.back + 2));
-    out.push(kit.label(this.id("title"), 270, 76, 740, i18n.t(`puzzle.${id}.title`), { size: 32, color: GOLD }));
-    out.push(kit.label(this.id("intro"), 270, 124, 740, i18n.t(`puzzle.${id}.intro`), { size: 20 }));
-    out.push(kit.label(this.id("msg"), 270, 574, 600, this.message || " ", { size: 20, color: GOLD }));
+    out.push(kit.label(this.id("title"), 270, 76, 740, i18n.t(`puzzle.${id}.title`), { size: 32, color: GOLD, height: 44 }));
+    out.push(kit.label(this.id("intro"), 270, 124, 740, i18n.t(`puzzle.${id}.intro`), { size: 20, height: 60 }));
+    out.push(kit.label(this.id("msg"), 270, 574, 600, this.message || " ", { size: 20, color: GOLD, height: 50 }));
     out.push(kit.button(this.id("close"), 890, 604, 130, 44, i18n.t(this.backToJournal ? "screens.cancel" : "screens.close"), { size: 20 }));
     this.on("close", () => this.back());
     const parts = { drawer: () => this.drawerChildren(), timetable: () => this.timetableChildren(), letter: () => this.letterChildren(), fuse: () => this.fuseChildren() };
@@ -644,12 +660,12 @@ export default class Screens extends Behaviour {
     const out = [];
     const solved = puzzles.solved("drawer");
     const dials = puzzles.state("drawer").dials;
-    out.push(kit.label(this.id("hint"), 270, 190, 740, i18n.t("puzzle.drawer.hint"), { size: 18, color: GREY }));
+    out.push(kit.label(this.id("hint"), 270, 190, 740, i18n.t("puzzle.drawer.hint"), { size: 18, color: GREY, height: 100 }));
     dials.forEach((digit, i) => {
       const x = 380 + i * 130;
       out.push(kit.button(this.id(`up_${i}`), x, 240, 100, 50, "+", { size: 28, enabled: !solved }));
       out.push(kit.rect(this.id(`dial_bg_${i}`), x, 296, 100, 70, [0.14, 0.12, 0.08, 1], kit.LAYER.back + 3));
-      out.push(kit.label(this.id(`dial_${i}`), x + 33, 300, 60, String(digit), { size: 56, color: GOLD }));
+      out.push(kit.label(this.id(`dial_${i}`), x + 33, 300, 60, String(digit), { size: 56, color: GOLD, height: 90 }));
       out.push(kit.button(this.id(`down_${i}`), x, 372, 100, 50, "-", { size: 28, enabled: !solved }));
       this.on(`up_${i}`, () => {
         puzzles.turnDial(i, 1);
@@ -669,13 +685,13 @@ export default class Screens extends Behaviour {
   timetableChildren() {
     const out = [];
     const solved = puzzles.solved("timetable");
-    out.push(kit.label(this.id("notes"), 270, 186, 740, i18n.t("puzzle.timetable.notes"), { size: 18, color: GREY }));
-    [1, 2, 3].forEach((n, i) => out.push(kit.label(this.id(`note${n}`), 270, 212 + i * 30, 740, i18n.t(`puzzle.timetable.note${n}`), { size: 20, color: [0.85, 0.82, 0.7, 1] })));
+    out.push(kit.label(this.id("notes"), 270, 186, 740, i18n.t("puzzle.timetable.notes"), { size: 18, color: GREY, height: 26 }));
+    [1, 2, 3].forEach((n, i) => out.push(kit.label(this.id(`note${n}`), 270, 212 + i * 30, 740, i18n.t(`puzzle.timetable.note${n}`), { size: 20, color: [0.85, 0.82, 0.7, 1], height: 28 })));
     const order = puzzles.timetableOrder();
     order.forEach((sid, i) => {
       const y = 320 + i * 50;
       out.push(kit.rect(this.id(`row_bg_${i}`), 290, y, 300, 42, [0.15, 0.18, 0.26, 1], kit.LAYER.back + 3));
-      out.push(kit.label(this.id(`row_${i}`), 304, y + 8, 280, `${i + 1}.  ${i18n.t(`puzzle.service.${sid}`)}`, { size: 22 }));
+      out.push(kit.label(this.id(`row_${i}`), 304, y + 8, 280, `${i + 1}.  ${i18n.t(`puzzle.service.${sid}`)}`, { size: 22, height: 40 }));
       out.push(kit.button(this.id(`earlier_${i}`), 610, y, 130, 42, i18n.t("puzzle.timetable.up"), { size: 19, enabled: !solved && i > 0 }));
       out.push(kit.button(this.id(`later_${i}`), 750, y, 130, 42, i18n.t("puzzle.timetable.down"), { size: 19, enabled: !solved && i < order.length - 1 }));
       this.on(`earlier_${i}`, () => {
@@ -722,7 +738,7 @@ export default class Screens extends Behaviour {
     const s = puzzles.state("fuse");
     const solved = puzzles.solved("fuse");
     const fitted = s.fitted || solved;
-    out.push(kit.label(this.id("status"), 270, 200, 740, i18n.t("puzzle.fuse.status", { state: i18n.t(fitted ? "puzzle.fuse.stateFitted" : "puzzle.fuse.stateMissing") }), { size: 24, color: fitted ? GOOD : GOLD }));
+    out.push(kit.label(this.id("status"), 270, 200, 740, i18n.t("puzzle.fuse.status", { state: i18n.t(fitted ? "puzzle.fuse.stateFitted" : "puzzle.fuse.stateMissing") }), { size: 24, color: fitted ? GOOD : GOLD, height: 46 }));
     out.push(kit.button(this.id("fit"), 270, 250, 240, 52, i18n.t("puzzle.fuse.fit"), { enabled: !fitted }));
     this.on("fit", () => this.act(puzzles.fitFuse()));
     puzzles.breakers().forEach((sid, i) => {

@@ -35,11 +35,11 @@
         "id": "message_panel",
         "components": {
           "Transform": {
-            "position": [0, -112, 0]
+            "position": [0, -176, 0]
           },
           "Panel": {
             "anchor": [0.5, 1],
-            "pivot": [0.5, 1],
+            "pivot": [0.5, 0],
             "layer": 205,
             "color": [0.03, 0.03, 0.06, 0.8],
             "layout": "column",
@@ -58,6 +58,9 @@
                 "layer": 206,
                 "space": "screen",
                 "maxWidth": 820,
+                "maxHeight": 160,
+                "autoShrink": true,
+                "minFontSize": 12,
                 "align": "center"
               }
             }
@@ -68,11 +71,11 @@
         "id": "prompt_panel",
         "components": {
           "Transform": {
-            "position": [0, -40, 0]
+            "position": [0, -24, 0]
           },
           "Panel": {
             "anchor": [0.5, 1],
-            "pivot": [0.5, 1],
+            "pivot": [0.5, 0],
             "layer": 210,
             "color": [0.03, 0.03, 0.06, 0.82],
             "layout": "column",
@@ -89,6 +92,11 @@
                 "fontSize": 28,
                 "layer": 211,
                 "space": "screen",
+                "maxWidth": 1100,
+                "maxHeight": 120,
+                "autoShrink": true,
+                "minFontSize": 12,
+                "align": "center",
                 "color": [1, 0.93, 0.75, 1]
               }
             }
