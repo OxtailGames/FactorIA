@@ -96,6 +96,8 @@ struct NavTileGrid {
     std::vector<float> cost;   // width * height, row-major: the cost of ENTERING the cell (>= 0); < 0 = blocked
     Vec2 origin{0, 0};         // local position of the grid's top-left corner
     Vec2 cellSize{1, 1};       // cell (col, row) is centred at origin + ((col + 0.5) * cellSize.x, -(row + 0.5) * cellSize.y)
+    bool isometric = false;    // diamond cells (an isometric Tilemap): the centre is origin + ((col - row) * cellSize.x / 2,
+                               // -(col + row + 1) * cellSize.y / 2); cellSize.y is the ground height of the diamond
     float minOpenCost = -1.0f; // the cheapest open cell when the owner keeps it (NavCostGrid); < 0 = sweep the cells to find it
 };
 
@@ -115,7 +117,8 @@ struct NavTilePath {
     bool complete = true;                      // false: only the path to the cell nearest the goal (options.closest)
     std::vector<std::pair<int, int>> cells;    // (col, row) from the start to the end, both included
     float cost = 0.0f;                         // summed entering costs along the path
-    float length = 0.0f;                       // distance along the cell centres (grid local units)
+    float length = 0.0f;                       // distance along the cell centres (grid local units; for an isometric map the
+                                               // straight lines between the diamonds' centres, not the grid steps)
     std::string reason;                        // when !found: start_off_map, goal_off_map, goal_blocked, blocked or too_far
     std::string message, hint;
 };
@@ -143,6 +146,9 @@ Result<bool> nav_tile_map(World& world, const Json& args, const char* who, NavTi
 // result is {width, height, distance: [width * height numbers, row-major, null where no goal can be reached]} and, with
 // `from`: {reachable, cost, next: [col,row] | null, path: [[col,row]...]}.
 Result<Json> nav_flow_query(World& world, const Json& args);
+
+// The local position of the centre of cell (col, row) of `grid`: origin + the orthogonal or the isometric centre.
+Vec2 nav_tile_cell_center(const NavTileGrid& grid, int col, int row);
 
 // A Tilemap as a cost grid: tiles in `solidTiles` are blocked, every other cell (empty ones included) costs 1, and `costs`
 // ({"<tile index>": cost | null}, null or negative = blocked, key "-1" = empty cells) overrides either rule.

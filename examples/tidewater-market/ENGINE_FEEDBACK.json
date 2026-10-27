@@ -25,7 +25,10 @@
       "suggestion": "An optional Tilemap projection 'isometric' (tile 100x50) with cellAt(worldPoint) and cellToWorld(c, r), drawn as one batched mesh instead of one entity per cell; document the sprite draw order inside a layer in the sprites section.",
       "effort": "large",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.25): Tilemap.projection \"isometric\" (groundHeight, groundOffset) with entity.tilemap.cellAt and cellToWorld exists, and the sprite draw order inside a layer is in the sprites section of the AI guide. map_view.js now draws the ground (terrain, trees, roads) as ONE Tilemap whose tileset is one PNG per season (assets/src/make_terrain_tiles.py); a season swaps the PNG, a road or a cut forest rewrites one tile. Map entities went from 2826 to 246 (game), 2712 to 112 (title) and 4840 to 1029 (stress); draw calls are +1 on the title and the stress scene (the tileset is a second texture). iso.js stays as the pure maths of the picking (tests/map_view.test.js checks it against cellAt). Trees are now part of the ground layer, so a building covers the trees in front of it."
+      ]
     },
     {
       "id": "FB-0002",

@@ -574,6 +574,20 @@
         throw new Error(`tilemap.setTile(x, y, tile) expects three numbers (cell column, cell row, tile index or -1), got ${inspect(x)}, ${inspect(y)}, ${inspect(tile)}`);
       N.tileSet(this.$h, x, y, tile);
     }
+    // The cell under a WORLD point (a Vec2, {x, y} or [x, y]; for the mouse use camera.screenToWorld first), by the entity's
+    // transform and the map's projection (square or diamond). null when the point is outside the map.
+    cellAt(point) {
+      const p = vecArr(point, 2, "tilemap.cellAt(point)");
+      const [col, row, inside] = N.tileCellAt(this.$h, p[0], p[1]);
+      return inside ? { col, row } : null;
+    }
+    // The WORLD position of the centre of cell (col, row); the cell may lie outside the map.
+    cellToWorld(col, row) {
+      if (typeof col !== "number" || typeof row !== "number" || !Number.isFinite(col) || !Number.isFinite(row))
+        throw new Error(`tilemap.cellToWorld(col, row) expects two cell numbers, got ${inspect(col)}, ${inspect(row)}`);
+      const w = N.tileCellToWorld(this.$h, col, row);
+      return vec2(w[0], w[1]);
+    }
   }
 
   // ========================================================================================================== video

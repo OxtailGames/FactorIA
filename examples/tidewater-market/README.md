@@ -64,6 +64,7 @@ the ground cell behind it, not the building.
 | `scripts/game/` | Pure logic with no engine calls: `iso`, `events`, `mapgen`, `map`, `rules`, `economy`, `clock`, `state`, `data`, `format`, and the town: `sim` (buildings' runtime state, production, money), `roadnet` (the roads as an engine `nav.createGrid` and one `nav.flowField` per goal), `walkers`, `people` (villagers), `logistics` (carriers), `harbour`, `planner` and `bot` (a test player), `stress_town`, and the trade: `trade` (ships, orders, reputation, event and story cards, saving), `sea` (water routes), `rng` (the engine's `rng.create` streams with a weighted pick), `trade_data` and `trade_text` (the markup of the cards). Engine-facing: `nav_backend` (the engine's single-pair path finder on the roads' grid as a route backend, tests only). Behaviours: `game_controller`, `map_camera` (the menu kit's `camera_rig` with the game's controls), `map_view`, `walker_view`, `ship_view`, `trade_ui` (the board, and the cards through the kit's `ui/card.js`), `achievements` (the store bridge), `music_director`, `title_backdrop` |
 | `scenes/` | `menu` (title), `loading`, `game`, `stress` (the game scene with a 640-villager town built at start: `perf.measure` with `{"scene": "scenes/stress.scene.json"}`) |
 | `locales/en.json` | Every text the player sees. Nothing is hard-coded in a script |
+| `assets/tiles/<season>.png` | The ground: one tileset PNG per season (terrain, forests with trees, the 16 road pieces), made by `assets/src/make_terrain_tiles.py` from the atlas pictures; `data/terrain.json` `tileset` says the tile size, the indexes and which PNG belongs to which season. `map_view` draws it as ONE isometric `Tilemap` (entity `ground`) |
 | `assets/atlas.png` | One atlas with every picture the map draws (one atlas is one draw call). `assets.pack_atlas` builds it, and `data/atlas.json`, from the pictures in `assets/src/frames/` (one PNG per frame, named by its path; `pivots.json` there holds the pivots); `assets.json` has the provenance |
 | `tools/` | `project.map_preview`, `project.validate_data`, `project.grow_town` (the bot grows a town from a seed and reports it) |
 | `tests/` | map generation, rules, data tables, camera and picking, the pause menu, the mouse-only flow from the title screen, the clock and seasons, the HUD speed control, the simulation (walkers, road cuts, carriers, chains, wages, sales), the bot's year, the stress town, the trade (`trade`, `trade_ui`, `rich_text`) and screenshots to look at (`.factoria/tmp/*.png`) |
@@ -124,7 +125,7 @@ and loading (it moves the date without events; the simulation reads the season f
 
 **Seasons (`data/seasons.json`).** One entry per season id of the calendar: `production` (speed multiplier per recipe id, a
 missing one is 1, 0 = the building waits: "out of season"), `demand` (multiplier on a good's base price at the market),
-`tint` (colour multiplied onto the grass, sand and trees; `map_view` applies it on `clock.season`), `music` and `musicVolume`
+`tint` (colour multiplied onto the grass, sand and trees; baked into the season's tileset PNG, `map_view` swaps the Tilemap's `tileset` on `clock.season`), `music` and `musicVolume`
 (the loop `music_director` crossfades to; the loops are in `assets/music/`, made by `assets/src/make_music.py`). P3 prices read
 `sim.priceOf(good)`, which already multiplies by the season's demand.
 
@@ -223,6 +224,7 @@ About 600 villagers are on the roads at once in the morning (`tests/stress.test.
 `factoria call --project . perf.measure '{"scene": "scenes/stress.scene.json", "frames": 450}'` measured, in a DEBUG build on
 an Apple M5 (Metal): `cpuMsAvg` 29.8, `cpuMsP95` 30.0, `cpuMsMax` 1325 (the frames that build the town), `drawCalls` 27,
 `entities` 4682, `peakMemoryMB` 91.4. These are not budgets: P7 sets them on a release build and the CI runners.
+Since the ground became one Tilemap (M31.25) the same scene has about 1030 entities and 19 draw calls (`tools/cli/tests/perf/tidewater-market.perf.json`).
 Walker routes: the game's own distance fields cost 442 ms for 75 steps of 600 walkers against 5978 ms through `nav.findTilePath`
 with the road array on the same 60 x 60 map (FB-0006 in `ENGINE_FEEDBACK.json`). That report became `nav.createGrid` and
 `nav.flowField`, which the game now uses; the engine's benchmark (`engine/script/tests/test_nav_tiles_script.cpp`) compares the

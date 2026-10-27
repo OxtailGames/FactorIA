@@ -141,8 +141,20 @@ export function validateTables(raw) {
     else if (chars[t.char]) add("terrain", `${p}/char`, `char '${t.char}' is also used by '${chars[t.char]}'`, "every terrain needs its own character");
     else chars[t.char] = id;
     needFrame("terrain", `${p}/frame`, t.frame);
+    if (!Number.isInteger(t.tile) || t.tile < 0) add("terrain", `${p}/tile`, "tile must be a whole number, the cell's index in the terrain tilesets", "see tileset in data/terrain.json");
     for (const f of ["buildable", "roadable"]) if (typeof t[f] !== "boolean") add("terrain", `${p}/${f}`, `${f} must be true or false`);
     needLocale("terrain", p, `terrain.${id}`);
+  }
+  const tileset = raw.terrain.tileset;
+  if (!isObject(tileset)) add("terrain", "/tileset", "the tileset table is missing", "it says how the terrain tilesets are laid out (see assets/src/make_terrain_tiles.py)");
+  else {
+    for (const f of ["roadTile", "treeTile", "treeVariants", "columns"]) {
+      if (!Number.isInteger(tileset[f]) || tileset[f] < 0) add("terrain", `/tileset/${f}`, `${f} must be a whole number`, "see the comment of the tileset table");
+    }
+    if (!Array.isArray(tileset.tileSize) || tileset.tileSize.length !== 2) add("terrain", "/tileset/tileSize", "tileSize must be [width, height]", "the size of one cell of the tileset PNGs");
+    for (const season of Object.keys(isObject(raw.seasons.seasons) ? raw.seasons.seasons : {})) {
+      if (!isObject(tileset.seasons) || typeof tileset.seasons[season] !== "string") add("terrain", `/tileset/seasons/${season}`, `the season '${season}' has no tileset picture`, "name its PNG, made by assets/src/make_terrain_tiles.py");
+    }
   }
   for (const must of ["water", "sand", "grass", "forest", "rock"]) {
     if (!terrain[must]) add("terrain", "/terrain", `the terrain '${must}' is missing`, "the map generator and the rules refer to it by id");
@@ -331,6 +343,7 @@ export function loadData(raw = rawTables) {
     terrainIds,
     terrain,
     terrainByChar,
+    tileset: raw.terrain.tileset,
     goodIds: Object.keys(goods),
     goods,
     buildingIds: Object.keys(buildings),
