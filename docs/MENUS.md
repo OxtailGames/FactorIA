@@ -219,6 +219,9 @@ What the command does, file by file; do it by hand when you want to see each fil
   click), then `input.rebind(action, [pressed, ...the other device's bindings])` and saves the list. While it waits,
   `MenuStack.busy` keeps Escape and B from closing the panel. `input.buttonName(action)` names the button as the
   player's pad shows it (Cross on a PlayStation pad, A on an Xbox pad); "Reset to defaults" is `input.resetBindings()`.
+  `input.lastPressed()` gives a chord when modifiers are held ("Ctrl+Z", "Shift+MouseLeft"), so the player records one by
+  holding the modifiers and pressing the key; a modifier pressed on its own is taken when it is let go ("LeftShift"), and
+  the button shows the chord as `input.buttonName` prints it ("Ctrl+Z"). The binding the kit writes is the chord itself.
   With the `players` property above 1 (local multiplayer) the tab starts with a "Player N" button that cycles through the
   players and every row shows the player's keys and its pad buttons (`input.player(i).bindings(action, "keys")` and
   `"pad"`, which also work for a player with no device yet, as in a menu). A key replaces the keyboard list of the
@@ -1365,10 +1368,10 @@ export default class Options extends Behaviour {
     this.waiting = null;
     this.release = true;
     if (pressed !== "Escape" && this.players > 1) {
-      // A key replaces the keyboard list of the action for this player and a gamepad button or stick replaces its gamepad list; the
-      // mouse and touch belong to every player, so they are not bindings. The engine refuses a name the player's key scheme does not have.
+      // A key or a chord (Ctrl+Z) replaces the keyboard list of the action for this player and a gamepad button or stick replaces its gamepad list; the
+      // mouse and touch (also in a chord) belong to every player, so they are not bindings. The engine refuses a name the player's key scheme does not have.
       const player = input.player(this.seat);
-      if (!/^(Mouse|Touch)/.test(pressed)) {
+      if (!/(^|\+)(Mouse|Touch)/.test(pressed)) {
         try {
           player.rebind(action, [pressed], pressed.startsWith("Gamepad") ? "pad" : "keys");
           this.s.playerBindings[String(this.seat)] = player.export();

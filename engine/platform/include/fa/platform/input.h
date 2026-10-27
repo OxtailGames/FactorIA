@@ -15,6 +15,12 @@
 //              GamepadDpadLeft/Right/Up/Down, GamepadLeftShoulder/RightShoulder, GamepadLeftThumb/RightThumb
 //   half axes  GamepadLeftStickLeft/Right/Up/Down, GamepadRightStickLeft/Right/Up/Down, GamepadLeftTrigger,
 //              GamepadRightTrigger: ANALOG, see action_value()
+// Modifier chords: modifiers joined to a binding with "+", "Ctrl+Z", "Shift+MouseLeft", "Ctrl+Shift+S", "Alt+Touch". The
+// modifiers are Ctrl, Shift, Alt and Super (Cmd / the Windows key), each naming EITHER side's key; written in this order
+// when printed back ("Ctrl+Alt+Shift+Super+X"). "Shift" alone is a binding too (either Shift key). A chord is down while its
+// modifiers are held and its input is down. When one action binds Z and another Ctrl+Z, the chord wins: Z does not fire
+// while Ctrl is held (and so on for any binding whose modifiers are a subset of a held chord's). Chords combine with keys,
+// mouse buttons and Touch, not with gamepad bindings.
 // Unknown names are rejected by set_actions with a "did you mean" hint.
 //
 // PLAYERS (local multiplayer): the actions above answer to every device. For games where two to four people share the
@@ -57,6 +63,16 @@ enum class Key : std::uint16_t {
 };
 const char* key_name(Key k);               // "A", "Num1" is named "1", "Space"...
 Key key_from_name(std::string_view name);  // case-insensitive; Unknown if invalid
+
+// Modifier keys as a bit mask: each bit stands for the keys of both sides.
+namespace modifier {
+inline constexpr std::uint8_t Shift = 1, Ctrl = 2, Alt = 4, Super = 8;
+}
+// "Ctrl" / "Control", "Shift", "Alt", "Super" / "Cmd" / "Command" / "Win" (case-insensitive) to its bit; 0 when `name` is no
+// modifier. A key name such as "LeftShift" is not one: it names one side.
+std::uint8_t modifier_from_name(std::string_view name);
+const char* modifier_name(std::uint8_t bit);  // "Ctrl"; "" if `bit` is not exactly one modifier
+Key modifier_key(std::uint8_t bit, bool right = false);  // the key of one side (Key::Unknown if `bit` is not one modifier)
 
 enum class MouseButton : std::uint8_t { Left, Right, Middle, Count };
 
@@ -217,6 +233,12 @@ public:
 
     // -------- raw queries
     bool key_down(Key k) const;
+    // Which modifiers are held, as modifier:: bits (either side's key counts).
+    std::uint8_t modifiers_down() const;
+    // One modifier (a modifier:: bit), either side's key: held, went down this frame, went up this frame.
+    bool modifier_down(std::uint8_t bit) const { return (modifiers_down() & bit) != 0; }
+    bool modifier_pressed(std::uint8_t bit) const;
+    bool modifier_released(std::uint8_t bit) const;
     bool key_pressed(Key k) const;   // went down this frame
     bool key_released(Key k) const;  // went up this frame
     bool mouse_down(MouseButton b) const;
@@ -256,7 +278,10 @@ public:
     // pushed past the deadzone, a finger. A finger counts as touch (not as the mouse it also drives). Keyboard at start.
     InputDevice last_device() const { return lastDevice_; }
     // The binding name ("Space", "MouseLeft", "Touch", "GamepadA", "GamepadLeftStickUp"...) of an input that went down
-    // this frame, or "" when none did: what a "press a key to rebind" screen waits for. Pad sticks and triggers count
+    // this frame, or "" when none did: what a "press a key to rebind" screen waits for. With modifiers held it is the chord
+    // ("Ctrl+Z", "Shift+MouseLeft"). A modifier key pressed on its own is reported when it is RELEASED (by its key name,
+    // "LeftShift"), so that pressing Ctrl on the way to Ctrl+Z does not end the wait; a modifier that something else was
+    // pressed with is never reported alone. Pad sticks and triggers count
     // when they cross action_value 0.5 (kActionDownThreshold). If several went down in the same frame the first of this
     // order is reported: keys, touch, mouse buttons, pad buttons, pad sticks and triggers. Like every edge it is valid
     // until the next begin_frame().
@@ -339,6 +364,10 @@ public:
     // canonical spelling (keys, mouse buttons, "Touch", gamepad buttons and half axes) for "did you mean" hints.
     static bool is_binding_name(std::string_view name);
     static std::vector<std::string> binding_names();
+    // Why `name` is not a binding, as a sentence that says what is wrong and what to write instead: an unknown modifier or
+    // input in a chord ("Cntrl+Z": unknown modifier, did you mean Ctrl), a malformed chord ("Ctrl+"), a modifier on a
+    // gamepad binding, or, for a plain name, the usual "did you mean" with the closest binding names.
+    static std::string binding_problem(std::string_view name);
     std::vector<std::string> action_names() const;
     bool has_action(std::string_view action) const;
     // An action is down when its value() reaches kActionDownThreshold. Keys, mouse buttons, touch and pad buttons
@@ -436,7 +465,10 @@ private:
     InputObserver* observer_ = nullptr;
     int observerDepth_ = 0;
     struct Binding {
-        enum class Kind : std::uint8_t { Key, Mouse, Touch, PadButton, PadAxis } kind = Kind::Key;
+        // Mod: a modifier by itself ("Shift": either Shift key); `modBit` says which one.
+        enum class Kind : std::uint8_t { Key, Mouse, Touch, PadButton, PadAxis, Mod } kind = Kind::Key;
+        std::uint8_t mods = 0;    // modifier:: bits that must be held too (a chord); 0 for a plain binding
+        std::uint8_t modBit = 0;  // Kind::Mod: the modifier
         Key key = Key::Unknown;
         MouseButton mouse = MouseButton::Left;
         GamepadButton button = GamepadButton::A;
@@ -452,6 +484,8 @@ private:
         std::array<float, size_t(GamepadAxis::Count)> axes{}, prevAxes{};
     };
     static bool parse_binding(std::string_view name, Binding& out);
+    static bool parse_single_binding(std::string_view name, Binding& out);  // no modifiers
+    void mark_modifiers_used();
     // Which devices a read looks at: the global actions see everything, a player its own pad and key scheme.
     using KeySet = std::array<bool, size_t(Key::Count)>;
     struct View {
@@ -460,7 +494,20 @@ private:
         bool pointer = false;            // mouse buttons and touch
         bool keyboard = false;           // keys
         const KeySet* keySet = nullptr;  // keyboard: only these keys (nullptr: all of them)
+        int player = -1;                 // the player this view belongs to (-1: the global actions)
     };
+    std::uint8_t mods_held(bool previous, const View& view) const;  // modifier:: bits down, through the view's keys
+    // The binding as the keys and buttons say, chord modifiers included, ignoring whether a longer chord shadows it.
+    float binding_raw(const Binding& b, bool previous, const View& view) const;
+    // A chord bound by another action (or this one) with MORE modifiers than `b`, on the same input, and held: `b` is silent.
+    bool shadowed(const Binding& b, bool previous, const View& view) const;
+    // The edge of one binding's main input (a key, a mouse button, touch or a modifier), not looking at its modifiers.
+    bool main_edge(const Binding& b, const View& view, bool released) const;
+    std::string chord_prefix(const View& view) const;
+    std::string lone_modifier_release(const View& view) const;
+    static bool same_input(const Binding& a, const Binding& b);
+    static bool is_key_family(const Binding& b) { return b.kind == Binding::Kind::Key || b.kind == Binding::Kind::Mod; }
+    static bool in_key_set(const Binding& b, const KeySet& set);  // the keys (and modifiers' keys) of `b` are all in `set`
     float binding_value_in(const Binding& b, bool previous, const View& view) const;
     bool was_down_in(const std::vector<Binding>& list, const View& view) const;             // down as of the last begin_frame()
     bool edge_in(const std::vector<Binding>& list, const View& view, bool released) const;  // went down (or up) this frame
@@ -497,6 +544,7 @@ private:
     std::array<bool, size_t(Key::Count)> prevKeys_{};
     std::array<bool, size_t(Key::Count)> keyPressedEdge_{};   // went down at least once since begin_frame
     std::array<bool, size_t(Key::Count)> keyReleasedEdge_{};  // went up at least once since begin_frame
+    std::array<bool, size_t(Key::Count)> modKeyUsed_{};  // a held modifier key that something else was pressed with
     std::array<bool, size_t(MouseButton::Count)> mouse_buttons_{};
     std::array<bool, size_t(MouseButton::Count)> prevMouse_{};
     std::array<bool, size_t(MouseButton::Count)> mousePressedEdge_{};

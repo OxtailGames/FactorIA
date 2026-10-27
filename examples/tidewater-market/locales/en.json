@@ -68,6 +68,7 @@
       "pan_up": "Scroll up",
       "pan_down": "Scroll down",
       "pan_drag": "Drag the map",
+      "primary_shift": "Two-click road or demolish",
       "zoom_in": "Zoom in",
       "zoom_out": "Zoom out",
       "rotate": "Rotate building",

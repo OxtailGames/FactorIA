@@ -4,6 +4,22 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Modifier chords in input bindings
+
+- A binding takes modifiers: `"Ctrl+Z"`, `"Shift+MouseLeft"`, `"Ctrl+Shift+S"`, in `factoria.json` `input.actions`,
+  `input.rebind` and `input.player(i).rebind`. `Ctrl`, `Shift`, `Alt` and `Super` name either side's key, and so do they in
+  `input.keyDown` / `keyPressed` / `keyReleased`; `"Shift"` alone is a binding too. When one action binds `Z` and another
+  `Ctrl+Z`, the chord wins: `Z` does not fire while Ctrl is held. Chords print back as `Ctrl+Alt+Shift+Super+input`.
+  A bad chord is an error that says which part is wrong and what to write (`"Cntrl+Z"`: did you mean `Ctrl`), in
+  `factoria validate` too.
+- `input.lastPressed()` (and the player's) returns the chord when modifiers are held. A modifier pressed on its own is
+  now reported when it is released, not when it goes down, so a "press a key" screen can record `Ctrl+Z`. The menu kit's
+  Controls tab records and shows chords (and keeps mouse chords out of per-player bindings).
+- Tests: `game.keyDown("Shift")` / `keyUp("Shift")` hold a modifier (the left key), `game.tapKey("Ctrl+Z")` taps a chord. The
+  `game.input` command and replay files accept `Ctrl`, `Shift`, `Alt` and `Super` as key names too.
+- Tidewater Market binds Ctrl+Z, Ctrl+Y (with the plain Z and Y it had) and Shift+click (a road or a demolish takes two
+  clicks, as with the hold-free option) through the engine.
+
 Tile paths on a reusable grid, and flow fields
 
 - `nav.createGrid({ width, height, cost?, origin?, cellSize? })` keeps a cost grid in the engine. `nav.findTilePath(grid,

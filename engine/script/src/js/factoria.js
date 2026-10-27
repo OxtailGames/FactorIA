@@ -1065,7 +1065,8 @@
     bindings: (action) => N.inBindings(action),
     rebind(action, bindings) { N.inRebind(action, bindings); },
     resetBindings(action) { N.inResetBindings(action); },
-    // The binding that went down this frame ("Space", "MouseLeft", "GamepadA"...) or null: for "press a key" screens.
+    // The binding that went down this frame ("Space", "MouseLeft", "GamepadA", or a chord with the modifiers held: "Ctrl+Z",
+    // "Shift+MouseLeft") or null: for "press a key" screens. A modifier pressed alone is reported when released.
     lastPressed: () => N.inLastPressed(),
     get lastDevice() { return N.inLastDevice(); },
     // The label a player sees for a binding or an action: "Space", "Cross" (PlayStation A), "ZL"...
@@ -1073,6 +1074,8 @@
     // Deadzone of sticks (radial) and triggers, from factoria.json input.deadzone (default 0.2). Assign to offer calibration.
     get deadzone() { return N.inDeadzone(); },
     set deadzone(v) { N.inDeadzone(v); },
+    // keyDown / keyPressed / keyReleased take a key name ("Space", "LeftShift") or a modifier ("Ctrl", "Shift", "Alt", "Super"),
+    // which names either side's key.
     keyDown: (k) => N.inKey(0, k), keyPressed: (k) => N.inKey(1, k), keyReleased: (k) => N.inKey(2, k),
     mouse: {
       get position() { const m = N.inMouse().position; return new Vec2(m[0], m[1]); },
@@ -3152,8 +3155,17 @@
     release(action) { N.inSetAction(action, false); },
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
     // Presses a key and releases it over one frame, like tap does for an action (keyDown / keyUp hold it): game.tapKey("Enter")
-    // submits the focused TextField. `key` is a key name such as "Enter", "Escape", "A".
-    tapKey(key) { N.inKeyEvent(key, true); stepN(1); N.inKeyEvent(key, false); stepN(1); },
+    // submits the focused TextField. `key` is a key name such as "Enter", "Escape", "A", or a chord: tapKey("Ctrl+Z") holds Ctrl
+    // while Z is tapped and lets go of it after. keyDown/keyUp take "Ctrl", "Shift", "Alt" and "Super" (the left key) too, so a
+    // test holds a modifier over several steps: keyDown("Shift"); click(pos); keyUp("Shift").
+    tapKey(key) {
+      const parts = typeof key === "string" && key.includes("+") && key.trim() !== "+" ? key.split("+").map((p) => p.trim()) : [key];
+      const main = parts.pop();
+      for (const m of parts) N.inKeyEvent(m, true);
+      N.inKeyEvent(main, true); stepN(1); N.inKeyEvent(main, false);
+      for (const m of parts.reverse()) N.inKeyEvent(m, false);
+      stepN(1);
+    },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
     // Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change

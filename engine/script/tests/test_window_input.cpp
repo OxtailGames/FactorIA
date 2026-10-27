@@ -590,3 +590,53 @@ test("a desktop window can cap, a pretend phone cannot", () => {
     MESSAGE(rep.summary());
     CHECK(rep.ok());
 }
+
+TEST_CASE("modifier chords: keyDown names either side, a chord wins over its plain key, rebind and lastPressed record chords") {
+    TestHost h("input_chords");
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { input } from "factoria";
+test("keyDown(Ctrl) is either side", () => {
+  expect(input.keyDown("Ctrl")).toBe(false);
+  game.keyDown("RightControl");
+  expect(input.keyDown("Ctrl")).toBe(true);
+  expect(input.keyDown("Shift")).toBe(false);
+  game.keyUp("RightControl");
+  game.keyDown("LeftShift");
+  expect(input.keyDown("shift")).toBe(true);
+});
+test("a chord action fires only with the modifier, and silences the plain action", () => {
+  input.rebind("move_left", ["Ctrl+Z"]);
+  input.rebind("move_right", ["Z"]);
+  expect(input.bindings("move_left")).toEqual(["Ctrl+Z"]);
+  game.keyDown("Z");
+  expect(input.pressed("move_left")).toBe(false);
+  expect(input.pressed("move_right")).toBe(true);
+  game.keyUp("Z");
+  game.step(2);
+  game.keyDown("Ctrl");
+  game.keyDown("Z");
+  expect(input.pressed("move_left")).toBe(true);
+  expect(input.pressed("move_right")).toBe(false);   // the chord wins
+  game.keyUp("Z");
+  game.keyUp("Ctrl");
+});
+test("lastPressed and a rebind record a chord", () => {
+  game.keyDown("RightControl");
+  game.keyDown("Q");
+  expect(input.lastPressed()).toBe("Ctrl+Q");
+  game.keyUp("Q");
+  game.keyUp("RightControl");
+});
+test("a bad chord teaches", () => {
+  expect(() => input.rebind("jump", ["Crtl+Z"])).toThrow("Did you mean 'Ctrl'");
+  expect(() => input.rebind("jump", ["Ctrl+"])).toThrow("empty");
+  expect(() => input.rebind("jump", ["Ctrl+Ctrl+Z"])).toThrow("twice");
+  expect(input.bindings("jump")).toEqual(["Space"]);
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
