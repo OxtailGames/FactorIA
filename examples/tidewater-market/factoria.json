@@ -18,19 +18,19 @@
       "sea": [0.45, 0.75, 1, 1]
     },
     "icons": {
-      "fish": {"texture": "assets/atlas.png", "region": [201, 1191, 28, 28]},
-      "grain": {"texture": "assets/atlas.png", "region": [261, 1191, 28, 28]},
-      "wood": {"texture": "assets/atlas.png", "region": [501, 1191, 28, 28]},
-      "stone": {"texture": "assets/atlas.png", "region": [441, 1191, 28, 28]},
-      "planks": {"texture": "assets/atlas.png", "region": [291, 1191, 28, 28]},
-      "bread": {"texture": "assets/atlas.png", "region": [141, 1191, 28, 28]},
-      "tools": {"texture": "assets/atlas.png", "region": [471, 1191, 28, 28]},
-      "flour": {"texture": "assets/atlas.png", "region": [231, 1191, 28, 28]},
-      "smoked_fish": {"texture": "assets/atlas.png", "region": [381, 1191, 28, 28]},
-      "pop": {"texture": "assets/atlas.png", "region": [321, 1191, 28, 28]},
-      "coin": {"texture": "assets/atlas.png", "region": [171, 1191, 28, 28]},
-      "star": {"texture": "assets/atlas.png", "region": [411, 1191, 28, 28]},
-      "ship": {"texture": "assets/atlas.png", "region": [351, 1191, 28, 28]}
+      "fish": {"texture": "assets/atlas.png", "region": [210,1989,28,28]},
+      "grain": {"texture": "assets/atlas.png", "region": [614,482,28,28]},
+      "wood": {"texture": "assets/atlas.png", "region": [664,1496,28,28]},
+      "stone": {"texture": "assets/atlas.png", "region": [614,1334,28,28]},
+      "planks": {"texture": "assets/atlas.png", "region": [614,514,28,28]},
+      "bread": {"texture": "assets/atlas.png", "region": [210,1925,28,28]},
+      "tools": {"texture": "assets/atlas.png", "region": [614,1366,28,28]},
+      "flour": {"texture": "assets/atlas.png", "region": [1006,2004,28,28]},
+      "smoked_fish": {"texture": "assets/atlas.png", "region": [768,767,28,28]},
+      "pop": {"texture": "assets/atlas.png", "region": [614,546,28,28]},
+      "coin": {"texture": "assets/atlas.png", "region": [210,1957,28,28]},
+      "star": {"texture": "assets/atlas.png", "region": [768,799,28,28]},
+      "ship": {"texture": "assets/atlas.png", "region": [614,578,28,28]}
     }
   },
   "ui": {

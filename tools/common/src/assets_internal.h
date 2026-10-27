@@ -73,6 +73,7 @@ std::vector<std::string> sheet_next_steps(const std::string& texture, const Json
 std::optional<std::array<std::uint8_t, 3>> opaque_corner_color(const Image& image);
 
 void register_slice_sheet_command(CommandRegistry& registry, const std::string& projectDir);
+void register_pack_atlas_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_icon_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_capsules_command(CommandRegistry& registry, const std::string& projectDir);
 void register_synth_sound_command(CommandRegistry& registry, const std::string& projectDir);

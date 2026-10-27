@@ -120,7 +120,7 @@ export function validateTables(raw) {
   const needFrame = (table, pointer, frame) => {
     if (typeof frame !== "string" || !frames[frame]) {
       const guess = typeof frame === "string" ? didYouMean(frame, frameNames) : null;
-      add(table, pointer, `atlas frame '${frame}' does not exist`, (guess ? `did you mean '${guess}'? ` : "") + "frames are listed in data/atlas.json (made by assets/src/make_atlas.py)");
+      add(table, pointer, `atlas frame '${frame}' does not exist`, (guess ? `did you mean '${guess}'? ` : "") + "frames are listed in data/atlas.json (made by assets.pack_atlas from assets/src/frames)");
     }
   };
   const needLocale = (table, pointer, key) => {
@@ -305,7 +305,7 @@ export function validateTables(raw) {
   // the atlas the pictures come from
   if (typeof raw.atlas.texture !== "string") add("atlas", "/texture", "texture must be the path of the atlas picture");
   for (const [name, f] of Object.entries(frames)) {
-    if (!Array.isArray(f.rect) || f.rect.length !== 4 || !Array.isArray(f.pivot)) add("atlas", `/frames/${name}`, "a frame needs rect [x, y, w, h] and pivot [x, y]", "regenerate it with assets/src/make_atlas.py");
+    if (!Array.isArray(f.rect) || f.rect.length !== 4 || !Array.isArray(f.pivot)) add("atlas", `/frames/${name}`, "a frame needs rect [x, y, w, h] and pivot [x, y]", "pack again: factoria call assets.pack_atlas (README, Assets)");
   }
   return problems;
 }
