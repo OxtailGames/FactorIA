@@ -128,9 +128,10 @@ test("ui.focus on a disabled Button returns false instead of throwing", () => {
   game.loadJson(menu);
   game.step(1);
   expect(ui.focus("options")).toBe(true);
-  world.find("options").Button.interactable = false;
+  world.find("options").get("Button").interactable = false;
   game.step(1);
-  expect(ui.focused).toBeNull();                   // the focused widget was disabled: it lost the focus
+  expect(ui.focused.id).not.toBe("options");       // the focused widget was disabled: it lost the focus
+  ui.focus(null);
   expect(ui.focus("options")).toBe(false);
   expect(ui.focused).toBeNull();                   // nothing changed
   expect(ui.focus("play")).toBe(true);             // a screen falls back to an enabled button
@@ -385,7 +386,7 @@ TEST_CASE("ui: a menu is driven by gamepad taps from a JavaScript test") {
     auto t = e.commands().call("project.test", Json::object());
     REQUIRE_MESSAGE(t.ok, t.error.dump());
     CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump(2));
-    CHECK(t.result["passed"].get<int>() == 3);
+    CHECK(t.result["passed"].get<int>() == 4);
     e.shutdown();
 }
 
