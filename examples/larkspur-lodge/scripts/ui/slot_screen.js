@@ -32,7 +32,6 @@ export class SlotScreen {
     /** Runtime textures of the pictures shown, freed before they are drawn again. */
     this.pics = [];
     this.kbWasOpen = false;
-    MenuStack.busy = false; // a scene that went while the dialog was open must not leave the pause key blocked
     for (const [id, prefab] of [["slots", "slots"], ["slot_dialog", "slot_dialog"], ["keyboard_host", "keyboard_host"]]) {
       const panel = world.spawnPrefab(`prefabs/ui/${prefab}.prefab.json`);
       panel.id = id; // MenuStack shows panels by id
@@ -179,12 +178,10 @@ export class SlotScreen {
     }
     this.menus.show("slot_dialog");
     name.active = kind === "name";
-    MenuStack.busy = kind === "name"; // typing: the pause key (P) and Escape must not close the menus under the keyboard
     ui.focus(world.find(kind === "name" ? "save_name" : "dialog_cancel"));
   }
 
   closeDialog() {
-    MenuStack.busy = false;
     this.dialog = null;
     this.menus.back(); // gives the focus back to the button that opened the dialog
     this.refresh();

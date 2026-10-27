@@ -10,6 +10,7 @@ export class MenuStack {
 
   /** @param {string | null} root the panel that is always there (the main menu), or null (gameplay: nothing open) */
   constructor(root) {
+    MenuStack.busy = false; // a new scene builds a new stack: a flag a scene that went left on must not block the next one
     this.root = root;
     /** @type {Array<{ id: string, focus: any }>} */
     this.open = root ? [{ id: root, focus: null }] : [];
