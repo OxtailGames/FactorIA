@@ -437,8 +437,9 @@ names are nouns or phrased so that no agreement is needed.
 Font License 1.1, `assets/fonts/OFL.txt`, recorded in `assets.json`) is a subset of 1190 characters, 340 KB, listed in `localization.fallbackFonts`
 so it covers every Text of every language. `factoria validate` checks every string of every language against the fonts of the chain and fails
 with the missing character (`U+9F98`) and the key. Rebuild after adding or changing Chinese strings:
-`python3 assets/fonts/make_subset.py --source <NotoSansSC[wght].ttf>` (fontTools needed only for this; the source font is 17 MB and not in the repository;
-`--check` lists the missing characters without writing). It keeps every character of `locales/*.json`, ASCII, Latin-1 and the punctuation line breaking needs.
+`factoria call assets.subset_font '{"source":"<NotoSansSC[wght].ttf>","out":"assets/fonts/NotoSansSC-Regular-subset.ttf"}'` (the source font is 17 MB and not
+in the repository: Google Fonts, `ofl/notosanssc`; the command pins the variable font to wght 400, needs no Python and lists in `missing` the characters
+the source lacks). It keeps every character of `locales/*.json`, ASCII, Latin-1 and the punctuation line breaking needs.
 
 **Add a language.** Copy `locales/en.json` to `locales/<tag>.json` and translate it (keep the `{placeholders}` and the `[b]`, `[c:..]`,
 `[icon:..]` markup of the rich strings; `tests/languages.test.js` compares both with English, key by key), add the tag to `localization.languages`

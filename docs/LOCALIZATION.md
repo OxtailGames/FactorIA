@@ -218,6 +218,10 @@ font, has the Arabic-Indic and Persian ones).
   and list it in `factoria.json`: `languageFonts` for a font only that language needs, `fallbackFonts` for one every
   language needs (for example the font that draws the `$name` of every language in a language menu). A font is only
   read when some text needs it, and the list follows `i18n.setLanguage` at once, for the text already on screen too.
+  A CJK font is 10-17 MB: `assets.subset_font` cuts it to the characters of `locales/` plus Latin and punctuation (a
+  few hundred KB) and pins a variable font to one weight; see [TEXT.md](TEXT.md). It keeps the characters as written in the
+  tables: for Thai, Khmer or Lao also list in `keep` the letters a composed vowel splits into (the glyph check asks for them,
+  section 7).
   `factoria validate` fails when a table string has a character no font of its chain has (section 7).
 - **Right-to-left text.** Arabic and Hebrew are ordered with the Unicode bidirectional algorithm and joined by the
   shaper, with nothing to configure. The layout around the text is yours, and it follows the language when you ask:
