@@ -57,7 +57,7 @@ Draws a textured (or solid color) quad. Use `region` to pick a frame from a spri
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `texture` | asset (texture) | `""` | Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. |
+| `texture` | asset (texture) | `""` | Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `region` | rect | `[0.0,0.0,0.0,0.0]` | Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size means the whole texture. SpriteAnimator overwrites it every frame. |
 | `size` | vec2 | `[0.0,0.0]` | Size [w, h] in world units. [0, 0] = use the region (or texture) size in pixels. |
 | `pivot` | vec2 | `[0.5,0.5]` | Anchor inside the sprite: [0, 0] bottom-left, [0.5, 0.5] center, [1, 1] top-right. |
@@ -505,7 +505,7 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
@@ -538,7 +538,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
@@ -561,7 +561,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `minFontSize` | float | `10.0` | autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize. Range 1.0..4096.0. (not released yet, on main after 0.2.0) |
 | `markup` | bool | `false` | true: the text reads tags: [b]bold[/b], [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text". (not released yet, on main after 0.2.0) |
 | `bold` | bool | `false` | true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. [b] in markup does the same for a part of the text. false (default): regular weight. (not released yet, on main after 0.2.0) |
-| `icon` | asset (texture) | `""` | Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. (not released yet, on main after 0.2.0) |
+| `icon` | asset (texture) | `""` | Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (not released yet, on main after 0.2.0) |
 | `iconRegion` | rect | `[0.0,0.0,0.0,0.0]` | Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). A zero size means the whole texture. (not released yet, on main after 0.2.0) |
 | `iconSize` | vec2 | `[32.0,32.0]` | Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32]. (not released yet, on main after 0.2.0) |
 | `iconPosition` | enum: left \\| top \\| alone | `"left"` | left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the label shrinks to the room the icon leaves. (not released yet, on main after 0.2.0) |
@@ -580,7 +580,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
@@ -619,7 +619,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
@@ -665,7 +665,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
@@ -700,7 +700,7 @@ Scrolling container: its children are stacked in a column (aligned left, packed 
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
@@ -725,7 +725,7 @@ On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[1.0,1.0,1.0,0.2]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
@@ -750,7 +750,7 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[1.0,1.0,1.0,0.2]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
@@ -784,7 +784,7 @@ The subtitles of the game (docs/TEXT.md, "Captions"): draws the lines that `audi
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[0.0,0.0,0.0,0.7]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (not released yet, on main after 0.2.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (not released yet, on main after 0.2.0) |
@@ -812,7 +812,7 @@ A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[0.0,0.0,0.0,1.0]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". |
@@ -842,7 +842,7 @@ A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines i
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
 | `color` | color | `[0.0,0.0,0.0,0.35]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
-| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". |
@@ -4725,6 +4725,87 @@ declare module "factoria" {
   }
 
   /**
+   * What render.captureTexture takes.
+   * @since unreleased
+   */
+  export interface CaptureTextureOptions {
+    /**
+     * Width of the texture in pixels, a whole number from 1 to 2048.
+     * @since unreleased
+     */
+    width: number;
+    /**
+     * Height of the texture in pixels, a whole number from 1 to 2048.
+     * @since unreleased
+     */
+    height: number;
+    /**
+     * What to do when width : height is not the frame's aspect ratio. "cover" (default) cuts the middle part with that ratio out of the frame, so nothing is distorted and the long side loses its edges; "stretch" squeezes the whole frame into the size.
+     * @since unreleased
+     */
+    fit?: "cover" | "stretch";
+  }
+
+  /**
+   * A picture made at run time (render.captureTexture, render.textureFromPNG). Put `id` in a texture field, for example entity.get("Sprite").texture = tex.id, or a Panel's texture or a Button's icon, like the path of an asset; a Sprite with no `size` takes the texture's pixel size. It lives until destroy() (or the end of the game): the engine keeps at most 32 at a time, so destroy the ones you stop showing. Stop showing a texture (destroy its entity or change its texture field) before you destroy it: a frame that still names it draws the missing-texture checker and logs why. The pixels are also kept in memory (width x height x 4 bytes) so toPNG() works in every run. Example: const tex = render.captureTexture({ width: 256, height: 144 }); storage.set("slot1.png", tex.toPNG()); entity.get("Sprite").texture = tex.id;
+   * @since unreleased
+   */
+  export interface Texture {
+    /**
+     * What a texture field takes in place of an asset path ("runtime:3"). Numbers count from 1 in each run and are never reused.
+     * @since unreleased
+     */
+    readonly id: string;
+    /**
+     * Width in pixels.
+     * @since unreleased
+     */
+    readonly width: number;
+    /**
+     * Height in pixels.
+     * @since unreleased
+     */
+    readonly height: number;
+    /**
+     * True when the run has no renderer (a headless run without graphics): the picture is a flat colour of the size asked, not a capture. A normal run, a headless run with graphics and every test with a GPU give false.
+     * @since unreleased
+     */
+    readonly placeholder: boolean;
+    /**
+     * True after destroy().
+     * @since unreleased
+     */
+    readonly destroyed: boolean;
+    /**
+     * The picture as a PNG file, Base64 encoded (a string, because storage keeps JSON): storage.set("slot1.png", tex.toPNG()). render.textureFromPNG takes it back. A 256 x 144 picture of a town is about 20 to 60 KB of text; storage.set(key, value, { compress: true }) shrinks it a little. Throws after destroy().
+     * @since unreleased
+     */
+    toPNG(): string;
+    /**
+     * Frees the texture's memory. Safe to call twice. Do not keep showing it afterwards.
+     * @since unreleased
+     */
+    destroy(): void;
+  }
+
+  /**
+   * Pictures of the running game as textures, for a save slot, a photo mode or a minimap snapshot (docs/SCRIPTING.md, "Render"). A texture's pixels are those of a screenshot of the same frame.
+   * @since unreleased
+   */
+  export interface RenderAPI {
+    /**
+     * Makes a texture of the picture the player sees: the last frame that was drawn, with the HUD and every camera, at the size asked (the frame is read back from the GPU on Metal, OpenGL, Direct3D 11 and WebGL2, then resampled on the CPU). Called from a script during a frame it gives the frame before it; in a test it draws the current state first, like game.screenshot, and with the same size as the game target (game.screenSize, times window.renderScale) its pixels are exactly the screenshot's. In a run without a renderer (graphics off) it gives a flat placeholder of the size asked (texture.placeholder is true) so the code that saves and shows it still runs. Throws for a size outside 1 to 2048 and when 32 textures are alive. Example: const tex = render.captureTexture({ width: 256, height: 144 });
+     * @since unreleased
+     */
+    captureTexture(options: CaptureTextureOptions): Texture;
+    /**
+     * A texture from the text texture.toPNG() returned (Base64 of a PNG file; a data:image/png;base64,... URL works too), at most 2048 x 2048. Throws a teaching Error for text that is not a PNG or JPG/BMP/TGA image, and when 32 textures are alive. Synchronous: no Promise, so there is nothing to check afterwards. Example: const pic = storage.get("slot1.png", null); if (pic) entity.get("Sprite").texture = render.textureFromPNG(pic).id;
+     * @since unreleased
+     */
+    textureFromPNG(png: string): Texture;
+  }
+
+  /**
    * Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.
    */
   export interface StorageAPI {
@@ -6222,6 +6303,12 @@ declare module "factoria" {
   export const clipboard: ClipboardAPI;
 
   /**
+   * Textures made at run time: a picture of the game for a save slot (captureTexture, textureFromPNG).
+   * @since unreleased
+   */
+  export const render: RenderAPI;
+
+  /**
    * Save data.
    */
   export const storage: StorageAPI;
@@ -7043,7 +7130,7 @@ declare module "factoria" {
    */
   export interface SpriteComponent {
     /**
-     * Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. (asset path: texture)
+     * Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      */
     texture: string;
     /**
@@ -8456,7 +8543,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -8592,7 +8679,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -8712,7 +8799,7 @@ declare module "factoria" {
      */
     bold: boolean;
     /**
-     * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. (asset path: texture)
+     * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since unreleased
      */
     icon: string;
@@ -8776,7 +8863,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -8941,7 +9028,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -9141,7 +9228,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -9286,7 +9373,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -9380,7 +9467,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -9474,7 +9561,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -9613,7 +9700,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -9724,7 +9811,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since unreleased
      */
     texture: string;
@@ -9843,7 +9930,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
      * @since unreleased
      */
     texture: string;

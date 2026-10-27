@@ -32,6 +32,7 @@
 
 #include "fa/core/command.h"
 #include "fa/core/date.h"
+#include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/core/log.h"
 #include "fa/platform/speech.h"
@@ -179,6 +180,14 @@ public:
             return false;
         }
         return screenshot_scaled(path, scale, error);
+    }
+    // The picture the player sees now as pixels (row 0 = top), at the size the game target has (design size * render scale):
+    // what render.captureTexture shows. Draws the frame first when none has been drawn since the last change, like a
+    // screenshot. Hosts without a renderer keep the default, which fails with a sentence saying so.
+    virtual bool capture_frame(Image& out, std::string* error) {
+        (void)out;
+        if (error) *error = "this host has no renderer";
+        return false;
     }
     // The player's render scale option (`window.renderScale`, 0.5 .. 1): the game target is drawn at design size * scale.
     // set_render_scale returns "" when done, else a sentence saying why not. The default only remembers the value, for

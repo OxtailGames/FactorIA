@@ -413,6 +413,13 @@ public:
     // Makes a texture from CPU pixels (RGBA8) with an optional mip chain.
     TextureAsset* make_texture(const std::string& name, const Image& img, bool mips);
 
+    // A texture made at run time from CPU pixels (Renderer::create_texture), named "runtime:N" (N counts from 1 and is never
+    // reused). texture("runtime:N") answers it. It lives until destroy_runtime_texture (or the Assets object): clear() keeps
+    // it, because a script holds the id. destroy_runtime_texture returns false for an id that does not exist.
+    std::string make_runtime_texture(const Image& img);
+    bool destroy_runtime_texture(const std::string& id);
+    static bool is_runtime_id(const std::string& path) { return path.rfind("runtime:", 0) == 0; }
+
     // The texture that shows the current picture of a Video's decoder: made on first use (one write-transient image, made
     // again only when the picture size changes; the TextureAsset pointer stays valid) and written with the decoder's
     // picture once per sokol frame that draws it. Never null. end_video_frame() frees the textures of decoders no
@@ -445,6 +452,8 @@ private:
         bool seen = false;
     };
     std::unordered_map<const VideoDecoder*, VideoTexture> videoTextures_;
+    std::unordered_map<std::string, std::unique_ptr<TextureAsset>> runtime_;  // make_runtime_texture
+    int nextRuntime_ = 1;
     std::unique_ptr<TextureAsset> white_;
     std::unique_ptr<TextureAsset> placeholderTex_;
     std::unique_ptr<MeshAsset> placeholderMesh_;
