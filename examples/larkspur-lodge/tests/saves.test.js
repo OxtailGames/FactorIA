@@ -12,6 +12,7 @@ import * as story from "../scripts/story.js";
 import * as items from "../scripts/items.js";
 import * as chapters from "../scripts/chapters.js";
 import * as dialogue from "../scripts/dialogue.js";
+import * as cutscene from "../scripts/cutscene.js";
 import v1 from "./fixtures/save_v1.json";
 import v2 from "./fixtures/save_v2.json";
 
@@ -585,7 +586,10 @@ describe("chapter select, achievements and stats", () => {
     story.set("chapter", 5);
     game.step(10);
     story.set("ending", "dawn");
-    game.step(300);
+    for (let i = 0; i < 300; i++) {
+      if (cutscene.active()) cutscene.skip(); // the ending cut-scene plays before the ending screen (and the event)
+      game.step(1);
+    }
     await settle();
     expect(game.platform.state().fake.achievements.ending_dawn.unlocked).toBe(true);
     expect(progress.chapterSelectUnlocked()).toBe(true);

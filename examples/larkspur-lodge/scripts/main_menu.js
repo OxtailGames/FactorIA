@@ -64,7 +64,7 @@ export default class MainMenu extends Behaviour {
 
   newGame() {
     this.freshState();
-    chapters.begin(); // chapter 1 of the night; the conversation history starts empty
+    chapters.begin({ intro: true }); // chapter 1 of the night, opened by the intro (once); the conversation history starts empty
     session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
     scene.load("scenes/loading.scene.json");
   }

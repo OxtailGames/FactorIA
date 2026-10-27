@@ -13,7 +13,9 @@
 // Zoom:   mouse wheel, two-finger pinch, zoom_in / zoom_out (gamepad shoulders, R and V).
 // The porter reads `yaw` (scripts/porter.js moves relative to it). area.js calls snapBehind(yaw) on arrival.
 //
-// Fields tests read: `yaw`, `pitch`, `actualDistance`, `fadingIds` (entities faded right now) and fadeAlphaOf(id).
+// A cut-scene takes the camera with direct(pos, look) and gives it back with release(yaw).
+//
+// Fields tests read: `yaw`, `pitch`, `actualDistance`, `directed`, `fadingIds` (entities faded right now) and fadeAlphaOf(id).
 import { Behaviour, input, physics, world, ui } from "factoria";
 import { screenState } from "./ui/screen_state.js";
 
@@ -80,6 +82,8 @@ export default class LodgeCamera extends Behaviour {
     this.faded = new Map();
     this.pinchLast = 0;
     this.drag = null;
+    /** True while a cut-scene holds the camera (direct()). */
+    this.directed = false;
     this.apply(0);
     this.updateFade(0);
   }
@@ -87,6 +91,33 @@ export default class LodgeCamera extends Behaviour {
   headPoint() {
     const p = this.target ? this.target.position : { x: 0, y: 0, z: 0 };
     return [p.x, p.y + this.headHeight, p.z];
+  }
+
+  /**
+   * A cut-scene takes the camera (scripts/cutscene.js): it stands at `pos` and looks at `look` (world points) and follows nobody,
+   * reads no input and fades no walls until release(). Call it every frame it should move.
+   */
+  direct(pos, look) {
+    if (!this.directed) {
+      this.directed = true;
+      this.drag = null;
+      // Whatever was faded for the porter is solid again: the shot is about the room.
+      for (const f of this.faded.values()) if (f.entity.alive) f.mesh.color = f.base;
+      this.faded.clear();
+    }
+    const fx = look[0] - pos[0];
+    const fy = look[1] - pos[1];
+    const fz = look[2] - pos[2];
+    const len = Math.hypot(fx, fy, fz) || 1;
+    const t = this.entity.get("Transform");
+    t.position = [pos[0], pos[1], pos[2]];
+    t.rotation = [Math.asin(fy / len) / DEG, Math.atan2(-fx, -fz) / DEG, 0];
+  }
+
+  /** The cut-scene is over: the camera goes back behind the porter, looking along `yaw` (the porter's heading, degrees). */
+  release(yaw = this.yaw) {
+    this.directed = false;
+    this.snapBehind(yaw);
   }
 
   /** Puts the camera behind a porter that looks along `yaw` (an area arrival), with no smoothing. */
@@ -112,6 +143,7 @@ export default class LodgeCamera extends Behaviour {
   }
 
   onLateUpdate(dt) {
+    if (this.directed) return;
     this.readInput(dt);
     this.apply(dt);
     this.updateFade(dt);

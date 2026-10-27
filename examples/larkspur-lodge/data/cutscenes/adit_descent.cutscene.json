@@ -1,0 +1,97 @@
+{
+  "format": "larkspur.cutscene/1",
+  "id": "adit_descent",
+  "doc": "The porter lights the lantern and goes down the adit behind the third wine shelf. Asked by ch4_haas when the porter has the lantern and the oil; ends on a black screen, the conversation goes on in the dark.",
+  "duration": 13,
+  "room": "cellar",
+  "skippable": true,
+  "actors": {
+    "porter": {
+      "as": "porter",
+      "keep": true
+    },
+    "haas": {
+      "as": "npc",
+      "cast": "haas"
+    }
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "do": "camera",
+      "pos": [
+        14.2,
+        2.0,
+        7.2
+      ],
+      "look": [
+        18.2,
+        1.0,
+        3.6
+      ],
+      "seconds": 0,
+      "ease": "inOut",
+      "space": "world"
+    },
+    {
+      "at": 0.2,
+      "do": "camera",
+      "pos": [
+        15.4,
+        1.8,
+        6.8
+      ],
+      "look": [
+        18.4,
+        1.0,
+        3.2
+      ],
+      "seconds": 6.0,
+      "ease": "inOut",
+      "space": "world"
+    },
+    {
+      "at": 0.2,
+      "do": "face",
+      "actor": "haas",
+      "toward": "porter"
+    },
+    {
+      "at": 0.6,
+      "do": "caption",
+      "key": "cutscene.adit_descent.line01",
+      "seconds": 5.4,
+      "voice": "adit_descent_01",
+      "speaker": "haas"
+    },
+    {
+      "at": 2.0,
+      "do": "move",
+      "actor": "porter",
+      "to": [
+        18.4,
+        3.9
+      ],
+      "seconds": 3.4,
+      "clip": "walk",
+      "yaw": 0
+    },
+    {
+      "at": 6.4,
+      "do": "caption",
+      "key": "cutscene.adit_descent.line02",
+      "seconds": 5.2,
+      "voice": "adit_descent_02"
+    },
+    {
+      "at": 10.6,
+      "do": "fade",
+      "to": 1,
+      "seconds": 2.0
+    }
+  ],
+  "end": {
+    "fade": 1
+  },
+  "area": "cellar"
+}

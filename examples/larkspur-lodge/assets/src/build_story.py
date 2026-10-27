@@ -119,7 +119,7 @@ FLAGS = {
     "trust": ("number", "How much the household trusts the porter. Added to by kind choices (ch1_mara, ch2_haas, ch2_mara, ch3_mara, ch4_mara, ch4_haas, ch4_lucian); the 'quiet' ending needs 3, Haas gives his room key at 1."),
     "ending": ("string", "The ending reached: dawn, quiet or long. Set by the last line of ch5_vale; read by scripts/chapters.js, which shows the ending screen."),
     "storm_over": ("boolean", "The power is back and the storm has blown out, so the front door can be opened. Set by scripts/puzzles.js when the cellar fuse box is mended; read by the front door."),
-    "intro_seen": ("boolean", "The opening cut-scene has played. Set by the cut-scene player (P4)."),
+    "intro_seen": ("boolean", "The opening cut-scene (intro) has played or was skipped. Set by that cut-scene's end block (data/cutscenes/intro.cutscene.json); read by scripts/chapters.js so it plays once."),
     "vale_missing": ("boolean", "The porter knows Dr. Vale is missing. Set by ch1_hedda; ends chapter 1."),
     "know_oil": ("boolean", "Clue: Dr. Vale took a lantern and lamp oil to the cellar. Set by ch2_tobias and ch4_tobias; read by ch3_tobias."),
     "know_cellar": ("boolean", "Clue: the cellar goes back further than its shelves. Set by ch2_haas and by the chapter 4 entry; P3 reads it to hint at the wine rack."),
@@ -177,6 +177,14 @@ ENDINGS = {
 CUTSCENES = {
     "adit_descent": "The porter lights the lantern and goes down the adit behind the third wine shelf. Played by P4.",
     "adit_rescue": "The porter brings Dr. Vale up the steps into the lamplight. Played by P4.",
+    "intro": "The opening: the hall at eleven at night, the porter coming in out of the snow. Played when a new game starts (sets intro_seen).",
+    "chapter_2": "Lead-in to chapter 2: a card and a narrated line on a black screen.",
+    "chapter_3": "Lead-in to chapter 3: a card and a narrated line on a black screen.",
+    "chapter_4": "Lead-in to chapter 4: a card and a narrated line on a black screen.",
+    "chapter_5": "Lead-in to chapter 5: the hall at dawn, the camera finding Dr. Vale on the sofa.",
+    "ending_dawn": "The dawn ending in the hall, before the ending screen.",
+    "ending_quiet": "The quiet ending in the hall, before the ending screen.",
+    "ending_long": "The long ending in the hall, before the ending screen.",
 }
 
 # Where the cast stands: name -> (area, x, z, yaw). Metres in the area's scene; yaw 0 faces -Z, 90 -X, 180 +Z, 270 +X.

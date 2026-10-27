@@ -1,0 +1,33 @@
+{
+  "format": "larkspur.cutscene/1",
+  "id": "chapter_2",
+  "doc": "Lead-in to chapter 2, Cold supper: a card and a narrated line on a black screen.",
+  "duration": 11,
+  "room": "hall",
+  "skippable": true,
+  "actors": {},
+  "timeline": [
+    {
+      "at": 0,
+      "do": "fade",
+      "to": 1,
+      "seconds": 0
+    },
+    {
+      "at": 0.4,
+      "do": "card",
+      "key": "cutscene.chapter_2.card1",
+      "seconds": 3.6
+    },
+    {
+      "at": 1.8,
+      "do": "caption",
+      "key": "cutscene.chapter_2.line01",
+      "seconds": 7.0,
+      "voice": "chapter_2_01"
+    }
+  ],
+  "end": {
+    "fade": 1
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "format": "larkspur.rooms/1",
+  "doc": "The sound of each room for the voice-over and the cut-scenes (scripts/mix.js). reverb is the wet mix 0..1 of the voiceover bus, lowpass the cutoff in Hz (0 = open). duck is how much the music and sfx buses drop while someone speaks.",
+  "duck": { "amount": 0.55, "attack": 0.05, "release": 0.6 },
+  "rooms": {
+    "hall": { "reverb": 0.22, "lowpass": 0 },
+    "library": { "reverb": 0.1, "lowpass": 0 },
+    "kitchen": { "reverb": 0.14, "lowpass": 0 },
+    "corridor": { "reverb": 0.18, "lowpass": 0 },
+    "guest_room": { "reverb": 0.08, "lowpass": 0 },
+    "cellar": { "reverb": 0.42, "lowpass": 5200 }
+  }
+}

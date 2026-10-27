@@ -1,0 +1,5 @@
+{
+  "format": "larkspur.voice/1",
+  "doc": "The voice clips that exist. A caption whose voice id is listed here plays the clip (on the voiceover bus) and the caption lasts as long as the clip; a caption with no clip shows for its own seconds. Make a clip with assets.generate_voice from data/cutscenes/voice_script.json, then add { id: { path, seconds } } here. No clip has been generated yet: this machine had no voice provider configured (README, Cut-scenes).",
+  "clips": {}
+}
