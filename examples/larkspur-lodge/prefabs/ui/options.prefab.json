@@ -272,8 +272,9 @@
                     "autoSize": true,
                     "label": "Master",
                     "key": "options.volume.master",
-                    "size": [740, 56],
-                    "maxWidth": 700,
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
                     "labelAbove": true,
                     "layer": 302
                   }
@@ -286,8 +287,9 @@
                     "autoSize": true,
                     "label": "Music",
                     "key": "options.volume.music",
-                    "size": [740, 56],
-                    "maxWidth": 700,
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
                     "labelAbove": true,
                     "layer": 302
                   }
@@ -300,8 +302,9 @@
                     "autoSize": true,
                     "label": "Effects",
                     "key": "options.volume.effects",
-                    "size": [740, 56],
-                    "maxWidth": 700,
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
                     "labelAbove": true,
                     "layer": 302
                   }
@@ -314,8 +317,9 @@
                     "autoSize": true,
                     "label": "Ambience",
                     "key": "options.volume.ambience",
-                    "size": [740, 56],
-                    "maxWidth": 700,
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
                     "labelAbove": true,
                     "layer": 302
                   }
@@ -328,8 +332,9 @@
                     "autoSize": true,
                     "label": "Voices",
                     "key": "options.volume.voiceover",
-                    "size": [740, 56],
-                    "maxWidth": 700,
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
                     "labelAbove": true,
                     "layer": 302
                   }
@@ -342,8 +347,9 @@
                     "autoSize": true,
                     "label": "Interface",
                     "key": "options.volume.interface",
-                    "size": [740, 56],
-                    "maxWidth": 700,
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
                     "labelAbove": true,
                     "layer": 302
                   }
@@ -510,8 +516,9 @@
                     "autoSize": true,
                     "label": "Camera sensitivity",
                     "key": "options.cameraSensitivity",
-                    "size": [740, 56],
-                    "maxWidth": 700,
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
                     "labelAbove": true,
                     "layer": 302,
                     "min": 0.25,
