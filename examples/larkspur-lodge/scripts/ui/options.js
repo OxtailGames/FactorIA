@@ -181,6 +181,21 @@ export default class Options extends Behaviour {
       settings.applySubtitles(this.s);
       settings.save(this.s);
     });
+    // Text speed of the dialogue box (scripts/dialogue_view.js reads it for each line): a button that cycles the speeds.
+    ui.on("click", "text_speed", () => {
+      const all = settings.TEXT_SPEEDS;
+      const at = all.findIndex((x) => x.cps === this.s.textSpeed);
+      this.s.textSpeed = all[(at + 1) % all.length].cps;
+      settings.save(this.s);
+      this.refreshTextSpeed();
+    });
+    this.refreshTextSpeed();
+  }
+
+  refreshTextSpeed() {
+    const at = settings.TEXT_SPEEDS.find((x) => x.cps === this.s.textSpeed);
+    const name = at ? at.name : "custom";
+    world.find("text_speed").get("Button").text = i18n.t("options.textSpeed", { speed: i18n.t(`options.speed.${name}`) });
   }
 
   // --------------------------------------------------------------------------------------------------------- controls

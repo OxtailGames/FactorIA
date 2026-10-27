@@ -9,6 +9,14 @@ export const BUSES = ["master", "music", "sfx", "ui"];
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
 
+/** The dialogue text speeds the options menu cycles through: characters per second (0 = a whole line at once) and the locale name `options.speed.<name>`. */
+export const TEXT_SPEEDS = [
+  { name: "slow", cps: 20 },
+  { name: "normal", cps: 45 },
+  { name: "fast", cps: 90 },
+  { name: "instant", cps: 0 },
+];
+
 /**
  * What a player who never chose gets. The accessibility ones start from the system's settings (game.accessibility): they
  * follow the system on every run until the player saves their own choice (save() stores all the settings), which then wins.
@@ -30,6 +38,7 @@ function defaults() {
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
     uiScale: null, // the interface size (ui.scale), or null: keep the factoria.json ui.scale
     reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
+    textSpeed: system.reduceMotion ? 0 : 45, // dialogue text reveal in characters per second, 0 = a whole line at once (scripts/dialogue_view.js)
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
   };
 }

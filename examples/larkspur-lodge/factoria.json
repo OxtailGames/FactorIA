@@ -76,6 +76,22 @@
         "Escape",
         "P",
         "GamepadStart"
+      ],
+      "dialogue_log": [
+        "L",
+        "GamepadY"
+      ],
+      "choice_1": [
+        "1"
+      ],
+      "choice_2": [
+        "2"
+      ],
+      "choice_3": [
+        "3"
+      ],
+      "choice_4": [
+        "4"
       ]
     }
   },

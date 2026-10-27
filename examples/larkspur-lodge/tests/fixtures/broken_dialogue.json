@@ -1,0 +1,31 @@
+{
+  "format": "larkspur.dialogue/1",
+  "conversations": {
+    "broken": {
+      "doc": "A table with one of every mistake the validator names. tests/dialogue_data.test.js expects each of them.",
+      "start": "dlg.broken.hello",
+      "nodes": {
+        "dlg.broken.hello": {
+          "speaker": "maraa",
+          "next": "dlg.broken.helo"
+        },
+        "dlg.broken.menu": {
+          "speaker": "mara",
+          "choices": [
+            { "id": "ask", "text": "dlg.broken.menu_c1", "effects": [{ "set": "vale_mising" }], "next": "dlg.broken.hello" },
+            { "id": "leave", "text": "dlg.broken.menu_c2" },
+            { "id": "gift", "text": "dlg.broken.menu_c3", "if": ["item:libary_key"], "effects": [{ "give": "libary_key" }], "next": "@end" }
+          ]
+        },
+        "dlg.broken.nostring": {
+          "speaker": "mara",
+          "next": "@end"
+        },
+        "dlg.broken.orphan": {
+          "speaker": "mara",
+          "next": "@end"
+        }
+      }
+    }
+  }
+}

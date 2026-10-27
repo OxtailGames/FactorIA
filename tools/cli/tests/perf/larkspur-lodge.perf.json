@@ -12,12 +12,12 @@
   "runners": {
     "macos-clang-metal-debug": {
       "frames": 300,
-      "cpuMsAvg": 4.91,
-      "cpuMsP95": 4.61,
-      "cpuMsMax": 97.422,
-      "peakMemoryMB": 80.1,
+      "cpuMsAvg": 4.931,
+      "cpuMsP95": 4.642,
+      "cpuMsMax": 97.801,
+      "peakMemoryMB": 81.1,
       "drawCalls": 222,
-      "entities": 233,
+      "entities": 260,
       "graphics": "Metal / Apple M5",
       "triangles": 9208,
       "lights": 13,

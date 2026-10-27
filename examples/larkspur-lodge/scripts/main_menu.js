@@ -6,6 +6,7 @@ import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import * as story from "./story.js";
 import * as items from "./items.js";
+import * as chapters from "./chapters.js";
 import { readMenusAloud } from "./ui/read_aloud.js";
 
 export default class MainMenu extends Behaviour {
@@ -20,6 +21,7 @@ export default class MainMenu extends Behaviour {
     ui.on("click", "play", () => {
       story.reset(); // a new game starts with no story flags and an empty inventory
       items.reset();
+      chapters.begin(); // chapter 1 of the night; the conversation history starts empty
       session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
     });

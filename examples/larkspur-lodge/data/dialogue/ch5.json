@@ -1,0 +1,287 @@
+{
+  "format": "larkspur.dialogue/1",
+  "conversations": {
+    "ch5_vale": {
+      "doc": "Dr. Vale on the sofa: the finale. Offers the endings by the story so far.",
+      "start": "dlg.ch5_vale.start",
+      "nodes": {
+        "dlg.ch5_vale.start": {
+          "route": [
+            {
+              "if": [
+                "ending"
+              ],
+              "to": "dlg.ch5_vale.done"
+            },
+            {
+              "to": "dlg.ch5_vale.greet"
+            }
+          ]
+        },
+        "dlg.ch5_vale.greet": {
+          "speaker": "vale",
+          "voice": "vale_ch5_vale_greet",
+          "next": "dlg.ch5_vale.page"
+        },
+        "dlg.ch5_vale.page": {
+          "speaker": "vale",
+          "voice": "vale_ch5_vale_page",
+          "next": "dlg.ch5_vale.page2"
+        },
+        "dlg.ch5_vale.page2": {
+          "speaker": "vale",
+          "voice": "vale_ch5_vale_page2",
+          "next": "dlg.ch5_vale.ask"
+        },
+        "dlg.ch5_vale.ask": {
+          "speaker": "vale",
+          "voice": "vale_ch5_vale_ask",
+          "choices": [
+            {
+              "id": "truth",
+              "text": "dlg.ch5_vale.ask_c1",
+              "if": [
+                "survey_known"
+              ],
+              "next": "dlg.ch5_vale.truth_a"
+            },
+            {
+              "id": "bury",
+              "text": "dlg.ch5_vale.ask_c2",
+              "if": [
+                "trust>=3"
+              ],
+              "next": "dlg.ch5_vale.bury_a"
+            },
+            {
+              "id": "accuse",
+              "text": "dlg.ch5_vale.ask_c3",
+              "next": "dlg.ch5_vale.accuse_a"
+            },
+            {
+              "id": "wait",
+              "text": "dlg.ch5_vale.ask_c4",
+              "next": "dlg.ch5_vale.wait"
+            }
+          ]
+        },
+        "dlg.ch5_vale.wait": {
+          "speaker": "vale",
+          "voice": "vale_ch5_vale_wait",
+          "next": "dlg.ch5_vale.ask"
+        },
+        "dlg.ch5_vale.done": {
+          "speaker": "vale",
+          "voice": "vale_ch5_vale_done",
+          "next": "@end"
+        },
+        "dlg.ch5_vale.truth_a": {
+          "speaker": "vale",
+          "voice": "vale_ch5_vale_truth_a",
+          "next": "dlg.ch5_vale.truth_route"
+        },
+        "dlg.ch5_vale.truth_route": {
+          "route": [
+            {
+              "if": [
+                "trust>=3"
+              ],
+              "to": "dlg.ch5_vale.dawn_warm"
+            },
+            {
+              "to": "dlg.ch5_vale.dawn_cold"
+            }
+          ]
+        },
+        "dlg.ch5_vale.dawn_warm": {
+          "speaker": "narrator",
+          "next": "dlg.ch5_vale.dawn_end"
+        },
+        "dlg.ch5_vale.dawn_cold": {
+          "speaker": "narrator",
+          "next": "dlg.ch5_vale.dawn_end"
+        },
+        "dlg.ch5_vale.dawn_end": {
+          "speaker": "narrator",
+          "effects": [
+            {
+              "set": "ending",
+              "value": "dawn"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch5_vale.bury_a": {
+          "speaker": "vale",
+          "voice": "vale_ch5_vale_bury_a",
+          "choices": [
+            {
+              "id": "burn",
+              "text": "dlg.ch5_vale.bury_a_c1",
+              "next": "dlg.ch5_vale.bury_b"
+            },
+            {
+              "id": "keep",
+              "text": "dlg.ch5_vale.bury_a_c2",
+              "next": "dlg.ch5_vale.ask"
+            }
+          ]
+        },
+        "dlg.ch5_vale.bury_b": {
+          "speaker": "narrator",
+          "effects": [
+            {
+              "take": "guest_ledger"
+            },
+            {
+              "take": "torn_letter"
+            }
+          ],
+          "next": "dlg.ch5_vale.bury_c"
+        },
+        "dlg.ch5_vale.bury_c": {
+          "speaker": "narrator",
+          "next": "dlg.ch5_vale.bury_end"
+        },
+        "dlg.ch5_vale.bury_end": {
+          "speaker": "narrator",
+          "effects": [
+            {
+              "set": "ending",
+              "value": "quiet"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch5_vale.accuse_a": {
+          "speaker": "vale",
+          "voice": "vale_ch5_vale_accuse_a",
+          "next": "dlg.ch5_vale.accuse_b"
+        },
+        "dlg.ch5_vale.accuse_b": {
+          "speaker": "haas",
+          "voice": "haas_ch5_vale_accuse_b",
+          "next": "dlg.ch5_vale.accuse_c"
+        },
+        "dlg.ch5_vale.accuse_c": {
+          "speaker": "narrator",
+          "next": "dlg.ch5_vale.accuse_end"
+        },
+        "dlg.ch5_vale.accuse_end": {
+          "speaker": "narrator",
+          "effects": [
+            {
+              "set": "ending",
+              "value": "long"
+            }
+          ],
+          "next": "@end"
+        }
+      }
+    },
+    "ch5_mara": {
+      "doc": "Mara at the fire after the rescue.",
+      "start": "dlg.ch5_mara.greet",
+      "nodes": {
+        "dlg.ch5_mara.greet": {
+          "speaker": "mara",
+          "voice": "mara_ch5_mara_greet",
+          "choices": [
+            {
+              "id": "later",
+              "text": "dlg.ch5_mara.greet_c1",
+              "next": "dlg.ch5_mara.later"
+            },
+            {
+              "id": "plan",
+              "text": "dlg.ch5_mara.greet_c2",
+              "next": "dlg.ch5_mara.plan"
+            }
+          ]
+        },
+        "dlg.ch5_mara.later": {
+          "speaker": "mara",
+          "voice": "mara_ch5_mara_later",
+          "next": "@end"
+        },
+        "dlg.ch5_mara.plan": {
+          "speaker": "mara",
+          "voice": "mara_ch5_mara_plan",
+          "next": "@end"
+        }
+      }
+    },
+    "ch5_hedda": {
+      "doc": "Hedda in the hall after the rescue.",
+      "start": "dlg.ch5_hedda.greet",
+      "nodes": {
+        "dlg.ch5_hedda.greet": {
+          "speaker": "hedda",
+          "voice": "hedda_ch5_hedda_greet",
+          "next": "dlg.ch5_hedda.close"
+        },
+        "dlg.ch5_hedda.close": {
+          "speaker": "hedda",
+          "voice": "hedda_ch5_hedda_close",
+          "next": "@end"
+        }
+      }
+    },
+    "ch5_tobias": {
+      "doc": "Tobias in the hall with the breakfast.",
+      "start": "dlg.ch5_tobias.greet",
+      "nodes": {
+        "dlg.ch5_tobias.greet": {
+          "speaker": "tobias",
+          "voice": "tobias_ch5_tobias_greet",
+          "next": "@end"
+        }
+      }
+    },
+    "ch5_haas": {
+      "doc": "Haas in the hall: he will not argue with what the porter decides.",
+      "start": "dlg.ch5_haas.greet",
+      "nodes": {
+        "dlg.ch5_haas.greet": {
+          "speaker": "haas",
+          "voice": "haas_ch5_haas_greet",
+          "next": "dlg.ch5_haas.close"
+        },
+        "dlg.ch5_haas.close": {
+          "speaker": "haas",
+          "voice": "haas_ch5_haas_close",
+          "next": "@end"
+        }
+      }
+    },
+    "ch5_lucian": {
+      "doc": "Lucian in the hall: his pencil is out of his pocket again.",
+      "start": "dlg.ch5_lucian.start",
+      "nodes": {
+        "dlg.ch5_lucian.start": {
+          "route": [
+            {
+              "if": [
+                "hedda_letter"
+              ],
+              "to": "dlg.ch5_lucian.letter"
+            },
+            {
+              "to": "dlg.ch5_lucian.greet"
+            }
+          ]
+        },
+        "dlg.ch5_lucian.greet": {
+          "speaker": "lucian",
+          "voice": "lucian_ch5_lucian_greet",
+          "next": "@end"
+        },
+        "dlg.ch5_lucian.letter": {
+          "speaker": "lucian",
+          "voice": "lucian_ch5_lucian_letter",
+          "next": "@end"
+        }
+      }
+    }
+  }
+}

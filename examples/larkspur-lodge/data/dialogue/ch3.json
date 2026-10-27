@@ -1,0 +1,465 @@
+{
+  "format": "larkspur.dialogue/1",
+  "conversations": {
+    "ch3_hedda": {
+      "doc": "Hedda at the door of room C holds the spare key. The torn letter, urgency or a threat each open her; 'please' does not.",
+      "start": "dlg.ch3_hedda.start",
+      "nodes": {
+        "dlg.ch3_hedda.start": {
+          "route": [
+            {
+              "if": [
+                "item:room_c_key"
+              ],
+              "to": "dlg.ch3_hedda.again"
+            },
+            {
+              "if": [
+                "open.guest_door_c"
+              ],
+              "to": "dlg.ch3_hedda.again"
+            },
+            {
+              "if": [
+                "talked.hedda.3"
+              ],
+              "to": "dlg.ch3_hedda.again"
+            },
+            {
+              "to": "dlg.ch3_hedda.greet"
+            }
+          ]
+        },
+        "dlg.ch3_hedda.greet": {
+          "speaker": "hedda",
+          "voice": "hedda_ch3_hedda_greet",
+          "next": "dlg.ch3_hedda.ask"
+        },
+        "dlg.ch3_hedda.ask": {
+          "speaker": "hedda",
+          "voice": "hedda_ch3_hedda_ask",
+          "choices": [
+            {
+              "id": "letter",
+              "text": "dlg.ch3_hedda.ask_c1",
+              "if": [
+                "item:torn_letter"
+              ],
+              "next": "dlg.ch3_hedda.letter"
+            },
+            {
+              "id": "urgent",
+              "text": "dlg.ch3_hedda.ask_c2",
+              "next": "dlg.ch3_hedda.urgent"
+            },
+            {
+              "id": "threat",
+              "text": "dlg.ch3_hedda.ask_c3",
+              "next": "dlg.ch3_hedda.threat"
+            },
+            {
+              "id": "please",
+              "text": "dlg.ch3_hedda.ask_c4",
+              "next": "dlg.ch3_hedda.please"
+            }
+          ]
+        },
+        "dlg.ch3_hedda.letter": {
+          "speaker": "hedda",
+          "voice": "hedda_ch3_hedda_letter",
+          "effects": [
+            {
+              "set": "hedda_letter"
+            }
+          ],
+          "next": "dlg.ch3_hedda.letter2"
+        },
+        "dlg.ch3_hedda.letter2": {
+          "speaker": "hedda",
+          "voice": "hedda_ch3_hedda_letter2",
+          "next": "dlg.ch3_hedda.give"
+        },
+        "dlg.ch3_hedda.urgent": {
+          "speaker": "hedda",
+          "voice": "hedda_ch3_hedda_urgent",
+          "next": "dlg.ch3_hedda.give"
+        },
+        "dlg.ch3_hedda.threat": {
+          "speaker": "hedda",
+          "voice": "hedda_ch3_hedda_threat",
+          "next": "dlg.ch3_hedda.give"
+        },
+        "dlg.ch3_hedda.please": {
+          "speaker": "hedda",
+          "voice": "hedda_ch3_hedda_please",
+          "next": "@end"
+        },
+        "dlg.ch3_hedda.give": {
+          "speaker": "hedda",
+          "voice": "hedda_ch3_hedda_give",
+          "effects": [
+            {
+              "give": "room_c_key"
+            },
+            {
+              "set": "talked.hedda.3"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch3_hedda.again": {
+          "speaker": "hedda",
+          "voice": "hedda_ch3_hedda_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch3_tobias": {
+      "doc": "Tobias knows where the pantry spare of the room C key hangs. The oil clue, or a kindness, wins it.",
+      "start": "dlg.ch3_tobias.start",
+      "nodes": {
+        "dlg.ch3_tobias.start": {
+          "route": [
+            {
+              "if": [
+                "item:room_c_key"
+              ],
+              "to": "dlg.ch3_tobias.again"
+            },
+            {
+              "if": [
+                "open.guest_door_c"
+              ],
+              "to": "dlg.ch3_tobias.again"
+            },
+            {
+              "if": [
+                "talked.tobias.3"
+              ],
+              "to": "dlg.ch3_tobias.again"
+            },
+            {
+              "to": "dlg.ch3_tobias.greet"
+            }
+          ]
+        },
+        "dlg.ch3_tobias.greet": {
+          "speaker": "tobias",
+          "voice": "tobias_ch3_tobias_greet",
+          "next": "dlg.ch3_tobias.key"
+        },
+        "dlg.ch3_tobias.key": {
+          "speaker": "tobias",
+          "voice": "tobias_ch3_tobias_key",
+          "choices": [
+            {
+              "id": "oil",
+              "text": "dlg.ch3_tobias.key_c1",
+              "if": [
+                "know_oil"
+              ],
+              "next": "dlg.ch3_tobias.oil"
+            },
+            {
+              "id": "owed",
+              "text": "dlg.ch3_tobias.key_c2",
+              "next": "dlg.ch3_tobias.owed"
+            },
+            {
+              "id": "idea",
+              "text": "dlg.ch3_tobias.key_c3",
+              "next": "dlg.ch3_tobias.idea"
+            }
+          ]
+        },
+        "dlg.ch3_tobias.oil": {
+          "speaker": "tobias",
+          "voice": "tobias_ch3_tobias_oil",
+          "next": "dlg.ch3_tobias.give"
+        },
+        "dlg.ch3_tobias.owed": {
+          "speaker": "tobias",
+          "voice": "tobias_ch3_tobias_owed",
+          "next": "@end"
+        },
+        "dlg.ch3_tobias.idea": {
+          "speaker": "tobias",
+          "voice": "tobias_ch3_tobias_idea",
+          "next": "dlg.ch3_tobias.give"
+        },
+        "dlg.ch3_tobias.give": {
+          "speaker": "tobias",
+          "voice": "tobias_ch3_tobias_give",
+          "effects": [
+            {
+              "give": "room_c_key"
+            },
+            {
+              "set": "talked.tobias.3"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch3_tobias.again": {
+          "speaker": "tobias",
+          "voice": "tobias_ch3_tobias_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch3_mara": {
+      "doc": "Mara in the library (needs the library key): the boundary stones. Sets survey_known; a kind question earns trust once.",
+      "start": "dlg.ch3_mara.start",
+      "nodes": {
+        "dlg.ch3_mara.start": {
+          "route": [
+            {
+              "if": [
+                "talked.mara.3"
+              ],
+              "to": "dlg.ch3_mara.again"
+            },
+            {
+              "to": "dlg.ch3_mara.greet"
+            }
+          ]
+        },
+        "dlg.ch3_mara.greet": {
+          "speaker": "mara",
+          "voice": "mara_ch3_mara_greet",
+          "next": "dlg.ch3_mara.desk"
+        },
+        "dlg.ch3_mara.desk": {
+          "speaker": "mara",
+          "voice": "mara_ch3_mara_desk",
+          "choices": [
+            {
+              "id": "ledger",
+              "text": "dlg.ch3_mara.desk_c1",
+              "if": [
+                "item:guest_ledger"
+              ],
+              "next": "dlg.ch3_mara.ledger"
+            },
+            {
+              "id": "stones",
+              "text": "dlg.ch3_mara.desk_c2",
+              "next": "dlg.ch3_mara.stones"
+            },
+            {
+              "id": "fine",
+              "text": "dlg.ch3_mara.desk_c3",
+              "if": [
+                "!mara_kind"
+              ],
+              "effects": [
+                {
+                  "set": "mara_kind"
+                },
+                {
+                  "add": "trust"
+                }
+              ],
+              "next": "dlg.ch3_mara.fine"
+            }
+          ]
+        },
+        "dlg.ch3_mara.fine": {
+          "speaker": "mara",
+          "voice": "mara_ch3_mara_fine",
+          "next": "dlg.ch3_mara.desk"
+        },
+        "dlg.ch3_mara.ledger": {
+          "speaker": "mara",
+          "voice": "mara_ch3_mara_ledger",
+          "next": "dlg.ch3_mara.confess"
+        },
+        "dlg.ch3_mara.stones": {
+          "speaker": "mara",
+          "voice": "mara_ch3_mara_stones",
+          "next": "dlg.ch3_mara.confess"
+        },
+        "dlg.ch3_mara.confess": {
+          "speaker": "mara",
+          "voice": "mara_ch3_mara_confess",
+          "next": "dlg.ch3_mara.bye"
+        },
+        "dlg.ch3_mara.bye": {
+          "speaker": "mara",
+          "voice": "mara_ch3_mara_bye",
+          "effects": [
+            {
+              "set": "survey_known"
+            },
+            {
+              "set": "talked.mara.3"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch3_mara.again": {
+          "speaker": "mara",
+          "voice": "mara_ch3_mara_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch3_haas": {
+      "doc": "Haas in the east corridor: his room key is a reward for the trust the porter has earned (trust>=1).",
+      "start": "dlg.ch3_haas.start",
+      "nodes": {
+        "dlg.ch3_haas.start": {
+          "route": [
+            {
+              "if": [
+                "talked.haas.3"
+              ],
+              "to": "dlg.ch3_haas.again"
+            },
+            {
+              "to": "dlg.ch3_haas.greet"
+            }
+          ]
+        },
+        "dlg.ch3_haas.greet": {
+          "speaker": "haas",
+          "voice": "haas_ch3_haas_greet",
+          "choices": [
+            {
+              "id": "room",
+              "text": "dlg.ch3_haas.greet_c1",
+              "if": [
+                "trust>=1"
+              ],
+              "next": "dlg.ch3_haas.room"
+            },
+            {
+              "id": "midnight",
+              "text": "dlg.ch3_haas.greet_c2",
+              "next": "dlg.ch3_haas.midnight"
+            },
+            {
+              "id": "nothing",
+              "text": "dlg.ch3_haas.greet_c3",
+              "next": "dlg.ch3_haas.nothing"
+            }
+          ]
+        },
+        "dlg.ch3_haas.room": {
+          "speaker": "haas",
+          "voice": "haas_ch3_haas_room",
+          "effects": [
+            {
+              "give": "room_d_key"
+            },
+            {
+              "set": "haas_room"
+            }
+          ],
+          "next": "dlg.ch3_haas.gave"
+        },
+        "dlg.ch3_haas.gave": {
+          "speaker": "haas",
+          "voice": "haas_ch3_haas_gave",
+          "effects": [
+            {
+              "set": "talked.haas.3"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch3_haas.midnight": {
+          "speaker": "haas",
+          "voice": "haas_ch3_haas_midnight",
+          "effects": [
+            {
+              "set": "talked.haas.3"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch3_haas.nothing": {
+          "speaker": "haas",
+          "voice": "haas_ch3_haas_nothing",
+          "next": "@end"
+        },
+        "dlg.ch3_haas.again": {
+          "speaker": "haas",
+          "voice": "haas_ch3_haas_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch3_lucian": {
+      "doc": "Lucian in room B (the door is shut, not locked): the second way to learn the survey story. Sets survey_known.",
+      "start": "dlg.ch3_lucian.start",
+      "nodes": {
+        "dlg.ch3_lucian.start": {
+          "route": [
+            {
+              "if": [
+                "talked.lucian.3"
+              ],
+              "to": "dlg.ch3_lucian.again"
+            },
+            {
+              "to": "dlg.ch3_lucian.greet"
+            }
+          ]
+        },
+        "dlg.ch3_lucian.greet": {
+          "speaker": "lucian",
+          "voice": "lucian_ch3_lucian_greet",
+          "next": "dlg.ch3_lucian.stones"
+        },
+        "dlg.ch3_lucian.stones": {
+          "speaker": "lucian",
+          "voice": "lucian_ch3_lucian_stones",
+          "choices": [
+            {
+              "id": "print",
+              "text": "dlg.ch3_lucian.stones_c1",
+              "next": "dlg.ch3_lucian.print"
+            },
+            {
+              "id": "spare",
+              "text": "dlg.ch3_lucian.stones_c2",
+              "next": "dlg.ch3_lucian.spare"
+            }
+          ]
+        },
+        "dlg.ch3_lucian.print": {
+          "speaker": "lucian",
+          "voice": "lucian_ch3_lucian_print",
+          "effects": [
+            {
+              "set": "survey_known"
+            },
+            {
+              "set": "talked.lucian.3"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch3_lucian.spare": {
+          "speaker": "lucian",
+          "voice": "lucian_ch3_lucian_spare",
+          "effects": [
+            {
+              "set": "survey_known"
+            },
+            {
+              "set": "talked.lucian.3"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch3_lucian.again": {
+          "speaker": "lucian",
+          "voice": "lucian_ch3_lucian_again",
+          "next": "@end"
+        }
+      }
+    }
+  }
+}

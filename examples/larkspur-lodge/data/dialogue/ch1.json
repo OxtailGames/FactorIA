@@ -1,0 +1,264 @@
+{
+  "format": "larkspur.dialogue/1",
+  "conversations": {
+    "ch1_mara": {
+      "doc": "Mara in the hall, at the start of the night: the owner gives the porter his orders.",
+      "start": "dlg.ch1_mara.start",
+      "nodes": {
+        "dlg.ch1_mara.start": {
+          "route": [
+            {
+              "if": [
+                "talked.mara.1"
+              ],
+              "to": "dlg.ch1_mara.again"
+            },
+            {
+              "to": "dlg.ch1_mara.greet"
+            }
+          ]
+        },
+        "dlg.ch1_mara.greet": {
+          "speaker": "mara",
+          "voice": "mara_ch1_mara_greet",
+          "next": "dlg.ch1_mara.intro"
+        },
+        "dlg.ch1_mara.intro": {
+          "speaker": "mara",
+          "voice": "mara_ch1_mara_intro",
+          "choices": [
+            {
+              "id": "start",
+              "text": "dlg.ch1_mara.intro_c1",
+              "next": "dlg.ch1_mara.tip"
+            },
+            {
+              "id": "worry",
+              "text": "dlg.ch1_mara.intro_c2",
+              "next": "dlg.ch1_mara.worry"
+            },
+            {
+              "id": "promise",
+              "text": "dlg.ch1_mara.intro_c3",
+              "effects": [
+                {
+                  "add": "trust"
+                }
+              ],
+              "next": "dlg.ch1_mara.promise"
+            }
+          ]
+        },
+        "dlg.ch1_mara.tip": {
+          "speaker": "mara",
+          "voice": "mara_ch1_mara_tip",
+          "next": "dlg.ch1_mara.bye"
+        },
+        "dlg.ch1_mara.worry": {
+          "speaker": "mara",
+          "voice": "mara_ch1_mara_worry",
+          "next": "dlg.ch1_mara.bye"
+        },
+        "dlg.ch1_mara.promise": {
+          "speaker": "mara",
+          "voice": "mara_ch1_mara_promise",
+          "next": "dlg.ch1_mara.bye"
+        },
+        "dlg.ch1_mara.bye": {
+          "speaker": "mara",
+          "voice": "mara_ch1_mara_bye",
+          "effects": [
+            {
+              "set": "talked.mara.1"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch1_mara.again": {
+          "speaker": "mara",
+          "voice": "mara_ch1_mara_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch1_hedda": {
+      "doc": "Hedda at the foot of the stairs: she tells the porter that Dr. Vale is missing. Ends chapter 1.",
+      "start": "dlg.ch1_hedda.start",
+      "nodes": {
+        "dlg.ch1_hedda.start": {
+          "route": [
+            {
+              "if": [
+                "talked.hedda.1"
+              ],
+              "to": "dlg.ch1_hedda.again"
+            },
+            {
+              "to": "dlg.ch1_hedda.greet"
+            }
+          ]
+        },
+        "dlg.ch1_hedda.greet": {
+          "speaker": "hedda",
+          "voice": "hedda_ch1_hedda_greet",
+          "next": "dlg.ch1_hedda.trouble"
+        },
+        "dlg.ch1_hedda.trouble": {
+          "speaker": "hedda",
+          "voice": "hedda_ch1_hedda_trouble",
+          "choices": [
+            {
+              "id": "asleep",
+              "text": "dlg.ch1_hedda.trouble_c1",
+              "next": "dlg.ch1_hedda.asleep"
+            },
+            {
+              "id": "key",
+              "text": "dlg.ch1_hedda.trouble_c2",
+              "next": "dlg.ch1_hedda.nokey"
+            },
+            {
+              "id": "seen",
+              "text": "dlg.ch1_hedda.trouble_c3",
+              "next": "dlg.ch1_hedda.seen"
+            }
+          ]
+        },
+        "dlg.ch1_hedda.asleep": {
+          "speaker": "hedda",
+          "voice": "hedda_ch1_hedda_asleep",
+          "next": "dlg.ch1_hedda.conclude"
+        },
+        "dlg.ch1_hedda.nokey": {
+          "speaker": "hedda",
+          "voice": "hedda_ch1_hedda_nokey",
+          "next": "dlg.ch1_hedda.conclude"
+        },
+        "dlg.ch1_hedda.seen": {
+          "speaker": "hedda",
+          "voice": "hedda_ch1_hedda_seen",
+          "next": "dlg.ch1_hedda.conclude"
+        },
+        "dlg.ch1_hedda.conclude": {
+          "speaker": "hedda",
+          "voice": "hedda_ch1_hedda_conclude",
+          "effects": [
+            {
+              "set": "vale_missing"
+            },
+            {
+              "set": "talked.hedda.1"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch1_hedda.again": {
+          "speaker": "hedda",
+          "voice": "hedda_ch1_hedda_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch1_tobias": {
+      "doc": "Tobias at the stove: soup, and the kitchen's view of the storm.",
+      "start": "dlg.ch1_tobias.greet",
+      "nodes": {
+        "dlg.ch1_tobias.greet": {
+          "speaker": "tobias",
+          "voice": "tobias_ch1_tobias_greet",
+          "choices": [
+            {
+              "id": "thanks",
+              "text": "dlg.ch1_tobias.greet_c1",
+              "next": "dlg.ch1_tobias.soup"
+            },
+            {
+              "id": "busy",
+              "text": "dlg.ch1_tobias.greet_c2",
+              "next": "dlg.ch1_tobias.busy"
+            }
+          ]
+        },
+        "dlg.ch1_tobias.soup": {
+          "speaker": "tobias",
+          "voice": "tobias_ch1_tobias_soup",
+          "next": "@end"
+        },
+        "dlg.ch1_tobias.busy": {
+          "speaker": "tobias",
+          "voice": "tobias_ch1_tobias_busy",
+          "next": "@end"
+        }
+      }
+    },
+    "ch1_haas": {
+      "doc": "Captain Haas by the lounge fire.",
+      "start": "dlg.ch1_haas.greet",
+      "nodes": {
+        "dlg.ch1_haas.greet": {
+          "speaker": "haas",
+          "voice": "haas_ch1_haas_greet",
+          "next": "dlg.ch1_haas.pass"
+        },
+        "dlg.ch1_haas.pass": {
+          "speaker": "haas",
+          "voice": "haas_ch1_haas_pass",
+          "choices": [
+            {
+              "id": "who",
+              "text": "dlg.ch1_haas.pass_c1",
+              "next": "dlg.ch1_haas.who"
+            },
+            {
+              "id": "wood",
+              "text": "dlg.ch1_haas.pass_c2",
+              "next": "dlg.ch1_haas.wood"
+            }
+          ]
+        },
+        "dlg.ch1_haas.who": {
+          "speaker": "haas",
+          "voice": "haas_ch1_haas_who",
+          "next": "@end"
+        },
+        "dlg.ch1_haas.wood": {
+          "speaker": "haas",
+          "voice": "haas_ch1_haas_wood",
+          "next": "@end"
+        }
+      }
+    },
+    "ch1_lucian": {
+      "doc": "Lucian Arne by the radio.",
+      "start": "dlg.ch1_lucian.greet",
+      "nodes": {
+        "dlg.ch1_lucian.greet": {
+          "speaker": "lucian",
+          "voice": "lucian_ch1_lucian_greet",
+          "choices": [
+            {
+              "id": "hiss",
+              "text": "dlg.ch1_lucian.greet_c1",
+              "next": "dlg.ch1_lucian.hiss"
+            },
+            {
+              "id": "dispute",
+              "text": "dlg.ch1_lucian.greet_c2",
+              "next": "dlg.ch1_lucian.dispute"
+            }
+          ]
+        },
+        "dlg.ch1_lucian.hiss": {
+          "speaker": "lucian",
+          "voice": "lucian_ch1_lucian_hiss",
+          "next": "@end"
+        },
+        "dlg.ch1_lucian.dispute": {
+          "speaker": "lucian",
+          "voice": "lucian_ch1_lucian_dispute",
+          "next": "@end"
+        }
+      }
+    }
+  }
+}
