@@ -1,4 +1,4 @@
-// Draws the game UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton) into the
+// Draws the game UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, Captions, Video, Chart) into the
 // screen quad list. Where a widget is comes from fa_scene's ui_rect.h (the same code behind layout and hit-testing); how
 // it reacts (focus, hover, values) is fa_ui's, read here from the components' runtime flags.
 //
@@ -10,6 +10,7 @@
 #include <format>
 #include <vector>
 
+#include "fa/scene/chart.h"
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
 #include "nine_slice.h"
@@ -284,6 +285,68 @@ void draw_video(const Ctx& c, const Video& v, const UiBox& b, const Rect& r) {
     c.list().end_item();
 }
 
+// A thick segment from `a` to `b` (UI units) as one quad of the current item.
+void segment(const Ctx& c, Vec2 a, Vec2 b, float thickness, std::uint32_t col) {
+    const Vec2 d = b - a;
+    const float len = std::sqrt(d.x * d.x + d.y * d.y);
+    Vec2 n = len > 1e-4f ? Vec2{-d.y / len, d.x / len} * (thickness * 0.5f) : Vec2{0, thickness * 0.5f};
+    const QuadEmitter q{c.list(), c.to_screen(), true, col, kModeTextured, 0};
+    auto v = [&](Vec2 p) {
+        const Vec3 w = q.xf(p.x, -p.y);  // like quad(): the emitter flips y, so the screen's y goes in negated
+        return Vertex2D{w.x, w.y, w.z, 0.5f, 0.5f, col, kModeTextured, 0};
+    };
+    c.list().quad(v(a + n), v(a - n), v(b - n), v(b + n));
+}
+
+// A Chart: its background, then every rule, bar and line in ONE item of the white texture, then the axis labels. The geometry is
+// fa_scene's chart.h (the pointer's hover uses the same).
+void draw_chart(const Ctx& c, const World& world, const Chart& ch, const UiBox& b, const Rect& r) {
+    background(c, b, r, b.color);
+    const auto series = chart_series(ch);
+    const ChartLayout L = chart_layout(ch, series, r);
+    const int layer = b.layer + 1;
+    if (L.plot.w > 0 && L.plot.h > 0) {
+        c.list().begin_item(layer, 0, c.f.assets->white(), SamplerKind::Nearest, BlendMode::Alpha, c.clip);
+        // Rules first, so the data is over them.
+        if (ch.marks.is_array())
+            for (const Json& m : ch.marks) {
+                if (!m.is_number() || L.count == 0) continue;
+                const int slot = L.first + int(std::lround(m.get<double>()));
+                if (slot < 0 || slot >= L.slots) continue;
+                const float x = snap(c, L.x_of(slot) - (L.line ? 0.0f : L.slot_width() * 0.5f));
+                quad(c, x, L.plot.y, x + std::max(1.0f / c.k, 1.0f), L.plot.y + L.plot.h, 0, 0, 1, 1, pack(ch.markColor, c.fade));
+            }
+        if (ch.showBaseline && ch.baseline >= L.lo && ch.baseline <= L.hi) {
+            const float y = snap(c, L.y_of(ch.baseline));
+            quad(c, L.plot.x, y, L.plot.x + L.plot.w, y + 1.0f, 0, 0, 1, 1, pack(ch.baselineColor, c.fade));
+        }
+        for (int s = 0; s < L.series; ++s) {
+            const std::uint32_t col = pack(chart_series_color(ch, s), c.fade);
+            const std::vector<double>& v = series[s];
+            const int off = L.slots - int(v.size());  // each series is right-aligned on its own
+            if (L.line) {
+                const float w = std::max(0.0f, ch.lineWidth);
+                for (std::size_t i = 0; i + 1 < v.size(); ++i)
+                    segment(c, {L.x_of(off + int(i)), L.y_of(v[i])}, {L.x_of(off + int(i) + 1), L.y_of(v[i + 1])}, w, col);
+                if (v.size() == 1) segment(c, {L.x_of(off) - w * 0.5f, L.y_of(v[0])}, {L.x_of(off) + w * 0.5f, L.y_of(v[0])}, w, col);
+            } else {
+                for (std::size_t i = 0; i < v.size(); ++i) {
+                    const Rect bar = L.bar(s, off + int(i), v[i], ch.baseline);
+                    quad(c, snap(c, bar.x), snap(c, bar.y), snap(c, bar.x + bar.w), snap(c, bar.y + bar.h), 0, 0, 1, 1, col);
+                }
+            }
+        }
+        c.list().end_item();
+    }
+    if (ch.showLabels && !series.empty()) {
+        const Rect clip = c.clip.empty() ? to_pixels(c, r) : ui_intersect(to_pixels(c, r), c.clip);
+        const TextLayout hi = line(c, chart_label(ch, L.hi, world.language()), ch.font, ch.fontSize);
+        const TextLayout lo = line(c, chart_label(ch, L.lo, world.language()), ch.font, ch.fontSize);
+        text(c, hi, L.plot.x + 2, L.plot.y, ch.textColor, layer + 1, clip);
+        text(c, lo, L.plot.x + 2, L.plot.y + L.plot.h - lo.size.y, ch.textColor, layer + 1, clip);
+    }
+}
+
 void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBox& b) {
     Ctx c{f, Rect{}};
     if (!screen_clip(world, e, f, c.clip)) return;
@@ -293,6 +356,7 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     if (kind == UiKind::TouchStick || kind == UiKind::TouchButton) return draw_touch_control(c, world, e, b, r);
     if (kind == UiKind::Captions) return draw_captions(c, world, *world.get<Captions>(e), b, r);
     if (kind == UiKind::Video) return draw_video(c, *world.get<Video>(e), b, r);
+    if (kind == UiKind::Chart) return draw_chart(c, world, *world.get<Chart>(e), b, r);
     const UiControl* ctl = ui_control(world, e);
     if (ctl) c.capScale = ctl->maxTextScale;
     Color tint = b.color;
@@ -393,7 +457,7 @@ void gather_ui(World& world, Frame& f) {
     bool any = false;
     for (const TypeInfo* t : {&World::type_of<Panel>(), &World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(),
                               &World::type_of<TextField>(), &World::type_of<ScrollList>(), &World::type_of<TouchStick>(),
-                              &World::type_of<TouchButton>(), &World::type_of<Captions>(), &World::type_of<Video>()})
+                              &World::type_of<TouchButton>(), &World::type_of<Captions>(), &World::type_of<Video>(), &World::type_of<Chart>()})
         any = any || !world.entities_with(t).empty();
     if (any)
         for (Entity root : world.roots()) visit(f, world, root);

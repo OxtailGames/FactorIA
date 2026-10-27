@@ -174,6 +174,10 @@ public:
     // clear() and scene loads, like the safe insets.
     bool rtl() const { return rtl_; }
     void set_rtl(bool rtl) { rtl_ = rtl; }
+    // The game's current language tag ("" = English / localization off): what a Chart writes its axis labels in. Set by the
+    // runtime with the language, like rtl(); survives clear() and scene loads.
+    const std::string& language() const { return language_; }
+    void set_language(std::string language) { language_ = std::move(language); }
 
     std::uint64_t frame() const { return frame_; }
     double time() const { return time_; }  // simulated seconds since scene start
@@ -207,6 +211,7 @@ private:
     UiTooltipSettings tooltipSettings_;
     UiTooltipView tooltip_;
     bool rtl_ = false;
+    std::string language_;
     std::uint64_t frame_ = 0;
     double time_ = 0.0;
     std::string scenePath_;

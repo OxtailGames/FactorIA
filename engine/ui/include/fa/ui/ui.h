@@ -215,6 +215,10 @@ public:
     // Ends the drag with ui.dragCancel {reason} (no-op when none).
     void cancel_drag(World& world, const char* reason = "cancel");
 
+    // Charts. update() finds the topmost widget under the pointer; when it is a Chart, the sample under the pointer (chart.h) is
+    // written to Chart.hoverIndex / hoverSeries and the game event ui.chartHover {id, index, series, value} is sent each time the
+    // chart or the sample changes; {index: -1, series: -1} (no value) when the pointer leaves the chart or the chart goes away.
+
     // Scene load: no focus, no hover, no press, no tooltip, no drag.
     void reset();
 
@@ -248,6 +252,11 @@ private:
     float caretStart_ = 0.0f;     // clock_ at the last edit or focus change: the caret is visible then
     std::array<Repeat, 4> nav_;   // up, down, left, right
     Repeat backspace_;
+
+    // Chart hover: the chart and sample the pointer was over at the last update (ui.chartHover is sent when it changes).
+    void update_chart_hover(World& world, Vec2 designSize, Vec2 mouse);
+    Entity chartHover_;
+    std::int32_t chartHoverSeries_ = -1, chartHoverIndex_ = -1;
 
     // drag and drop (drag.cpp)
     struct DragState {

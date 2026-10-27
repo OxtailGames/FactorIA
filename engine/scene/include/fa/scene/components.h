@@ -447,6 +447,39 @@ struct Captions : UiBox {
     }
 };
 
+enum class ChartKind : std::int32_t { Bar, Line };
+
+// A bar or line chart drawn by the UI layer from `values`. The geometry is chart.h; the box is the whole chart (its colour is
+// the background); the plot is the box minus `padding`.
+struct Chart : UiBox {
+    Json values = Json::array();              // [n, n, ...] one series, or [[n, ...], [n, ...]] several (a series per bar colour / line)
+    ChartKind kind = ChartKind::Bar;
+    Json colors = Json::array();              // colour of each series (a string or [r,g,b,a]); series beyond the list cycle through it
+    Json min;                                 // lowest value of the axis; null = automatic
+    Json max;                                 // highest value of the axis; null = automatic
+    float baseline = 0.0f;                    // the value bars grow from, and where the baseline rule is drawn
+    bool showBaseline = true;                 // draw the rule at `baseline` (when it is inside the axis)
+    bool includeBaseline = true;              // automatic min / max always include `baseline` (zero by default)
+    std::int32_t slots = 0;                   // samples the plot has room for; fewer values are right-aligned; 0 = as many as the longest series
+    Json marks;                               // sample indexes (numbers) where a thin vertical rule is drawn, e.g. the first day of a season
+    Color baselineColor{1, 1, 1, 0.35f};
+    Color markColor{1, 1, 1, 0.16f};
+    float lineWidth = 2.0f;                   // thickness of a line, in UI units
+    float barGap = 0.2f;                      // fraction of a slot left empty between the bars of neighbouring samples
+    float padding = 6.0f;                     // between the box and the plot, in UI units
+    bool showLabels = true;                   // write the axis maximum and minimum in the plot's corners
+    std::int32_t decimals = -1;               // digits after the decimal separator of the labels; -1 = the digits the value has (at most 2)
+    std::string font;
+    float fontSize = 14.0f;
+    Color textColor{1, 1, 1, 0.7f};
+    std::int32_t hoverIndex = -1;             // runtime: the sample under the pointer, -1 = none
+    std::int32_t hoverSeries = -1;            // runtime: its series, -1 = none
+    Chart() {
+        size = {480, 200};
+        color = {0, 0, 0, 0.35f};
+    }
+};
+
 // How a Video fills its rectangle: contain = all of the picture, bars of `color` where the shapes differ; cover = fills the
 // rectangle, the overflowing edge of the picture is cut off; stretch = fills it by distorting the picture.
 enum class VideoFit : std::int32_t { Contain, Cover, Stretch };

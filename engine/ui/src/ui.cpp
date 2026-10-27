@@ -1,4 +1,5 @@
 #include "fa/ui/ui.h"
+#include "fa/scene/chart.h"
 
 #include <algorithm>
 #include <array>
@@ -290,9 +291,44 @@ void UiSystem::reset() {
     tooltipManualContent_ = nullptr;
     tooltipWarned_.clear();
     drag_ = DragState{};
+    chartHover_ = kNullEntity;
+    chartHoverSeries_ = chartHoverIndex_ = -1;
     dragCand_ = dragImage_ = kNullEntity;
     dropRules_.clear();
     worldDrop_ = UiDropMode::Accept;
+}
+
+void UiSystem::update_chart_hover(World& w, Vec2 design, Vec2 mouse) {
+    Entity chart;
+    std::optional<ChartSample> sample;
+    const Entity top = ui_widget_at(w, design, mouse, dragImage_);
+    if (top && w.has<Chart>(top)) {
+        const Chart& c = *w.get<Chart>(top);
+        const float k = ui_scale_clamped(w.ui_scale());  // the chart is laid out in UI units, the pointer is in pixels
+        sample = chart_sample_at(c, chart_series(c), *ui_layout_rect(w, top, design), mouse / k);
+        if (sample) chart = top;
+    }
+    const std::int32_t series = sample ? sample->series : -1, index = sample ? sample->index : -1;
+    if (chart == chartHover_ && series == chartHoverSeries_ && index == chartHoverIndex_) return;
+    // Tell the chart the pointer left (or moved to another sample), then the new one.
+    if (chartHover_ && w.alive(chartHover_))
+        if (Chart* old = w.get<Chart>(chartHover_)) {
+            old->hoverIndex = old->hoverSeries = -1;
+            if (chart != chartHover_) {
+                w.events().game.push_back(GameEvent{"ui.chartHover", Json::object({{"id", w.id_of(chartHover_)}, {"index", -1}, {"series", -1}}),
+                                                    chartHover_});
+            }
+        }
+    chartHover_ = chart;
+    chartHoverSeries_ = series;
+    chartHoverIndex_ = index;
+    if (chart) {
+        Chart& c = *w.get<Chart>(chart);
+        c.hoverIndex = index;
+        c.hoverSeries = series;
+        w.events().game.push_back(GameEvent{"ui.chartHover",
+            Json::object({{"id", w.id_of(chart)}, {"index", index}, {"series", series}, {"value", to_json(float(sample->value))}}), chart});
+    }
 }
 
 bool UiSystem::set_focus(World& w, Entity e) {
@@ -462,6 +498,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     const bool ptrReleased = pointerOn_ ? !pointerDown_ && pointerPrevDown_ : in.mouse_released(MouseButton::Left);
     pointerPrevDown_ = pointerOn_ && pointerDown_;
     pointerOverUi_ = modal || ui_widget_at(w, design, mouse, dragImage_) != kNullEntity;
+    update_chart_hover(w, design, mouse);
     hover_ = kNullEntity;
     int hoverLayer = 0;
     for (const Item& it : items) {  // creation order, so on equal layers the later entity wins
