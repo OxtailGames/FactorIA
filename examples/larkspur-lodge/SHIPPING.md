@@ -150,8 +150,9 @@ submit to Valve's review. Expect the review to ask for the Steam Input glyph poi
 5. **iPad / iPhone.** Team id, App Store Connect record, the real build on a device (section 5), the screenshots at 2752x2064
    from it, the privacy policy URL and the age rating from `store/age_rating.md`.
 6. **Privacy policy URL** for every store (the game collects nothing; the page can say so), the support URL and a contact.
-7. **Languages.** Only English is in the game and in `store/en/`; package P8 adds es, de, ko and he. Have native readers
-   check them. The store texts must not claim a language the game lacks.
+7. **Languages.** The game (`locales/`) and the store texts (`store/<lang>/`) exist in en, es, de, ko and he. The four
+   translations were written by an AI: have native readers check them (the game strings, the dialogue and the store
+   texts) before release. The store texts must not claim a language the game lacks.
 8. **Trailer.** The mp4 is the intro cut-scene only; cut a real trailer from it and play footage.
 9. **Notarization** of a Developer ID build for outside the Mac App Store (not needed for the App Store itself).
 

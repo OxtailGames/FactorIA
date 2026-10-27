@@ -221,8 +221,7 @@
   "feedbackFile": "ENGINE_FEEDBACK.json",
   "localization": {
     "defaultLanguage": "en",
-    "languages": [
-      "en"
-    ]
+    "languages": ["en", "es", "de", "ko", "he"],
+    "fallbackFonts": ["assets/fonts/NotoSansKR-Regular-subset.ttf"]
   }
 }

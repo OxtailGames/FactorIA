@@ -1,0 +1,7 @@
+- Un misterio en 3D en un albergue de montaña aislado por la nieve, que se juega en una sola noche
+- Seis personajes que recuerdan lo que les preguntas, cinco capítulos, tres finales
+- Libreta, tablero de deducciones con deshacer, inspección de objetos en 3D y cuatro puzles
+- Diez escenas con subtítulos que se pueden saltar
+- Teclado y ratón, mando y pantalla táctil; cinco ranuras de guardado y un autoguardado por capítulo
+- Tamaño del texto, subtítulos, movimiento reducido, filtros de color, reasignación de controles y menús que se leen en voz alta
+- Mac, Windows, Linux (Steam Deck) y iPad

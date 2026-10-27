@@ -3,6 +3,10 @@
 import { test, describe, expect } from "factoria:test";
 import { fa } from "factoria";
 import strings from "../locales/en.json";
+import es from "../locales/es.json";
+import de from "../locales/de.json";
+import ko from "../locales/ko.json";
+import he from "../locales/he.json";
 import items from "../data/items.json";
 import broken from "./fixtures/broken_dialogue.json";
 import ground from "../scenes/ground.scene.json";
@@ -15,7 +19,8 @@ import { AREAS } from "../scripts/area.js";
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const doors = doorIds({ ground, upstairs, cellar, testRoom });
-const ctx = { strings, story, cast, items, doors, areas: Object.keys(AREAS) };
+const translations = { es, de, ko, he };
+const ctx = { strings, translations, story, cast, items, doors, areas: Object.keys(AREAS) };
 
 /** The shipped tables, copied, with `edit(tables)` applied. */
 function mutated(edit) {
@@ -30,6 +35,12 @@ describe("the shipped story data", () => {
     expect(validateStory(story, ctx)).toEqual([]);
     expect(validateCast(cast, ctx)).toEqual([]);
     expect(validateDialogue(TABLES, ctx)).toEqual([]);
+  });
+
+  test("every line, choice, chapter, ending and name is translated into es, de, ko and he", () => {
+    expect(Object.keys(translations)).toEqual(["es", "de", "ko", "he"]);
+    expect(validateStory(story, ctx).filter((p) => p.message.includes("no translation"))).toEqual([]);
+    expect(validateDialogue(TABLES, ctx).filter((p) => p.message.includes("no translation"))).toEqual([]);
   });
 
   test("project.validate_dialogue says so and counts what it read", () => {
@@ -81,6 +92,20 @@ describe("a broken table is named, with a place and a fix", () => {
   const smallStrings = { dlg: { broken: { hello: "Hi", menu: "Menu", menu_c1: "a", menu_c2: "b", orphan: "o" } } };
   const smallCast = { characters: { mara: { talk: { 1: "broken" } } } };
   const problems = validateDialogue({ "tests/fixtures/broken_dialogue.json": broken }, { strings: smallStrings, story, cast: smallCast, items });
+
+  test("a line or choice missing from one language is named with that language", () => {
+    const tr = {
+      es: { dlg: { broken: { hello: "Hola", menu: "Menu", menu_c1: "a", menu_c2: "b", orphan: "o" } } },
+      de: { dlg: { broken: { menu: "Menu", menu_c1: "a", orphan: "o" } } },
+    };
+    const found = validateDialogue({ "tests/fixtures/broken_dialogue.json": broken }, { strings: smallStrings, translations: tr, story, cast: smallCast, items })
+      .filter((p) => p.message.includes("no translation"));
+    expect(found.map((p) => p.message).sort()).toEqual([
+      "the text of choice 'leave' of 'dlg.broken.menu' has no translation: no string 'dlg.broken.menu_c2' in locales/de.json",
+      "the text of node 'dlg.broken.hello' has no translation: no string 'dlg.broken.hello' in locales/de.json",
+    ]);
+    expect(found.every((p) => p.hint.includes("locales/de.json"))).toBe(true);
+  });
 
   test("every problem has a file, a pointer, a message and a hint", () => {
     expect(problems.length).toBeGreaterThanOrEqual(8);

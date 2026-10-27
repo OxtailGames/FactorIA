@@ -1,0 +1,7 @@
+- Ein 3D-Krimi in einer eingeschneiten Berglodge, gespielt in einer einzigen Nacht
+- Sechs Figuren, die sich erinnern, was du sie fragst, fünf Kapitel, drei Enden
+- Notizbuch, Schlussfolgerungstafel mit Rückgängig, 3D-Betrachtung von Gegenständen und vier Rätsel
+- Zehn überspringbare Zwischensequenzen mit Untertiteln
+- Tastatur und Maus, Controller und Touch; fünf Speicherplätze und eine automatische Speicherung pro Kapitel
+- Textgröße, Untertitel, weniger Bewegung, Farbfilter, Tastenbelegung und vorlesbare Menüs
+- Mac, Windows, Linux (Steam Deck) und iPad
