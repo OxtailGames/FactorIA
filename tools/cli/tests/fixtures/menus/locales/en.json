@@ -9,7 +9,7 @@
     "quit": "Quit",
     "back": "Back"
   },
-  "loading": { "text": "Loading..." },
+  "loading": { "progress": "Loading... {percent}%" },
   "captions": { "welcome": "Welcome, traveller.", "hint": "Watch the edge!", "guide": "Guide" },
   "pause": { "title": "Paused", "resume": "Resume", "mainMenu": "Main menu" },
   "options": {

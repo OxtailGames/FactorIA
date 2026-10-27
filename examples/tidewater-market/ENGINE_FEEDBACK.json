@@ -120,7 +120,10 @@
       "suggestion": "Ship the kit's loading.js with i18n.t and a 'loading.progress' string with a {percent} placeholder, and a Text without key.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.23): the menu kit's loading.js writes i18n.t('loading.progress', {percent}) and its scene's Text has no key; loading.progress is in the kit's en, es and ar tables. The game keeps its own copy until it takes the kit's."
+      ]
     },
     {
       "id": "FB-0006",
@@ -1024,7 +1027,10 @@
       "suggestion": "Let a string carry a gender tag (\"name.gender\": \"f\") and select forms with it, like plural entries do with count; or document the recommended phrasing for languages with gender.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.23): a string can have a gender ({text, gender}) and a select entry (f, m, n, other forms) picks its form by args.gender; i18n.gender(key), validate and i18n.export/import follow (docs/LOCALIZATION.md, 5c). Grammatical case stays out: phrase around it. The game's es and fr tables still use noun-first phrasing."
+      ]
     },
     {
       "id": "FB-0062",

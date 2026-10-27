@@ -3364,8 +3364,8 @@
      "doc": "Localization: the strings of locales/<language>.json in the player's language. factoria.json \"localization\" lists the languages; without it the game is not localized (t(key) returns the key, languages is []). Components with a `key` field (Text, Button, Toggle, Slider, TextField) are translated by the engine; use t() for text a script builds itself. The chosen language is not saved between runs: keep it with `storage` and call setLanguage at start. See docs/LOCALIZATION.md.",
      "members": [
       {
-       "sig": "t(key: string, args?: { count?: number; [name: string]: unknown }): string",
-       "doc": "The text of `key` in the current language, else in its base language (\"pt\" for \"pt-BR\"), else in the default language. `{name}` placeholders are filled from args; a plural entry is chosen by args.count with the language's CLDR rules. A key that no table has returns the key itself and warns once in the log; it never throws for a missing key. A key that is not a string or args that is not an object throws."
+       "sig": "t(key: string, args?: { count?: number; gender?: string; [name: string]: unknown }): string",
+       "doc": "The text of `key` in the current language, else in its base language (\"pt\" for \"pt-BR\"), else in the default language. `{name}` placeholders are filled from args; a plural entry is chosen by args.count with the language's CLDR rules; a select entry (forms f, m, n, other) by args.gender (see gender()), \"other\" when the gender or the form is missing. A key that no table has returns the key itself and warns once in the log; it never throws for a missing key. A key that is not a string or args that is not an object throws."
       },
       {
        "sig": "number(value: number, options?: { decimals?: number }): string",
@@ -3378,6 +3378,10 @@
       {
        "sig": "has(key: string): boolean",
        "doc": "True when a table of the current language's fallback chain has `key`, so a real string can be told from the key returned for a missing one."
+      },
+      {
+       "sig": "gender(key: string): \"f\" | \"m\" | \"n\" | \"\"",
+       "doc": "The grammatical gender of the string `key` in the current language (\"f\" feminine, \"m\" masculine, \"n\" neuter), from a table entry written {\"text\": \"Ligera\", \"gender\": \"f\"}; \"\" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t(\"ship.the\", { name: i18n.t(\"ship.light\"), gender: i18n.gender(\"ship.light\") }) is \"la Ligera\" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, \"Gender\"."
       },
       {
        "sig": "readonly language: string",

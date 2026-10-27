@@ -1685,7 +1685,7 @@ Since 0.2.0.
 
 Write the game's string tables as a spreadsheet (CSV) or XLIFF files for translators.
 
-Reads locales/<language>.json of every language and writes what a translator needs into `out` (default build/translations/, never inside locales/): format "csv" is ONE file, translations.csv (UTF-8 with a byte order mark so Excel opens it right; columns `key`, the default language, then one column per language to translate; fields with a comma, quote or line break are quoted), format "xliff" is one XLIFF 1.2 file per language to translate, translations.<language>.xlf (source = the default language's text, target = the translation, state "needs-translation" when missing; trans-unit id and resname = the key). A plural entry is one row per form, the key written `items#one`, `items#other`: the forms the language needs (CLDR) plus any the tables have. The row `$name` is the language's own name. A placeholder note lists the {names} to keep. Returns {format, files, rows, sourceLanguage, languages}. `languages` limits the columns (default: every language except the default). With `delimiter` ";" the CSV opens in Excel set to a language that writes decimals with a comma. Read the result back with i18n.import. Example: {"format": "csv", "languages": ["es", "ja"]}
+Reads locales/<language>.json of every language and writes what a translator needs into `out` (default build/translations/, never inside locales/): format "csv" is ONE file, translations.csv (UTF-8 with a byte order mark so Excel opens it right; columns `key`, the default language, then one column per language to translate; fields with a comma, quote or line break are quoted), format "xliff" is one XLIFF 1.2 file per language to translate, translations.<language>.xlf (source = the default language's text, target = the translation, state "needs-translation" when missing; trans-unit id and resname = the key). A plural entry is one row per form, the key written `items#one`, `items#other`: the forms the language needs (CLDR) plus any the tables have. A gender (select) entry is one row per form too (`ship.the#f`, `ship.the#m`, `ship.the#other`), and a string that has a gender in any language gets a row `ship.light#gender` whose cell is f, m or n. The row `$name` is the language's own name. A placeholder note lists the {names} to keep. Returns {format, files, rows, sourceLanguage, languages}. `languages` limits the columns (default: every language except the default). With `delimiter` ";" the CSV opens in Excel set to a language that writes decimals with a comma. Read the result back with i18n.import. Example: {"format": "csv", "languages": ["es", "ja"]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1700,7 +1700,7 @@ Since 0.2.0.
 
 Read a translator's CSV or XLIFF file back into locales/<language>.json.
 
-Reads a file written by i18n.export (or edited in a spreadsheet or a translation tool) and updates the tables of the languages in it: existing keys are changed in place (nested objects stay nested, flat keys stay flat, key order is kept), keys the language lacks are added (nested by their dots when the file is nested), and an empty cell never deletes a translation. Rows `items#one` fill the forms of a plural entry. A column or target language that is not in localization.languages is an error with "did you mean"; a key the default language does not have, a {placeholder} that differs from the default language's, or a plural/plain mismatch is a warning and that row is not imported (placeholders: imported with the warning). The default language's own column is the source and is skipped unless named in `languages`. Tables are rewritten with 2-space indentation. Returns {file, format, dryRun, languages: {<tag>: {file, updated, added, unchanged, skippedEmpty, written, warnings}}}. With `dryRun` nothing is written. Example: {"file": "build/translations/translations.csv", "dryRun": true}
+Reads a file written by i18n.export (or edited in a spreadsheet or a translation tool) and updates the tables of the languages in it: existing keys are changed in place (nested objects stay nested, flat keys stay flat, key order is kept), keys the language lacks are added (nested by their dots when the file is nested), and an empty cell never deletes a translation. Rows `items#one` fill the forms of a plural entry, `ship.the#f` those of a gender entry, and `ship.light#gender` sets the gender of a string (f, m or n; the text becomes an object of text and gender). A column or target language that is not in localization.languages is an error with "did you mean"; a key the default language does not have, a {placeholder} that differs from the default language's, or a plural/plain mismatch is a warning and that row is not imported (placeholders: imported with the warning). The default language's own column is the source and is skipped unless named in `languages`. Tables are rewritten with 2-space indentation. Returns {file, format, dryRun, languages: {<tag>: {file, updated, added, unchanged, skippedEmpty, written, warnings}}}. With `dryRun` nothing is written. Example: {"file": "build/translations/translations.csv", "dryRun": true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6085,10 +6085,10 @@ declare module "factoria" {
    */
   export interface I18nAPI {
     /**
-     * The text of `key` in the current language, else in its base language ("pt" for "pt-BR"), else in the default language. `{name}` placeholders are filled from args; a plural entry is chosen by args.count with the language's CLDR rules. A key that no table has returns the key itself and warns once in the log; it never throws for a missing key. A key that is not a string or args that is not an object throws.
+     * The text of `key` in the current language, else in its base language ("pt" for "pt-BR"), else in the default language. `{name}` placeholders are filled from args; a plural entry is chosen by args.count with the language's CLDR rules; a select entry (forms f, m, n, other) by args.gender (see gender()), "other" when the gender or the form is missing. A key that no table has returns the key itself and warns once in the log; it never throws for a missing key. A key that is not a string or args that is not an object throws.
      * @since 0.2.0
      */
-    t(key: string, args?: { count?: number; [name: string]: unknown }): string;
+    t(key: string, args?: { count?: number; gender?: string; [name: string]: unknown }): string;
     /**
      * `value` written the way the current language writes numbers: decimal and group separators and digits from the engine's table (en "1,234.5", es "1234,5" and "12.345,5", de "1.234,5", fr "1 234,5" with a narrow no-break space, ar Arabic-Indic digits "١٬٢٣٤٫٥"). `decimals` (0 to 9) fixes the digits after the separator; without it the number keeps the digits it has. A language the table does not know writes like English; a game without localization is English. Same as the `{v:number:1}` placeholder of a string table. Throws for a value that is not a number or decimals out of range.
      * @since unreleased
@@ -6104,6 +6104,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     has(key: string): boolean;
+    /**
+     * The grammatical gender of the string `key` in the current language ("f" feminine, "m" masculine, "n" neuter), from a table entry written {"text": "Ligera", "gender": "f"}; "" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t("ship.the", { name: i18n.t("ship.light"), gender: i18n.gender("ship.light") }) is "la Ligera" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, "Gender".
+     * @since unreleased
+     */
+    gender(key: string): "f" | "m" | "n" | "";
     /**
      * The current language (one of `languages`; "" when the game has no localization).
      * @since 0.2.0
