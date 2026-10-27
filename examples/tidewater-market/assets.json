@@ -53,6 +53,46 @@
         "source": "assets.pack_atlas of assets/src/frames/*.png (the Kenney terrain, road and tree pieces, and the placeholder buildings, pier, rock tile, goods, star and ship icons, villager and carrier walkers and three ship classes in four headings)"
       }
     },
+    "assets/tiles/spring.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces",
+        "source": "assets/src/make_terrain_tiles.py: the frames of assets/src/frames laid out as the cells of the isometric terrain Tilemap, with the spring tint of data/seasons.json on the sand, grass and trees"
+      }
+    },
+    "assets/tiles/summer.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces",
+        "source": "assets/src/make_terrain_tiles.py: the frames of assets/src/frames laid out as the cells of the isometric terrain Tilemap, with the summer tint of data/seasons.json on the sand, grass and trees"
+      }
+    },
+    "assets/tiles/autumn.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces",
+        "source": "assets/src/make_terrain_tiles.py: the frames of assets/src/frames laid out as the cells of the isometric terrain Tilemap, with the autumn tint of data/seasons.json on the sand, grass and trees"
+      }
+    },
+    "assets/tiles/winter.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces",
+        "source": "assets/src/make_terrain_tiles.py: the frames of assets/src/frames laid out as the cells of the isometric terrain Tilemap, with the winter tint of data/seasons.json on the sand, grass and trees"
+      }
+    },
     "assets/icon.png": {
       "provenance": {
         "origin": "original",

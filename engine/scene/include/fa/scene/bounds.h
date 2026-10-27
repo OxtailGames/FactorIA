@@ -2,7 +2,8 @@
 // behind the editor's picking and selection outline, so what a script measures is exactly what the editor outlines.
 //
 // The geometry follows what the renderer draws (render/scene2d.cpp):
-//   * Tilemap  tilemap_size() x tileSize; the entity origin is the map's TOP-LEFT corner, local x right, local y DOWN.
+//   * Tilemap  tilemap_size() x tileSize; the entity origin is the map's TOP-LEFT corner, local x right, local y DOWN. An
+//              isometric map: the box around all its diamonds (tilemap_local_bounds), from the TOP corner of the map.
 //   * Sprite   `size` (0 = the region, else the texture, else 32 x 32; a SpriteAnimator divides the texture into its
 //              frames), placed by `pivot` (0,0 = bottom-left).
 //   * Shape2D  the size box placed by `pivot`. A Circle is its bounding square of side size.x; a Line is the stroked

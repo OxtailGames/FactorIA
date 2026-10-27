@@ -4,6 +4,24 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Isometric tilemaps and cell picking
+
+- `Tilemap.projection: "isometric"` draws diamond tiles (a 2:1 city or strategy map) as one batched mesh, row by row so the
+  tiles nearer the viewer cover the ones behind them. `groundHeight` is the diamond's height (0 = `tileSize.y`) and
+  `groundOffset` the pixels between the top of the tile image and the diamond's top corner, so a tile can be a block, a tree or
+  a house taller than its ground. The entity's position is the top corner of cell (0, 0).
+- Everything that reads a Tilemap follows the projection: `solidTiles` colliders are diamonds, `occludesLight` shadows follow
+  the diamonds, `nav.findTilePath` returns the diamond centres and distances, `entity.bounds()` and the editor's outline and
+  click area cover the diamonds, `scene.import_ascii` and `tilemap.set_tile` work as before, and the `anchor` of
+  `scene.import_ascii` places an isometric map by its bounds.
+- `entity.tilemap.cellAt(point)` (a `{col, row}`, or `null` outside the map) and `entity.tilemap.cellToWorld(col, row)` for both
+  projections, and the commands `tilemap.cell_at` and `tilemap.cell_to_world`.
+- The sprites section of the AI guide says how items of one layer are ordered (lower y on top, then creation order).
+- Tidewater Market's ground (terrain, trees and roads, about 2600 sprites) is one Tilemap with a tileset per season: its game
+  scene has 246 entities instead of 2826, the title 112 instead of 2712 and the stress scene 1029 instead of 4840. The title and
+  stress scenes draw one call more, because the tileset is a second texture. The trees are part of the ground now, so a
+  building covers the trees in front of it.
+
 A chart widget
 
 - `Chart` draws `values` (one series, or several) as bars or lines inside a widget rectangle, in one batch: the axis is

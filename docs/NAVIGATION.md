@@ -179,9 +179,13 @@ export default class Rat extends Behaviour {
 - `maxNodes` (default 100000) bounds the cells the search expands; past it the result is `too_far`.
 - Result: `{found, complete, cells: [{col, row}], points: [Vec2], cost, length}`. `cells` are the path including start and end.
   `points` are the cell centres in the WORLD (the Tilemap entity's position, rotation and scale applied; the map's top-left
-  corner is the entity's position, +Y up, as in the Tilemap docs). For a grid, a centre is `origin + ((col + 0.5) * cellW,
+  corner is the entity's position, +Y up, as in the Tilemap docs; on an `isometric` Tilemap they are the centres of the diamonds,
+  `tilemap.cellToWorld`). For a grid, a centre is `origin + ((col + 0.5) * cellW,
   -(row + 0.5) * cellH)` with `origin` default (0, 0) and `cellSize` default 1. `cost` sums the entering costs; `length` is
-  the distance along the cell centres in the map's own units (`tileSize` for a Tilemap, `cellSize` for a grid, before the entity's scale).
+  the distance along the cell centres in the map's own units (`tileSize` for a Tilemap, `cellSize` for a grid, before the entity's
+  scale). On an isometric Tilemap the cells are diamonds, so the length is the straight distance between the centres of the cells
+  (a step down a column is `sqrt(tileSize.x^2/4 + groundHeight^2/4)`), and the search still moves between the four neighbours
+  of a cell (or eight with `diagonals`).
 - No route is a result, not an exception: `found: false` with `reason` (`start_off_map`, `goal_off_map`, `goal_blocked`,
   `blocked`, `too_far`), `message` and `hint`. A map that is not a Tilemap or a grid, or a malformed cell, throws.
 - Deterministic: the open list breaks ties by (f, h, cell index), so the same map and query give the same path on every run.

@@ -505,6 +505,26 @@ void register_builtin_components(TypeRegistry& r) {
                    "2D")
         .asset_field("tileset", &Tilemap::tileset, "texture", "Project-relative path of the tileset image (tiles laid out left-to-right, top-to-bottom).")
         .field("tileSize", &Tilemap::tileSize, "Size of one tile [w, h], both in the tileset texture (pixels) and in the world (units).")
+        .enum_field("projection", &Tilemap::projection, {"orthogonal", "isometric"},
+                    "How the cells lie in the world. \"orthogonal\" (default): square tiles of tileSize, tile (col, row) at "
+                    "x = col * tileSize.x, y = -row * tileSize.y from the entity's top-left corner. \"isometric\": diamond tiles, "
+                    "tileSize.x wide and groundHeight (default tileSize.y) high, 2:1 for the usual 100 x 50. +col runs down-right "
+                    "and +row down-left on screen; the entity's position is the TOP corner of the map (the top vertex of tile "
+                    "(0, 0)), tile (col, row) has its centre at ((col - row) * tileSize.x / 2, -(col + row + 1) * groundHeight / 2). "
+                    "The tiles are one batched mesh drawn row by row from row 0 and left to right, which is back to front, so a "
+                    "tile covers the edge of the ones behind it. Collision (a diamond per solid tile), light occluders, "
+                    "nav.findTilePath points and scene.import_ascii objects all follow it; entity.tilemap.cellAt / cellToWorld "
+                    "convert between cells and world points for both projections.")
+        .field("groundHeight", &Tilemap::groundHeight,
+               "Isometric only. Height of the ground diamond, in world units: the rows of the map are groundHeight / 2 apart. "
+               "0 (the default) = tileSize.y, a tile image that is exactly the diamond (tileSize [100, 50]). Set it when the "
+               "tile image is taller than the diamond because it also shows the side of a block or a low wall: tileSize [100, 65] "
+               "with groundHeight 50 is a 100 x 50 diamond with 15 units of side below it.").range(0, 100000)
+        .field("groundOffset", &Tilemap::groundOffset,
+               "Isometric only. How far the top corner of the ground diamond lies below the top edge of the tile image, in world "
+               "units. 0 (the default) = the image starts at the diamond's top corner and anything taller hangs below it (a block "
+               "side). Set it to the height of a tree or a wall that rises above the ground to draw the image that much higher: "
+               "tileSize [100, 96], groundHeight 50, groundOffset 31 has 31 units above the diamond and 15 below.").range(0, 100000)
         .field("columns", &Tilemap::columns,
                "Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the "
                "default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. "
