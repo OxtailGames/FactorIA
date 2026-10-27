@@ -388,13 +388,11 @@ export default class Porter extends Behaviour {
     // The first thing under the pointer. Walls and tall furniture that fade when they hide the porter are looked through
     // (what is behind a faded wall can be clicked); low furniture and anything else stops the ray.
     let prop = null;
-    let at = o;
-    for (let i = 0; i < 6; i++) {
-      prop = physics.raycast3d(at, dir, 200, { mask: LAYER_PROPS, ignore: this.entity });
-      if (!prop || prop.entity.hasTag("interactable") || !prop.entity.hasTag("fade")) break;
-      const s = prop.distance + 0.03;
-      at = [at[0] + dir[0] * s, at[1] + dir[1] * s, at[2] + dir[2] * s];
-      prop = null;
+    for (const hit of physics.raycast3dAll(o, dir, 200, { mask: LAYER_PROPS, ignore: this.entity, maxHits: 16 })) {
+      if (hit.entity.hasTag("interactable") || !hit.entity.hasTag("fade")) {
+        prop = hit;
+        break;
+      }
     }
     const b = prop && prop.entity.hasTag("interactable") ? prop.entity.behaviour : null;
     if (b && b.available) {

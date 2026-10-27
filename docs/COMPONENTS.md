@@ -311,6 +311,7 @@ Collision shape for 2D physics. Without a RigidBody2D the collider acts as a sta
 | `size` | vec2 | `[32.0,32.0]` | box/capsule: [width, height] in world units (capsule is vertical). |
 | `radius` | float | `16.0` | circle: radius in world units. |
 | `offset` | vec2 | `[0.0,0.0]` | Shape center offset [x, y] from the entity origin, in world units. |
+| `enabled` | bool | `true` | false = the collider is switched off: raycasts and overlap queries pass through it, it makes no contacts or trigger events, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on). (not released yet, on main after 0.2.0) |
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps (onTriggerEnter/Exit) but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = no bounce, 1 = perfectly elastic. Range 0.0..1.0. |
@@ -377,6 +378,7 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 | `height` | float | `2.0` | capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius). Range 0.002..100000.0. (since 0.2.0) |
 | `mesh` | string | `""` | convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn. (since 0.2.0) |
 | `offset` | vec3 | `[0.0,0.0,0.0]` | Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and mesh: where the model's own origin sits). |
+| `enabled` | bool | `true` | false = the collider is switched off: raycasts, shape casts and overlap queries pass through it, it makes no contacts or trigger events and the NavMesh bake leaves it out, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on). (not released yet, on main after 0.2.0) |
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = none, 1 = perfectly elastic. Range 0.0..1.0. |
@@ -1932,6 +1934,27 @@ Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
 | `origin` | array | no | 3D origin [x,y,z]. |
 | `direction` | array | no | 3D direction. |
 | `maxDistance` | number | no |  Default 1000. |
+| `mask` | integer | no | Collision layer mask: bit i = layer i; -1 hits every layer. Default -1. |
+| `ignore` | string | no | Entity id or name whose colliders (and its children's) are skipped, usually the caster. |
+| `ignoreTriggers` | boolean | no | Skip trigger colliders; false hits them too. Default true. |
+
+### `physics.raycast_all`
+
+Not released yet (on main after 0.2.0).
+
+Cast a ray against colliders (2D segment or 3D ray) and return EVERY hit, nearest first.
+
+Same arguments and options as physics.raycast, plus maxHits (default 32, the nearest ones are kept). Use it to see everything between two points (what hides a character from the camera), or to click through colliders that only exist to be faded. A collider with enabled=false is never reported. Result: {count, hits:[{entity, point, normal, distance}]} sorted by distance. Example: physics.raycast_all {"dimension":"3d","origin":[0,2,0],"direction":[0,0,-1],"maxDistance":20,"maxHits":4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `dimension` | string ["2d","3d"] | no |  Default "2d". |
+| `from` | array | no | 2D start [x,y]. |
+| `to` | array | no | 2D end [x,y]. |
+| `origin` | array | no | 3D origin [x,y,z]. |
+| `direction` | array | no | 3D direction. |
+| `maxDistance` | number | no |  Default 1000. |
+| `maxHits` | integer | no | At most this many hits (the nearest). Default 32. |
 | `mask` | integer | no | Collision layer mask: bit i = layer i; -1 hits every layer. Default -1. |
 | `ignore` | string | no | Entity id or name whose colliders (and its children's) are skipped, usually the caster. |
 | `ignoreTriggers` | boolean | no | Skip trigger colliders; false hits them too. Default true. |
@@ -4284,6 +4307,11 @@ declare module "factoria" {
      * Skip trigger colliders (default true); false hits them too.
      */
     ignoreTriggers?: boolean;
+    /**
+     * Only raycast2dAll / raycast3dAll: at most this many hits, the nearest ones (default 32).
+     * @since unreleased
+     */
+    maxHits?: number;
   }
 
   /**
@@ -4302,6 +4330,16 @@ declare module "factoria" {
      * 3D raycast from an origin along a direction, at most maxDistance (default 1000) far.
      */
     raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3> | null;
+    /**
+     * Every collider a 3D ray crosses, sorted by distance (nearest first), at most opts.maxHits (default 32); one hit per entity. Same filters as raycast3d (a collider that contains the origin is skipped; triggers too unless ignoreTriggers: false). A Collider3D with enabled = false is not reported. Use it to find everything between the camera and a character, or to click through colliders that only exist to be faded.
+     * @since unreleased
+     */
+    raycast3dAll(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3>[];
+    /**
+     * Every collider a 2D segment crosses, sorted by distance (nearest first), at most opts.maxHits (default 32); one hit per entity. Same filters as raycast (2D). A Collider2D with enabled = false is not reported.
+     * @since unreleased
+     */
+    raycast2dAll(from: Vec2Like, to: Vec2Like, opts?: RaycastOptions): RayHit<Vec2>[];
     /**
      * Sweeps a sphere or box from `from` to `to` (3D, when `from` has a z) and returns the first collider it touches: distance is how far the centre travels, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a ray that starts inside one; a collider it only touches blocks the cast only if the shape moves towards it. Answers 'will this fit / how far can it go' for shapes where a ray is too thin. Same options as raycast; from a behaviour pass { ignore: this.entity }.
      */
@@ -8004,6 +8042,11 @@ declare module "factoria" {
     get offset(): Vec2;
     set offset(value: Vec2Like);
     /**
+     * false = the collider is switched off: raycasts and overlap queries pass through it, it makes no contacts or trigger events, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on).
+     * @since unreleased
+     */
+    enabled: boolean;
+    /**
      * true = sensor: reports overlaps (onTriggerEnter/Exit) but does not block movement.
      */
     isTrigger: boolean;
@@ -8227,6 +8270,11 @@ declare module "factoria" {
      */
     get offset(): Vec3;
     set offset(value: Vec3Like);
+    /**
+     * false = the collider is switched off: raycasts, shape casts and overlap queries pass through it, it makes no contacts or trigger events and the NavMesh bake leaves it out, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on).
+     * @since unreleased
+     */
+    enabled: boolean;
     /**
      * true = sensor: reports overlaps but does not block movement.
      */
@@ -10272,10 +10320,10 @@ declare module "factoria" {
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     Animator: { model?: string; clip?: string; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; events?: any; state?: string; time?: number; values?: any };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
-    Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
+    Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
-    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean; navWalkable?: boolean };
+    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean; navWalkable?: boolean };
     Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean; damping?: number };
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };

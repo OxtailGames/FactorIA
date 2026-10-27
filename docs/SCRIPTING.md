@@ -596,6 +596,15 @@ is silent. Give `fade` when you switch a low-pass or reverb on or off in the mid
   skipped. From a behaviour pass the caster so it does not hit itself: `physics.raycast(a, b, { ignore: this.entity })`
   (`ignore` is an Entity or id; triggers are skipped unless `ignoreTriggers: false`; the commands `physics.raycast` and `physics.shape_cast` take the same three options). Ledge check pattern: cast a short
   ray down from just ahead of the feet and treat "no hit" as a ledge.
+- `raycast3dAll(origin, dir, maxDistance, { mask, ignore, ignoreTriggers, maxHits })` and `raycast2dAll(from, to, opts)` →
+  an array of `{ entity, point, normal, distance }` sorted by distance (nearest first), at most `maxHits` (default 32), one hit
+  per entity. Same filters as `raycast3d`. Use it for everything between the camera and the player (what to fade) or to click
+  through colliders that only exist to be faded: take the first hit that is not one of those. The command is
+  `physics.raycast_all`.
+- Switch a collider off and on with `entity.get("Collider3D").enabled = false` (or `Collider2D`): queries (raycasts, shape
+  casts, overlaps) pass through it, it makes no contacts or trigger events, the NavMesh3D bake leaves it out, and the
+  component and its settings stay (an open door; closing it is `enabled = true`). The physics world learns the change at its
+  next sync (once a frame, before scripts run), so a cast later in the same frame still sees the old state.
 - `shapeCast(shape, from, to, { mask, ignore, ignoreTriggers })` → the same `{ entity, point, normal, distance } | null`
   as `raycast`, for a shape with size (2D when `from` has no z, else 3D). `shape` is `{ shape: "circle", radius: 8 }` or
   `{ shape: "box", size: [16, 24] }` in 2D, `{ shape: "sphere", radius: 0.5 }` or `{ shape: "box", size: [1, 2, 1] }` in

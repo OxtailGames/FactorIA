@@ -94,6 +94,27 @@ Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
 | `ignore` | string | no | Entity id or name whose colliders (and its children's) are skipped, usually the caster. |
 | `ignoreTriggers` | boolean | no | Skip trigger colliders; false hits them too. Default true. |
 
+## `physics.raycast_all`
+
+Not released yet (on main after 0.2.0).
+
+Cast a ray against colliders (2D segment or 3D ray) and return EVERY hit, nearest first.
+
+Same arguments and options as physics.raycast, plus maxHits (default 32, the nearest ones are kept). Use it to see everything between two points (what hides a character from the camera), or to click through colliders that only exist to be faded. A collider with enabled=false is never reported. Result: {count, hits:[{entity, point, normal, distance}]} sorted by distance. Example: physics.raycast_all {"dimension":"3d","origin":[0,2,0],"direction":[0,0,-1],"maxDistance":20,"maxHits":4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `dimension` | string ["2d","3d"] | no |  Default "2d". |
+| `from` | array | no | 2D start [x,y]. |
+| `to` | array | no | 2D end [x,y]. |
+| `origin` | array | no | 3D origin [x,y,z]. |
+| `direction` | array | no | 3D direction. |
+| `maxDistance` | number | no |  Default 1000. |
+| `maxHits` | integer | no | At most this many hits (the nearest). Default 32. |
+| `mask` | integer | no | Collision layer mask: bit i = layer i; -1 hits every layer. Default -1. |
+| `ignore` | string | no | Entity id or name whose colliders (and its children's) are skipped, usually the caster. |
+| `ignoreTriggers` | boolean | no | Skip trigger colliders; false hits them too. Default true. |
+
 ## `physics.shape_cast`
 
 Sweep a circle, sphere or box from one point to another and return the first collider it touches.

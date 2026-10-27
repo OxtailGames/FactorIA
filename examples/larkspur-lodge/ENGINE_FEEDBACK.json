@@ -47,10 +47,12 @@
       "suggestion": "physics.raycast3dAll(origin, dir, maxDistance, opts) returning the hits sorted by distance (with a max count), or an option on raycast3d.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP.md."
-      ]
+        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP.md.",
+        "Fixed in M33.7 (branch m33/raycast-all): physics.raycast3dAll / raycast2dAll return every hit nearest first, up to opts.maxHits; the camera and the porter use them."
+      ],
+      "engineIssue": "branch m33/raycast-all (M33.7)"
     },
     {
       "id": "FB-0003",
@@ -71,10 +73,12 @@
       "suggestion": "Collider3D.enabled (and Collider2D.enabled), writable at run time, kept out of the NavMesh bake when false; or a documented way to move a collider to a layer that nothing hits.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP.md."
-      ]
+        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP.md.",
+        "Fixed in M33.7 (branch m33/raycast-all): Collider3D.enabled / Collider2D.enabled, writable at run time; interactable.js now sets enabled = false."
+      ],
+      "engineIssue": "branch m33/raycast-all (M33.7)"
     },
     {
       "id": "FB-0004",
