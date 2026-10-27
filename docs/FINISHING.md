@@ -104,10 +104,10 @@ applied when the game starts again and the tab shows them").
 
 ## 3. Saves
 
-The engine part: `storage` (JSON values in `<save folder>/storage.json`) saves through a temporary file and a rename, so a
-crash during a save leaves the previous file intact. A `storage.json` that does not parse is **kept** as
+The engine part: `storage` (JSON values, one file per key in `<save folder>/storage/`) saves each key through a temporary file and a
+rename, so a crash during a save leaves the previous file intact. A storage file that does not parse is **kept** as
 `storage.corrupt.json` (then `storage.corrupt.2.json`...) with a warning, `storage.corrupt` is `true` and the game starts
-with empty data; the kept file is never overwritten ([SCRIPTING.md](SCRIPTING.md), "storage"). That protects the file as
+without that key (the others load); the kept file is never overwritten ([SCRIPTING.md](SCRIPTING.md), "storage"). That protects the file as
 a whole. Everything below is the game's part, and Lantern Keep's recipe for it is `scripts/saves.js`:
 
 **A version field, one migration step per old version.** A slot is a string of JSON text under `slot1`, `slot2`, `slot3`
@@ -174,7 +174,7 @@ delete can bring it back at the next sync (a known limit).
 | macOS | `~/Library/Application Support/<game id>` |
 | Android | the app's private folder (`internalDataPath`) |
 | iOS | the app's `Documents/` |
-| Web | the browser's **IndexedDB**, one database per game id: loaded before the game starts, copied back half a second after a write (a closing tab flushes it). It belongs to the site: it survives reloads, is lost when the player clears the site's data, and a private window keeps it only until it closes |
+| Web | the browser's **IndexedDB**, one database per game id: loaded before the game starts, copied back half a second after a write (a tab being hidden or closed raises `suspend` or `quit`, and the copy starts right after those handlers). It belongs to the site: it survives reloads, is lost when the player clears the site's data, and a private window keeps it only until it closes |
 
 ([EXPORTING.md](EXPORTING.md), [MOBILE.md](MOBILE.md).) Consequences for the game: do not tell a web player a save is
 permanent (offer cloud saves where a store exists), keep the save small (it is one JSON file on every platform), and do not

@@ -15,7 +15,11 @@
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#endif
 
 namespace fa {
 
@@ -108,6 +112,47 @@ void refresh_insets() {
     if (app_is_mobile()) g.insets = mobile_safe_insets();
 }
 
+#if defined(__EMSCRIPTEN__)
+// The page's hide and close signals. sokol_app raises neither as suspend/quit on the web (its quit is the "leave this site?"
+// prompt, which only exists when asked for), so the shell listens itself: `visibilitychange` (a tab switch, a minimised
+// window, a phone's app switcher) raises Suspended when the page becomes hidden and Resumed when it is shown again, and
+// `pagehide` (the tab closing, a reload, leaving the site) raises QuitRequested. The page is going away, so a quit raised
+// by pagehide cannot be cancelled: app_cancel_quit() does nothing for it. Each handler's work is followed by a copy of the
+// save folder to IndexedDB (fs::flush_user_dir), so a storage.set made inside a handler is kept.
+}  // namespace
+EM_JS(void, fa_web_install_lifecycle, (), {
+    if (Module.faLifecycle) return;
+    Module.faLifecycle = true;
+    document.addEventListener('visibilitychange', () => {
+        Module._fa_web_lifecycle(document.visibilityState === 'hidden' ? 0 : 1);
+    });
+    window.addEventListener('pagehide', () => { Module._fa_web_lifecycle(2); });
+});
+
+namespace {
+// kind: 0 the page became hidden, 1 it became visible, 2 the page is being closed.
+void web_lifecycle(int kind) {
+    if (!g.active) return;
+    Input* in = g.desc.input;
+    if (kind == 0) {
+        g.focused = false;
+        if (in) in->release_all();
+        emit(AppEvent::Type::Suspended);
+    } else if (kind == 1) {
+        g.focused = true;
+        emit(AppEvent::Type::Resumed);
+    } else if (g.desc.event) {
+        AppEvent q;
+        q.type = AppEvent::Type::QuitRequested;
+        g.desc.event(q);  // inQuitEvent stays false: the page cannot be kept open
+    }
+    fs::flush_user_dir();
+}
+}  // namespace
+extern "C" EMSCRIPTEN_KEEPALIVE void fa_web_lifecycle(int kind) { web_lifecycle(kind); }  // called by the page code above
+namespace {
+#endif
+
 void on_init() {
     g.active = true;
     g.fbW = sapp_width();
@@ -116,6 +161,7 @@ void on_init() {
 #if defined(__EMSCRIPTEN__)
     // The browser decides when a paste happens: a TextField pastes on the paste event, not on the V key.
     if (g.desc.input) g.desc.input->set_paste_from_events(true);
+    fa_web_install_lifecycle();
 #endif
     if (g.desc.init) g.desc.init();
 }

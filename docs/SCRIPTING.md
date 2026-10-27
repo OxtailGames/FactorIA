@@ -939,27 +939,64 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
 - `game.notices()` → `[{ name, url, license, usedFor }]`: the third-party software inside the runtime every game ships
   (FactorIA first), the parts whose license texts `factoria export` writes to `FACTORIA_NOTICES.txt`. For a credits
   screen.
-- `storage.get(key, fallback)` · `storage.set(key, value)` · `storage.remove(key)` — persistent JSON save data
-  (`<user dir>/storage.json`). Tests always use an empty in-memory storage per test file and never touch the real
-  save; the runtime can run headless with `ScriptSystem::set_storage_mode(StorageMode::Memory)`.
-  Saves are atomic (temporary file, then rename): a crash during a save leaves the previous `storage.json` intact.
-- `storage.corrupt` — `true` when `storage.json` did not parse at the first use of `storage` in this run. The damaged
-  file is **kept** as `storage.corrupt.json` in the save folder (`storage.corrupt.2.json`, `.3`... when one is already
-  there: an earlier one is never replaced), the engine logs a warning naming it, and the game starts with empty save
-  data; the next save writes a new valid `storage.json` and never touches the kept file. Check it at start to tell the
-  player or offer a recovery. A test starts from a damaged save with `game.setStorageText('{"broken')` (from
-  `factoria:test`; it sets the text the next storage load reads and reloads, then `storage.corrupt` is `true`).
-  On the web the save folder lives in IndexedDB and the same rules apply to its copy of the file.
+- `storage.get(key, fallback)` · `storage.set(key, value, options?)` · `storage.remove(key)` · `storage.size(key)` ·
+  `storage.setAsync(key, value, options?)` — persistent JSON save data. **One file per key** in
+  `<user dir>/storage/` (`slot1.json`; a name keeps lowercase letters, digits, `_` and `-` and writes every other byte as
+  `%XX`, so `"Slot 2"` is `%53lot%202.json` on any disk), each holding `{"key": ..., "value": ...}`: a save rewrites its
+  own key only, however many other keys (or big saves) there are. A `storage.json` left by an older version is read at
+  the first start, split into key files (keys that already have a file keep it) and renamed `storage.migrated.json`, so
+  nothing is lost if that start is interrupted. Tests always use an empty in-memory storage per test file and never
+  touch the real save; the runtime can run headless with `ScriptSystem::set_storage_mode(StorageMode::Memory)`.
+  Every file is written atomically (a temporary file, then a rename): a crash during a save leaves the previous file
+  intact, and a leftover temporary file is ignored.
+- `storage.set(key, value, {compress: true})` stores the value zlib-compressed (the file is `{"key", "z": "zlib", "n",
+  "data": <base64>}`): a big, repetitive save takes a fraction of the disk space and `get` returns the same value. Any
+  other option throws with a suggestion. `storage.size(key)` is the number of bytes the key's file takes (the compressed
+  size for a compressed value; `0` when the key is not stored): measure a save, or choose to compress above a size.
+- `storage.setAsync(key, value, options?)` returns a Promise that resolves with the file's size once the file is written
+  (and rejects with the reason when it cannot be). `storage.get` returns the new value at once; the encoding, the
+  compression and the write happen off the frame: on a worker thread on desktop and phones, and between frames on the web
+  (a browser player has no threads). Serializing `value` to JSON still happens in the call. Writes to one key land in the
+  order they were asked; `set`, `remove`, `clear` and `size` wait for the writes still running, and the game does not
+  end before they finish. The writes still waiting are also made right after the `suspend` and `quit` handlers run, so a
+  `setAsync` from one of them is on disk (on the web, in the copy sent to IndexedDB) before the app is hidden or closed. In a test the write is deferred to the next `game.step`, so
+  `const p = storage.setAsync("slot", data); game.step(1); await p;`. A Promise outlives nothing it needs: storage is not
+  tied to a scene.
+- `storage.corrupt` — `true` when a storage file (a key's file, or an older `storage.json`) did not parse at the first use
+  of `storage` in this run. The damaged file is **kept** as `storage.corrupt.json` in the save folder
+  (`storage.corrupt.2.json`, `.3`... when one is already there: an earlier one is never replaced), the engine logs a
+  warning naming it, and the game starts without that file's data (the other keys load); the next save writes a new valid
+  file and never touches the kept one. Check it at start to tell the player or offer a recovery. A test starts from a
+  damaged save with `game.setStorageText('{"broken')` (from `factoria:test`; it sets the text the next storage load reads
+  as if it were an old `storage.json` and reloads, then `storage.corrupt` is `true`).
+  On the web the save folder lives in IndexedDB and the same rules apply to its copy of the files. A web page that is
+  hidden or closing copies it to IndexedDB right after the `suspend` and `quit` handlers have run (see below), so a
+  `storage.set` made inside one is kept.
 
 ### Window close: `game.on("quit", fn)`
 
 On a desktop window, the close button, Cmd+Q (macOS) and Alt+F4 (Windows) raise `quit` before the window closes. The
 handler gets an event with `cancel()` and `cancelled`; call `event.cancel()` to keep the game running (ask "Quit
 without saving?" and call `game.quit()` when the player agrees). Without a handler, or when no handler cancels, the
-window closes. `game.quit()` closes the window without raising `quit` again, so a handler may call it. The web and
-phones never raise it (a browser tab or the OS closes the app on its own terms), and a headless run only sees it when a
-test calls `game.closeWindow()`. Cancelling is not guaranteed on every platform: a window the OS is shutting down can
-close anyway.
+window closes. `game.quit()` closes the window without raising `quit` again, so a handler may call it. Phones never
+raise it (the OS closes the app on its own terms), and a headless run only sees it when a test calls `game.closeWindow()`.
+Cancelling is not guaranteed on every platform: a window the OS is shutting down can close anyway.
+
+On the web, `quit` is raised when the page is going away (`pagehide`: the tab closing, a reload, leaving the site) and it
+**cannot be cancelled** there: `event.cancel()` does nothing. Use the handler to save; whatever `storage.set` wrote
+inside it is copied to the browser's IndexedDB at once, after the handlers have run. The browser may still drop the
+page before the copy finishes (a crash, a killed tab), so a game that cannot lose progress also saves on a timer.
+
+**Which signals each platform raises:**
+
+| | `blur` / `focus` | `suspend` / `resume` | `quit` |
+|---|---|---|---|
+| Windows, macOS, Linux | the window loses or gains focus, or is minimised and restored | never | the close button, Cmd+Q, Alt+F4; can be cancelled |
+| Web | the page loses or gains focus (`window` blur and focus) | the tab is hidden or shown again (`visibilitychange`: a tab switch, a minimised window, a phone's app switcher) | the page is closing (`pagehide`); cannot be cancelled |
+| Android, iOS | a system dialog over the app | the app goes to the background and comes back | never |
+
+The web's `suspend` is also raised when the browser takes the WebGL context away. A hidden tab raises `suspend` once
+however many events the browser sends, and `resume` only after a `suspend`.
 
 ```js
 import { game } from "factoria";

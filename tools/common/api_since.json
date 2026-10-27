@@ -1359,6 +1359,8 @@
     "StorageAPI.keys": "0.1.0",
     "StorageAPI.remove": "0.1.0",
     "StorageAPI.set": "0.1.0",
+    "StorageAPI.setAsync": "unreleased",
+    "StorageAPI.size": "unreleased",
     "TilemapAPI": "unreleased",
     "TilemapAPI.component": "unreleased",
     "TilemapAPI.getTile": "unreleased",

@@ -6,7 +6,7 @@ import { buildStressTown, stressRows } from "../scripts/game/stress_town.js";
 import { navFinder } from "../scripts/game/nav_backend.js";
 import { storage } from "factoria";
 import { getData } from "../scripts/game/data.js";
-import { writeEntry, loadEntry, entryBytes } from "../scripts/game/save_store.js";
+import { writeEntry, loadEntry, entryBytes, dataKey } from "../scripts/game/save_store.js";
 
 function crowd(villagers = 640) {
   const state = createGame({ rows: stressRows(60) });
@@ -83,4 +83,21 @@ test("stress: saving and loading the 640-villager town is exact and its cost is 
   expect(back.ok).toBe(true);
   expect(back.state.hash()).toBe(state.hash());
   console.log("stress save: bytes", bytes, "write ms", (t1 - t0).toFixed(1), "read+restore ms", (t2 - t1).toFixed(1), "walkers", state.sim.walkers.count);
+});
+
+test("stress: an autosave written off the frame reads back exactly and takes fewer bytes", async () => {
+  const { state } = crowd();
+  for (let i = 0; i < state.clock.ticksPerDay * 0.25; i++) state.clock.tick(state.clock.step);
+  storage.clear();
+  const plain = writeEntry(1, "manual", state, { scenario: "sandbox", name: "Plain", playSeconds: 1 });
+  expect(plain.ok).toBe(true);
+  const res = writeEntry(1, "auto", state, { scenario: "sandbox", name: "Auto", playSeconds: 1, async: true });
+  expect(res.ok).toBe(true);
+  expect(res.written).toBeDefined();
+  game.step(1); // the engine writes between frames (memory storage in tests)
+  await res.written;
+  expect(storage.size(dataKey(1, "auto"))).toBeLessThan(storage.size(dataKey(1, "manual")) / 2);
+  const back = loadEntry(1, "auto", getData());
+  expect(back.ok).toBe(true);
+  expect(back.state.hash()).toBe(state.hash());
 });
