@@ -22,7 +22,7 @@ import { footprintCells } from "./rules.js";
 import { amountText, buildingName, compactText, coinsText, dateText, goodsBagText, listText, numberText, villagersText } from "./format.js";
 import { DESIGN } from "./camera_math.js";
 import {
-  COLORS, FONT, LAYER, button, icon, inside, isActive, label, panel, setActive, setIcon, toUnits,
+  COLORS, FONT, LAYER, button, buttonIcon, icon, inside, isActive, label, panel, setActive, setIcon, toUnits,
 } from "./ui_kit.js";
 import {
   COVERAGE, GOODS_COLUMNS, Notices, Recorder, SHORTCUTS, Traffic, canDropWorker, categories, centreOf, describeBuilding,
@@ -193,9 +193,11 @@ export class Hud {
       const row = panel(`build_items_${c.id}`, this.bar, { layout: "grid", columns: Math.min(c.buildings.length, 5), fit: true, spacing: 6, padding: [0, 0, 0, 0], color: CLEAR, align: "center" });
       this.itemRows[c.id] = row;
       for (const type of c.buildings) {
-        const item = panel(`item_${type}`, row, { layout: "column", fit: true, spacing: 2, padding: [0, 0, 0, 0], color: CLEAR, align: "center" });
-        icon(`item_icon_${type}`, item, this.data.atlas, type === "road" ? "road.road" : `building.${type}.0`, ICON_BOX);
-        this.itemButtons[type] = button(`tool_${type}`, item, type, { size: [118, 44], autoSize: true, maxWidth: 90, fontSize: FONT.small });
+        // One Button per item: the atlas frame is its icon (above the name and cost), so a click anywhere on the item presses it.
+        this.itemButtons[type] = button(`tool_${type}`, row, type, {
+          size: [118, 44], autoSize: true, maxWidth: 90, fontSize: FONT.small,
+          ...buttonIcon(this.data.atlas, type === "road" ? "road.road" : `building.${type}.0`, ICON_BOX), iconPosition: "top",
+        });
       }
     }
     this.addPanel("build", { root: this.bar, refresh: () => this.refreshBar(), every: 0.25 });
@@ -871,7 +873,7 @@ export class Hud {
     tips.add(rb.btn_help, () => ({ title: t("btn.help"), lines: [{ text: t("tip.help") }, { text: key("F1"), color: COLORS.gold }] }));
     for (const c of this.cats) tips.add(this.tabButtons[c.id], () => ({ title: t(`cat.${c.id}`), lines: [{ text: t(`cat.hint.${c.id}`) }] }));
     for (const type of Object.keys(this.itemButtons)) {
-      const e = world.find(`item_${type}`);
+      const e = this.itemButtons[type];
       tips.add(e, () => (this.isOpen("build") ? this.buildingTip(type) : null));
     }
     // the top bar: coins, goods, population. They are Text, which has no tooltip of its own, so the bar's Panel answers for the

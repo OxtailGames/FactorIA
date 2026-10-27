@@ -263,7 +263,8 @@
       "suggestion": "Button.icon (sprite region) with iconPosition left/top, drawn inside the hit area.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "M31.17"
     },
     {
       "id": "FB-0012",

@@ -1254,6 +1254,64 @@ TEST_CASE("ui fallbackLayout: a fill ScrollList in a column that became a row is
     CHECK(t.w.get<ScrollList>(list)->size.y == doctest::Approx(64));  // left as the column pass set it, not re-filled
 }
 
+// ---- Button.icon (M31.17) --------------------------------------------------------------------------------------------------
+
+TEST_CASE("ui button icon: an icon-top label sits under the icon, a click on the icon presses the button, the fitted size counts it") {
+    Ui t;
+    Entity b = t.button("b", {100, 100}, {200, 120});
+    Button& btn = *t.w.get<Button>(b);
+    btn.text = "Hola";
+    btn.icon = "assets/ico.png";
+    btn.iconSize = {40, 40};
+    btn.iconPosition = ButtonIconPosition::Top;
+    t.frame();
+    const Rect r = t.rect(b);
+    const Vec2 label{58.0f, 28.0f};
+    const UiButtonContent c = ui_button_content(btn, r, label);
+    CHECK(c.icon.w == doctest::Approx(40));
+    CHECK(c.icon.x + c.icon.w * 0.5f == doctest::Approx(r.x + r.w * 0.5f));  // centred across
+    CHECK(c.labelPos.y == doctest::Approx(c.icon.y + 40 + kUiButtonIconGap));  // the label under the icon
+    CHECK(c.labelPos.y + label.y <= r.y + r.h);
+    CHECK(c.icon.y >= r.y);
+    // the icon is inside the hit area: a click on it presses the button
+    t.click({c.icon.x + 20, c.icon.y + 20});
+    CHECK(t.events() == std::vector<std::string>{"ui.focus:b", "ui.click:b"});
+    // left: the icon is left of the label
+    btn.iconPosition = ButtonIconPosition::Left;
+    const UiButtonContent l = ui_button_content(btn, r, label);
+    CHECK(l.labelPos.x == doctest::Approx(l.icon.x + 40 + kUiButtonIconGap));
+    // the label zone (autoShrink) loses the icon's side
+    const std::optional<UiLabel> zone = ui_label(t.w, b, r);
+    REQUIRE(zone.has_value());
+    CHECK(zone->zone.w == doctest::Approx(r.w - 16 - 40 - kUiButtonIconGap));
+    // alone: no label
+    btn.iconPosition = ButtonIconPosition::Alone;
+    CHECK_FALSE(ui_label(t.w, b, r).has_value());
+}
+
+TEST_CASE("ui button icon: autoSize grows the button to hold the icon and the label") {
+    Ui t;
+    Entity b = t.button("b", {0, 0}, {10, 10});
+    Button& btn = *t.w.get<Button>(b);
+    btn.autoSize = true;
+    btn.text = "Hola";  // 4 x 14.4 = 57.6 wide, 28.8 tall at 24 px
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const Vec2 plain = btn.size;
+    btn.icon = "assets/ico.png";
+    btn.iconSize = {40, 50};
+    btn.iconPosition = ButtonIconPosition::Left;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(plain.x + 40 + kUiButtonIconGap).epsilon(0.02));
+    CHECK(btn.size.y == doctest::Approx(50 + 16));
+    btn.iconPosition = ButtonIconPosition::Top;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(plain.x));
+    CHECK(btn.size.y == doctest::Approx(std::ceil(28.8f + 50 + kUiButtonIconGap + 16)).epsilon(0.02));
+    btn.iconPosition = ButtonIconPosition::Alone;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(10 + 40 + 6).epsilon(0.5));  // design 10 x 10 -> the icon plus margins
+}
+
 // ---- text that fits (M26.6) ------------------------------------------------------------------------------------------------
 
 TEST_CASE("text fit: a German label in a fixed button shrinks at 200 % text, stays inside and never goes under minFontSize") {

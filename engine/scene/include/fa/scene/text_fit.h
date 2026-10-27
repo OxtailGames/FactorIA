@@ -79,6 +79,16 @@ std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r, float t
 // or a taller widget does not make the box bigger.
 float ui_toggle_box_side(const Toggle& t, float height, float textScale);
 
+// Gap in design pixels between a Button's icon and its label.
+inline constexpr float kUiButtonIconGap = 6.0f;
+// Where a Button with an icon puts it and its label inside the rectangle `r`: `labelSize` is the laid-out label (0 for none).
+// The icon and the label are centred as one group; `alone` centres the icon and leaves no label.
+struct UiButtonContent {
+    Rect icon;        // empty (zero size) without an icon
+    Vec2 labelPos;    // top-left of the label
+};
+UiButtonContent ui_button_content(const Button& b, const Rect& r, Vec2 labelSize);
+
 struct UiLabelFit {
     UiLabel label;
     TextFit fit;
