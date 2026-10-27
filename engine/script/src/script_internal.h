@@ -19,6 +19,7 @@
 #include "fa/script/script.h"
 #include "fa/services/platform.h"
 #include "preload.h"
+#include "script_storage.h"
 
 namespace fa {
 
@@ -165,6 +166,17 @@ struct ScriptSystem::Impl {
     StorageMode storageMode = StorageMode::Persistent;
     bool storageCorrupt = false;                 // the save data did not parse at the last load (storage.corrupt)
     std::optional<std::string> storageTextHook;  // game.setStorageText: what the next load reads instead of the file
+    // What is known of each key's file: whether it is compressed and its size in bytes (-1: not measured yet, storage.size does it).
+    struct StorageMeta {
+        bool compressed = false;
+        std::int64_t bytes = -1;
+    };
+    std::map<std::string, StorageMeta> storageMeta;
+    storage_files::Writer storageWriter;  // storage.setAsync
+    int nextStorageJob = 1;
+    void storage_write(const std::string& key, bool compress);      // writes one key's file now
+    void storage_remove_file(const std::string& key);
+    void storage_drain();                                            // waits for the setAsync writes still running
 
     // ---- game.accessibility: game.setAccessibility() in tests (windowless runs otherwise give the defaults)
     AccessibilitySettings testAccessibility;

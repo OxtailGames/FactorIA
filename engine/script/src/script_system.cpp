@@ -900,6 +900,7 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
 
 void ScriptSystem::Impl::shutdown() {
     if (!initialized && !rt) return;
+    storage_drain();  // a setAsync write still running finishes before the process can end
     unregister_tools();
     if (host && observerId >= 0) host->world().remove_observer(observerId);
     observerId = -1;
@@ -958,6 +959,26 @@ void ScriptSystem::dispatch_platform() {
     Impl& I = *impl_;
     if (!I.initialized || !I.host) return;
     if (I.debugger) I.debugger->impl().frame_start();  // terminate request, then the client's poll
+    I.storageWriter.pump();  // storage.setAsync without a worker thread (the web, memory storage): its writes run here, between frames
+    if (std::vector<storage_files::Job> done = I.storageWriter.take_done(); !done.empty()) {
+        Json list = Json::array();
+        for (const storage_files::Job& j : done) {
+            auto m = I.storageMeta.find(j.key);
+            if (m != I.storageMeta.end() && m->second.compressed == j.compress && m->second.bytes < 0) m->second.bytes = static_cast<std::int64_t>(j.bytes);
+            if (j.persist) {
+                if (j.ok) fs::user_dir_changed();
+                else log(LogLevel::Warn, "script", "storage.setAsync could not write " + j.file.string() + " for key '" + j.key + "': " + j.error);
+            }
+            list.push_back(Json::object({{"id", j.id}, {"ok", j.ok}, {"error", j.error}, {"bytes", j.bytes}}));
+        }
+        JSValue lv = I.from_json(list);
+        JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "storageDeliver");
+        JSValue r = I.call("storage.setAsync", "", fn, I.hooks.get(), {lv});
+        JS_FreeValue(I.ctx, r);
+        JS_FreeValue(I.ctx, fn);
+        JS_FreeValue(I.ctx, lv);
+        I.run_jobs();
+    }
     if (I.preload.active()) {  // scene.preload / assets.preload: this frame's share of the work
         const std::vector<Preloader::Update> updates = I.preload.tick(I.host->preload_time_budget_ms());
         if (!updates.empty()) {
@@ -1109,6 +1130,8 @@ void ScriptSystem::reload_tools() {
 void ScriptSystem::set_tools_changed_callback(std::function<void()> cb) { impl_->toolsChanged = std::move(cb); }
 
 void ScriptSystem::set_storage_mode(StorageMode mode) {
+    impl_->storage_drain();
+    impl_->storageMeta.clear();
     impl_->storageMode = mode;
     impl_->storage = Json::object();
     impl_->storageLoaded = false;

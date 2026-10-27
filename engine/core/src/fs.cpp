@@ -120,6 +120,7 @@ const stdfs::path& project_root() {
 
 #if !defined(__EMSCRIPTEN__)
 void user_dir_changed() {}  // the web build has its own (fs_web.cpp)
+void flush_user_dir() {}
 #endif
 
 void set_user_dir(const stdfs::path& dir) {

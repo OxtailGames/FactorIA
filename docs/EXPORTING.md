@@ -1052,6 +1052,15 @@ server sends no `Content-Length`) and `{{favicon}}` (`favicon.png`, or `data:,` 
   into `favicon.png`, 64x64, and the page links it. A game without an icon gets an empty icon (`data:,`, so a host without a
   favicon logs no 404), and no "No icon" warning; an icon file that cannot be read is a warning. The `platforms` list of
   `factoria.json` is not checked for `web`.
+- **Hiding and closing.** A web export raises `suspend` when the tab is hidden and `resume` when it is shown again
+  (`visibilitychange`), `blur` and `focus` with the page's focus, and `quit` when the page goes away (`pagehide`: a closed
+  tab, a reload, leaving the site). That `quit` cannot be cancelled. Right after the handlers have run, the save folder
+  (`storage`: one file per key) is copied to IndexedDB, so a game that saves in its `suspend` and `quit` handlers keeps the
+  save after its tab is closed. The browser can still kill a page before the copy ends, so keep a timer autosave too. To
+  check it: export, serve and open the game, make progress, close the tab (or navigate away), open the game again and see
+  that the save is there. `storage.setAsync` has no worker thread on the web: its write runs between frames, so a save
+  made while the page closes uses `storage.set`. Which signals each platform raises: [SCRIPTING.md](SCRIPTING.md) "Window
+  close".
 - **Size** is the cost of the web: the wasm player plus the whole pack is downloaded before the first frame. `factoria
   validate` already warns about big files; the zip is deflated, so a host that compresses (gzip, brotli) saves little more.
   See "The size report" below.
