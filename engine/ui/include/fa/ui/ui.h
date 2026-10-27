@@ -13,17 +13,21 @@
 #pragma once
 
 #include <array>
+#include <optional>
+#include <vector>
 #include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 
+#include "fa/core/i18n.h"
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/ui_rect.h"
+#include "fa/scene/ui_tooltip.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -56,6 +60,43 @@ struct TextInputRequest {
 };
 // Returns true when the platform shows its own keyboard for the field. For a request with `focused` false it is ignored.
 using TextInputHandler = std::function<bool(const TextInputRequest&)>;
+
+// ---- tooltips (docs/MENUS.md, "Tooltips") ------------------------------------------------------------------------------
+// What a tooltip says, after the keys are translated: an optional title and the body lines (a line may have its own colour).
+struct UiTooltipText {
+    struct Line {
+        std::string text;
+        std::optional<Color> color;
+    };
+    std::string title;
+    std::vector<Line> lines;
+    bool empty() const { return title.empty() && lines.empty(); }
+};
+
+// Reads the `tooltip` content of a widget or of ui.showTooltip: a string, or {title, lines: [text | {text, color}], args}. Each
+// text is a locale key when `i18n` is on and has it (placeholders from `args`), else it is shown as written. nullopt, and `error`
+// says why, for any other shape; an empty result (nothing to say) is a value with empty().
+std::optional<UiTooltipText> ui_tooltip_text(const Json& content, const I18n* i18n, std::string* error = nullptr);
+
+// The size of a tooltip box in UI units for `text` in `style`: lines wrap at style.maxWidth, the padding is added. `measure`
+// sizes the lines (approx_text_size when it has no textSize).
+Vec2 ui_tooltip_size(const UiTooltipText& text, const UiTooltipStyle& style, const VisualMeasure& measure);
+
+// Where the box of `size` goes when the pointer is at `pointer`, all in screen PIXELS: below and to the right, `gap` away, flipped to
+// the left of the pointer and/or above it when it would cross `screen`, then pushed back inside (4 px margin) when it still
+// does not fit. A box larger than the screen is placed at the margin and keeps hanging over the right / bottom edge.
+Vec2 ui_tooltip_place(Vec2 pointer, Vec2 size, Vec2 screen, float gap);
+
+// Builds the view of `text` for a pointer at `pointer` (screen pixels): measures, places and positions each line, in UI units
+// (`k` = the interface scale). shown is true unless `text` is empty.
+UiTooltipView ui_tooltip_layout(const UiTooltipText& text, const UiTooltipStyle& style, const VisualMeasure& measure, Vec2 pointer,
+                                Vec2 screenPx, float k);
+
+// Script hooks for the tooltips that are functions (ui.setTooltip / ui.setWorldTooltip). Both return the content (null = none).
+struct UiTooltipHooks {
+    std::function<Json(Entity)> widget;  // asked for a widget registered with set_script_tooltip
+    std::function<Json(Vec2)> world;     // asked with the pointer when it rests on no widget, if set_world_tooltip(true)
+};
 
 class UiSystem {
 public:
@@ -122,7 +163,21 @@ public:
     // Screen-space Text entities follow the widgets, as {id, kind: "Text", rect, text, ...}; `measure` sizes their rect.
     Json state(const World& world, Vec2 designSize, const VisualMeasure& measure = {}) const;
 
-    // Scene load: no focus, no hover, no press.
+    // ---- tooltips. The Engine sets the I18n; update() decides what shows (World::ui_tooltip()).
+    void set_i18n(const I18n* i18n) { i18n_ = i18n; }
+    void set_tooltip_hooks(UiTooltipHooks hooks) { tooltipHooks_ = std::move(hooks); }
+    // `e` has a script function that gives its tooltip (or not any more).
+    void set_script_tooltip(Entity e, bool on);
+    // A function gives the tooltip for the pointer resting on no widget.
+    void set_world_tooltip(bool on) { worldTooltip_ = on; }
+    // Shows `content` now, near `at` (screen pixels), whatever the rest timer says; it stays until hide_tooltip(), until the pointer
+    // moves more than the slop from where it was, or a scene load. Returns the problem when `content` is not a tooltip.
+    Result<void> show_tooltip(World& world, const Json& content, Vec2 at, Vec2 designSize, const VisualMeasure& measure);
+    void hide_tooltip(World& world);
+    // Seconds of rest still needed before the tooltip under the pointer shows (0 once it shows), for tests.
+    float tooltip_wait() const { return tooltipShown_ ? 0.0f : std::max(0.0f, tooltipDelay_ - tooltipRest_); }
+
+    // Scene load: no focus, no hover, no press, no tooltip.
     void reset();
 
 private:
@@ -155,6 +210,22 @@ private:
     float caretStart_ = 0.0f;     // clock_ at the last edit or focus change: the caret is visible then
     std::array<Repeat, 4> nav_;   // up, down, left, right
     Repeat backspace_;
+
+    // tooltips (tooltip.cpp)
+    void update_tooltip(World& world, const Input& input, Vec2 designSize, float dt, const VisualMeasure& measure, Vec2 pointer,
+                        bool pointerDown);
+    Vec2 lastPointer_{};  // where the pointer was at the last update()
+    Vec2 manualAt_{};     // where show_tooltip() was asked to put the tooltip
+    const I18n* i18n_ = nullptr;
+    UiTooltipHooks tooltipHooks_;
+    std::unordered_set<u64> scriptTooltips_;
+    bool worldTooltip_ = false;
+    float tooltipRest_ = 0.0f, tooltipDelay_ = 0.5f;
+    bool tooltipShown_ = false, tooltipManual_ = false;
+    Vec2 tooltipAnchor_{};
+    u64 tooltipTarget_ = 0;  // the widget bits the timer runs for (0 = the world)
+    Json tooltipManualContent_;
+    std::string tooltipWarned_;  // the last bad-tooltip warning, so one that stays on screen is logged once
 };
 
 }  // namespace fa

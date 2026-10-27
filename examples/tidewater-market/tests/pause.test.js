@@ -1,6 +1,6 @@
 // Escape pauses the game over the map and the pause menu works with the mouse; the map does not react while it is open.
 import { test, expect, game } from "factoria:test";
-import { scene } from "factoria";
+import { scene, ui } from "factoria";
 import { townScene, cellAt } from "./ui_helper.js";
 
 test("pause menu: Escape opens it, Resume closes it, and a click on the panel builds nothing", () => {
@@ -33,7 +33,7 @@ test("pause menu: Escape opens it, Resume closes it, and a click on the panel bu
 
 test("pause menu: the tooltip of the building under the pointer does not stay drawn over it", () => {
   const { rig } = townScene();
-  const visible = () => game.find("tooltip").position[0] > -1000;
+  const visible = () => ui.tooltip !== null;
   game.mouseMove(cellAt(rig, 5, 3));
   game.step(40);
   expect(visible()).toBe(true); // the farm's tooltip

@@ -423,6 +423,10 @@ void Impl::reset_for_test_file() {
     }
     host->input().release_all();
     set_scales_quietly(host->default_ui_scale(), 1.0f);
+    {  // the tooltip delay and look of factoria.json, whatever an earlier test file set (ui.tooltipDelay)
+        Result<UiTooltipSettings> tip = parse_tooltip_settings(proj.is_object() && proj.contains("ui") ? proj["ui"] : Json(), "factoria.json#/ui");
+        host->world().set_ui_tooltip_settings(tip.ok() ? tip.value() : UiTooltipSettings{});
+    }
     timeScale = 1.0;
     call_method("reset session", "", hooks.get(), "resetSession", {});
     after_test_load();

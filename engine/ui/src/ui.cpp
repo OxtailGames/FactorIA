@@ -245,6 +245,13 @@ void UiSystem::reset() {
     backspace_ = Repeat{};
     autoSizes_.clear();
     warnedFit_.clear();
+    scriptTooltips_.clear();
+    worldTooltip_ = false;
+    tooltipRest_ = 0.0f;
+    tooltipShown_ = tooltipManual_ = false;
+    tooltipTarget_ = 0;
+    tooltipManualContent_ = nullptr;
+    tooltipWarned_.clear();
 }
 
 bool UiSystem::set_focus(World& w, Entity e) {
@@ -482,6 +489,10 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         }
     }
 
+    // ---- tooltips: the rest timer, what shows and where (tooltip.cpp)
+    lastPointer_ = mouse;
+    update_tooltip(w, in, design, dt, measure, mouse, ptrDown);
+
     // ---- runtime flags the renderer and scripts read
     for (const Item& it : items) {
         UiControl* c = control_of(w, it.e);
@@ -585,6 +596,7 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
     return Json::object({{"focused", focus_ && w.alive(focus_) ? Json(w.id_of(focus_)) : Json(nullptr)},
                          {"hovered", hover_ && w.alive(hover_) ? Json(w.id_of(hover_)) : Json(nullptr)},
                          {"uiScale", ui_scale_clamped(w.ui_scale())},
+                         {"tooltip", ui_tooltip_json(w.ui_tooltip(), ui_scale_clamped(w.ui_scale()))},
                          {"widgets", std::move(list)}});
 }
 

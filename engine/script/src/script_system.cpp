@@ -14,6 +14,7 @@
 #include "fa/platform/input.h"
 #include "fa/scene/components.h"
 #include "fa/script/bytecode.h"
+#include "fa/ui/ui.h"
 #include "debugger_internal.h"
 #include "script_internal.h"
 
@@ -894,6 +895,27 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
 
     observerId = h.world().on_destroy([this](Entity e) { on_entity_destroyed(e); });
     initialized = true;
+    // Tooltips that are functions (ui.setTooltip, ui.setWorldTooltip): the UI asks while the pointer rests, from update().
+    if (UiSystem* ui = h.ui()) {
+        auto ask = [this](const char* label, const char* method, JSValue arg0, JSValue arg1) {
+            if (!initialized) {
+                JS_FreeValue(ctx, arg0);
+                JS_FreeValue(ctx, arg1);
+                return Json(nullptr);
+            }
+            ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
+            JSValue r = call_method(label, "", hooks.get(), method, {arg0, arg1});
+            Json out = to_json(r);
+            JS_FreeValue(ctx, r);
+            return out;
+        };
+        UiTooltipHooks th;
+        th.widget = [this, ask](Entity e) {
+            return ask("ui.setTooltip function", "tooltipFor", JS_NewFloat64(ctx, static_cast<double>(e.bits())), JS_UNDEFINED);
+        };
+        th.world = [this, ask](Vec2 p) { return ask("ui.setWorldTooltip function", "worldTooltip", JS_NewFloat64(ctx, p.x), JS_NewFloat64(ctx, p.y)); };
+        ui->set_tooltip_hooks(std::move(th));
+    }
     reload_tools();
     return true;
 }
@@ -904,6 +926,8 @@ void ScriptSystem::Impl::shutdown() {
     unregister_tools();
     if (host && observerId >= 0) host->world().remove_observer(observerId);
     observerId = -1;
+    if (host)
+        if (UiSystem* ui = host->ui()) ui->set_tooltip_hooks({});
     behaviours.clear();  // JsVal destructors free values
     byEntity.clear();
     namespaces.clear();

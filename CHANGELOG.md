@@ -4,6 +4,17 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Tooltips
+
+- `tooltip` on any widget or Panel (a localization key, `{ title, lines, args }`, or a function from
+  `ui.setTooltip(entity, fn)` that returns the text when it shows). It shows after `ui.tooltipDelay` seconds of rest within
+  5 pixels, beside the pointer and flipped to stay on screen, is styled by the new `"ui": { "tooltipDelay", "tooltipOnTouch",
+  "tooltip" }` of `factoria.json` and stays off on touch unless the project turns it on.
+- `ui.showTooltip(content, { x, y })` and `ui.hideTooltip()` for what is not a widget, `ui.setWorldTooltip(fn)` for a
+  pointer over no widget, and `ui.tooltip` (also `tooltip` in `ui.state`) to read what shows. `ui.check_layout` reports a
+  `tooltip` issue for an invalid or screen-sized tooltip. Docs: MENUS.md, SCRIPTING.md.
+- Tidewater Market drops its own Tooltips class for the engine feature (TM/FB-0007).
+
 The web's hide and close signals, and storage that scales
 
 - A web export raises `suspend` when its tab is hidden and `resume` when it is shown again (`visibilitychange`), and `quit`

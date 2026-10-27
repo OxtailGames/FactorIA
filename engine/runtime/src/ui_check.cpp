@@ -8,6 +8,7 @@
 #include "engine_impl.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/ui/ui.h"
 
 namespace fa {
 
@@ -69,7 +70,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
          "lets the scripts settle (a few frames) and reads ui.state. A text is reported when (1) `overflow`: it still does not fit "
          "its box at its effective size (the same test as ui.overflowed(id): after autoShrink and maxTextScale, see docs/TEXT.md), "
          "(2) `overlap`: two visible texts or labelled widgets (Text, Button, Toggle, Slider, TouchButton, neither the parent of the "
-         "other) cover each other, or (3) `offscreen`: its rectangle leaves the screen. The cases are every language x every text "
+         "other) cover each other, (3) `offscreen`: its rectangle leaves the screen, or (4) `tooltip`: the `tooltip` of a visible widget is not a valid tooltip, or its box (the project's ui.tooltip style: maxWidth, font sizes, padding) is larger than the screen, so it cannot be placed inside it. The cases are every language x every text "
          "scale x every interface scale (`uiScales`, default: the current ui.scale), plus (with `pseudo`) a pseudo-localized pass in the default language where each translation is lengthened "
          "(\"[\" + vowels doubled + \"]\", at least 40 % longer) to show where an unknown, longer language would break. Returns "
          "{ok, checked: [{scene, cases}], skipped: [scenes with no UI], issueCount, issues: [{scene, kind, entity, path, key, text, "
@@ -303,6 +304,22 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
                     }
                     for (const auto& [id, it] : now)
                         if (it.overflowed) add_issue(scene, "overflow", id, "", c);
+                    // The tooltip a widget carries (its `tooltip` field; a function's answer is not known here): in this language and
+                    // text size it must be readable at all, and a box that cannot fit the screen cannot be placed inside it.
+                    for (const auto& [id, it] : now) {
+                        const Entity own = I.world.find_by_id(id);
+                        const UiBox* box = own != kNullEntity ? ui_box(I.world, own) : nullptr;
+                        if (!box || box->tooltip.is_null()) continue;
+                        const std::optional<UiTooltipText> text = ui_tooltip_text(box->tooltip, &I.i18n);
+                        if (!text) {
+                            add_issue(scene, "tooltip", id, "", c);
+                            continue;
+                        }
+                        if (text->empty()) continue;
+                        const float k = ui_scale_clamped(I.world.ui_scale());
+                        const Vec2 size = ui_tooltip_size(*text, I.world.ui_tooltip_settings().style, I.measure()) * k;
+                        if (size.x > screen.x - 8.0f || size.y > screen.y - 8.0f) add_issue(scene, "tooltip", id, "", c);
+                    }
                     for (const Item& it : items) {
                         if (it.rect.x < -0.5f || it.rect.y < -0.5f || it.rect.x + it.rect.w > screen.x + 0.5f || it.rect.y + it.rect.h > screen.y + 0.5f)
                             add_issue(scene, "offscreen", it.id, "", c);
