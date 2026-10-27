@@ -221,6 +221,14 @@
       }
     },
     {
+      "id": "dialogue",
+      "components": {
+        "Script": {
+          "path": "scripts/dialogue_view.js"
+        }
+      }
+    },
+    {
       "id": "f_main",
       "components": {
         "Transform": {

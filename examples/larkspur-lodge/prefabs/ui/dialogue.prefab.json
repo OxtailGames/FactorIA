@@ -1,0 +1,246 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Dialogue",
+    "components": {
+      "Transform": {
+        "position": [0, 0, 0]
+      },
+      "Panel": {
+        "size": [1, 1],
+        "color": [0, 0, 0, 0],
+        "layer": 220,
+        "layout": "none"
+      }
+    },
+    "children": [
+      {
+        "id": "dlg_stack",
+        "components": {
+          "Transform": {
+            "position": [0, -24, 0]
+          },
+          "Panel": {
+            "anchor": [0.5, 1],
+            "pivot": [0.5, 0],
+            "layer": 225,
+            "color": [0, 0, 0, 0],
+            "layout": "column",
+            "spacing": 10,
+            "padding": [0, 0, 0, 0],
+            "align": "center",
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "dlg_choices",
+            "components": {
+              "Panel": {
+                "layer": 230,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "spacing": 8,
+                "padding": [0, 0, 0, 0],
+                "align": "center",
+                "uniformSize": true,
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "dlg_choice_1",
+                "components": {
+                  "Button": {
+                    "text": "1",
+                    "autoSize": true,
+                    "maxWidth": 900,
+                    "layer": 232,
+                    "fontSize": 24,
+                    "autoFocus": true
+                  }
+                }
+              },
+              {
+                "id": "dlg_choice_2",
+                "components": {
+                  "Button": {
+                    "text": "2",
+                    "autoSize": true,
+                    "maxWidth": 900,
+                    "layer": 232,
+                    "fontSize": 24
+                  }
+                }
+              },
+              {
+                "id": "dlg_choice_3",
+                "components": {
+                  "Button": {
+                    "text": "3",
+                    "autoSize": true,
+                    "maxWidth": 900,
+                    "layer": 232,
+                    "fontSize": 24
+                  }
+                }
+              },
+              {
+                "id": "dlg_choice_4",
+                "components": {
+                  "Button": {
+                    "text": "4",
+                    "autoSize": true,
+                    "maxWidth": 900,
+                    "layer": 232,
+                    "fontSize": 24
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "dlg_box",
+            "components": {
+              "Panel": {
+                "layer": 226,
+                "color": [0.03, 0.03, 0.07, 0.88],
+                "layout": "column",
+                "spacing": 6,
+                "padding": [28, 16, 28, 12],
+                "align": "start",
+                "minSize": [1040, 184],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "dlg_speaker",
+                "components": {
+                  "Text": {
+                    "text": " ",
+                    "fontSize": 26,
+                    "layer": 227,
+                    "space": "screen",
+                    "color": [1, 0.82, 0.4, 1]
+                  }
+                }
+              },
+              {
+                "id": "dlg_text",
+                "components": {
+                  "Text": {
+                    "text": " ",
+                    "fontSize": 28,
+                    "layer": 227,
+                    "space": "screen",
+                    "color": [0.96, 0.95, 0.92, 1]
+                  }
+                }
+              },
+              {
+                "id": "dlg_footer",
+                "components": {
+                  "Panel": {
+                    "layer": 227,
+                    "color": [0, 0, 0, 0],
+                    "layout": "row",
+                    "spacing": 12,
+                    "padding": [0, 0, 0, 0],
+                    "justify": "end",
+                    "minSize": [984, 0],
+                    "fit": true
+                  }
+                },
+                "children": [
+                  {
+                    "id": "dlg_log_button",
+                    "components": {
+                      "Button": {
+                        "text": "Log",
+                        "key": "dialogue.log",
+                        "autoSize": true,
+                        "layer": 228,
+                        "fontSize": 20
+                      }
+                    }
+                  },
+                  {
+                    "id": "dlg_next",
+                    "components": {
+                      "Button": {
+                        "text": "Next",
+                        "key": "dialogue.next",
+                        "autoSize": true,
+                        "layer": 228,
+                        "fontSize": 20,
+                        "autoFocus": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "dlg_log_panel",
+        "components": {
+          "Panel": {
+            "anchor": [0.5, 0.5],
+            "pivot": [0.5, 0.5],
+            "layer": 250,
+            "color": [0.02, 0.02, 0.05, 0.95],
+            "layout": "column",
+            "spacing": 12,
+            "padding": [28, 20, 28, 20],
+            "align": "center",
+            "minSize": [940, 0],
+            "maxSize": [940, 620],
+            "modal": true,
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "dlg_log_title",
+            "components": {
+              "Text": {
+                "text": "Conversation log",
+                "key": "dialogue.logTitle",
+                "fontSize": 32,
+                "layer": 251,
+                "space": "screen"
+              }
+            }
+          },
+          {
+            "id": "dlg_log_list",
+            "components": {
+              "ScrollList": {
+                "size": [880, 380],
+                "layer": 251,
+                "color": [0, 0, 0, 0.3],
+                "spacing": 10,
+                "shrink": true
+              }
+            }
+          },
+          {
+            "id": "dlg_log_close",
+            "components": {
+              "Button": {
+                "text": "Close",
+                "key": "dialogue.close",
+                "autoSize": true,
+                "layer": 252,
+                "autoFocus": true
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

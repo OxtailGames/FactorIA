@@ -3,8 +3,10 @@
 // title and the black overlay that fades the screen between areas. Other scripts call its methods:
 //   hud.setPrompt(text | "")              the prompt at the bottom of the screen ("" hides it)
 //   hud.say(key, args, seconds)           a line of text above the prompt for a few seconds (a locale key)
-//   hud.fadeTo(alpha, seconds)            the overlay to alpha 0 (clear) .. 1 (black)
+//   hud.clearMessage()                    the message line goes away at once
+//   hud.fadeTo(alpha, seconds)          the overlay to alpha 0 (clear) .. 1 (black)
 //   hud.showTitle(key, seconds)           the area name that fades in and out in the upper part of the screen
+//   hud.showTitleText(text, seconds)      the same with a text that is already translated (the chapter card)
 // Fields tests read: `promptText`, `message`, `fadeAlpha`, `fading`.
 import { Behaviour, i18n, world } from "factoria";
 
@@ -60,6 +62,13 @@ export default class Hud extends Behaviour {
     this.messagePanel.active = true;
   }
 
+  /** Takes the message line away now (a conversation opens in the same place). */
+  clearMessage() {
+    this.message = "";
+    this.messageLeft = 0;
+    this.messagePanel.active = false;
+  }
+
   fadeTo(alpha, seconds = 0.4) {
     this.fadeFrom = this.fadeAlpha;
     this.fadeTarget = alpha;
@@ -72,7 +81,12 @@ export default class Hud extends Behaviour {
   }
 
   showTitle(key, seconds = 2.6) {
-    this.titleLabel.get("Text").text = i18n.t(key);
+    this.showTitleText(i18n.t(key), seconds);
+  }
+
+  /** The same as showTitle() with text that is already translated (a chapter card: "Chapter 2" and its name on two lines). */
+  showTitleText(text, seconds = 2.6) {
+    this.titleLabel.get("Text").text = text;
     this.titleTime = 0;
     this.titleSeconds = seconds;
   }
