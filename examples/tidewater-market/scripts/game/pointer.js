@@ -11,7 +11,7 @@
 // The game reads `pointer.position()` and `pointer.hovered()` where it used to read the mouse; scripts/ui/pad_cursor.js (one
 // entity per scene) calls `pointer.update()` every frame and draws the cursor. Nothing here touches the simulation.
 import { input, ui, world, time } from "factoria";
-import { DESIGN } from "./camera_math.js";
+import { DESIGN } from "./design.js";
 
 /** Cursor speed in screen pixels per second at full tilt (it grows with the square of the tilt, so small moves are precise). */
 export const CURSOR_SPEED = 720;

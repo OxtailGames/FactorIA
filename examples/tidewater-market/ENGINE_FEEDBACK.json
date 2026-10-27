@@ -48,7 +48,10 @@
       "suggestion": "A documented recipe or a built-in CameraRig behaviour with panSpeed, edgePan, zoomMin/zoomMax, bounds from entity.bounds().",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 (M31.21): camera.zoomAt, panBy, clampTo, zoomOf, setZoom and orthoSizeFor exist, and the menu kit's cameraRig part (scripts/camera_rig.js). The game keeps scripts/game/map_camera.js, a subclass with its gamepad cursor and latched drag; camera_math.js and the old camera_rig.js are gone."
+      ]
     },
     {
       "id": "FB-0003",

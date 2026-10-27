@@ -15,7 +15,7 @@
           "primary": true
         },
         "Script": {
-          "path": "scripts/game/camera_rig.js"
+          "path": "scripts/game/map_camera.js"
         }
       }
     },

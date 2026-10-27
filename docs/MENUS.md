@@ -33,8 +33,9 @@ paths in your project. The parts, in the order of `templates/menus/kit.json`:
 | `loading` | `scenes/loading.scene.json`, `scripts/loading.js` | `loading.*` |
 | `keyboard` | `prefabs/ui/keyboard.prefab.json`, `scripts/ui/keyboard.js` | `keyboard.*` |
 | `dialogue` | `scripts/dialogue.js` | `captions.*` (sample lines) |
+| `cameraRig` | `scripts/camera_rig.js`, `tests/camera_rig.test.js` | none |
 
-A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` and `analyticsConsent` add `core`, `main-menu` adds `core`, `options` and `credits`. The result
+A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` and `analyticsConsent` add `core`, `main-menu` adds `core`, `options` and `credits`. `cameraRig` is not a menu: it is the strategy camera of AI_GUIDE.md section 9.6.1, shipped in the kit because it is added the same way (it adds its `camera_*` input actions to `factoria.json`). The result
 lists them in `requiredBy`. The shop, the age gate and the analytics question are optional for the main menu: with no `parts` (everything) it has the Shop button, the shop
 panel and the lines that open the age gate and the analytics question; `{"parts":["main-menu"]}` writes a main menu without them (no `shop_button`, `shop`,
 `age_gate` or `analytics_consent` in the scene, no import of `age_gate.js` or `analytics_consent.js` in `scripts/main_menu.js`), and

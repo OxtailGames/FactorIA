@@ -154,6 +154,26 @@ TEST_CASE("project.add_menu_kit: one part brings what it needs, and nothing else
     CHECK(read_json(stdfs::path(dir2) / "locales" / "en.json").size() == 2);  // $name and loading
 }
 
+TEST_CASE("project.add_menu_kit: the cameraRig part adds its input actions, and never replaces a binding the game has") {
+    const std::string dir = new_game("camerarig");
+    // The game already binds camera_left to its own keys.
+    {
+        fa::Json project = read_json(stdfs::path(dir) / "factoria.json");
+        project["input"]["actions"]["camera_left"] = fa::Json::parse(R"(["J"])");
+        write_text(stdfs::path(dir) / "factoria.json", project.dump(2));
+    }
+    const fa::Json r = add(dir, {"cameraRig"});
+    CAPTURE(r.dump(2));
+    CHECK(r["parts"] == fa::Json::parse(R"(["cameraRig"])"));
+    CHECK(has(r["added"], "scripts/camera_rig.js"));
+    CHECK(has(r["added"], "tests/camera_rig.test.js"));
+    const fa::Json actions = read_json(stdfs::path(dir) / "factoria.json")["input"]["actions"];
+    for (const char* name : {"camera_drag", "camera_right", "camera_up", "camera_down", "camera_zoom_in", "camera_zoom_out"}) CHECK(actions.contains(name));
+    CHECK(actions["camera_left"] == fa::Json::parse(R"(["J"])"));
+    CHECK(actions["camera_drag"] == fa::Json::parse(R"(["MouseMiddle"])"));
+    CHECK(r["settings"].size() == 6);
+}
+
 TEST_CASE("project.add_menu_kit: the ageGate part comes alone with its test, and the main menu does not bring it") {
     const stdfs::path oldRoot = fa::fs::project_root();
     const std::string dir = new_game("agegate");
