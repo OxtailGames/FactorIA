@@ -38,6 +38,7 @@ import { world, scene, session, audio, ui, i18n, input, didYouMean } from "facto
 import { EVENTS, emit } from "./events.js";
 import * as story from "./story.js";
 import * as mix from "./mix.js";
+import { load as loadSettings } from "./settings.js";
 import { parseEffect } from "./conditions.js";
 import { bodyJson } from "./cast.js";
 import { cast } from "./dialogue_data.js";
@@ -295,6 +296,8 @@ function begin(step) {
 }
 
 function beginCamera(step) {
+  // Reduced motion (option): the camera cuts to the shot instead of moving to it.
+  if (loadSettings().reducedMotion && step.seconds > 0) step = { ...step, seconds: 0 };
   const from = run.cam ?? initialCamera();
   run.camTrack = { from, to: { pos: step.pos, look: step.look }, t: 0, seconds: step.seconds, ease: EASES[step.ease] ?? EASES.inOut };
   if (step.seconds <= 0) stepCamera(0);
@@ -359,7 +362,7 @@ function speakerName(id) {
 /** A subtitle, and its voice clip when data/cutscenes/voice.json has one (the subtitle then lasts as long as the clip). */
 function speak(step) {
   const text = i18n.t(step.key);
-  const speaker = speakerName(step.speaker ?? "");
+  const speaker = loadSettings().captionSpeakers ? speakerName(step.speaker ?? "") : "";
   const clip = step.voice ? clips()[step.voice] : null;
   run.line = { step, startedAt: run.t, clip: clip ?? null };
   if (clip) {
@@ -402,7 +405,7 @@ export function pause(paused) {
   } else if (run.line && run.line.clip && run.t < run.line.startedAt + run.line.clip.seconds) {
     speak(run.line.step);
   } else if (run.line && !run.line.clip && run.t < run.line.startedAt + run.line.step.seconds) {
-    ui.caption(i18n.t(run.line.step.key), run.line.startedAt + run.line.step.seconds - run.t, { key: run.line.step.key, speaker: speakerName(run.line.step.speaker ?? "") });
+    ui.caption(i18n.t(run.line.step.key), run.line.startedAt + run.line.step.seconds - run.t, { key: run.line.step.key, speaker: loadSettings().captionSpeakers ? speakerName(run.line.step.speaker ?? "") : "" });
   }
 }
 

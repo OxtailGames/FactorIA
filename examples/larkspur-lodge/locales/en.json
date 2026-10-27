@@ -25,7 +25,8 @@
       "video": "Video",
       "audio": "Audio",
       "controls": "Controls",
-      "language": "Language"
+      "language": "Language",
+      "access": "Accessibility"
     },
     "windowMode": "Window mode: {mode}",
     "mode": {
@@ -54,7 +55,9 @@
       "master": "Master",
       "music": "Music",
       "effects": "Effects",
-      "interface": "Interface"
+      "interface": "Interface",
+      "ambience": "Ambience",
+      "voiceover": "Voices"
     },
     "action": {
       "move_forward": "Move forward",
@@ -69,7 +72,11 @@
       "camera_down": "Tilt the camera down",
       "zoom_in": "Camera closer",
       "zoom_out": "Camera farther",
-      "pause": "Pause"
+      "pause": "Pause",
+      "inventory": "Open the inventory",
+      "notebook": "Open the notebook",
+      "dialogue_log": "Dialogue log",
+      "skip_cutscene": "Skip a cut-scene"
     },
     "binding": "{action}: {button}",
     "player": "Player {n}",
@@ -91,7 +98,33 @@
     "analytics": "Share anonymous usage data",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent"
+    "percent": "{value} percent",
+    "reducedMotion": "Reduced motion",
+    "captionSpeakers": "Show speaker names",
+    "cameraSensitivity": "Camera sensitivity",
+    "cameraInvertX": "Invert camera left-right",
+    "cameraInvertY": "Invert camera up-down",
+    "textScale": "Text size: {percent}%",
+    "captionBg": "Caption background: {mode}",
+    "captionBgMode": {
+      "clear": "none",
+      "dark": "dark",
+      "solid": "solid black"
+    },
+    "autoAdvance": "Auto-advance dialogue: {mode}",
+    "autoAdvanceMode": {
+      "off": "off",
+      "slow": "slow",
+      "normal": "normal",
+      "fast": "fast"
+    },
+    "glyphs": "Prompt glyphs: {mode}",
+    "glyphsMode": {
+      "auto": "follow the last device",
+      "keyboard": "keyboard",
+      "gamepad": "gamepad",
+      "touch": "touch"
+    }
   },
   "pause": {
     "title": "Paused",

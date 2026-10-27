@@ -80,8 +80,8 @@ export default class Screens extends Behaviour {
     this.pinchLast = 0;
     this.hudShown = null;
 
-    this.hudItems = world.spawn(this.hudButton("hud_items", 880, i18n.t("screens.hudItems"), 180));
-    this.hudNotebook = world.spawn(this.hudButton("hud_notebook", 1070, i18n.t("screens.hudNotebook"), 190));
+    this.hudItems = world.spawn(this.hudButton("hud_items", 800, i18n.t("screens.hudItems"), 220));
+    this.hudNotebook = world.spawn(this.hudButton("hud_notebook", 1030, i18n.t("screens.hudNotebook"), 240));
 
     notebook.markSeen();
     world.on(EVENTS.flagChanged, () => this.announceClues());
@@ -103,6 +103,8 @@ export default class Screens extends Behaviour {
   hudButton(id, x, text, w) {
     const b = kit.button(id, x, 12, w, 40, text, { size: 20 });
     b.components.Button.layer = 200;
+    b.components.Button.autoShrink = true; // at 200 % text the label shrinks inside the button
+    b.components.Button.minFontSize = 8;
     b.components.Button.color = [0.1, 0.13, 0.2, 0.85];
     return b;
   }

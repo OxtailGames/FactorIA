@@ -35,7 +35,9 @@
           "color": [0, 0, 0, 0],
           "layout": "column",
           "spacing": 12,
-          "fit": true
+          "fit": true,
+          "fallbackLayout": "grid",
+          "columns": 3
         },
         "Script": {
           "path": "scripts/main_menu.js",
@@ -52,6 +54,10 @@
               "text": "Larkspur Lodge",
               "key": "menu.title",
               "fontSize": 64,
+              "maxWidth": 800,
+              "autoShrink": true,
+              "minFontSize": 32,
+              "maxTextScale": 1,
               "space": "screen"
             }
           }

@@ -11,9 +11,9 @@ test("gamepad only: main menu -> options -> music volume -> back, and the volume
   game.step(2);
   pad.tap("DpadDown"); // Options
   pad.tap("A");
-  pad.tap("DpadRight"); // the Audio tab
+  pad.tap("DpadDown"); // the Audio tab (the tabs are a column on the left)
   pad.tap("A");
-  pad.tap("DpadDown"); // Master
+  pad.tap("DpadRight"); // Master
   pad.tap("DpadDown"); // Music
   pad.tap("DpadRight"); // 0.6 -> 0.7
   pad.tap("B"); // back to the main menu

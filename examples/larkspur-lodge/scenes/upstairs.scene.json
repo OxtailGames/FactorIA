@@ -213,6 +213,14 @@
       }
     },
     {
+      "id": "sound",
+      "components": {
+        "Script": {
+          "path": "scripts/sound.js"
+        }
+      }
+    },
+    {
       "id": "pause_menu",
       "components": {
         "Script": {

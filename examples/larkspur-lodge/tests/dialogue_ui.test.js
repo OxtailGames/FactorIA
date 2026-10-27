@@ -333,7 +333,7 @@ test("the options menu cycles the dialogue text speed and saves it", () => {
   game.step(3);
   game.click(game.find("options_button"));
   game.step(3);
-  game.click(game.find("tab_audio"));
+  game.click(game.find("tab_access"));
   game.step(3);
   const button = () => game.find("text_speed").get("Button").text;
   expect(button()).toBe("Dialogue text speed: normal");

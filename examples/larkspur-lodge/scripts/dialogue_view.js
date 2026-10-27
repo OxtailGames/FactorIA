@@ -10,13 +10,18 @@
 // ui_cancel (gamepad B) closes it. The porter is locked while a conversation runs (scripts/dialogue.js), so none of these
 // presses also walks him or uses what he faces.
 //
-// Fields tests read: `shown` (the line on screen), `revealed`/`total` (characters), `choicesShown`, `logOpen`.
+// Options (scripts/settings.js), read at start and again on EVENTS.settingsChanged: captionBackground sets the alpha of the box
+// (clear, dark, solid), captionSpeakers off leaves the speaker's name out of the box and the log, and autoAdvance (off, slow,
+// normal, fast) goes on to the next line by itself once a line without choices is complete and its reading
+// time has passed (words at the speed's words per minute, plus 0.6 s, at least 1.2 s). A line with choices always waits for the player.
+//
+// Fields tests read: `shown` (the line on screen), `revealed`/`total` (characters), `choicesShown`, `logOpen`, `autoTimer` (seconds left before auto-advance, 0 = none).
 import { Behaviour, ui, input, world, i18n } from "factoria";
 import { EVENTS } from "./events.js";
 import * as dialogue from "./dialogue.js";
 import * as cutscene from "./cutscene.js";
 import { cast } from "./dialogue_data.js";
-import { load } from "./settings.js";
+import { load, CAPTION_BACKGROUNDS, AUTO_ADVANCE } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 
 /** Seconds after a line appears during which presses do nothing: the press that opened or ended the last line is still down. */
@@ -83,6 +88,9 @@ export default class DialogueView extends Behaviour {
     this.logEntries = [];
     this.logScroll = 0;
     this.covered = false;
+    this.autoTimer = 0;
+    this.applyOptions();
+    world.on(EVENTS.settingsChanged, () => this.applyOptions());
 
     world.on(EVENTS.dialogueLine, (line) => this.show(line));
     world.on(EVENTS.dialogueEnded, () => this.hide());
@@ -93,10 +101,28 @@ export default class DialogueView extends Behaviour {
     ui.on("cancel", () => this.logOpen && this.toggleLog(false));
   }
 
+  /** The options that change how the box looks: its background and whether the speaker's name shows. */
+  applyOptions() {
+    const s = load();
+    const bg = CAPTION_BACKGROUNDS.find((b) => b.name === s.captionBackground) ?? CAPTION_BACKGROUNDS[1];
+    const panel = this.box.get("Panel");
+    panel.color = [panel.color[0], panel.color[1], panel.color[2], bg.alpha];
+    this.showNames = s.captionSpeakers;
+    if (this.shown) this.speakerLabel.text = (this.showNames && speakerName(this.shown.speaker)) || " ";
+  }
+
+  /** Seconds the player needs to read `text` at the auto-advance speed (0 = auto-advance is off). */
+  readingTime(text) {
+    const wpm = (AUTO_ADVANCE.find((a) => a.name === load().autoAdvance) ?? AUTO_ADVANCE[0]).wpm;
+    if (wpm <= 0) return 0;
+    const words = text.split(/\s+/).filter(Boolean).length;
+    return Math.max(1.2, (words / wpm) * 60 + 0.6);
+  }
+
   // ------------------------------------------------------------------------------------------------------ the line
   show(line) {
     const speed = load().textSpeed;
-    const name = speakerName(line.speaker);
+    const name = load().captionSpeakers ? speakerName(line.speaker) : "";
     const color = NAME_COLOR[line.speaker] ?? DEFAULT_NAME_COLOR;
     this.speakerLabel.text = name || " ";
     this.speakerLabel.color = rgba(color);
@@ -108,6 +134,7 @@ export default class DialogueView extends Behaviour {
     this.textLabel.text = this.visibleText(this.revealed);
     this.speed = speed;
     this.settle = SETTLE;
+    this.autoTimer = 0;
     if (!this.root.active) world.find("hud")?.behaviour?.clearMessage(); // the box opens where the message line is
     this.root.active = !cutscene.active();
     this.hideChoices();
@@ -125,6 +152,7 @@ export default class DialogueView extends Behaviour {
   }
 
   hide() {
+    this.autoTimer = 0;
     this.shown = null;
     this.root.active = false;
     this.hideChoices();
@@ -139,6 +167,7 @@ export default class DialogueView extends Behaviour {
     const choices = this.shown ? this.shown.choices : [];
     if (choices.length === 0) {
       this.nextButton.active = true;
+      this.autoTimer = this.shown ? this.readingTime(this.shown.text) : 0;
       return;
     }
     this.nextButton.active = false;
@@ -199,6 +228,14 @@ export default class DialogueView extends Behaviour {
         if (n >= this.total) this.revealDone();
       }
     }
+    if (this.autoTimer > 0 && this.revealed >= this.total && !this.choicesShown && !this.logOpen && this.settle <= 0) {
+      this.autoTimer -= dt;
+      if (this.autoTimer <= 0) {
+        this.autoTimer = 0;
+        dialogue.advance();
+        return;
+      }
+    }
     if (this.choicesShown && !this.logOpen) {
       for (let i = 0; i < this.shown.choices.length; i++) if (input.pressed(`choice_${i + 1}`)) this.pick(i);
     }
@@ -234,7 +271,7 @@ export default class DialogueView extends Behaviour {
       return;
     }
     for (const entry of dialogue.log()) {
-      const name = speakerName(entry.speaker);
+      const name = load().captionSpeakers ? speakerName(entry.speaker) : "";
       const color = NAME_COLOR[entry.speaker] ?? DEFAULT_NAME_COLOR;
       const text = i18n.t(entry.key);
       const e = world.spawn(
