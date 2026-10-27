@@ -4,6 +4,7 @@
 // Panels open over each other with MenuStack; a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel.
 import { Behaviour, ui, game, scene, session, world, i18n } from "factoria";
 import { applyOnce } from "./settings.js";
+import { startTitleMusic } from "./sound.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import * as story from "./story.js";
 import * as items from "./items.js";
@@ -21,6 +22,7 @@ export default class MainMenu extends Behaviour {
   onStart() {
     applyOnce();
     readMenusAloud();
+    startTitleMusic();
     this.menus = new MenuStack("main_menu");
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     this.slots = new SlotScreen(this.menus);

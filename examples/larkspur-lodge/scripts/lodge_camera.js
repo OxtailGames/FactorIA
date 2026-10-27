@@ -13,11 +13,16 @@
 // Zoom:   mouse wheel, two-finger pinch, zoom_in / zoom_out (gamepad shoulders, R and V).
 // The porter reads `yaw` (scripts/porter.js moves relative to it). area.js calls snapBehind(yaw) on arrival.
 //
+// Options (scripts/settings.js): cameraSensitivity, cameraInvertX/Y and reducedMotion are read at start and again on EVENTS.settingsChanged.
+// Head bob: the camera rises and falls a few centimetres with the porter's steps (`bobHeight`); reduced motion and cut-scenes have none.
+//
 // A cut-scene takes the camera with direct(pos, look) and gives it back with release(yaw).
 //
 // Fields tests read: `yaw`, `pitch`, `actualDistance`, `directed`, `fadingIds` (entities faded right now) and fadeAlphaOf(id).
 import { Behaviour, input, physics, world, ui } from "factoria";
 import { screenState } from "./ui/screen_state.js";
+import { EVENTS } from "./events.js";
+import { load as loadSettings } from "./settings.js";
 
 const DEG = Math.PI / 180;
 /**
@@ -73,6 +78,9 @@ export default class LodgeCamera extends Behaviour {
   behindReach = 2.4;
   /** Walls and furniture crossed by one ray that are still counted (more than this are ignored). */
   maxFadeHits = 8;
+  /** Head bob: amplitude (metres) at walking speed, and radians of bob per metre walked. */
+  bobHeight = 0.045;
+  bobPerMetre = 5.5;
 
   onStart() {
     this.target = world.find(this.targetId);
@@ -84,8 +92,28 @@ export default class LodgeCamera extends Behaviour {
     this.drag = null;
     /** True while a cut-scene holds the camera (direct()). */
     this.directed = false;
+    this.bobPhase = 0;
+    /** The vertical offset the head bob adds to the camera this frame, metres (0 with reduced motion). */
+    this.bobOffset = 0;
+    this.reducedMotion = false;
+    this.readSettings();
+    this.unsub = world.on(EVENTS.settingsChanged, () => this.readSettings());
     this.apply(0);
     this.updateFade(0);
+  }
+
+  onDestroy() {
+    this.unsub?.();
+  }
+
+  /** Takes the player's camera options (sensitivity, inversion, reduced motion). */
+  readSettings() {
+    const s = loadSettings();
+    this.sensitivity = s.cameraSensitivity;
+    this.invertX = s.cameraInvertX;
+    this.invertY = s.cameraInvertY;
+    this.reducedMotion = s.reducedMotion;
+    if (this.reducedMotion) this.bobOffset = 0;
   }
 
   headPoint() {
@@ -197,8 +225,20 @@ export default class LodgeCamera extends Behaviour {
     return [p.x, p.y, p.z];
   }
 
+  /** Head bob: follows the metres the porter walks on the ground; none with reduced motion or in a cut-scene. */
+  bob(dt) {
+    const b = this.target?.behaviour;
+    if (this.reducedMotion || this.directed || !b || !b.grounded || dt <= 0) {
+      this.bobOffset = 0;
+      return;
+    }
+    this.bobPhase += b.speed * dt * this.bobPerMetre;
+    this.bobOffset = Math.sin(this.bobPhase) * this.bobHeight * Math.min(1, b.speed / 3);
+  }
+
   /** Places the camera: smoothed pivot, then the sweep, then the transform. */
   apply(dt) {
+    this.bob(dt);
     const want = this.headPoint();
     const k = dt > 0 ? 1 - Math.exp(-this.followSmoothing * dt) : 1;
     for (let i = 0; i < 3; i++) this.pivot[i] += (want[i] - this.pivot[i]) * k;
@@ -214,7 +254,7 @@ export default class LodgeCamera extends Behaviour {
     else this.actualDistance = Math.min(allowed, this.actualDistance + this.recoverSpeed * dt);
 
     const t = this.entity.get("Transform");
-    t.position = [this.pivot[0] + dir[0] * this.actualDistance, this.pivot[1] + dir[1] * this.actualDistance, this.pivot[2] + dir[2] * this.actualDistance];
+    t.position = [this.pivot[0] + dir[0] * this.actualDistance, this.pivot[1] + this.bobOffset + dir[1] * this.actualDistance, this.pivot[2] + dir[2] * this.actualDistance];
     t.rotation = [-this.pitch, this.yaw, 0];
   }
 

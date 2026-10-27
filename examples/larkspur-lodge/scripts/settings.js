@@ -2,9 +2,34 @@
 // The player's settings (volumes, video, interface size, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
 import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
+import { EVENTS, emit } from "./events.js";
 
-/** Audio buses the options menu shows, in order. */
-export const BUSES = ["master", "music", "sfx", "ui"];
+/** Audio buses the options menu shows, in order (`ambience` and `voiceover` are declared in factoria.json "audio.buses"). */
+export const BUSES = ["master", "music", "sfx", "ambience", "voiceover", "ui"];
+
+/** The text sizes the options menu cycles through (ui.textScale): 100 %, 125 %, 150 %, 200 %. */
+export const TEXT_SCALES = [1, 1.25, 1.5, 2];
+
+/** How dark the box behind captions and dialogue is: the alpha of its colour, and the locale name `options.captionBg.<name>`. */
+export const CAPTION_BACKGROUNDS = [
+  { name: "clear", alpha: 0 },
+  { name: "dark", alpha: 0.7 },
+  { name: "solid", alpha: 1 },
+];
+
+/** Dialogue auto-advance: words per minute the player reads at (0 = off, the player presses to go on). */
+export const AUTO_ADVANCE = [
+  { name: "off", wpm: 0 },
+  { name: "slow", wpm: 120 },
+  { name: "normal", wpm: 200 },
+  { name: "fast", wpm: 320 },
+];
+
+/** Which device the prompts' key names come from: the one used last, or always one of the others (scripts/glyphs.js). */
+export const GLYPH_MODES = ["auto", "keyboard", "gamepad", "touch"];
+
+/** Camera sensitivity slider range (a multiplier of lodge_camera.js's orbit speeds). */
+export const SENSITIVITY = { min: 0.25, max: 2, step: 0.05 };
 
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
@@ -24,7 +49,7 @@ export const TEXT_SPEEDS = [
 function defaults() {
   const system = game.accessibility;
   return {
-    volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
+    volume: { master: 1, music: 0.6, sfx: 1, ambience: 0.8, voiceover: 1, ui: 1 },
     windowMode: null, // "windowed" | "borderless" | "fullscreen", or null: keep factoria.json display.fullscreen
     monitor: null, // { index, name } of the monitor the player chose (see monitorChoice), or null: where the OS opens the window
     resolution: null, // [width, height] of the window, or null: the factoria.json size
@@ -37,7 +62,14 @@ function defaults() {
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
     uiScale: null, // the interface size (ui.scale), or null: keep the factoria.json ui.scale
-    reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
+    reducedMotion: system.reduceMotion, // no head bob, cut-scenes cut instead of moving the camera (scripts/lodge_camera.js, scripts/cutscene.js)
+    captionBackground: "dark", // one of CAPTION_BACKGROUNDS: the box behind captions and the dialogue
+    captionSpeakers: true, // show the speaker's name before a caption and a dialogue line
+    autoAdvance: "off", // one of AUTO_ADVANCE: dialogue goes on by itself after the time to read the line
+    cameraSensitivity: 1, // multiplies every camera orbit input (SENSITIVITY)
+    cameraInvertX: false,
+    cameraInvertY: false,
+    glyphs: "auto", // one of GLYPH_MODES
     textSpeed: system.reduceMotion ? 0 : 45, // dialogue text reveal in characters per second, 0 = a whole line at once (scripts/dialogue_view.js)
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
   };
@@ -51,8 +83,11 @@ export function load() {
   return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
 }
 
+/** Stores the settings and tells the scene (EVENTS.settingsChanged) so the camera, the dialogue box and the sound read them at once. */
 export function save(s) {
   storage.set("settings", s);
+  applyCaptionBackground(s);
+  emit(EVENTS.settingsChanged, { settings: s });
 }
 
 /** What save() stores for the monitor `index` of window.monitors(): its name too, because the numbers change when a monitor is unplugged. */
@@ -78,10 +113,20 @@ export function applySubtitles(s = load()) {
   if (captions) captions.active = s.subtitles;
 }
 
+/** The box behind the captions follows "Caption background" (the Captions component draws it with its `color`). */
+export function applyCaptionBackground(s = load()) {
+  const captions = world.find("captions");
+  if (!captions) return;
+  const c = captions.get("Captions");
+  const alpha = (CAPTION_BACKGROUNDS.find((b) => b.name === s.captionBackground) ?? CAPTION_BACKGROUNDS[1]).alpha;
+  c.color = [c.color[0], c.color[1], c.color[2], alpha];
+}
+
 /** What belongs to the scene's own entities (camera, captions): every scene has new ones, so each scene sets them again. */
 export function applyScene(s = load()) {
   applyColorFilter(s);
   applySubtitles(s);
+  applyCaptionBackground(s);
 }
 
 /** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
