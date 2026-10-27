@@ -2085,15 +2085,23 @@
     {
      "kind": "interface",
      "name": "StorageAPI",
-     "doc": "Persistent JSON save data (<user dir>/storage.json). Tests and `--storage memory` runs use a throw-away in-memory object instead.",
+     "doc": "Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.",
      "members": [
       {
        "sig": "get<T = any>(key: string, fallback?: T): T",
        "doc": ""
       },
       {
-       "sig": "set(key: string, value: Json): void",
-       "doc": ""
+       "sig": "set(key: string, value: Json, options?: { compress?: boolean }): void",
+       "doc": "Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option."
+      },
+      {
+       "sig": "setAsync(key: string, value: Json, options?: { compress?: boolean }): Promise<number>",
+       "doc": "Like set, but the file is encoded (and compressed when asked) and written off the frame: on a worker thread on desktop and mobile, between frames on the web (no threads there). storage.get returns the new value at once; the Promise resolves with the file's size in bytes when the file is written, and rejects with the reason if it could not be. Writes to one key land in the order they were asked, and a later set, remove, clear or size waits for the pending ones. Serializing `value` into JSON still happens in this call."
+      },
+      {
+       "sig": "size(key: string): number",
+       "doc": "Bytes the key's file takes (the compressed size for a compressed value); 0 when the key is not stored. Waits for pending setAsync writes."
       },
       {
        "sig": "remove(key: string): void",
@@ -2109,7 +2117,7 @@
       },
       {
        "sig": "readonly corrupt: boolean",
-       "doc": "True when storage.json did not parse at the first use of storage in this run (a crash or a bad edit damaged it). The engine kept the damaged file as storage.corrupt.json in the save folder (storage.corrupt.2.json, .3... if one is already there; it never replaces one) and the game started with empty save data, so nothing is lost for good: a script can tell the player (\"your save was damaged\") or offer a recovery. Writes are atomic (temporary file, then rename), so a crash during a save leaves the previous file intact. False when the file was fine or missing, in memory runs and in tests (unless game.setStorageText gave a damaged text)."
+       "doc": "True when a storage file (a key's file in storage/, or an older storage.json) did not parse at the first use of storage in this run (a crash or a bad edit damaged it). The engine kept the damaged file as storage.corrupt.json in the save folder (storage.corrupt.2.json, .3... if one is already there; it never replaces one) and the game started without that file's data (the other keys load), so nothing is lost for good: a script can tell the player (\"your save was damaged\") or offer a recovery. Writes are atomic (temporary file, then rename), so a crash during a save leaves the previous file intact. False when the file was fine or missing, in memory runs and in tests (unless game.setStorageText gave a damaged text)."
       }
      ]
     },

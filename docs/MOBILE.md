@@ -218,6 +218,11 @@ project's `scaleMode`.
   handlers run first, so a game that opens its own pause menu there (`game.paused = true`) stays paused after resume,
   waiting for the player. Set `false` for a game that must keep running (a timer, a server clock).
 - Tests: `game.suspend()`, `game.resume()`, `game.blur()` and `game.focus()` in `factoria:test` do what the OS does.
+- Which of `blur`, `suspend` and `quit` a platform raises: phones raise `suspend` and `resume` when the app leaves and
+  returns to the foreground and `blur` and `focus` for system dialogs; they never raise `quit`. A browser tab raises `suspend`
+  when it is hidden (a phone browser: when the player switches apps), `resume` when it is shown, `blur` and `focus` with the
+  page's focus, and `quit` on `pagehide`; desktop windows raise `blur` and `quit` but not `suspend`. The table is in
+  SCRIPTING.md ("Window close"). The web copies the save folder to IndexedDB right after those handlers run.
 - Configuration changes the manifest lists (orientation, screen size, density, dark mode, locale, font size, the SIM's
   `mcc`/`mnc` and the others in `android:configChanges`) are handled in place: the game keeps running.
 - A change of the app's assets paths cannot be listed: a new wallpaper colour palette or theme (Android 12+), a system
@@ -227,8 +232,9 @@ project's `scaleMode`.
   scene, as after a cold start.
 - Back and closing the game destroy the activity too; the process ends and the game is not started again.
 - When the process ends this way it ends at once (`_exit`, see `engine/platform/src/sokol_impl.c`): the engine is not
-  shut down and no script callback runs. Save progress while the game runs: `storage` writes go to `storage.json` in the
-  app's internal folder immediately.
+  shut down and no script callback runs. Save progress while the game runs: `storage.set` writes the key's file in the
+  app's internal folder immediately. A `storage.setAsync` write still waiting on its worker thread when the process ends this
+  way is lost, so save with `set` in the `suspend` handler.
 
 ### Native plugins on Android
 
@@ -752,7 +758,9 @@ player uses **no threads**, so the page needs no `SharedArrayBuffer` and no COOP
   The log shows `audio: output device open` when the device is created and `audio: stream running` when it really plays.
 - **Saves** (`storage`, anything the game writes in its save folder) live in the browser's **IndexedDB**, one database per
   game id (`/save/<game id>`), loaded before the game starts and copied back half a second after a write (several writes
-  become one copy; a closing tab flushes it). They belong to the site: they survive reloads and visits, they are lost when
+  become one copy). The tab being hidden or closed raises `suspend` or `quit` (`visibilitychange`, `pagehide`) and the
+  copy starts right after the handlers have run, so a `storage.set` made in one is kept (the browser can still drop a page
+  before the copy ends). Each `storage` key is its own file in that folder. They belong to the site: they survive reloads and visits, they are lost when
   the player clears the site's data, and a private window keeps them only until it closes. `log.txt` and crash reports are
   not written: the log goes to the browser console (`console.log`, `console.warn` and `console.error` by level), which is
   where a player or a developer looks.

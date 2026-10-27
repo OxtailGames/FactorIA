@@ -2,6 +2,7 @@
 #include <sstream>
 
 #include "test_host.h"
+#include "../src/script_storage.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -495,9 +496,11 @@ TEST_CASE("storage: a damaged storage.json is kept, never overwritten by the nex
     CHECK(ev_ok(h, "storage.keys().length") == 0);
     ev_ok(h, "storage.set('slot1', {lvl: 1})");
     CHECK(slurp(dir / "storage.corrupt.json") == R"({"slot1": {"lvl": 3)");
-    Json fresh = Json::parse(slurp(dir / "storage.json"), nullptr, false);
+    CHECK(!std::filesystem::exists(dir / "storage.json"));  // the damaged file was moved, not rewritten
+    Json fresh = Json::parse(slurp(dir / "storage" / "slot1.json"), nullptr, false);
     REQUIRE(fresh.is_object());
-    CHECK(fresh["slot1"]["lvl"] == 1);
+    CHECK(fresh["key"] == "slot1");
+    CHECK(fresh["value"]["lvl"] == 1);
     // a second damaged start keeps the first kept file and numbers the new one
     std::ofstream(dir / "storage.json", std::ios::binary | std::ios::trunc) << "garbage";
     h.scripts.set_storage_mode(StorageMode::Persistent);
@@ -536,10 +539,139 @@ TEST_CASE("storage mode Memory never touches disk") {
     h.scripts.set_storage_mode(StorageMode::Memory);
     ev_ok(h, "storage.set('a', 1)");
     CHECK(ev_ok(h, "storage.get('a')") == 1);
-    CHECK(!std::filesystem::exists(h.root / "save" / "storage.json"));
+    CHECK(!std::filesystem::exists(h.root / "save" / "storage" / "a.json"));
     h.scripts.set_storage_mode(StorageMode::Persistent);
     ev_ok(h, "storage.set('a', 2)");
-    CHECK(std::filesystem::exists(h.root / "save" / "storage.json"));
+    CHECK(std::filesystem::exists(h.root / "save" / "storage" / "a.json"));
+}
+
+namespace {
+std::string slurp_file(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+}  // namespace
+
+TEST_CASE("storage: two keys are two files, and a save rewrites its own key only") {
+    TestHost h("keyfiles");
+    REQUIRE(h.start());
+    const auto dir = h.root / "save" / "storage";
+    ev_ok(h, "storage.set('slot1', {lvl: 1}); storage.set('Slot 2/b', {lvl: 2})");
+    CHECK(std::filesystem::exists(dir / "slot1.json"));
+    CHECK(std::filesystem::exists(dir / "%53lot%202%2Fb.json"));  // upper case, spaces and slashes are escaped
+    CHECK(!std::filesystem::exists(h.root / "save" / "storage.json"));
+    const auto stamp = std::filesystem::last_write_time(dir / "slot1.json");
+    const std::string before = slurp_file(dir / "slot1.json");
+    ev_ok(h, "storage.set('Slot 2/b', {lvl: 3})");
+    CHECK(slurp_file(dir / "slot1.json") == before);
+    CHECK(std::filesystem::last_write_time(dir / "slot1.json") == stamp);
+    CHECK(Json::parse(slurp_file(dir / "%53lot%202%2Fb.json"))["value"]["lvl"] == 3);
+    // a restart reads them back; remove deletes only its file
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.get('slot1').lvl") == 1);
+    CHECK(ev_ok(h, "storage.get('Slot 2/b').lvl") == 3);
+    CHECK(ev_ok(h, "storage.keys().length") == 2);
+    ev_ok(h, "storage.remove('slot1')");
+    CHECK(!std::filesystem::exists(dir / "slot1.json"));
+    CHECK(std::filesystem::exists(dir / "%53lot%202%2Fb.json"));
+    ev_ok(h, "storage.clear()");
+    CHECK(!std::filesystem::exists(dir / "%53lot%202%2Fb.json"));
+    // names Windows reserves and very long keys still give distinct, short names
+    CHECK(storage_files::file_name("con") != storage_files::file_name("%63on"));
+    CHECK(storage_files::file_name(std::string(500, 'a')).size() < 130);
+    CHECK(storage_files::file_name(std::string(500, 'a')) != storage_files::file_name(std::string(501, 'a')));
+}
+
+TEST_CASE("storage: an old storage.json is split into key files and set aside") {
+    TestHost h("splitsave");
+    const auto save = h.root / "save";
+    std::filesystem::create_directories(save);
+    std::ofstream(save / "storage.json", std::ios::binary) << R"({"coins": 12, "slot1": {"lvl": 3}, "factoria.remoteConfig": {"values": {}}})";
+    REQUIRE(h.start());
+    CHECK(ev_ok(h, "storage.get('coins')") == 12);
+    CHECK(ev_ok(h, "storage.get('slot1').lvl") == 3);
+    CHECK(ev_ok(h, "storage.corrupt") == false);
+    CHECK(std::filesystem::exists(save / "storage" / "coins.json"));
+    CHECK(std::filesystem::exists(save / "storage" / "slot1.json"));
+    CHECK(std::filesystem::exists(save / "storage" / storage_files::file_name("factoria.remoteConfig")));
+    CHECK(!std::filesystem::exists(save / "storage.json"));
+    CHECK(std::filesystem::exists(save / "storage.migrated.json"));
+    // the next start finds the key files only
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.get('coins')") == 12);
+    CHECK(ev_ok(h, "storage.get('slot1').lvl") == 3);
+    CHECK(ev_ok(h, "storage.get('factoria.remoteConfig')").contains("values"));
+}
+
+TEST_CASE("storage: a damaged key file is kept and the other keys load; a leftover temporary file is ignored") {
+    TestHost h("keydamage");
+    const auto dir = h.root / "save" / "storage";
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir / "good.json", std::ios::binary) << R"({"key": "good", "value": 5})";
+    std::ofstream(dir / "bad.json", std::ios::binary) << R"({"key": "bad", "value": {"a": )";
+    std::ofstream(dir / "good.json.fa-tmp12_0", std::ios::binary) << "half a write";
+    REQUIRE(h.start());
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(ev_ok(h, "storage.get('good')") == 5);
+    CHECK(ev_ok(h, "storage.keys().length") == 1);
+    CHECK(std::filesystem::exists(h.root / "save" / "storage.corrupt.json"));
+    CHECK(!std::filesystem::exists(dir / "bad.json"));
+}
+
+TEST_CASE("storage: a compressed value round-trips and takes fewer bytes") {
+    TestHost h("zstore");
+    REQUIRE(h.start());
+    const std::string make = "const big = { town: Array.from({length: 400}, (_, i) => ({ id: 'villager_' + i, job: 'baker', hp: 10, pos: [i % 20, 3] })) };";
+    ev_ok(h, (make + " storage.set('plain', big); storage.set('packed', big, {compress: true});").c_str());
+    const double plain = ev_ok(h, "storage.size('plain')").get<double>();
+    const double packed = ev_ok(h, "storage.size('packed')").get<double>();
+    CHECK(packed > 0);
+    CHECK(packed < plain / 3);
+    const auto dir = h.root / "save" / "storage";
+    CHECK(std::filesystem::file_size(dir / "packed.json") == static_cast<std::uintmax_t>(packed));
+    CHECK(std::filesystem::file_size(dir / "plain.json") == static_cast<std::uintmax_t>(plain));
+    CHECK(ev_ok(h, "storage.size('missing')") == 0);
+    // from disk after a restart: the same value
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "JSON.stringify(storage.get('packed')) === JSON.stringify(storage.get('plain'))") == true);
+    CHECK(ev_ok(h, "storage.get('packed').town.length") == 400);
+    CHECK(ev_ok(h, "storage.size('packed')") == packed);
+    // bad options teach
+    CHECK(ev_err(h, "storage.set('a', 1, {compres: true})").find("did you mean 'compress'") != std::string::npos);
+    CHECK(ev_err(h, "storage.set('a', 1, {compress: 1})").find("true or false") != std::string::npos);
+}
+
+TEST_CASE("storage: setAsync writes the file off the frame and resolves") {
+    TestHost h("asyncstore");
+    h.file("tests/async.test.js",
+           "import { test, expect, game } from 'factoria:test';\nimport { storage } from 'factoria';\n"
+           "test('setAsync resolves and the value reads back', async () => {\n"
+           "  const p = storage.setAsync('slot', { gold: 7, list: [1, 2, 3] }, { compress: true });\n"
+           "  expect(storage.get('slot').gold).toBe(7);\n"
+           "  game.step(1);\n"
+           "  const bytes = await p;\n"
+           "  expect(bytes).toBe(storage.size('slot'));\n"
+           "  expect(storage.get('slot').list).toEqual([1, 2, 3]);\n"
+           "  storage.remove('slot');\n"
+           "  expect(storage.get('slot')).toBeUndefined();\n"
+           "});\n"
+           "test('writes to one key land in order', async () => {\n"
+           "  const a = storage.setAsync('k', 1); const b = storage.setAsync('k', 2);\n"
+           "  game.step(1);\n"
+           "  await Promise.all([a, b]);\n"
+           "  expect(storage.get('k')).toBe(2);\n"
+           "});\n");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/async.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 2);
+    // persistent storage: the thread writes the key file, and drain/size wait for it
+    ev_ok(h, "storage.setAsync('disk', { a: [1, 2, 3] }); 1");
+    CHECK(ev_ok(h, "storage.size('disk')").get<double>() > 0);
+    CHECK(Json::parse(slurp_file(h.root / "save" / "storage" / "disk.json"))["value"]["a"].size() == 3);
 }
 
 TEST_CASE("session persists across scene loads; module state too") {

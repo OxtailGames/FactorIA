@@ -1602,9 +1602,39 @@
     },
   };
 
+  // storage.setAsync: the writes the engine is doing between frames or on its worker thread, by job id (script_system.cpp
+  // dispatch_platform -> storageDeliver).
+  const storageJobs = new Map();
+  function storageDeliver(list) {
+    for (const j of list) {
+      const p = storageJobs.get(j.id);
+      if (!p) continue;  // asked for by an earlier test file or run
+      storageJobs.delete(j.id);
+      if (j.ok) p.resolve(j.bytes);
+      else p.reject(new Error(`storage.setAsync(${JSON.stringify(p.key)}) could not write the file: ${j.error}`));
+    }
+  }
+  function storageReset() { storageJobs.clear(); }
+  function storageCompress(fn, options) {
+    if (options === undefined || options === null) return false;
+    if (!isObj(options)) throw new Error(`${fn}: the options must be an object like { compress: true }, but got ${inspect(options)}`);
+    for (const k of Object.keys(options)) {
+      if (k === "compress") continue;
+      const sug = closest(k, ["compress"]);
+      throw new Error(`${fn}: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} The only option is compress.`);
+    }
+    if (options.compress !== undefined && typeof options.compress !== "boolean") throw new Error(`${fn}: compress must be true or false, but got ${inspect(options.compress)}`);
+    return options.compress === true;
+  }
   const storage = {
     get(key, fallback) { const v = N.storageGet(key); return v === undefined ? fallback : v; },
-    set(key, value) { N.storageSet(key, plain(value)); },
+    set(key, value, options) { N.storageSet(key, plain(value), storageCompress("storage.set(key, value, options)", options)); },
+    setAsync(key, value, options) {
+      const compress = storageCompress("storage.setAsync(key, value, options)", options);
+      const id = N.storageSetAsync(key, plain(value), compress);
+      return new Promise((resolve, reject) => { storageJobs.set(id, { key, resolve, reject }); });
+    },
+    size(key) { return N.storageSize(key); },
     remove(key) { N.storageRemove(key); },
     // The keys of the game's own values; the engine's ("factoria.analytics", "factoria.remoteConfig": the player's analytics
     // answer and the cached remote config) are not listed. clear() removes them too: the player is asked again.
@@ -1675,7 +1705,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); servicesReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); storageReset(); servicesReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -3470,7 +3500,7 @@
 
   return {
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, back: deliverBack,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, storageDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); tickVoices(); },
     serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,

@@ -250,7 +250,9 @@ walkers where they stand, the ledger) and the scenario with its goal progress. A
 A damaged file, a file that is not a save, one with an unknown format, one written by a newer game (`future_version`) or one too
 old to migrate is refused with a sentence, a hint and a JSON pointer; nothing starts and the slot is left as it was.
 Measured for the stress town (640 villagers, 532 walking): 281 KB, 143 ms to write and 75 ms to read and restore, in a debug build
-(`tests/stress.test.js` prints them; FB-0022).
+(`tests/stress.test.js` prints them; FB-0022). The timer and season autosaves are written off the frame with `storage.setAsync`
+(a worker thread, the save compressed; the web runs the write between frames); a save made while the window blurs, suspends or closes
+is written at once, because the app may be gone before an asynchronous write runs. Each key is its own file in the save folder.
 
 **Ships and events in a save (P5).** While the trade is on, the save has a top-level `trade` field: `state.trade.snapshot()` (its own
 `v: 1`; ships, orders, reputation, the open event card, the story, achievements and the state of its three random streams). It is

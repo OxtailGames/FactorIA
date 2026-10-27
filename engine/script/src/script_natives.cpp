@@ -229,64 +229,124 @@ std::filesystem::path corrupt_keep_path() {
 }
 }  // namespace
 
-void Impl::load_storage() {
-    if (storageLoaded) return;
-    storageLoaded = true;
-    storage = Json::object();
-    storageCorrupt = false;
-    const bool hooked = storageTextHook.has_value();
-    if (storageMode == StorageMode::Memory && !hooked) return;
-    const std::filesystem::path file = fs::user_dir() / "storage.json";
-    std::string text;
-    if (hooked) {
-        text = *storageTextHook;
-    } else {
-        std::ifstream f(file, std::ios::binary);
-        if (!f) return;  // no save yet
-        std::stringstream ss;
-        ss << f.rdbuf();
-        text = ss.str();
-    }
-    Json j = Json::parse(text, nullptr, false);
-    if (j.is_object()) {
-        storage = std::move(j);
-        return;
-    }
-    // Damaged. Keep the bytes: the next save would otherwise replace them with the new data.
-    storageCorrupt = true;
-    if (hooked) {  // a test: nothing is on disk to keep
-        log(LogLevel::Warn, "script",
-            "the text game.setStorageText gave does not parse: storage.corrupt is true and storage starts empty (a test never "
-            "writes the real save)");
-        return;
-    }
+namespace {
+std::string read_whole_file(const std::filesystem::path& file, bool& ok) {
+    std::ifstream f(file, std::ios::binary);
+    ok = bool(f);
+    std::stringstream ss;
+    if (f) ss << f.rdbuf();
+    return ss.str();
+}
+
+// Keeps a damaged file under a name nothing else uses, and says so. Returns false when it could not be kept.
+bool keep_damaged(const std::filesystem::path& file, const std::string& text, const std::string& what) {
     const std::filesystem::path keep = corrupt_keep_path();
     std::error_code ec;
     std::filesystem::rename(file, keep, ec);
     if (ec) {  // e.g. another volume: copy the bytes instead
         auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
         if (!w) {
-            log(LogLevel::Warn, "script", "storage.json does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
+            log(LogLevel::Warn, "script", what + " does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
                                               ". The next save will replace it; copy it by hand now if it matters.");
-            return;
+            return false;
         }
     }
     fs::user_dir_changed();
     log(LogLevel::Warn, "script",
-        "storage.json does not parse (damaged by a crash or a bad edit?); it was kept as " + keep.filename().string() + " in " +
-            fs::user_dir().string() + " and the game starts with empty save data. A script can check storage.corrupt at start to tell the player.");
+        what + " does not parse (damaged by a crash or a bad edit?); it was kept as " + keep.filename().string() + " in " + fs::user_dir().string() +
+            " and the game starts without it. A script can check storage.corrupt at start to tell the player.");
+    return true;
 }
+}  // namespace
 
-void Impl::save_storage() {
-    if (storageMode == StorageMode::Memory) return;
-    // Atomic (temporary file, then rename): a crash during the save leaves the previous storage.json intact.
-    const std::string text = dump_json(storage);
-    auto r = fs::write_bytes((fs::user_dir() / "storage.json").generic_string(), text.data(), text.size());
+void Impl::storage_write(const std::string& key, bool compress) {
+    const std::string valueText = storage[key].dump(-1, ' ', false, Json::error_handler_t::replace);
+    const std::string text = storage_files::encode(key, valueText, compress);
+    const std::filesystem::path file = storage_files::dir() / storage_files::file_name(key);
+    auto r = fs::write_bytes(file.generic_string(), text.data(), text.size());  // temporary file, then rename: atomic
     if (!r) {
-        log(LogLevel::Warn, "script", "cannot write storage.json in " + fs::user_dir().string() + ": " + r.error().message);
+        log(LogLevel::Warn, "script", "cannot write " + file.string() + " for storage key '" + key + "': " + r.error().message);
         return;
     }
+    storageMeta[key] = {compress, static_cast<std::int64_t>(text.size())};
     fs::user_dir_changed();  // the web build copies the save folder to the browser's storage
+}
+
+void Impl::storage_remove_file(const std::string& key) {
+    if (storageMode == StorageMode::Memory) return;
+    std::error_code ec;
+    std::filesystem::remove(storage_files::dir() / storage_files::file_name(key), ec);
+    fs::user_dir_changed();
+}
+
+void Impl::storage_drain() { storageWriter.drain(); }
+
+void Impl::load_storage() {
+    if (storageLoaded) return;
+    storageLoaded = true;
+    storage_drain();
+    storage = Json::object();
+    storageMeta.clear();
+    storageCorrupt = false;
+    const bool hooked = storageTextHook.has_value();
+    if (storageMode == StorageMode::Memory && !hooked) return;
+    if (hooked) {  // a test: the text stands for an old storage.json; nothing is on disk to read or keep
+        Json j = Json::parse(*storageTextHook, nullptr, false);
+        if (j.is_object()) {
+            storage = std::move(j);
+            return;
+        }
+        storageCorrupt = true;
+        log(LogLevel::Warn, "script",
+            "the text game.setStorageText gave does not parse: storage.corrupt is true and storage starts empty (a test never "
+            "writes the real save)");
+        return;
+    }
+    // One file per key.
+    std::error_code ec;
+    std::vector<std::filesystem::path> files;
+    for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_regular_file(ec) && it->path().extension() == ".json") files.push_back(it->path());
+    std::sort(files.begin(), files.end());
+    for (const std::filesystem::path& file : files) {
+        bool ok = false;
+        const std::string text = read_whole_file(file, ok);
+        if (!ok) continue;
+        storage_files::Decoded d;
+        std::string problem;
+        if (!storage_files::decode(text, d, problem)) {
+            storageCorrupt = true;
+            keep_damaged(file, text, "the storage file " + file.filename().string() + " (" + problem + ")");
+            continue;
+        }
+        storageMeta[d.key] = {d.compressed, static_cast<std::int64_t>(text.size())};
+        storage[d.key] = std::move(d.value);
+    }
+    // An older storage.json (every key in one file) is split into key files, then set aside: keys that already have a
+    // file keep it. The old file is renamed only after every key file is written, so an interruption loses nothing.
+    const std::filesystem::path legacy = fs::user_dir() / "storage.json";
+    if (!std::filesystem::exists(legacy, ec)) return;
+    bool ok = false;
+    const std::string text = read_whole_file(legacy, ok);
+    if (!ok) return;
+    Json j = Json::parse(text, nullptr, false);
+    if (!j.is_object()) {
+        storageCorrupt = true;
+        keep_damaged(legacy, text, "storage.json");
+        return;
+    }
+    bool allWritten = true;
+    for (auto it = j.begin(); it != j.end(); ++it) {
+        if (it.key().empty() || storage.contains(it.key())) continue;
+        storage[it.key()] = it.value();
+        storage_write(it.key(), false);
+        if (!storageMeta.count(it.key())) allWritten = false;
+    }
+    if (!allWritten) return;  // keep storage.json where it is; the next start tries again
+    std::filesystem::rename(legacy, fs::user_dir() / "storage.migrated.json", ec);
+    if (ec) log(LogLevel::Warn, "script", "storage.json was split into " + storage_files::dir().string() + " but could not be set aside: " + ec.message());
+    else log(LogLevel::Info, "script", "storage.json was split into one file per key in " + storage_files::dir().string() + "; the old file is now storage.migrated.json");
+    fs::user_dir_changed();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -2829,20 +2889,58 @@ NATIVE(storageGet) {
     if (!I->storage.contains(key)) return JS_UNDEFINED;
     return I->from_json(I->storage[key]);
 }
-NATIVE(storageSet) {
+NATIVE(storageSet) {  // (key, value, compress?)
     SETUP;
     I->load_storage();
     std::string key = arg_str(ctx, argc, argv, 0);
     if (key.empty()) return throw_err(ctx, "storage.set(key, value): key must be a non-empty string");
+    const bool compress = arg_bool(ctx, argc, argv, 2, false);
+    I->storage_drain();  // an earlier setAsync of this key must not land after this write
     I->storage[key] = I->to_json(argc > 1 ? argv[1] : JS_NULL);
-    I->save_storage();
+    I->storageMeta[key] = {compress, -1};
+    if (I->storageMode == StorageMode::Persistent) I->storage_write(key, compress);
     return JS_UNDEFINED;
+}
+NATIVE(storageSetAsync) {  // (key, value, compress?) -> job id; the answer comes back through storageDeliver
+    SETUP;
+    I->load_storage();
+    std::string key = arg_str(ctx, argc, argv, 0);
+    if (key.empty()) return throw_err(ctx, "storage.setAsync(key, value): key must be a non-empty string");
+    const bool compress = arg_bool(ctx, argc, argv, 2, false);
+    I->storage[key] = I->to_json(argc > 1 ? argv[1] : JS_NULL);  // reads see it at once; the file follows
+    I->storageMeta[key] = {compress, -1};
+    storage_files::Job job;
+    job.id = I->nextStorageJob++;
+    job.key = key;
+    job.valueText = I->storage[key].dump(-1, ' ', false, Json::error_handler_t::replace);
+    job.compress = compress;
+    job.persist = I->storageMode == StorageMode::Persistent;
+    if (job.persist) job.file = storage_files::dir() / storage_files::file_name(key);
+    const int id = job.id;
+    I->storageWriter.submit(std::move(job), I->storageMode == StorageMode::Persistent);
+    return JS_NewInt32(ctx, id);
+}
+NATIVE(storageSize) {  // (key) -> bytes of the key's file, 0 when the key is not stored
+    SETUP;
+    I->load_storage();
+    I->storage_drain();
+    std::string key = arg_str(ctx, argc, argv, 0);
+    if (!I->storage.contains(key)) return JS_NewInt32(ctx, 0);
+    Impl::StorageMeta& m = I->storageMeta[key];
+    if (m.bytes < 0)
+        m.bytes = static_cast<std::int64_t>(
+            storage_files::encode(key, I->storage[key].dump(-1, ' ', false, Json::error_handler_t::replace), m.compressed).size());
+    return JS_NewFloat64(ctx, static_cast<double>(m.bytes));
 }
 NATIVE(storageRemove) {
     SETUP;
     I->load_storage();
-    I->storage.erase(arg_str(ctx, argc, argv, 0));
-    I->save_storage();
+    I->storage_drain();
+    const std::string key = arg_str(ctx, argc, argv, 0);
+    if (I->storage.erase(key) > 0) {
+        I->storageMeta.erase(key);
+        I->storage_remove_file(key);
+    }
     return JS_UNDEFINED;
 }
 NATIVE(storageKeys) {
@@ -2861,9 +2959,18 @@ NATIVE(storageCorrupt) {
 NATIVE(storageClear) {
     SETUP;
     I->load_storage();  // a damaged file is kept before the cleared data replaces it
+    I->storage_drain();
     I->storage = Json::object();
+    I->storageMeta.clear();
     I->storageLoaded = true;
-    I->save_storage();
+    if (I->storageMode == StorageMode::Persistent) {
+        std::error_code ec;
+        std::vector<std::filesystem::path> files;
+        for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
+            if (it->path().extension() == ".json") files.push_back(it->path());
+        for (const auto& f : files) std::filesystem::remove(f, ec);
+        fs::user_dir_changed();
+    }
     return JS_UNDEFINED;
 }
 
@@ -3275,7 +3382,7 @@ const Reg kRegs[] = {
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
     R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
-    R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
+    R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };

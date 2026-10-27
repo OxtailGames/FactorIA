@@ -20,7 +20,7 @@ export default class SaveController extends Behaviour {
       game.on("suspend", () => this.saver.onLeave("suspend")),
       game.on("focus", () => this.saver.onReturn()),
       game.on("resume", () => this.saver.onReturn()),
-      // Desktop only: the web and phones never raise "quit". The window closes after the handler (no cancel).
+      // Desktop windows and the web (pagehide) raise "quit"; phones never do (suspend covers them). The window closes after the handler (no cancel).
       game.on("quit", () => this.saver.onLeave("quit")),
     ];
   }

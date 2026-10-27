@@ -1,5 +1,5 @@
 // @ts-check
-// The save slots: three of them, each with a manual save and an autosave, kept in `storage` (the engine's storage.json, IndexedDB on the web).
+// The save slots: three of them, each with a manual save and an autosave, kept in `storage` (one file per key in the engine's save folder, IndexedDB on the web).
 //
 //   key                          value
 //   tm.slot.<n>.meta             what the slot screen lists (SlotMeta below), small: reading the list never parses a whole save
@@ -127,9 +127,12 @@ export function makeMeta(state, info) {
  * @param {number} slot 1..3
  * @param {"manual" | "auto"} kind
  * @param {import("./state.js").GameState} state
- * @param {{ name?: string, scenario?: string, playSeconds?: number, extra?: Record<string, any>, progress?: any }} [info]
- *   extra: more top-level fields of the save (serializeGame); progress: more fields of the slot meta
- * @returns {{ ok: true, meta: SlotMeta } | { ok: false, error: { code: string, message: string, hint: string } }}
+ * @param {{ name?: string, scenario?: string, playSeconds?: number, extra?: Record<string, any>, progress?: any, async?: boolean }} [info]
+ *   extra: more top-level fields of the save (serializeGame); progress: more fields of the slot meta;
+ *   async: write the files off the frame (storage.setAsync, the save compressed): `written` settles when they are on disk.
+ *   storage.get sees the new save at once either way. A save made while the window is closing is not async (the web runs
+ *   an async write between frames, which a closing tab never reaches).
+ * @returns {{ ok: true, meta: SlotMeta, written?: Promise<void> } | { ok: false, error: { code: string, message: string, hint: string } }}
  */
 export function writeEntry(slot, kind, state, info = {}) {
   if (!validSlot(slot) || !isKind(kind)) {
@@ -146,6 +149,11 @@ export function writeEntry(slot, kind, state, info = {}) {
       playSeconds: info.playSeconds ?? 0,
       progress: info.progress,
     });
+    if (info.async) {
+      // The data first, then the meta that points at it: the writer keeps this order.
+      const written = Promise.all([storage.setAsync(dataKey(slot, kind), save, { compress: true }), storage.setAsync(metaKey(slot, kind), meta)]).then(() => {});
+      return { ok: true, meta, written };
+    }
     storage.set(dataKey(slot, kind), save);
     storage.set(metaKey(slot, kind), meta);
     return { ok: true, meta };
