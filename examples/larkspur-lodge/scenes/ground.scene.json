@@ -229,6 +229,14 @@
       }
     },
     {
+      "id": "screens",
+      "components": {
+        "Script": {
+          "path": "scripts/screens.js"
+        }
+      }
+    },
+    {
       "id": "cast",
       "components": {
         "Script": {
@@ -2097,9 +2105,10 @@
         "Script": {
           "path": "scripts/interactable.js",
           "props": {
-            "kind": "examine",
+            "kind": "puzzle",
             "name": "object.reception",
-            "text": "examine.reception",
+            "puzzle": "timetable",
+            "verb": "interact.verb.read",
             "point": [19.0, 18.2]
           }
         }
@@ -2940,9 +2949,10 @@
         "Script": {
           "path": "scripts/interactable.js",
           "props": {
-            "kind": "examine",
+            "kind": "puzzle",
             "name": "object.library_desk",
-            "text": "examine.libraryDesk",
+            "puzzle": "drawer",
+            "verb": "interact.verb.take",
             "point": [8.2, 3.0]
           }
         }
@@ -3804,8 +3814,8 @@
       }
     },
     {
-      "id": "p_cardboardBoxClosed",
-      "tags": [],
+      "id": "p_cartridge_box",
+      "tags": ["interactable"],
       "components": {
         "Transform": {
           "position": [30.788, 0.0, 9.412],
@@ -3820,6 +3830,16 @@
           "size": [0.212, 0.281, 0.212],
           "offset": [0.106, 0.141, -0.106],
           "layer": 2
+        },
+        "Script": {
+          "path": "scripts/interactable.js",
+          "props": {
+            "kind": "item",
+            "name": "object.cartridge_box",
+            "item": "fuse_cartridge",
+            "once": "cartridge_taken",
+            "point": [31.0, 9.2]
+          }
         }
       }
     },

@@ -1,0 +1,27 @@
+{
+  "format": "larkspur.notebook/1",
+  "clues": [
+    { "id": "oil", "flag": "know_oil", "group": "trail" },
+    { "id": "cellar", "flag": "know_cellar", "group": "trail" },
+    { "id": "adit", "flag": "adit_known", "group": "trail" },
+    { "id": "page", "flag": "know_page", "group": "motive" },
+    { "id": "argument", "flag": "know_argument", "group": "motive" },
+    { "id": "survey", "flag": "survey_known", "group": "motive" },
+    { "id": "hedda", "flag": "hedda_letter", "group": "letter" },
+    { "id": "letter", "flag": "letter_taken", "group": "letter" },
+    { "id": "letter_whole", "flag": "letter_pieced", "group": "letter" },
+    { "id": "ledger", "flag": "ledger_taken", "group": "lodge" },
+    { "id": "timetable", "flag": "timetable_solved", "group": "lodge" },
+    { "id": "card", "flag": "switch_card_found", "group": "lodge" },
+    { "id": "power", "flag": "power_out", "group": "lodge" }
+  ],
+  "deductions": [
+    { "id": "d_date", "a": "letter_whole", "b": "ledger" },
+    { "id": "d_order", "a": "card", "b": "timetable" },
+    { "id": "d_trail", "a": "oil", "b": "cellar" },
+    { "id": "d_motive", "a": "page", "b": "argument" },
+    { "id": "d_author", "a": "hedda", "b": "letter_whole" },
+    { "id": "d_adit", "a": "d_trail", "b": "adit" },
+    { "id": "d_truth", "a": "d_motive", "b": "survey" }
+  ]
+}

@@ -9,6 +9,8 @@ import * as items from "../scripts/items.js";
 import * as chapters from "../scripts/chapters.js";
 import * as cutscene from "../scripts/cutscene.js";
 import * as mix from "../scripts/mix.js";
+import * as saves from "../scripts/saves.js";
+import * as save_data from "../scripts/save_data.js";
 import * as dialogue from "../scripts/dialogue.js";
 import { EVENTS } from "../scripts/events.js";
 import storyData from "../data/story.json";
@@ -397,6 +399,51 @@ describe("the story asks for them", () => {
     expect(cutscene.active()).toBe(false);
     expect(game.find("dialogue_ui").active).toBe(true);
     expect(dialogue.active()).toBe(true);
+  });
+});
+
+describe("saving", () => {
+  const settle = () => {
+    for (let i = 0; i < 4 && cutscene.active(); i++) {
+      cutscene.skip();
+      seconds(1);
+    }
+  };
+
+  test("a game cannot be saved while a cut-scene plays, and can once it ends or is skipped", () => {
+    newGame({ area: "ground", chapter: 1, intro: false });
+    settle();
+    expect(saves.cannotSave()).toBe("");
+    expect(cutscene.play("intro").played).toBe(true);
+    seconds(1);
+    expect(cutscene.active()).toBe(true);
+    expect(saves.cannotSave()).toBe("slots.noCutscene");
+    expect(saves.write(1, { name: "During" })).toBeNull();
+    cutscene.skip();
+    seconds(1);
+    expect(cutscene.active()).toBe(false);
+    expect(saves.cannotSave()).toBe("");
+    expect(saves.write(1, { name: "After the skip" })).not.toBeNull();
+    // and one watched to its end
+    expect(cutscene.play("intro").played).toBe(true);
+    seconds(cutscene.current().duration + 2);
+    expect(cutscene.active()).toBe(false);
+    expect(saves.cannotSave()).toBe("");
+  });
+
+  test("a queued cut-scene counts too, and intro_seen comes back with the save", () => {
+    newGame({ area: "ground", chapter: 1, intro: false });
+    settle();
+    cutscene.play("intro");
+    cutscene.play("chapter_2");
+    cutscene.skip();
+    seconds(0.5);
+    expect(cutscene.active()).toBe(true); // the second one is on
+    expect(saves.cannotSave()).toBe("slots.noCutscene");
+    settle();
+    expect(story.has("intro_seen")).toBe(true);
+    const data = save_data.snapshot();
+    expect(data.state.story.flags.intro_seen).toBe(true);
   });
 });
 

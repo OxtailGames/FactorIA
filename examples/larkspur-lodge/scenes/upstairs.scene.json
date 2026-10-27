@@ -229,6 +229,14 @@
       }
     },
     {
+      "id": "screens",
+      "components": {
+        "Script": {
+          "path": "scripts/screens.js"
+        }
+      }
+    },
+    {
       "id": "cast",
       "components": {
         "Script": {

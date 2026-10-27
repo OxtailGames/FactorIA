@@ -17,6 +17,7 @@
 //
 // Fields tests read: `yaw`, `pitch`, `actualDistance`, `directed`, `fadingIds` (entities faded right now) and fadeAlphaOf(id).
 import { Behaviour, input, physics, world, ui } from "factoria";
+import { screenState } from "./ui/screen_state.js";
 
 const DEG = Math.PI / 180;
 /**
@@ -149,6 +150,11 @@ export default class LodgeCamera extends Behaviour {
   }
 
   readInput(dt) {
+    if (screenState.open) {
+      this.drag = null;
+      this.pinchLast = 0;
+      return; // a screen (the journal, a puzzle) is up: its drags and sticks are not for the camera
+    }
     const ax = input.axis("camera_left", "camera_right");
     const ay = input.axis("camera_up", "camera_down");
     if (ax !== 0 || ay !== 0) this.orbit(ax * this.orbitSpeed * dt, ay * this.orbitSpeed * dt);

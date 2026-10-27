@@ -148,7 +148,7 @@ describe("the chapters", () => {
     story.set("chapter", 4);
     story.set("vale_found");
     expect(chapters.advance()).toBe(5);
-    expect(story.get("storm_over")).toBe(true);
+    expect(story.has("storm_over")).toBe(false); // the storm ends with the fuse puzzle, not with the chapter
     expect(chapters.isFinal()).toBe(true);
     expect(chapters.due()).toBe(false); // the last chapter ends with an ending, not a flag
   });

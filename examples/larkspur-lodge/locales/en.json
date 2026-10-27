@@ -15,7 +15,9 @@
     "credits": "Credits",
     "shop": "Shop",
     "quit": "Quit",
-    "back": "Back"
+    "back": "Back",
+    "load": "Load game",
+    "chapters": "Chapter select"
   },
   "options": {
     "title": "Options",
@@ -94,7 +96,9 @@
   "pause": {
     "title": "Paused",
     "resume": "Resume",
-    "mainMenu": "Main menu"
+    "mainMenu": "Main menu",
+    "save": "Save game",
+    "load": "Load game"
   },
   "prompt": {
     "format": "[{key}] {verb} {name}",
@@ -109,7 +113,9 @@
       "descend": "Go down",
       "examine": "Look at",
       "take": "Search",
-      "talk": "Talk to"
+      "talk": "Talk to",
+      "read": "Read",
+      "mend": "Look inside"
     }
   },
   "area": {
@@ -148,7 +154,9 @@
     "cellar_lantern_box": "cardboard box",
     "dining_box": "cardboard box",
     "guest_box": "cardboard box",
-    "test_box": "cardboard box"
+    "test_box": "cardboard box",
+    "fuse_box": "fuse box",
+    "cartridge_box": "cardboard box"
   },
   "examine": {
     "nothing": "Nothing special.",
@@ -179,11 +187,14 @@
     },
     "guest_ledger": {
       "name": "Guest ledger",
-      "description": "Names and dates in a neat hand. One page has been torn out."
+      "description": "Names and dates in a neat hand. One page has been torn out.",
+      "read": "[b]Guest ledger, eight winters ago[/b]\nThree railway clerks stayed that week: Pell on 3 March, Rudd on 4 March, Kerr on 5 March.\nIn the margin, in pencil: [c:#c8b890]stones moved - Rudd[/c]."
     },
     "torn_letter": {
       "name": "Torn letter",
-      "description": "A letter torn in two. The first line reads: Do not trust the owner."
+      "description": "A letter torn into four strips. The first line reads: Do not trust the owner.",
+      "read": "[b]Four strips[/b], in the order they came out of the box:\n[c:#c8b890]{strips}[/c]",
+      "readWhole": "[b]The letter, pieced together[/b]\n[c:#c8b890]{strips}[/c]"
     },
     "cellar_lantern": {
       "name": "Cellar lantern",
@@ -192,6 +203,321 @@
     "test_key": {
       "name": "Test key",
       "description": "A key that only opens the test room."
+    },
+    "fuse_wire": {
+      "name": "Fuse wire",
+      "description": "A short coil of thin fuse wire, kept in a drawer for a night like this."
+    },
+    "fuse_cartridge": {
+      "name": "Fuse cartridge",
+      "description": "A porcelain fuse cartridge with the wire burnt through."
+    },
+    "fuse_mended": {
+      "name": "Mended fuse",
+      "description": "The cartridge, rewired. It will carry the cellar circuit again."
+    },
+    "view": {
+      "hint": "Drag to turn it. The + and - buttons, a pinch, R / V or the triggers zoom."
+    }
+  },
+  "puzzle": {
+    "again": "There is nothing more to do here.",
+    "drawer": {
+      "title": "The locked drawer",
+      "intro": "The lower drawer of the writing desk is shut with a brass lock of four wheels. Each wheel shows one digit.",
+      "try": "Try the lock",
+      "wrong": "The wheels turn, and nothing gives.",
+      "open": "The lock clicks. In the drawer: a coil of fuse wire and a card in Emil's hand.",
+      "done": "The drawer stands open. Nothing else is in it.",
+      "hint": "Four digits. A date, perhaps: month and day."
+    },
+    "timetable": {
+      "title": "The railway timetable",
+      "intro": "The services of the pass are pinned up out of order. Put them in the order they run, the first of the morning at the top.",
+      "notes": "Notes pinned beside it:",
+      "note1": "The mail train is the first service of the day.",
+      "note2": "The milk churns go on the train just before the goods wagons.",
+      "note3": "The mountain coach runs after the goods train.",
+      "check": "Check the order",
+      "wrong": "That cannot be right. One of the notes is broken.",
+      "solved": "The timetable is clear: mail, milk, goods, coach.",
+      "done": "You already know the order of the services.",
+      "up": "Earlier",
+      "down": "Later"
+    },
+    "service": {
+      "mail": "Mail train",
+      "milk": "Milk train",
+      "goods": "Goods train",
+      "coach": "Mountain coach"
+    },
+    "letter": {
+      "title": "The torn letter",
+      "intro": "Four strips of one letter. Pick two strips to swap them until the sentences read in order.",
+      "solved": "The letter is whole. It was written to call Dr. Vale here.",
+      "done": "The letter is already pieced together.",
+      "wrong": "That does not read right yet.",
+      "noItem": "You have no torn letter to piece together.",
+      "strip1": "Do not trust the owner, Dr. Vale.",
+      "strip2": "Eight winters ago Emil Lindqvist moved the boundary stones at night,",
+      "strip3": "and what he buried that week is locked in his desk, under the date he chose.",
+      "strip4": "Ask who was in the house. Burn this. - A friend"
+    },
+    "fuse": {
+      "title": "The cellar fuse box",
+      "intro": "The box stands open; its cartridge is gone. Four breakers wait under it, each marked with a service of the pass.",
+      "fit": "Fit the fuse",
+      "noFuse": "You have no working fuse to fit.",
+      "fitted": "The mended fuse clicks home. The breakers wait.",
+      "needFuse": "Fit a fuse first.",
+      "thrown": "Breaker thrown.",
+      "trip": "The breakers fall back with a bang. Start again.",
+      "fixed": "The lights come on, and far above the wind drops.",
+      "noPower": "The lights are on. Nothing needs mending down here.",
+      "status": "Fuse: {state}",
+      "stateMissing": "missing",
+      "stateFitted": "fitted",
+      "done": "The lodge has power again."
+    }
+  },
+  "combo": {
+    "fuse_mended": "You wind the wire through the cartridge. It is a fuse again.",
+    "refuse": "Those two do not belong together.",
+    "pick": "Choose the item to combine with the {name}."
+  },
+  "screens": {
+    "items": "Items",
+    "notebook": "Notebook",
+    "board": "Board",
+    "close": "Close",
+    "hudItems": "Items  [I]",
+    "hudNotebook": "Notebook  [N]",
+    "empty": "You carry nothing yet.",
+    "noClues": "No clues yet. Talk to the household and look around.",
+    "combine": "Combine",
+    "cancel": "Cancel",
+    "pieceTogether": "Piece together",
+    "useOnBoard": "Select on the board",
+    "undo": "Undo",
+    "redo": "Redo",
+    "hintItems": "Tab or the shoulder buttons: next page.   Esc or B: close.",
+    "hintBoard": "Pick two clues to link them.   Z: undo   Y: redo   Esc or B: close.",
+    "kindKey": "Key",
+    "kindClue": "Clue",
+    "kindTool": "Tool",
+    "deductions": "Deductions",
+    "clues": "Clues",
+    "hintJournal": "Tab, PageUp / PageDown or the shoulder buttons: change page.   Esc or B: close.",
+    "hintPuzzle": "Esc or B: step back.",
+    "itemDetail": "{kind}",
+    "try": "Try",
+    "state": "State"
+  },
+  "board": {
+    "picked": "Picked: {name}. Pick a second clue to link.",
+    "made": "Deduction made: {name}.",
+    "nothing": "These two do not lead anywhere yet.",
+    "already": "You have already linked these.",
+    "same": "Pick a different clue.",
+    "undone": "Undone: {name}.",
+    "redone": "Restored: {name}.",
+    "cannotRedo": "The clues for that deduction are no longer known."
+  },
+  "notebook": {
+    "clue": {
+      "oil": {
+        "title": "Lantern and oil",
+        "text": "Dr. Vale took a lantern and lamp oil down to the cellar."
+      },
+      "cellar": {
+        "title": "The long cellar",
+        "text": "The cellar goes back further than its shelves."
+      },
+      "page": {
+        "title": "The missing page",
+        "text": "Dr. Vale came for a missing page of the survey."
+      },
+      "argument": {
+        "title": "Supper quarrel",
+        "text": "Mara and Dr. Vale quarrelled at supper."
+      },
+      "survey": {
+        "title": "The boundary stones",
+        "text": "The survey is about boundary stones, and page forty is the proof."
+      },
+      "hedda": {
+        "title": "Hedda's letter",
+        "text": "Hedda owns up to the torn letter."
+      },
+      "adit": {
+        "title": "The adit",
+        "text": "Captain Haas admits an adit behind the third wine shelf."
+      },
+      "ledger": {
+        "title": "Guest ledger",
+        "text": "Three railway clerks stayed eight winters ago: Pell on 3 March, Rudd on 4 March, Kerr on 5 March. The margin says: stones moved - Rudd."
+      },
+      "letter": {
+        "title": "Torn letter",
+        "text": "A letter torn into four strips, from room B."
+      },
+      "letter_whole": {
+        "title": "The whole letter",
+        "text": "Emil moved the stones at night, and what he buried is locked in his desk under the date he chose."
+      },
+      "timetable": {
+        "title": "Order of services",
+        "text": "Mail, milk, goods, coach."
+      },
+      "card": {
+        "title": "Fuse box card",
+        "text": "Throw the breakers in the order of the day's services, first to last."
+      },
+      "power": {
+        "title": "Power cut",
+        "text": "The lights are out. The fuse box in the cellar needs a mended fuse."
+      }
+    },
+    "ded": {
+      "d_date": {
+        "title": "The date he chose",
+        "text": "Rudd's night was 4 March. The drawer code is 0403."
+      },
+      "d_order": {
+        "title": "Breaker order",
+        "text": "Throw the breakers in this order: mail, milk, goods, coach."
+      },
+      "d_trail": {
+        "title": "Where Vale went",
+        "text": "Dr. Vale took light and oil into the long cellar."
+      },
+      "d_motive": {
+        "title": "Why Vale came",
+        "text": "Vale came for the missing page, and Mara quarrelled with him about it."
+      },
+      "d_author": {
+        "title": "Who wrote it",
+        "text": "Hedda wrote the letter that called Dr. Vale to the lodge."
+      },
+      "d_adit": {
+        "title": "The way down",
+        "text": "The adit behind the third wine shelf is where Vale went."
+      },
+      "d_truth": {
+        "title": "The truth of it",
+        "text": "The stones were moved, the page proves it, and the household knew."
+      }
+    },
+    "new": "New clue: {name}"
+  },
+  "cutscene": {
+    "intro": {
+      "line01": "Larkspur Lodge. Eleven at night, and the storm has taken the road, the telephone and most of the good humour.",
+      "line02": "Close the door, porter, you are letting the whole mountain in.",
+      "line03": "The pass is shut till morning. Nobody comes, nobody goes.",
+      "line04": "You have the keys, the stove and a house full of strangers until dawn."
+    },
+    "chapter_2": {
+      "card1": "Midnight",
+      "line01": "The supper went cold on the long table. Dr. Vale's chair was still pushed back, as if he meant to return."
+    },
+    "chapter_3": {
+      "card1": "One in the morning",
+      "line01": "A locked door on the upstairs landing, and a house that has stopped pretending to sleep."
+    },
+    "chapter_4": {
+      "card1": "Three in the morning",
+      "line01": "The wind found one note it liked and kept it. Below the kitchen, the old way waited behind the wine."
+    },
+    "chapter_5": {
+      "card1": "Dawn",
+      "line01": "The wind drops all at once, like a breath let go. The windows go from black to grey.",
+      "line02": "Is it quiet, or have I gone deaf in that hole?",
+      "line03": "It is quiet, Ansel. Sit. You have a great deal to tell us."
+    },
+    "adit_descent": {
+      "line01": "The third shelf turns on a hinge nobody has oiled in thirty years. Put your shoulder to it.",
+      "line02": "The rack swings inward with a sound like a long breath, and the lantern shows a stair going down."
+    },
+    "adit_rescue": {
+      "line01": "Dr. Vale comes up the steps one at a time, the lamp in the porter's hand and the page forty in his coat.",
+      "line02": "Easy, doctor. Easy. You are out now.",
+      "line03": "Thirty years, Haas. And it was still exactly where we left it."
+    },
+    "ending_dawn": {
+      "line01": "At eight the pass opened and the first car came down out of the white.",
+      "line02": "I should have told you all of it years ago. The stones, the page, all of it.",
+      "line03": "The survey will say it for us. It always did."
+    },
+    "ending_quiet": {
+      "line01": "The page curled in the stove and was gone before anyone found the words to stop it.",
+      "line02": "Thank you. I will not forget what that cost you.",
+      "line03": "Nobody is punished tonight. That is not the same as nobody being free."
+    },
+    "ending_long": {
+      "line01": "No car came down in the morning. The snow had other plans for the Brandt road.",
+      "line02": "It was my silence. Let the Captain pay for it, and let the rest of you go in peace.",
+      "line03": "Peace. Is that what you call it?"
+    },
+    "skip": "Skip",
+    "hint": "{key} to skip"
+  },
+  "keyboard": {
+    "space": "Space",
+    "delete": "Delete",
+    "done": "Done"
+  },
+  "slots": {
+    "titleSave": "Save game",
+    "titleLoad": "Load game",
+    "empty": "Slot {n}: empty",
+    "emptyAuto": "Autosave: empty",
+    "used": "Slot {n}: {name}\nChapter {chapter}, {time}",
+    "usedAuto": "Autosave: {name}\nChapter {chapter}, {time}",
+    "damaged": "Slot {n}: damaged (delete it to free the slot)",
+    "damagedAuto": "Autosave: damaged (delete it)",
+    "damagedNote": "A slot cannot be read. Delete it, or load another.",
+    "unnamed": "Unnamed",
+    "autoName": "autosave",
+    "delete": "Delete",
+    "nameTitle": "Name the save in slot {n}",
+    "namePlaceholder": "Name this save",
+    "confirmSave": "Save",
+    "cancel": "Cancel",
+    "deleteTitle": "Delete slot {n}?",
+    "confirmDelete": "Delete",
+    "saved": "Saved to slot {n}.",
+    "noGame": "There is no game to save yet.",
+    "noCutscene": "You cannot save during a cut-scene.",
+    "noDialogue": "You cannot save during a conversation.",
+    "busy": "You cannot save right now."
+  },
+  "chapterSelect": {
+    "title": "Chapter select",
+    "note": "Start the night again from a chapter you have reached.",
+    "chapter": "Chapter {n}: {title}",
+    "locked": "Chapter {n}: not reached yet"
+  },
+  "ach": {
+    "ending_dawn": {
+      "name": "Dawn at the Lodge",
+      "desc": "Reach the dawn ending."
+    },
+    "ending_quiet": {
+      "name": "A Quiet Morning",
+      "desc": "Reach the quiet ending."
+    },
+    "ending_long": {
+      "name": "The Long Night",
+      "desc": "Reach the long night ending."
+    },
+    "all_endings": {
+      "name": "Every Dawn",
+      "desc": "Reach all three endings."
+    },
+    "all_clues": {
+      "name": "Nothing Missed",
+      "desc": "Find every clue in one night."
     }
   },
   "dlg": {
@@ -369,8 +695,10 @@
       "plan_c1": "Open it.",
       "plan_c2": "I have no lantern.",
       "plan_c3": "I have no lamp oil.",
+      "plan_c4": "The latch will not move.",
       "plan": "The latch falls from the dark side and cannot be lifted from there. A man needs a light and a lantern's worth of oil to go down and bring someone up.",
       "hint_lantern": "Emil kept a lantern in a cardboard box in the nook, by the far wall. Go and get it.",
+      "hint_power": "The latch works from the cellar circuit, and the storm has killed the circuit. The fuse box is on the cellar wall. Emil kept wire in his library desk, and there is a spare cartridge in the other box in the kitchen corner. Then the order of the day's trains, if I remember how he set it.",
       "hint_oil": "The cook keeps a can in the box by the kitchen door. Hurry.",
       "descend": "The third shelf swings in on a rusted hinge and a breath of cold comes out of the dark. You light the lantern. The adit runs down, wet and low.",
       "found": "Down here! Who is it? Bless you; I have run out of matches and of good sense.",
@@ -524,57 +852,5 @@
     "log": "Log",
     "logTitle": "Conversation log",
     "close": "Close"
-  },
-  "cutscene": {
-    "intro": {
-      "line01": "Larkspur Lodge. Eleven at night, and the storm has taken the road, the telephone and most of the good humour.",
-      "line02": "Close the door, porter, you are letting the whole mountain in.",
-      "line03": "The pass is shut till morning. Nobody comes, nobody goes.",
-      "line04": "You have the keys, the stove and a house full of strangers until dawn."
-    },
-    "chapter_2": {
-      "card1": "Midnight",
-      "line01": "The supper went cold on the long table. Dr. Vale's chair was still pushed back, as if he meant to return."
-    },
-    "chapter_3": {
-      "card1": "One in the morning",
-      "line01": "A locked door on the upstairs landing, and a house that has stopped pretending to sleep."
-    },
-    "chapter_4": {
-      "card1": "Three in the morning",
-      "line01": "The wind found one note it liked and kept it. Below the kitchen, the old way waited behind the wine."
-    },
-    "chapter_5": {
-      "card1": "Dawn",
-      "line01": "The wind drops all at once, like a breath let go. The windows go from black to grey.",
-      "line02": "Is it quiet, or have I gone deaf in that hole?",
-      "line03": "It is quiet, Ansel. Sit. You have a great deal to tell us."
-    },
-    "adit_descent": {
-      "line01": "The third shelf turns on a hinge nobody has oiled in thirty years. Put your shoulder to it.",
-      "line02": "The rack swings inward with a sound like a long breath, and the lantern shows a stair going down."
-    },
-    "adit_rescue": {
-      "line01": "Dr. Vale comes up the steps one at a time, the lamp in the porter's hand and the page forty in his coat.",
-      "line02": "Easy, doctor. Easy. You are out now.",
-      "line03": "Thirty years, Haas. And it was still exactly where we left it."
-    },
-    "ending_dawn": {
-      "line01": "At eight the pass opened and the first car came down out of the white.",
-      "line02": "I should have told you all of it years ago. The stones, the page, all of it.",
-      "line03": "The survey will say it for us. It always did."
-    },
-    "ending_quiet": {
-      "line01": "The page curled in the stove and was gone before anyone found the words to stop it.",
-      "line02": "Thank you. I will not forget what that cost you.",
-      "line03": "Nobody is punished tonight. That is not the same as nobody being free."
-    },
-    "ending_long": {
-      "line01": "No car came down in the morning. The snow had other plans for the Brandt road.",
-      "line02": "It was my silence. Let the Captain pay for it, and let the rest of you go in peace.",
-      "line03": "Peace. Is that what you call it?"
-    },
-    "skip": "Skip",
-    "hint": "{key} to skip"
   }
 }
