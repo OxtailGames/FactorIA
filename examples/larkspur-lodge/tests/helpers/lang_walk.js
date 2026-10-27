@@ -1,6 +1,6 @@
-// The walk of P8 languages (tests/lang_<tag>.test.js, one file per language so each has its own glyph atlas, see ENGINE_FEEDBACK
-// LL/FB-0901): a language walks the key screens at 100 % and 200 % text. Nothing may show a missing key or a placeholder,
-// and a screenshot of each screen goes to .factoria/screenshots/lang/<lang>_<scale>_<screen>.png.
+// The walk of the P8 languages (tests/languages.test.js runs every language in one file, with one glyph atlas): a language walks the key
+// screens at 100 % and 200 % text. Nothing may show a missing key or a placeholder, and a screenshot of each screen goes to
+// .factoria/screenshots/lang/<lang>_<scale>_<screen>.png.
 import { test, describe, expect, game } from "factoria:test";
 import { scene, ui, i18n, storage, session } from "factoria";
 import { enter, stand } from "./lodge.js";

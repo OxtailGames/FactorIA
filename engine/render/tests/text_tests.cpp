@@ -733,3 +733,49 @@ TEST_CASE("fonts: a font that cannot be loaded is an error that says which file 
     CHECK_FALSE(load.ok());
     (void)g;
 }
+
+TEST_CASE("fonts: a glyph atlas that grows and then clears draws again the texts it held (Latin, Hangul, Hebrew)") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    g.renderer.set_fallback_fonts({kKr});
+    const std::string hello = "Hello \xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D \xED\x95\x9C\xEA\xB5\xAD\xEC\x96\xB4";  // Hello shalom hangug-eo
+    const std::string hebrew = "\xD7\x90\xD7\x91\xD7\x92\xD7\x93\xD7\x94\xD7\x95\xD7\x96\xD7\x97\xD7\x98\xD7\x99\xD7\x9B\xD7\x9C\xD7\x9E\xD7\xA0";
+    const std::string filler = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 " + hebrew +
+                               " \xED\x95\x9C\xEA\xB5\xAD\xEC\x96\xB4\xEB\x8F\x84 \xEA\xB8\x80\xEC\x9E\x90 \xEC\x82\xAC\xEC\x9D\xB4\xEC\x97\x90\xEC\x84\x9C";
+    auto scene = [&](int fillers, int round) {
+        World w; add_black_camera(w);
+        put_text(w, hello, {-150, 80, 0}, 24);
+        // Fillers are laid out (their glyphs fill the atlas) but too faint to leave ink. Each round has other sizes, so
+        // the glyphs of the rounds before stay in the atlas until it is full.
+        for (int i = 0; i < fillers; ++i) {
+            Entity e = put_text(w, filler, {-150, 0, 0}, 60.0f + 0.37f * float(round * fillers + i), "", Align::Left, 300);
+            w.get<Text>(e)->color.a = 0.003f;
+        }
+        return g.render(w);
+    };
+    const Image alone = scene(0, 0);
+    const Ink before = ink(alone);
+    REQUIRE(before.any());
+    const int start = g.renderer.stats().glyphAtlasResets;
+    int rounds = 0, differing = 0, clears = 0;
+    int lastSize = g.renderer.stats().glyphAtlasSize, lastResets = start;
+    for (; rounds < 120 && clears < 2; ++rounds) {
+        const Image img = scene(10, rounds);
+        const RenderStats st = g.renderer.stats();
+        if (st.glyphAtlasSize == 4096 && st.glyphAtlasResets > lastResets && lastSize == 4096) ++clears;
+        lastSize = st.glyphAtlasSize;
+        lastResets = st.glyphAtlasResets;
+        for (int y = 0; y < alone.height; ++y)
+            for (int x = 0; x < alone.width; ++x)
+                if (std::fabs(alone.pixel(x, y).r - img.pixel(x, y).r) > 0.4f) ++differing;  // the faint fillers stay below
+    }
+    // the atlas grew to its largest page and cleared, at some point halfway through a frame, and no frame lost a glyph
+    CHECK(lastSize == 4096);
+    CHECK(clears >= 2);
+    CHECK(differing == 0);
+    // and a text set before the clear still draws the next frame
+    const Ink next = ink(scene(0, 0));
+    CHECK(next.x0 == before.x0);
+    CHECK(next.x1 == before.x1);
+}

@@ -925,7 +925,12 @@ void Renderer::Impl::render(World& world, float dt) {
 
     flush_particle_bursts(world);
     std::vector<Frame> frames(specs.size());
+    // The glyph atlas can be cleared halfway through a gather (it is full): the texts gathered before that hold UVs of the
+    // old atlas. Gather once more then, so no text of the frame is drawn from a cleared atlas (it fits after a clear).
+    for (int attempt = 0; attempt < 2; ++attempt) {
+    const unsigned atlasEpoch = fonts->atlas_epoch();
     for (std::size_t i = 0; i < specs.size(); ++i) {
+        frames[i] = Frame{};
         Frame& fr = frames[i];
         fr.cam = specs[i].cam;
         fr.wantWorld = specs[i].world;
@@ -948,8 +953,12 @@ void Renderer::Impl::render(World& world, float dt) {
         gather_particles(world, fr);
         gather_debug(*debug.impl(), fr);
     }
+    if (fonts->atlas_epoch() == atlasEpoch) break;
+    }
     // After every gather: the glyph atlas may be remade by a sync, which no job of this frame has recorded a draw with yet.
     fonts->sync();
+    stats.glyphAtlasSize = fonts->atlas_size();
+    stats.glyphAtlasResets = int(fonts->atlas_epoch());
     // The screen-space job of a split frame is dropped when it has nothing to draw (a pass less).
     if (split && frames.back().screen.empty() && frames.back().debugScreen.empty()) {
         frames.pop_back();
