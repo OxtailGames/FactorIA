@@ -1177,7 +1177,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "Fixed in 77f3acbf (M31.3): Docs: SCRIPTING.md's test section shows fa.call(\"ui.state\"), fa.call(\"ui.check_layout\") and fa.call(\"i18n.state\") from a test (fa.call runs any command; the entry's suggestion is met that way). Not done: ui.check_layout reloads the scenes it checks, so it does not see the current frame's state.",
-        "Fixed in M33.8: game.checkLayout() (ui.check_layout with current: true) measures the current frame with the panels a test has opened and loads nothing, so the whole entry is covered."
+        "Fixed in 6c596066 (M33.8): game.checkLayout() (ui.check_layout with current: true) measures the current frame with the panels a test has opened and loads nothing, so the whole entry is covered."
       ]
     },
     {
