@@ -4,6 +4,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Listing data files
+
+- Glob import of JSON data: `import tables from "../data/dialogue/*.json"` is an object of the parsed files directly in that
+  folder, keyed by file name (`"ch1.json"`) in sorted order. `*` is allowed in the file name only. Editing a matched file reloads
+  the importers; a file added while the game runs is seen on the next start. The export already packs every data file, so the
+  glob finds the same files in `game.pak` and on the web. The generated typings declare `*.json` modules (LL/FB-0005).
+- Larkspur Lodge reads its chapter tables with a glob import: a new chapter file needs no edit to a list.
+
 Tests that drive the UI like a player
 
 - `game.tap(action)` taps the first key (or else the first gamepad button) bound to the action, so the UI and every action on
