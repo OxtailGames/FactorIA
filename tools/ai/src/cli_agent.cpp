@@ -1,6 +1,9 @@
 #include "fa/ai/cli_agent.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -268,6 +271,7 @@ void CliStreamParser::usage_event(std::vector<AgentEvent>& out, std::vector<Limi
     e.type = AgentEvent::Type::Usage;
     e.usage = usage_;
     e.costUsd = costUsd_;
+    e.costIsEstimate = !costFinal_;
     e.limits = std::move(limits);
     e.contextTokens = contextTokens_;
     e.contextWindow = contextWindow_;
@@ -302,6 +306,43 @@ static std::vector<LimitWindow> parse_claude_rate_limits(const Json& info) {
     return out;
 }
 
+// One assistant message's usage, counted once however many events repeat it (Claude Code writes one `assistant` event per
+// content block with the same message.id; the cache and input numbers repeat, output_tokens may grow: the largest wins).
+// A sub-agent's messages count too (their tokens are paid), only the context in use ignores them.
+bool CliStreamParser::count_message(const Json& msg) {
+    const Json* u = child(msg, "usage");
+    if (!u || !u->is_object()) return false;
+    std::string id = str(msg, "id");
+    if (id.empty()) id = "#" + std::to_string(++anonMessages_);
+    MessageUsage& m = messages_[id];
+    Usage now;
+    now.inputTokens = static_cast<u64>(num(*u, "input_tokens"));
+    now.outputTokens = static_cast<u64>(num(*u, "output_tokens"));
+    now.cacheCreationTokens = static_cast<u64>(num(*u, "cache_creation_input_tokens"));
+    now.cacheReadTokens = static_cast<u64>(num(*u, "cache_read_input_tokens"));
+    now.inputTokens = std::max(now.inputTokens, m.usage.inputTokens);
+    now.outputTokens = std::max(now.outputTokens, m.usage.outputTokens);
+    now.cacheCreationTokens = std::max(now.cacheCreationTokens, m.usage.cacheCreationTokens);
+    now.cacheReadTokens = std::max(now.cacheReadTokens, m.usage.cacheReadTokens);
+    if (now.inputTokens == m.usage.inputTokens && now.outputTokens == m.usage.outputTokens &&
+        now.cacheCreationTokens == m.usage.cacheCreationTokens && now.cacheReadTokens == m.usage.cacheReadTokens &&
+        m.seen) {
+        return false;
+    }
+    m.seen = true;
+    const std::string model = str(msg, "model");
+    const Pricing price = builtin_pricing(model).known ? builtin_pricing(model) : pricing_;
+    const double cost = estimate_cost(now, price);
+    usage_.inputTokens += now.inputTokens - m.usage.inputTokens;
+    usage_.outputTokens += now.outputTokens - m.usage.outputTokens;
+    usage_.cacheCreationTokens += now.cacheCreationTokens - m.usage.cacheCreationTokens;
+    usage_.cacheReadTokens += now.cacheReadTokens - m.usage.cacheReadTokens;
+    if (!costFinal_) costUsd_ += cost - m.cost;
+    m.usage = now;
+    m.cost = cost;
+    return true;
+}
+
 void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
     const std::string type = str(j, "type");
     if (type == "rate_limit_event") {
@@ -332,14 +373,16 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
         // Context in use = the prompt of the model's last call (input + cache). A sub-agent's calls have their own context.
         const Json* parent = child(j, "parent_tool_use_id");
         const bool fromSubAgent = parent && parent->is_string() && !parent->get<std::string>().empty();
+        bool changed = msg && count_message(*msg);
         if (const Json* u = msg ? child(*msg, "usage") : nullptr; u && u->is_object() && !fromSubAgent) {
             const u64 ctx = static_cast<u64>(num(*u, "input_tokens")) + static_cast<u64>(num(*u, "cache_creation_input_tokens")) +
                             static_cast<u64>(num(*u, "cache_read_input_tokens"));
             if (ctx > 0 && ctx != contextTokens_) {
                 contextTokens_ = ctx;
-                usage_event(out);
+                changed = true;
             }
         }
+        if (changed) usage_event(out);
         const Json* content = msg ? child(*msg, "content") : nullptr;
         if (!content || !content->is_array()) return;
         for (const auto& b : *content) {
@@ -389,6 +432,7 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
         if (resultIsError_) errorText_ = result.empty() ? str(j, "subtype") : result;
         else finalText_ = result;
         costUsd_ = num(j, "total_cost_usd", num(j, "cost_usd"));
+        costFinal_ = true;
         // The context window comes with the totals per model; the main model is the one that used the most tokens.
         if (const Json* mu = child(j, "modelUsage"); mu && mu->is_object()) {
             double best = -1;
@@ -504,7 +548,9 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             usage_.inputTokens += in > cached ? in - cached : 0;
             usage_.outputTokens += static_cast<u64>(num(*u, "output_tokens"));
         }
-        AgentEvent e; e.type = AgentEvent::Type::Usage; e.usage = usage_; out.push_back(e);
+        costUsd_ = estimate_cost(usage_, pricing_);  // 0 when the price is unknown; Codex never reports a cost
+        AgentEvent e; e.type = AgentEvent::Type::Usage; e.usage = usage_; e.costUsd = costUsd_; e.costIsEstimate = true;
+        out.push_back(e);
     } else if (type == "turn.failed" || type == "error") {
         std::string msg = str(j, "message");
         if (const Json* er = child(j, "error")) msg = str(*er, "message", msg);
@@ -568,13 +614,33 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     po.onStart = req.onStart;
     po.endWithChild = true;  // the CLI died but a job it started holds the pipes: do not wait for them forever
     CliStreamParser parser(cfg_.kind);
+    parser.set_pricing(cfg_.pricing);
     std::vector<AgentEvent> events;
+    // stopWhen kills the CLI: the process only polls one flag, so a relay thread merges the caller's flag and ours.
+    CancelFlag stopFlag{false};
+    std::atomic<bool> relayDone{false};
+    std::thread relay;
+    if (req.stopWhen) {
+        po.cancel = &stopFlag;
+        relay = std::thread([&] {
+            while (!relayDone.load()) {
+                if (is_cancelled(cancel)) stopFlag = true;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        });
+    }
     po.onStdoutLine = [&](std::string_view line) {
         events.clear();
         parser.feed_line(line, events);
         if (onEvent) for (auto& e : events) onEvent(e);
+        if (req.stopWhen && !stopFlag.load() && !events.empty() &&
+            req.stopWhen(parser.usage(), parser.cost_usd(), parser.cost_is_estimate())) {
+            stopFlag = true;
+        }
     };
     auto pr = run_process(po);
+    relayDone = true;
+    if (relay.joinable()) relay.join();
     if (!pr) return make_error(pr.error().message, pr.error().hint.empty() ? cli_install_hint(cfg_) : pr.error().hint);
 
     CliRunResult res;
@@ -583,6 +649,7 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     res.finalText = parser.final_text();
     res.usage = parser.usage();
     res.costUsd = parser.cost_usd();
+    res.costIsEstimate = parser.cost_is_estimate();
     res.turns = parser.turns();
     res.sessionId = parser.session_id();
     if (pr->cancelled) {

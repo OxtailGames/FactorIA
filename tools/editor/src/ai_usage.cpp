@@ -93,4 +93,45 @@ LimitView limit_view(const ai::LimitWindow& window, i64 now) {
     return v;
 }
 
+ai::Usage RunUsage::minus(const ai::Usage& a, const ai::Usage& b) {
+    auto sub = [](u64 x, u64 y) { return x > y ? x - y : u64(0); };
+    ai::Usage r;
+    r.inputTokens = sub(a.inputTokens, b.inputTokens);
+    r.outputTokens = sub(a.outputTokens, b.outputTokens);
+    r.cacheCreationTokens = sub(a.cacheCreationTokens, b.cacheCreationTokens);
+    r.cacheReadTokens = sub(a.cacheReadTokens, b.cacheReadTokens);
+    return r;
+}
+
+void RunUsage::update(const std::string& run, const ai::Usage& usage, double costUsd) {
+    Entry& e = runs_[run];
+    e.usage = usage;
+    e.cost = costUsd;
+}
+
+ai::Usage RunUsage::usage() const {
+    ai::Usage sum;
+    for (const auto& [_, e] : runs_) sum += minus(e.usage, e.settled);
+    return sum;
+}
+
+double RunUsage::cost() const {
+    double sum = 0;
+    for (const auto& [_, e] : runs_) sum += std::max(0.0, e.cost - e.settledCost);
+    return sum;
+}
+
+void RunUsage::settle_orchestrator(const ai::Usage& finalUsage, double finalCost, ai::Usage& chatUsage, double& chatCost, bool all) {
+    chatUsage += finalUsage;
+    chatCost += finalCost;
+    runs_.erase("");
+    if (all) settle_all(chatUsage, chatCost);
+}
+
+void RunUsage::settle_all(ai::Usage& chatUsage, double& chatCost) {
+    chatUsage += usage();
+    chatCost += cost();
+    runs_.clear();
+}
+
 }  // namespace fa::editor

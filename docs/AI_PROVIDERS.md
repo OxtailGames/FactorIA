@@ -314,7 +314,9 @@ The AI panel shows what the provider reports, never a guess:
   "Plan usage updates after the first message.".
 * **Context**: tokens in the model's context window now (the last request, not the sum of the run), for example `47k / 1M`.
 * **Tokens** (in / out / cache) and **Cost** of the chat. Cost is an estimate (`est.`): the CLI's own number for subscription
-  plans, which are not billed per token.
+  plans, which are not billed per token. Both are live while an agent works (every assistant message adds its usage once,
+  sub-agents included; Codex adds each turn); the cost is the engine's price-table estimate until the CLI's final totals
+  replace it. The plan windows are not refreshed during a run: Claude Code emits `rate_limit_event` once per message.
 
 ## Asset providers
 

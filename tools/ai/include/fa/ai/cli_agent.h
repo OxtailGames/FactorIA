@@ -31,6 +31,9 @@ struct CliRunRequest {
     std::string mcpUrl;
     // Called once with the CLI process's pid when it started (ProcessOptions::onStart).
     std::function<void(long long pid)> onStart;
+    // Asked after every parsed line with the usage so far (tokens, cost and whether the cost is an estimate); true kills
+    // the CLI (the run's budget is spent). The result is `cancelled`.
+    std::function<bool(const Usage& usage, double costUsd, bool costIsEstimate)> stopWhen;
 };
 
 struct CliRunResult {
@@ -38,6 +41,7 @@ struct CliRunResult {
     std::string finalText;
     Usage usage;             // tokens of THIS run
     double costUsd = 0;      // when the CLI reports it. Claude Code reports the running total of a resumed session.
+    bool costIsEstimate = false;  // the CLI never reported a total (cancelled, crashed): costUsd is the engine's estimate
     int exitCode = 0;
     int turns = 0;
     std::string sessionId;
@@ -96,7 +100,12 @@ public:
 
     const std::string& final_text() const { return finalText_; }
     const Usage& usage() const { return usage_; }
+    // Tokens and cost are live: every assistant message adds its usage (also a sub-agent's), the cost is estimated with
+    // the price table until the `result` brings the CLI's own totals, which replace them.
     double cost_usd() const { return costUsd_; }
+    bool cost_is_estimate() const { return !costFinal_; }
+    // The price of a model that has none in the table (ProviderConfig::pricing); the model of each message is looked up first.
+    void set_pricing(Pricing p) { pricing_ = p; }
     bool saw_result() const { return sawResult_; }
     bool result_is_error() const { return resultIsError_; }
     const std::string& error_text() const { return errorText_; }
@@ -110,6 +119,12 @@ private:
     std::string finalText_, errorText_, sessionId_;
     Usage usage_;
     double costUsd_ = 0;
+    bool costFinal_ = false;  // costUsd_ is the CLI's total
+    Pricing pricing_;
+    struct MessageUsage { Usage usage; double cost = 0; bool seen = false; };
+    std::map<std::string, MessageUsage> messages_;  // Claude: by message id (one assistant event per content block)
+    int anonMessages_ = 0;
+    bool count_message(const Json& msg);  // true when the totals changed
     int turns_ = 0;
     bool sawResult_ = false, resultIsError_ = false;
     std::map<std::string, std::string> toolNames_;  // tool_use id -> name

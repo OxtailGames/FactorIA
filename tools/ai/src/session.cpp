@@ -149,15 +149,17 @@ void AgentSession::add_usage(const Usage& u, double cost) {
     totalCost_ += cost;
 }
 
-bool AgentSession::over_budget(std::string& why) const {
+bool AgentSession::over_budget(std::string& why) const { return over_budget(totalUsage_, totalCost_, why); }
+
+bool AgentSession::over_budget(const Usage& usageNow, double costNow, std::string& why) const {
     double maxCost = opt_.maxCostUsd >= 0 ? opt_.maxCostUsd : config_.limits.maxCostUsd;
     u64 maxTokens = opt_.maxTotalTokens > 0 ? opt_.maxTotalTokens : config_.limits.maxTotalTokens;
-    if (maxCost > 0 && totalCost_ >= maxCost) {
-        why = "Cost budget reached ($" + std::to_string(totalCost_) + " >= $" + std::to_string(maxCost) + ")";
+    if (maxCost > 0 && costNow >= maxCost) {
+        why = "Cost budget reached ($" + std::to_string(costNow) + " >= $" + std::to_string(maxCost) + ")";
         return true;
     }
-    if (maxTokens > 0 && totalUsage_.total() >= maxTokens) {
-        why = "Token budget reached (" + std::to_string(totalUsage_.total()) + " >= " + std::to_string(maxTokens) + ")";
+    if (maxTokens > 0 && usageNow.total() >= maxTokens) {
+        why = "Token budget reached (" + std::to_string(usageNow.total()) + " >= " + std::to_string(maxTokens) + ")";
         return true;
     }
     return false;
@@ -268,13 +270,22 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     double costBase = resuming ? prev.cliCostUsd : 0;
     const auto onEvent = [&](const AgentEvent& ev) {
         AgentEvent copy = ev;
-        if (ev.type == AgentEvent::Type::Usage && copy.costUsd >= costBase) copy.costUsd -= costBase;
+        // The CLI's own total counts the whole resumed session; the engine's estimate counts this run only.
+        if (ev.type == AgentEvent::Type::Usage && !ev.costIsEstimate && copy.costUsd >= costBase) copy.costUsd -= costBase;
         if (ev.type == AgentEvent::Type::Usage && window > 0 && (copy.contextWindow == 0 || copy.contextWindow > window)) {
             copy.contextWindow = window;
         }
         tr.write(Json::object({{"kind", event_type_name(ev.type)}, {"text", ev.text}, {"tool", ev.toolName},
                                {"input", ev.toolInput}, {"result", ev.toolResult}}));
         emit(copy, depth, "cli");
+    };
+    // The run's limits see the live numbers: the CLI is killed as soon as its tokens or cost cross them.
+    std::string budgetWhy;
+    req.stopWhen = [&](const Usage& u, double cliCost, bool isEstimate) {
+        Usage soFar = totalUsage_;
+        soFar += u;
+        double c = totalCost_ + ((!isEstimate && cliCost >= costBase) ? cliCost - costBase : cliCost);
+        return over_budget(soFar, c, budgetWhy);
     };
     auto run = agent.run(req, onEvent, cancel_);
     if (resuming && run && !run->ok && !run->cancelled &&
@@ -287,6 +298,7 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
         req.sessionId.clear();
         req.prompt = fullPrompt;
         costBase = 0;
+        budgetWhy.clear();
         run = agent.run(req, onEvent, cancel_);
     }
     if (!run) {
@@ -295,13 +307,13 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
         res.hint = run.error().hint;
         return res;
     }
-    double cost = run->costUsd >= costBase ? run->costUsd - costBase : run->costUsd;
+    double cost = !run->costIsEstimate && run->costUsd >= costBase ? run->costUsd - costBase : run->costUsd;
     if (depth == 0 && canResume) {
         res.conversation = prev.key == pc.name ? prev : Conversation{};
         res.conversation.key = pc.name;
         if (!run->sessionId.empty()) {
             res.conversation.cliSessionId = run->sessionId;
-            res.conversation.cliCostUsd = run->costUsd;
+            res.conversation.cliCostUsd = run->costIsEstimate ? costBase + run->costUsd : run->costUsd;
         }
     }
     add_usage(run->usage, cost);
@@ -311,6 +323,11 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     res.stopReason = run->cancelled ? "cancelled" : (run->ok ? "cli" : "error");
     res.error = run->error;
     res.hint = run->hint;
+    if (!budgetWhy.empty() && run->cancelled && !is_cancelled(cancel_)) {
+        res.stopReason = "budget";
+        res.error = budgetWhy;
+        res.hint = "Raise limits in ~/.factoria/ai.json or ai.run options.";
+    }
     tr.write(Json::object({{"kind", "end"}, {"ok", res.ok}, {"text", res.finalText}, {"error", res.error}}));
     return res;
 }

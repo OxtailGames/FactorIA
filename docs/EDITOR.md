@@ -165,8 +165,13 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
   A big picture (a 4K screenshot) is scaled down to 1568 px on its long side, what the model looks at anyway, so it costs
   fewer tokens and stays under the API's 5 MB limit.
 - **Usage** (above the transcript): Session (5h) and Week plan limits with the reset time, the model's Context, Tokens
-  and the estimated Cost of the chat. Hover a line for details. The limits are the last ones the provider reported in
-  this run of the editor; they show after the first message.
+  and the estimated Cost of the chat. Hover a line for details. Tokens and Cost move while the agent works: every model call
+  adds its usage (the worker's too, each agent counted on its own and summed) and the cost is the engine's running estimate
+  from its price table until the CLI reports its own total, which replaces it when the agent finishes. Claude Code reports
+  a message's output tokens early, so "out" can lag until the end. The plan limits are the last ones the provider reported in
+  this run of the editor; Claude Code reports them once per message (after its first model call), so they do not move while
+  it works (the tooltip says "As of HH:MM"). `limits.maxCostUsd` / `limits.maxTotalTokens` see the live numbers: a CLI agent
+  is stopped as soon as it crosses them.
 - **Selection:** the entity selected in the viewport (click it) is named to the AI in each message.
 - **Claude Code** runs its own loop in a child process, but its tools are the editor's: the editor serves MCP on a loopback
   port (`http://127.0.0.1:<port>/mcp/<token>`) and the MCP config it writes for the CLI points there. Its tool calls run on
