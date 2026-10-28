@@ -706,10 +706,12 @@
       "suggestion": "Accept --persist-storage (as factoria run does) on the exported player, so an --input replay that presses Play and saves leaves a real file in the container.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md."
-      ]
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md.",
+        "Fixed in M33.12 (branch m33/ship-checks): factoria_player takes --persist-storage with --frames/--input/--dump-state/--screenshot; tools/cli/tests/player_replay_test.py checks the save file and tools/cli/tests/larkspur_ship_test.py (ctest cli_larkspur_ship) plays tests/replays/save_slot1.json on the exported Larkspur Lodge and finds slot1.json. Inside the signed sandbox container itself it was not run (that needs the by-hand step of SHIPPING.md section 4, or the same command from the sandboxed app)."
+      ],
+      "engineIssue": "branch m33/ship-checks (M33.12)"
     },
     {
       "id": "FB-0802",
@@ -730,10 +732,12 @@
       "suggestion": "Stream the frames to the encoder as they are drawn instead of keeping them, or give the memory per second of video in docs/CLI.md.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md."
-      ]
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md.",
+        "Fixed in M33.12 (branch m33/ship-checks): the frames were already spooled to disk by AviWriter; the memory was the Metal read-back (engine/render/src/readback_metal.mm) keeping its autoreleased command buffer, one frame of pixels, until the process ended. It now has its own autorelease pool; video_tests.cpp 'keeps memory flat' fails without the fix (113 -> 572 MB) and passes with it, and 300 frames at 1.5 scale went from 2.4 GB to 61 MB."
+      ],
+      "engineIssue": "branch m33/ship-checks (M33.12)"
     },
     {
       "id": "FB-0803",
@@ -756,7 +760,8 @@
       "occurrences": 1,
       "status": "open",
       "notes": [
-        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md. Its first half is already supported: display.scaleMode \"expand\" shows more world on a 4:3 screen (the game uses \"fit\"); M33.15 documents it for tablets, M33.12 takes the simulator input."
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md. Its first half is already supported: display.scaleMode \"expand\" shows more world on a 4:3 screen (the game uses \"fit\"); M33.15 documents it for tablets, M33.12 takes the simulator input.",
+        "Second half fixed in M33.12 (branch m33/ship-checks): the iOS player plays an --input replay in its window (FA_INPUT_REPLAY) and turns the screen (FA_ORIENTATION), and the command player.run_ios_sim drives a Simulator build with them and takes a screenshot (docs/MOBILE.md, 'Play a replay on the Simulator'). Not run on a Simulator or an iPad in this task: it needs a Simulator build of the player; the command's steps are covered by a dryRun test and the player's windowed replay was checked on the desktop."
       ]
     },
     {

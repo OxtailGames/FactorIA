@@ -2176,6 +2176,28 @@ Each session is a folder .factoria/sessions/<yyyymmdd-hhmmss>/ written when the 
 |---|---|---|---|
 | `max` | integer | no | How many sessions to list. Default 10. |
 
+## project
+
+### `player.run_ios_sim` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Play an input replay on the iOS player in the iOS Simulator (an iPhone or an iPad), turn the screen and take a screenshot.
+
+Needs a Mac with Xcode. `xcrun simctl` can neither tap nor rotate, so the player takes both itself: this command boots a simulator, installs `app` (the Simulator build of the player, ./build_ios.sh --simulator in the iOS export folder), launches it with the environment variables FA_INPUT_REPLAY (the replay `input.record` writes, the one `factoria run --input` plays) and FA_ORIENTATION (portrait or landscape; iOS refuses an orientation the Info.plist does not allow), waits for the player's "player: replay done after N frames" line (without `input`: for its 60-frame run marker), waits `settleMilliseconds` more, writes a PNG of the simulator's screen when `screenshot` is given and terminates the app. The replay is applied by frame number to the window's frames at their real duration (not the fixed step of a headless run): presses and releases play as recorded, but a game that moves by dt may end up elsewhere than in the recording, so check what it leaves with the screenshot and the `console`. Returns {device, deviceName, bundleId, replayFrames, finished, orientationRequested, screenshot, errors[], console[] (the last 80 lines), nextSteps[], ok}; it is an error (with the end of the console in its message) when the replay does not end in `seconds` or the player logged an error. dryRun returns the simctl commands and runs nothing (any host). Example: {"app":"build/export/my-game-ios/build/Debug-iphonesimulator/factoria_player.app","input":"replays/play.json","device":"iPad Pro 13-inch","orientation":"landscape","screenshot":"build/ipad.png"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `app` | string | yes | The player built for the iOS Simulator: a factoria_player.app folder (project-relative or absolute). |
+| `input` | string | no | An input replay JSON ({"frames":{"0":{"press":["jump"]}}}), project-relative, absolute or relative to the current folder. Without it the player just runs. |
+| `orientation` | string ["portrait","landscape"] | no | Turn the screen to this orientation about a second after the start. |
+| `device` | string | no | The simulator: a UDID or a name or part of one ("iPad Pro 13-inch"). Default: a booted iPhone, else the first iPhone of the newest iOS runtime. |
+| `bundleId` | string | no | The app's bundle id. Default: read from the app's Info.plist. |
+| `screenshot` | string | no | Write a PNG of the simulator's screen here when the replay is done (project-relative, inside the project, or absolute). |
+| `seconds` | integer | no | How long to wait for the replay to finish. Default 90. |
+| `settleMilliseconds` | integer | no | Wait this long after the last replay frame before the screenshot. Default 1500. |
+| `dryRun` | boolean | no | Return the simctl commands and run nothing. Default false. |
+
 ## scene
 
 ### `prefab.save` (modifies state)

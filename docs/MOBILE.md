@@ -332,6 +332,25 @@ FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run     # the same on the conn
 ends the game. Simulator builds need no team: they are built unsigned and signed ad hoc. In Xcode instead: choose the
 `factoria_player` scheme, set Team under Signing & Capabilities and press Run.
 
+#### Play a replay on the Simulator
+
+`simctl` can neither tap nor rotate, so the player does both itself when the Simulator starts it with two environment
+variables: `FA_INPUT_REPLAY=<replay.json>` (the file `input.record` writes, the one `factoria run --input` plays; the
+Simulator reads the Mac's disk) and `FA_ORIENTATION=portrait|landscape`. The command `player.run_ios_sim` sets both, boots a
+simulator (an iPhone, or an iPad with `device`), installs the `.app`, waits for the player's `player: replay done after N
+frames` line, takes a screenshot and stops the app:
+
+```bash
+factoria call player.run_ios_sim '{"app":"build/export/my-game-ios/build/Debug-iphonesimulator/factoria_player.app",
+  "input":"replays/play.json","device":"iPad Pro 13-inch","orientation":"landscape","screenshot":"build/ipad.png"}'
+```
+
+`dryRun: true` prints the `simctl` commands and runs nothing, on any computer. The replay's presses, keys, mouse, touch and
+gamepad entries are applied by frame number to the frames the window runs, which last as long as the screen takes (not the
+fixed step of a headless run), so a game that moves by `dt` may end up elsewhere than in the recording: look at the screenshot.
+iOS only turns the screen to an orientation the Info.plist allows (`display.orientation`, `export.ios`). Only a Mac with Xcode
+runs it; a real iPad is a different check (`./build_ios.sh --run`), and so is a real touch.
+
 The export fills in what `factoria.json` says (`icon`, `export.ios`; [EXPORTING.md](EXPORTING.md#platform-settings)):
 `export.ios.teamId` is the default of `FA_IOS_DEVELOPMENT_TEAM` inside `build_ios.sh` (the environment variable still
 wins, so one script serves several developers), `export.ios.buildNumber` is the app's `CFBundleVersion` (the `version` is

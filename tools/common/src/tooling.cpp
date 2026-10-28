@@ -4,6 +4,7 @@
 
 #include "fa/runtime/engine.h"
 #include "fa/tooling/ci_workflow.h"
+#include "fa/tooling/ios_sim.h"
 #include "fa/tooling/menu_kit.h"
 #include "fa/tooling/perf.h"
 #include "fa/tooling/sign.h"
@@ -21,6 +22,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_translation_commands(registry, projectDir);
     register_export_commands(registry, projectDir);
     register_publish_commands(registry, projectDir);
+    register_ios_sim_commands(registry, projectDir);
     register_audio_commands(registry, projectDir);
     register_plugin_commands(registry, projectDir);
     register_sign_commands(registry, projectDir);
