@@ -100,6 +100,7 @@ std::string merge_leaf(Json& doc, const std::string& dotted, const Json& value) 
 
 // Removes every entity whose "id" is in `ids`, at any depth of "entities" / "children".
 void prune_entities(Json& node, const std::set<std::string>& ids) {
+    if (auto root = node.find("entity"); root != node.end() && root->is_object()) prune_entities(*root, ids);  // a prefab's root
     for (const char* key : {"entities", "children"}) {
         auto it = node.find(key);
         if (it == node.end() || !it->is_array()) continue;

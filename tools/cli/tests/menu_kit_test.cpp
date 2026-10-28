@@ -290,6 +290,67 @@ bool has_entity(const fa::Json& node, const std::string& id) {
 
 }  // namespace
 
+TEST_CASE("project.add_menu_kit: the textSpeed part adds the options row, and options alone has none") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    auto row_in_options = [](const std::string& dir) {
+        const std::string text = read_text(stdfs::path(dir) / "prefabs" / "ui" / "options.prefab.json");
+        return text.find("\"text_speed\"") != std::string::npos;
+    };
+    const std::string plain = new_game("speed_off");
+    const fa::Json a = add(plain, {"options"});
+    CAPTURE(a.dump(2));
+    CHECK(a["parts"] == fa::Json::parse(R"(["core","options"])"));
+    CHECK_FALSE(row_in_options(plain));
+
+    const std::string withRow = new_game("speed_on");
+    const fa::Json b = add(withRow, {"textSpeed"});
+    CAPTURE(b.dump(2));
+    CHECK(b["parts"] == fa::Json::parse(R"(["core","options","textSpeed"])"));
+    CHECK(row_in_options(withRow));
+    CHECK(has(b["added"], "scripts/settings.js"));
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::None;
+    auto session = fa::cli::Session::open(withRow, so);
+    const fa::Json v = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
+    REQUIRE(v["ok"] == true);
+    CHECK(v["result"]["errors"].empty());
+    session.reset();
+    fa::fs::set_project_root(oldRoot);
+}
+
+TEST_CASE("project.add_menu_kit: the slots part brings the keyboard, its screen validates and its test passes alone") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const std::string dir = new_game("slots");
+    const fa::Json r = add(dir, {"slots"});
+    CAPTURE(r.dump(2));
+    CHECK(r["parts"] == fa::Json::parse(R"(["core","keyboard","slots"])"));
+    CHECK(has(r["added"], "scripts/slots.js"));
+    CHECK(has(r["added"], "scripts/ui/slot_screen.js"));
+    CHECK(has(r["added"], "prefabs/ui/slots.prefab.json"));
+    CHECK(has(r["added"], "prefabs/ui/slot_dialog.prefab.json"));
+    CHECK(has(r["added"], "tests/slots.test.js"));
+    CHECK(has(r["added"], "scripts/ui/keyboard.js"));
+    CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "prefabs" / "ui" / "options.prefab.json"));
+    const fa::Json en = read_json(stdfs::path(dir) / "locales" / "en.json");
+    CHECK(en.contains("slots"));
+    CHECK(en.contains("keyboard"));
+    CHECK_FALSE(en.contains("options"));
+
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::None;
+    auto session = fa::cli::Session::open(dir, so);
+    const fa::Json v = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.validate","args":{}})"));
+    REQUIRE(v["ok"] == true);
+    CAPTURE(v["result"].dump(2));
+    CHECK(v["result"]["errors"].empty());
+    fa::TestReport rep = fa::cli::run_project_tests(session->engine(), "");
+    CHECK_MESSAGE(rep.ok(), rep.summary());
+    CHECK(rep.passed >= 10);
+    CHECK(rep.failed == 0);
+    session.reset();
+    fa::fs::set_project_root(oldRoot);
+}
+
 TEST_CASE("project.add_menu_kit: a main menu without the shop and the age gate validates and runs") {
     const std::string dir = new_game("noshop");
     const fa::Json r = add(dir, {"main-menu"});

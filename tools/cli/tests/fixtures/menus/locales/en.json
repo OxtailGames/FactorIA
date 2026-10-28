@@ -45,7 +45,15 @@
     "analytics": "Share anonymous usage data",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent"
+    "percent": "{value} percent",
+    "textSpeed": "Text speed: {speed}",
+    "speed": {
+      "slow": "slow",
+      "normal": "normal",
+      "fast": "fast",
+      "instant": "instant",
+      "custom": "custom"
+    }
   },
   "credits": {
     "madeWith": "Made with FactorIA",
@@ -86,5 +94,29 @@
   },
   "card": {
     "continue": "Continue"
+  },
+  "slots": {
+    "titleSave": "Save game",
+    "titleLoad": "Load game",
+    "empty": "Slot {n}: empty",
+    "emptyAuto": "Autosave: empty",
+    "used": "Slot {n}: {name}\nChapter {chapter}, {time}",
+    "usedAuto": "Autosave: {name}\nChapter {chapter}, {time}",
+    "damaged": "Slot {n}: damaged (delete it to free the slot)",
+    "damagedAuto": "Autosave: damaged (delete it)",
+    "damagedNote": "A slot cannot be read. Delete it, or load another.",
+    "unnamed": "Unnamed",
+    "autoName": "autosave",
+    "delete": "Delete",
+    "nameTitle": "Name the save in slot {n}",
+    "namePlaceholder": "Name this save",
+    "confirmSave": "Save",
+    "cancel": "Cancel",
+    "deleteTitle": "Delete slot {n}?",
+    "confirmDelete": "Delete",
+    "saved": "Saved to slot {n}.",
+    "noGame": "There is no game to save yet.",
+    "busy": "You cannot save right now.",
+    "noSave": "Saving is not available here."
   }
 }
