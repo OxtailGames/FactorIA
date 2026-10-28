@@ -153,7 +153,7 @@ JSON pointer and fix; `tests/data.test.js` feeds it broken tables.
 clue known and every deduction made, in rich text; picking an entry opens it on the board) and *Board* (clues as cards; pick two to
 link them; **Undo** / **Redo**). The puzzles open from their objects in the lodge (`kind: "puzzle"`), the letter also from the Items page.
 While a screen is up the porter is locked (`lock("screen")`), `scripts/lodge_camera.js` ignores drags, and Escape closes the screen
-instead of pausing (`MenuStack.busy`). A scene change with a screen open releases all of it (`onDestroy`).
+instead of pausing (its `ui.on("cancel")` handler returns true, which consumes `ui_cancel`: FB-0008). A scene change with a screen open releases all of it (`onDestroy`).
 
 | | Keyboard and mouse | Touch | Gamepad |
 |---|---|---|---|
@@ -246,7 +246,7 @@ text appears at the player's text speed (Options, Audio: slow 20, normal 45, fas
 that asks for reduced motion starts at instant). Enter, Space, gamepad A, a click or a tap on the box completes the line and then goes
 on. Choices appear once the text is complete: click or tap one, arrows or d-pad plus Enter / A, or the keys 1 to 4 (actions
 `choice_1`..`choice_4`). The backlog opens with L, gamepad Y or the Log button and closes with the same key, Close or Escape /
-gamepad B (while it is open `MenuStack.busy` is set so that Escape does not also pause: FB-0008). Presses in the first 0.2 s of a
+gamepad B (the cancel handler returns true, which consumes `ui_cancel` so that Escape does not also pause: FB-0008). Presses in the first 0.2 s of a
 line are ignored.
 
 ### The night (P2)
@@ -301,7 +301,7 @@ voice, clears the captions and applies the end state, so a skipped and a watched
 **Data.** `data/cutscenes/<id>.cutscene.json` (format `larkspur.cutscene/1`: `id`, `doc`, `duration`, `room`, `area`, `skippable`,
 `actors`, `timeline` of steps `fade`, `camera`, `caption`, `card`, `move`, `face`, `anim`, and `end { fade, set }`). The files are
 written by `assets/src/build_cutscenes.py`: edit that, never the JSON, then add a new file to `scripts/cutscene_data.js` and
-`data/story.json` `cutscenes` by hand (no glob import, FB-0005). `data/cutscenes/rooms.json` gives each room its reverb.
+`data/story.json` `cutscenes` by hand (the file still lists its imports one by one; `dialogue_data.js` uses the glob import of FB-0005, and this one could). `data/cutscenes/rooms.json` gives each room its reverb.
 `project.validate_cutscenes` (also run by the tests) checks every file with its file, JSON pointer, a hint and a "did you mean"
 (unknown room, actor, step, flag, string key, voice id, bad ranges, steps out of order, a clip that does not exist or is longer
 than its step).
@@ -442,7 +442,7 @@ their own again on `i18n.on("change")`. Read-aloud speaks the focused widget in 
   `assets.subset_font`), or `factoria validate` names the missing character.
 - **Hebrew** is right to left. The engine mirrors the screen-space UI (`ui.mirrorRtl`: anchors, pivots, positions, Toggle boxes, Sliders)
   and Text and Panel rows follow the language (`direction: auto`, `align: start`), so the builders of `scripts/ui/kit.js` place every
-  widget as if for English; only the 3D item view, a camera viewport and not a widget, mirrors its hole by hand (`screens.js`). A Hebrew
+  widget as if for English, the 3D item view (a `CameraView`) included. A Hebrew
   string that starts with a key name or a placeholder is a right-to-left paragraph through `Text.direction` (the hint labels, the
   prompt) or a `key` (the Skip button); the translations have no U+200F (FB-0903, FB-0904).
 - **German** is the longest language: labels shrink (`autoShrink`, `minFontSize`) inside fixed boxes and the panels have heights, so
@@ -472,16 +472,9 @@ it writes `slots_load.png` and `chapter_select.png`).
 
 ## Known limits and engine gaps
 
-See `ENGINE_FEEDBACK.json`: the camera and the click rays used to re-cast to find every hit (FB-0002, now `physics.raycast3dAll`), and an opened door
-used to remove its collider because `Collider3D` had no `enabled` (FB-0003, now switched off). P2 adds: the dialogue text reveal pads the text because
-`Text` cannot show part of a line (FB-0004), the data files are imported by hand (FB-0005), Escape is both cancel and pause
-(FB-0008), and the options menu got a text speed row by hand (FB-0011). FB-0006, FB-0007, FB-0009 and FB-0010 are
-documentation gaps met while writing the UI and its tests. P5 adds: slots are written by hand on top of `storage` (FB-0501), the
-fake store's `stats.add` is not atomic (FB-0502), a TextField and the pause action share Escape and P (FB-0503) and the store's
-answer time is undocumented (FB-0504).
-P3 adds LL/FB-0012 to LL/FB-0017 (no wheel through a modal panel, no viewport widget, camera viewports count the window, late `destroy`, how the lodge lights overexpose a far stage, a disabled button cannot take focus); `UiSystem::update_drag` (FB-0001) is avoided: no widget of P3 is draggable, the item turns by reading `input.mouse`, and every ancestor of a widget has a Panel.
-P6 adds FB-0701 to FB-0704 (no way to get ambience clips, tests cannot call `ui.check_layout`, a spurious panel size warning in a ScrollList, persisted music survives `game.resetState`).
-
-P7 adds FB-0801 to FB-0804 (the exported player cannot be made to save for a sandbox check, `--record-video` memory, the 16:9 design letterboxed on a 4:3 iPad, players without a build fingerprint). See `SHIPPING.md` for what ran where.
-P4 adds: no voice provider for `assets.generate_voice` (FB-0601) and a
-reload of the same scene that `scene.current` cannot tell apart (FB-0602); it met FB-0001 and FB-0006 again.
+See `ENGINE_FEEDBACK.json`: the 36 gaps the game met while it was built (LL/FB-0001 to FB-0905) are all fixed in the engine
+(M33; each entry names the commit), and the game dropped the workarounds: no transparent HUD root Panel, no re-cast rays or
+removed colliders, no padded typewriter text, no `MenuStack.busy` routing for Escape, no serial entity ids, no hand-made
+mirroring and no U+200F in `he.json`, no bands around the item view, no `make_sound.py`. What stays: the game keeps its own
+Text speed row in `options.js` (it predates the kit's `textSpeed` part) and its cut-scene files are imported one by one.
+Windows and Linux players of a development build still come from a release (TM/FB-0051, LL/FB-0804, a duplicate).

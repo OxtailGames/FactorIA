@@ -5,8 +5,8 @@ What each store needs, what is done, what ran where and what is left to do by ha
 FactorIA 0.2.0. Nothing was uploaded anywhere and no store account was used.
 
 Short version: **the Mac App Store package was built, sandboxed and ad hoc signed, and the sandboxed app was started on
-this Mac (it creates its container and runs); the one thing not seen is a save file in that container, because no
-script can click Play (FB-0801). The iPad build compiled and its title screen was looked at on the iPad Pro 13-inch
+this Mac (it creates its container and runs); the one thing not seen is a save file in that container (the
+player saves from a replay with `--persist-storage` since M33.12, FB-0801, but that was run outside the sandbox). The iPad build compiled and its title screen was looked at on the iPad Pro 13-inch
 simulator. The MSIX and the Linux (Steam Deck) folder were built, not run: there is no such machine here.** Every
 signature is ad hoc or missing, so no store accepts these files as they are (section 8).
 
@@ -42,7 +42,7 @@ python3 -I store/check_store.py                                          # the t
 | Key art | `store/keyart.png` | the hall at night with the HUD hidden |
 | Screenshots | `store/screenshots/{hall,hall2,library,dining,kitchen,landing,cellar}.png` | 1920x1080, English UI, HUD hidden, one per area (the cellar from chapter 4) |
 | Capsules | `store/capsules/steam/` (9 sizes, header 920x430 to library hero 3840x1240), `microsoft/` (300x300, 720x1080, 1080x1080, 1920x1080), `itch/` (630x500), `appstore/` (iPhone and iPad sizes up to 2868x1320 and 2752x2064) | built from the key art |
-| Trailer | `.factoria/store/trailer.mp4`, 1480 frames at 1920x1080 with sound | **the intro cut-scene only** (about 25 s: the opening cut-scene in the hall, with its captions and the skip prompt), recorded from `store/replays/intro.json` that clicks Play. It is the game's own cut-scene, not a cut-down edit; a real trailer needs editing by hand. Recording took 4.4 GB of memory (FB-0802) |
+| Trailer | `.factoria/store/trailer.mp4`, 1480 frames at 1920x1080 with sound | **the intro cut-scene only** (about 25 s: the opening cut-scene in the hall, with its captions and the skip prompt), recorded from `store/replays/intro.json` that clicks Play. It is the game's own cut-scene, not a cut-down edit; a real trailer needs editing by hand. Recording it held 4.4 GB of memory before FB-0802 was fixed (the Metal read-back; now about 61 MB) |
 | Store texts | `store/en/{name,short_description,long_description,features,whats_new}.txt` | English only. One folder per language: package P8 adds `es`, `de`, `ko`, `he` with the same five files and `check_store.py` then checks them too |
 | Age rating answers | `store/age_rating.md` | IARC and App Store questionnaire, with the reason for each answer |
 
