@@ -37,6 +37,10 @@ std::vector<AppIconImage> editor_window_icon() {
     return icons;
 }
 
+#if !defined(__APPLE__)
+bool set_dock_name(const char*) { return false; }  // app_name_apple.mm
+#endif
+
 AppIconImage editor_dock_icon() {
     for (const auto& f : fa_editor_icon::files())
         if (f.path == "factoria_dock.png") return decode(f.path, f.data);

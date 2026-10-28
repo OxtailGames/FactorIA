@@ -161,6 +161,7 @@ void on_init() {
     if (const AppIconImage& dock = g.desc.dockIcon;
         dock.width > 0 && dock.height > 0 && dock.rgba.size() == std::size_t(dock.width) * std::size_t(dock.height) * 4)
         fa_sapp_set_dock_icon(dock.rgba.data(), dock.width, dock.height);  // macOS only; NSApp exists from here on
+    if (!g.desc.appName.empty()) fa_sapp_set_class_name(g.desc.appName.c_str());  // Linux only
 #if defined(__EMSCRIPTEN__)
     // The browser decides when a paste happens: a TextField pastes on the paste event, not on the V key.
     if (g.desc.input) g.desc.input->set_paste_from_events(true);

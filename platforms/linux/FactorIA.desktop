@@ -6,3 +6,4 @@ Exec=FactorIA
 Icon=factoria
 Categories=Development;IDE;
 Terminal=false
+StartupWMClass=FactorIA

@@ -8,7 +8,8 @@
 Writes, next to this script:
   factoria_<size>.png     16..256: the window icon (Windows, Linux), embedded in the editor
   factoria_dock.png       512: the macOS Dock icon, with the margin of Apple's icon grid, embedded in the editor
-and tools/cli/windows/factoria.ico (the same sizes) for factoria.exe and FactorIA-Editor.exe.
+and tools/cli/windows/factoria.ico (the same sizes) for factoria.exe and FactorIA-Editor.exe, and
+platforms/linux/factoria.png (256) for the Linux AppImage.
 
 Run it after changing a source:  python3 tools/editor/icon/make_icons.py
 """
@@ -18,6 +19,7 @@ from PIL import Image, ImageChops, ImageDraw
 
 HERE = Path(__file__).resolve().parent
 ICO = HERE.parent.parent / "cli" / "windows" / "factoria.ico"
+APPIMAGE_PNG = HERE.parent.parent.parent / "platforms" / "linux" / "factoria.png"
 WINDOW_SIZES = [16, 24, 32, 48, 64, 128, 256]
 SMALL_SIZES = {16, 24}       # drawn from the simplified source
 ART_CROP = (119, 69, 919, 869)  # the square of the artwork around the factory, the brain and the smoke
@@ -57,11 +59,13 @@ def main():
         img = (small if size in SMALL_SIZES else square).resize((size, size), Image.LANCZOS)
         img.save(HERE / f"factoria_{size}.png", optimize=True)
         images.append(img)
+        if size == 256:
+            img.save(APPIMAGE_PNG, optimize=True)
     mac.resize((512, 512), Image.LANCZOS).save(HERE / "factoria_dock.png", optimize=True)
 
     ICO.parent.mkdir(parents=True, exist_ok=True)
     images[-1].save(ICO, sizes=[(s, s) for s in WINDOW_SIZES], append_images=images[:-1])
-    print("wrote", len(WINDOW_SIZES), "window sizes, factoria_dock.png and", ICO)
+    print("wrote", len(WINDOW_SIZES), "window sizes, factoria_dock.png,", ICO, "and", APPIMAGE_PNG)
 
 
 if __name__ == "__main__":

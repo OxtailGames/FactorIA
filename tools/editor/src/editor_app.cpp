@@ -241,6 +241,7 @@ int Editor::run() {
     d.title = windowTitle_;
     d.icon = editor_window_icon();
     d.dockIcon = editor_dock_icon();
+    d.appName = "FactorIA";
     d.width = autotest_ ? 1600 : 1440;
     d.height = autotest_ ? 900 : 860;
     if (autotest_)  // FA_EDITOR_AUTOTEST_SIZE=1024x642: try the autotest on a small display (the macOS CI runner)
@@ -268,6 +269,7 @@ int Editor::run() {
 
 void Editor::on_init() {
     set_log_level(LogLevel::Debug);
+    set_dock_name("FactorIA");  // macOS: not "factoria", the executable's name
     std::string dir = options_.projectDir;
     if (autotest_) {
         // Window screenshots. FA_EDITOR_AUTOTEST_SHOW=1: a window to watch (macOS hides it from view and the mouse).

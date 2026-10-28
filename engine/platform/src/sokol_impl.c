@@ -387,6 +387,20 @@ bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h) {
     return false;
 }
 
+bool fa_sapp_set_class_name(const char* name) {
+#if defined(_SAPP_LINUX)
+    XClassHint hint;
+    hint.res_name = (char*)name;
+    hint.res_class = (char*)name;
+    XSetClassHint(_sapp.x11.display, _sapp.x11.window, &hint);
+    XFlush(_sapp.x11.display);
+    return true;
+#else
+    (void)name;
+    return false;
+#endif
+}
+
 #if defined(__ANDROID__)
 // Ending the process when the activity is destroyed.
 //

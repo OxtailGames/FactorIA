@@ -1,3 +1,35 @@
-// The FactorIA icon of factoria.exe and FactorIA-Editor.exe (Windows only; tools/cli/CMakeLists.txt compiles this file
-// into both). factoria.ico is generated with the editor's window icon by tools/editor/icon/make_icons.py.
+// The FactorIA icon and name of factoria.exe and FactorIA-Editor.exe (Windows only; tools/cli/CMakeLists.txt compiles
+// this file into both; factoria_version.h is generated from factoria_version.h.in). factoria.ico is generated with the
+// editor's window icon by tools/editor/icon/make_icons.py.
+#include <winver.h>
+
+#include "factoria_version.h"
+
 1 ICON "factoria.ico"
+
+// FileDescription is the program's name Windows shows: the taskbar's tooltip and jump list, Task Manager, "Open with".
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION FA_VERSION_MAJOR, FA_VERSION_MINOR, FA_VERSION_PATCH, 0
+PRODUCTVERSION FA_VERSION_MAJOR, FA_VERSION_MINOR, FA_VERSION_PATCH, 0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"  // U.S. English, Unicode
+        BEGIN
+            VALUE "CompanyName", "Oxtail Games"
+            VALUE "FileDescription", "FactorIA"
+            VALUE "FileVersion", FA_VERSION_STRING
+            VALUE "ProductName", "FactorIA"
+            VALUE "ProductVersion", FA_VERSION_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

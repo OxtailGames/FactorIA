@@ -68,6 +68,10 @@ struct AppDesc {
     // `factoria` executable, would show the generic one). Draw it on Apple's icon grid: the tile covers the middle ~80%
     // of the image. Empty = the bundle's icon. The other platforms ignore it.
     AppIconImage dockIcon;
+    // Linux: the window's class (WM_CLASS), the name docks and window switchers group the window under and match with
+    // a .desktop file's StartupWMClass. Empty = none set. Windows takes the program's name from the exe's version
+    // resource and macOS from the app bundle.
+    std::string appName;
     // Input is fed into this object; positions are converted with to_design_coords. Physical gamepads are polled into
     // it once per frame, before `frame` runs (fa/platform/gamepad.h; not while the window is unfocused).
     Input* input = nullptr;
