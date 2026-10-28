@@ -1712,24 +1712,33 @@ Returns {running, onDisk, restartDue, state, executable, summary, ...}: `running
 
 ## feedback
 
+### `feedback.archive` (modifies state)
+
+Not released yet (on main after 0.3.0).
+
+Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file.
+
+ENGINE_FEEDBACK.json should only hold what is still open: this moves every entry whose status is not open to ENGINE_FEEDBACK.archive.json next to it (same format). Ids stay unique across both files and keep counting up; a new report that matches an archived fixed-in-engine entry reopens it (feedback.report says reopened). The editor runs this when it opens the project. Safe to repeat: with nothing closed it changes nothing. feedback.list with includeArchive and `factoria feedback collect` still see the archived entries.
+
 ### `feedback.list`
 
 List the engine-feedback entries recorded for this project.
 
-Check this before reporting to see what is already recorded. Filters are optional. Example: {"status":"open","category":"physics"}
+Check this before reporting to see what is already recorded. Filters are optional. The file only holds what is still open (plus entries closed since the last feedback.archive): entries that are fixed, rejected or duplicates live in the archive file next to it; pass includeArchive to list them too (each marked "archived": true). Example: {"status":"open","category":"physics"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `status` | string ["open","fixed-in-engine","wont-fix","duplicate"] | no | Only entries with this status. |
 | `category` | string ["rendering-2d","rendering-3d","physics","audio","input","ui","scripting","scene","assets","animation","tooling","ai-integration","docs","platform","performance","networking","other"] | no | Only this category. |
 | `severity` | string ["blocker","major","minor","nice-to-have"] | no | Only this severity. |
+| `includeArchive` | boolean | no | Also list the archived (closed) entries, marked archived: true. |
 
 ### `feedback.report` (modifies state)
 
 Record an engine gap (missing feature, bug, confusing doc) and the workaround you used.
 
 CALL THIS WHENEVER the engine lacked a feature or had a bug/limitation and you built a workaround or gave up on something, right when it happens (not at the end). Examples: a component field you expected does not exist; an error message did not say how to fix the problem; a documented API behaves differently; you had to emulate a feature in JavaScript; a command you wanted is missing.
-The entry is appended to the project's ENGINE_FEEDBACK.json, which engine developers aggregate to decide what to build next. Reporting a gap similar to an open one merges into it (occurrences + 1), so duplicates are harmless. Write 'title' as a short noun phrase ("No one-way platforms"), 'missing' as what you needed and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the concrete engine change that would remove the workaround.
+The entry is appended to the project's ENGINE_FEEDBACK.json, which engine developers aggregate to decide what to build next. Reporting a gap similar to an open one merges into it (occurrences + 1), so duplicates are harmless. A gap the engine already fixed (archived, see feedback.archive) and that you report again reopens the archived entry as a possible regression. Write 'title' as a short noun phrase ("No one-way platforms"), 'missing' as what you needed and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the concrete engine change that would remove the workaround.
 Example: {"category":"physics","severity":"major","title":"No one-way platforms","missing":"Collider2D has no one-way option so the player cannot jump up through platforms.","workaround":"scripts/one_way.js disables the platform collider while the player moves upward.","workaroundFiles":["scripts/one_way.js"],"suggestion":"Add Collider2D.oneWay (bool)."}
 
 | Argument | Type | Required | Description |
@@ -1748,7 +1757,7 @@ Example: {"category":"physics","severity":"major","title":"No one-way platforms"
 
 Change the status of a feedback entry or link it to an engine issue.
 
-Engine developers use this when a gap is fixed (status fixed-in-engine), rejected (wont-fix) or duplicated. Example: {"id":"FB-0001","status":"fixed-in-engine","engineIssue":"#42"}
+Engine developers use this when a gap is fixed (status fixed-in-engine), rejected (wont-fix) or duplicated; the entry moves to the archive on the next feedback.archive (the editor runs it when it opens the project). An archived entry is found too, and set to open it moves back to the file. Example: {"id":"FB-0001","status":"fixed-in-engine","engineIssue":"#42"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
