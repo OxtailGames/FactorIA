@@ -125,7 +125,26 @@ voice id; the default comes from `assets.voice.voice` in `ai.json`), and records
 character can be given the same voice later. `assets.generate_model` makes an untextured mesh (Meshy takes minutes and
 `timeoutSeconds` of its provider is how long to wait); look at it in the scene before building on it.
 
+**Voice without a provider.** `assets.generate_voice` needs `ELEVENLABS_API_KEY` or `OPENAI_API_KEY` (`ai.providers` doctor
+says which is set); without one it fails and names both keys. To test code that waits for a voice line (captions, ducking,
+lip timing) pass `silent: true`: it writes a silent mono WAV with no provider, as long as the line (0.06 s per character, or
+`seconds` for a fixed length) and records it as `origin: "original"`, `ai: false`. Replace the file with the real clip later;
+the path and the length you put in your data stay valid if you give the same `seconds`.
+
 Play a sound with an `AudioSource` (`clip`) or `audio.play(path)`; use a model as the `mesh` of a `MeshRenderer`.
+
+### Loops and Ogg without a provider: assets.generate_loop, assets.convert_audio
+
+`assets.generate_loop {path, kind, seconds, seed}` writes a seamless loop offline (same seed, same bytes). `kind: "noise"`
+is an ambience bed (`color` white, pink or brown; `bass`, `gusts`, `hum`, `crackle`, `ticks` shape it: wind, a fire, a clock)
+and `kind: "drone"` is a score: `chords` (note names such as `A3`, `F#2`, `Eb4`, or Hz) played in turn, each `chordSeconds`
+long; `underNote` (for example `D1`, at `underLevel`) holds one soft note under the whole loop. The loop point is inaudible: filters run circularly and every periodic part fits a whole number of times in `seconds`.
+A `.ogg` path writes Ogg Vorbis (`quality` 0 to 1). Set `loop` on the `AudioSource`. Keep the call as JSON in the project
+(Larkspur Lodge: `assets/src/sound/*.json`) and rerun it with `factoria call assets.generate_loop @file.json`.
+
+`assets.convert_audio {path, to}` converts a WAV to `.ogg` next to it (the WAV stays, with its provenance copied). The encoder
+is the engine's own (no ffmpeg or oggenc needed): Vorbis I, long blocks only, mono or stereo, deterministic. The Ogg is much smaller than
+the 16-bit WAV; the encoder is simple and not tuned for high-quality music.
 
 ### Sound effects without a provider or a kit: assets.synth_sound
 

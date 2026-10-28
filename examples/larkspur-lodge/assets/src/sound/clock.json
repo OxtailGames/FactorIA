@@ -1,0 +1,10 @@
+{
+  "path": "assets/audio/clock.wav",
+  "kind": "noise",
+  "level": 0,
+  "tick": 1,
+  "seconds": 4,
+  "seed": 0,
+  "peak": 0.5,
+  "overwrite": true
+}
