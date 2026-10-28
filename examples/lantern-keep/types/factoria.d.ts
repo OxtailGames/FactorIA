@@ -4773,7 +4773,7 @@ declare module "factoria" {
      */
     softness: number;
     /**
-     * rectangle and circle fill only (filled = true): none (default) = flat `color`. linear = `color` blends to `color2` along the direction gradientAngle, from the box edge to the opposite edge (paper shading, a gutter, a sky). radial = `color` at the centre blends to `color2` at the edge of the shape's box (a vignette, a light pool, a glow); outside the box's inscribed ellipse it stays color2. The blend is computed per pixel (and dithered), so it is smooth with no banding, in one entity. Alpha is blended too (premultiplied, so a transparent color2 fades color out without greying it): make color2 transparent to fade out. Ignored by outlines and by the other shapes.
+     * rectangle and circle fill only (filled = true): none (default) = flat `color`. linear = `color` blends to `color2` along the direction gradientAngle, from the box edge to the opposite edge (paper shading, a gutter, a sky). radial = `color` at the centre blends to `color2` at the edge of the shape's box (a vignette, a light pool, a glow); outside the box's inscribed ellipse it stays color2. The blend is computed per pixel (and dithered), so it is smooth with no banding, in one entity. Alpha is blended too (premultiplied, so a transparent color2 fades color out without greying it): make color2 transparent to fade out. A gradient whose `color` is transparent still draws when `color2` is not (the vignette); the shape is skipped only when every colour it uses is fully transparent. Ignored by outlines and by the other shapes.
      * @since unreleased
      */
     gradient: "none" | "linear" | "radial";
@@ -6654,7 +6654,7 @@ declare module "factoria" {
      */
     autoFocus: boolean;
     /**
-     * true: the pointer entering the widget moves the focus to it (once per entry, so the arrow keys still move it away). false (default, like the built-in widgets): the focus moves on a press.
+     * true: the pointer entering the widget moves the focus to it (once per entry, so the arrow keys still move it away). A widget that appears (or turns on) under a resting pointer counts as an entry. false (default, like the built-in widgets): the focus moves on a press.
      * @since unreleased
      */
     focusOnHover: boolean;
@@ -6772,10 +6772,10 @@ declare module "factoria" {
      */
     mode: "show" | "tint";
     /**
-     * Show only. always: always active. normal: neither hovered, pressed, focused nor disabled. hover, pressed, focused: that flag is set (a hovered and focused widget shows both). disabled: enabled is false. on / off: a toggle's `on` is true / false.
+     * Show only. always: always active. normal: neither hovered, pressed, focused nor disabled. hover, pressed, focused: that flag is set (a hovered and focused widget shows both). highlighted: hovered OR focused (one look for the pointer and the keyboard / gamepad, so they never disagree). disabled: enabled is false. on / off: a toggle's `on` is true / false.
      * @since unreleased
      */
-    when: "always" | "normal" | "hover" | "pressed" | "focused" | "disabled" | "on" | "off";
+    when: "always" | "normal" | "hover" | "pressed" | "focused" | "highlighted" | "disabled" | "on" | "off";
     /**
      * Tint: colour in the normal state.
      * @since unreleased
@@ -7963,7 +7963,7 @@ declare module "factoria" {
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
     Interactable: { kind?: "button" | "toggle" | "slider"; enabled?: boolean; autoFocus?: boolean; focusOnHover?: boolean; size?: Vec2Like; offset?: Vec2Like; space?: "auto" | "world" | "screen"; on?: boolean; value?: number; min?: number; max?: number; step?: number; axis?: "x" | "y"; knob?: EntityLike; fill?: EntityLike; label?: string; key?: string; keyArgs?: any };
-    InteractableVisual: { target?: EntityLike; mode?: "show" | "tint"; when?: "always" | "normal" | "hover" | "pressed" | "focused" | "disabled" | "on" | "off"; normal?: ColorLike; hover?: ColorLike; pressed?: ColorLike; focused?: ColorLike; disabled?: ColorLike };
+    InteractableVisual: { target?: EntityLike; mode?: "show" | "tint"; when?: "always" | "normal" | "hover" | "pressed" | "focused" | "highlighted" | "disabled" | "on" | "off"; normal?: ColorLike; hover?: ColorLike; pressed?: ColorLike; focused?: ColorLike; disabled?: ColorLike };
     TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };

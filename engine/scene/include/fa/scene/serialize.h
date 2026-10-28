@@ -46,8 +46,19 @@ struct LoadMessage {
     std::string to_string() const;  // "scenes/main.scene.json#/entities/2/...: message (hint: ...)"
 };
 
+// An Entity-typed field whose target id did not exist when the entity was loaded with `deferMissingRefs` (see
+// entity_from_json): the caller can set `field` of `owner`'s `type` once an entity with `id` exists.
+struct DeferredRef {
+    Entity owner;
+    const TypeInfo* type = nullptr;
+    const FieldInfo* field = nullptr;
+    std::string id;       // the entity id the field names
+    std::string pointer;  // where the value was written, for messages
+};
+
 struct LoadReport {
     std::vector<LoadMessage> messages;
+    std::vector<DeferredRef> deferred;  // only filled by entity_from_json(..., deferMissingRefs = true)
     std::vector<Entity> created;  // all entities created, in order
     bool ok() const;              // no Error-severity messages
     std::size_t error_count() const;
@@ -102,10 +113,13 @@ struct EntityJsonOptions {
     bool includeRuntime = false;    // include runtime-only fields (velocity mirrors, animator time...)
 };
 Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts = {});
-// Creates an entity (and children) from entity JSON. Errors go to `report`.
+// Creates an entity (and children) from entity JSON. Errors go to `report`. References to entities inside the JSON (its
+// own children included) always resolve once the whole tree exists. With `deferMissingRefs`, a reference to an id that
+// still does not exist then is a warning (not an error) and is listed in `report.deferred` so the caller can resolve it
+// later, e.g. when a script spawns the knob of a slider after the slider.
 Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadReport& report,
                         std::string_view sourceName = "<memory>", std::string_view pointer = "",
-                        int index = -1);
+                        int index = -1, bool deferMissingRefs = false);
 
 // Components
 Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool includeDefaults = false,

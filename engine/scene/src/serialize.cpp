@@ -107,6 +107,7 @@ public:
     // Adds/patches a component from JSON. Returns false if nothing could be applied.
     bool apply_component(Entity e, const TypeInfo& type, const Json& fields, const std::string& ptr, bool deferEntities);
     void resolve_pending();
+    void defer_missing_refs() { deferMissing_ = true; }
     World& world() { return world_; }
 
 private:
@@ -119,6 +120,7 @@ private:
     std::string source_;
     std::string note_;  // appended to hints while inside a prefab-expanded entity
     std::vector<PendingRef> pending_;
+    bool deferMissing_ = false;  // a reference to an id that does not exist yet is a warning and goes to report_.deferred
     std::vector<std::string> prefabStack_;
 };
 
@@ -234,8 +236,15 @@ void Loader::resolve_one(const PendingRef& ref) {
     if (target.is_null()) {
         std::vector<std::string> ids;
         for (Entity x : world_.entities()) ids.push_back(world_.id_of(x));
-        error(ref.pointer, "No entity with id '" + v.get<std::string>() + "' for field '" + ref.type->name + "." + ref.field->name + "'",
-              did_you_mean(v.get<std::string>(), ids, 20));
+        const std::string where = "'" + v.get<std::string>() + "' for field '" + ref.type->name + "." + ref.field->name + "'";
+        if (deferMissing_) {
+            warn(ref.pointer, "No entity with id " + where + " yet; the field stays empty until one appears",
+                 "Spawn the entity with that id (e.g. as a child right after this one) and the field is set then; if it never "
+                 "appears the engine warns again and leaves the field empty. " + did_you_mean(v.get<std::string>(), ids, 20));
+            report_.deferred.push_back({ref.owner, ref.type, ref.field, v.get<std::string>(), ref.pointer});
+            return;
+        }
+        error(ref.pointer, "No entity with id " + where, did_you_mean(v.get<std::string>(), ids, 20));
         return;
     }
     *static_cast<Entity*>(ref.field->ptr(obj)) = target;
@@ -602,8 +611,9 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
 }
 
 Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadReport& report, std::string_view sourceName,
-                        std::string_view pointer, int index) {
+                        std::string_view pointer, int index, bool deferMissingRefs) {
     Loader loader(world, report, std::string(sourceName));
+    if (deferMissingRefs) loader.defer_missing_refs();
     Entity e = loader.load_entity(entity, parent, std::string(pointer), false);
     if (!e.is_null() && !parent.is_null() && index >= 0) world.set_parent(e, parent, false, index);
     loader.resolve_pending();

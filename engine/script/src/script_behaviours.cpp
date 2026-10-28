@@ -250,8 +250,36 @@ std::vector<std::string> Impl::check_hooks(const std::string& modulePath) {
     return out;
 }
 
+// Sets the Entity fields world.spawn left empty because their target did not exist yet, as soon as it does. A field a script
+// set meanwhile is left alone. `tick`: a frame passed; one that waits too long is reported and dropped.
+void Impl::resolve_waiting_refs(bool tick) {
+    if (waitingRefs.empty()) return;
+    constexpr int kDeferredRefTicks = 600;
+    World& W = host->world();
+    std::vector<WaitingRef> keep;
+    for (WaitingRef& w : waitingRefs) {
+        void* obj = W.alive(w.ref.owner) ? W.get(w.ref.owner, *w.ref.type) : nullptr;
+        if (!obj) continue;  // the owner or its component is gone
+        Entity* slot = static_cast<Entity*>(w.ref.field->ptr(obj));
+        if (!slot->is_null()) continue;  // set by a script in the meantime
+        if (Entity target = W.find_by_id(w.ref.id); !target.is_null()) {
+            *slot = target;
+            continue;
+        }
+        if (tick && ++w.ticks >= kDeferredRefTicks) {
+            fa::log(LogLevel::Warn, "script",
+                    "world.spawn: " + w.ref.pointer + ": no entity with id '" + w.ref.id + "' appeared for '" + w.ref.type->name + "." +
+                        w.ref.field->name + "'; the field stays empty. Spawn that entity, or set the field with entity.set(...).");
+            continue;
+        }
+        keep.push_back(std::move(w));
+    }
+    waitingRefs = std::move(keep);
+}
+
 void Impl::sync() {
     if (inSync || !ctx) return;
+    resolve_waiting_refs(true);
     inSync = true;
     World& W = host->world();
     for (size_t i = 0; i < behaviours.size(); ++i) {

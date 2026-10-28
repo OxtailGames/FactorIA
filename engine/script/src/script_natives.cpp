@@ -682,12 +682,14 @@ NATIVE(spawn) {
         index = static_cast<int>(arg_num(ctx, argc, argv, 2, -1.0));
     }
     LoadReport report;
-    Entity e = entity_from_json(W, j, parent, report, "world.spawn", "", index);
+    Entity e = entity_from_json(W, j, parent, report, "world.spawn", "", index, true);
     if (!report.ok() || e.is_null()) {
         return throw_err(ctx, "world.spawn failed:\n" + report.summary());
     }
     for (const auto& m : report.messages)
         if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
+    for (const DeferredRef& d : report.deferred) I->waitingRefs.push_back({d, 0});
+    I->resolve_waiting_refs(false);  // this spawn may be the knob an earlier slider is waiting for
     I->construct_for(report.created);  // entity.behaviour exists right away; onStart runs before the first update
     localize_created(I, report.created);
     return ent_val(ctx, e);

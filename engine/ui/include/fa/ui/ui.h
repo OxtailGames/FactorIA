@@ -265,6 +265,7 @@ private:
     std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
 
     Entity focus_, hover_, press_;
+    Entity hoverFocused_;                 // the hovered Interactable whose focusOnHover entry already moved the focus
     Entity prevHover_;                    // the Interactable the pointer was over at the last update (ui.hover is sent on a change)
     UiProjectFn project_;
     std::unordered_set<u64> warnedKnobs_;  // knobs / fills that are not children of their slider, already reported
