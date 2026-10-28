@@ -4,7 +4,7 @@
 
 ## `audio.bus` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Set a bus's volume and effects (low-pass, reverb, ducking), or read its state.
 
@@ -33,7 +33,7 @@ Every play request is logged: audio.play and audio.music from scripts, AudioSour
 
 ## `audio.snapshot` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Apply a named mixer snapshot from factoria.json, or list the snapshots.
 

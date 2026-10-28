@@ -184,7 +184,7 @@ Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, posit
 
 ## `tilemap.cell_at`
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds).
 
@@ -198,7 +198,7 @@ Returns {id, col, row, inside, tile} for the Tilemap on entity `id`: the cell th
 
 ## `tilemap.cell_to_world`
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds).
 
@@ -212,7 +212,7 @@ Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position 
 
 ## `tilemap.set_tile` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Change one tile of a Tilemap in the running scene, in place.
 

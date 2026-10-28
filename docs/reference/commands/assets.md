@@ -16,7 +16,7 @@ Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak 
 
 ## `assets.convert_audio` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Convert a WAV in the project to Ogg Vorbis (smaller, streams well) and record where it came from.
 
@@ -103,7 +103,7 @@ Calls the provider that ai.json assigns to "image" (assets.image; there is no de
 
 ## `assets.generate_loop` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Make a seamless loop offline (a wind or fire bed, a clock, a drone or chord pad) as a WAV or Ogg: no provider, no key.
 
@@ -280,7 +280,7 @@ Example: assets.list {"folder":"assets","extension":".png"}
 
 ## `assets.pack_atlas` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads.
 
@@ -359,7 +359,7 @@ background "auto" first makes a solid background transparent (the four corners m
 
 ## `assets.subset_font` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes.
 
@@ -375,7 +375,7 @@ Reads the font `source` (an absolute path on this machine, or relative to the pr
 
 ## `assets.synth_sound` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key.
 

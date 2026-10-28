@@ -38,7 +38,7 @@ Send an event to the game as the store would: a purchase, the overlay opening or
 
 ## `platform.remote_play_connect` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 A guest joins the fake platform's Remote Play Together session, as Steam would tell the game.
 
@@ -54,7 +54,7 @@ Adds a session that remotePlay.sessions() lists and sends the game {status: "con
 
 ## `platform.remote_play_disconnect` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 A guest leaves the fake platform's Remote Play Together session.
 
@@ -88,7 +88,7 @@ Script the next answer(s) the fake platform backend gives to a method: an error,
 
 ## `platform.revoke` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Take a purchase back in the fake platform backend, as a refund does, and send the game the event a real store would.
 
@@ -100,7 +100,7 @@ The product leaves purchases.restore() and its unfinished transaction is dropped
 
 ## `platform.set_ad` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Script what the fake platform backend's test ad does: watched to the end, closed early, no ad to show, or consent refused.
 

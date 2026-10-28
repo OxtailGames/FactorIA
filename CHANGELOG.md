@@ -2,7 +2,15 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.3.0
+
+FactorIA 0.3.0 is about the games themselves: four more reference games (a 3D phone game, a couch co-op game, a management
+game for the browser and a 3D story adventure) were made with the engine, and everything they asked for is in.
+Split screen and actions per player, gamepads that come and go and the Steam Deck; tile paths, flow fields and behaviour
+trees; lights with shadows from tiles; audio buses with effects, ducking and snapshots; a video player; drag and drop,
+tooltips, rich text, buttons with icons, right-to-left languages and isometric tilemaps; tests that drive the UI like a
+player; ads with consent, analytics and remote config; and players for the web, Android and iOS that are checked against
+the engine they were built with.
 
 Audio without a provider
 
