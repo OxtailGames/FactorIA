@@ -362,6 +362,12 @@ void Editor::on_init() {
         std::string root = find_project_root(dir);
         if (!root.empty()) dir = root;
     }
+    set_update_status_extra("editor", [this] {  // engine.update_status: what the editor's notice says
+        const std::string blocker = disk_restart_blocker();
+        return Json::object({{"noticeShown", disk_update_due()},
+                             {"restartAllowed", blocker.empty()},
+                             {"restartBlockedBy", blocker}});
+    });
     boot(dir);
     if (!bootError_.empty()) {
         notify(bootError_, 2);
@@ -375,6 +381,7 @@ void Editor::on_init() {
 void Editor::on_cleanup() {
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();
+    set_update_status_extra("editor", nullptr);
     ai_stop();
     queue_.close();
     if (uiUp_) {
@@ -567,6 +574,7 @@ void Editor::on_event(const sapp_event* e) {
         }
         return;
     }
+    if (e->type == SAPP_EVENTTYPE_FOCUSED) diskPollNow_ = true;  // back to the window: was the program replaced meanwhile?
     if (!uiUp_) return;
     ui::handle_event(e);
     if (!engine_) return;
@@ -741,6 +749,7 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
 void Editor::on_frame(double dt) {
     atHeartbeat_.fetch_add(1, std::memory_order_relaxed);  // the autotest's watchdog sees the editor alive
     time_ += dt;
+    poll_disk_update();
     if (dt > 0) fps_ = fps_ * 0.9 + (1.0 / dt) * 0.1;
     if (!pendingOpen_.empty()) {
         std::string dir = std::move(pendingOpen_);
@@ -1155,6 +1164,7 @@ void Editor::build_ui() {
     draw_toasts();
     draw_mark_popup();
     draw_update_popup();
+    draw_disk_update_notice();
 
     // Unsaved changes dialogs.
     if (showQuitDialog_) ImGui::OpenPopup("Unsaved changes##quit");
@@ -1177,7 +1187,7 @@ void Editor::build_ui() {
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) {
             showQuitDialog_ = false;
-            restartAfterQuit_ = false;  // the update stays installed; the next start uses it
+            restartAfterQuit_ = false;  // the update stays installed; the next start uses it (the disk notice offers Restart again)
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();

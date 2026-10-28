@@ -229,7 +229,58 @@ Json McpServer::tools_json() const {
     return tools;
 }
 
+Json McpServer::session_state() const {
+    return Json::object({{"protocolVersion", protocol_},
+                         {"clientInfo", clientInfo_},
+                         {"clientCapabilities", clientCapabilities_},
+                         {"logLevel", logLevel_}});
+}
+
+bool McpServer::restore_session(const Json& state) {
+    if (!state.is_object() || !state.contains("protocolVersion") || !state["protocolVersion"].is_string()) return false;
+    protocol_ = state["protocolVersion"].get<std::string>();
+    clientInfo_ = state.contains("clientInfo") && state["clientInfo"].is_object() ? state["clientInfo"] : Json::object();
+    clientName_ = clientInfo_.value("name", std::string());
+    clientCapabilities_ =
+        state.contains("clientCapabilities") && state["clientCapabilities"].is_object() ? state["clientCapabilities"] : Json::object();
+    if (state.contains("logLevel") && state["logLevel"].is_string() && level_rank(state["logLevel"].get<std::string>()) >= 0)
+        logLevel_ = state["logLevel"].get<std::string>();
+    initialized_ = true;
+    return true;
+}
+
+void McpServer::add_tool_notice(const std::string& key, const std::string& text) {
+    std::lock_guard<std::mutex> lock(noticeMutex_);
+    for (auto& n : notices_)
+        if (n.first == key) {
+            n.second = text;
+            return;
+        }
+    notices_.emplace_back(key, text);
+}
+
+std::vector<std::string> McpServer::pending_tool_notices() const {
+    std::lock_guard<std::mutex> lock(noticeMutex_);
+    std::vector<std::string> out;
+    for (const auto& n : notices_) out.push_back(n.second);
+    return out;
+}
+
+// The result of a tools/call, with the notices that wait for one added as a last text block.
 Json McpServer::call_tool(const Json& params) {
+    Json out = run_tool(params);
+    std::string text;
+    {
+        std::lock_guard<std::mutex> lock(noticeMutex_);
+        for (const auto& n : notices_) text += (text.empty() ? "" : "\n\n") + n.second;
+        notices_.clear();
+    }
+    if (!text.empty() && out.contains("content") && out["content"].is_array())
+        out["content"].push_back(Json::object({{"type", "text"}, {"text", "[FactorIA notice] " + text}}));
+    return out;
+}
+
+Json McpServer::run_tool(const Json& params) {
     if (!params.is_object() || !params.contains("name") || !params["name"].is_string())
         throw CommandError("invalid_params", "tools/call needs params.name (string).");
     const std::string toolName = params["name"].get<std::string>();
@@ -316,8 +367,12 @@ Json McpServer::handle_request(const std::string& method, const Json& params, co
         std::string requested = params.is_object() ? params.value("protocolVersion", std::string()) : std::string();
         const auto& sup = mcp_supported_protocols();
         protocol_ = std::find(sup.begin(), sup.end(), requested) != sup.end() ? requested : std::string(kMcpLatestProtocol);
-        if (params.is_object() && params.contains("clientInfo") && params["clientInfo"].is_object())
-            clientName_ = params["clientInfo"].value("name", std::string());
+        if (params.is_object() && params.contains("clientInfo") && params["clientInfo"].is_object()) {
+            clientInfo_ = params["clientInfo"];
+            clientName_ = clientInfo_.value("name", std::string());
+        }
+        clientCapabilities_ =
+            params.is_object() && params.contains("capabilities") && params["capabilities"].is_object() ? params["capabilities"] : Json::object();
         initialized_ = true;
         Json caps = Json::object({{"tools", Json::object({{"listChanged", true}})},
                                   {"resources", Json::object({{"listChanged", true}})},

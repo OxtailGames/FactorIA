@@ -10,6 +10,9 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/mcp/server.h"
+#include "fa/mcp/stdio.h"
+#include "fa/mcp/update_monitor.h"
+#include "fa/tooling/self_update.h"
 #include "fa/tooling/validate.h"
 
 namespace fa::cli {
@@ -105,6 +108,26 @@ private:
     bool toolsDirty_ = false;
 };
 
+// The command line the restarted process runs: `factoria mcp` with the flags this one was given (as parsed, so the same
+// meaning whatever the order) plus the hand-over.
+std::vector<std::string> restart_argv(const Context& ctx, const std::string& exe, const McpResume& resume) {
+    std::vector<std::string> argv = {exe, "mcp"};
+    for (const auto& [name, values] : ctx.args.flags_) {
+        if (name == "resume-session") continue;
+        bool boolean = false;
+        if (ctx.cmd)
+            for (const FlagSpec& spec : ctx.cmd->flags)
+                if (spec.name == name) boolean = spec.value.empty();
+        for (const std::string& v : values) {
+            argv.push_back("--" + name);
+            if (!boolean) argv.push_back(v);
+        }
+    }
+    argv.push_back("--resume-session");
+    argv.push_back(resume.to_string());
+    return argv;
+}
+
 }  // namespace
 
 Command make_mcp_command() {
@@ -116,7 +139,9 @@ Command make_mcp_command() {
         "stdout carries only protocol messages (newline-delimited JSON-RPC); logs go to stderr. Every engine\n"
         "command becomes a tool (scene.spawn -> scene_spawn); docs and project files are resources. Scripts and\n"
         "project tools hot-reload and clients are notified. Without a project (none in the current directory)\n"
-        "the server starts with documentation and project-creation tools only, so an AI can bootstrap a game.";
+        "the server starts with documentation and project-creation tools only, so an AI can bootstrap a game.\n"
+        "When the factoria file is replaced by a newer one while the server runs, it restarts itself in place between two\n"
+        "messages (Linux, macOS; on Windows it tells the AI to reconnect) and the first tool result says so (docs/MCP.md).";
     c.maxPositional = 0;
     c.flags = {{"project", "DIR", "Project folder (default: the project containing the current directory)."},
                {"scene", "PATH", "Start scene override."},
@@ -125,7 +150,8 @@ Command make_mcp_command() {
                {"render-all", "", "Draw every frame (default: only when game_screenshot asks)."},
                {"persist-storage", "", "Let scripts' storage.* use the real save file (default: in memory)."},
                {"seed", "N", "World RNG seed (default 1)."},
-               kDateFlag};
+               kDateFlag,
+               {"resume-session", "JSON", "Internal: the hand-over from the server that restarted itself after an update.", false, true}};
     c.examples = {"factoria mcp --project games/my-game",
                   "claude mcp add factoria -- factoria mcp --project .",
                   "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}' | factoria mcp --project ."};
@@ -155,27 +181,58 @@ Command make_mcp_command() {
             FA_INFO("mcp", "no project found: serving documentation and project-creation tools only");
         }
 
+        McpResume resume;
+        const bool resumed = ctx.args.has("resume-session");
+        if (resumed) {
+            auto parsed = McpResume::parse(ctx.args.str("resume-session"));
+            if (!parsed) throw UsageError(parsed.error().message, parsed.error().hint);
+            resume = *parsed;
+        }
+
         std::error_code ec;
         SimpleMcpHost host(*registry, dir.empty() ? fsys::current_path(ec).string() : dir);
         McpServer server(host);
-        std::mutex writeMutex;
-        auto write = [&](const std::string& line) {
-            std::lock_guard<std::mutex> lock(writeMutex);
-            ctx.out << line << '\n';
-            ctx.out.flush();
-        };
-        server.set_notification_sink(write);
         HotReloadPoller poller(session.get(), *registry, server);
 
-        std::string line;
-        while (std::getline(ctx.in, line)) {
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (line.find_first_not_of(" \t") == std::string::npos) continue;
+        // Out of date? The executable replaced on disk, or an older .mcp.json than the client started with (docs/MCP.md).
+        McpUpdateOptions uo;
+        uo.projectDir = dir;
+        Engine* engine = session ? &session->engine() : nullptr;
+        uo.lost_on_restart = [engine]() -> std::string {
+            if (!engine || engine->frame_index() == 0) return {};
+            return "the game session (it had run " + std::to_string(engine->frame_index()) +
+                   " frames) starts again from the project's start scene, so any scene edit that was not saved to disk "
+                   "(scene_save) and the frames stepped are gone";
+        };
+        McpUpdateMonitor monitor(server, process_update_watch(), uo, resumed ? &resume : nullptr);
+        set_update_status_extra("mcp", [&monitor] { return monitor.status(); });
+        monitor.announce_resume();
+
+        // POSIX reads fd 0 itself (exact: no message is read ahead of the one handled, which a restart in place needs);
+        // the tests give the command their own streams.
+        std::unique_ptr<LineReader> reader =
+            &ctx.in == &std::cin ? make_stdin_reader() : make_stream_reader(ctx.in);
+        StdioLoopOptions lo;
+        lo.poll = [&] {
             poller.poll();
-            if (auto response = server.handle_message(line)) write(*response);
-            poller.poll();
+            monitor.poll();
+        };
+        lo.restart_due = [&] { return monitor.restart_due(); };
+        for (;;) {
+            if (run_stdio_loop(server, *reader, ctx.out, lo) == StdioExit::Eof) break;
+            // The executable on disk is another build and the server is idle: become it. stdin and stdout are the client's
+            // and stay open; what is still unread in the pipe is read by the new process. No tidying up first: if the new
+            // file cannot be started this process must still be able to serve, and the operating system frees the rest.
+            const McpResume next = monitor.resume_state();
+            const std::string exe = next.executable.empty() ? process_update_watch().executable().string() : next.executable;
+            FA_INFO("mcp", "restarting in place: {} -> {}", process_update_watch().running().label(),
+                    process_update_watch().on_disk().label());
+            ctx.out.flush();
+            auto r = restart_process(exe, restart_argv(ctx, exe, next));
+            FA_WARN("mcp", "{}", r.error().to_string());  // only here when exec failed
+            monitor.restart_failed(r.error().message);
         }
-        server.set_notification_sink(nullptr);
+        set_update_status_extra("mcp", nullptr);
         if (session) session->engine().scripts().set_tools_changed_callback(nullptr);
         return 0;
     };
