@@ -279,7 +279,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-27 triage: work package M33.11 in feedback/ROADMAP.md.",
-        "Fixed in M33.11: the menu kit part textSpeed adds the Text speed row (settings.TEXT_SPEEDS, settings.revealedCharacters), and addOptionsRow() of scripts/ui/options.js adds a row of the game to any section; docs/MENUS.md, Text speed. Larkspur still carries its own copy of the row (not migrated)."
+        "Fixed in M33.11: the menu kit part textSpeed adds the Text speed row (settings.TEXT_SPEEDS, settings.revealedCharacters), and addOptionsRow() of scripts/ui/options.js adds a row of the game to any section; docs/MENUS.md, Text speed. Larkspur keeps its own, older Text speed row in its options.js (it predates the part)."
       ]
     },
     {
@@ -305,7 +305,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-27 triage: work package M33.11 in feedback/ROADMAP.md.",
-        "Fixed in M33.11: the menu kit part slots (scripts/slots.js: record, counter, cloud merge by counter, damaged slots; scripts/ui/slot_screen.js with its prefabs and the on-screen keyboard dialog; tests/slots.test.js); docs/MENUS.md, Save slots. Larkspur has not moved to it yet: its saves.js and slot_screen.js are still its own."
+        "Fixed in M33.11: the menu kit part slots (scripts/slots.js: record, counter, cloud merge by counter, damaged slots; scripts/ui/slot_screen.js with its prefabs and the on-screen keyboard dialog; tests/slots.test.js); docs/MENUS.md, Save slots. Larkspur moved to it: scripts/slots.js, scripts/ui/slot_screen.js and the slots and slot_dialog prefabs are the kit's copies, and scripts/saves.js keeps only the lodge's side (save layout, cannotSave, chapter autosave, launch)."
       ]
     },
     {

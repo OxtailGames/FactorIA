@@ -3,25 +3,47 @@
 // (prefabs/ui/slot_dialog.prefab.json). Not a behaviour: the pause menu (save and load) and the title screen (load) each build one
 // with their MenuStack and call tick() every frame.
 //
-//   const slots = new SlotScreen(menus, { getPic: () => this.pic });   // getPic: the picture to keep with a save (base64 PNG) or null
-//   slots.open("save");  // or "load"
+//   const slots = new Slots();                                 // scripts/slots.js: the records
+//   const screen = new SlotScreen(menus, {
+//     slots,
+//     launch: (data) => startGameFrom(data),                    // load: put the game back from a slot's data -> { ok, message?, hint? }
+//     snapshot: () => ({ data: mySave(), chapter: 3, playTime: 3725.5 }),   // save: what goes into the slot
+//     cannotSave: () => (cutscene ? "slots.busy" : ""),         // a string-table key saying why saving is not possible now, or ""
+//     defaultName: () => i18n.t("level.title"),                 // the name of a save the player left unnamed
+//     getPic: () => this.pic,                                   // the picture to keep with a save (capturePic() taken before the menu opened) or null
+//   });
+//   screen.open("save");  // or "load"
 //
 // Six rows: the autosave (never a save target) and the five slots, each with its picture, name, chapter and play time. Mouse, touch and
 // gamepad all use the same Buttons. Saving a slot opens the dialog with a TextField for the name (the on-screen keyboard of
-// scripts/ui/keyboard.js opens by itself for a gamepad player); Enter or Done saves, Cancel / Escape / B goes back.
-// The cloud copies are compared when the screen opens (saves.syncCloud) and the rows are drawn again if one replaced a slot.
+// scripts/ui/keyboard.js opens by itself for a gamepad player, and its entity is spawned here); Enter or Done saves, Cancel / Escape / B
+// goes back. The host's ui.on("cancel") handler returns screen.cancel() first, which closes the dialog and consumes the press (ui_cancel).
+// The cloud copies are compared when the screen opens (slots.syncCloud) and the rows are drawn again if one replaced a slot.
 import { ui, i18n, world, scene, render } from "factoria";
-import * as saves from "../saves.js";
 import { MenuStack } from "./menu_stack.js";
 import OnScreenKeyboard from "./keyboard.js";
+import { formatTime } from "../slots.js";
 
 export class SlotScreen {
   /**
    * @param {MenuStack} menus the host's panel stack
-   * @param {{ getPic?: () => (string | null) }} [opts]
+   * @param {object} opts
+   * @param {import("../slots.js").Slots} opts.slots the records
+   * @param {(data: any) => { ok: boolean, message?: string, hint?: string }} [opts.launch] load mode: starts playing from a slot's data; not ok = it shows `message` and `hint` on the screen. Without it the screen only saves.
+   * @param {() => { data: any, chapter?: number, playTime?: number }} [opts.snapshot] save mode: what goes into the slot (the screen adds the name and the picture). Without it (and without `save`) the screen only loads.
+   * @param {(id: number | string, save: { name: string, pic: string | null }) => (import("../slots.js").SlotRecord | null)} [opts.save] save mode, instead of `snapshot`: writes the slot yourself (slots.write) and returns the record, or null when the game cannot be saved now
+   * @param {() => string} [opts.cannotSave] a string-table key that says why saving is not possible now ("" = it is); the save rows are greyed out and the key is the note under the title
+   * @param {() => string} [opts.defaultName] the name offered for a new save (and used when the player clears the field)
+   * @param {() => (string | null)} [opts.getPic] the picture to keep with a save (base64 PNG) or null
    */
-  constructor(menus, opts = {}) {
+  constructor(menus, opts) {
     this.menus = menus;
+    this.slots = opts.slots;
+    this.launch = opts.launch ?? null;
+    this.snapshot = opts.snapshot ?? null;
+    this.saveSlot = opts.save ?? null;
+    this.cannotSave = opts.cannotSave ?? (() => (this.saveSlot || this.snapshot ? "" : "slots.noSave"));
+    this.defaultName = opts.defaultName ?? (() => "");
     this.getPic = opts.getPic ?? (() => null);
     /** "save" | "load" */
     this.mode = "load";
@@ -32,12 +54,14 @@ export class SlotScreen {
     /** Runtime textures of the pictures shown, freed before they are drawn again. */
     this.pics = [];
     this.kbWasOpen = false;
-    for (const [id, prefab] of [["slots", "slots"], ["slot_dialog", "slot_dialog"], ["keyboard_host", "keyboard_host"]]) {
-      const panel = world.spawnPrefab(`prefabs/ui/${prefab}.prefab.json`);
+    for (const id of ["slots", "slot_dialog"]) {
+      const panel = world.spawnPrefab(`prefabs/ui/${id}.prefab.json`);
       panel.id = id; // MenuStack shows panels by id
-      panel.active = prefab === "keyboard_host";
+      panel.active = false;
     }
-    for (const id of saves.ALL) {
+    // The on-screen keyboard for a gamepad player who names a save (it opens by itself on a TextField).
+    world.spawn({ id: "keyboard_host", components: { Script: { path: "scripts/ui/keyboard.js" } } });
+    for (const id of this.slots.ALL) {
       ui.on("click", `slot_${id}`, () => this.pick(id));
       ui.on("click", `delete_${id}`, () => this.openDialog("delete", id));
     }
@@ -74,11 +98,11 @@ export class SlotScreen {
     this.menus.show("slots");
     this.refresh();
     this.focusFirst();
-    const path = scene.current;
-    saves
+    const generation = scene.generation; // a reload of the same scene counts too
+    this.slots
       .syncCloud()
       .then((changed) => {
-        if (changed && scene.current === path && this.menus.top === "slots") this.refresh(); // the scene may be gone by now
+        if (changed && scene.generation === generation && this.menus.top === "slots") this.refresh(); // the scene may be gone by now
       })
       .catch(() => {});
   }
@@ -86,9 +110,9 @@ export class SlotScreen {
   focusFirst() {
     let first = "slots_back";
     if (this.mode === "save") {
-      if (!saves.cannotSave()) first = "slot_1";
+      if (!this.cannotSave()) first = "slot_1";
     } else {
-      const id = saves.ALL.find((i) => saves.peek(i).status === "used");
+      const id = this.slots.ALL.find((i) => this.slots.peek(i).status === "used");
       if (id !== undefined) first = `slot_${id}`;
     }
     ui.focus(world.find(first));
@@ -96,7 +120,7 @@ export class SlotScreen {
 
   /** Frees the runtime textures (the host calls it when the scene goes). */
   dispose() {
-    for (const id of saves.ALL) {
+    for (const id of this.slots.ALL) {
       const row = world.find(`pic_${id}`);
       if (row) row.get("Panel").texture = "";
     }
@@ -107,11 +131,11 @@ export class SlotScreen {
   /** Writes the rows from the slots. */
   refresh() {
     this.dispose();
-    const reason = this.mode === "save" ? saves.cannotSave() : "";
+    const reason = this.mode === "save" ? this.cannotSave() : "";
     let damaged = false;
-    for (const id of saves.ALL) {
-      const p = saves.peek(id);
-      const auto = id === saves.AUTO;
+    for (const id of this.slots.ALL) {
+      const p = this.slots.peek(id);
+      const auto = id === this.slots.AUTO;
       const button = world.find(`slot_${id}`).get("Button");
       if (p.status === "used") {
         const r = p.record;
@@ -119,7 +143,7 @@ export class SlotScreen {
           n: id,
           name: r.name || i18n.t("slots.unnamed"),
           chapter: r.chapter,
-          time: saves.formatTime(r.playTime),
+          time: formatTime(r.playTime),
         });
       } else if (p.status === "damaged") {
         button.text = i18n.t(auto ? "slots.damagedAuto" : "slots.damaged", { n: id });
@@ -148,19 +172,29 @@ export class SlotScreen {
   }
 
   pick(id) {
-    const p = saves.peek(id);
+    const p = this.slots.peek(id);
     if (this.mode === "load") {
       if (p.status !== "used") return;
       this.dispose();
-      const r = saves.load(id);
+      const r = this.launch ? this.launch(p.record.data) : { ok: false, message: "this screen has no launch()", hint: "pass launch to the SlotScreen" };
       if (!r.ok) {
-        this.message = `${r.message}. ${r.hint}`;
+        this.message = `${r.message}. ${r.hint ?? ""}`;
         this.refresh();
       }
       return;
     }
-    if (id === saves.AUTO || saves.cannotSave()) return;
+    if (id === this.slots.AUTO || this.cannotSave()) return;
     this.openDialog("name", id);
+  }
+
+  /** Writes slot `id`; null when the game cannot be saved now. */
+  write(id, typed) {
+    if (this.cannotSave()) return null;
+    const name = typed.trim() || this.defaultName();
+    const pic = this.getPic();
+    if (this.saveSlot) return this.saveSlot(id, { name, pic });
+    if (!this.snapshot) return null;
+    return this.slots.write(id, { ...this.snapshot(), name, pic });
   }
 
   openDialog(kind, id) {
@@ -168,12 +202,12 @@ export class SlotScreen {
     const name = world.find("save_name");
     const field = name.get("TextField");
     if (kind === "name") {
-      const p = saves.peek(id);
-      field.text = p.status === "used" ? p.record.name : saves.defaultName();
+      const p = this.slots.peek(id);
+      field.text = p.status === "used" ? p.record.name : this.defaultName();
       world.find("dialog_title").get("Text").text = i18n.t("slots.nameTitle", { n: id });
       world.find("dialog_confirm").get("Button").text = i18n.t("slots.confirmSave");
     } else {
-      world.find("dialog_title").get("Text").text = i18n.t("slots.deleteTitle", { n: id === saves.AUTO ? i18n.t("slots.autoName") : id });
+      world.find("dialog_title").get("Text").text = i18n.t("slots.deleteTitle", { n: id === this.slots.AUTO ? i18n.t("slots.autoName") : id });
       world.find("dialog_confirm").get("Button").text = i18n.t("slots.confirmDelete");
     }
     this.menus.show("slot_dialog");
@@ -191,10 +225,10 @@ export class SlotScreen {
     const d = this.dialog;
     if (!d || this.menus.top !== "slot_dialog") return;
     if (d.kind === "name") {
-      const record = saves.write(d.id, { name: world.find("save_name").get("TextField").text, pic: this.getPic() });
-      this.message = record ? i18n.t("slots.saved", { n: d.id }) : i18n.t(saves.cannotSave() || "slots.busy");
+      const record = this.write(d.id, world.find("save_name").get("TextField").text);
+      this.message = record ? i18n.t("slots.saved", { n: d.id }) : i18n.t(this.cannotSave() || "slots.busy");
     } else {
-      saves.remove(d.id);
+      this.slots.remove(d.id);
       this.message = "";
     }
     this.closeDialog();
