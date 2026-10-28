@@ -1,6 +1,7 @@
 // Configuration snippets that connect external AI clients to `factoria mcp`.
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -35,5 +36,23 @@ std::string codex_mcp_toml(const McpClientOptions& opts = {});
 Result<void> write_claude_code_mcp_config(const std::string& path, const McpClientOptions& opts = {});
 // Writes (or replaces the [mcp_servers.<name>] table in) a Codex config.toml; other content is kept.
 Result<void> write_codex_mcp_config(const std::string& path, const McpClientOptions& opts = {});
+
+// What a project's `.mcp.json` says about the factoria server, read to tell an AI client that started with an older file
+// (docs/MCP.md, "A client with an older .mcp.json").
+struct ClaudeCodeMcpState {
+    std::string path;                // <project>/.mcp.json
+    bool exists = false;
+    bool hasServer = false;          // an entry that runs `factoria mcp` (named `serverName`, or any other that runs it)
+    std::string serverName;          // the key of that entry
+    bool hasTimeout = false;         // the entry has a `timeout`
+    long long timeoutMs = 0;         // its value (0 = none)
+    std::int64_t modifiedMs = 0;     // modification time of the file, ms since 1970 UTC (0 = no file)
+    Json to_json() const;
+};
+ClaudeCodeMcpState read_claude_code_mcp_state(const std::string& projectDir, const std::string& serverName = "factoria");
+// Adds the missing `timeout` (kClaudeCodeMcpToolTimeoutMs) to the factoria entry of <project>/.mcp.json and keeps everything
+// else in the file (command, args, other servers, key order). Returns true when it wrote the file, false when there was
+// nothing to do (no file, no factoria entry, or it already has a timeout).
+Result<bool> ensure_claude_code_mcp_timeout(const std::string& projectDir, const std::string& serverName = "factoria");
 
 }  // namespace fa

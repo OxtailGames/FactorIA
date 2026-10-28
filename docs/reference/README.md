@@ -133,6 +133,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [engine](commands/engine.md)
 
 - [`engine.info`](commands/engine.md#engineinfo): Show engine version, platform, graphics backend and loop state.
+- [`engine.update_status`](commands/engine.md#engineupdate_status): Tell whether FactorIA was updated on disk while this process runs, and so whether a restart is due. _Not released yet._
 
 ### [feedback](commands/feedback.md)
 

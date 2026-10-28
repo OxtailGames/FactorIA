@@ -348,4 +348,87 @@ void Editor::draw_toasts() {
     if (fired) fired();  // after the loop: the action may notify(), which grows toasts_
 }
 
+// ------------------------------------------------------------------------------------------------ updated on disk
+void Editor::poll_disk_update() {
+    // The in-app updater is replacing the files itself (and quits and reopens when it is done): no second notice.
+    if (updateStage_ != UpdateStage::Idle || restartAfterQuit_) return;
+    UpdateWatch& watch = disk_watch();
+    const double every = diskSettling_ ? 1.0 : 5.0;
+    if (!diskPollNow_ && time_ - diskPolled_ < every) return;
+    diskPollNow_ = false;
+    diskPolled_ = time_;
+    diskSettling_ = watch.check() == UpdateCheck::Settling;  // a copy that is still going on is looked at again soon
+}
+
+bool Editor::disk_update_due() {
+    UpdateWatch& watch = disk_watch();
+    if (!watch.updated() || updateStage_ != UpdateStage::Idle || restartAfterQuit_) return false;
+    return !diskDismissedSet_ || watch.examined_stamp() != diskDismissed_;
+}
+
+std::string Editor::disk_restart_blocker() {
+    // Nothing is stopped silently: what cannot be picked up again on the other side keeps the button off, with the reason.
+    if (ai_busy() || ai_running())
+        return "An AI run is in progress. Restarting would stop it: wait for it to finish, or stop it from the AI Assistant.";
+    if (play_ != PlayState::Edit) return "A play session is running. Stop it first.";
+    if (exportJob_.running()) return "An export is running. Wait for it to finish or cancel it from the Export window.";
+    if (setupJob_.running()) return "An installation of Set Up This Computer is running. Wait for it to finish.";
+    if (keystoreJob_.running()) return "A keystore is being created. Wait for it to finish.";
+    return {};
+}
+
+void Editor::request_disk_restart() {
+    if (autotest_) {  // the autotest must not quit and reopen itself
+        diskRestartRequested_ = true;
+        return;
+    }
+    restartAfterQuit_ = true;  // on_cleanup reopens the editor on this project (open chats are saved by ai_stop)
+    sapp_request_quit();
+}
+
+void Editor::draw_disk_update_notice() {
+    if (!disk_update_due()) return;
+    UpdateWatch& watch = disk_watch();
+    const std::string blocker = disk_restart_blocker();
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 34), ImGuiCond_Always,
+                            ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.96f);
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.3f, 0.55f, 0.95f, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 8));
+    ImGui::Begin("##diskupdate", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDocking);
+    ImGui::PushTextWrapPos(560);
+    ImGui::Text("FactorIA was updated on disk (%s -> %s). Restart the editor to use it.", watch.running().label().c_str(),
+                watch.on_disk().label().c_str());
+    ImGui::PopTextWrapPos();
+    at_track("update:disk");
+    ImGui::BeginDisabled(!blocker.empty());
+    if (ImGui::Button("Restart", ImVec2(110, 0))) request_disk_restart();
+    ImGui::EndDisabled();
+    at_track("update:restart", blocker.empty());
+    if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(420);
+        ImGui::TextUnformatted(blocker.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Not now", ImVec2(110, 0))) {  // quiet until the file changes again
+        diskDismissed_ = watch.examined_stamp();
+        diskDismissedSet_ = true;
+    }
+    at_track("update:disknotnow");
+    if (!blocker.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(Restart is off: hover it)");
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+}
+
 }  // namespace fa::editor

@@ -2665,6 +2665,86 @@ void Editor::at_build_tools_script() {
         focus_window("###Viewport");
     });
 
+    // ------------------------------------------------------------------------------------ R. Updated on disk
+    section("R");
+    // The program is replaced on disk without the updater: a non-blocking notice offers Restart / Not now. The watch looks at a
+    // fake program (two fingerprints written into files), so nothing real is replaced and Restart only records the click.
+    {
+        auto fake_program = [](const std::string& path, const std::string& version, const std::string& fingerprint, std::size_t pad) {
+            std::string bytes = "MZ fake program " + std::string(pad, '.');
+            bytes += std::string("FA-BUILD-") + "FINGERPRINT:" + fingerprint + ";";
+            bytes += std::string("FA-ENGINE-") + "VERSION:" + version + ";";
+            write_file(path, bytes);
+        };
+        step(2, [this, fake_program] {
+            const std::string fake = atOutDir_ + "/fake_factoria";
+            fake_program(fake, "0.1.0", "aaaaaaaaaaaa", 100);
+            diskWatchOwn_ = std::make_unique<UpdateWatch>(fake, BuildId{"0.1.0", "aaaaaaaaaaaa"});
+            diskDismissedSet_ = false;
+            diskRestartRequested_ = false;
+            diskSettling_ = false;
+            diskPolled_ = -100;
+        });
+        step(3, [this] {
+            at_check(!at_visible("update:disk"), "no notice while the program on disk is the one that runs");
+            Json status = update_status_json(disk_watch());
+            at_check(status.value("state", "") == "current" && status.value("restartDue", true) == false,
+                     "engine.update_status says current: " + status.dump());
+        });
+        step(2, [this, fake_program] {  // the new files arrive (a different size, so a different stamp even within one second)
+            fake_program(atOutDir_ + "/fake_factoria", "0.2.0", "bbbbbbbbbbbb", 400);
+            diskPollNow_ = true;
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("update:disk"); };  // seen twice alike (a second), then identified
+        });
+        step(3, [this] {
+            at_check(at_visible("update:disk"), "the notice appears when the program changed on disk");
+            at_check(at_enabled("update:restart") && at_visible("update:disknotnow"), "...with Restart and Not now");
+            Json status = update_status_json(disk_watch());
+            at_check(status.value("state", "") == "updated_on_disk" && status.value("restartDue", false) &&
+                         status["onDisk"].value("version", "") == "0.2.0" && status["editor"].value("noticeShown", false),
+                     "engine.update_status says an update is on disk and the notice is showing: " + status.dump());
+            // A play session is not stopped silently: Restart is off, with the reason.
+            play();
+        });
+        step(3, [this] {
+            at_check(play_state() != PlayState::Edit, "a play session runs");
+            at_check(!at_enabled("update:restart") && !disk_restart_blocker().empty(), "Restart is off while a play session runs (" + disk_restart_blocker() + ")");
+        });
+        snap("editor_update_disk.png");
+        step(2, [this] {
+            stop();
+            at_check(disk_restart_blocker().empty(), "...and back on when it stops");
+        });
+        click("update:disknotnow");
+        step(3, [this] {
+            at_check(!at_visible("update:disk"), "Not now hides the notice");
+            diskPollNow_ = true;
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !diskPollNow_; };
+        });
+        step(3, [this, fake_program] {
+            at_check(!at_visible("update:disk"), "...and it stays quiet while the file does not change");
+            fake_program(atOutDir_ + "/fake_factoria", "0.3.0", "cccccccccccc", 900);  // another build lands
+            diskPollNow_ = true;
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("update:disk"); };
+        });
+        step(3, [this] {
+            at_check(at_visible("update:disk") && disk_watch().on_disk().version == "0.3.0", "...and comes back when the file changes again");
+        });
+        click("update:restart");
+        step(3, [this] {
+            at_check(diskRestartRequested_, "Restart asks to quit and reopen the editor");
+            diskWatchOwn_.reset();
+            diskRestartRequested_ = false;
+            diskDismissedSet_ = false;
+            diskSettling_ = false;
+            std::error_code ec;
+            stdfs::remove(atOutDir_ + "/fake_factoria", ec);
+        });
+    }
+
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;
     step(2, [this] {

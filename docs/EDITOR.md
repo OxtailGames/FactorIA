@@ -28,6 +28,21 @@ version until the next start. Builds from source never check (they have no `FA_U
 Linux AppImage (a read-only mount: download the newer one). Details:
 [GETTING_STARTED.md, Updates](GETTING_STARTED.md#updates).
 
+**Updated on disk.** Files copied over the installation without the updater leave the running editor on the old code. The
+editor looks at its own `factoria` file (size and modification time) every 5 seconds and when its window gets focus, and
+once the file has changed it reads the build identity (version and commit fingerprint) written in it. If that is another
+build than the one running, a notice appears at the bottom of the window, and the editor stays usable:
+
+> FactorIA was updated on disk (0.3.0 build f530fda3e543 -> 0.4.0 build 1a2b3c4d5e6f). Restart the editor to use it.
+
+**Restart** quits (the unsaved-changes dialog still asks) and reopens the editor on the same project, the way the updater
+does; the chats of the AI Assistant (`.factoria/ai/chats/`) come back with their tabs. **Not now** hides the notice until the
+file changes again. Restart is off, with the reason in its tooltip, while an AI run is in progress (or a worker still runs),
+a play session runs, an export or a Set Up This Computer install runs, or a keystore is being created: nothing is stopped
+silently. A rebuild of the same commit, a file with no identity (a build outside git) or an unreadable file never shows the
+notice. The AI can ask with the read-only command `engine.update_status` (`running`, `onDisk`, `restartDue`, and under `editor`
+whether the notice shows and what blocks Restart). While the updater above installs a release, this notice stays quiet.
+
 ## Layout
 
 The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Hierarchy** over **Inspector** on the left,
@@ -432,8 +447,9 @@ play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Sho
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
-agent through the MCP endpoint) and Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
-the stuck warning, Check activity, the detached worker and its single continuation). While you work on one part of the editor, run only the sections that cover it:
+agent through the MCP endpoint), P (revert an AI run) and Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
+the stuck warning, Check activity, the detached worker and its single continuation) and R (a program updated on disk: the Restart notice,
+its button state and Not now). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest
