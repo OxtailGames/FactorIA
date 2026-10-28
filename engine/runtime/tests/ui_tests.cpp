@@ -450,6 +450,149 @@ TEST_CASE("ui: a menu is driven by gamepad taps from a JavaScript test") {
     e.shutdown();
 }
 
+// A menu made of plain entities in the world (no Button anywhere), played like a person: the pointer, the keyboard and game.click by id.
+static const char* const kWorldMenu = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "board", "components": { "Transform": { "position": [20, 0], "scale": [1, 1, 1] } },
+      "children": [
+        { "id": "start", "components": { "Transform": { "position": [-60, 40] }, "Shape2D": { "size": [60, 20] },
+                                         "Interactable": { "autoFocus": true } },
+          "children": [ { "id": "start_glow", "components": { "Transform": { "position": [0, 0] }, "Shape2D": { "size": [64, 24], "color": [1, 1, 0, 1] },
+                                                              "InteractableVisual": { "mode": "show", "when": "hover" } } } ] },
+        { "id": "music", "components": { "Transform": { "position": [-60, 10] }, "Shape2D": { "size": [60, 20] },
+                                         "Interactable": { "kind": "toggle" } },
+          "children": [ { "id": "music_tick", "components": { "Transform": { "position": [0, 0] }, "Shape2D": { "size": [10, 10] },
+                                                              "InteractableVisual": { "mode": "show", "when": "on" } } } ] },
+        { "id": "volume", "components": { "Transform": { "position": [-60, -20] }, "Shape2D": { "size": [100, 10] },
+                                          "Interactable": { "kind": "slider", "step": 0.1, "knob": "volume_knob" } },
+          "children": [ { "id": "volume_knob", "components": { "Transform": { "position": [-50, 0] }, "Shape2D": { "size": [6, 14] } } } ] },
+        { "id": "locked", "components": { "Transform": { "position": [-60, -50] }, "Shape2D": { "size": [60, 20] },
+                                          "Interactable": { "enabled": false } } }
+      ] },
+    { "id": "back", "components": { "Button": { "text": "Back", "size": [50, 20], "anchor": [1, 1], "pivot": [1, 1] } } }
+  ]
+})";
+
+static const char* const kWorldMenuTest = R"JS(
+import { test, expect, game } from "factoria:test";
+import { ui } from "factoria";
+import menu from "../scenes/main.scene.json";
+
+function record() {
+  const log = [];
+  const stops = ["focus", "blur", "hover", "press", "release", "click", "change"].map((type) =>
+    ui.on(type, (e) => log.push(type + ":" + e.id + (e.value === undefined ? "" : "=" + e.value))));
+  return { log, stop: () => stops.forEach((s) => s()) };
+}
+
+test("a world-space menu of plain entities is played with the pointer", () => {
+  game.loadJson(menu);
+  const r = record();
+  game.step(1);
+  expect(ui.focused.id).toBe("start");                                  // autoFocus
+  const rect = ui.rectOf("start");                                      // seen through the camera: 60 x 20 at world (-40, 40)
+  expect(rect.w).toBe(60);
+  expect(rect.h).toBe(20);
+  expect(ui.widgetAt(rect.x + 5, rect.y + 5).id).toBe("start");
+  expect(ui.widgetAt(5, 5)).toBeNull();
+  r.log.length = 0;
+  game.mouseMove("start");
+  game.step(1);
+  expect(ui.hovered.id).toBe("start");
+  expect(game.find("start_glow").active).toBe(true);                    // the highlight child follows hover with no code
+  game.mouseMove("music");
+  game.step(1);
+  expect(game.find("start_glow").active).toBe(false);
+  expect(r.log).toEqual(["hover:start=true", "hover:start=false", "hover:music=true"]);
+  r.log.length = 0;
+  game.click("music");                                                  // a toggle: change, and its tick appears
+  expect(game.find("music").get("Interactable").on).toBe(true);
+  expect(game.find("music_tick").active).toBe(true);
+  expect(r.log).toContain("press:music");
+  expect(r.log).toContain("release:music=true");
+  expect(r.log).toContain("change:music=true");
+  expect(r.log).not.toContain("click:music");                         // a toggle sends change, a button click
+  expect(() => game.click("locked")).not.toThrow();                     // a disabled widget takes the click and ignores it
+  expect(game.find("locked").get("Interactable").state).toBe("disabled");
+  expect(ui.focused.id).toBe("music");
+  r.stop();
+});
+
+test("the keyboard walks world widgets and a screen Button alike; Tab and confirm work", () => {
+  game.loadJson(menu);
+  game.step(1);
+  expect(ui.focused.id).toBe("start");
+  game.tap("ui_down");
+  expect(ui.focused.id).toBe("music");
+  game.tap("ui_submit");
+  expect(game.find("music").get("Interactable").on).toBe(true);
+  game.tap("ui_down");
+  expect(ui.focused.id).toBe("volume");
+  game.tap("ui_right");                                                 // the slider moves by its step
+  expect(game.find("volume").get("Interactable").value).toBeCloseTo(0.1, 3);
+  game.tap("ui_down");
+  expect(ui.focused.id).not.toBe("locked");                             // a disabled widget is skipped
+  game.tap("ui_next");
+  const order = [ui.focused.id];
+  game.tap("ui_next");
+  order.push(ui.focused.id);
+  expect(new Set(order).size).toBe(2);                                  // Tab moves on, it does not stay
+});
+
+test("a slider Interactable: dragging the track and game.setSlider set the value and move the knob", () => {
+  game.loadJson(menu);
+  game.step(1);
+  const seen = [];
+  const stop = ui.on("change", "volume", (e) => seen.push(e.value));
+  const knob = game.find("volume_knob");
+  game.setSlider("volume", 0.5);
+  game.step(1);
+  expect(seen).toEqual([0.5]);
+  expect(knob.get("Transform").position.x).toBeCloseTo(0, 3);          // halfway along a 100 wide track
+  const r = ui.rectOf("volume");
+  game.drag([r.x + r.w / 2, r.y + r.h / 2], [r.x + r.w, r.y + r.h / 2]);
+  expect(game.find("volume").get("Interactable").value).toBeCloseTo(1, 3);
+  expect(knob.get("Transform").position.x).toBeCloseTo(50, 3);
+  stop();
+});
+)JS";
+
+TEST_CASE("Interactable: a world-space menu of plain entities is played with the pointer, the keyboard and game.click") {
+    TempProject p("worldmenu");
+    p.write("scenes/main.scene.json", kWorldMenu);
+    p.write("tests/menu.test.js", kWorldMenuTest);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    auto t = e.commands().call("project.test", Json::object());
+    REQUIRE_MESSAGE(t.ok, t.error.dump());
+    CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump(2));
+    CHECK(t.result["passed"].get<int>() == 3);
+    // The commands find it by id, like a person clicking it.
+    e.step(1);
+    auto r = e.commands().call("game.click", Json::parse(R"({"id":"start"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["widget"] == "start");
+    auto st = e.commands().call("ui.state", Json::object());
+    REQUIRE(st.ok);
+    bool found = false;
+    for (const Json& w : st.result["widgets"])
+        if (w["id"] == "volume") {
+            found = true;
+            CHECK(w["kind"] == "Interactable");
+            CHECK(w["interactableKind"] == "slider");
+        }
+    CHECK(found);
+    r = e.commands().call("ui.set_slider", Json::parse(R"({"id":"volume","value":0.3})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["value"].get<float>() == doctest::Approx(0.3f));
+    r = e.commands().call("ui.set_slider", Json::parse(R"({"id":"start","value":0.3})"));
+    CHECK_FALSE(r.ok);
+    e.shutdown();
+}
+
 TEST_CASE("screen.set_safe_area: a notched phone moves the widgets anchored to the safe area, and only those") {
     TempProject p("safearea");
     p.write("scenes/main.scene.json", R"({

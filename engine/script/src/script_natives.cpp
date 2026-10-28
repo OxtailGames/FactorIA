@@ -916,10 +916,12 @@ NATIVE(uiState) {  // () -> [focused, hovered]: entity handles, null for none (o
     return a;
 }
 
-NATIVE(uiWidgetAt) {  // (x, y) -> entity | null: the topmost visible widget at a screen point (ui_widget_at)
+NATIVE(uiWidgetAt) {  // (x, y) -> entity | null: the topmost visible widget or Interactable at a screen point (UiSystem::widget_at)
     SETUP;
     const Vec2 p{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
-    const Entity e = ui_widget_at(W, I->host->design_size(), p);
+    UiSystem* U = I->host->ui();
+    const Entity e = U ? U->widget_at(W, I->host->design_size(), p, script_measure(I, "ui.widgetAt()"))
+                       : ui_widget_at(W, I->host->design_size(), p);
     return e ? ent_val(ctx, e) : JS_NULL;
 }
 
@@ -1054,11 +1056,14 @@ NATIVE(uiFocus) {  // (entity | null): true when focused; false for a disabled w
         if (ctl && !ctl->interactable) return JS_FALSE;  // greyed out: a screen that restores focus falls back itself
     }
     std::string why;
-    if (!ui_is_control(kind))
-        why = kind == UiKind::None ? "it has no Button, Toggle, Slider or TextField component"
+    if (ui_is_interactable(W, e)) {
+        if (W.active_in_hierarchy(e)) return JS_FALSE;  // set_focus refused an active one: it is disabled, like a greyed-out built-in widget
+        why = "it is inactive (itself or an ancestor), so set active = true first";
+    } else if (!ui_is_control(kind))
+        why = kind == UiKind::None ? "it has no Button, Toggle, Slider, TextField or Interactable component"
                                    : std::string("a ") + ui_kind_name(kind) +
                                          (kind == UiKind::Panel || kind == UiKind::ScrollList ? " is a container and" : " is touch-only and") +
-                                         " cannot be focused; focus a Button, Toggle, Slider or TextField";
+                                         " cannot be focused; focus a Button, Toggle, Slider, TextField or Interactable";
     else if (!W.active_in_hierarchy(e)) why = "it is inactive (itself or an ancestor), so set active = true first";
     else why = "it cannot take focus";
     return throw_err(ctx, "ui.focus(target): '" + W.id_of(e) + "' cannot take focus: " + why);
@@ -1201,6 +1206,13 @@ NATIVE(uiUnclickable) {  // (entity) -> null | string: why a widget cannot be cl
     SETUP;
     ENTITY(e, 0);
     const Vec2 design = I->host->design_size();
+    if (ui_is_interactable(W, e)) {
+        if (!W.active_in_hierarchy(e)) return JS_NewString(ctx, "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks");
+        UiSystem* U = I->host->ui();
+        if (U && !U->interactable_rect(W, e, design, script_measure(I, "ui.unclickable()")))
+            return JS_NewString(ctx, "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from");
+        return JS_NULL;
+    }
     if (ui_kind(W, e) == UiKind::None) return JS_NULL;
     if (!W.active_in_hierarchy(e)) return JS_NewString(ctx, "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks");
     const std::optional<Rect> r = ui_rect(W, e, design);
@@ -1217,7 +1229,9 @@ NATIVE(screenRect) {  // (entity) -> [x, y, w, h] in design pixels, top-left ori
     ENTITY(e, 0);
     if (!W.active_in_hierarchy(e)) return JS_NULL;  // hidden by itself or a parent: not on screen, like ui.state
     const VisualMeasure measure = script_measure(I, "ui.rectOf() of a Text");
-    const std::optional<Rect> box = ui_screen_rect(W, e, I->host->design_size(), measure);
+    UiSystem* U = I->host->ui();
+    const std::optional<Rect> box = ui_is_interactable(W, e) ? (U ? U->interactable_rect(W, e, I->host->design_size(), measure) : std::nullopt)
+                                                              : ui_screen_rect(W, e, I->host->design_size(), measure);
     if (!box) return JS_NULL;
     JSValue a = JS_NewArray(ctx);
     const float v[4] = {box->x, box->y, box->w, box->h};
