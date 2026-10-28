@@ -38,11 +38,12 @@ namespace fa::editor {
 
 namespace {
 
-constexpr const char* kRoleNames[] = {"orchestrator", "worker", "fast"};
+constexpr const auto& kRoleNames = ai::kAllRoles;  // all seven, in the order of the Roles window
 constexpr const char* kEfforts[] = {"", "low", "medium", "high", "xhigh", "max"};  // "" = the role's default
 constexpr u64 kContextLimits[] = {0, 100000, 200000, 300000, 400000, 500000, 600000, 800000};  // 0 = the model's window
 constexpr const char* kRolesBlurb = "Your messages go to the orchestrator. It answers and plans, and hands implementation work to\n"
-                                    "the worker and small mechanical edits to fast by itself.";
+                                    "the worker, small mechanical edits to fast, art to the artist and sound to audio by itself.\n"
+                                    "artCritic and reviewer only run when you press Art critique or Game review; they cannot change anything.";
 constexpr std::size_t kMaxPendingImages = 10;  // per message (the API providers take 20 and the CLIs read each one)
 constexpr float kThumb = 56.0f;                // pending pictures
 constexpr float kThumbSent = 48.0f;            // pictures in the transcript
@@ -463,29 +464,19 @@ void Editor::ai_on_files_dropped() {
     for (int i = 0; i < n; ++i) ai_attach_path(sapp_get_dropped_file_path(i));
 }
 
-void Editor::ai_start(const std::string& task) {
-    if (!engine_ || task.empty()) return;
-    if (play_ != PlayState::Edit) {  // its scene edits would be thrown away at Stop
-        notify("Stop the game first (F5): changes made while it runs are thrown away at Stop.", 1);
-        return;
-    }
-    ai_sync_chats();
-    ai_drain_events();  // the result of the previous run may still be waiting
-    // One run per chat; several chats run at the same time, up to limits.maxConcurrentRuns. Each run has its own agent
-    // thread, cancel flag, proxy registry and MCP endpoint; their commands share the one main-thread queue.
-    if (ai_chat_busy(chat_.current().id)) return;
+// The run of `chat`, not yet registered: its own MCP endpoint (the one CLI agents attach) is up. nullptr, with a notice, when
+// every slot of limits.maxConcurrentRuns is taken or the endpoint cannot start. Reviews (ai_review.cpp) start their runs the same way.
+std::unique_ptr<AiRun> Editor::ai_new_run(const AiChat& chat) {
     if (ai_run_count() >= ai_max_runs()) {
         notify(std::to_string(ai_run_count()) + " chats are already running (the limit is limits.maxConcurrentRuns in ai.json). " +
                    "Wait for one to finish or press Stop in its tab.",
                1);
-        return;
+        return nullptr;
     }
-    AiChat& chat = chat_.current();
     auto owned = std::make_unique<AiRun>(chat.id);
     AiRun& run = *owned;
-    // This run's endpoint, the one CLI agents (Claude Code) attach. StreamHandler: a long ai.run call reports progress (what
-    // the worker does) as MCP notifications on its own request, so Claude Code, which aborts a call that stays silent for
-    // 300 s, keeps waiting for as long as the worker really works.
+    // StreamHandler: a long ai.run call reports progress (what the worker does) as MCP notifications on its own request, so
+    // Claude Code, which aborts a call that stays silent for 300 s, keeps waiting for as long as the worker really works.
     auto started = run.mcp.start([r = &run, dir = projectDir_](std::string_view message,
                                                                const McpHttpServer::Notify& emit) -> std::optional<std::string> {
         std::shared_ptr<CommandRegistry> proxy;
@@ -501,8 +492,26 @@ void Editor::ai_start(const std::string& task) {
     });
     if (!started) {
         notify(started.error().to_string(), 2);
+        return nullptr;
+    }
+    return owned;
+}
+
+void Editor::ai_start(const std::string& task) {
+    if (!engine_ || task.empty()) return;
+    if (play_ != PlayState::Edit) {  // its scene edits would be thrown away at Stop
+        notify("Stop the game first (F5): changes made while it runs are thrown away at Stop.", 1);
         return;
     }
+    ai_sync_chats();
+    ai_drain_events();  // the result of the previous run may still be waiting
+    // One run per chat; several chats run at the same time, up to limits.maxConcurrentRuns. Each run has its own agent
+    // thread, cancel flag, proxy registry and MCP endpoint; their commands share the one main-thread queue.
+    if (ai_chat_busy(chat_.current().id)) return;
+    AiChat& chat = chat_.current();
+    std::unique_ptr<AiRun> owned = ai_new_run(chat);
+    if (!owned) return;
+    AiRun& run = *owned;
 
     ChatItem user;
     user.kind = ChatItem::Kind::User;
@@ -550,7 +559,11 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
     }
     ai::SessionOptions opt;
     opt.projectDir = projectDir_;
-    opt.role = ai::kRoleOrchestrator;  // it hands the work to the worker and fast roles itself (the "AI roles" popup)
+    // The orchestrator hands the work to the other roles itself (the "AI roles" popup). A review (ai_review.cpp) runs a critic or
+    // a reviewer instead, who cannot delegate.
+    opt.role = run.role.empty() ? std::string(ai::kRoleOrchestrator) : run.role;
+    opt.extraSystem = run.extraSystem;
+    opt.allowDelegation = !ai::is_review_role(opt.role);
     opt.conversation = chat->conversation;  // resumes the chat when the provider is the same one that produced it
     opt.mcpUrl = run.mcp.url();
     AiRun* const r = &run;
@@ -613,6 +626,7 @@ void Editor::ai_end_run(AiRun& run, AiChat* c) {
         run.checkpointId.clear();
         aiTouch_.end(chatId, {});
     }
+    if (chatId == aiReview_.chatId) aiReview_.stopped = run.cancel.load();  // the user stopped a reviewer (ai_review_tick)
     run.cancel = true;  // anything of this run still blocked on the queue or on its endpoint ends
     if (run.thread.joinable()) run.thread.join();
     run.mcp.stop();
@@ -930,7 +944,7 @@ std::string Editor::ai_editing_note() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-// "AI roles": the provider, model and effort of the orchestrator, worker and fast roles. Save writes them into ai.json
+// "AI roles": the provider, model and effort of the seven roles. Save writes them into ai.json
 // (only its "roles"; everything else in the file stays) and reloads it, so the next message uses them.
 void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status) {
     if (aiRolesOpen_) {
@@ -1076,7 +1090,16 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
         ImGui::TextDisabled("Checking models...");
     }
     if (ImGui::Button("Save")) {
-        if (auto saved = ai::save_roles(aiRolesEdit_, path); !saved) {
+        // A role the user did not change is not written: artist, audio, artCritic and reviewer follow the orchestrator's and
+        // the worker's provider until they are set here (docs/AI_PROVIDERS.md), and writing them would pin today's values.
+        std::map<std::string, ai::RoleConfig> toSave = aiRolesEdit_;
+        for (const char* extra : ai::kExtraRoles) {
+            const ai::RoleConfig was = cfg.role(extra), now = toSave[extra];
+            if (was.provider == now.provider && was.model == now.model && was.effort == now.effort &&
+                was.maxContextTokens == now.maxContextTokens)
+                toSave.erase(extra);
+        }
+        if (auto saved = ai::save_roles(toSave, path); !saved) {
             notify(saved.error().to_string(), 2);
         } else {
             auto loaded = ai::load_config(path);  // the file now says what the roles are, with the defaults filled in
@@ -1215,7 +1238,7 @@ void Editor::draw_ai_panel() {
     const bool atCap = !isRunTab && runsOn >= std::clamp(maxRuns, 1, ai::kMaxConcurrentRunsCap);  // every slot is taken by other chats
     ImGui::PushID(chat.id.c_str());  // every widget below belongs to the tab: its own scroll position and input text
 
-    // The roles. Every message goes to the orchestrator; it hands the work to the worker and fast roles itself.
+    // The roles. Every message goes to the orchestrator; it hands the work to the worker, fast, artist and audio roles itself.
     const std::string providerName = cfg.role(ai::kRoleOrchestrator).provider;
     ImGui::BeginDisabled(!detected);  // before the first detection aiConfig_ is empty: Save would write roles without providers
     if (ImGui::SmallButton("Roles...")) aiRolesOpen_ = true;
@@ -1283,7 +1306,7 @@ void Editor::draw_ai_panel() {
                            static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= cfg.limits.stuckAfterSeconds &&
                            now_seconds() >= run->snoozeUntil;
     const float statusH = !isRunTab ? 0.0f : ImGui::GetFrameHeightWithSpacing() * (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
-    const float footer = stripH + noticeH + statusH + inputH + ImGui::GetFrameHeightWithSpacing() * 1.4f;
+    const float footer = stripH + noticeH + statusH + inputH + ImGui::GetFrameHeightWithSpacing() * 3.4f;  // buttons + the two review rows
     ImGui::BeginChild("##chat", ImVec2(0, -footer), ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
     if (chat.items.empty()) {
@@ -1469,12 +1492,16 @@ void Editor::draw_ai_panel() {
     ImGui::SameLine();
     if (ImGui::Button("Attach last play session")) ai_attach_last_session();
     ImGui::SetItemTooltip("Adds a summary of your last Play .. Stop (frame times, errors, the problems you marked with F9) and the mark screenshots to your next message.");
-    ImGui::SameLine();
-    if (isRunTab) ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "running...");
-    else if (runsOn > 0) ImGui::TextDisabled("%d other chat%s working", runsOn, runsOn == 1 ? "" : "s");
-    else if (gameRuns) ImGui::TextDisabled("game running: Stop it to send");
+    if (isRunTab || runsOn > 0 || gameRuns) {  // the review rows below start on a line of their own
+        ImGui::SameLine();
+        if (isRunTab) ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "running...");
+        else if (runsOn > 0) ImGui::TextDisabled("%d other chat%s working", runsOn, runsOn == 1 ? "" : "s");
+        else ImGui::TextDisabled("game running: Stop it to send");
+    }
+    draw_ai_review_row(gameRuns);
     ImGui::PopID();
     ImGui::End();
+    draw_ai_reviews_window();
 }
 
 }  // namespace fa::editor

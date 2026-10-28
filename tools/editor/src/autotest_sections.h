@@ -40,6 +40,8 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"P", "Revert an AI run: checkpoint, Revert, Undo revert"},
     {"Q", "AI agent liveness: stuck warning, Check activity, a worker that outlives the orchestrator's turn"},
     {"R", "Program updated on disk: the Restart notice, its button state, Not now"},
+    {"U", "Editor layout kept: changed panels come back after reopening and after the welcome screen; Reset layout"},
+    {"V", "AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator"},
     {"W", "Several AI chats at once: both finish, same-file warning, the cap, Revert of one run, Stop of one run"},
 };
 

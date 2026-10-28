@@ -9,6 +9,7 @@ Several AI chats at the same time
 - The editor's AI panel can run up to 3 chats at once (`limits.maxConcurrentRuns` in `ai.json`, 1 to 8; before, one chat ran
   and Run was disabled in the others). Each chat has its own progress line, stuck warning, usage and **Stop**; stopping one
   leaves the others going. Play waits while any of them works, and says which chats.
+- A review (**Art critique**, **Game review**) is one more run: it counts toward that limit and does not stop the other chats.
 - When two chats that run at the same time change the same file (or the open scene), both transcripts get a warning that names the
   other chat and the file.
 - Each run keeps its own Revert point. Reverting a run that other chats' runs overlapped puts back only the files that run
@@ -23,6 +24,44 @@ The AI panel's usage is live
   total arrives. A delegated worker's spending shows live too and is no longer lost from the chat's totals or overwritten by the
   orchestrator's. The plan windows still update once per message (Claude Code reports them once); the tooltip says "As of HH:MM".
 - `limits.maxCostUsd` and `limits.maxTotalTokens` apply to a Claude Code / Codex run as it goes: it is stopped when it crosses them.
+
+Old engine feedback no longer piles up
+
+- Closed entries of `ENGINE_FEEDBACK.json` (fixed-in-engine, wont-fix, duplicate) move to `ENGINE_FEEDBACK.archive.json` next to
+  it when the editor opens the project and with the new command `feedback.archive` (CLI `factoria feedback archive`, MCP
+  `feedback_archive`). Ids stay unique across both files, and a report that matches an archived fixed-in-engine entry reopens it
+  with the note "reported again with engine X: regression?". `feedback list --archive` (`includeArchive`) shows the archive,
+  `feedback collect` still counts it, the Engine Feedback panel has "Show archive" and "Archive closed", and exports leave the
+  archive out.
+
+The editor keeps your layout
+
+- Which panels are open is saved with the layout (`~/.factoria/editor_layout2.ini`): a panel closed with its X, or one opened from
+  the View menu, is the same the next time the editor opens or another project opens; before, only where the panels sit was kept
+  and every closed panel came back. View > Reset layout also reopens the default panels. The editor autotest has a section (U)
+  that floats, moves, widens and closes panels and checks they survive a reopen and a visit to the welcome screen.
+
+More roles, and reviews that only run when you ask
+
+- Four new AI roles in `ai.json`: `artist` (makes all the art), `audio` (sound, music, buses, mixing), and two read-only ones,
+  `artCritic` and `reviewer`, which look at and play the game and give an opinion with a score from 0 to 10 and sub-scores. A
+  role you do not list follows the provider you already use (a file with only `claude-code` roles keeps all seven on Claude
+  Code, never an API key), and old files keep working. The Roles window, `factoria ai run --role`, `ai.run` and
+  `agent_delegate` know the new names; the orchestrator delegates art to the artist and sound to the audio role.
+- Reviews run only when you ask: the **Art critique** and **Game review** buttons of the AI Assistant (with a count of 1 to 5
+  reviewers, each with a different point of view, and a focus), `factoria ai review art|game` and `ai.review`. The
+  orchestrator cannot start them. Every review is saved in `.factoria/ai/reviews/` with its score, sub-scores and the game and
+  engine version (`factoria ai reviews`, `ai.reviews`), the **AI reviews** window lists them, and **Send to orchestrator**
+  posts a report into an orchestrator chat as your message so it can plan the fixes. Nothing is sent unless you press it.
+- Read-only is enforced: the built-in loop offers a reviewer only tools that look and play, Claude Code runs with
+  `--disallowedTools` for the editing tools and every FactorIA tool that changes something, and Codex with its read-only sandbox
+  and `factoria mcp --read-only` (new: serves only the commands that look and play).
+- A game is easier to review with a `REVIEW.md` (controls, goal, finished versus placeholder, how to reach every scene fast).
+  The reviewers read it first, the AGENTS.md template and the AI guide ask for it, and `factoria export` leaves it out of the
+  build.
+- A Claude Code orchestrator no longer uses Claude Code's own `Agent` and `Task` sub-agents (they ran an unconfigured model
+  outside FactorIA's roles, costs and live view, as seen in Roguestory): FactorIA starts it with them switched off and the
+  prompt says to delegate with `ai_run`.
 
 The AI agent is never silent
 

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "FactorIA AI config (~/.factoria/ai.json)",
-  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles orchestrator/worker/fast, and the asset providers that generate images, sounds and 3D models. Lives in the user's home, NEVER inside a game project.",
+  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), and the asset providers that generate images, sounds and 3D models. Lives in the user's home, NEVER inside a game project.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -28,11 +28,15 @@
     },
     "roles": {
       "type": "object",
-      "description": "Which provider/model plays each role. orchestrator plans and delegates, worker implements, fast does small mechanical tasks.",
+      "description": "Which provider/model plays each role. orchestrator plans and delegates, worker implements, fast does small mechanical tasks, artist makes the game's art, audio makes its sound and music, artCritic and reviewer (read-only) give opinions on the art and on the whole game when the user asks for a review. A role that is not listed gets a default that follows the provider and model of orchestrator (artist, artCritic, reviewer) or worker (audio), so an ai.json written before these roles existed keeps working on the same provider.",
       "properties": {
         "orchestrator": { "$ref": "#/$defs/role" },
         "worker": { "$ref": "#/$defs/role" },
-        "fast": { "$ref": "#/$defs/role" }
+        "fast": { "$ref": "#/$defs/role" },
+        "artist": { "$ref": "#/$defs/role" },
+        "audio": { "$ref": "#/$defs/role" },
+        "artCritic": { "$ref": "#/$defs/role" },
+        "reviewer": { "$ref": "#/$defs/role" }
       },
       "additionalProperties": false
     },

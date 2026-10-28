@@ -113,6 +113,12 @@ public:
     // 3 s and 15 s.
     void set_progress_timing(std::chrono::milliseconds throttle, std::chrono::milliseconds heartbeat);
 
+    // Restricts the tools: a command for which `allow` returns false is neither listed by tools/list nor callable
+    // (`factoria mcp --read-only` uses it for the read-only roles of a CLI agent that cannot disallow tools itself). No
+    // filter = every command.
+    using CommandFilter = std::function<bool(const CommandInfo&)>;
+    void set_command_filter(CommandFilter allow) { filter_ = std::move(allow); }
+
     // notifications/tools/list_changed (call when commands were added/removed, e.g. JS tool hot reload).
     void notify_tools_changed();
     void notify_resources_changed();
@@ -158,6 +164,7 @@ private:
     std::vector<std::pair<std::string, std::string>> notices_;  // {key, text} waiting for a tools/call
     mutable std::mutex noticeMutex_;
     Sink sink_;
+    CommandFilter filter_;
     std::chrono::milliseconds progressThrottle_{3000};
     std::chrono::milliseconds progressHeartbeat_{15000};
     std::vector<std::string> queued_;

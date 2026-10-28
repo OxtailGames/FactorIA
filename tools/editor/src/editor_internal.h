@@ -32,6 +32,7 @@
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/provider.h"
+#include "fa/ai/review.h"
 #include "fa/ai/session.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -240,6 +241,8 @@ public:
     void draw_toolbar();
     void draw_status_bar();
     void build_default_layout(unsigned dockId, ImVec2 size);
+    // Back to the welcome screen (no project): the UI and the engine are torn down on the next frame like in open_project.
+    void close_project() { pendingWelcome_ = true; }
     void draw_viewport();
     void draw_console();
     void draw_ai_panel();
@@ -326,6 +329,17 @@ public:
     void ai_launch(AiRun& run, const std::string& prompt, const std::vector<std::string>& imageFiles);
     // Ends `run`: its checkpoint item, the saved chat, the endpoint stopped, the run forgotten. `c` is its chat or nullptr.
     void ai_end_run(AiRun& run, AiChat* c);
+    // The run of `chat`, not yet in aiRuns_, its MCP endpoint up; nullptr (with a notice) when every slot is taken.
+    std::unique_ptr<AiRun> ai_new_run(const AiChat& chat);
+    // Reviews (ai_review.cpp): art critiques and game reviews, started ONLY by the user's buttons. A review is one more run
+    // (it counts toward limits.maxConcurrentRuns) in the chat tab it was asked from.
+    void ai_review_request(const std::string& kind, int count, const std::string& focus);
+    void ai_review_next();           // starts the next reviewer of the job
+    void ai_review_tick();           // every frame: takes a finished reviewer's report in, starts the next one
+    void ai_review_abort(const std::string& why);
+    void draw_ai_review_row(bool gameRuns);          // the buttons under the message box
+    void draw_ai_reviews_window();                   // past reviews, scores, the report and "Send to orchestrator"
+    void ai_review_send(const ai::Review& review);   // posts a review to an orchestrator chat as a user message
     // Everything about "is it still working": called every frame while a run is on (ai_panel.cpp).
     void ai_watchdog_tick(AiRun& run);
     void ai_check_activity(AiRun& run);       // the "Check activity" button: inspects the processes, writes the verdict in the chat
@@ -377,6 +391,7 @@ public:
     std::string projectName_;
     std::string scenePath_;
     std::string pendingOpen_;
+    bool pendingWelcome_ = false;  // close_project(): back to the welcome screen on the next frame
     std::string bootError_;
     bool gfxUp_ = false;
     bool uiUp_ = false;
@@ -411,6 +426,11 @@ public:
     std::string iniPath_;
     bool resetLayout_ = false;
     bool layoutBuilt_ = false;
+    // Which panels are open is saved with the layout (a [FactorIAEditor][Panels] section of the same ini file).
+    int panelMask_ = -1;  // the mask last seen; -1 = not yet (the first frame after the ini is read does not count as a change)
+    int panels_mask() const;
+    void set_panels_mask(int mask);
+    void register_layout_settings();
     const char* pendingFocus_ = nullptr;
 
     // viewport (ImGui logical coordinates; sokol event coordinates / dpi match them)
@@ -602,6 +622,9 @@ public:
     std::string feedbackError_;
     std::int64_t feedbackMtime_ = INT64_MIN;
     double feedbackPolled_ = -10;
+    Json feedbackArchive_;                         // the archive file's document (null when there is none)
+    std::int64_t feedbackArchiveMtime_ = INT64_MIN;
+    bool fbShowArchive_ = false;                   // list the archived entries too
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
@@ -643,6 +666,23 @@ public:
         std::set<std::string> own;  // the files of the run and of its chat's later runs
         std::string scene;          // the open scene's file when the run (or a later one of the chat) changed the scene
     } aiRevert_;
+    // The review job in progress (ai_review.cpp): N reviewers one after another, each in the same chat tab.
+    struct AiReviewJob {
+        bool active = false;
+        std::string kind, role, focus, chatId;
+        int count = 1, next = 0;            // reviewers asked for / index of the one that runs (or runs next)
+        std::size_t itemStart = 0;          // chat items before the current reviewer's run
+        double costBefore = 0;
+        std::string provider, model;
+        std::vector<std::string> savedIds;  // the reviews this job produced
+        bool stopped = false;               // the current reviewer was stopped by the user (set when its run ends)
+    } aiReview_;
+    int aiReviewCount_ = 1;                 // the count the buttons use (1..kMaxReviewers)
+    std::string aiReviewFocus_;             // what to look at ("" = everything)
+    bool aiReviewsShown_ = false;           // the "AI reviews" window
+    std::vector<ai::Review> aiReviewList_;  // saved reviews, newest first (reloaded when aiReviewDirty_)
+    bool aiReviewDirty_ = true;
+    std::string aiReviewSelected_;          // id of the review whose report the window shows
     LimitsByProvider aiLimits_;     // plan windows reported since the editor started, shared by every tab
     int aiTabForce_ = 0;            // frames left to force the active tab (a tab opened/closed by code)
     bool aiHistoryOpen_ = false;    // request to open the History popup this frame
@@ -713,6 +753,10 @@ public:
     std::atomic<bool> atWatchdogStop_{false};
     std::thread atWatchdog_;
     int atFrameBudget_ = 4000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
+    float atLayoutWidth_ = 0;      // section U: the width of the Hierarchy after the user's change
+    int atReopenIn_ = 0;           // section U: frames on the welcome screen before the project is opened again
+    std::string atReopenDir_;
+    std::string atIniSaved_;       // section U: the layout file the editor really uses, put back at the end
     std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
     void save_screenshot_now(const std::string& path);
     // FA_EDITOR_AUTOTEST_SECTIONS (autotest_sections.h, read by run()): the sections to run, empty for all of them.

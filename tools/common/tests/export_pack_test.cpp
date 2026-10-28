@@ -35,6 +35,7 @@ std::string make_project(const testing::TempDir& tmp, const std::string& tpl = "
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     testing::write_all(stdfs::path(dir) / "data" / "README.md", "credits the game shows");
     testing::write_all(stdfs::path(dir) / ".factoria" / "cache.bin", "x");
+    testing::write_all(stdfs::path(dir) / "ENGINE_FEEDBACK.archive.json", "{}");  // the feedback archive is not shipped either
     return dir;
 }
 
@@ -106,6 +107,7 @@ TEST_CASE("export --release: a desktop game is one game.pak, with no loose scrip
         CHECK_FALSE(p.contains("README.md"));
         CHECK_FALSE(p.contains("AGENTS.md"));
         CHECK_FALSE(p.contains("ENGINE_FEEDBACK.json"));
+        CHECK_FALSE(p.contains("ENGINE_FEEDBACK.archive.json"));
         CHECK(p.list(".factoria", true).empty());
         CHECK(p.list("tests", true).empty());
         CHECK(p.list("tools", true).empty());
@@ -215,6 +217,15 @@ TEST_CASE("export: the project's own README.md is not part of any export, a READ
     CHECK_FALSE(stdfs::exists(game + "/README.md"));
     CHECK_FALSE(stdfs::exists(game + "/Readme.MD"));
     CHECK(stdfs::exists(game + "/data/README.md"));
+}
+
+TEST_CASE("export: REVIEW.md (the note the AI reviewers read first) is not part of any export") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    testing::write_all(stdfs::path(proj) / "REVIEW.md", "# How to play\n");
+    auto r = export_project(options_for(tmp, proj, "windows", false));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK_FALSE(stdfs::exists(tmp.sub("out/pack-test-windows/game") + "/REVIEW.md"));
 }
 
 TEST_CASE("export.exclude: the files and folders it names are in neither the game folder nor game.pak") {

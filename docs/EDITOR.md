@@ -48,7 +48,13 @@ whether the notice shows and what blocks Restart). While the updater above insta
 The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Hierarchy** over **Inspector** on the left,
 the **Viewport** in the middle, **AI Assistant** on the right, and Console / Project / Engine Feedback / Audio / Profiler as tabs
 under the view. You can also edit by hand with the Hierarchy and the Inspector, by dragging gizmos in the Viewport (below) and by
-dragging files from the Project panel ([Project panel](#project-panel)). Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
+dragging files from the Project panel ([Project panel](#project-panel)). Use Undo to take back what it or you did. View > Reset layout restores this layout.
+
+The editor keeps your layout in `~/.factoria/editor_layout2.ini`: where panels sit, their sizes, floating panels, tabs moved to
+another dock, and which panels are open (a panel closed with its X, or one opened from the View menu, stays that way). It is
+written a few seconds after a change and again when the editor closes or another project opens, and read when the editor starts,
+so the layout is the same after reopening the editor or switching project. Reset layout also reopens the default panels (Audio and
+Profiler stay closed). Two editors open at once share the file: the last one to close writes it.
 
 | Panel | What it does |
 |---|---|
@@ -59,7 +65,7 @@ dragging files from the Project panel ([Project panel](#project-panel)). Use Und
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Project | The project's files: folder tree, filter, search, thumbnails; drag files onto the Inspector and the Viewport ([Project panel](#project-panel)). |
 | Console | The log (each line starts with the computer's local time `HH:MM:SS.mmm`; hover it for the date, the frame and the seconds since start), and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
-| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
+| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. Opening the project moves its closed entries to `ENGINE_FEEDBACK.archive.json`; "Show archive" lists them again and "Archive closed" moves them on demand. |
 | Audio | (View > Audio) the live `audio.log`. |
 | Profiler | (View > Profiler) where the time of a frame goes while the game plays. |
 
@@ -153,14 +159,29 @@ disabled in a chat that is already running, and in the others once the limit is 
 lists the saved chats, newest first; click one to reopen it as a tab (the next message resumes it) or Delete it from the list.
 
 - **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
-  the worker role and small mechanical edits to the fast role by itself. **Roles...** at the top of the panel picks the
-  provider, model and effort of each role (the line next to it shows the current ones); Save writes them into `ai.json`
+  the worker role, small mechanical edits to the fast role, the art to the artist role and the sound to the audio role
+  by itself. The `artCritic` and `reviewer` roles never run unless you ask (see **Reviews** below). **Roles...** at the
+  top of the panel picks the provider, model and effort of each of the seven roles (the line next to it shows the current ones); Save writes them into `ai.json`
   and the next message uses them (see `docs/AI_PROVIDERS.md`, Roles). The **Model** column is a dropdown of the models
   the provider really offers, fetched when the project opens; **Refresh models** asks again (new releases show up), and
   **Other...** types a name that is not listed (see `docs/AI_PROVIDERS.md`, Choosing a model). **Roles...** is disabled
   until `ai.json` has been read. Its **Context** column caps how much of the
   conversation a session keeps (full, or 100k to 800k): past it the earlier part is summarized, so each message costs
   less. It works with Claude Code and the Anthropic API.
+- **Reviews:** under the message box, the row **Review:** has an **Art critique** and a **Game review** button (and
+  **Reviews...**, below), and the row under it a **Reviewers** count (1 to 5 reviewers, each with a different point of view,
+  one after another) and an optional focus ("the shop screen"). Pressing
+  one starts read-only agents that look at and play the game (they read `REVIEW.md` first) and give an opinion with a score
+  from 0 to 10 and sub-scores. Each reviewer works in a chat tab of its own, titled "Art critique" or "Game review", where
+  you see what it does. They cost tokens, so nothing starts them but you: the orchestrator cannot. A reviewer is one more run: it counts
+  toward the limit of chats at once (`limits.maxConcurrentRuns`), and the orchestrator's chats keep working while it does. The
+  buttons are disabled while the game runs (the reviewers start it themselves) or that limit is reached. Stop in the review's
+  tab ends the review and the reviewers after it. When a review is ready, the **AI
+  reviews** window opens (also from **Reviews...**) with every saved review of the project, newest first, with its score,
+  persona and game version, and the text of the selected one. **Send to orchestrator** posts that report as your message
+  into the active orchestrator chat (a new one when the active tab is a review's own) so it plans the fixes and delegates
+  them; **Copy** puts the text on the clipboard. Nothing is sent unless you press it. The reviews are files in
+  `.factoria/ai/reviews/` (`docs/AI_PROVIDERS.md`, Reviews).
 - **Pictures:** drop image files (png, jpg, jpeg, gif, webp) on the window, press Ctrl+V in the input with a picture on the
   clipboard, or press **Attach image...**. Pending pictures show above the input (remove one with its x); sent ones show
   in the transcript. Copies live in `.factoria/ai/attachments/`; other file types are refused with a message saying why.
@@ -482,7 +503,7 @@ wrapping, right-click menu), G (delete a project), H (Export window), I (Platfor
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
 agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
-its button state and Not now) and W (two AI chats at once against a scripted model: both finish with their own answers, the
+its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator) and W (two AI chats at once against a scripted model: both finish with their own answers, the
 same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash

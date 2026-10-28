@@ -20,6 +20,7 @@
 #include "autotest_sections.h"
 #include "editor_internal.h"
 #include "sokol_app.h"
+#include "imgui_internal.h"
 #include "ui_backend.h"
 
 namespace fa::editor {
@@ -27,6 +28,21 @@ namespace fa::editor {
 namespace {
 
 namespace stdfs = std::filesystem;
+
+// Section U: where a panel is now. Floating panels have no dock node; a docked one names its node.
+ImGuiWindow* panel_window(const char* name) { return ImGui::FindWindowByName(name); }
+bool panel_floating(const char* name) {
+    const ImGuiWindow* w = panel_window(name);
+    return w && !w->DockIsActive && w->DockNode == nullptr;
+}
+ImGuiID panel_node(const char* name) {
+    const ImGuiWindow* w = panel_window(name);
+    return w && w->DockNode ? w->DockNode->ID : 0;
+}
+float panel_width(const char* name) {
+    const ImGuiWindow* w = panel_window(name);
+    return w ? w->Size.x : 0.0f;
+}
 
 void write_file(const std::string& path, const std::string& bytes) {
     std::error_code ec;
@@ -326,6 +342,28 @@ public:
             }
         }
         r.message.text = std::string("Finished ") + marker;
+        if (hooks.onText) hooks.onText(r.message.text);
+        r.stopReason = ai::StopReason::EndTurn;
+        return r;
+    }
+};
+// Section U's reviewer: no tool calls, one report that ends in the score block. It records the tools it was offered, so the
+// test can see that a read-only role really is not given the ones that change the project.
+std::vector<std::string> g_reviewToolsOffered;
+class ReviewerProvider : public ai::ChatProvider {
+public:
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks, const ai::CancelFlag*) override {
+        g_reviewToolsOffered.clear();
+        for (const ai::ToolDef& t : req.tools) g_reviewToolsOffered.push_back(t.name);
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 900;
+        r.usage.outputTokens = 60;
+        r.message.text =
+            "The first minute is clear and the controls answer at once.\n\n```json\n"
+            "{\"score\": 7.5, \"subScores\": {\"fun\": 8, \"polish\": 6}, \"summary\": \"Clear and quick\"}\n```";
         if (hooks.onText) hooks.onText(r.message.text);
         r.stopReason = ai::StopReason::EndTurn;
         return r;
@@ -2807,6 +2845,178 @@ void Editor::at_build_tools_script() {
             stdfs::remove(atOutDir_ + "/fake_factoria", ec);
         });
     }
+
+    // ------------------------------------------------------------------------------------ U. Layout kept
+    section("U");
+    // A layout the user changed (a panel floated, a tab moved to another dock, a column made wider) is in the layout file when the
+    // editor goes down, and comes back when a project opens again: straight away, and after a visit to the welcome screen (which
+    // has its own ImGui context, without the dock space). The test uses its own layout file; the real one is put back at the end.
+    {
+        auto reopen_wait = [this](bool viaWelcome) {
+            const std::string dir = projectDir_;
+            const std::uint64_t u0 = uiFrame_;
+            if (viaWelcome) {
+                close_project();
+                atReopenDir_ = dir;
+                atReopenIn_ = 10;
+            } else {
+                open_project(dir);
+            }
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, u0, viaWelcome] { return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 && uiFrame_ >= u0 + 8 + (viaWelcome ? 10 : 0); };
+        };
+        step(2, [this, reopen_wait] {
+            atIniSaved_ = iniPath_;
+            iniPath_ = atOutDir_ + "/layout_test.ini";
+            std::error_code ec;
+            stdfs::remove(iniPath_, ec);
+            reopen_wait(false);  // no layout file yet: the default layout, and the file is written when the UI goes down
+        });
+        step(2, [this] {
+            at_check(!panel_floating("Console") && panel_node("Console") != 0, "no layout file: Console starts docked (the default layout)");
+            at_check(panel_node("Project") == panel_node("Console"), "...in the same dock as Project");
+            at_check(panel_node("Project") != panel_node("Hierarchy"), "...and Project is not with the Hierarchy");
+            // The user's changes: Console floats, Project joins the Hierarchy and the left column gets wider.
+            ImGuiContext& g = *GImGui;
+            ImGuiWindow* console = panel_window("Console");
+            ImGui::DockContextQueueUndockWindow(&g, console);
+            ImGuiWindow* hier = panel_window("Hierarchy");
+            if (hier && hier->DockNode && panel_window("Project"))
+                ImGui::DockContextQueueDock(&g, hier->DockNode->HostWindow, hier->DockNode, panel_window("Project"), ImGuiDir_None, 0.0f, false);
+            if (hier && hier->DockNode) {
+                ImGuiDockNode* col = hier->DockNode->ParentNode;
+                while (col && col->ParentNode && col->ParentNode->SplitAxis != ImGuiAxis_X) col = col->ParentNode;
+                if (col && col->ParentNode) {  // the node of the left column inside the X split: take 200 px from its sibling
+                    ImGuiDockNode* sib = col->ParentNode->ChildNodes[0] == col ? col->ParentNode->ChildNodes[1] : col->ParentNode->ChildNodes[0];
+                    col->SizeRef.x += 200;
+                    if (sib) sib->SizeRef.x = std::max(100.0f, sib->SizeRef.x - 200);
+                }
+            }
+            showFeedback_ = false;  // a panel closed with its X, and one opened from the View menu
+            showAudio_ = true;
+            atLayoutWidth_ = panel_width("Hierarchy");
+        });
+        step(4, [] {
+            ImGui::SetWindowPos("Console", ImVec2(300, 300));
+            ImGui::SetWindowSize("Console", ImVec2(420, 210));
+        });
+        step(6, [this] {
+            at_check(panel_floating("Console"), "the test floated Console");
+            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0, "the test moved Project next to the Hierarchy");
+            at_check(panel_width("Hierarchy") > atLayoutWidth_ + 100, "the test made the left column wider (" + std::to_string(atLayoutWidth_) + " -> " +
+                                                                        std::to_string(panel_width("Hierarchy")) + ")");
+            atLayoutWidth_ = panel_width("Hierarchy");
+        });
+        step(2, [reopen_wait] { reopen_wait(false); });
+        auto check_changed_layout = [this](const std::string& when) {
+            at_check(!showFeedback_ && showAudio_ && showConsole_, "the closed panel (Engine Feedback) is still closed and the opened one (Audio) still open " + when);
+            at_check(panel_floating("Console"), "Console is still floating " + when);
+            const ImGuiWindow* c = panel_window("Console");
+            at_check(c && std::fabs(c->Size.x - 420) < 3 && std::fabs(c->Size.y - 210) < 3, "...with the size the user gave it " + when);
+            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0, "Project is still next to the Hierarchy " + when);
+            at_check(std::fabs(panel_width("Hierarchy") - atLayoutWidth_) < 6,
+                     "the left column keeps its width " + when + " (" + std::to_string(panel_width("Hierarchy")) + " vs " + std::to_string(atLayoutWidth_) + ")");
+        };
+        step(2, [check_changed_layout] { check_changed_layout("after the project is opened again"); });
+        step(2, [reopen_wait] { reopen_wait(true); });  // through the welcome screen: its context must not wipe the dock data
+        step(2, [check_changed_layout] { check_changed_layout("after a visit to the welcome screen"); });
+        step(2, [this] { resetLayout_ = true; });
+        step(4, [this] {
+            at_check(!panel_floating("Console") && panel_node("Console") == panel_node("Project"), "Reset layout puts Console back in the bottom dock");
+            at_check(panel_node("Project") != panel_node("Hierarchy"), "...and Project away from the Hierarchy");
+            at_check(showFeedback_ && !showAudio_, "...and the panels that are open by default again");
+        });
+        step(2, [this, reopen_wait] {  // the real layout file again (none in the autotest), through a last reopen
+            iniPath_ = atIniSaved_;
+            reopen_wait(false);
+        });
+    }
+    // ------------------------------------------------------------------------------------------------------ U. Reviews
+    section("V");
+    // A review runs only when its button is pressed: it opens a tab of its own, the reviewer is offered only tools that look
+    // and play, the report is saved with its score, and nothing reaches the orchestrator until "Send to orchestrator".
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return aiDetected_.load(); };
+    });
+    step(2, [this, project_file] {
+        std::error_code ec;
+        stdfs::remove_all(project_file(".factoria/ai/reviews"), ec);
+        aiReviewDirty_ = true;
+        aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+            return std::shared_ptr<ai::ChatProvider>(std::make_shared<ReviewerProvider>());
+        };
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            atSavedConfig_ = aiConfig_;
+            if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+            for (const char* role : {ai::kRoleOrchestrator, ai::kRoleReviewer, ai::kRoleArtCritic}) {
+                ai::RoleConfig& rc = aiConfig_.roles[role];
+                rc.provider = "anthropic";
+                rc.model = "mock";
+            }
+        }
+        while (chat_.tabs.size() > 1) chat_.close(0);
+        chat_.clear();
+        g_reviewToolsOffered.clear();
+        focus_window("AI Assistant");
+    });
+    step(3, [this] {
+        at_check(at_visible("ai:review:game") && at_visible("ai:review:art"), "the AI Assistant has an Art critique and a Game review button");
+        at_check(chat().empty() && !ai_busy(), "nothing runs and nothing is asked until a button is pressed");
+    });
+    click("ai:review:game");
+    step(2, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return !aiReview_.active && !ai_busy(); };
+    });
+    step(4, [this] {
+        at_check(!aiReview_.active && !ai_running(), "the review finished");
+        const auto saved = ai::list_reviews(projectDir_);
+        at_check(saved.size() == 1 && saved[0].role == ai::kRoleReviewer && saved[0].score == 7.5 && saved[0].persona == "all-rounder",
+                 "the report was saved with its score and persona (" + std::to_string(saved.size()) + " review(s))");
+        at_check(saved.size() == 1 && stdfs::exists(saved[0].path) && saved[0].subScores.size() == 2 &&
+                     saved[0].text.find("```") == std::string::npos,
+                 "...with its sub-scores and the text without the score block");
+        const bool hasLook = std::ranges::find(g_reviewToolsOffered, "scene_list_entities") != g_reviewToolsOffered.end();
+        bool hasEdit = false;
+        for (const char* t : {"scene_spawn", "fs_write", "scene_set_component", "ai_run", "agent_delegate"})
+            hasEdit = hasEdit || std::ranges::find(g_reviewToolsOffered, t) != g_reviewToolsOffered.end();
+        at_check(hasLook && !hasEdit, "the reviewer was offered tools that look, and none that change the project");
+        bool onlyReview = chat().size() >= 2;
+        for (const ChatItem& c : chat())
+            if (c.kind == ChatItem::Kind::User) onlyReview = onlyReview && c.role == "review";
+        at_check(onlyReview, "the review ran in its own tab: nothing was posted as a message to the orchestrator");
+        at_check(aiReviewsShown_, "the AI reviews window opens with the report");
+        at_check(play_state() == PlayState::Edit, "the project stays in edit mode");
+    });
+    snap("editor_ai_review.png");
+    click("ai:review:send");
+    step(2, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return !ai_busy(); };
+    });
+    step(4, [this] {
+        const AiChat& cur = chat_.current();
+        bool sent = false;
+        for (const ChatItem& c : cur.items)
+            sent = sent || (c.kind == ChatItem::Kind::User && c.role != "review" && c.text.find("7.5") != std::string::npos);
+        at_check(sent, "Send to orchestrator posts the report as a user message into an orchestrator chat");
+        at_check(chat_.tabs.size() >= 2, "...in a new tab, because the active one was the review's own");
+        std::error_code ec;
+        stdfs::remove_all(projectDir_ + "/.factoria/ai/reviews", ec);
+        aiReviewDirty_ = true;
+        aiReviewsShown_ = false;
+        aiFactory_ = nullptr;
+        if (atSavedConfig_) {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            aiConfig_ = std::move(*atSavedConfig_);
+            atSavedConfig_.reset();
+        }
+        while (chat_.tabs.size() > 1) chat_.close(0);
+        chat_.clear();
+        focus_window("###Viewport");
+    });
 
     // ----------------------------------------------------------------------- W. Several AI chats at the same time
     section("W");
