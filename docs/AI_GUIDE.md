@@ -1819,6 +1819,23 @@ The same format works with `factoria call --input` and `factoria session --input
 - Results differ between runs: look for `Math.random`, `Date.now`, or timing. Headless runs are deterministic only when those are absent.
 - Tool errors: a tool that throws `ToolError` returns `code` `tool_error`, the `message` and the `hint`. The hint is how to fix the data. Extra `data` appears in the JSON error of `factoria session` and `call --batch`, and as `e.data` on the Error that `fa.call` throws inside a script or test; MCP shows only the code, message and hint, so put the facts a fixer needs in the hint.
 
+### 11.4 REVIEW.md: make the game easy to review
+
+When the user asks for an art critique or a game review (editor AI panel, `factoria ai review`), read-only agents play the
+build in a few minutes and give a score ([AI_PROVIDERS.md](AI_PROVIDERS.md), "Reviews"). They can only look and play, so
+the game must show itself to them. Keep these in place as the game grows:
+
+- **`REVIEW.md` at the project root**, the note they read first. It is never exported. Sections: *How to play* (controls,
+  the goal, what a session looks like), *Status* (what is finished and what is a placeholder, so nobody judges a
+  placeholder as final), *Reach everything fast* (every scene, level and state and how to get there in one step),
+  *Bot-playable flows* (input replays or tests that play the first minutes, a whole level, the ending) and *Known issues*
+  (what not to report again).
+- **Every scene and state reachable in one call**: a boss, the shop, game over or the last level must not need an hour of
+  play. Name the way in REVIEW.md: scene paths for `scene_load`, a project tool in `tools/*.js`, a debug key or cheat
+  action, start-scene props, saved states under `review/`.
+- **Stable screenshots**: a fixed seed, and no random camera shake or fade at the moment a picture is taken.
+- **No debug overlay in normal play**: cheats and debug entry points live behind a key, an action or a tool that REVIEW.md names.
+
 ## 12. Common mistakes
 
 - Reading raw keys in gameplay. Declare an action in `factoria.json` and read the action.

@@ -42,6 +42,7 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 | `data/*.json` | tuning data, imported with `import levels from "../data/levels.json";` (optional) |
 | `assets/` | textures, audio, fonts, models (add only what you really need) |
 | `types/factoria.d.ts` | script API typings (generated: `factoria validate --fix-types`) |
+| `REVIEW.md` | the note the art critics and game reviewers read first (never exported, see below) |
 | `ENGINE_FEEDBACK.json` | engine gaps you found (below) |
 | `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit. Scratch files: `.factoria/tmp/` |
 
@@ -153,6 +154,14 @@ screenshots, and an input replay of their session (`factoria run --headless --in
   `factoria call script.trace '{"points":[{"file":"scripts/player.js","line":17,"watch":["this.body.velocity","dt"]}],"frames":300,"maxHits":20}'`.
   A person debugs the same scripts with breakpoints in VS Code (F5; `factoria setup vscode`). Read `factoria docs read debugging`.
 - Headless runs and tests simulate every frame but draw only for screenshots (fast); `--render-all` draws all.
+
+## Keep the game reviewable
+
+The user can ask for an art critique or a game review: read-only agents play the build and score it. Keep `REVIEW.md`
+(project root, never exported) up to date: how to play (controls, goal), what is finished and what is a placeholder,
+how to reach EVERY scene, level and state in one step (scene paths for `scene_load`, a debug key or project tool, saved
+states in `review/`), replays or tests that play the first minutes, and known issues. Keep screenshots stable (fixed
+seed, no random shake at capture) and debug overlays out of normal play (`factoria docs read ai-guide`, 11.4).
 
 ## Recording engine gaps (IMPORTANT)
 

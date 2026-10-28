@@ -29,6 +29,13 @@ struct CliRunRequest {
     // An MCP endpoint already serving this project (the editor's, fa/mcp/http_server.h): the {mcp_config} file points
     // there, so the CLI's tool calls run on that process's world. Empty = the config starts `factoria mcp --project`.
     std::string mcpUrl;
+    // Tools to switch off, Claude Code names (`--disallowedTools`, appended to the argv of a claude-code provider): its own
+    // sub-agent tools so that it delegates only through ai_run, and for the read-only roles the tools that edit.
+    std::vector<std::string> disallowedTools;
+    // A read-only role (artCritic, reviewer). Claude Code is covered by disallowedTools. Codex (default argv): its read-only
+    // sandbox (`--sandbox read-only`) and the FactorIA MCP server started with `--read-only`, which offers only
+    // is_read_only_tool commands.
+    bool readOnly = false;
     // Called once with the CLI process's pid when it started (ProcessOptions::onStart).
     std::function<void(long long pid)> onStart;
     // Asked after every parsed line with the usage so far (tokens, cost and whether the cost is an estimate); true kills
@@ -57,6 +64,11 @@ struct CliRunResult {
 // A template without {prompt} gets the prompt on standard input (the built-in ones do).
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
                                          const std::string& mcpConfigPath, const std::string& factoriaCommand);
+
+// Adds what `req` restricts to an expanded argv: Claude Code gets `--disallowedTools <comma separated>`; Codex with its
+// built-in argv and a read-only role gets `--sandbox read-only` and `--read-only` for the FactorIA MCP server it starts.
+// Other CLIs are left alone.
+void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv);
 
 // True when the template of this provider (its "argv", else the built-in one) has a {session} placeholder: the CLI can
 // continue an earlier session, so a follow-up message needs only the new task.

@@ -28,6 +28,28 @@ The editor keeps your layout
   and every closed panel came back. View > Reset layout also reopens the default panels. The editor autotest has a section (U)
   that floats, moves, widens and closes panels and checks they survive a reopen and a visit to the welcome screen.
 
+More roles, and reviews that only run when you ask
+
+- Four new AI roles in `ai.json`: `artist` (makes all the art), `audio` (sound, music, buses, mixing), and two read-only ones,
+  `artCritic` and `reviewer`, which look at and play the game and give an opinion with a score from 0 to 10 and sub-scores. A
+  role you do not list follows the provider you already use (a file with only `claude-code` roles keeps all seven on Claude
+  Code, never an API key), and old files keep working. The Roles window, `factoria ai run --role`, `ai.run` and
+  `agent_delegate` know the new names; the orchestrator delegates art to the artist and sound to the audio role.
+- Reviews run only when you ask: the **Art critique** and **Game review** buttons of the AI Assistant (with a count of 1 to 5
+  reviewers, each with a different point of view, and a focus), `factoria ai review art|game` and `ai.review`. The
+  orchestrator cannot start them. Every review is saved in `.factoria/ai/reviews/` with its score, sub-scores and the game and
+  engine version (`factoria ai reviews`, `ai.reviews`), the **AI reviews** window lists them, and **Send to orchestrator**
+  posts a report into an orchestrator chat as your message so it can plan the fixes. Nothing is sent unless you press it.
+- Read-only is enforced: the built-in loop offers a reviewer only tools that look and play, Claude Code runs with
+  `--disallowedTools` for the editing tools and every FactorIA tool that changes something, and Codex with its read-only sandbox
+  and `factoria mcp --read-only` (new: serves only the commands that look and play).
+- A game is easier to review with a `REVIEW.md` (controls, goal, finished versus placeholder, how to reach every scene fast).
+  The reviewers read it first, the AGENTS.md template and the AI guide ask for it, and `factoria export` leaves it out of the
+  build.
+- A Claude Code orchestrator no longer uses Claude Code's own `Agent` and `Task` sub-agents (they ran an unconfigured model
+  outside FactorIA's roles, costs and live view, as seen in Roguestory): FactorIA starts it with them switched off and the
+  prompt says to delegate with `ai_run`.
+
 The AI agent is never silent
 
 - When the editor's AI (Claude Code) hands a task to the worker, the worker's steps now stream into the chat as it works, and the
