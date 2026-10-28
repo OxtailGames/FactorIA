@@ -4,6 +4,19 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Several AI chats at the same time
+
+- The editor's AI panel can run up to 3 chats at once (`limits.maxConcurrentRuns` in `ai.json`, 1 to 8; before, one chat ran
+  and Run was disabled in the others). Each chat has its own progress line, stuck warning, usage and **Stop**; stopping one
+  leaves the others going. Play waits while any of them works, and says which chats.
+- A review (**Art critique**, **Game review**) is one more run: it counts toward that limit and does not stop the other chats.
+- When two chats that run at the same time change the same file (or the open scene), both transcripts get a warning that names the
+  other chat and the file.
+- Each run keeps its own Revert point. Reverting a run that other chats' runs overlapped puts back only the files that run
+  changed and lists the files both changed: **Revert, keep their changes** leaves them, **Revert including those files** takes
+  them back. The commands of several runs share the editor's main thread safely: Stop of one run no longer drops the others'
+  queued commands, and two long commands (`game.step`, `project.test`) no longer overwrite each other's reply.
+
 The AI panel's usage is live
 
 - Tokens and cost in the editor's AI panel grow while the agent works, instead of jumping when it finishes: every model call of

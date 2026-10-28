@@ -6,8 +6,10 @@
 // artCritic or reviewer: those roles can look and play but not change anything (ai/session.h, is_read_only_tool). When a
 // reviewer finishes, ai_review_tick takes its last message, splits off the score, saves it in
 // <project>/.factoria/ai/reviews/ and starts the next one. Nothing is sent to the orchestrator until the user presses
-// "Send to orchestrator".
+// "Send to orchestrator". A reviewer is one run like any chat's: it counts toward limits.maxConcurrentRuns, and the
+// orchestrator's chats go on while it works.
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
@@ -47,8 +49,10 @@ void Editor::ai_review_request(const std::string& kind, int count, const std::st
     }
     ai_sync_chats();
     ai_drain_events();
-    if (ai_busy()) {
-        notify("The assistant is busy: wait for it to finish, or press Stop, then ask for the review.", 1);
+    if (ai_run_count() >= ai_max_runs()) {
+        notify("The assistant is busy: " + std::to_string(ai_run_count()) +
+                   " chats are running, the most the editor runs at once. Wait for one to finish, or press Stop in its tab, then ask for the review.",
+               1);
         return;
     }
     ai::AiConfig cfg;
@@ -84,9 +88,9 @@ void Editor::ai_review_next() {
         ai_review_abort("The review stopped: its chat tab is gone.");
         return;
     }
-    if (aiThread_.joinable()) aiThread_.join();
-    if (!ai_ensure_mcp()) {
-        aiReview_.active = false;
+    std::unique_ptr<AiRun> owned = ai_new_run(*chat);
+    if (!owned) {  // every slot is taken (a chat started meanwhile) or the endpoint cannot start: ai_new_run said why
+        ai_review_abort("");
         return;
     }
     const auto& personas = ai::review_personas(aiReview_.role);
@@ -107,16 +111,20 @@ void Editor::ai_review_next() {
     chat->scrollDown = true;
     chat->run.clear();
 
-    aiRunChat_ = chat->id;
-    aiRunRole_ = aiReview_.role;
-    aiRunExtra_ = ai::persona_prompt(persona, index, aiReview_.count);
-    ai_reset_run_state();
-    ai_launch(ai::review_task(aiReview_.role, aiReview_.focus), {});
+    AiRun& run = *owned;
+    run.role = aiReview_.role;
+    run.extraSystem = ai::persona_prompt(persona, index, aiReview_.count);
+    run.startedAt = static_cast<i64>(std::time(nullptr));
+    run.reset_live(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+    aiReview_.stopped = false;
+    aiTouch_.begin(chat->id);  // no checkpoint: a reviewer changes nothing, so there is nothing to revert
+    aiRuns_.push_back(std::move(owned));
+    ai_launch(run, ai::review_task(aiReview_.role, aiReview_.focus), {});
 }
 
 void Editor::ai_review_tick() {
     if (!aiReview_.active) return;
-    if (aiRunning_.load() || aiDetached_.load() || !aiRunChat_.empty()) return;  // the reviewer is still working
+    if (ai_chat_busy(aiReview_.chatId)) return;  // the reviewer is still working
     AiChat* chat = chat_.find(aiReview_.chatId);
     if (!chat) {
         ai_review_abort("The review stopped: its chat tab is gone.");
@@ -131,7 +139,7 @@ void Editor::ai_review_tick() {
         if (it.kind == ChatItem::Kind::Error) failed = true;
         if (it.kind == ChatItem::Kind::Assistant) finalText = it.text;
     }
-    const bool stopped = aiCancel_.load();
+    const bool stopped = aiReview_.stopped;
     chat->conversation = {};  // the next message in this tab is a normal one, not a continuation of a reviewer's session
     if (stopped || failed || finalText.empty()) {
         const std::string why = stopped ? "The review was stopped." : failed ? "The reviewer failed: see its chat for the reason."
@@ -186,7 +194,7 @@ void Editor::ai_review_tick() {
 }
 
 void Editor::draw_ai_review_row(bool gameRuns) {
-    const bool busy = ai_busy() || aiReview_.active;
+    const bool busy = ai_run_count() >= ai_max_runs() || aiReview_.active;
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("Review:");
     ImGui::SameLine();
@@ -230,8 +238,8 @@ void Editor::draw_ai_review_row(bool gameRuns) {
 void Editor::ai_review_send(const ai::Review& review) {
     ai_sync_chats();
     ai_drain_events();
-    if (ai_busy() || aiReview_.active) {
-        notify("The assistant is busy: send the review when it has finished.", 1);
+    if (aiReview_.active) {
+        notify("The review is still running: send it when it has finished.", 1);
         return;
     }
     if (play_ != PlayState::Edit) {
@@ -312,7 +320,7 @@ void Editor::draw_ai_reviews_window() {
     ImGui::TextWrapped("%s", r.text.c_str());
     ImGui::EndChild();
 
-    const bool busy = ai_busy() || aiReview_.active;
+    const bool busy = aiReview_.active || ai_run_count() >= ai_max_runs() || ai_chat_busy(chat_.current().id);
     const bool gameRuns = play_ != PlayState::Edit;
     ImGui::BeginDisabled(busy || gameRuns);
     if (ImGui::Button("Send to orchestrator")) {

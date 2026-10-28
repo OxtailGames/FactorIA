@@ -65,7 +65,7 @@ if(FA_BUILD_TESTS)
             set(editor_autotest_entries
                 "1:I,J,Q,R,U"
                 "2:S,A,G,H,L,V"
-                "3:B,C,D,M,O,P"
+                "3:B,C,D,M,O,P,W"
                 "4:T,A2,E,F,K,N")
             set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h)
             file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h editor_autotest_rows REGEX "^ *\\{\"[A-Z0-9]+\", ")
