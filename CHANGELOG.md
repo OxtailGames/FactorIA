@@ -32,7 +32,7 @@ Art without an image provider
   providers can make that kind and which cannot (and why), the environment variables that would enable one, and the
   offline commands to use meanwhile. `assets.import` of an `.svg` points to `assets.rasterize_svg`.
 
-Drawing
+Drawing and menus
 
 - `Shape2D` gets rounded corners, soft edges and gradients, one entity each instead of stacks of translucent rectangles: `cornerRadius` (rectangle), `softness` (a blurred edge of that width on a rectangle or circle: drop shadows, vignettes, light pools) and `gradient` (`linear` with `gradientAngle`, or `radial`) from `color` to `color2`, dithered so it does not band. Everything defaults to off and plain shapes draw and batch as before (Roguestory FB-0003).
 - Four more built-in fonts, all SIL OFL: `builtin:serif` (Crimson Text, with real bold, italic and bold italic), `builtin:hand`
@@ -42,6 +42,12 @@ Drawing
   not grow. `[i]...[/i]` joins `[b]` in rich text (italic face from `text.fonts` `"italic"` or the built-in family), and
   `[b]` / `Text.bold` use the built-in families' real bold faces. An unknown `builtin:` name now fails with the list of all of
   them (`docs/TEXT.md`, "Built-in fonts").
+- New `Interactable` component: any entity made of sprites, shapes, text and children is a widget of the same focus, navigation and events
+  as Button, Toggle and Slider, in world space (hit through the camera, following moving, scaled and turning parents) or on the
+  screen. Hover, press, click, focus, arrows and d-pad, `Tab` / `Shift+Tab` (new default actions `ui_next` and `ui_previous`), confirm and cancel,
+  `Panel.modal` scopes, `kind` toggle and slider (with a `knob` and a `fill` entity), and `InteractableVisual` children that show, hide or tint per state with no
+  script. `ui.on` gets `hover`, `blur`, `press` and `release`; `game.click`, `ui.widgetAt`, `ui.rectOf`, `ui.focus`, `ui.state` and
+  `ui.set_slider` find it by id. The recipe is in docs/MENUS.md, "Widgets from your own entities" (Roguestory FB-0006).
 
 Watching the game and reading the docs over MCP
 
@@ -142,12 +148,6 @@ Tests that drive the UI like a player
   count; the call log shows one `stats.add` instead of a `stats.get` and a `stats.set`. A real store still gets a get and a set
   (LL/FB-0502).
 - Larkspur Lodge drops its `tapKey("Space")` calls, its manual layout walk, its music reset and the pause between two saves.
-- New `Interactable` component: any entity made of sprites, shapes, text and children is a widget of the same focus, navigation and events
-  as Button, Toggle and Slider, in world space (hit through the camera, following moving, scaled and turning parents) or on the
-  screen. Hover, press, click, focus, arrows and d-pad, `Tab` / `Shift+Tab` (new default actions `ui_next` and `ui_previous`), confirm and cancel,
-  `Panel.modal` scopes, `kind` toggle and slider (with a `knob` and a `fill` entity), and `InteractableVisual` children that show, hide or tint per state with no
-  script. `ui.on` gets `hover`, `blur`, `press` and `release`; `game.click`, `ui.widgetAt`, `ui.rectOf`, `ui.focus`, `ui.state` and
-  `ui.set_slider` find it by id. The recipe is in docs/MENUS.md, "Widgets from your own entities" (Roguestory FB-0006).
 
 A camera inside the UI, and studio lighting
 
