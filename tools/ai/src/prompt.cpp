@@ -101,6 +101,12 @@ std::string feedback_summary(const fsys::path& root) {
         }
     }
     std::string out = "ENGINE_FEEDBACK.json: " + std::to_string(entries->size()) + " entries, " + std::to_string(open) + " open.\n";
+    if (const std::string arch = read_head(root / "ENGINE_FEEDBACK.archive.json", 1u << 20); !arch.empty()) {
+        Json a = parse(arch);
+        const Json* ae = a.is_discarded() ? nullptr : child(a, "entries");
+        if (ae && ae->is_array() && !ae->empty())
+            out += "(" + std::to_string(ae->size()) + " closed entries are in ENGINE_FEEDBACK.archive.json.)\n";
+    }
     out += titles;
     if (open > 10) out += "- ... and " + std::to_string(open - 10) + " more\n";
     return out;

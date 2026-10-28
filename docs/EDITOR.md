@@ -65,7 +65,7 @@ Profiler stay closed). Two editors open at once share the file: the last one to 
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Project | The project's files: folder tree, filter, search, thumbnails; drag files onto the Inspector and the Viewport ([Project panel](#project-panel)). |
 | Console | The log (each line starts with the computer's local time `HH:MM:SS.mmm`; hover it for the date, the frame and the seconds since start), and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
-| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
+| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. Opening the project moves its closed entries to `ENGINE_FEEDBACK.archive.json`; "Show archive" lists them again and "Archive closed" moves them on demand. |
 | Audio | (View > Audio) the live `audio.log`. |
 | Profiler | (View > Profiler) where the time of a frame goes while the game plays. |
 

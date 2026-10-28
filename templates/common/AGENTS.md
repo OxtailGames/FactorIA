@@ -166,6 +166,10 @@ had a bug and you built a workaround or dropped the feature, record it immediate
   `workaround` (what you did, with `workaroundFiles`), `suggestion` (how the engine could fix it).
 - Reporting the same gap again merges into the existing entry (counts occurrences), so do not
   worry about duplicates. Not reporting is the only wrong choice.
+- `ENGINE_FEEDBACK.json` holds the open entries. Closed ones (fixed-in-engine, wont-fix, duplicate) move to
+  `ENGINE_FEEDBACK.archive.json` next to it when the editor opens the project or `factoria feedback archive` runs
+  (command `feedback.archive`). Do not edit the archive by hand. Reporting a gap that an archived fixed-in-engine entry
+  describes reopens that entry as a possible regression, so report it again if it comes back.
 - Examples worth reporting: a component field you expected is missing; an error message did not
   say how to fix the problem; a doc was wrong or absent; a command you wanted does not exist; a
   crash; slow or flaky headless runs; anything you had to emulate in JS.

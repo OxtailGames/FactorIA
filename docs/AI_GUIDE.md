@@ -102,6 +102,8 @@ Bad example:
 
 It passes the schema and is still useless. The title names no gap, `missing` does not say what was needed, the workaround names no file, and there is no suggestion, so the engine team cannot act on it. Write each entry so that a developer who has never seen your project understands the gap.
 
+`ENGINE_FEEDBACK.json` holds the open entries. Closed ones (`fixed-in-engine`, `wont-fix`, `duplicate`) move to `ENGINE_FEEDBACK.archive.json` next to it when the editor opens the project or `factoria feedback archive` (command `feedback.archive`) runs. Do not edit the archive by hand. Reporting a gap that matches an archived `fixed-in-engine` entry reopens it with a note "reported again ...: regression?". `feedback.list` with `includeArchive` (CLI: `feedback list --archive`) shows the archived entries too.
+
 Without MCP and without the CLI, add an object to the `entries` array of `ENGINE_FEEDBACK.json` by hand. It must match `schemas/engine-feedback.schema.json`, which also requires `id` (`FB-0001`, the next free number), `date`, `occurrences` and `status`. The tools set those for you, so prefer them.
 
 ## 4. Using the MCP tools and the CLI
