@@ -336,7 +336,10 @@ optionally the model and voice, that makes it.
 ```
 
 There is **no default provider**. Generation costs money, so a kind that is not listed is an error that shows the JSON to add
-(and mentions the `fake` provider). Every command also takes `provider` and `model` for one call. Keys come from the
+(and mentions the `fake` provider); the `no_provider` error also lists which configured providers can make that kind
+and which cannot (and why), the environment variables that would enable one, and the offline commands that make something
+without a provider (`assets.generate_texture` and `assets.rasterize_svg` for images, `assets.synth_sound` and
+`assets.generate_loop` for sounds). Every command also takes `provider` and `model` for one call. Keys come from the
 environment, like the LLM keys.
 
 | Provider | Makes | Key (env var) | Endpoints (official docs) |

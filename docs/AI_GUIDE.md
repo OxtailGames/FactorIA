@@ -152,6 +152,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
 | `assets_import`, `assets_slice_sheet` | `assets.import`, `assets.slice_sheet` | Bring a file made elsewhere into `assets/` with its provenance, and make a sprite sheet playable by `SpriteAnimator` (section 9.23). |
+| `assets_generate_texture`, `assets_rasterize_svg` | `assets.generate_texture`, `assets.rasterize_svg` | Art with no image provider: a seeded material (paper, parchment, wood, planks, leather, fabric, stone, noises, gradients, vignette; tileable, with a normal map) and an SVG you write turned into a PNG. Section 9.23, "Art without an image provider". |
 | `assets_draw_icon`, `assets_draw_capsules` | `assets.draw_icon`, `assets.draw_capsules` | Draw the game icon (1024x1024) and the Android adaptive-icon foreground from shapes and text, and the store page images (capsules, heroes, covers) at each store's sizes from key art and a logo, no image provider needed (docs: assets, exporting). |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
 | `project_<name>` | `project.<name>` | Your own tool from `tools/<name>.js`. |
@@ -1326,6 +1327,29 @@ speech: `assets.generate_voice {text, path, voice}`, models: `assets.generate_mo
   writes it as `AI_CONTENT_DISCLOSURE.md`. Fix the "Assets without provenance" list first.
 - **Tests.** A test project uses the `fake` provider, so the check is offline and deterministic.
 
+**Art without an image provider.** When `assets.generate_image` fails with `no_provider`, do not draw pixels by hand and do
+not stop: the error lists which providers can make images and which keys would enable one (tell the user which), and two
+commands make art offline, free, with a provenance record:
+
+```
+assets_generate_texture {"path":"assets/textures/desk.png","preset":"planks","width":1280,"height":720,"seed":4}
+assets_rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M50 6 L90 22 V52 C90 76 70 90 50 96 C30 90 10 76 10 52 V22 Z' fill='#8b1e1e' stroke='#e8c66a' stroke-width='4'/></svg>"}
+```
+
+- **Surfaces** (backgrounds, desks, covers, pages, floors, walls) are `assets_generate_texture`: `preset` is `paper`,
+  `parchment`, `wood`, `planks`, `leather`, `fabric`, `stone`, `value`, `fbm`, `cellular`, `gradient`, `radial` or
+  `vignette`. `color` and `accent` recolour, `scale` and `roughness` tune, `tileable: true` makes it repeat with no seam,
+  `normalMap: true` also writes `<name>_n.png` for lit sprites. Another `seed` is another take.
+- **Subjects** (a crest, a silhouette, an ornament, a map symbol) are shapes you write as SVG for
+  `assets_rasterize_svg`. No text, filters, masks, clip paths, `<use>` or CSS classes (they are drawn as nothing and
+  named in `warnings`); in gradients write coordinates in percent (`x2="100%"`). Keep the SVG in the project
+  (`assets/art/crest.svg`, then `source`) so you can edit it and rasterize again.
+- **Look at the picture** in the result, change one thing and call again with `overwrite: true`. The icon and the store
+  images are `assets_draw_icon` and `assets_draw_capsules`; sounds are `assets_synth_sound`.
+- **Provenance** is recorded: a texture is `original` (not AI); an SVG you wrote counts as AI-made unless you pass
+  `ai: false`. These are plain materials and vector shapes: say so to the user, who may want a real provider (or an
+  artist) for the final art.
+
 **Importing.** A file made elsewhere (downloaded, from an artist, exported from a tool) comes in with `assets.import`
 (MCP tool `assets_import`). It copies or converts the file into `assets/` and records the provenance in `assets.json`:
 
@@ -1339,7 +1363,7 @@ assets_import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"A
 - **Formats.** Aseprite becomes a PNG sheet with its tags as clips, PSD a PNG, OBJ (with its MTL and textures) a `.gltf`,
   FBX a `.glb` (through FBX2glTF or Blender; the error says where to get one), a video (`.mp4`, `.mov`, `.webm`...) an
   `.mpg` (MPEG-1 + MP2, through ffmpeg: `factoria setup ffmpeg`) for the `Video` component. Images, sounds, fonts, GLB and
-  glTF are copied. Not read: `.blend`, WebP, GIF, SVG. The full list is in `docs_read {"name":"assets"}`.
+  glTF are copied. Not read: `.blend`, WebP, GIF, SVG (`assets_rasterize_svg` makes the PNG). The full list is in `docs_read {"name":"assets"}`.
 - **Read `nextSteps` and `warnings`.** They hold the `Sprite` and `SpriteAnimator` fields to use for a sheet (columns,
   rows, first and last frame, fps), the size of a model, and what could not be carried over (ping-pong tags, blend
   modes, a missing texture).

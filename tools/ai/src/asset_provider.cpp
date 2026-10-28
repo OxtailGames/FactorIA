@@ -23,10 +23,76 @@ std::string example_route(MediaKind kind) {
     }
 }
 
+// Why a provider of this kind cannot make assets of `kind`: what it does make instead.
+std::string cannot_reason(const ProviderConfig& p) {
+    switch (p.kind) {
+        case ProviderKind::Anthropic: return "chat only";
+        case ProviderKind::ClaudeCode:
+        case ProviderKind::Codex:
+        case ProviderKind::GenericCli: return "an agent CLI, it writes code and text";
+        case ProviderKind::ElevenLabs: return "makes sound, music and voice";
+        case ProviderKind::Meshy: return "makes 3D models";
+        case ProviderKind::OpenAICompatible: return "makes images and voice";
+        default: return "does not make this";
+    }
+}
+
+// What an asset-only or local provider that can make `kind` needs, for the report.
+std::string readiness(const ProviderConfig& p, const EnvLookup& env) {
+    if (p.kind == ProviderKind::Fake) return "needs no key, but only draws placeholders (a gradient with a shape): replace them before release";
+    if (p.kind == ProviderKind::AssetCommand) return "runs the local program '" + p.command + "', needs no key";
+    const std::string keyEnv = default_key_env(p);
+    if (keyEnv.empty()) return "needs no key (local server at " + p.baseUrl + ", it must be running)";
+    if (resolve_api_key(p, env).found()) return "key found (" + keyEnv + "), ready to use";
+    return "no key: " + keyEnv + " is not set";
+}
+
 }  // namespace
 
+std::string asset_provider_report(const AiConfig& cfg, MediaKind kind, const EnvLookup& env) {
+    const std::string name = media_kind_name(kind);
+    std::string out = "Providers that can make " + name + ":";
+    bool any = false;
+    for (const auto& [pname, p] : cfg.providers) {
+        if (!provider_makes(p.kind, kind)) continue;
+        out += "\n- " + pname + " (" + provider_kind_name(p.kind) + "): " + readiness(p, env);
+        any = true;
+    }
+    if (!any) out += "\n- none is configured";
+    std::vector<std::string> cannot;
+    for (const auto& [pname, p] : cfg.providers) {
+        if (!provider_makes(p.kind, kind)) cannot.push_back(pname + " (" + cannot_reason(p) + ")");
+    }
+    if (!cannot.empty()) out += "\nProviders that cannot make " + name + ": " + fa::join(cannot, ", ") + ".";
+    switch (kind) {
+        case MediaKind::Image:
+            out += "\nTo enable a real image provider, set OPENAI_API_KEY in the environment (the built-in openai provider makes images) and "
+                   "route it: {\"assets\": {\"image\": {\"provider\": \"openai\"}}}; or a local program (ComfyUI, Stable Diffusion) as an "
+                   "asset-command provider. Other OpenAI-compatible providers need their own key (OPENROUTER_API_KEY, GEMINI_API_KEY...) "
+                   "and a provider entry that sets a model that draws images. ai.providers action doctor says which keys are set."
+                   "\nWithout any provider, art still works offline and free: assets.generate_texture makes paper, parchment, wood, planks, "
+                   "leather, fabric, stone, noise, gradients and vignettes (seeded, tileable, optional normal map), and assets.rasterize_svg "
+                   "turns an SVG you write (a crest, an icon, a silhouette, an ornament) into a PNG. assets.draw_icon makes the game icon and "
+                   "assets.draw_capsules the store capsules. See docs/AI_GUIDE.md, \"Art without an image provider\".";
+            break;
+        case MediaKind::Sound:
+        case MediaKind::Music:
+            out += "\nTo enable a real provider, set ELEVENLABS_API_KEY. Offline and free: assets.synth_sound (effects from presets) and "
+                   "assets.generate_loop (seamless noise beds).";
+            break;
+        case MediaKind::Voice:
+            out += "\nTo enable a real provider, set ELEVENLABS_API_KEY or OPENAI_API_KEY.";
+            break;
+        case MediaKind::Model3d:
+            out += "\nTo enable a real provider, set MESHY_API_KEY. Without one, build models from primitives with scene commands, or "
+                   "import a CC0 model (assets.import).";
+            break;
+    }
+    return out;
+}
+
 Result<AssetTarget> resolve_asset_target(const AiConfig& cfg, MediaKind kind, const std::string& providerOverride,
-                                         const std::string& modelOverride, const std::string& voiceOverride) {
+                                         const std::string& modelOverride, const std::string& voiceOverride, const EnvLookup& env) {
     const std::string name = media_kind_name(kind);
     AssetRoute route;
     if (auto it = cfg.assets.find(name); it != cfg.assets.end()) route = it->second;
@@ -41,7 +107,8 @@ Result<AssetTarget> resolve_asset_target(const AiConfig& cfg, MediaKind kind, co
                                    ? " Real voices need a key in the environment: ELEVENLABS_API_KEY for elevenlabs, OPENAI_API_KEY for an openai provider "
                                      "(ai.providers action doctor says which keys are set). To test code that plays voice lines without any provider, pass "
                                      "`silent: true` to assets.generate_voice (a silent WAV of the line's length)."
-                                   : std::string()));
+                                   : std::string()) +
+                              "\n" + asset_provider_report(cfg, kind, env));
     }
     const ProviderConfig* p = cfg.provider(route.provider);
     if (!p) {

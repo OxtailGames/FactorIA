@@ -77,6 +77,8 @@ void register_pack_atlas_command(CommandRegistry& registry, const std::string& p
 void register_draw_icon_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_capsules_command(CommandRegistry& registry, const std::string& projectDir);
 void register_synth_sound_command(CommandRegistry& registry, const std::string& projectDir);
+void register_texture_command(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_texture
+void register_svg_command(CommandRegistry& registry, const std::string& projectDir);      // assets.rasterize_svg
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
 
