@@ -16,7 +16,11 @@ AI panel
 Editor
 
 - FactorIA has its own icon: a factory with an AI brain. It shows in the editor's title bar and taskbar (Windows, Linux),
-  in the macOS Dock while the editor runs, and on `factoria.exe` and `FactorIA-Editor.exe` in Explorer and the Start menu.
+  in the macOS Dock while the editor runs, on `factoria.exe` and `FactorIA-Editor.exe` in Explorer and the Start menu,
+  and on the Linux AppImage.
+- The program is called FactorIA wherever the system names it: the macOS Dock and Cmd+Tab (before: `factoria`, the
+  executable's name), the Windows taskbar and Task Manager (the exes now carry a version resource), and Linux docks
+  (the editor window's `WM_CLASS`, matched by the AppImage's `.desktop` entry).
 - The toolbar's **Select / Move / Rotate / Scale** buttons show only while an entity is selected (Q W E R still switch the
   mode at any time).
 

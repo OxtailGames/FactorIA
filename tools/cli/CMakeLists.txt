@@ -14,20 +14,25 @@ endif()
 add_executable(factoria ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 target_link_libraries(factoria PRIVATE fa_cli fa_warnings)
 
-# Windows: the FactorIA icon in factoria.exe and FactorIA-Editor.exe (windows/factoria.rc). CMake compiles .rc files with
-# rc.exe (MSVC) or windres (MinGW); the include directory is where both look for the .ico.
+# Windows: the FactorIA icon and name (version resource) in factoria.exe and FactorIA-Editor.exe (windows/factoria.rc).
+# CMake compiles .rc files with rc.exe (MSVC) or windres (MinGW); the include directories are where both look for the
+# .ico and the generated factoria_version.h.
 if(WIN32)
     set(fa_cli_rc ${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria.rc)
-    set_source_files_properties(${fa_cli_rc} PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria.ico)
+    set(fa_cli_rc_includes ${CMAKE_CURRENT_SOURCE_DIR}/windows ${CMAKE_CURRENT_BINARY_DIR}/windows)
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria_version.h.in
+                   ${CMAKE_CURRENT_BINARY_DIR}/windows/factoria_version.h @ONLY)
+    set_source_files_properties(${fa_cli_rc} PROPERTIES OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria.ico;${CMAKE_CURRENT_BINARY_DIR}/windows/factoria_version.h")
     target_sources(factoria PRIVATE ${fa_cli_rc})
-    target_include_directories(factoria PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/windows)
+    target_include_directories(factoria PRIVATE ${fa_cli_rc_includes})
 endif()
 
 # Windows: FactorIA-Editor.exe opens the editor without a console window (factoria.exe is a console program).
 # Not "FactorIA.exe": Windows file names ignore case, so it would be factoria.exe.
 if(WIN32 AND TARGET fa_editor)
     add_executable(factoria_editor_launcher WIN32 ${CMAKE_CURRENT_SOURCE_DIR}/launcher/editor_launcher_win32.cpp ${fa_cli_rc})
-    target_include_directories(factoria_editor_launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/windows)
+    target_include_directories(factoria_editor_launcher PRIVATE ${fa_cli_rc_includes})
     set_target_properties(factoria_editor_launcher PROPERTIES OUTPUT_NAME FactorIA-Editor)
     target_link_libraries(factoria_editor_launcher PRIVATE fa_warnings)
     if(MINGW)

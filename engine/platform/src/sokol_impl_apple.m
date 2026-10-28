@@ -200,3 +200,8 @@ bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h) {
     return false;
 #endif
 }
+
+bool fa_sapp_set_class_name(const char* name) {
+    (void)name;  // Linux only: the name of a macOS app comes from its bundle
+    return false;
+}

@@ -459,7 +459,13 @@ The editor's window icon (Windows, Linux) and its macOS Dock icon are the PNGs i
 editor; `factoria.exe` and `FactorIA-Editor.exe` carry the same sizes in `tools/cli/windows/factoria.ico`. They are made from
 the sources in `tools/editor/icon/src/`: the artwork (`factoria_art.png`, 1024 px) for 32 px and up, and a simplified
 drawing (`factoria_small.svg`, rendered to `factoria_small.png`) for 16 and 24 px, where the artwork turns into a blur. After
-changing a source run `python3 tools/editor/icon/make_icons.py` (needs Pillow) and commit what it writes.
+changing a source run `python3 tools/editor/icon/make_icons.py` (needs Pillow) and commit what it writes (it also
+writes the AppImage's `platforms/linux/factoria.png`).
+
+The program's name is FactorIA everywhere the system shows one: the editor renames itself in the macOS Dock (the
+`factoria` executable is not an app bundle, so macOS would show its file name), the Windows exes carry it in their
+version resource (`tools/cli/windows/factoria.rc`), and the editor window's Linux `WM_CLASS` (`AppDesc::appName`) is
+`FactorIA`, as the AppImage's `StartupWMClass`.
 
 The icon of a game is its own (`factoria.json` `icon`, docs/EXPORTING.md), not this one.
 

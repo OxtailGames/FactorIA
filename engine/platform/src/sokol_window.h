@@ -42,6 +42,8 @@ bool fa_sapp_set_vsync(bool on);
 // macOS: shows `rgba` (w x h RGBA8, not premultiplied, row 0 = top) as the Dock icon while the app runs (AppDesc::dockIcon).
 // false: not available here (every other platform: their window icon is sapp_desc.icon).
 bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h);
+// Linux: sets the window's WM_CLASS to `name` (AppDesc::appName). false: not available here.
+bool fa_sapp_set_class_name(const char* name);
 
 #ifdef __cplusplus
 }
