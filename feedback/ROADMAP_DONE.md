@@ -2670,3 +2670,186 @@ the first try failed three ways, each fixed and covered by a test:
   download (today it needs the engine source and the SDKs, docs/MOBILE.md).~~ (`f63632a`, `5055f85`)
 - ~~A Linux AppImage (one file, no tar.gz) and a macOS x86_64 or universal build (the package is Apple Silicon only).~~
   (`fb53f30`)
+
+## M33. Found by the fifth reference game — DONE (the `m33/*` branches)
+
+Planned 2026-10-27 against `8fe80b55` (the top of `m32/reference-game`, itself on the unpushed M29-M31 stack), from the
+triage of Larkspur Lodge's 36 entries (`LL/FB-n`): 2 major, 25 minor, 9 nice-to-have, no blocker.
+- Already supported, docs only: LL/FB-0010 (`world.emit` reaches its listeners at the next `game.step`: SCRIPTING.md,
+  "Timing in a test", says so; the entry is closed with that note); LL/FB-0702's first half (a test calls any command with
+  `fa.call`, SCRIPTING.md; its second half, `ui.check_layout` with panels open, is the rest of TM/FB-0063, M33.8);
+  LL/FB-0803's first half (`display.scaleMode: "expand"` shows more world on a 4:3 screen; the game used `fit`, so the
+  iPad and MOBILE.md docs say to pick `expand` for a tablet, M33.15).
+- Duplicate: LL/FB-0804 is TM/FB-0051 (the players carry their fingerprint since BB/FB-0032; what is missing are Windows
+  and Linux players of a development build), ranked with it.
+- The other 34 are open (two of them half supported already) and become the 15 packages below, ranked by points (occurrences x severity weight) and size.
+
+Each package ships with its doctest or JS test, its docs and the `"unreleased"` rows in `tools/common/api_since.json` for
+the API it adds. When one merges, its entries get a `Fixed in <commit>` note in the bookkeeping branch at the end (`m33/bookkeeping`), and
+Larkspur Lodge drops the workaround it no longer needs (its transparent HUD root Panel, the re-cast loops of its camera
+and porter, the collider it removes for good, its typewriter padding, its hand-written Korean wrapping and `kit.mx`
+mirroring, the U+200F marks in `he.json`, its four-band "hole" for the item view, its `MenuStack.busy` routing, its
+serial id prefixes, its own text-speed row and slot code).
+Order of work: three builds at once at most, a rolling pool. First M33.1, M33.2 and M33.7; then M33.3, M33.4 (after
+M33.3: both change Text layout), M33.6; then the rest in order. M33.5 waits for M33.1 (both touch the UI tree walk).
+
+### M33.1 Widgets under a plain entity, and focus on a disabled widget (S) — LL/FB-0001 (major), 0017, 0703
+
+Done (merge `a7635bda`, `33130077`): `update_drag` skips an ancestor that is not a `UiBox` (the other walks up the UI tree already tolerated one, pinned by the `ui tree` doctest); `ui.focus(entity)` returns a boolean, false and no change for a widget with `interactable: false`, instead of throwing (documented in SCRIPTING.md and `api.json`); a fit Panel inside a `ScrollList` no longer warns "Panel is larger than the screen". Differs from the plan: `ui.focus` used to throw, so tests that expected the throw changed (`16683b96`, among them lantern-keep's `saves.test.js`). Larkspur's HUD prefab lost its transparent root Panel (225 draw calls and 331 entities unchanged).
+
+- `update_drag` (`engine/ui/src/drag.cpp`) walks the parents with `ui_box(w, a)->draggable` and crashes on an ancestor
+  that is not a widget: skip such ancestors, and check every other walk up the UI tree (hit test, scroll, modal, focus,
+  tooltip) for the same assumption.
+- `ui.focus(entity)` on a disabled (`interactable: false`) widget returns false instead of throwing; documented.
+- The "Panel is larger than the screen" warning skips a Panel inside a `ScrollList`.
+- Acceptance: ui doctests with a Button under a plain entity (click, drag, focus, hit test do not crash); a JS test that
+  focuses a disabled Button; no warning for a fit Panel in a ScrollList. Larkspur's transparent HUD root Panel goes.
+
+### M33.2 A glyph atlas that refills its texts (M) — LL/FB-0901 (major)
+
+Done (merge `d7f1facf`, `b2070e42`): the glyph atlas grows 1024, 2048, then 4096 pixels a side and only clears when 4096 is full; a frame that meets a growth or a clear gathers its glyphs again in the same frame, so no text stays blank, and `RenderStats` has `glyphAtlasSize` and `glyphAtlasResets`. The plan said every `Text` is marked dirty and laid out again, or the atlas grows; the engine does the second and, when it must clear, retries the gather in the same frame instead of marking texts dirty. Larkspur walks every screen in every language in one file (`tests/languages.test.js`).
+
+- When the glyph atlas is full and clears, every `Text` is marked dirty and laid out again, so no text stays blank; or
+  the atlas grows to a 4096 page before it clears. A log line says when it clears or grows.
+- Acceptance: a doctest fills the atlas with several scripts' glyphs (Latin, Hangul, Hebrew) and checks that a text set
+  before the clear still draws its glyphs; Larkspur's walk of every screen in every language runs in one test file.
+
+### M33.3 A typewriter reveal and keep-all line breaking (M) — LL/FB-0004, 0902
+
+Done (branch `m33/typewriter`, `ef505773`): `Text.visibleCharacters` (-1 for all) clips the laid-out text by grapheme clusters without laying it out again, so the box keeps its size; `Text.wordBreak` is `auto`, `normal` or `keepAll`. Differs from the plan: the plan had `normal` or `keepAll` with `keepAll` the default for Korean; the shipped default is `auto`, which keeps Hangul words whole and still lets CJK break anywhere. `ui.measureText` has no `wordBreak` option. Larkspur's dialogue box wraps with `Text.maxWidth` and reveals with `visibleCharacters` (no padding, no hand-written wrapping).
+
+- `Text.visibleCharacters` (-1 for all) clips the laid-out text without laying it out again, so a box keeps its size
+  while a line reveals; counted in grapheme clusters, right to left for a right-to-left line.
+- `Text.wordBreak`: `normal` or `keepAll` (Hangul, and CJK when asked, break at spaces only); `keepAll` is the default
+  for Korean.
+- Acceptance: text doctests for the reveal (size unchanged, glyph count) and for Korean breaking at spaces; Larkspur's
+  dialogue box drops its padding and its hand-written wrapping.
+
+### M33.4 Right to left: mirrored layouts and a Text's direction (M, after M33.3) — LL/FB-0903, 0904
+
+Done (branch `m33/rtl`, `ac018ecc`, plus `5ef0895c` for the `CameraView.mirror` docs and test): `ui.mirrorRtl` is a project setting (`factoria.json` `ui.mirrorRtl`, on by default; a script reads and sets it, and the `ui.set_mirror_rtl` command changes it at run time) that flips anchor.x, pivot.x and position.x of the screen-space UI and makes Toggle boxes and Sliders run right to left; `UiBox.mirror: false` opts a widget out; `Text.direction` is `auto`, `ltr` or `rtl` (a Text with a localization key takes the language's direction). Differs from the plan: a `CameraView`'s rectangle is mirrored but its image and u/v are not. Not covered: a screen `Text` or `Sprite` with no parent, the insides of a `TextField`, measuring a text with its direction, and the editor's drag gizmos. Larkspur dropped `kit.mx` and the U+200F marks in `he.json`.
+
+- `ui.mirrorRtl` (project and run time, on by default when `i18n.direction` is `rtl`): anchor.x, pivot.x and position.x
+  flip, and Toggle boxes and Sliders run right to left; a widget opts out with `mirror: false` (a map, a 3D view).
+- `Text.direction`: `auto` (first strong character, today's behaviour), `ltr` or `rtl`; a Text with a localization key
+  takes the language's direction by default.
+- Acceptance: ui doctests of a mirrored screen (positions, Slider value from a click, Toggle box side); a Hebrew line
+  that starts with a key lays out right to left without U+200F. Larkspur drops `kit.mx` and the marks in `he.json`.
+
+### M33.5 A 3D view inside the UI, with studio lighting (L, after M33.1) — LL/FB-0013, 0016, 0014
+
+Done (merge `7f93d492`, `da5c9dc1`): the `CameraView` widget draws a named Camera into an image the size of its rectangle (one extra render pass per view, cached per widget) and samples it as a UI quad one layer up, so the `ScrollList` clip, the layer order and a modal Panel apply as for any widget; `ui.viewPointer` sends down, drag, up and wheel with u, v, dx, dy for turning what it shows; `Camera.lighting: "studio"` with `studioIntensity` replaces the scene's lights, ambient, sky and fog with a camera-relative key, fill and rim; `Camera.viewportSpace` (`screen` or `design`) and the viewport doc say which rectangle the fractions count; `RenderStats.views`. Differs from the plan: only a named camera is a source, there is no render-texture variant. Only Metal ran the render tests, so the GL flip of the offscreen image is untested. Larkspur's item view is a `CameraView` on a studio camera: the four bands, the 0.45 colour factor and the stage lights are gone (budgets unchanged).
+
+- A viewport widget (or `Panel.camera`) that draws a named camera, or a render texture, inside its rectangle, clipped,
+  layered and mirrored like any widget, with pointer events for turning what it shows.
+- Studio lighting for such a view: a Camera option to ignore the scene's ambient and lights and use its own (a preset
+  key, fill and rim), so an item on a stage is lit the same wherever the stage is.
+- Camera.viewport: the docs say which rectangle the fractions count (the window), and a mode that follows the UI design
+  area (LL/FB-0014).
+- Acceptance: render tests of a widget showing a turning mesh (clipped by a ScrollList, under a modal Panel), of the
+  studio preset next to a bright scene; Larkspur's item view drops its four bands and its 0.45 colour factor.
+
+### M33.6 Input routing: a consumed action, text input mode and the wheel under a modal (M) — LL/FB-0008, 0503, 0012
+
+Done (branch `m33/input-routing`, `fe8d492d`, plus `cfdad035` so `action_pressed` and `action_released` copy no bindings when nothing is consumed or typed): `input.consume(action)`; `input.textInputMode` (a focused TextField or the on-screen keyboard turns printable-key actions off); `Panel.wheelPassThrough`. The UI consumes `ui_submit` when it clicks a focused Button or Toggle and `ui_cancel` when a drag takes it or a `ui.on("cancel")` handler returns true; `MenuStack.busy` resets in its constructor, so a scene that went away with it set no longer blocks the next one. Differs from the plan: `wheelPassThrough` is a bool, not a rectangle. Larkspur's `MenuStack.busy` routing is gone, with one consequence for the game: P now opens the pause menu over the journal or a puzzle screen (open question, see ROADMAP.md, M33 "Left open").
+
+- `input.consume(action)`: later readers in the same frame see the action as not pressed; the UI consumes `ui_cancel`
+  and `ui_submit` when a widget handles them, so a pause handler does not also fire.
+- Text input mode: while a TextField (or the on-screen keyboard) has the focus, game actions bound to printable keys
+  read as not pressed; `MenuStack.busy` resets on `scene.load`.
+- `Panel.wheelPassThrough` (or a rectangle) leaves the wheel to scripts under a modal Panel.
+- Acceptance: JS tests: Escape closes a dialog without opening pause; P typed in a TextField does not pause; the wheel
+  reaches a script under a pass-through modal. Larkspur's `MenuStack.busy` routing goes.
+
+### M33.7 Physics: every hit of a ray and colliders turned off (M) — LL/FB-0002, 0003
+
+Done (branch `m33/raycast-all`, `e56afda0`): `physics.raycast3dAll` and `raycast2dAll` return every hit nearest first, one hit per entity, up to `maxHits` (default 32); `Collider3D.enabled` and `Collider2D.enabled` are writable at run time, and a disabled collider is skipped by queries, contacts and the NavMesh bake. Differs from the plan: `enabled` takes effect at the next physics sync, not at once. Larkspur dropped its re-cast loops and `entity.remove('Collider3D')`.
+
+- `physics.raycast3dAll(origin, dir, maxDistance, opts)` (and `raycast2dAll`) returns every hit sorted by distance, up
+  to `maxHits`.
+- `Collider3D.enabled` and `Collider2D.enabled`, writable at run time; a disabled collider is skipped by queries and
+  contacts and kept out of the NavMesh bake.
+- Acceptance: physics doctests (hits in order, `maxHits`, a disabled collider let through and back); Larkspur's re-cast
+  loops and `entity.remove('Collider3D')` go.
+
+### M33.8 Tests that drive the UI like a player (S-M) — LL/FB-0009, 0702 (second half), 0704, 0502
+
+Done (merge `c66eea1b`, `6c596066`): `game.tap(action)` taps the first key or pad button bound to the action, so `game.tap("ui_submit")` presses the focused Button; `ui.check_layout` takes `current: true` and `game.checkLayout()` measures the running scene with the panels a test opened, loading nothing (the rest of TM/FB-0063); `game.resetState()` stops the music (persist included) and the voices (option `audio`, on by default); the fake store applies `stats.add` on the stored value when it serves the request, so two adds in a frame count twice. Differs from the plan: the fake's change made tidewater-market's `trade_ui` test expect the second add too. Larkspur's `tapKey('Space')` calls, its manual layout walk and its music reset are gone.
+
+- `game.tap(action)` goes through the UI like the key or button bound to it: `game.tap("ui_submit")` presses the
+  focused Button (today only `tapKey` and the pad do).
+- `ui.check_layout` measures the current frame, with the panels a test has opened, without reloading the scene (the
+  rest of TM/FB-0063).
+- `game.resetState()` stops the music and the voices.
+- The fake store applies `stats.add` on the stored value when it serves the request, so two adds in a frame count twice.
+- Acceptance: JS tests for each. Larkspur's `tapKey('Space')` calls, its manual layout walk and its music reset go.
+
+### M33.9 Entity and scene lifetime (S) — LL/FB-0015, 0602
+
+Done (branch `m33/lifetime`, `f8e557cd`): `world.entities()` skips an entity destroyed this frame (`find`, `findAll` and `findByTag` already did); `scene.generation` changes on every load, a reload of the same scene too; `Entity.destroy` says when the entity is gone. Differs from the plan: `alive` stays true until the end of the frame, so a script that must not touch a destroyed entity checks `scene.generation` or the lists, not `alive`. Larkspur's serial id prefix and its `porter.alive` check are gone.
+
+- `world.find` and `world.findAll` skip entities destroyed this frame; Entity.destroy says when it is removed.
+- `scene.generation`, a counter that changes on every load (a reload of the same scene too).
+- Acceptance: JS tests; Larkspur's serial id prefixes and its `porter.alive` check go.
+
+### M33.10 Listing data files (S) — LL/FB-0005
+
+Done (merge `5bd8bbf3`, `3010cb32`): the glob import `import tables from "../data/dialogue/*.json"` gives the parsed files as an object keyed by file name, sorted; editing a matched file reloads its importers, the export packs the files and the compiled script reads them from `game.pak`, and `*.json` module typings exist. Differs from the plan: the glob import was chosen over `project.list_files`. A file added while the game runs is seen on the next start. Larkspur's `dialogue_data.js` uses it; its cut-scene data still lists its imports one by one.
+
+- `import tables from "../data/dialogue/*.json"` (a glob import of JSON data, sorted, as an object keyed by file name)
+  or a `project.list_files` command a project tool can call; the export packs what a glob import names.
+- Acceptance: a script test that imports a glob; an export test that the files are packed.
+
+### M33.11 The menu kit: a text-speed row and save slots (M) — LL/FB-0011, 0501
+
+Done (merge `a8bbc5e5`, `99c1e931`, plus `88c6f538` for Larkspur): `textSpeed` is its own kit part (a "Text speed" row in the Options audio tab, `settings.TEXT_SPEEDS`, `settings.revealedCharacters`) and `addOptionsRow()` adds a row of the game to any Options section; the `slots` part has `scripts/slots.js` (record, counter, cloud merge by counter, damaged slots), `scripts/ui/slot_screen.js` with the naming dialog and the on-screen keyboard, and two prefabs. Differs from the plan: the text speed is a part of its own, not a `textSpeed: true` option of the options part. Larkspur moved to the kit's slots (`saves.js` keeps only the lodge's side) but keeps its own Text speed row in `options.js`, which predates the part. 225 draw calls and 331 entities unchanged.
+
+- The options part takes `textSpeed: true` and a documented way to add a game row to a section.
+- A `slots` part of `project.add_menu_kit`: the slot record (name, chapter, play time, picture, counter), the cloud merge
+  by counter, and a slot screen prefab with the on-screen keyboard to name a slot (M19's save slots, made from what
+  Larkspur Lodge and Tidewater Market both wrote by hand).
+- Acceptance: tooling tests of the kit parts; Larkspur moves to the kit's slots and drops `saves.js`'s record code.
+
+### M33.12 Shipping checks: a sandboxed save, long recordings and the iPad (M) — LL/FB-0801, 0802, 0803 (second half)
+
+Done (merge `39864caf`, `f70d5c0e`): the exported player takes `--persist-storage` with `--frames`, `--input`, `--dump-state` and `--screenshot`, so a replay that saves leaves a real file (the ctest `cli_larkspur_ship` plays `tests/replays/save_slot1.json` on the exported Larkspur Lodge and finds `slot1.json`); the iOS player plays an `--input` replay in its window (`FA_INPUT_REPLAY`) and turns the screen (`FA_ORIENTATION`), driven by the new `player.run_ios_sim` command. Differs from the plan: the frames of `--record-video` were already spooled to disk; the memory was the Metal read-back (`readback_metal.mm`) keeping one frame of pixels per capture in an autoreleased command buffer, fixed with an autorelease pool (300 frames at 1.5 scale went from 2440 to 61 MB); the simulator is driven by the command `player.run_ios_sim`, not by `factoria run --ios-sim`. Never run on a real Simulator or iPad (see ROADMAP.md, M33 "Left open"); the command's steps are covered by a `dryRun` test.
+
+- The exported player accepts `--persist-storage` (and `--input` replays) like `factoria run`, so a replay that presses
+  Play and saves leaves a real file in the Mac App Store container.
+- `--record-video` streams its frames to the encoder instead of keeping them in memory.
+- The iOS Simulator: `factoria run --ios-sim` (or a command) plays an `--input` replay on the simulator's player, and
+  sets its orientation.
+- Acceptance: a CLI test of `--persist-storage` on the player; a recording whose memory stays flat; the replay on the
+  simulator where Xcode is installed. Then Larkspur's sandbox save and iPad checks go into ctest.
+
+### M33.13 Audio: voice without a provider, loops and OGG (M) — LL/FB-0601, 0701
+
+Done (merge `d9b5e997`, `3d6850d7`): `assets.generate_voice` names the provider keys (`ELEVENLABS_API_KEY`, `OPENAI_API_KEY`) when it has none and takes `silent: true` for a silent clip of the line's length; `assets.generate_loop` makes seamless seeded noise beds and drones (with `underNote` and `underLevel`); `assets.convert_audio` writes WAV to Ogg Vorbis with an encoder of its own (simple, no stereo coupling; none was vendored). Differs from the plan: there is no search of CC0 packs, because no source offers an API without a key. Larkspur's `make_sound.py` was removed; its sounds are `assets/src/sound/*.json` calls.
+
+- `assets.generate_voice` says which provider keys it needs, and the docs say how to test voice-dependent code without
+  a provider (a silent clip of the line's length).
+- `assets.generate_loop` (a seeded noise bed or drone, seamless) and `assets.convert_audio` (WAV to OGG); a search of
+  CC0 sound packs if a source offers an API.
+- Acceptance: tooling tests; Larkspur's `make_sound.py` goes.
+
+### M33.14 Hangul on the on-screen keyboard (M) — LL/FB-0905
+
+Done (branch `m33/hangul-ime`, `6da44ad9`): the kit keyboard (`scripts/ui/keyboard.js`) has an IME hook per language (`IME[language] = { compose(text, ch), decompose(text) }`, stateless: the state is the text) with Hangul built in: jamo keys, Shift for the doubled jamo, syllable composition and Delete that takes the last jamo away; the kit's slots test types a Korean slot name with the pad. Differs from the plan: the system-keyboard alternative was not done. Larkspur's Korean font subset now keeps the 2350 KS X 1001 syllables (193 to 518 KB).
+
+- An IME hook for the menu kit's on-screen keyboard (a composition callback per language), with Hangul composition
+  built in; or a platform request that opens the system keyboard on pad platforms (the Steam Deck's, M27).
+- Acceptance: a JS test that types a Korean slot name with the pad.
+
+### M33.15 Docs for what is already there (S) — LL/FB-0006, 0007, 0504, 0803 (first half)
+
+Done (merge `2a7d60cb`, `905ee6fa`): a Button's `key` is documented as a translation key; MENUS.md has a picture of screen anchors (Y down) against widget pivots (Y up) and `factoria validate` warns about a screen widget wholly outside the design size; `display.scaleMode: "expand"` for tablets is in MOBILE.md; the timing of `platform.*` is documented and pinned by a test, and `fake.achievements` is documented as listing only the ids touched. Differs from the plan: `platform.*` answers arrive within the call and the promise resolves on the next microtask, one per await of a chain, so the docs were fixed, not the fake. The `expand` camera behaviour was described from the code, not seen on a screen.
+
+- A Button's `key` is a localization key, not a hotkey (COMPONENTS.md and the field's doc string).
+- Screen anchors count Y down and widget pivots Y up: one sentence and a picture in the ui doc, and a `validate` warning
+  for a screen widget wholly outside the design size.
+- When `platform.*` answers arrive (SCRIPTING.md says at once; Larkspur saw the next frames: find which is true and fix
+  the docs or the fake), and that `fake.achievements` lists only the ids touched.
+- `display.scaleMode: "expand"` for tablets (MOBILE.md, the iPad).
+
+Left out of M33: TM/FB-0051 with LL/FB-0804 (Windows and Linux players of a development build need CI artifacts, so a
+GitHub token), TM/FB-0055 (a Timeline component), TM/FB-0003 (an undo helper), all three still open in the ranked list of ROADMAP.md.
