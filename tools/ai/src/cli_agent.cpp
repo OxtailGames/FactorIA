@@ -13,6 +13,55 @@ namespace fa::ai {
 using namespace util;
 namespace fsys = std::filesystem;
 
+namespace {
+#ifdef _WIN32
+constexpr char kPathListSep = ';';
+#else
+constexpr char kPathListSep = ':';
+#endif
+}  // namespace
+
+std::string find_cli(const std::string& command, const EnvLookup& env) {
+    if (std::string onPath = which(command); !onPath.empty() || command.find_first_of("/\\") != std::string::npos) {
+        return onPath;
+    }
+#ifdef _WIN32
+    const std::string home = env("USERPROFILE");
+#else
+    const std::string home = env("HOME");
+#endif
+    std::vector<fsys::path> dirs;
+    if (!home.empty()) {
+        const fsys::path h = home;
+        for (const char* d : {".local/bin", ".claude/local", ".npm-global/bin", ".bun/bin", ".volta/bin", ".yarn/bin"}) {
+            dirs.push_back(h / d);
+        }
+        std::error_code ec;  // nvm: every installed node version, newest name last
+        std::vector<fsys::path> nvm;
+        for (const auto& e : fsys::directory_iterator(h / ".nvm/versions/node", ec)) nvm.push_back(e.path() / "bin");
+        std::sort(nvm.rbegin(), nvm.rend());
+        dirs.insert(dirs.end(), nvm.begin(), nvm.end());
+    }
+#ifdef _WIN32
+    if (const std::string appData = env("APPDATA"); !appData.empty()) dirs.push_back(fsys::path(appData) / "npm");
+#else
+    for (const char* d : {"/opt/homebrew/bin", "/usr/local/bin"}) dirs.push_back(d);
+#endif
+    for (const fsys::path& d : dirs) {
+#ifdef _WIN32
+        for (const char* ext : {".exe", ".cmd", ".bat", ""}) {
+            const fsys::path p = d / (command + ext);
+            std::error_code ec;
+            if (fsys::is_regular_file(p, ec)) return p.string();
+        }
+#else
+        const std::string p = which((d / command).string());
+        if (!p.empty()) return p;
+#endif
+    }
+    return {};
+}
+
 std::string cli_install_hint(const ProviderConfig& cfg) {
     switch (cfg.kind) {
         case ProviderKind::ClaudeCode:
@@ -42,14 +91,20 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
         return make_error("CLI provider '" + cfg.name + "' has no \"command\"",
                           "Set \"command\" and \"argv\" for it in ~/.factoria/ai.json.");
     }
-    std::string exe = which(command);
+    std::string exe = find_cli(command);
     if (exe.empty()) {
         return make_error("'" + command + "' was not found in PATH (provider '" + cfg.name + "')", cli_install_hint(cfg));
     }
     ProcessOptions po;
-    po.argv = {std::move(exe)};
     po.env = cfg.env;
     po.unsetEnv = cfg.unsetEnv;
+    if (which(command).empty() && !po.env.contains("PATH")) {
+        // Found outside PATH: its folder goes first, so a script CLI (npm's `claude` is `#!/usr/bin/env node`) finds the
+        // node installed next to it.
+        const char* path = std::getenv("PATH");
+        po.env["PATH"] = fsys::path(exe).parent_path().string() + kPathListSep + (path ? path : "");
+    }
+    po.argv = {std::move(exe)};
     return po;
 }
 

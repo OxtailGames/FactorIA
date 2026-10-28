@@ -212,9 +212,16 @@ The dropdown starts with `default` (the model setting is left empty: the role's 
 CLI's own for Claude Code, whose real default it shows when you hover it). Each model shows as `Display name  (id)`
 (just the id when the provider gives no name); hover one for its description and, for an alias, the model it stands
 for. **Other...** at the end turns that role's cell into a text box, for a name that is not in the list (clear it, or
-type a listed name, to get the list back). When a provider's list could not be fetched the cell is a text box with the
-reason as its tooltip; fix it (a key, a server that is down) and press **Refresh models**. Changing a role's
-provider resets its model to `default`.
+type a listed name, to get the list back). A provider that is not available on this computer (its CLI is not
+installed, no API key) shows **Provider not available** in the cell, with the reason and how to set it up as its
+tooltip. When an available provider's list could not be fetched the cell is a text box with the reason as its tooltip;
+fix it (a key, a server that is down) and press **Refresh models**. Claude Code's cell is a dropdown even then, with
+the aliases it always accepts (`default`, `opus`, `sonnet`, `haiku`). Changing a role's provider resets its model to
+`default`.
+
+CLI providers are looked up in `PATH` and then in the folders their installers use (`~/.local/bin`, `~/.claude/local`,
+the npm, bun, volta and nvm bins, Homebrew, `%APPDATA%\npm`): an editor opened from Finder or the Dock gets a shorter
+`PATH` than a terminal, and the CLI would otherwise look missing.
 
 The same lists are available to tools and AIs as the read-only command `ai.models {provider?}` (a CLI call, an MCP
 tool `ai_models`):

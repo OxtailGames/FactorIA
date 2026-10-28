@@ -683,10 +683,26 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
             }
             ImGui::TableNextColumn();
             ImGui::SetNextItemWidth(260);
+            const auto rstatus = std::ranges::find(status, r.provider, &ai::ProviderStatus::name);
             const auto listed = models.find(r.provider);
-            if (listed != models.end() && listed->second.error.empty() && !aiRolesTyping_.contains(name)) {
+            const bool listOk = listed != models.end() && listed->second.error.empty();
+            // A provider that could not list its models (Claude Code not installed or not logged in yet) still offers
+            // the ones it always accepts, so picking it never leaves a bare text box.
+            const auto pcfg = cfg.providers.find(r.provider);
+            const std::vector<ai::ModelInfo> fallback =
+                listOk || pcfg == cfg.providers.end() ? std::vector<ai::ModelInfo>{} : ai::fallback_models(pcfg->second.kind);
+            const std::string listError = listed != models.end() ? listed->second.error : std::string();
+            if (rstatus != status.end() && !rstatus->available) {
+                // Nothing to pick from: say why instead of a model box (the role keeps its model for when it is set up).
+                ImGui::BeginDisabled();
+                if (ImGui::BeginCombo("##model", "Provider not available")) ImGui::EndCombo();
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("%s\n%s", rstatus->detail.c_str(), rstatus->hint.c_str());
+                }
+            } else if ((listOk || !fallback.empty()) && !aiRolesTyping_.contains(name)) {
                 // The models the provider offers; "Other..." types one that is not in the list.
-                const std::vector<ai::ModelInfo>& list = listed->second.models;
+                const std::vector<ai::ModelInfo>& list = listOk ? listed->second.models : fallback;
                 const auto current = std::ranges::find(list, r.model, &ai::ModelInfo::id);
                 const std::string preview = r.model.empty() ? "default" : current != list.end() ? model_label(*current) : r.model;
                 if (ImGui::BeginCombo("##model", preview.c_str())) {
@@ -705,11 +721,16 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
                     ImGui::SetItemTooltip("Type a model name that is not in the list.");
                     ImGui::EndCombo();
                 }
+                if (!listOk) {
+                    ImGui::SetItemTooltip("Its models could not be listed, so these are the aliases it always accepts.\n%s",
+                                          listError.empty() ? "Still asking it (Refresh models)." : listError.c_str());
+                }
             } else {
                 ImGui::InputTextWithHint("##model", "default", &r.model);
                 // Typed text that is empty or in the list sends the role back to the list.
-                if (ImGui::IsItemDeactivated() && listed != models.end() && listed->second.error.empty() &&
-                    (r.model.empty() || std::ranges::find(listed->second.models, r.model, &ai::ModelInfo::id) != listed->second.models.end())) {
+                const std::vector<ai::ModelInfo>& back = listOk ? listed->second.models : fallback;
+                if (ImGui::IsItemDeactivated() && (listOk || !fallback.empty()) &&
+                    (r.model.empty() || std::ranges::find(back, r.model, &ai::ModelInfo::id) != back.end())) {
                     aiRolesTyping_.erase(name);
                 }
                 ImGui::SetItemTooltip("Model name for this provider, e.g. opus / sonnet / haiku (Claude Code), claude-sonnet-5-5\n"

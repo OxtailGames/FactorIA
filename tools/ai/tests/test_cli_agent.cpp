@@ -1,8 +1,10 @@
 #include <atomic>
+#include <fstream>
 #include <chrono>
 #include <thread>
 
 #include "fa/ai/cli_agent.h"
+#include "fa/ai/provider.h"
 #include "fa/core/strings.h"
 #include "test_common.h"
 
@@ -11,6 +13,30 @@ using namespace fa::ai;
 using namespace fa::ai::test;
 
 #ifndef _WIN32
+
+TEST_CASE("find_cli: PATH first, then the installers' folders under HOME (a GUI app's PATH lacks them)") {
+    TempDir home;
+    const std::string name = "fa_fake_cli_not_on_path";
+    auto env = fake_env({{"HOME", home.path.string()}});
+    CHECK(find_cli(name, env).empty());
+    const auto bin = home.path / ".local/bin";
+    std::filesystem::create_directories(bin);
+    std::ofstream(bin / name) << "#!/bin/sh\n";
+    CHECK(find_cli(name, env).empty());  // not executable
+    std::filesystem::permissions(bin / name, std::filesystem::perms::owner_all);
+    CHECK(find_cli(name, env) == (bin / name).string());
+    CHECK(find_cli("sh", env) == which("sh"));  // PATH wins
+    CHECK(find_cli("/no/such/" + name, env).empty());  // a path is only checked as given
+}
+
+TEST_CASE("fallback_models: Claude Code's aliases, nothing for other kinds") {
+    auto m = fallback_models(ProviderKind::ClaudeCode);
+    REQUIRE(m.size() == 4);
+    CHECK(m[0].id == "default");
+    CHECK(m[1].id == "opus");
+    CHECK(fallback_models(ProviderKind::Codex).empty());
+    CHECK(fallback_models(ProviderKind::Anthropic).empty());
+}
 
 static std::string script(const char* name) { return std::string(FA_AI_FIXTURES) + "/" + name; }
 
