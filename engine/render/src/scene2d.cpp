@@ -37,6 +37,42 @@ void line_quad(const QuadEmitter& em, Vec2 a, Vec2 b, float t) {
     em.list.quad(v(a + n), v(a - n), v(b - n), v(b + n));
 }
 
+// Rounded rectangle / circle drawn by the SDF shader path (mode kModeShape): corner radius, soft edge, gradient. `cx, cy` is
+// the centre and `hw, hh` the half size in local units. The quad is padded by half the softness: the soft edge fades from
+// inside the outline to that far outside it. Vertex fields: see Vertex2D and the header of shaders/quad.glsl.
+void sdf_shape(QuadEmitter& em, const Shape2D& s, float cx, float cy, float hw, float hh, float radius, float t) {
+    const float soft = std::max(0.0f, s.softness);
+    const float pad = soft * 0.5f;
+    hw = std::max(hw, 1e-3f);
+    hh = std::max(hh, 1e-3f);
+    em.mode = float(kModeShape);
+    if (!s.filled) {
+        em.aux = -2.0f - std::clamp(t, 0.0f, std::min(hw, hh));  // outline of that thickness, growing inward
+    } else if (s.gradient == ShapeGradient::Linear) {
+        float a = std::fmod(radians(s.gradientAngle), kTau);
+        if (a < 0.0f) a += kTau;
+        em.aux = a;
+    } else if (s.gradient == ShapeGradient::Radial) {
+        em.aux = 10.0f;
+    } else {
+        em.aux = -1.0f;
+    }
+    const std::uint32_t c2 = pack_color(s.color2);
+    const std::uint16_t rb = float_to_half_bits(radius), sb = float_to_half_bits(soft);
+    const float ux = (hw + pad) / hw, uy = (hh + pad) / hh;
+    // rect() gives its (x0, y1) corner the uv (u0, v0): v0 is the uv of the top edge, so uv.y grows upwards like local y.
+    const std::size_t first = em.list.raw.size();
+    em.rect(cx - hw - pad, cy - hh - pad, cx + hw + pad, cy + hh + pad, -ux, uy, ux, -uy);
+    for (std::size_t i = first; i < em.list.raw.size(); ++i) {
+        Vertex2D& v = em.list.raw[i];
+        v.color2 = c2;
+        v.halfW = hw;
+        v.halfH = hh;
+        v.radius = rb;
+        v.softness = sb;
+    }
+}
+
 constexpr int kMaxPolygonTips = 64;                      // Shape2D.sides / .points limit
 constexpr int kMaxPolygonVerts = 2 * kMaxPolygonTips;    // a star has a tip and a notch per point
 
@@ -376,9 +412,13 @@ void gather_2d(World& world, Frame& f) {
         float by0 = -s.pivot.y * s.size.y, by1 = by0 + s.size.y;
         float hw = s.size.x * 0.5f, hh = s.size.y * 0.5f;
         float t = std::max(0.0f, s.thickness);
+        // Rounded corners, a soft edge or a gradient go through the SDF shader; plain shapes keep the batched fast path.
+        const bool fx = s.softness > 0.0f || (s.filled && s.gradient != ShapeGradient::None);
         switch (s.shape) {
             case ShapeType::Rectangle:
-                if (s.filled) {
+                if (fx || s.cornerRadius > 0.0f) {
+                    sdf_shape(em, s, bx0 + hw, by0 + hh, hw, hh, std::min(s.cornerRadius, std::min(hw, hh)), t);
+                } else if (s.filled) {
                     em.rect(bx0, by0, bx1, by1, 0, 0, 1, 1);
                 } else {
                     t = std::min(t, std::min(hw, hh));
@@ -391,6 +431,10 @@ void gather_2d(World& world, Frame& f) {
             case ShapeType::Circle: {
                 float r = hw;  // diameter = size.x; the pivot refers to the circle's bounding square
                 float cx = bx0 + r, cy = -s.pivot.y * s.size.x + r;
+                if (fx) {
+                    sdf_shape(em, s, cx, cy, r, r, r, t);
+                    break;
+                }
                 em.mode = float(s.filled ? kModeCircle : kModeRing);
                 em.aux = s.filled ? 0.0f : std::clamp(1.0f - t / std::max(r, 1e-4f), 0.0f, 1.0f);
                 em.rect(cx - r, cy - r, cx + r, cy + r, -1, -1, 1, 1);

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -29,15 +30,31 @@ namespace fa::render {
 // one 32-byte vertex; `mode` selects the fragment path (see shaders/quad.glsl).
 // kModeLit (+1 for a left-handed normal-map frame) is a textured quad shaded by the 2D lights; `aux` is then the angle of
 // the picture's right axis in the world (radians). See set_lit() and shaders/quad.glsl.
-enum QuadMode : int { kModeTextured = 0, kModeCircle = 1, kModeRing = 2, kModeSoft = 3, kModeGlyph = 4, kModeLit = 5 };
+enum QuadMode : int { kModeTextured = 0, kModeCircle = 1, kModeRing = 2, kModeSoft = 3, kModeGlyph = 4, kModeLit = 5, kModeShape = 7 };
 
+// kModeShape (Shape2D rounded rectangle / circle with a soft edge or a gradient) uses the fields after `aux`; every other
+// mode leaves them zero. The `aux` encoding is documented in shaders/quad.glsl.
 struct Vertex2D {
     float x, y, z;
     float u, v;
     std::uint32_t color;  // 0xAABBGGRR
     float mode, aux;
+    std::uint32_t color2 = 0;           // kModeShape: gradient end colour
+    float halfW = 0, halfH = 0;         // kModeShape: half size of the shape's box in local units
+    std::uint16_t radius = 0, softness = 0;  // kModeShape: corner radius and soft edge width in local units, as IEEE half floats
 };
-static_assert(sizeof(Vertex2D) == 32, "Vertex2D must be 32 bytes");
+static_assert(sizeof(Vertex2D) == 48, "Vertex2D must be 48 bytes");
+
+// float -> IEEE binary16 bits (round to nearest, saturating, no NaN/denormal care: shape sizes are finite and >= 0).
+inline std::uint16_t float_to_half_bits(float f) {
+    if (!(f > 0.0f)) return 0;
+    if (f >= 65504.0f) return 0x7BFF;
+    if (f < 6.1035e-5f) return std::uint16_t(f / 5.9604645e-8f + 0.5f);  // subnormal: units of 2^-24
+    int e = 0;
+    const float m = std::frexp(f, &e);  // f = m * 2^e, m in [0.5, 1)
+    const int mant = int(std::lround((m * 2.0f - 1.0f) * 1024.0f));
+    return std::uint16_t(((e + 14) << 10) + mant);  // a mantissa of 1024 carries into the exponent, as it should
+}
 
 // Vertex buffer 0 of every mesh pipeline. Per-instance data (the model matrix) is vertex buffer 1; skinning will add
 // joint indices and weights as a second per-vertex buffer (see Gpu::mesh_pipeline), leaving this struct alone.

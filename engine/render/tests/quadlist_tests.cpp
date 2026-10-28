@@ -105,3 +105,30 @@ TEST_CASE("quadlist: opaque items are drawn without blending, in batches of thei
         CHECK_FALSE(b[1].opaque);
     }
 }
+
+TEST_CASE("float_to_half_bits: IEEE binary16 for the sizes a shape can have") {
+    CHECK(float_to_half_bits(0.0f) == 0);
+    CHECK(float_to_half_bits(-3.0f) == 0);
+    CHECK(float_to_half_bits(1.0f) == 0x3C00);
+    CHECK(float_to_half_bits(2.0f) == 0x4000);
+    CHECK(float_to_half_bits(0.5f) == 0x3800);
+    CHECK(float_to_half_bits(20.0f) == 0x4D00);
+    CHECK(float_to_half_bits(1000.0f) == 0x63D0);
+    CHECK(float_to_half_bits(1e9f) == 0x7BFF);  // saturates instead of becoming infinity
+    CHECK(float_to_half_bits(1.9999f) == 0x4000);  // the mantissa carries into the exponent
+}
+
+TEST_CASE("A shape with rounded corners (mode 7) is not a plain quad and keeps its extra vertex data through flatten") {
+    QuadList l;
+    l.begin_item(0, 0, nullptr, SamplerKind::Nearest, BlendMode::Alpha);
+    Vertex2D v{0, 0, 0, 0, 0, 0xffffffffu, float(kModeShape), -1.0f};
+    v.halfW = 7.0f;
+    l.quad(v, v, v, v);
+    l.end_item();
+    std::vector<Vertex2D> out;
+    std::vector<QuadBatch> batches;
+    l.flatten(out, batches);
+    REQUIRE(batches.size() == 1);
+    CHECK_FALSE(batches[0].plain);
+    CHECK(out[0].halfW == 7.0f);
+}
