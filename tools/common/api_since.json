@@ -741,6 +741,7 @@
     "platform.state": "0.2.0",
     "play.report": "0.1.0",
     "play.sessions": "0.1.0",
+    "player.run_ios_sim": "unreleased",
     "prefab.save": "0.1.0",
     "project.add_menu_kit": "unreleased",
     "project.create": "0.1.0",

@@ -7,6 +7,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
+#include "fa/core/perf.h"
 #include "fa/runtime/engine.h"
 
 using namespace fa;
@@ -203,4 +204,25 @@ TEST_CASE("run_headless: --record-video of a silent run has no audio stream; bad
     o.renderScale = 9;
     CHECK(run_headless(c, o, &report) == 2);
     CHECK(report["error"].get<std::string>().find("scale") != std::string::npos);
+}
+
+TEST_CASE("run_headless: --record-video keeps memory flat (every frame goes to the spool file, none stays in memory)") {
+    // LL/FB-0802: a recording of 1480 frames at 1080p took 4.4 GB, because on macOS every read-back kept its command buffer
+    // (one frame of pixels) alive. 150 frames at 1280x720 are 3.7 MB each: kept, they would add more than 500 MB.
+    Project p("flat", kSilentScene);
+    EngineConfig c = p.config();
+    HeadlessRunOptions o;
+    o.frames = 150;
+    o.renderScale = 4;
+    o.videoOutPath = (p.dir / "flat.avi").generic_string();
+    Json report;
+    // The first frames create the engine's own buffers: measure the growth from the 20th frame on.
+    std::uint64_t at20 = 0, atEnd = 0;
+    o.videoProgress = [&](int written, int) {
+        if (written == 20) at20 = current_memory_bytes();
+        if (written == 150) atEnd = current_memory_bytes();
+    };
+    REQUIRE_MESSAGE(run_headless(c, o, &report) == 0, report.dump());
+    REQUIRE(report["videoFrames"] == 150);
+    if (at20 > 0 && atEnd > 0) CHECK_MESSAGE(atEnd < at20 + 150ull * 1024 * 1024, "memory grew from " << at20 / 1048576 << " to " << atEnd / 1048576 << " MB");
 }
