@@ -24,8 +24,8 @@
       "occurrences": 2,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md.",
-        "Fixed in M33.1: update_drag skips an ancestor that is not a widget (the other walks up the UI tree already tolerated one); doctest 'ui tree' in engine/ui/tests. The HUD prefab lost its transparent Panel."
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 33130077 (M33.1): update_drag skips an ancestor that is not a widget (the other walks up the UI tree already tolerated one); doctest 'ui tree' in engine/ui/tests. The HUD prefab lost its transparent Panel."
       ]
     },
     {
@@ -50,10 +50,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP.md.",
-        "Fixed in M33.7 (branch m33/raycast-all): physics.raycast3dAll / raycast2dAll return every hit nearest first, up to opts.maxHits; the camera and the porter use them."
+        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP_DONE.md.",
+        "Fixed in e56afda0 (M33.7): physics.raycast3dAll / raycast2dAll return every hit nearest first, up to opts.maxHits; the camera and the porter use them."
       ],
-      "engineIssue": "branch m33/raycast-all (M33.7)"
+      "engineIssue": "e56afda0 (M33.7)"
     },
     {
       "id": "FB-0003",
@@ -76,10 +76,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP.md.",
-        "Fixed in M33.7 (branch m33/raycast-all): Collider3D.enabled / Collider2D.enabled, writable at run time; interactable.js now sets enabled = false."
+        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP_DONE.md.",
+        "Fixed in e56afda0 (M33.7): Collider3D.enabled / Collider2D.enabled, writable at run time; interactable.js now sets enabled = false."
       ],
-      "engineIssue": "branch m33/raycast-all (M33.7)"
+      "engineIssue": "e56afda0 (M33.7)"
     },
     {
       "id": "FB-0004",
@@ -102,8 +102,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP.md.",
-        "Fixed in M33.3 (branch m33/typewriter): Text.visibleCharacters (-1 = all) clips the laid-out text by grapheme clusters without laying it out again; scripts/dialogue_view.js no longer wraps by hand or pads the box with blank lines."
+        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP_DONE.md.",
+        "Fixed in ef505773 (M33.3): Text.visibleCharacters (-1 = all) clips the laid-out text by grapheme clusters without laying it out again; scripts/dialogue_view.js no longer wraps by hand or pads the box with blank lines."
       ]
     },
     {
@@ -128,8 +128,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.10 in feedback/ROADMAP.md.",
-        "Fixed in M33.10: import tables from \"../data/dialogue/*.json\" gives the parsed files as an object keyed by file name, sorted; scripts/dialogue_data.js uses it and a new chapter file needs no edit."
+        "2026-10-27 triage: work package M33.10 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 3010cb32 (M33.10): import tables from \"../data/dialogue/*.json\" gives the parsed files as an object keyed by file name, sorted; scripts/dialogue_data.js uses it and a new chapter file needs no edit."
       ]
     },
     {
@@ -154,8 +154,8 @@
       "occurrences": 2,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md.",
-        "Fixed-in M33.15: the doc string of UiControl.key (docs/COMPONENTS.md) says it is a translation key, not a hotkey, and where a key press goes instead (an input action read with input.pressed)."
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 905ee6fa (M33.15): the doc string of UiControl.key (docs/COMPONENTS.md) says it is a translation key, not a hotkey, and where a key press goes instead (an input action read with input.pressed)."
       ]
     },
     {
@@ -180,8 +180,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md.",
-        "Fixed-in M33.15: docs/MENUS.md 'Anchors and pivots' (a picture) and the pivot doc string; factoria validate warns about a scene widget completely outside the design size, with its rectangle and the fix."
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 905ee6fa (M33.15): docs/MENUS.md 'Anchors and pivots' (a picture) and the pivot doc string; factoria validate warns about a scene widget completely outside the design size, with its rectangle and the fix."
       ]
     },
     {
@@ -205,8 +205,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md.",
-        "Fixed in M33.6 (branch m33/input-routing): input.consume(action); a ui.on(\"cancel\") handler that returns true consumes ui_cancel, so \"pause\" does not read the same Escape. The dialogue log and the screens no longer set MenuStack.busy."
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP_DONE.md.",
+        "Fixed in fe8d492d (M33.6): input.consume(action); a ui.on(\"cancel\") handler that returns true consumes ui_cancel, so \"pause\" does not read the same Escape. The dialogue log and the screens no longer set MenuStack.busy."
       ]
     },
     {
@@ -230,8 +230,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md.",
-        "Fixed in M33.8: game.tap(action) taps the first key or pad button bound to the action, so game.tap(\"ui_submit\") presses the focused Button; tests use it for the dialogue and the cut-scene skip (tapKey('Space') calls removed)."
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 6c596066 (M33.8): game.tap(action) taps the first key or pad button bound to the action, so game.tap(\"ui_submit\") presses the focused Button; tests use it for the dialogue and the cut-scene skip (tapKey('Space') calls removed)."
       ]
     },
     {
@@ -281,8 +281,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.11 in feedback/ROADMAP.md.",
-        "Fixed in M33.11: the menu kit part textSpeed adds the Text speed row (settings.TEXT_SPEEDS, settings.revealedCharacters), and addOptionsRow() of scripts/ui/options.js adds a row of the game to any section; docs/MENUS.md, Text speed. Larkspur keeps its own, older Text speed row in its options.js (it predates the part)."
+        "2026-10-27 triage: work package M33.11 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 99c1e931 (M33.11): the menu kit part textSpeed adds the Text speed row (settings.TEXT_SPEEDS, settings.revealedCharacters), and addOptionsRow() of scripts/ui/options.js adds a row of the game to any section; docs/MENUS.md, Text speed. Larkspur keeps its own, older Text speed row in its options.js (it predates the part)."
       ]
     },
     {
@@ -307,8 +307,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.11 in feedback/ROADMAP.md.",
-        "Fixed in M33.11: the menu kit part slots (scripts/slots.js: record, counter, cloud merge by counter, damaged slots; scripts/ui/slot_screen.js with its prefabs and the on-screen keyboard dialog; tests/slots.test.js); docs/MENUS.md, Save slots. Larkspur moved to it: scripts/slots.js, scripts/ui/slot_screen.js and the slots and slot_dialog prefabs are the kit's copies, and scripts/saves.js keeps only the lodge's side (save layout, cannotSave, chapter autosave, launch)."
+        "2026-10-27 triage: work package M33.11 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 99c1e931 (M33.11): the menu kit part slots (scripts/slots.js: record, counter, cloud merge by counter, damaged slots; scripts/ui/slot_screen.js with its prefabs and the on-screen keyboard dialog; tests/slots.test.js); docs/MENUS.md, Save slots. Larkspur moved to it: scripts/slots.js, scripts/ui/slot_screen.js and the slots and slot_dialog prefabs are the kit's copies, and scripts/saves.js keeps only the lodge's side (save layout, cannotSave, chapter autosave, launch)."
       ]
     },
     {
@@ -332,8 +332,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md.",
-        "Fixed in M33.8: The fake store applies stats.add on the stored value when it serves the request, so two adds in one frame count twice; tests/saves.test.js no longer settles between its two saves."
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 6c596066 (M33.8): The fake store applies stats.add on the stored value when it serves the request, so two adds in one frame count twice; tests/saves.test.js no longer settles between its two saves."
       ]
     },
     {
@@ -358,8 +358,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md.",
-        "Fixed in M33.6 (branch m33/input-routing): input.textInputMode (a focused TextField, or the on-screen keyboard) turns printable-key actions off; MenuStack.busy resets when a scene builds a MenuStack. SlotScreen no longer sets busy to type a name."
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP_DONE.md.",
+        "Fixed in fe8d492d (M33.6): input.textInputMode (a focused TextField, or the on-screen keyboard) turns printable-key actions off; MenuStack.busy resets when a scene builds a MenuStack. SlotScreen no longer sets busy to type a name."
       ]
     },
     {
@@ -383,8 +383,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md.",
-        "Fixed-in M33.15: the fake answers inside the call (also from an event handler); the Promise settles in the next microtask, one per await of a chain. docs/PLATFORM.md and SCRIPTING.md say so, a test pins it (test_platform_api.cpp), and fake.achievements is documented as listing only the touched ids."
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 905ee6fa (M33.15): the fake answers inside the call (also from an event handler); the Promise settles in the next microtask, one per await of a chain. docs/PLATFORM.md and SCRIPTING.md say so, a test pins it (test_platform_api.cpp), and fake.achievements is documented as listing only the touched ids."
       ]
     },
     {
@@ -409,8 +409,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md.",
-        "Fixed in M33.6 (branch m33/input-routing): Panel.wheelPassThrough leaves the wheel to scripts under a modal Panel. The inventory item view can read input.mouse.wheel again."
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP_DONE.md.",
+        "Fixed in fe8d492d (M33.6): Panel.wheelPassThrough leaves the wheel to scripts under a modal Panel. The inventory item view can read input.mouse.wheel again."
       ]
     },
     {
@@ -434,8 +434,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md.",
-        "Fixed in M33.5: the CameraView widget draws a named camera inside its rectangle (clipped, layered, modal-aware) and sends ui.viewPointer; docs/MENUS.md, 'A camera inside the UI'. screens.js lost its four bands. Only named cameras: a render texture as the source is not built."
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP_DONE.md.",
+        "Fixed in da5c9dc1 (M33.5): the CameraView widget draws a named camera inside its rectangle (clipped, layered, modal-aware) and sends ui.viewPointer; docs/MENUS.md, 'A camera inside the UI'. screens.js lost its four bands. Only named cameras: a render texture as the source is not built."
       ]
     },
     {
@@ -459,8 +459,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md.",
-        "Fixed in M33.5: the Camera.viewport doc says the fractions count the game target (the design resolution grown by Expand), and Camera.viewportSpace 'design' counts them on the design area. A CameraView needs no viewport at all."
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP_DONE.md.",
+        "Fixed in da5c9dc1 (M33.5): the Camera.viewport doc says the fractions count the game target (the design resolution grown by Expand), and Camera.viewportSpace 'design' counts them on the design area. A CameraView needs no viewport at all."
       ]
     },
     {
@@ -484,10 +484,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.9 in feedback/ROADMAP.md.",
-        "Fixed in M33.9 (branch m33/lifetime): world.find/findAll/findByTag already skipped a destroyed entity, world.entities() now does too; Entity.destroy says when the entity is gone; scripts/screens.js lost its serial id prefix."
+        "2026-10-27 triage: work package M33.9 in feedback/ROADMAP_DONE.md.",
+        "Fixed in f8e557cd (M33.9): world.find/findAll/findByTag already skipped a destroyed entity, world.entities() now does too; Entity.destroy says when the entity is gone; scripts/screens.js lost its serial id prefix."
       ],
-      "engineIssue": "branch m33/lifetime (M33.9)"
+      "engineIssue": "f8e557cd (M33.9)"
     },
     {
       "id": "FB-0016",
@@ -510,8 +510,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md.",
-        "Fixed in M33.5: Camera.lighting 'studio' (with studioIntensity) ignores the scene's lights and ambient and lights with its own key, fill and rim. screens.js lost its two stage lights and its 0.45 colour factor."
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP_DONE.md.",
+        "Fixed in da5c9dc1 (M33.5): Camera.lighting 'studio' (with studioIntensity) ignores the scene's lights and ambient and lights with its own key, fill and rim. screens.js lost its two stage lights and its 0.45 colour factor."
       ]
     },
     {
@@ -535,8 +535,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md.",
-        "Fixed in M33.1: ui.focus returns true, and false (changing nothing) for a widget with interactable false; documented in SCRIPTING.md and api.json; test in engine/runtime/tests/ui_tests.cpp."
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 33130077 (M33.1): ui.focus returns true, and false (changing nothing) for a widget with interactable false; documented in SCRIPTING.md and api.json; test in engine/runtime/tests/ui_tests.cpp."
       ]
     },
     {
@@ -562,10 +562,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP.md.",
-        "Fixed in M33.13 (branch m33/audio-voice): the no-provider error names ELEVENLABS_API_KEY and OPENAI_API_KEY, and assets.generate_voice {silent: true} writes a silent clip of the line's length (docs/ASSETS.md, Voice without a provider)."
+        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 3d6850d7 (M33.13): the no-provider error names ELEVENLABS_API_KEY and OPENAI_API_KEY, and assets.generate_voice {silent: true} writes a silent clip of the line's length (docs/ASSETS.md, Voice without a provider)."
       ],
-      "engineIssue": "branch m33/audio-voice (M33.13)"
+      "engineIssue": "3d6850d7 (M33.13)"
     },
     {
       "id": "FB-0602",
@@ -588,10 +588,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.9 in feedback/ROADMAP.md.",
-        "Fixed in M33.9 (branch m33/lifetime): scene.generation changes on every load; scripts/cutscene.js and cutscene_view.js compare it and the porter.alive check is gone."
+        "2026-10-27 triage: work package M33.9 in feedback/ROADMAP_DONE.md.",
+        "Fixed in f8e557cd (M33.9): scene.generation changes on every load; scripts/cutscene.js and cutscene_view.js compare it and the porter.alive check is gone."
       ],
-      "engineIssue": "branch m33/lifetime (M33.9)"
+      "engineIssue": "f8e557cd (M33.9)"
     },
     {
       "id": "FB-0701",
@@ -615,10 +615,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP.md.",
-        "Fixed in M33.13 (branch m33/audio-voice): assets.generate_loop (seeded noise beds and drones) and assets.convert_audio (WAV to Ogg Vorbis, own encoder). assets/src/make_sound.py is gone; the calls are assets/src/sound/*.json. No CC0 pack search: no source offers an API without a key."
+        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 3d6850d7 (M33.13): assets.generate_loop (seeded noise beds and drones) and assets.convert_audio (WAV to Ogg Vorbis, own encoder). assets/src/make_sound.py is gone; the calls are assets/src/sound/*.json. No CC0 pack search: no source offers an API without a key."
       ],
-      "engineIssue": "branch m33/audio-voice (M33.13)"
+      "engineIssue": "3d6850d7 (M33.13)"
     },
     {
       "id": "FB-0702",
@@ -641,8 +641,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md. Its first half is already supported: a test calls any command with fa.call (SCRIPTING.md); the package makes ui.check_layout measure the current frame with open panels (the rest of TM/FB-0063).",
-        "Fixed in M33.8: game.checkLayout() (ui.check_layout with current: true) measures the running scene with the panels a test opened, without reloading; tests/options.test.js uses it instead of its manual walk."
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP_DONE.md. Its first half is already supported: a test calls any command with fa.call (SCRIPTING.md); the package makes ui.check_layout measure the current frame with open panels (the rest of TM/FB-0063).",
+        "Fixed in 6c596066 (M33.8): game.checkLayout() (ui.check_layout with current: true) measures the running scene with the panels a test opened, without reloading; tests/options.test.js uses it instead of its manual walk."
       ]
     },
     {
@@ -666,8 +666,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP.md.",
-        "Fixed in M33.1: no 'Panel is larger than the screen' warning for a Panel inside a ScrollList; doctest in engine/ui/tests."
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 33130077 (M33.1): no 'Panel is larger than the screen' warning for a Panel inside a ScrollList; doctest in engine/ui/tests."
       ]
     },
     {
@@ -692,8 +692,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md.",
-        "Fixed in M33.8: game.resetState() stops the music (persist included) and the voices (option audio, on by default); scripts/sound.js asks the audio module whether a track plays instead of keeping session.musicTrack, and the tests' manual music reset is gone."
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 6c596066 (M33.8): game.resetState() stops the music (persist included) and the voices (option audio, on by default); scripts/sound.js asks the audio module whether a track plays instead of keeping session.musicTrack, and the tests' manual music reset is gone."
       ]
     },
     {
@@ -717,10 +717,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md.",
-        "Fixed in M33.12 (branch m33/ship-checks): factoria_player takes --persist-storage with --frames/--input/--dump-state/--screenshot; tools/cli/tests/player_replay_test.py checks the save file and tools/cli/tests/larkspur_ship_test.py (ctest cli_larkspur_ship) plays tests/replays/save_slot1.json on the exported Larkspur Lodge and finds slot1.json. Inside the signed sandbox container itself it was not run (that needs the by-hand step of SHIPPING.md section 4, or the same command from the sandboxed app)."
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP_DONE.md.",
+        "Fixed in f70d5c0e (M33.12): factoria_player takes --persist-storage with --frames/--input/--dump-state/--screenshot; tools/cli/tests/player_replay_test.py checks the save file and tools/cli/tests/larkspur_ship_test.py (ctest cli_larkspur_ship) plays tests/replays/save_slot1.json on the exported Larkspur Lodge and finds slot1.json. Inside the signed sandbox container itself it was not run (that needs the by-hand step of SHIPPING.md section 4, or the same command from the sandboxed app)."
       ],
-      "engineIssue": "branch m33/ship-checks (M33.12)"
+      "engineIssue": "f70d5c0e (M33.12)"
     },
     {
       "id": "FB-0802",
@@ -743,10 +743,10 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md.",
-        "Fixed in M33.12 (branch m33/ship-checks): the frames were already spooled to disk by AviWriter; the memory was the Metal read-back (engine/render/src/readback_metal.mm) keeping its autoreleased command buffer, one frame of pixels, until the process ended. It now has its own autorelease pool; video_tests.cpp 'keeps memory flat' fails without the fix (113 -> 572 MB) and passes with it, and 300 frames at 1.5 scale went from 2.4 GB to 61 MB."
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP_DONE.md.",
+        "Fixed in f70d5c0e (M33.12): the frames were already spooled to disk by AviWriter; the memory was the Metal read-back (engine/render/src/readback_metal.mm) keeping its autoreleased command buffer, one frame of pixels, until the process ended. It now has its own autorelease pool; video_tests.cpp 'keeps memory flat' fails without the fix (113 -> 572 MB) and passes with it, and 300 frames at 1.5 scale went from 2.4 GB to 61 MB."
       ],
-      "engineIssue": "branch m33/ship-checks (M33.12)"
+      "engineIssue": "f70d5c0e (M33.12)"
     },
     {
       "id": "FB-0803",
@@ -769,9 +769,9 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md. Its first half is already supported: display.scaleMode \"expand\" shows more world on a 4:3 screen (the game uses \"fit\"); M33.15 documents it for tablets, M33.12 takes the simulator input.",
-        "Second half fixed in M33.12 (branch m33/ship-checks): the iOS player plays an --input replay in its window (FA_INPUT_REPLAY) and turns the screen (FA_ORIENTATION), and the command player.run_ios_sim drives a Simulator build with them and takes a screenshot (docs/MOBILE.md, 'Play a replay on the Simulator'). Not run on a Simulator or an iPad in this task: it needs a Simulator build of the player; the command's steps are covered by a dryRun test and the player's windowed replay was checked on the desktop.",
-        "First half fixed-in M33.15: docs/MOBILE.md 'Tablets and the iPad' documents display.scaleMode \"expand\" for 4:3 screens."
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP_DONE.md. Its first half is already supported: display.scaleMode \"expand\" shows more world on a 4:3 screen (the game uses \"fit\"); M33.15 documents it for tablets, M33.12 takes the simulator input.",
+        "Fixed in f70d5c0e (M33.12) (second half): the iOS player plays an --input replay in its window (FA_INPUT_REPLAY) and turns the screen (FA_ORIENTATION), and the command player.run_ios_sim drives a Simulator build with them and takes a screenshot (docs/MOBILE.md, 'Play a replay on the Simulator'). Not run on a Simulator or an iPad in this task: it needs a Simulator build of the player; the command's steps are covered by a dryRun test and the player's windowed replay was checked on the desktop.",
+        "Fixed in 905ee6fa (M33.15) (first half): docs/MOBILE.md 'Tablets and the iPad' documents display.scaleMode \"expand\" for 4:3 screens."
       ]
     },
     {
@@ -816,7 +816,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.2 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.2 in feedback/ROADMAP_DONE.md.",
+        "Fixed in b2070e42 (M33.2): the glyph atlas grows 1024 -> 2048 -> 4096 and, only when 4096 is full, clears; a frame that meets a growth or a clear gathers its glyphs again in the same frame, so no text stays blank (RenderStats.glyphAtlasSize and glyphAtlasResets). tests/languages.test.js walks every screen in every language in one file."
       ]
     },
     {
@@ -841,8 +842,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP.md.",
-        "Fixed in M33.3 (branch m33/typewriter): Text.wordBreak (auto, normal, keepAll); auto keeps Korean words whole, so the dialogue box wraps with Text.maxWidth."
+        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP_DONE.md.",
+        "Fixed in ef505773 (M33.3): Text.wordBreak (auto, normal, keepAll); auto keeps Korean words whole, so the dialogue box wraps with Text.maxWidth."
       ]
     },
     {
@@ -867,8 +868,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.4 in feedback/ROADMAP.md.",
-        "Fixed in M33.4 (branch m33/rtl): ui.mirrorRtl (factoria.json ui.mirrorRtl, ui.mirrorRtl in scripts, ui.set_mirror_rtl; on by default) mirrors the screen-space UI in a right-to-left language: anchor.x, pivot.x and position.x flip, Toggle boxes and Sliders run right to left, UiBox.mirror false opts a widget out. kit.mx is gone."
+        "2026-10-27 triage: work package M33.4 in feedback/ROADMAP_DONE.md.",
+        "Fixed in ac018ecc (M33.4): ui.mirrorRtl (factoria.json ui.mirrorRtl, ui.mirrorRtl in scripts, ui.set_mirror_rtl; on by default) mirrors the screen-space UI in a right-to-left language: anchor.x, pivot.x and position.x flip, Toggle boxes and Sliders run right to left, UiBox.mirror false opts a widget out. kit.mx is gone."
       ]
     },
     {
@@ -892,8 +893,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.4 in feedback/ROADMAP.md.",
-        "Fixed in M33.4 (branch m33/rtl): Text.direction (auto, ltr, rtl); auto with a localization key is the language's direction. The hints are labels with direction rtl, the prompt Text gets it from the HUD and the Skip button has a key; he.json has no U+200F."
+        "2026-10-27 triage: work package M33.4 in feedback/ROADMAP_DONE.md.",
+        "Fixed in ac018ecc (M33.4): Text.direction (auto, ltr, rtl); auto with a localization key is the language's direction. The hints are labels with direction rtl, the prompt Text gets it from the HUD and the Skip button has a key; he.json has no U+200F."
       ]
     },
     {
@@ -917,8 +918,8 @@
       "occurrences": 1,
       "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.14 in feedback/ROADMAP.md.",
-        "Fixed in M33.14 (branch m33/hangul-ime): the menu kit's scripts/ui/keyboard.js has an IME hook (IME[language] = { compose(text, ch), decompose(text) }) with Hangul built in: Korean keys are jamo (Shift: the doubled ones), jamo make syllables and Delete takes the last jamo away. tests/slots.test.js of the kit types a Korean slot name with the pad. Larkspur's keyboard.js is the kit's plus the Hebrew layout, and build_fonts.py keeps the jamo and the 2350 KS X 1001 syllables."
+        "2026-10-27 triage: work package M33.14 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 6da44ad9 (M33.14): the menu kit's scripts/ui/keyboard.js has an IME hook (IME[language] = { compose(text, ch), decompose(text) }) with Hangul built in: Korean keys are jamo (Shift: the doubled ones), jamo make syllables and Delete takes the last jamo away. tests/slots.test.js of the kit types a Korean slot name with the pad. Larkspur's keyboard.js is the kit's plus the Hebrew layout, and build_fonts.py keeps the jamo and the 2350 KS X 1001 syllables."
       ]
     }
   ]
