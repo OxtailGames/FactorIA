@@ -2853,3 +2853,57 @@ Done (branch `m33/docs-existing`, merge `2a7d60cb`, `905ee6fa`): a Button's `key
 
 Left out of M33: TM/FB-0051 with LL/FB-0804 (Windows and Linux players of a development build need CI artifacts, so a
 GitHub token), TM/FB-0055 (a Timeline component), TM/FB-0003 (an undo helper), all three still open in the ranked list of ROADMAP.md.
+
+## M34. Found by the user's own game, Roguestory — DONE (the `m34/*` branches)
+
+Planned 2026-10-28 against `f29ada6a` (on `release-0.3.0`), from Roguestory's first session: its 6 entries (`RS/FB-n`, 1 major,
+5 minor) and what its user saw: no wall-clock time in the console, and an orchestrator that delegated to its worker, said it
+would report later, and stayed silent until Claude Code dropped the call after 5 minutes.
+
+### M34.1 Wall-clock time on log lines (S) — the user
+
+Done (merge `ad8d4173`): every `LogEntry` carries `wallMs`; the editor Console starts each line with `HH:MM:SS.mmm` (the
+tooltip has the date, the frame and the seconds since start), `game.logs` and `newWarnings` give `wallTime` (ISO 8601), and the
+text and JSON stderr formats show it. The state dump's `recentLogs` stays without it, so dumps stay reproducible.
+
+### M34.2 The AI agent is never silent (L) — the user
+
+Done (merge `d893e2f8`): the MCP server sends `notifications/progress` with a heartbeat over stdio and the editor's HTTP
+endpoint, which resets Claude Code's inactivity timeout; `factoria new` writes a four-hour `timeout` into `.mcp.json`. The
+editor's AI panel streams the worker's steps, shows the run time and the last activity, warns after `limits.stuckAfterSeconds`
+(180) with **Stop** and **Check activity** (process, CPU, tool in flight, child processes, recent file changes), stops a run
+whose CLI process died, and when the orchestrator's turn ends before its worker it shows the worker's progress and continues
+the orchestrator once with the report. `factoria ai run` prints `  | worker > ...` lines and `.factoria/ai/progress.log`.
+
+### M34.3 Clicking like a player, docs that fit (S-M) — RS/FB-0004, 0005
+
+Done (merge `1cb87439`): `game.click` by widget `id`, screen `position` or `world` point (move, press, a frame, release, a
+frame); `docs.read` cuts at `maxBytes` (40000) with `contents`, `next` and `heading`; `docs.components` and `docs.commands`
+list one-line summaries unless given `name`, `filter` or `full`. RS/FB-0004 was not reproduced in the engine: `game.click` is
+the documented recipe.
+
+### M34.4 Shape2D corners, softness and gradients (M) — RS/FB-0003
+
+Done (merge `c7099ba3`): `cornerRadius`, `softness`, `gradient` (`linear` with `gradientAngle`, `radial`) and `color2`, through
+an SDF mode of the quad shader, dithered; plain shapes draw and batch as before. The 2D vertex grew from 32 to 48 bytes.
+
+### M34.5 Bundled fonts (M) — RS/FB-0002
+
+Done (merge `86ba8ed3`): `builtin:serif` (Crimson Text), `builtin:hand` (Kalam), `builtin:blackletter` (UnifrakturMaguntia)
+and `builtin:display` (IM Fell English), SIL OFL, with real bold and italic faces where the family has them; `[i]` in rich text
+and `text.fonts` `"italic"`. The fonts are files of the tools, not of the player: an export copies the families a game names to
+`builtin-fonts/` with their licenses.
+
+### M34.6 Art without an image provider (M) — RS/FB-0001
+
+Done (merge `c01d5ca9`): `assets.generate_texture` (paper, parchment, wood, planks, leather, fabric, stone, noises,
+gradients, vignette; seeded, tileable, normal maps; CC0 provenance) and `assets.rasterize_svg` (vendored nanosvg, zlib); the
+`no_provider` error lists which providers could make the kind, the keys that would enable one and the offline commands.
+Differs from the plan: the commands live in the tooling, next to `synth_sound` and `draw_icon`, so they work without the AI layer.
+
+### M34.7 Widgets from your own entities (L) — RS/FB-0006
+
+Done (merge `5734b287`): the `Interactable` component (`kind` button, toggle or slider with `knob` and `fill`) makes any
+entity composition a widget of the same focus, navigation, events and modal scopes as Button, in world space (hit through the
+camera, following moving parents) or on the screen; `InteractableVisual` children show, hide or tint per state; `ui_next` and
+`ui_previous` (Tab, Shift+Tab) are new default actions; `ui.on` gets `hover`, `blur`, `press` and `release`.

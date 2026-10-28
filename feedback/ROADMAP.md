@@ -40,6 +40,10 @@ supported already, and the 34 open ones became the 15 packages of M33 (planned 2
 all of them (each entry is `fixed-in-engine` with a `Fixed in <commit>` note; LL/FB-0010 was documented already and
 LL/FB-0804 is a duplicate of TM/FB-0051), so no Larkspur Lodge entry is open. Three of M32's acceptance criteria are only
 partly met (M32, "Left open"); M33 closed what it could of them (M33, "Left open" lists what is still unseen).
+Roguestory (the user's own game, not a reference example: a 2D roguelike inside a hand-drawn book, 2026-10-28) reported
+6 entries (1 major, 5 minor), and its first session showed three gaps of its own: the console had no wall-clock time, and a
+delegated agent was silent for minutes, then cut off by Claude Code's 5-minute tool timeout. M34 (built 2026-10-28) fixed
+all of them; Roguestory's entries are `fixed-in-engine` with a `Fixed in` note.
 What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
 milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
 respect.
@@ -1131,6 +1135,29 @@ Left open:
 Next: no feature is planned. The next milestone is whatever the next reference game or the store accounts ask for; what is
 left of M12, M19 (WebSocket) and M23 (consoles) waits for a game that needs it, and the manual checks that need real stores,
 devices and operating systems (M8, M9, M12, the lists above) need hardware this machine does not have.
+
+## M34. Found by the user's own game, Roguestory (S-L each, high; 6 entries and the agent's silence) — DONE (the `m34/*` branches)
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M34 (M34.1-M34.7): wall-clock time on every log line, live progress of
+delegated agents with a stuck check, `game.click` and docs that fit an MCP result, `Shape2D` corners, softness and
+gradients, four bundled OFL font families with real bold and italic, `assets.generate_texture` and `assets.rasterize_svg`,
+and the `Interactable` component (any entity composition is a widget, in world or screen space).
+
+Left open:
+- M34.2 was run with a fake CLI and HTTP requests, not with the real Claude Code inside the editor on a long delegation, and
+  not on Windows. Projects made before M34 need `"timeout": 14400000` in their `.mcp.json` (the examples' files too).
+- M34.4: the 2D vertex grew from 32 to 48 bytes (HALF2 attributes); only Metal ran, so the GL and D3D11 backends and CI's
+  CPU time and memory budgets are unseen.
+- M34.5: the export finds a built-in font only when its name is written literally; `game.notices()` does not list the fonts
+  copied on demand; the web player was not measured (no emscripten here).
+- M34.6: textures are reproducible per factoria build, not bit-exact across platforms; the wood and leather presets read
+  as materials but are plain.
+- M34.7: no tooltips on an Interactable; a slider drag is approximate under strong perspective; Roguestory still has
+  `scripts/ink_ui.js` until it moves to `Interactable`.
+- Everything: GitHub is suspended, so no CI ran on M34; Windows, Linux, Android and web were never compiled here.
+- The full ctest on the Mac (Debug) passes except the bot playthroughs of clockwork-courier (rooftops_3) and
+  tidewater-market (scenarios) when the machine is loaded: they take 24-56 s against the 60 s per-test limit, the same
+  with the engine from before M34. Give those tests more room or a lighter bot before CI runs them on slow runners.
 
 ## Out of scope: Roblox
 
