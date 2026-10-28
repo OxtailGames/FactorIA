@@ -562,6 +562,57 @@ ui.on("chartHover", "coins_chart", (e) => {              // e.index: -1 when the
   it does not reach the world. `game.mouseMove([x, y])` and one `game.step()` hover it in a test; a chart is also listed in
   `ui.state` as kind `Chart`.
 
+## A camera inside the UI
+
+A `CameraView` draws a `Camera` inside its rectangle: an item turning on a stage in an inventory, a character portrait, a
+minimap of a 3D level, a small second view of the world. It is a widget like a Panel (`size`, `anchor`, `pivot`, `layer`,
+`color` as the background, a child of a Panel or a ScrollList), so the picture is clipped by a ScrollList and is covered by
+a modal Panel or a Button with a higher layer, with no hole to leave in the page. The camera is drawn into an image the size of the rectangle (so its aspect follows the
+rectangle, whatever `Camera.viewport` says), before the frame's UI, and the UI then draws that image in the rectangle at
+`layer` + 1 (the background is at `layer`: a widget meant to sit on the picture needs a layer of at least `layer` + 2).
+
+```json
+{ "id": "item_stage", "components": {
+    "Transform": { "position": [0, 300, 4] },
+    "Camera": { "projection": "perspective", "fov": 35, "primary": false, "lighting": "studio", "clearColor": [0.09, 0.1, 0.15, 1] } } }
+{ "id": "item_view", "components": {
+    "CameraView": { "camera": "item_stage", "size": [400, 360], "layer": 305 } } }
+```
+
+```js
+const spin = { yaw: 0 };
+ui.on("viewPointer", "item_view", (e) => {               // e.phase: "down" | "drag" | "up" | "wheel"
+  if (e.phase === "drag") spin.yaw += e.dx * 0.7;        // e.dx, e.dy: pixels moved since the last event
+  if (e.phase === "wheel") zoom = Math.min(1.5, Math.max(0.45, zoom - e.wheel * 0.1));
+});
+```
+
+- **The camera.** `CameraView.camera` is an entity id (or a name). Give that Camera `primary: false`: a primary one also draws
+  in the main view. The camera and the widget both have to be active. A camera that is missing, inactive or not yet made draws
+  only the widget's `color` (the script may spawn it a frame later); nothing is logged. The same camera can be shown by several
+  views, each with its own image.
+- **Studio lighting.** `Camera.lighting: "studio"` ignores the scene's `Light`s, ambient, sky and fog and lights what the camera
+  sees with its own key, fill and rim lights (fixed directions relative to the camera) and a soft ambient, so a model looks
+  the same on a stage far from the level or in the middle of a bright scene. `Camera.studioIntensity` (default 1) scales the
+  rig. Add `emissive` to a part if it should glow. `lighting: "scene"` (default) uses the scene's lights, as any camera does.
+- **Pointer.** A press over the view, a move while it is held and the release send the game event `ui.viewPointer`
+  (`ui.on("viewPointer", fn)`, or with a target `ui.on("viewPointer", "item_view", fn)`): `{ id, entity, phase, x, y, u, v, dx,
+  dy, wheel }` where `x, y` is the pointer in design pixels, `u, v` its place in the view (0..1 from the top-left; outside that
+  while a drag leaves the view), `dx, dy` the move since the previous event and `wheel` the notches of a "wheel" phase. The
+  widget under the pointer decides: a Button above the view keeps its click, a view under a modal Panel hears nothing, a view
+  clipped by a ScrollList hears only the visible part. A drag ends with the release wherever the pointer is. A finger works like
+  the mouse. `pointerEvents: false` turns all of it off (the view still blocks clicks to the world). `captureWheel` (default true)
+  makes the wheel over the view a "wheel" event and keeps it from `input.mouse.wheel` and from the list under it.
+  The view is not focusable: keys and a pad turn what it shows from your own script (`input.axis`).
+- **Cost and limits.** Every view is one more render pass of its camera per frame and one image of its size (`resolution`, 1 by
+  default: 0.5 for a soft, cheap picture, up to 2). The images of views that went away are freed in the same frame. A view
+  draws the world its camera sees, not the UI or the `space: "screen"` items (so a CameraView cannot show another); `bloom`,
+  `colorFilter` and the debug draw belong to the main frame and are not applied in it; 2D lights are read per pixel, so a view
+  of a 2D scene with many lights costs more than the main frame does; a studio camera draws no sky. Only a named camera can be
+  shown: a render texture as the source does not exist yet.
+- **Test.** `game.mouseMove`, `game.mouseDown`, `game.wheel` and `game.touchStart` over the rectangle send the events; a
+  render test compares pixels of the view (the engine's own tests do this with a cube on a stage).
+
 ## A studio intro: a video that any button skips
 
 A game that opens with a logo film uses a `Video` component and a few lines of script. It is not part of the kit (the

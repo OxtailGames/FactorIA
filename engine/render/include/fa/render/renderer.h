@@ -78,6 +78,7 @@ struct RendererDesc {
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
 // triangles... count what each camera drew, so a sprite in view of two cameras counts twice, and lights, lights2d,
 // lights2dDropped and lights2dShadowed are the lights each camera used, added up (a light two cameras reach counts twice).
+// The cameras of CameraViews count like any other camera (one more pass each, in `views`).
 struct RenderStats {
     int drawCalls = 0;
     int sprites = 0;
@@ -91,6 +92,7 @@ struct RenderStats {
     int meshBatches = 0;     // instanced batches drawn (meshes with the same mesh, textures and material values share one)
     int triangles = 0;
     int shadowCasters = 0;   // MeshRenderer entities drawn into the shadow map (castShadows, inside the shadow light's volume)
+    int views = 0;           // CameraViews drawn this frame (each one renders its camera into an image first)
     int lights = 0;          // 3D lights sent to the shader (at most 32); Light2D is counted in lights2d
     int lightsDropped = 0;   // 3D lights over the limit that were left out (the least relevant ones)
     int lights2d = 0;        // Light2D lights shading the 2D visuals (at most 256)

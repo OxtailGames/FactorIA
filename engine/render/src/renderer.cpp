@@ -33,7 +33,7 @@ using namespace render;
 Json RenderStats::to_json() const {
     return Json{{"drawCalls", drawCalls}, {"sprites", sprites}, {"shapes", shapes}, {"textGlyphs", textGlyphs},
                 {"particles", particles}, {"meshes", meshes}, {"meshesCulled", meshesCulled}, {"meshBatches", meshBatches},
-                {"triangles", triangles}, {"shadowCasters", shadowCasters}, {"lights", lights}, {"lightsDropped", lightsDropped},
+                {"triangles", triangles}, {"views", views}, {"shadowCasters", shadowCasters}, {"lights", lights}, {"lightsDropped", lightsDropped},
                 {"lights2d", lights2d}, {"lights2dDropped", lights2dDropped}, {"lights2dShadowed", lights2dShadowed},
                 {"materials", materials}, {"materialFallbacks", materialFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
@@ -141,6 +141,23 @@ struct Renderer::Impl {
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
 
+    // The image a CameraView shows (ui2d.cpp, draw_camera_view): the camera is drawn into it before the frame's own jobs. One per
+    // widget, made when a gather asks for it with a size and kept while the widget keeps asking; the ones nobody asked for in a
+    // frame are freed at its end. Made like the game target (same sample count, same formats), because the pipelines are.
+    struct ViewTarget {
+        sg_image color{}, resolve{}, depth{};
+        sg_view colorAtt{}, resolveAtt{}, depthAtt{}, texView{};
+        int w = 0, h = 0;
+        bool used = false;  // asked for since the last release_unused_views()
+        TextureAsset asset;  // what the UI quad samples: the resolved image, w x h
+    };
+    std::unordered_map<std::uint64_t, std::unique_ptr<ViewTarget>> viewTargets;
+    bool viewWarned = false;
+    TextureAsset* view_image(std::uint64_t key, int w, int h);
+    void release_view(ViewTarget& t);
+    void release_unused_views();
+    void draw_view_job(World& world, Frame& fr, ViewTarget& target);
+
     void create_targets(int w, int h);
     void destroy_targets();
     int apply_color_filter(int mode);
@@ -150,12 +167,14 @@ struct Renderer::Impl {
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();
-    CameraInfo build_camera(World& world, Entity entity);
+    // `view` (a CameraView's rectangle in design pixels) makes the camera fill an image of that size instead of its viewport.
+    CameraInfo build_camera(World& world, Entity entity, const Vec2* viewSize = nullptr);
     std::vector<CameraInfo> collect_cameras(World& world);
     const CameraInfo& camera_for(Entity camera, const Vec2* screenPoint) const;
     struct JobPlan {
         bool first = false;  // the first pass of the frame: it clears the whole target when its camera clears
         bool last = false;   // the last job of the frame: it runs the post effects (bloom, the HUD over it, the colour filter)
+        bool view = false;   // a CameraView's image: no post effects, never partial, resolved at once, 2D lights read per pixel
         const CameraInfo* post = nullptr;  // the camera whose bloom, bloomScreenSpace and colorFilter the frame gets (the first)
     };
     void render(World& world, float dt);
@@ -266,6 +285,8 @@ void Renderer::Impl::create_targets(int w, int h) {
 }
 
 void Renderer::Impl::destroy_targets() {
+    for (auto& [key, t] : viewTargets) release_view(*t);
+    viewTargets.clear();
     bloom.release();
     for (sg_view* v : {&lightAtt, &lightTexView}) {
         if (v->id) sg_destroy_view(*v);
@@ -288,6 +309,98 @@ void Renderer::Impl::destroy_targets() {
     for (sg_image* i : {&colorImg, &resolveImg, &depthImg}) {
         if (i->id) sg_destroy_image(*i);
         *i = {};
+    }
+}
+
+// Makes (or keeps) the image of a CameraView: w x h pixels, drawn into with the game target's formats and sample count.
+// Null (and one logged error) when the GPU cannot make it.
+TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h) {
+    std::unique_ptr<ViewTarget>& slot = viewTargets[key];
+    if (!slot) slot = std::make_unique<ViewTarget>();
+    ViewTarget& t = *slot;
+    t.used = true;
+    if (t.color.id && t.w == w && t.h == h) return &t.asset;
+    release_view(t);
+    const int samples = gpu.sample_count();
+    sg_image_desc cd{};
+    cd.usage.color_attachment = true;
+    cd.width = w; cd.height = h;
+    cd.pixel_format = SG_PIXELFORMAT_RGBA8;
+    cd.sample_count = samples;
+    cd.label = "view-color";
+    t.color = make_image(cd);
+    sg_view_desc cv{};
+    cv.color_attachment.image = t.color;
+    cv.label = "view-color-att";
+    t.colorAtt = sg_make_view(&cv);
+    if (samples > 1) {
+        sg_image_desc rd{};
+        rd.usage.resolve_attachment = true;
+        rd.width = w; rd.height = h;
+        rd.pixel_format = SG_PIXELFORMAT_RGBA8;
+        rd.sample_count = 1;
+        rd.label = "view-resolve";
+        t.resolve = make_image(rd);
+        sg_view_desc rv{};
+        rv.resolve_attachment.image = t.resolve;
+        t.resolveAtt = sg_make_view(&rv);
+    }
+    sg_view_desc tv{};
+    tv.texture.image = samples > 1 ? t.resolve : t.color;
+    tv.label = "view-texture";
+    t.texView = sg_make_view(&tv);
+    sg_image_desc dd{};
+    dd.usage.depth_stencil_attachment = true;
+    dd.width = w; dd.height = h;
+    dd.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
+    dd.sample_count = samples;
+    dd.label = "view-depth";
+    t.depth = make_image(dd);
+    sg_view_desc dv{};
+    dv.depth_stencil_attachment.image = t.depth;
+    t.depthAtt = sg_make_view(&dv);
+    const bool ok = sg_query_image_state(t.color) == SG_RESOURCESTATE_VALID && sg_query_image_state(t.depth) == SG_RESOURCESTATE_VALID &&
+                    sg_query_view_state(t.texView) == SG_RESOURCESTATE_VALID && sg_query_view_state(t.colorAtt) == SG_RESOURCESTATE_VALID;
+    if (!ok) {
+        if (!viewWarned) FA_ERROR("render", "Cannot create the {}x{} image of a CameraView; the widget draws only its background", w, h);
+        viewWarned = true;
+        release_view(t);
+        return nullptr;
+    }
+    t.w = w;
+    t.h = h;
+    t.asset = TextureAsset{};
+    t.asset.path = "view";
+    t.asset.image = samples > 1 ? t.resolve : t.color;
+    t.asset.view = t.texView;
+    t.asset.width = w;
+    t.asset.height = h;
+    return &t.asset;
+}
+
+void Renderer::Impl::release_view(ViewTarget& t) {
+    for (sg_view* v : {&t.colorAtt, &t.resolveAtt, &t.depthAtt, &t.texView}) {
+        if (v->id) sg_destroy_view(*v);
+        *v = {};
+    }
+    for (sg_image* i : {&t.color, &t.resolve, &t.depth}) {
+        if (i->id) sg_destroy_image(*i);
+        *i = {};
+    }
+    t.w = t.h = 0;
+    t.asset = TextureAsset{};
+}
+
+// Frees the images no CameraView asked for in this frame (the widget is gone, hidden or shows no camera any more).
+void Renderer::Impl::release_unused_views() {
+    for (auto it = viewTargets.begin(); it != viewTargets.end();) {
+        if (it->second->used) {
+            it->second->used = false;
+            ++it;
+        } else {
+            release_view(*it->second);
+            it = viewTargets.erase(it);
+        }
     }
 }
 
@@ -476,7 +589,7 @@ static Rect sanitize_viewport(const Rect& v, std::string& warned) {
     return Rect{x, y, std::min(v.w, 1.0f - x), std::min(v.h, 1.0f - y)};
 }
 
-CameraInfo Renderer::Impl::build_camera(World& world, Entity best) {
+CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize) {
     CameraInfo ci;
     const bool z01 = gpu.depth_zero_to_one();
     Camera cam;  // defaults when no camera exists
@@ -488,9 +601,19 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best) {
         ci.entity = best;
         ci.depth = cam.depth;
         ci.viewport = sanitize_viewport(cam.viewport, warnedViewport);
+        if (cam.viewportSpace == ViewportSpace::Design && !viewSize) {
+            // The fractions count the design resolution from the top-left corner: the same pixels in fractions of the target.
+            const float sx = float(desc.designWidth) / float(std::max(1, targetW)), sy = float(desc.designHeight) / float(std::max(1, targetH));
+            const float x = std::min(ci.viewport.x * sx, 1.0f), y = std::min(ci.viewport.y * sy, 1.0f);
+            ci.viewport = Rect{x, y, std::min(ci.viewport.w * sx, 1.0f - x), std::min(ci.viewport.h * sy, 1.0f - y)};
+        }
+        ci.studio = cam.lighting == CameraLighting::Studio;
+        ci.studioIntensity = std::isfinite(cam.studioIntensity) ? std::clamp(cam.studioIntensity, 0.0f, 8.0f) : 1.0f;
     }
+    // A CameraView's camera fills its image whatever its Camera.viewport says, and always clears it.
+    if (viewSize) ci.viewport = Rect{0, 0, 1, 1};
     // The view is drawn into the viewport: its aspect and its height in design pixels are the rectangle's.
-    const float viewW = float(targetW) * ci.viewport.w, viewH = float(targetH) * ci.viewport.h;
+    const float viewW = viewSize ? viewSize->x : float(targetW) * ci.viewport.w, viewH = viewSize ? viewSize->y : float(targetH) * ci.viewport.h;
     const float aspect = viewW / std::max(viewH, 1.0f);
     // Remove scale from the camera's world matrix: view = R^T * T^-1.
     Vec3 t = camWorld.translation();
@@ -506,7 +629,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best) {
     ci.position = t;
     ci.right = x; ci.up = y; ci.forward = -z;
     ci.clearColor = cam.clearColor;
-    ci.clear = cam.clear;
+    ci.clear = cam.clear || viewSize != nullptr;
     ci.colorFilter = std::clamp(int(cam.colorFilter), 0, 5);
     ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
     if (cam.projection == Projection::Perspective) {
@@ -925,16 +1048,13 @@ void Renderer::Impl::render(World& world, float dt) {
 
     flush_particle_bursts(world);
     std::vector<Frame> frames(specs.size());
+    // The CameraViews of the frame (collected by the UI gather of the frames): each one's camera drawn into its own image first.
+    std::vector<std::pair<std::uint64_t, Frame>> viewFrames;
     // The glyph atlas can be cleared halfway through a gather (it is full): the texts gathered before that hold UVs of the
     // old atlas. Gather once more then, so no text of the frame is drawn from a cleared atlas (it fits after a clear).
     for (int attempt = 0; attempt < 2; ++attempt) {
     const unsigned atlasEpoch = fonts->atlas_epoch();
-    for (std::size_t i = 0; i < specs.size(); ++i) {
-        frames[i] = Frame{};
-        Frame& fr = frames[i];
-        fr.cam = specs[i].cam;
-        fr.wantWorld = specs[i].world;
-        fr.wantScreen = specs[i].screen;
+    auto setup = [&](Frame& fr) {
         fr.targetW = targetW;
         fr.targetH = targetH;
         fr.dt = dt;
@@ -947,12 +1067,48 @@ void Renderer::Impl::render(World& world, float dt) {
         fr.warnedLights2d = &warnedLights2d;
         fr.warnedShadows2d = &warnedShadows2d;
         fr.shadowCache = &shadowCache;
+        fr.viewFlipV = gpu.is_gl();
+        fr.viewImage = [this](std::uint64_t key, int w, int h) { return view_image(key, w, h); };
+    };
+    for (std::size_t i = 0; i < specs.size(); ++i) {
+        frames[i] = Frame{};
+        Frame& fr = frames[i];
+        fr.cam = specs[i].cam;
+        fr.wantWorld = specs[i].world;
+        fr.wantScreen = specs[i].screen;
+        setup(fr);
         update_animators(world, fr, false);
         gather_2d(world, fr);
         if (fr.wantScreen) gather_ui(world, fr);
         gather_particles(world, fr);
         gather_debug(*debug.impl(), fr);
     }
+    // One job per CameraView the UI met: a world gather of its camera at the size of its rectangle.
+    viewFrames.clear();
+    for (const Frame& main : frames)
+        for (const ViewRequest& rq : main.views) {
+            bool seen = false;
+            for (const auto& v : viewFrames) seen = seen || v.first == rq.key;
+            if (seen) continue;
+            Frame& fr = viewFrames.emplace_back(rq.key, Frame{}).second;
+            fr.cam = build_camera(world, rq.camera, &rq.size);
+            fr.wantWorld = true;
+            fr.wantScreen = false;
+            setup(fr);
+            fr.targetW = rq.pxW;
+            fr.targetH = rq.pxH;
+            fr.renderScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
+            update_animators(world, fr, false);
+            gather_2d(world, fr);
+            if (fr.cam.studio) {  // the scene's 2D lights do not reach a studio camera: lit sprites show at full brightness
+                fr.lights2d.clear();
+                fr.ambient2d = Color{1, 1, 1, 1};
+                fr.shadowData.clear();
+                fr.shadowRows = 0;
+                fr.shadowKey = 0;
+            }
+            gather_particles(world, fr);
+        }
     if (fonts->atlas_epoch() == atlasEpoch) break;
     }
     // After every gather: the glyph atlas may be remade by a sync, which no job of this frame has recorded a draw with yet.
@@ -965,6 +1121,13 @@ void Renderer::Impl::render(World& world, float dt) {
         specs.pop_back();
     }
 
+    // The CameraViews first: the frame's own jobs sample their images.
+    for (auto& [key, vf] : viewFrames) {
+        auto it = viewTargets.find(key);
+        if (it != viewTargets.end() && it->second->color.id) draw_view_job(world, vf, *it->second);
+    }
+    stats.views = int(viewFrames.size());
+
     const CameraInfo post = specs.front().cam;
     for (std::size_t i = 0; i < frames.size(); ++i) {
         JobPlan plan;
@@ -974,10 +1137,37 @@ void Renderer::Impl::render(World& world, float dt) {
         draw_job(world, frames[i], plan);
     }
 
+    release_unused_views();
     debug.clear();
     gpuTimer.end();  // closes the query begun above even if the profiler was switched off meanwhile
     auto t1 = std::chrono::steady_clock::now();
     stats.cpuMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+}
+
+// Draws a CameraView's camera into the view's image: the pass(es) of draw_job with the image in the place of the game target.
+// No post effects (the frame has one set, the first camera's), no 2D light buffer.
+void Renderer::Impl::draw_view_job(World& world, Frame& fr, ViewTarget& target) {
+    const int sTargetW = targetW, sTargetH = targetH, sPhysW = physW, sPhysH = physH;
+    const sg_view sColor = colorAtt, sResolve = resolveAtt, sDepth = depthAtt;
+    targetW = physW = target.w;
+    targetH = physH = target.h;
+    colorAtt = target.colorAtt;
+    resolveAtt = target.resolveAtt;
+    depthAtt = target.depthAtt;
+    const CameraInfo noPost;  // bloom off, no colour filter
+    JobPlan plan;
+    plan.first = true;
+    plan.last = false;
+    plan.view = true;
+    plan.post = &noPost;
+    draw_job(world, fr, plan);
+    targetW = sTargetW;
+    targetH = sTargetH;
+    physW = sPhysW;
+    physH = sPhysH;
+    colorAtt = sColor;
+    resolveAtt = sResolve;
+    depthAtt = sDepth;
 }
 
 // Draws one job of the frame into the game target: the pass(es) of one camera's world (and, for the single full-screen
@@ -1053,7 +1243,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
         (anyBlend ? blended : opaque).push_back(mi);
     });
     std::stable_sort(blended.begin(), blended.end(), [](const MeshItem& a, const MeshItem& b) { return a.dist > b.dist; });
-    if (fr.wantWorld) world.each<Light>([&](Entity e, Light& l) {
+    if (fr.wantWorld && !fr.cam.studio) world.each<Light>([&](Entity e, Light& l) {
         if (!world.active_in_hierarchy(e)) return;
         Mat4 m = world.world_matrix(e);
         LightData ld;
@@ -1078,12 +1268,30 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
         }
         lights.push_back(ld);
     });
+    // Camera.lighting = studio: the rig of the camera takes the place of the scene's lights. Directions are relative to the camera
+    // (right, up, forward), so an item looks the same wherever its stage is: a warm key from the upper left in front, a cool fill
+    // from the right, a rim from behind and above.
+    if (fr.wantWorld && fr.cam.studio) {
+        auto directional = [&](float toRight, float toUp, float toCamera, Vec3 color, float intensity) {
+            const Vec3 toward = normalize(fr.cam.right * toRight + fr.cam.up * toUp - fr.cam.forward * toCamera);
+            LightData ld;
+            ld.pos = Vec4{toward, 0.0f};
+            ld.color = Vec4{color * (intensity * fr.cam.studioIntensity), 0.0f};
+            ld.dir = Vec4{-toward, 1.0f};
+            ld.rank = 1;
+            ld.score = intensity;
+            lights.push_back(ld);
+        };
+        directional(-0.55f, 0.65f, 0.55f, Vec3{1.0f, 0.96f, 0.9f}, 0.9f);   // key
+        directional(0.8f, 0.1f, 0.45f, Vec3{0.7f, 0.8f, 1.0f}, 0.32f);      // fill
+        directional(0.3f, 0.55f, -0.8f, Vec3{1.0f, 1.0f, 1.0f}, 0.5f);      // rim
+    }
     // The shadow caster in slot 0, then the other directional lights, then point and spot lights by relevance; what the
     // shader's arrays cannot hold is left out.
     stats.lightsDropped += select_lights(lights, size_t(kMaxLights));
     stats.lights += int(lights.size());
     bool haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
-    if (!opaque.empty() && lights.empty() && !warnedNoLight) {
+    if (!opaque.empty() && lights.empty() && !warnedNoLight && !plan.view) {
         warnedNoLight = true;
         FA_WARN("render", "the scene has MeshRenderer entities but no Light entity: meshes only receive ambient light "
                           "(SceneSettings.ambientLight). Add an entity with a Light component (type Directional) or set MeshRenderer.unlit.");
@@ -1187,7 +1395,14 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     const sg_buffer shadowInst = upload_instances(shadowMats);
 
     // ---- how a mesh part is drawn: shared by the main pass and the shadow pass of alphaMode "clip" materials ----
-    const SceneSettings& ss = world.settings();
+    SceneSettings ss = world.settings();
+    if (fr.cam.studio) {  // a neutral room: no scene ambient, sky or fog reaches the camera
+        const float k = fr.cam.studioIntensity;
+        ss.ambientLight = Color{0.2f * k, 0.2f * k, 0.22f * k, 1.0f};
+        ss.skyColor = Color{0.55f * k, 0.58f * k, 0.65f * k, 1.0f};
+        ss.horizonColor = Color{0.4f * k, 0.4f * k, 0.42f * k, 1.0f};
+        ss.fogDensity = 0.0f;
+    }
     TextureAsset* white = assets->white();
     mesh_fa_lights_t lightUniforms{};
     for (std::size_t i = 0; i < lights.size(); ++i) {
@@ -1325,7 +1540,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
         lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
         if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != SG_PIXELFORMAT_NONE) {
             if (points == 0) litMode = 2;
-            else if (gpu.light_ready() && ensure_light_target(lightScale)) litMode = 1;
+            else if (!plan.view && gpu.light_ready() && ensure_light_target(lightScale)) litMode = 1;  // the buffer is the game target's size
         }
         if (litMode == 1) {
             std::vector<LightVertex> lv;
@@ -1517,14 +1732,14 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     sg_pass mp{};
     mp.action.colors[0].load_action = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
     mp.action.colors[0].clear_value = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b, fr.cam.clearColor.a};
-    mp.action.colors[0].store_action = (msaa && plan.last && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    mp.action.colors[0].store_action = (msaa && (plan.last || plan.view) && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
     mp.action.depth.load_action = SG_LOADACTION_CLEAR;
     mp.action.depth.clear_value = 1.0f;
     mp.action.stencil.load_action = SG_LOADACTION_CLEAR;
     mp.attachments.colors[0] = colorAtt;
     if (gpu.sample_count() > 1) mp.attachments.resolves[0] = resolveAtt;
     mp.attachments.depth_stencil = depthAtt;
-    mp.label = fr.wantWorld ? "game" : "game-hud";
+    mp.label = plan.view ? "view" : fr.wantWorld ? "game" : "game-hud";
     sg_begin_pass(&mp);
     if (partial) apply_view(camPx);
 
@@ -1532,7 +1747,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     if (clearByQuad) draw_group(gClear.batches, Mat4::ortho(0, 1, 1, 0, -1.0f, 1.0f, z01), false, camPx);
 
     // sky
-    if (fr.wantWorld && fr.cam.perspective && fr.cam.clear) {
+    if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
         sg_apply_pipeline(gpu.sky_pipeline());
         sg_bindings b{};
         b.vertex_buffers[0] = gpu.fullscreen_triangle();
