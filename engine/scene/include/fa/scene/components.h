@@ -146,6 +146,7 @@ struct SpriteAnimator {
 };
 
 enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond, Polygon, Star };
+enum class ShapeGradient : std::int32_t { None, Linear, Radial };
 // Untextured primitive for prototypes, UI panels and debug visuals.
 struct Shape2D {
     ShapeType shape = ShapeType::Rectangle;
@@ -163,6 +164,11 @@ struct Shape2D {
     std::int32_t points = 5;          // star: number of tips (3..64); tips on the inscribed ellipse, first one up
     float innerRadius = 0.5f;         // star: radius of the notches between the tips as a fraction of the outer radius (0..1)
     bool lit = false;                 // world space only: shaded by Light2D entities and SceneSettings.ambientLight
+    float cornerRadius = 0.0f;        // rectangle: radius of the rounded corners in world units (clamped to half the shorter side)
+    float softness = 0.0f;            // rectangle/circle: width of the blurred edge in world units, centred on the edge (0 = hard)
+    ShapeGradient gradient = ShapeGradient::None;  // rectangle/circle fill: none (flat `color`), linear or radial between color and color2
+    Color color2{1, 1, 1, 1};         // gradient: the colour at the end of the gradient (`color` is the start)
+    float gradientAngle = 0.0f;       // linear gradient: degrees; 0 = color on the left to color2 on the right, 90 = bottom to top
 };
 
 struct Text {
