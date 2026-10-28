@@ -150,6 +150,10 @@ struct AgentEvent {
     u64 contextWindow = 0;            // size of the model's context window
 };
 const char* event_type_name(AgentEvent::Type t);
+// One short line saying what an event means for someone watching ("running Bash (cmake --build build)", "writing",
+// "thinking"); "" for events that say nothing new (tool results, the system init). Used for the progress an ai.run call
+// reports to its MCP client and for the activity line of the editor's AI panel.
+std::string describe_agent_event(const AgentEvent& e);
 using EventHandler = std::function<void(const AgentEvent&)>;
 
 }  // namespace fa::ai

@@ -11,6 +11,7 @@
 // implements all of it from a registry + project directory.
 #pragma once
 
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -102,6 +103,15 @@ public:
     void set_notification_sink(Sink sink);
     std::vector<std::string> drain_outgoing();
 
+    // Progress of long tool calls (MCP notifications/progress). A tools/call that carries params._meta.progressToken
+    // (Claude Code sends one with every call) gets progress notifications to the notification sink while its command
+    // runs: whatever the command reports with report_command_progress() (fa/core/command.h; ai.run reports what its
+    // sub-agent does), at most one per `throttle`, plus a "still running" heartbeat every `heartbeat` of silence, so a
+    // client that aborts a call after minutes without a sign of life (Claude Code: 300 s) keeps waiting for as long as
+    // the command really runs. Each message ends with the elapsed time. Without a token nothing is sent. Defaults:
+    // 3 s and 15 s.
+    void set_progress_timing(std::chrono::milliseconds throttle, std::chrono::milliseconds heartbeat);
+
     // notifications/tools/list_changed (call when commands were added/removed, e.g. JS tool hot reload).
     void notify_tools_changed();
     void notify_resources_changed();
@@ -127,6 +137,8 @@ private:
     std::string clientName_;
     std::string logLevel_ = "info";
     Sink sink_;
+    std::chrono::milliseconds progressThrottle_{3000};
+    std::chrono::milliseconds progressHeartbeat_{15000};
     std::vector<std::string> queued_;
     std::mutex outMutex_;
 };

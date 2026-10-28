@@ -192,6 +192,7 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     }
     ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
+    if (opt.onStart) opt.onStart(static_cast<long long>(pi.dwProcessId));
 
     ProcessResult res;
     LineSplitter outLines{{}, opt.onStdoutLine};
