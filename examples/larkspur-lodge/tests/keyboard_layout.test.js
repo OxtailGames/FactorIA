@@ -12,3 +12,13 @@ test("the keys follow the language", () => {
   expect(keysFor("es")).toContain("ñ");
   expect(keysFor("en")).toContain("q");
 });
+
+test("Korean: the keys are jamo and the input method makes syllables of them (FB-0905)", async () => {
+  const { hangulIme } = await import("../scripts/ui/keyboard.js");
+  const ko = keysFor("ko");
+  expect(ko).toContain("ㅎ");
+  expect(ko).toContain("ㅏ");
+  expect(ko).not.toContain("a");
+  expect(["ㅎ", "ㅏ", "ㄴ", "ㄱ", "ㅡ", "ㄹ"].reduce((text, ch) => hangulIme.compose(text, ch), "")).toBe("한글");
+  expect(hangulIme.decompose("한글")).toBe("한그");
+});

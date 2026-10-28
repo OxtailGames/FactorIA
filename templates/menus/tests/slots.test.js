@@ -2,10 +2,11 @@
 // slot, the cloud merge by counter, the screen's save dialog (a name typed, the default name, cancel), loading, deleting (the cloud
 // copy too) and a game that cannot be saved right now. The scene is built here, so this test passes in any game that has the slots part.
 import { test, expect, game } from "factoria:test";
-import { world, ui, storage, platform, scene } from "factoria";
+import { world, ui, storage, platform, scene, i18n } from "factoria";
 import { MenuStack } from "../scripts/ui/menu_stack.js";
 import { Slots, formatTime } from "../scripts/slots.js";
 import { SlotScreen } from "../scripts/ui/slot_screen.js";
+import { keysFor, hangulIme, IME, imeFor } from "../scripts/ui/keyboard.js";
 
 // A 1x1 PNG: a picture that is certainly valid, whatever a headless renderer captures.
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
@@ -276,4 +277,65 @@ test("the cloud answer draws nothing into a scene that replaced the screen's", a
   await settle();
   expect(counter.draws).toBe(before);
   expect(slots.peek(4).record.name).toBe("From the cloud"); // the sync still stored the copy
+});
+
+test("Hangul: jamo make syllables, a final consonant moves to the next syllable, Delete takes the last jamo away", () => {
+  const type = (...keys) => keys.reduce((text, ch) => hangulIme.compose(text, ch), "");
+  expect(type("ㅎ", "ㅏ", "ㄴ", "ㄱ", "ㅡ", "ㄹ")).toBe("한글");
+  expect(type("ㄱ", "ㅏ", "ㄱ", "ㅏ")).toBe("가가"); // 각 + ㅏ
+  expect(type("ㄷ", "ㅏ", "ㄹ", "ㄱ", "ㅏ")).toBe("달가"); // 닭 + ㅏ: the second part of a compound final moves
+  expect(type("ㅇ", "ㅗ", "ㅏ")).toBe("와"); // ㅗ + ㅏ = ㅘ
+  expect(type("ㄱ", "ㅏ", "ㅃ")).toBe("가ㅃ"); // ㅃ cannot end a syllable
+  expect(type("ㄱ", "ㅏ", "1", "ㄴ")).toBe("가1ㄴ"); // a digit ends the composition
+  expect(type("ㅏ", "ㅏ")).toBe("ㅏㅏ");
+  let text = "읽";
+  const steps = [];
+  for (let i = 0; i < 4; i++) steps.push((text = hangulIme.decompose(text)));
+  expect(steps).toEqual(["일", "이", "ㅇ", ""]);
+  expect(hangulIme.decompose("과")).toBe("고");
+  expect(hangulIme.decompose("한글 ")).toBe("한글");
+  expect(imeFor("ko-KR")).toBe(IME.ko);
+  expect(imeFor("en").compose("a", "b")).toBe("ab");
+  expect(keysFor("ko")).toContain("ㅎ");
+  expect(keysFor("ko")).not.toContain("a");
+});
+
+test("the save dialog takes a Korean name from the pad: jamo become syllables, Delete takes one jamo away, Done saves", () => {
+  const pad = game.gamepad(0);
+  const { slots, menus } = openScreen("save");
+  // The keyboard follows i18n.language; this test has no Korean table, so the language is answered by hand.
+  const own = Object.getOwnPropertyDescriptor(i18n, "language");
+  Object.defineProperty(i18n, "language", { get: () => "ko", configurable: true });
+  try {
+    pad.tap("A"); // on slot 1: the dialog opens, its name field takes the focus, and the keyboard opens for a pad player
+    game.step(2);
+    expect(menus.top).toBe("slot_dialog");
+    const field = world.find("save_name").get("TextField");
+    field.text = "";
+    expect(world.find("keyboard").activeInHierarchy).toBe(true);
+    const chars = keysFor("ko");
+    const typeKey = (ch) => {
+      const target = chars.indexOf(ch);
+      const at = Number(ui.focused.id.slice("osk_key_".length));
+      for (let i = 0; i < Math.abs((target % 10) - (at % 10)); i++) pad.tap(target % 10 > at % 10 ? "DpadRight" : "DpadLeft");
+      for (let i = 0; i < Math.abs(Math.floor(target / 10) - Math.floor(at / 10)); i++) pad.tap(Math.floor(target / 10) > Math.floor(at / 10) ? "DpadDown" : "DpadUp");
+      expect(ui.focused.get("Button").text).toBe(ch);
+      pad.tap("A");
+    };
+    for (const ch of ["ㅎ", "ㅏ", "ㄴ", "ㄱ", "ㅡ", "ㄹ"]) typeKey(ch);
+    expect(field.text).toBe("한글");
+    expect(world.find("keyboard_preview").get("Text").text).toBe("한글_");
+    for (let i = 0; i < 8 && ui.focused.id.startsWith("osk_key_"); i++) pad.tap("DpadDown");
+    while (ui.focused.id !== "osk_delete") pad.tap("DpadRight");
+    pad.tap("A"); // 글 -> 그
+    expect(field.text).toBe("한그");
+    while (ui.focused.id !== "osk_done") pad.tap("DpadRight");
+    pad.tap("A");
+    game.step(3);
+    expect(slots.peek(1).record.name).toBe("한그");
+    expect(menus.top).toBe("slots");
+  } finally {
+    if (own) Object.defineProperty(i18n, "language", own);
+    else delete i18n.language;
+  }
 });
