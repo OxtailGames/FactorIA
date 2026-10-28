@@ -31,6 +31,9 @@ struct EntityInfo {
     std::string name;               // display name (not unique)
     std::vector<std::string> tags;  // free-form labels: "enemy", "pickup"...
     bool active = true;             // inactive entities (and their children) are skipped by all systems
+    // Not serialized and not reflected: set on entities a script created at runtime (world.spawn, world.spawnPrefab).
+    // scene.save leaves them out unless asked (SaveSceneOptions::includeSpawned), because the script builds them again.
+    bool scriptSpawned = false;
 };
 
 // Present on every entity (added by World::create).

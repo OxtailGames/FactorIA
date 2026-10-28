@@ -28,6 +28,10 @@ Fixed
 - `focusOnHover` also acts when a widget appears (or `focusOnHover` is switched on) under a resting pointer, not only when the
   pointer moves onto it, so focus and hover no longer disagree after a page turn. New `InteractableVisual.when: "highlighted"`
   (hovered OR focused).
+- `scene.save` no longer writes the entities a script created at runtime (`world.spawn`, `world.spawnPrefab`, and their children)
+  into the scene file: the script spawns them again on load, so they appeared twice (seen in Roguestory). The result lists what was
+  left out under `skippedSpawned` with a hint, and `includeSpawned: true` bakes them in on purpose. The editor's Play/Stop snapshot
+  and undo still include them. The duplicate-id warning on load now says a scene saved by an older engine may hold such entities.
 - `factoria validate` no longer reports a built-in font set in a scene or prefab (`"font": "builtin:display"`, or one face
   such as `builtin:serif#bold`) as a missing project file; a misspelt one is named with a "did you mean" (seen in Roguestory).
 
