@@ -1,5 +1,6 @@
 // Native functions exposed to the JavaScript prelude as the object `N`. Everything the engine offers to scripts
 // goes through here; ergonomics (views, classes, timers, matchers) live in src/js/factoria.js.
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -497,7 +498,9 @@ NATIVE(findByTag) {
 
 NATIVE(entities) {
     SETUP;
-    return entities_array(ctx, W.entities());
+    std::vector<Entity> all = W.entities();
+    all.erase(std::remove_if(all.begin(), all.end(), [&](Entity e) { return W.pending_destroy(e); }), all.end());
+    return entities_array(ctx, all);
 }
 
 NATIVE(tags) {
@@ -1607,6 +1610,11 @@ NATIVE(emit) {
 NATIVE(scenePath) {
     SETUP;
     return JS_NewString(ctx, W.scene_path().c_str());
+}
+
+NATIVE(sceneGeneration) {
+    SETUP;
+    return JS_NewFloat64(ctx, static_cast<double>(W.scene_generation()));
 }
 
 NATIVE(requestScene) {
@@ -3648,7 +3656,7 @@ const Reg kRegs[] = {
     R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 4), R(worldPos, 1), R(setWorldPos, 2),
     R(entityJson, 3), R(spawn, 3), R(spawnPrefab, 4), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
     R(compType, 1), R(addComp, 3), R(removeComp, 2), R(compNames, 1), R(compJson, 2), R(patchComp, 3), R(fget, 3),
-    R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 2), R(sceneProps, 0), R(rngFloat, 0),
+    R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(sceneGeneration, 0), R(requestScene, 2), R(sceneProps, 0), R(rngFloat, 0),
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inConsume, 1), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 5),

@@ -187,6 +187,10 @@ public:
     // Source scene path this world was loaded from ("" if built in code).
     const std::string& scene_path() const { return scenePath_; }
     void set_scene_path(std::string p) { scenePath_ = std::move(p); }
+    // Counts the scene loads of this world: it grows by one on every load, also when the same scene is loaded again, and
+    // clear() keeps it. The script API shows it as scene.generation.
+    std::uint64_t scene_generation() const { return sceneGeneration_; }
+    void bump_scene_generation() { ++sceneGeneration_; }
 
     // Observers (physics/audio/script systems release resources, editor refreshes).
     using EntityCallback = std::function<void(Entity)>;
@@ -215,6 +219,7 @@ private:
     std::uint64_t frame_ = 0;
     double time_ = 0.0;
     std::string scenePath_;
+    std::uint64_t sceneGeneration_ = 0;
 };
 
 }  // namespace fa
