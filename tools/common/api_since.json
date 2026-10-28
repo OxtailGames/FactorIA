@@ -88,6 +88,7 @@
     "CameraView.color": "unreleased",
     "CameraView.draggable": "unreleased",
     "CameraView.layer": "unreleased",
+    "CameraView.mirror": "unreleased",
     "CameraView.pivot": "unreleased",
     "CameraView.pointerEvents": "unreleased",
     "CameraView.resolution": "unreleased",
