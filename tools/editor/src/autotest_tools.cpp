@@ -7,6 +7,7 @@
 // window screenshots. A script of small steps, one step per frame followed by a wait, so a step never races the UI: a click is
 // move, press, release on different frames.
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -276,6 +277,59 @@ public:
 
 private:
     int delayMs_;
+};
+// Section W's scripted "model" for several chats at once. The first user message carries a marker. [A], [B] and [L] work: they
+// wait (1.2 s, 1.2 s, 3.5 s; cancellable), then write scripts/u_shared.js and their own scripts/u_<letter>.js and spawn a coin
+// (UCoin<LETTER>). [S] only waits, 20 s (a run to Stop). Every run ends by saying "Finished <marker>".
+class ConcurrentProvider : public ai::ChatProvider {
+public:
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks, const ai::CancelFlag* cancel) override {
+        char marker = '?';
+        for (const ai::Message& m : req.messages) {
+            if (m.role != ai::Role::User) continue;
+            const std::size_t at = m.text.find('[');
+            if (at != std::string::npos && at + 2 < m.text.size() && m.text[at + 2] == ']') {
+                marker = m.text[at + 1];
+                break;
+            }
+        }
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 500;
+        r.usage.outputTokens = 40;
+        const bool answered = !req.messages.empty() && !req.messages.back().toolResults.empty();
+        if (!answered) {
+            r.message.text = std::string("Working on ") + marker + ". ";
+            if (hooks.onText) hooks.onText(r.message.text);
+            const int delayMs = marker == 'S' ? 20000 : marker == 'L' ? 3500 : 1200;
+            for (int waited = 0; waited < delayMs && !(cancel && cancel->load()); waited += 25)
+                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            if (marker != 'S' && !(cancel && cancel->load())) {
+                const std::string lower(1, static_cast<char>(std::tolower(static_cast<unsigned char>(marker))));
+                const std::string upper(1, marker);
+                auto call = [&](const std::string& id, const char* name, const Json& input) {
+                    ai::ToolCall c;
+                    c.id = id;
+                    c.name = name;
+                    c.input = input;
+                    r.message.toolCalls.push_back(c);
+                };
+                call("w1", "fs_write", Json::object({{"path", "scripts/u_shared.js"}, {"content", "from " + upper + "\n"}}));
+                call("w2", "fs_write", Json::object({{"path", "scripts/u_" + lower + ".js"}, {"content", "only " + upper + "\n"}}));
+                call("w3", "scene_spawn",
+                     Json::parse("{\"name\":\"UCoin" + upper + "\",\"position\":[0,120],\"components\":{\"Shape2D\":{\"shape\":\"circle\","
+                                 "\"size\":[28,28],\"color\":[1,0.85,0.1,1]}}}"));
+                r.stopReason = ai::StopReason::ToolUse;
+                return r;
+            }
+        }
+        r.message.text = std::string("Finished ") + marker;
+        if (hooks.onText) hooks.onText(r.message.text);
+        r.stopReason = ai::StopReason::EndTurn;
+        return r;
+    }
 };
 }  // namespace
 
@@ -2591,11 +2645,17 @@ void Editor::at_build_tools_script() {
         chat_.clear();
         ai_start("Delegate the coin.");
         atWaitCount_ = 0;
-        atWaitUntil_ = [this] { return aiDetached_.load(); };
+        atWaitUntil_ = [this] {
+            const AiRun* r = ai_run_of(chat_.current().id);
+            return r && r->detached.load();
+        };
     });
     step(3, [this] {
         if (atQFake_.empty()) return;
-        at_check(ai_running() && !aiRunning_.load(), "the orchestrator's turn ended and the run goes on for the worker");
+        {
+            const AiRun* r = ai_run_of(chat_.current().id);
+            at_check(ai_running() && r && !r->running.load(), "the orchestrator's turn ended and the run goes on for the worker");
+        }
         at_check(at_visible("ai:detached"), "the panel says a worker is still running");
         bool live = false;
         for (const ChatItem& c : chat()) live = live || (c.kind == ChatItem::Kind::Assistant && c.depth == 1 && c.text.find("Making the coin") != std::string::npos);
@@ -2635,7 +2695,10 @@ void Editor::at_build_tools_script() {
         };
         ai_start("Delegate the coin, slowly.");
         atWaitCount_ = 0;
-        atWaitUntil_ = [this] { return aiDetached_.load(); };
+        atWaitUntil_ = [this] {
+            const AiRun* r = ai_run_of(chat_.current().id);
+            return r && r->detached.load();
+        };
     });
     click("ai:stop");
     step(2, [this] {
@@ -2742,6 +2805,189 @@ void Editor::at_build_tools_script() {
             diskSettling_ = false;
             std::error_code ec;
             stdfs::remove(atOutDir_ + "/fake_factoria", ec);
+        });
+    }
+
+    // ----------------------------------------------------------------------- W. Several AI chats at the same time
+    section("W");
+    // Two chats run at once against a scripted model that writes the same file and spawns a coin in both: both finish with their
+    // own results, each chat is warned that the other changed the same file, Play names the chats that work, a third chat is
+    // held back by limits.maxConcurrentRuns, Revert of one run keeps the other's changes. Then Stop on one run leaves the other going.
+    {
+        struct VState {
+            std::string a, b, c;
+        };
+        auto v = std::make_shared<VState>();
+        auto reset_chats = [this] {  // one blank tab, nothing of the previous scenario saved
+            for (int i = static_cast<int>(chat_.tabs.size()) - 1; i >= 0; --i) {
+                chat_.select(i);
+                chat_.clear();
+            }
+            while (chat_.tabs.size() > 1) chat_.close(static_cast<int>(chat_.tabs.size()) - 1);
+            aiTabForce_ = 2;
+        };
+        auto info_warnings = [](const AiChat* c) {
+            int n = 0;
+            for (const ChatItem& it : c->items)
+                n += it.kind == ChatItem::Kind::Info && it.isError && it.text.find("also changed") != std::string::npos ? 1 : 0;
+            return n;
+        };
+        auto said = [](const AiChat* c, const std::string& text) {
+            for (const ChatItem& it : c->items)
+                if (it.kind == ChatItem::Kind::Assistant && it.text.find(text) != std::string::npos) return true;
+            return false;
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load(); };
+        });
+        step(2, [this, v, project_file, reset_chats] {
+            write_file(project_file("scripts/u_shared.js"), "old\n");
+            std::error_code ec;
+            for (const char* f : {"scripts/u_a.js", "scripts/u_b.js", "scripts/u_l.js", "scripts/u_s.js"}) stdfs::remove(project_file(f), ec);
+            aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+                return std::shared_ptr<ai::ChatProvider>(std::make_shared<ConcurrentProvider>());
+            };
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+                ai::RoleConfig& orchestrator = aiConfig_.roles[ai::kRoleOrchestrator];
+                orchestrator.provider = "anthropic";
+                if (orchestrator.model.empty()) orchestrator.model = "mock";
+                aiConfig_.limits.maxConcurrentRuns = 2;
+            }
+            reset_chats();
+            focus_window("AI Assistant");
+            ai_start("Probe A [A]");
+            v->a = chat_.current().id;
+            chat_.add(static_cast<i64>(std::time(nullptr)));
+            ai_start("Probe B [B]");
+            v->b = chat_.current().id;
+            chat_.add(static_cast<i64>(std::time(nullptr)));
+            ai_start("Probe C [A]");  // the third: no slot
+            v->c = chat_.current().id;
+            aiTabForce_ = 2;
+        });
+        step(3, [this, v] {
+            at_check(ai_run_count() == 2 && ai_chat_running(v->a) && ai_chat_running(v->b), "two chats run at the same time");
+            at_check(!ai_chat_running(v->c) && chat_.find(v->c) && chat_.find(v->c)->items.empty(),
+                     "a third chat is held back by limits.maxConcurrentRuns (it did not start, its message was not sent)");
+            play();
+            at_check(play_state() == PlayState::Edit, "Play waits while the assistant edits");
+            const std::string note = ai_editing_note();
+            at_check(note.find("Probe A") != std::string::npos && note.find("Probe B") != std::string::npos,
+                     "...and the note names the chats that work: " + note);
+        });
+        step(2, [this] {
+            atWaitAi_ = true;
+            atWaitCount_ = 0;
+        });
+        step(3, [this, v, project_file, info_warnings, said] {
+            at_check(!ai_running(), "both scripted runs finished");
+            const AiChat* a = chat_.find(v->a);
+            const AiChat* b = chat_.find(v->b);
+            if (!a || !b) {
+                at_check(false, "both chats are still open");
+                return;
+            }
+            at_check(said(a, "Finished A") && !said(a, "Finished B") && said(b, "Finished B") && !said(b, "Finished A"),
+                     "each chat has its own run's answer");
+            at_check(a->usage.inputTokens > 0 && b->usage.inputTokens > 0, "each chat counted its own tokens");
+            at_check(info_warnings(a) >= 1 && info_warnings(b) >= 1,
+                     "each chat is warned that the other changed the same file (" + std::to_string(info_warnings(a)) + ", " +
+                         std::to_string(info_warnings(b)) + ")");
+            auto names = [&](const AiChat* c, const char* other, const char* file) {
+                bool named = false, file_listed = false;
+                for (const ChatItem& it : c->items) {
+                    if (it.kind != ChatItem::Kind::Info || !it.isError) continue;
+                    named = it.text.find(other) != std::string::npos;
+                    file_listed = file_listed || it.text.find(file) != std::string::npos;
+                }
+                return named && file_listed;
+            };
+            at_check(names(a, "Probe B", "scripts/u_shared.js") && names(b, "Probe A", "scripts/u_shared.js"),
+                     "...each warning names the other chat and the shared file");
+            const ChatItem* ra = nullptr;
+            const ChatItem* rb = nullptr;
+            for (const ChatItem& it : a->items)
+                if (it.kind == ChatItem::Kind::Run) ra = &it;
+            for (const ChatItem& it : b->items)
+                if (it.kind == ChatItem::Kind::Run) rb = &it;
+            auto has = [](const std::vector<std::string>& list, const char* f) { return std::ranges::find(list, f) != list.end(); };
+            at_check(ra && rb && has(ra->added, "scripts/u_a.js") && has(ra->modified, "scripts/u_shared.js") &&
+                         !has(ra->added, "scripts/u_b.js") && has(rb->added, "scripts/u_b.js") && !has(rb->added, "scripts/u_a.js"),
+                     "each Run item lists its own files, not the other chat's");
+            at_check(!world().find("UCoinA").is_null() && !world().find("UCoinB").is_null(), "both runs' coins are in the scene");
+            at_check(!read_file(project_file("scripts/u_a.js")).empty() && !read_file(project_file("scripts/u_b.js")).empty(),
+                     "both runs' files are on disk");
+            chat_.select(chat_.index_of(v->a));
+            aiTabForce_ = 2;
+        });
+        step(3, [] {});
+        click("ai:revert");
+        step(4, [this] {
+            at_check(at_visible("ai:revert:confirm") && at_visible("ai:revert:confirm-all"),
+                     "Revert of A asks, and offers to keep the other chat's changes or take those files back too");
+        });
+        click("ai:revert:confirm");
+        step(6, [this, v, project_file] {
+            at_check(!stdfs::exists(project_file("scripts/u_a.js")), "Revert of A removes the file only A added");
+            at_check(stdfs::exists(project_file("scripts/u_b.js")), "...and leaves the file B added");
+            at_check(read_file(project_file("scripts/u_shared.js")) != "old\n", "...and the file both changed stays as it is now");
+            at_check(!world().find("UCoinA").is_null() && !world().find("UCoinB").is_null(),
+                     "...and the scene stays too, since B edited it as well");
+            const AiChat* a = chat_.find(v->a);
+            bool scoped = false;
+            if (a)
+                for (const ChatItem& it : a->items) scoped = scoped || (it.kind == ChatItem::Kind::Revert && it.scoped);
+            at_check(scoped, "A's transcript says only some files went back");
+        });
+        // Stop on one run leaves the other going.
+        step(2, [this, v, project_file, reset_chats] {
+            std::error_code ec;
+            stdfs::remove(project_file("scripts/u_l.js"), ec);
+            reset_chats();
+            ai_start("Probe S [S]");
+            v->a = chat_.current().id;
+            chat_.add(static_cast<i64>(std::time(nullptr)));
+            ai_start("Probe L [L]");
+            v->b = chat_.current().id;
+            chat_.select(chat_.index_of(v->a));
+            aiTabForce_ = 2;
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, v] { return ai_chat_running(v->a) && ai_chat_running(v->b); };
+        });
+        step(3, [] {});
+        click("ai:stop");
+        step(2, [this, v] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, v] { return !ai_chat_running(v->a); };
+        });
+        step(3, [this, v] {
+            at_check(!ai_chat_running(v->a), "Stop ends the run of the chat it is pressed in");
+            at_check(ai_chat_running(v->b), "...and the other chat's run goes on");
+            atWaitAi_ = true;
+            atWaitCount_ = 0;
+        });
+        step(3, [this, v, project_file, info_warnings, said] {
+            const AiChat* b = chat_.find(v->b);
+            at_check(b && said(b, "Finished L") && info_warnings(b) == 0, "the other run finished with its own result and no false warning");
+            at_check(read_file(project_file("scripts/u_l.js")) == "only L\n", "...and its file is on disk");
+            at_check(!stdfs::exists(project_file("scripts/u_s.js")), "the stopped run wrote nothing");
+            at_check(!ai_running() && !ai_busy(), "no run is left");
+            std::error_code ec;
+            for (const char* f : {"scripts/u_shared.js", "scripts/u_a.js", "scripts/u_b.js", "scripts/u_l.js"}) stdfs::remove(project_file(f), ec);
+            aiFactory_ = nullptr;
+            if (atSavedConfig_) {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+        });
+        step(2, [this, reset_chats] {
+            reset_chats();
+            focus_window("###Viewport");
         });
     }
 

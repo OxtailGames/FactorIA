@@ -53,6 +53,18 @@ TEST_CASE("config parsing merges over defaults") {
     REQUIRE(stuck);
     CHECK(stuck->limits.stuckAfterSeconds == 45);
     CHECK(config_to_json(*stuck)["limits"]["stuckAfterSeconds"] == 45);
+    // limits.maxConcurrentRuns: how many chats the editor runs at once (default 3, brought into 1..8 with a warning)
+    CHECK(cfg->limits.maxConcurrentRuns == 3);
+    auto two = parse_config(Json::parse(R"({"limits":{"maxConcurrentRuns":2}})"), "two");
+    REQUIRE(two);
+    CHECK(two->limits.maxConcurrentRuns == 2);
+    CHECK(config_to_json(*two)["limits"]["maxConcurrentRuns"] == 2);
+    auto many = parse_config(Json::parse(R"({"limits":{"maxConcurrentRuns":99}})"), "many.json");
+    REQUIRE(many);
+    CHECK(many->limits.maxConcurrentRuns == kMaxConcurrentRunsCap);
+    REQUIRE_FALSE(many->warnings.empty());
+    CHECK(many->warnings.back().find("many.json: limits.maxConcurrentRuns is 99") != std::string::npos);
+    CHECK_FALSE(parse_config(Json::parse(R"({"limits":{"maxConcurrentRuns":0}})"), "zero").ok());  // the schema's minimum is 1
     // orchestrator: only provider given => Anthropic default model/effort
     CHECK(cfg->role("orchestrator").model == "claude-opus-5-5");
     CHECK(cfg->role("orchestrator").effort == "xhigh");

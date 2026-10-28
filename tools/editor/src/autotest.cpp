@@ -320,7 +320,8 @@ void Editor::autotest_pre_frame() {
         // call is back: joining while it still waits in the queue (a slow runner starts the thread late) waits forever.
         atMarshalResult_ = std::make_shared<CommandResult>();
         atMarshalDone_ = false;
-        auto proxy = make_proxy_registry();
+        atMarshalRun_ = std::make_unique<AiRun>("autotest");  // the proxy needs a run: its cancel flag and tag
+        auto proxy = make_proxy_registry(*atMarshalRun_);
         auto res = atMarshalResult_;
         atThread_ = std::thread([this, proxy, res] {
             *res = proxy->call("scene.list_entities", Json::object());
@@ -330,6 +331,7 @@ void Editor::autotest_pre_frame() {
         atWaitUntil_ = [this] { return atMarshalDone_.load(); };
     } else if (f == 22) {
         if (atMarshalDone_ && atThread_.joinable()) atThread_.join();
+        atMarshalRun_.reset();
         at_check(atMarshalDone_ && atMarshalResult_->ok, "agent-thread command ran on the main thread via the queue");
     } else if (f == 24) {
         at_check(save_scene_now() && !dirty(), "save scene clears the dirty flag");

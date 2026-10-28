@@ -117,10 +117,13 @@ ImVec4 level_color(LogLevel l) {
 
 // ------------------------------------------------------------------------------------------
 // MainThreadQueue
-CommandResult MainThreadQueue::call(const std::string& name, const Json& args, const std::atomic<bool>* cancel) {
+CommandResult MainThreadQueue::call(const std::string& name, const Json& args, const std::atomic<bool>* cancel,
+                                    const std::string& tag) {
     auto promise = std::make_shared<std::promise<CommandResult>>();
+    auto abandoned = std::make_shared<std::atomic<bool>>(false);
     std::future<CommandResult> fut = promise->get_future();
     auto fail = [&](const char* why) {
+        abandoned->store(true);  // the main thread skips the job if it has not started it
         CommandResult r;
         r.ok = false;
         r.error = Json::object({{"code", "unavailable"}, {"message", why},
@@ -130,7 +133,7 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (closed_) return fail("editor main thread is not accepting commands");
-        jobs_.push_back(Job{name, args, promise});
+        jobs_.push_back(Job{name, tag, args, promise, abandoned});
     }
     for (;;) {
         if (fut.wait_for(std::chrono::milliseconds(25)) == std::future_status::ready) return fut.get();
@@ -141,6 +144,11 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
         }
         if (closed || (cancel && cancel->load())) return fail("cancelled");
     }
+}
+
+std::size_t MainThreadQueue::size() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return jobs_.size();
 }
 
 int MainThreadQueue::pump(const std::function<std::optional<CommandResult>(const std::string&, const Json&)>& run,
@@ -155,12 +163,16 @@ int MainThreadQueue::pump(const std::function<std::optional<CommandResult>(const
     while (!local.empty()) {
         Job j = std::move(local.front());
         local.pop_front();
+        if (j.abandoned && j.abandoned->load()) continue;  // its run was stopped while it waited: nobody wants the answer
         current_ = j.promise;
+        currentTag_ = j.tag;
         std::optional<CommandResult> r = run(j.name, j.args);
         const bool taken = !current_;
         current_.reset();
+        currentTag_.clear();
         if (!taken) j.promise->set_value(r ? std::move(*r) : CommandResult{});
         ++ran;
+        if (taken) break;  // a sliced command owns the simulation until it finishes: the others wait their turn
         if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() >= budgetMs) break;
     }
     if (!local.empty()) {  // out of time: keep the rest, in order, ahead of anything queued meanwhile
@@ -742,6 +754,7 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
     CommandResult r = engine_->commands().call(name, args);
     if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
     after_command(name, args, r);
+    if (!queue_.current_tag().empty()) ai_note_command(queue_.current_tag(), name, args, r);  // which chat's run changed what
     if (elapsed() > 100.0) FA_WARN("editor", "command {} took {:.0f} ms on the UI thread", name, elapsed());
     return r;
 }
@@ -918,12 +931,11 @@ void Editor::reload_scene_from_disk(bool keepUndo) {
 }
 
 // The assistant edits the scene in edit mode only: what it changed after Play would be thrown away at Stop. So Play
-// (and Step, which starts the game too) waits for it, and the AI panel sends nothing while the game runs.
-constexpr const char* kAiEditingNote = "The assistant is changing the scene: wait for it to finish (or press Stop in the AI panel).";
-
+// (and Step, which starts the game too) waits while ANY chat's run is going, and the AI panel sends nothing while the game
+// runs. The note names the chats that are working (ai_editing_note).
 bool Editor::ai_blocks_play() {
     if (play_ != PlayState::Edit || !ai_running()) return false;
-    notify(kAiEditingNote, 1);
+    notify(ai_editing_note(), 1);
     return true;
 }
 
@@ -1256,7 +1268,7 @@ void Editor::draw_main_menu() {
         if (ImGui::MenuItem("Redo", "Ctrl+Y", false, editing && !redo_.empty())) redo();
         ImGui::Separator();
         const int lastRun = ai_last_revertable_run();
-        if (ImGui::MenuItem("Revert Last AI Run", nullptr, false, editing && !ai_busy() && lastRun >= 0)) ai_revert_request(chat_.current().id, lastRun);
+        if (ImGui::MenuItem("Revert Last AI Run", nullptr, false, editing && !ai_chat_busy(chat_.current().id) && lastRun >= 0)) ai_revert_request(chat_.current().id, lastRun);
         at_track("menu:revert-ai");
         ImGui::SetItemTooltip("Puts the project's files and the open scene back as they were before the last run of the AI Assistant in this chat.");
         ImGui::EndMenu();
@@ -1328,7 +1340,7 @@ void Editor::draw_toolbar() {
     if (ImGui::Button(" Play ")) play();
     ImGui::PopStyleColor(3);
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("%s", aiEditing ? kAiEditingNote : "Snapshot the scene and run the game (F5 toggles Play/Stop)");
+    ImGui::SetItemTooltip("%s", aiEditing ? ai_editing_note().c_str() : "Snapshot the scene and run the game (F5 toggles Play/Stop)");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ != PlayState::Playing);
     if (ImGui::Button(" Pause ")) pause();
@@ -1338,7 +1350,7 @@ void Editor::draw_toolbar() {
     ImGui::BeginDisabled(aiEditing);
     if (ImGui::Button(" Step ")) step_once();
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("%s", aiEditing ? kAiEditingNote : "Advance exactly one fixed frame (F10)");
+    ImGui::SetItemTooltip("%s", aiEditing ? ai_editing_note().c_str() : "Advance exactly one fixed frame (F10)");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ == PlayState::Edit);
     colored(ImVec4(0.62f, 0.22f, 0.20f, 1));

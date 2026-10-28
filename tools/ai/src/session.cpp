@@ -4,6 +4,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -42,8 +43,20 @@ private:
     std::string path_;
 };
 
+// "20261014-153012", with "-2", "-3"... when another session of this process already took that second: several runs started
+// together (the editor runs more than one chat at a time) must not append to one transcript file.
 std::string make_stamp() {
+    static std::mutex mu;
+    static std::time_t lastSecond = 0;
+    static int sameSecond = 0;
     auto t = std::time(nullptr);
+    int sequence = 0;
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        sameSecond = (t == lastSecond) ? sameSecond + 1 : 0;
+        lastSecond = t;
+        sequence = sameSecond;
+    }
     std::tm tm{};
 #ifdef _WIN32
     localtime_s(&tm, &t);
@@ -52,7 +65,7 @@ std::string make_stamp() {
 #endif
     char buf[32];
     std::strftime(buf, sizeof buf, "%Y%m%d-%H%M%S", &tm);
-    return buf;
+    return sequence == 0 ? std::string(buf) : std::string(buf) + "-" + std::to_string(sequence + 1);
 }
 
 std::string clip_text(std::string s, std::size_t n) {

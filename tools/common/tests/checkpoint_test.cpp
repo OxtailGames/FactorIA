@@ -111,6 +111,34 @@ TEST_CASE("checkpoint: restore puts files back, removes added ones and makes a s
     CHECK_FALSE(stdfs::exists(p.dir.path / "scenes/main.scene.json"));
 }
 
+TEST_CASE("checkpoint: restore with `only` touches just those files") {
+    Project p;
+    auto cp = p.make("before run A");
+    REQUIRE(cp.ok());
+    // Run A changed the script and added a file; run B (at the same time) changed the scene, deleted a picture and added one.
+    write_all(p.dir.path / "scripts/player.js", "let a = 2;\n");
+    write_all(p.dir.path / "scripts/a_new.js", "a\n");
+    write_all(p.dir.path / "scenes/main.scene.json", "{\"b\":1}\n");
+    write_all(p.dir.path / "scripts/b_new.js", "b\n");
+    stdfs::remove(p.dir.path / "assets/hero.png");
+
+    auto r = checkpoint_restore(p.dir.str(), cp.value().info.id,
+                                std::vector<std::string>{"scripts/player.js", "scripts/a_new.js", "does/not/differ.js"});
+    REQUIRE(r.ok());
+    CHECK(r.value().changes.modified == std::vector<std::string>{"scripts/player.js"});
+    CHECK(r.value().changes.added == std::vector<std::string>{"scripts/a_new.js"});
+    CHECK(r.value().changes.deleted.empty());
+    CHECK(read_all(p.dir.path / "scripts/player.js") == "let a = 1;\n");
+    CHECK_FALSE(stdfs::exists(p.dir.path / "scripts/a_new.js"));
+    CHECK(read_all(p.dir.path / "scenes/main.scene.json") == "{\"b\":1}\n");  // run B's files stay
+    CHECK(stdfs::exists(p.dir.path / "scripts/b_new.js"));
+    CHECK_FALSE(stdfs::exists(p.dir.path / "assets/hero.png"));
+    // The safety checkpoint still holds the whole project as it was: restoring it brings run A's files back.
+    REQUIRE(checkpoint_restore(p.dir.str(), r.value().safetyId).ok());
+    CHECK(read_all(p.dir.path / "scripts/player.js") == "let a = 2;\n");
+    CHECK(stdfs::exists(p.dir.path / "scripts/a_new.js"));
+}
+
 TEST_CASE("checkpoint: unchanged content is stored once") {
     Project p;
     auto a = p.make();
