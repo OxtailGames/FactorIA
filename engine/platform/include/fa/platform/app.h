@@ -64,6 +64,10 @@ struct AppDesc {
     // none here. Empty = the platform's default icon. At most 8 images are used. to_sapp_desc keeps the pixels alive in
     // the copy of this AppDesc it owns, like `title`.
     std::vector<AppIconImage> icon;
+    // macOS: the Dock icon while the app runs, for a program that is not an app bundle (the editor, started from the
+    // `factoria` executable, would show the generic one). Draw it on Apple's icon grid: the tile covers the middle ~80%
+    // of the image. Empty = the bundle's icon. The other platforms ignore it.
+    AppIconImage dockIcon;
     // Input is fed into this object; positions are converted with to_design_coords. Physical gamepads are polled into
     // it once per frame, before `frame` runs (fa/platform/gamepad.h; not while the window is unfocused).
     Input* input = nullptr;

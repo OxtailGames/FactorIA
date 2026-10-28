@@ -9,6 +9,7 @@
 #include <thread>
 #include <filesystem>
 
+#include "app_icon.h"
 #include "autotest_sections.h"
 #include "editor_internal.h"
 #include "fa/core/fs.h"
@@ -238,6 +239,8 @@ int Editor::run() {
     AppDesc d;
     windowTitle_ = editor_window_title(FA_ENGINE_VERSION, "");
     d.title = windowTitle_;
+    d.icon = editor_window_icon();
+    d.dockIcon = editor_dock_icon();
     d.width = autotest_ ? 1600 : 1440;
     d.height = autotest_ ? 900 : 860;
     if (autotest_)  // FA_EDITOR_AUTOTEST_SIZE=1024x642: try the autotest on a small display (the macOS CI runner)

@@ -39,6 +39,9 @@ bool fa_sapp_set_window_size(int w, int h);
 bool fa_sapp_safe_insets(float* left, float* top, float* right, float* bottom);
 // Turns vsync on or off while running. false: this platform or graphics driver cannot (the state is unchanged).
 bool fa_sapp_set_vsync(bool on);
+// macOS: shows `rgba` (w x h RGBA8, not premultiplied, row 0 = top) as the Dock icon while the app runs (AppDesc::dockIcon).
+// false: not available here (every other platform: their window icon is sapp_desc.icon).
+bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h);
 
 #ifdef __cplusplus
 }
