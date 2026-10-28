@@ -2,6 +2,10 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+- Every log line carries the computer's time. The editor Console starts each line with `HH:MM:SS.mmm` (hover it for the date, the frame and the seconds since start); `game.logs` and `game.step`'s `newWarnings` give `wallTime` (ISO 8601 with offset), and the text and JSON stderr formats show it too.
+
 ## 0.3.0
 
 FactorIA 0.3.0 is about the games themselves: four more reference games (a 3D phone game, a couch co-op game, a management
