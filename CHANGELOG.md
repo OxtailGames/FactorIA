@@ -20,6 +20,14 @@ Editor
 
 Fixed
 
+- A `Shape2D` gradient whose `color` is fully transparent is drawn when `color2` is not: the ai-guide vignette recipe
+  (`color: [0,0,0,0]`, `color2: [0,0,0,0.8]`) drew nothing. A shape is skipped only when every colour it uses has alpha 0.
+- `world.spawn` of an entity whose Entity fields (`Interactable.knob` / `fill`) name children spawned afterwards no longer fails:
+  the field is left empty with a warning and filled when the entity with that id appears (an id that never does is reported again
+  after about 10 seconds of frames).
+- `focusOnHover` also acts when a widget appears (or `focusOnHover` is switched on) under a resting pointer, not only when the
+  pointer moves onto it, so focus and hover no longer disagree after a page turn. New `InteractableVisual.when: "highlighted"`
+  (hovered OR focused).
 - `factoria validate` no longer reports a built-in font set in a scene or prefab (`"font": "builtin:display"`, or one face
   such as `builtin:serif#bold`) as a missing project file; a misspelt one is named with a "did you mean" (seen in Roguestory).
 

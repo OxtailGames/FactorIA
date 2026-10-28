@@ -544,11 +544,11 @@ hover and press, `Panel.modal` scopes, `game.click`, `ui.widgetAt`, `ui.rectOf` 
   `axis`. `knob` (a child of the Interactable) is moved along the track to the value, and `fill` (a child with its pivot at the
   start of the track) is scaled along `axis` to the fraction; they are placed in world space, or in screen space when `size`
   is set. Scripts may write `on` and `value`: no event is sent for a write (`game.setSlider(id, value)` and the
-  `ui.set_slider` command do send it, as a drag would).
+  `ui.set_slider` command do send it, as a drag would). In a script, `knob` and `fill` may name children spawned after the slider: `world.spawn` leaves them empty with a warning and links them when an entity with that id appears (or put the children in the same call with `children`); a field set by hand in between wins, and an id that never appears is reported again after about 10 seconds of frames.
 - **States, without code.** `Interactable.state` is the one state the visuals show: `disabled` (`enabled` is false), else
   `pressed`, else `hover`, else `focused`, else `normal`; `hovered`, `focused` and `pressed` are the flags (read-only, written by the
   UI). Put `InteractableVisual` on a child of the Interactable (or set `target`): `mode: "show"` makes that entity active only while
-  `when` holds (`hover`, `pressed`, `focused`, `normal`, `disabled`, `on` / `off` for a toggle, `always`); `mode: "tint"` sets the colour
+  `when` holds (`hover`, `pressed`, `focused`, `highlighted` = hovered OR focused, one look for the pointer and the keyboard / gamepad, `normal`, `disabled`, `on` / `off` for a toggle, `always`); `mode: "tint"` sets the colour
   of its Sprite, Shape2D or Text from `normal`, `hover`, `pressed`, `focused` and `disabled`. A check mark that shows while a toggle is on
   is a child with `when: "on"`. `InteractableVisual` on the Interactable's own entity does nothing in `show` mode.
 - **Focus and navigation.** The same rules as the built-in widgets (see SCRIPTING.md, "Focus and navigation"): nothing is
@@ -556,7 +556,7 @@ hover and press, `Panel.modal` scopes, `game.click`, `ui.widgetAt`, `ui.rectOf` 
   among Buttons and Interactables alike (using their areas as seen on the screen), `ui_cancel` sends `ui.cancel`. `Tab` (`ui_next`) and
   `Shift+Tab` (`ui_previous`) walk the focusable widgets in reading order, wrapping around (new default actions for every widget); like the arrows they need a focus
   to start from (focus one with `autoFocus` or `ui.focus(entity)`). `focusOnHover: true` moves the focus to the widget when the
-  pointer enters it, once per entry; the default, like a Button, moves it on a press. `enabled: false` makes it a greyed-out
+  pointer enters it, once per entry (a widget that appears, or is switched on, under a resting pointer is an entry too, so a page turn leaves the focus and the hover tint on the same widget); the default, like a Button, moves it on a press. `enabled: false` makes it a greyed-out
   widget: never hovered, focused or clicked, skipped by navigation.
 - **Events** (`ui.on`, or `this.on("ui.<type>", ...)`): `click`, `change`, `focus` and `cancel` as for the built-ins, plus
   `hover` (`value` true when the pointer came over it, false when it left), `blur` (the focus left it), `press` (the pointer went down

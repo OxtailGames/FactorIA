@@ -505,3 +505,56 @@ TEST_CASE("Interactable: ui.focus drops the focus of an Interactable that goes a
     CHECK(t.ui.focused() == kNullEntity);
     CHECK(t.events() == V{"ui.blur:a"});
 }
+
+TEST_CASE("Interactable: focusOnHover also treats a widget that appears under a resting pointer as an entry") {
+    Ui t;
+    Entity a = card(t, "a", {-60, 0}, {40, 20});
+    Entity b = card(t, "b", {60, 0}, {40, 20});
+    t.w.get<Interactable>(a)->autoFocus = true;
+    t.w.get<Interactable>(b)->focusOnHover = true;
+    t.w.info(b).active = false;  // not on the page yet
+    t.frame();
+    move_to(t, at(60, 0));       // the pointer rests where b will be
+    CHECK(t.ui.focused() == a);
+    t.w.info(b).active = true;   // the page turns; the pointer has not moved
+    t.frame(2);
+    CHECK(t.ui.hovered() == b);
+    CHECK(t.ui.focused() == b);
+    t.tap_key(Key::Left);        // still once per entry: the arrows move the focus away
+    CHECK(t.ui.focused() == a);
+    t.frame(3);
+    CHECK(t.ui.focused() == a);
+}
+
+TEST_CASE("Interactable: focusOnHover switched on under a resting pointer focuses it once") {
+    Ui t;
+    Entity a = card(t, "a", {-60, 0}, {40, 20});
+    Entity b = card(t, "b", {60, 0}, {40, 20});
+    t.w.get<Interactable>(a)->autoFocus = true;
+    t.frame();
+    move_to(t, at(60, 0));
+    CHECK(t.ui.focused() == a);
+    t.w.get<Interactable>(b)->focusOnHover = true;
+    t.frame(2);
+    CHECK(t.ui.focused() == b);
+}
+
+TEST_CASE("InteractableVisual when highlighted: shown while hovered OR focused") {
+    Ui t;
+    Entity a = card(t, "a", {-60, 0}, {40, 20});
+    Entity b = card(t, "b", {60, 0}, {40, 20});
+    t.w.get<Interactable>(a)->autoFocus = true;
+    Entity ga = child_shape(t, "ga", a, {0, 0}, {10, 10});
+    t.w.add<InteractableVisual>(ga).when = VisualWhen::Highlighted;
+    Entity gb = child_shape(t, "gb", b, {0, 0}, {10, 10});
+    t.w.add<InteractableVisual>(gb).when = VisualWhen::Highlighted;
+    t.frame();
+    CHECK(t.w.info(ga).active);        // focused
+    CHECK_FALSE(t.w.info(gb).active);  // neither
+    move_to(t, at(60, 0));
+    CHECK(t.w.info(gb).active);        // hovered, not focused
+    CHECK(t.w.info(ga).active);        // focused, not hovered
+    move_to(t, at(0, 80));
+    CHECK_FALSE(t.w.info(gb).active);
+    CHECK(t.w.info(ga).active);
+}

@@ -448,7 +448,7 @@ struct Interactable {
 // What a child of an Interactable does with its state, with no script: Show (the entity is active only while `when` holds) or
 // Tint (the colour of the entity's Sprite / Shape2D / Text follows the state).
 enum class VisualMode : std::int32_t { Show, Tint };
-enum class VisualWhen : std::int32_t { Always, Normal, Hover, Pressed, Focused, Disabled, On, Off };
+enum class VisualWhen : std::int32_t { Always, Normal, Hover, Pressed, Focused, Highlighted, Disabled, On, Off };
 struct InteractableVisual {
     Entity target = kNullEntity;              // the Interactable to follow; empty = the nearest ancestor that has one
     VisualMode mode = VisualMode::Show;

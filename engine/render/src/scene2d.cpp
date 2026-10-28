@@ -395,7 +395,10 @@ void gather_2d(World& world, Frame& f) {
 
     // ---- shapes ----
     world.each<Shape2D>([&](Entity e, Shape2D& s) {
-        if (!entity_active(world, e) || s.color.a <= 0.0f) return;
+        // Invisible only when every colour the shape draws with is transparent: a gradient fill also uses color2 (the
+        // documented vignette starts at alpha 0 and ends opaque).
+        const bool usesColor2 = s.filled && s.gradient != ShapeGradient::None;
+        if (!entity_active(world, e) || (s.color.a <= 0.0f && !(usesColor2 && s.color2.a > 0.0f))) return;
         if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         bool screen = s.space == RenderSpace::Screen;
         Mat4 m = draw_matrix(world, e, screen);
