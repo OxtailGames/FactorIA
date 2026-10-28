@@ -2,6 +2,17 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Driving the game and reading the docs over MCP
+
+- `game.click` (MCP `game_click`) clicks like a player: by UI widget `id`, screen `position` or `world` point it moves the mouse,
+  presses, steps a frame, releases and steps another, so scripts see `input.mouse.pressed` then `released` and Buttons get their
+  `click`. The AI guide and the generated AGENTS.md give the recipe (Roguestory/FB-0004).
+- `docs.read` fits an MCP tool result by default (`maxBytes`, 40000): a cut page carries `contents` (headings with line numbers)
+  and `next`, and `heading` reads one section. `docs.components` and `docs.commands` list names with a one-line summary by
+  default; `name` returns one in full, `filter` narrows the list, `full` returns everything (Roguestory/FB-0005).
+
 ## 0.3.0
 
 FactorIA 0.3.0 is about the games themselves: four more reference games (a 3D phone game, a couch co-op game, a management

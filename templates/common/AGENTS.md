@@ -7,8 +7,9 @@ is text; you never need a GUI. The full guide is `factoria docs read ai-guide` (
 ## The loop (follow it for every change)
 
 1. **Read** what exists: `factoria docs read ai-guide` (once per task), then `scripting` and
-   `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`.) Read before guessing
-   component or API names.
+   `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`. A long page comes in parts with its
+   `contents`: read a section with `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}`
+   gives one component in full.) Read before guessing component or API names.
 2. **Edit** scenes (`scenes/*.scene.json`), prefabs, `scripts/*.js`, `tools/*.js`, `factoria.json`.
 3. **Validate**: `factoria validate` (MCP: `project_validate`). Fix every error; each one has a
    file, a JSON pointer and a hint. After the engine API changes, `factoria validate --fix-types`
@@ -135,6 +136,10 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - `factoria validate` first: it loads every scene and checks assets, input bindings, scripts.
 - `factoria run --headless --frames N --state-out out.json` dumps entities and components; MCP
   `game_state` / `scene_list_entities` give the same live. `game_logs` shows script errors.
+- To click in the running game (MCP `game_click`, CLI `factoria call game.click`): `{"id":"play"}` clicks the centre of a UI
+  widget, `{"position":[640,360]}` a screen point in design pixels, `{"world":[3,-2]}` a world point. It moves the mouse, presses, steps
+  one frame, releases and steps one more, so scripts see `input.mouse.pressed` and then `released` and Buttons get their `click`.
+  `game_input {"mouse":{"position":[x,y],"left":true}}` + `game_step` presses too, but the button stays held until you set `left:false`.
 - Compare screenshots before/after a change. If the picture is black, check there is a
   primary `Camera`, that sprites have a `layer` and size, and that the colors are not 0..255.
 - To act on a running game, use `factoria session`: one JSON request per stdin line, one JSON answer per
