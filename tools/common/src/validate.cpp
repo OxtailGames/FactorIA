@@ -24,6 +24,7 @@
 #include "fa/scene/rich_text.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
+#include "fa/scene/ui_rect.h"
 #include "fa/scene/world.h"
 #include "fa/services/network.h"
 #include "fa/services/platform.h"
@@ -260,6 +261,45 @@ void check_fit_panels(Ctx& c, const std::string& file, World& world) {
                    std::to_string(int(std::ceil(p->size.y))) + " px, larger than the " + std::to_string(int(design.x)) + " x " +
                    std::to_string(int(design.y)) + " px screen at the design size.",
                "Shorten its texts, lower the font sizes, or put a ScrollList with `fill` in the column so it takes the free height.");
+    }
+}
+
+// A screen widget whose whole rectangle lies outside the design size: the player sees nothing of it. The usual cause is
+// the two Y directions: `anchor` counts Y down from the top-left, `pivot` counts Y up (pivot [0.5, 1] is the top edge).
+// Widgets inside a ScrollList are left out: scrolling brings them in. The rectangle is the one the layout gives at the
+// design size, without a notch (`safeArea` insets are 0).
+void check_offscreen_widgets(Ctx& c, const std::string& file, World& world) {
+    if (!c.projectFileRead) return;
+    bool any = false;
+    for (Entity e : world.entities()) any = any || ui_box(world, e);
+    if (!any) return;
+    auto project = load_project(c.dir);
+    const Vec2 design = project.ok() ? Vec2{float(project->width), float(project->height)} : Vec2{1280, 720};
+    UiSystem ui;
+    ui.layout(world, design, {});
+    auto num = [](float v) { return std::to_string(int(std::lround(v))); };
+    auto pair = [](Vec2 v) {
+        std::ostringstream o;
+        o << "[" << v.x << ", " << v.y << "]";
+        return o.str();
+    };
+    for (Entity e : world.entities()) {
+        const UiBox* b = ui_box(world, e);
+        if (!b || !world.active_in_hierarchy(e) || !(b->size.x > 0.0f) || !(b->size.y > 0.0f)) continue;
+        bool scrolled = false;
+        for (Entity a = world.parent(e); a && !scrolled; a = world.parent(a)) scrolled = world.has<ScrollList>(a);
+        if (scrolled) continue;
+        const std::optional<Rect> r = ui_rect(world, e, design);
+        if (!r) continue;
+        if (r->x + r->w > 0.0f && r->y + r->h > 0.0f && r->x < design.x && r->y < design.y) continue;
+        c.warn(file, "",
+               std::string(ui_kind_name(ui_kind(world, e))) + " '" + world.info(e).id + "' lies completely outside the screen: it covers x " +
+                   num(r->x) + " to " + num(r->x + r->w) + ", y " + num(r->y) + " to " + num(r->y + r->h) + " (anchor " + pair(b->anchor) +
+                   ", pivot " + pair(b->pivot) + ", size " + pair(b->size) + "), and the screen at the design size is " + num(design.x) +
+                   " x " + num(design.y) + " px.",
+               "Anchor Y counts down from the top-left (0 top, 1 bottom) but pivot Y counts up (0 is the widget's bottom edge, 1 its top "
+               "edge): anchor [0.5, 1] with pivot [0.5, 0] sits on the bottom edge, with pivot [0.5, 1] it hangs below it. Fix the pivot "
+               "or the position, or turn `active` off if the widget is meant to be hidden (docs/MENUS.md, \"Anchors and pivots\").");
     }
 }
 
@@ -751,6 +791,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             }
             collect_if_not_canonical(handFormatted, rel);
             check_fit_panels(c, rel, world);
+            check_offscreen_widgets(c, rel, world);
             check_start_overlaps(c, rel, world);
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / rel);
             if (!text) continue;

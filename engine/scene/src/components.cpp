@@ -43,7 +43,9 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
         .field("pivot", static_cast<Vec2 T::*>(&UiBox::pivot),
                "Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, "
                "[1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] "
-               "is still the visual top-left. Layout does not care about the pivot of its children.")
+               "is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts "
+               "the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen "
+               "(docs/MENUS.md, \"Anchors and pivots\"). Layout does not care about the pivot of its children.")
         .field("anchor", static_cast<Vec2 T::*>(&UiBox::anchor),
                "Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] "
                "top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. "
@@ -148,7 +150,9 @@ TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
                "writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder "
                "(never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the "
                "language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps "
-               "the text written in the field and logs one warning.")
+               "the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a "
+               "keyboard key or pad button. To press a button with one, declare an input action in factoria.json (\"input\") and "
+               "read it with input.pressed in a script.")
         .field("keyArgs", static_cast<Json T::*>(&UiControl::keyArgs), kKeyArgsDoc)
         .field("fontSize", static_cast<float T::*>(&UiControl::fontSize), "Label glyph height in design pixels.").range(1, 4096)
         .field("maxTextScale", static_cast<float T::*>(&UiControl::maxTextScale), kMaxTextScaleDoc).range(0, 3)

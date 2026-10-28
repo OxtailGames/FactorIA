@@ -4,6 +4,19 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Docs for what is already there
+
+- A Button's `key` is a localization key, not a hotkey: the field's doc string (and COMPONENTS.md) says so and where a key press
+  goes instead (an input action read with `input.pressed`) (LL/FB-0006).
+- docs/MENUS.md, "Anchors and pivots": anchors count Y down, widget pivots count Y up, with a picture. `factoria validate` warns
+  about a widget of a scene that lies completely outside the design size, naming it, the rectangle it covers and the fix
+  (LL/FB-0007).
+- `platform.*` in tests: the fake serves a request inside the call (also from an event handler), and the Promise settles in the
+  next microtask; docs/PLATFORM.md and SCRIPTING.md say so, and a test pins it. `fake.achievements` lists only the ids that were
+  touched (LL/FB-0504).
+- docs/MOBILE.md, "Tablets and the iPad": `display.scaleMode: "expand"` shows more world on a 4:3 screen instead of black bars
+  (LL/FB-0803, first half).
+
 Shipping checks: a sandboxed save, long recordings and the iPad
 
 - The exported player takes `--persist-storage` with `--frames`, `--input`, `--dump-state` and `--screenshot`: `storage.*` and the
