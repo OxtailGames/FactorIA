@@ -6,6 +6,18 @@ import { storage, audio, window, input, session, i18n, world, ui, game } from "f
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
 
+/**
+ * Speeds of the dialogue text, in characters per second (0 = a whole line at once): the choices of the options "Text speed" row
+ * (project.add_menu_kit with textSpeed: true) and the locale name `options.speed.<name>`. settings.load().textSpeed is the chosen
+ * speed; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds).
+ */
+export const TEXT_SPEEDS = [
+  { name: "slow", cps: 20 },
+  { name: "normal", cps: 45 },
+  { name: "fast", cps: 90 },
+  { name: "instant", cps: 0 },
+];
+
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
 
@@ -31,6 +43,7 @@ function defaults() {
     uiScale: null, // the interface size (ui.scale), or null: keep the factoria.json ui.scale
     reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
+    textSpeed: system.reduceMotion ? 0 : 45, // dialogue text reveal in characters per second (TEXT_SPEEDS), 0 = a whole line at once
   };
 }
 
@@ -40,6 +53,11 @@ export function load() {
   if (saved.windowMode === undefined && typeof saved.fullscreen === "boolean") saved.windowMode = saved.fullscreen ? "fullscreen" : "windowed"; // saved by an older kit
   const base = defaults();
   return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
+}
+
+/** The value for Text.visibleCharacters of a dialogue line `seconds` after it appeared, at the player's text speed: -1 (everything) when the speed is 0. */
+export function revealedCharacters(seconds, s = load()) {
+  return s.textSpeed > 0 ? Math.floor(seconds * s.textSpeed) : -1;
 }
 
 export function save(s) {

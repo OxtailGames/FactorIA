@@ -16,6 +16,27 @@ const UI_SCALES = [0.75, 1, 1.25, 1.5, 2];
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
 const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
+/** @type {Array<{ section: string, id: string, text: () => string, click: () => void }>} */
+const gameRows = [];
+
+/**
+ * Adds a row of the GAME to a section of the options (a Button that the panel keeps in step with the language), without editing the
+ * panel's files. Call it before the panel is spawned: when the module that owns the game's setting loads, or in the host's onStart before
+ * it spawns prefabs/ui/options.prefab.json. `section` is "video", "audio", "controls" or "language". `text()` returns the label (use
+ * i18n.t; it is called again when the language changes and after every click), `click()` changes the setting (save it with
+ * settings.save, the panel does not know it). The section grows by one row; the panel is sized for its Video tab, so a section with more
+ * rows than that needs a taller prefab. A second call with the same id replaces the row.
+ *   addOptionsRow("audio", { id: "screen_shake", text: () => i18n.t("options.shake", { on: s.shake }), click: () => toggleShake() });
+ * @param {string} section
+ * @param {{ id: string, text: () => string, click: () => void }} row
+ */
+export function addOptionsRow(section, row) {
+  if (!TABS.includes(section)) throw new Error(`addOptionsRow: there is no options section "${section}". The sections are ${TABS.join(", ")}.`);
+  const at = gameRows.findIndex((r) => r.id === row.id);
+  if (at >= 0) gameRows.splice(at, 1);
+  gameRows.push({ section, ...row });
+}
+
 export default class Options extends Behaviour {
   runWhilePaused = true; // the pause menu opens it while game.paused
   /**
@@ -41,14 +62,18 @@ export default class Options extends Behaviour {
     this.showTab("video");
     this.setupVideo();
     this.setupAudio();
+    this.setupTextSpeed();
     this.setupControls();
     this.setupLanguage();
     this.setupPrivacy();
+    this.setupGameRows();
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
+      this.refreshTextSpeed();
       this.refreshControls();
       this.refreshLanguage();
+      this.refreshGameRows();
     });
   }
 
@@ -181,6 +206,51 @@ export default class Options extends Behaviour {
       settings.applySubtitles(this.s);
       settings.save(this.s);
     });
+  }
+
+  // ------------------------------------------------------------------------------------------------------ text speed
+  /** The "Text speed" button (added with `textSpeed: true`; without it the prefab has no such row and this does nothing). */
+  setupTextSpeed() {
+    if (!world.find("text_speed")) return;
+    ui.on("click", "text_speed", () => {
+      const all = settings.TEXT_SPEEDS;
+      const at = all.findIndex((x) => x.cps === this.s.textSpeed);
+      this.s.textSpeed = all[(at + 1) % all.length].cps;
+      settings.save(this.s);
+      this.refreshTextSpeed();
+    });
+    this.refreshTextSpeed();
+  }
+
+  refreshTextSpeed() {
+    const row = world.find("text_speed");
+    if (!row) return;
+    const speed = settings.TEXT_SPEEDS.find((x) => x.cps === this.s.textSpeed);
+    row.get("Button").text = i18n.t("options.textSpeed", { speed: i18n.t(`options.speed.${speed ? speed.name : "custom"}`) });
+  }
+
+  // ------------------------------------------------------------------------------------------------------- game rows
+  /** Builds the buttons of addOptionsRow(). */
+  setupGameRows() {
+    for (const row of gameRows) {
+      const section = world.find(`${row.section}_section`);
+      if (!section || world.find(row.id)) continue;
+      world.spawn({ id: row.id, components: { Button: { text: "", size: [560, 44], fontSize: 22, layer: 302, autoSize: true } } }, { parent: section });
+      const panel = section.get("Panel");
+      panel.size = [panel.size.x, panel.size.y + 44 + panel.spacing];
+      ui.on("click", row.id, () => {
+        row.click();
+        this.refreshGameRows();
+      });
+    }
+    this.refreshGameRows();
+  }
+
+  refreshGameRows() {
+    for (const row of gameRows) {
+      const entity = world.find(row.id);
+      if (entity) entity.get("Button").text = row.text();
+    }
   }
 
   // --------------------------------------------------------------------------------------------------------- controls
