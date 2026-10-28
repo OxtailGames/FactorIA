@@ -5,6 +5,12 @@
 //   add_feedback_entry   append an entry; a similar OPEN entry (same category,
 //                        similar title) is merged instead (occurrences++, the
 //                        new workaround goes to `notes`).
+//   archive_closed_feedback
+//                        move the entries that are not open (fixed-in-engine, wont-fix,
+//                        duplicate) to ENGINE_FEEDBACK.archive.json next to the file, so
+//                        the file only holds what is still open. Ids stay unique across
+//                        both files; a new report that matches an archived
+//                        fixed-in-engine entry reopens it (a possible regression).
 //   collect_feedback     aggregate many projects' files into a ranked roadmap
 //                        report (similar titles grouped, ranked by
 //                        occurrences x severity weight).
@@ -51,7 +57,8 @@ struct FeedbackInput {
 
 struct FeedbackAddResult {
     std::string id;
-    bool merged = false;  // true when folded into an existing open entry
+    bool merged = false;  // true when folded into an existing open entry (or an archived fixed one, then `reopened`)
+    bool reopened = false;  // true when the report matched an archived fixed-in-engine entry: it is open again, in the file
     int occurrences = 1;
     Json entry;  // the stored entry
 };
@@ -64,9 +71,12 @@ double feedback_title_similarity(std::string_view a, std::string_view b);
 // rendering-3d) and for similar suggestions. Deterministic. Entries are {title, category, suggestion}.
 double feedback_entry_similarity(const Json& a, const Json& b);
 
-// Modifies `doc` in place; validates the input (errors teach valid values).
-Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& input);
-// Load (or create) `path`, add, save.
+// Modifies `doc` in place; validates the input (errors teach valid values). `archive` (optional) is the archive document of
+// the same file: new ids continue after its ids, and a report matching an archived fixed-in-engine entry (same category,
+// similar title, no open match) moves that entry back into `doc`, open, with occurrences + 1 and a note
+// "reported again with engine X: regression?" (result.reopened).
+Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& input, Json* archive = nullptr);
+// Load (or create) `path` (and its archive, when there is one), add, save what changed.
 Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, const FeedbackInput& input,
                                                      std::string_view projectNameIfNew = {});
 
@@ -77,6 +87,30 @@ struct FeedbackFilter {
 };
 Json list_feedback(const Json& doc, const FeedbackFilter& filter = {});  // array of entries
 
+// "ENGINE_FEEDBACK.json" -> "ENGINE_FEEDBACK.archive.json": where the closed entries of a feedback file go.
+std::string feedback_archive_path(const std::string& feedbackPath);
+
+struct FeedbackArchiveResult {
+    int moved = 0;                  // entries moved to the archive by this call
+    std::vector<std::string> ids;   // their ids
+    int open = 0;                   // entries left in the feedback file
+    int archived = 0;               // entries in the archive afterwards
+};
+// Moves every entry whose status is not "open" from `doc` to `archive` (created by the caller, e.g. create_empty_feedback).
+// An id already in the archive is not added twice. Idempotent.
+FeedbackArchiveResult archive_closed_feedback(Json& doc, Json& archive);
+// Same on files: reads `path` and its archive, writes the archive first, then `path`; nothing is written when no entry is
+// closed. A missing `path` is an error that says how to create it.
+Result<FeedbackArchiveResult> archive_closed_feedback_file(const std::string& path);
+
+// Entries of the archive of `path` (empty array when there is none).
+Json list_archived_feedback(const std::string& path, const FeedbackFilter& filter = {});
+
+// Updates status, engineIssue and/or adds a note to entry `id` of the feedback file or, when it is not there, of its archive.
+// An archived entry set to "open" moves back to the file. Returns the updated entry.
+Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
+                                  std::string_view engineIssue, std::string_view note = {});
+
 // Updates status and/or engineIssue of entry `id`. Returns the updated entry.
 Result<Json> update_feedback_entry(Json& doc, std::string_view id, std::string_view status,
                                    std::string_view engineIssue);
@@ -86,7 +120,7 @@ struct FeedbackReport {
     std::string markdown() const;
 };
 struct CollectOptions {
-    bool includeClosed = false;  // also aggregate fixed/wont-fix/duplicate entries
+    bool includeClosed = false;  // also aggregate fixed/wont-fix/duplicate entries (the archive file next to each file counts too)
     double similarity = 0.7;     // title similarity threshold for grouping
 };
 // `paths`: ENGINE_FEEDBACK.json files, or directories (the file in the dir, or any
@@ -96,7 +130,7 @@ struct CollectOptions {
 //   sampleWorkarounds[] } ] }
 Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, const CollectOptions& opts = {});
 
-// Registers feedback.report, feedback.list, feedback.update bound to <projectDir>/ENGINE_FEEDBACK.json
+// Registers feedback.report, feedback.list, feedback.update, feedback.archive bound to <projectDir>/ENGINE_FEEDBACK.json
 // (or the project's `feedbackFile`).
 void register_feedback_commands(CommandRegistry& registry, const std::string& projectDir);
 

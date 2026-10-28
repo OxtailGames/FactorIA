@@ -16,6 +16,7 @@ Duplicates are harmless: a report similar to an open entry is merged into it.
 |---|---|
 | Command `feedback.report` (MCP tool `feedback_report`, CLI `factoria call feedback.report '{...}'`) | Preferred: assigns id and date, merges duplicates |
 | `feedback.list`, `feedback.update` | Inspect entries; engine developers change `status` / `engineIssue` |
+| `feedback.archive` (CLI `factoria feedback archive`) | Move the closed entries to the archive (see Archive) |
 | Edit the JSON | Allowed; keep it valid against `schemas/engine-feedback.schema.json` |
 
 ```json
@@ -50,6 +51,27 @@ A new report is merged into an existing **open** entry with the same `category` 
 distance). The entry's `occurrences` increases, the new workaround is appended to `notes`, the severity
 is raised if the new report is more severe, and the longer `suggestion` wins. The command returns
 `{id, merged: true}`.
+
+## Archive
+
+`ENGINE_FEEDBACK.json` keeps what is still open. Every entry whose `status` is not `open` (`fixed-in-engine`,
+`wont-fix`, `duplicate`) moves to `ENGINE_FEEDBACK.archive.json` next to it, in the same format. This happens when the
+editor opens the project and when you run the command `feedback.archive` (MCP `feedback_archive`, CLI
+`factoria feedback archive [project]`); running it again moves nothing. The archive is written before the feedback
+file, so an interruption can leave an entry in both files but never loses one. Both files are left out of exports.
+
+- Ids stay unique across both files: a new entry never reuses an archived id.
+- A report that matches an archived `fixed-in-engine` entry (same category, similar title) does not start a new
+  entry: the archived one moves back to `ENGINE_FEEDBACK.json` as `open`, its `occurrences` goes up and `notes` gets
+  "reported again with engine X: regression?". The command returns `reopened: true`. Archived `wont-fix` and
+  `duplicate` entries are not reopened by a report.
+- `feedback.update` also finds archived entries; setting one to `open` moves it back.
+- `feedback.list` shows the open file only; `includeArchive: true` (CLI `feedback list --archive`) adds the archived
+  entries, marked `archived: true`, and the result has `archivedCount`.
+- The editor's Engine Feedback panel lists the open file; "Show archive" adds the archived entries and "Archive
+  closed" moves the closed ones right away.
+- `feedback collect` reads the archive next to each file, so its output is the same before and after archiving
+  (closed entries still count only with `--include-closed`).
 
 ## Collecting (engine developers)
 

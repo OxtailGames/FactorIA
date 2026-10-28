@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Old engine feedback no longer piles up
+
+- Closed entries of `ENGINE_FEEDBACK.json` (fixed-in-engine, wont-fix, duplicate) move to `ENGINE_FEEDBACK.archive.json` next to
+  it when the editor opens the project and with the new command `feedback.archive` (CLI `factoria feedback archive`, MCP
+  `feedback_archive`). Ids stay unique across both files, and a report that matches an archived fixed-in-engine entry reopens it
+  with the note "reported again with engine X: regression?". `feedback list --archive` (`includeArchive`) shows the archive,
+  `feedback collect` still counts it, the Engine Feedback panel has "Show archive" and "Archive closed", and exports leave the
+  archive out.
+
 The editor keeps your layout
 
 - Which panels are open is saved with the layout (`~/.factoria/editor_layout2.ini`): a panel closed with its X, or one opened from

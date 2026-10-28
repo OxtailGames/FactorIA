@@ -456,6 +456,8 @@ bool Editor::boot(const std::string& dirIn) {
     dirty_ = false;
     feedbackMtime_ = INT64_MIN;
     feedbackDoc_ = Json();
+    feedbackArchive_ = Json();
+    feedbackArchiveMtime_ = INT64_MIN;
     layoutBuilt_ = false;
     profView_.reset();
     reset_audio_log(audioLog_);  // a new engine has a new play log that starts at seq 1
@@ -514,6 +516,11 @@ bool Editor::boot(const std::string& dirIn) {
         while (projectDir_.size() > 1 && (projectDir_.back() == '/' || projectDir_.back() == '\\')) projectDir_.pop_back();
         fs::set_project_root(projectDir_);
         projectName_ = engine_->project().name;
+        // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
+        if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
+            if (auto r = archive_closed_feedback_file(fbPath); !r) FA_WARN("editor", "feedback archive: {}", r.error().to_string());
+            else if (r->moved > 0) FA_INFO("editor", "moved {} closed feedback entries to the archive", r->moved);
+        }
         scenePath_ = world().scene_path();
         if (scenePath_.empty()) scenePath_ = engine_->project().mainScene;
         register_project_commands(*engine_, projectDir_);

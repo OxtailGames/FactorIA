@@ -95,7 +95,7 @@ The export packages the files on disk: when the scene has unsaved changes the wi
 
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
 (`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
-`node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`),
+`node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`) and its `.archive.json` next to it,
 `AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, the project's own top-level `README.md` (documentation for whoever works on the
 game; any capitalization), a top-level `steam_appid.txt` (the development app id of the
 [Steam backend](PLATFORM.md#steam-steamworks): a game started by Steam gets its app id from Steam), the folder of a native

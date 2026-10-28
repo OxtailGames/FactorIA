@@ -585,6 +585,9 @@ public:
     std::string feedbackError_;
     std::int64_t feedbackMtime_ = INT64_MIN;
     double feedbackPolled_ = -10;
+    Json feedbackArchive_;                         // the archive file's document (null when there is none)
+    std::int64_t feedbackArchiveMtime_ = INT64_MIN;
+    bool fbShowArchive_ = false;                   // list the archived entries too
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
