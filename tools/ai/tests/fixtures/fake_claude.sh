@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fake `claude` CLI: prints stream-json lines. Records its argv (and stdin as "stdin:...") in $FAKE_ARGV_FILE if set.
-# FAKE_COST overrides total_cost_usd; FAKE_MODE: notloggedin | crash | slow | models (answers the `initialize`
+# FAKE_COST overrides total_cost_usd; FAKE_MODE: notloggedin | crash | slow | spend (two paid model calls, then silence) | models (answers the `initialize`
 # control_request on stdin with a control_response listing three models, after one hook event line; with FAKE_HANG it then keeps running) | resume_fails (--resume is answered with
 # claude's "No conversation found" error) | mcp_spawn (calls the tool scene_spawn {"name":"CliCoin"} on the HTTP MCP
 # server of its --mcp-config with curl, like Claude Code calling a tool; the reply goes to $FAKE_ARGV_FILE.mcp).
@@ -41,6 +41,13 @@ case "$FAKE_MODE" in
         echo '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"gone","total_cost_usd":0,"usage":{},"errors":["No conversation found with session ID: gone"]}'
         exit 1 ;;
     esac ;;
+  spend)
+    # Two model calls that cost real money, then a long silence (the run's limit must stop it, not the end of the stream).
+    echo '{"type":"system","subtype":"init","session_id":"s1","model":"sonnet","mcp_servers":[]}'
+    echo '{"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":1000,"output_tokens":100}},"parent_tool_use_id":null}'
+    echo '{"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"b"}],"usage":{"input_tokens":1000,"output_tokens":100}},"parent_tool_use_id":null}'
+    sleep 30
+    exit 0 ;;
   mcp_spawn)
     cfg=""; prev=""
     for a in "$@"; do if [ "$prev" = "--mcp-config" ]; then cfg="$a"; fi; prev="$a"; done

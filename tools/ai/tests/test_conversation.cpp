@@ -135,9 +135,9 @@ TEST_CASE("claude stream: plan windows, context tokens and window size") {
     CHECK(ctx->limits.empty());
     CHECK(ctx->contextWindow == 0);  // only the final result says
     ev.clear();
-    // a sub-agent's call has its own context: ignored
+    // a sub-agent's call has its own context: not the chat's context (its tokens do count, see the live usage test)
     p.feed_line(R"({"type":"assistant","message":{"content":[],"usage":{"input_tokens":9,"cache_read_input_tokens":99999}},"parent_tool_use_id":"toolu_1"})", ev);
-    CHECK_FALSE(find_usage(ev, [](const AgentEvent&) { return true; }));
+    for (const AgentEvent& e : ev) CHECK(e.contextTokens == 46968);
     ev.clear();
 
     // every entry of unifiedWindows is taken, whatever its name
@@ -393,4 +393,109 @@ TEST_CASE("Conversation JSON round trip") {
     CHECK(back.history[0].text.find("hi") == 0);
     CHECK_FALSE(back.empty());
     CHECK(Conversation{}.empty());
+}
+
+// ---- live usage: tokens and cost grow while the CLI works, the result's totals replace them --------------------------------
+
+namespace {
+const AgentEvent& last_usage(const std::vector<AgentEvent>& ev) {
+    for (auto it = ev.rbegin(); it != ev.rend(); ++it)
+        if (it->type == AgentEvent::Type::Usage) return *it;
+    FAIL("no Usage event");
+    return ev.front();
+}
+}  // namespace
+
+TEST_CASE("claude stream: tokens and cost update live; a message counts once; sub-agents count; the result replaces the estimate") {
+    CliStreamParser p(ProviderKind::ClaudeCode);
+    std::vector<AgentEvent> ev;
+    p.feed_line(R"({"type":"system","subtype":"init","session_id":"s-1","model":"claude-sonnet-5-5"})", ev);
+    ev.clear();
+
+    // m1: two events (thinking, tool_use) with the same id; output_tokens grows between them
+    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"thinking","thinking":"hm"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":5}},"parent_tool_use_id":null})", ev);
+    const AgentEvent first = last_usage(ev);
+    CHECK(first.usage.inputTokens == 10);
+    CHECK(first.usage.outputTokens == 5);
+    CHECK(first.usage.cacheCreationTokens == 1000);
+    CHECK(first.usage.cacheReadTokens == 4000);
+    CHECK(first.costIsEstimate);
+    // sonnet-5: in 2.0, out 10.0, cache read 0.20, cache write 2.5 USD per 1M
+    const double c1 = (10 * 2.0 + 5 * 10.0 + 4000 * 0.20 + 1000 * 2.5) / 1e6;
+    CHECK(first.costUsd == doctest::Approx(c1));
+    ev.clear();
+    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"t1","name":"Task","input":{}}],"usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":25}},"parent_tool_use_id":null})", ev);
+    const AgentEvent second = last_usage(ev);
+    CHECK(second.usage.inputTokens == 10);  // not counted twice
+    CHECK(second.usage.cacheReadTokens == 4000);
+    CHECK(second.usage.outputTokens == 25);  // the larger output count of the same message
+    CHECK(second.costUsd == doctest::Approx((10 * 2.0 + 25 * 10.0 + 4000 * 0.20 + 1000 * 2.5) / 1e6));
+    ev.clear();
+    // the same event again changes nothing: no new Usage event
+    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":25}},"parent_tool_use_id":null})", ev);
+    for (const AgentEvent& e : ev) CHECK(e.type != AgentEvent::Type::Usage);
+    ev.clear();
+
+    // a sub-agent's message: its tokens count, the context stays the main agent's
+    p.feed_line(R"({"type":"assistant","message":{"id":"s1","model":"claude-haiku-5-5","content":[{"type":"text","text":"sub"}],"usage":{"input_tokens":100,"cache_read_input_tokens":2000,"output_tokens":50}},"parent_tool_use_id":"t1"})", ev);
+    const AgentEvent third = last_usage(ev);
+    CHECK(third.usage.inputTokens == 110);
+    CHECK(third.usage.outputTokens == 75);
+    CHECK(third.usage.cacheReadTokens == 6000);
+    CHECK(third.contextTokens == 5010);
+    const double c2 = (100 * 0.10 + 50 * 0.50 + 2000 * 0.01) / 1e6;  // haiku-5 prices for the haiku message
+    CHECK(third.costUsd == doctest::Approx((10 * 2.0 + 25 * 10.0 + 4000 * 0.20 + 1000 * 2.5) / 1e6 + c2));
+    CHECK(p.cost_is_estimate());
+    ev.clear();
+
+    // m2
+    p.feed_line(R"({"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":2,"cache_read_input_tokens":5000,"output_tokens":6}},"parent_tool_use_id":null})", ev);
+    CHECK(last_usage(ev).usage.inputTokens == 112);
+    ev.clear();
+
+    // the result: the CLI's own totals replace the estimate
+    p.feed_line(R"({"type":"result","subtype":"success","is_error":false,"result":"ok","total_cost_usd":0.0123,"num_turns":2,"session_id":"s-1","usage":{"input_tokens":120,"cache_creation_input_tokens":1000,"cache_read_input_tokens":9000,"output_tokens":400}})", ev);
+    const AgentEvent fin = last_usage(ev);
+    CHECK_FALSE(fin.costIsEstimate);
+    CHECK(fin.costUsd == doctest::Approx(0.0123));
+    CHECK(fin.usage.inputTokens == 120);
+    CHECK(fin.usage.outputTokens == 400);
+    CHECK(fin.usage.cacheReadTokens == 9000);
+    CHECK(p.cost_usd() == doctest::Approx(0.0123));
+    CHECK_FALSE(p.cost_is_estimate());
+}
+
+TEST_CASE("claude stream: a model with no price in the table uses the provider's price, else no cost") {
+    CliStreamParser p(ProviderKind::ClaudeCode);
+    std::vector<AgentEvent> ev;
+    const char* line = R"({"type":"assistant","message":{"id":"m1","model":"my-model","content":[],"usage":{"input_tokens":1000000,"output_tokens":0}},"parent_tool_use_id":null})";
+    p.feed_line(line, ev);
+    CHECK(last_usage(ev).costUsd == 0);
+    CHECK(last_usage(ev).usage.inputTokens == 1000000);
+    CliStreamParser priced(ProviderKind::ClaudeCode);
+    Pricing price;
+    price.input = 3.0;
+    price.known = true;
+    priced.set_pricing(price);
+    ev.clear();
+    priced.feed_line(line, ev);
+    CHECK(last_usage(ev).costUsd == doctest::Approx(3.0));
+}
+
+TEST_CASE("codex stream: every turn adds its usage, with an estimate when the price is known") {
+    CliStreamParser p(ProviderKind::Codex);
+    Pricing price;
+    price.input = 1.0;
+    price.output = 4.0;
+    price.cacheRead = 0.5;
+    price.known = true;
+    p.set_pricing(price);
+    std::vector<AgentEvent> ev;
+    p.feed_line(R"({"type":"turn.completed","usage":{"input_tokens":1000000,"cached_input_tokens":200000,"output_tokens":100000}})", ev);
+    const AgentEvent& e = last_usage(ev);
+    CHECK(e.usage.inputTokens == 800000);
+    CHECK(e.usage.cacheReadTokens == 200000);
+    CHECK(e.usage.outputTokens == 100000);
+    CHECK(e.costIsEstimate);
+    CHECK(e.costUsd == doctest::Approx(0.8 + 0.4 + 0.1));
 }

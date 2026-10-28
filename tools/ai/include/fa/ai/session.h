@@ -104,6 +104,7 @@ private:
     ToolResult execute_tool(const ToolCall& call, const std::string& role, int depth);
     void emit(AgentEvent e, int depth, const std::string& role);
     bool over_budget(std::string& why) const;
+    bool over_budget(const Usage& usageNow, double costNow, std::string& why) const;  // with these totals instead
     void add_usage(const Usage& u, double cost);
 
     CommandRegistry& registry_;
