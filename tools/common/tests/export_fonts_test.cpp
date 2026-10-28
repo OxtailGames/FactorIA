@@ -1,4 +1,5 @@
 // Export: the built-in fonts that are files (builtin:serif, ...) ship only in games that name them (tools/common/src/export_fonts.cpp).
+#include <algorithm>
 #include <doctest.h>
 
 #include <filesystem>
@@ -52,7 +53,9 @@ TEST_CASE("export: only the built-in font families a scene or script names are c
                        R"({"entities":[{"name":"t","components":{"Text":{"text":"x","font":"builtin:serif"}}}]})");
     auto r = f.export_linux();
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(r->builtinFonts == std::vector<std::string>{"builtin:serif", "builtin:hand"});
+    std::vector<std::string> shipped = r->builtinFonts;
+    std::sort(shipped.begin(), shipped.end());
+    CHECK(shipped == std::vector<std::string>{"builtin:hand", "builtin:serif"});
     for (const char* file : {"CrimsonText-Regular.ttf", "CrimsonText-Bold.ttf", "CrimsonText-Italic.ttf", "CrimsonText-BoldItalic.ttf",
                              "Kalam-Regular.ttf", "Kalam-Bold.ttf"}) {
         CAPTURE(file);
