@@ -1512,22 +1512,28 @@ Writes back the files that were modified or deleted since checkpoint `id` and de
 
 ### `docs.commands`
 
-Reference of every available command (tool) with arguments.
+Reference of the available commands (tools) with arguments: a list of names, or one command in full.
 
-Lists the commands of this session, including project tools from tools/*.js.
+Lists the commands of this session, including project tools from tools/*.js. With no argument it lists every command with its summary (the whole reference is over 200 KB, more than an MCP tool result carries). {"name":"game.click"} returns that command with its arguments, {"filter":"ui"} the commands whose name, category or summary contains the text, {"full":true} everything.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
+| `name` | string | no | Exact command name (case-insensitive): returns its full reference. |
+| `filter` | string | no | Keep the commands whose name, category or summary contains this text (case-insensitive). |
+| `full` | boolean | no | Return every command in full (over 200 KB: too large for most MCP clients; prefer name or filter). Default false. |
 | `format` | string ["markdown","json"] | no | Output format. Default "markdown". |
 
 ### `docs.components`
 
-Reference of every component and field (types, defaults, docs).
+Reference of components and fields (types, defaults, docs): a list of names, or one component in full.
 
-Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON.
+Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON. With no argument it lists every component with a one-line summary (the whole reference is over 200 KB, more than an MCP tool result carries). {"name":"Sprite"} returns that component with all its fields, {"filter":"physics"} the components whose name, category or summary contains the text, {"full":true} everything.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
+| `name` | string | no | Exact component name (case-insensitive): returns its full reference. |
+| `filter` | string | no | Keep the components whose name, category or summary contains this text (case-insensitive). |
+| `full` | boolean | no | Return every component in full (over 200 KB: too large for most MCP clients; prefer name or filter). Default false. |
 | `format` | string ["markdown","json"] | no | Output format. Default "markdown". |
 
 ### `docs.list`
@@ -1538,15 +1544,17 @@ Start here. Returns name, title and size of each document; read one with docs.re
 
 ### `docs.read`
 
-Read a documentation page (Markdown).
+Read a documentation page (Markdown), a section or a line range; long pages come in parts.
 
-Example: {"name":"scripting"}. Long pages can be read in slices with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses).
+Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses). To find where something is, docs.search returns sections with their line numbers.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Doc name ("scripting") or path ("docs/SCRIPTING.md"). |
-| `startLine` | integer | no | First line to return (1-based). Default 1. |
+| `heading` | string | no | Read only the section with this heading (and its subsections), e.g. "Pause menu". See `contents` of a cut read. |
+| `startLine` | integer | no | First line to return (1-based, default 1). With `heading`: the line to continue a long section from. |
 | `maxLines` | integer | no | Maximum number of lines. Default 2000. |
+| `maxBytes` | integer | no | Maximum size of `content` in bytes; the read stops at a line boundary. Default 40000. |
 
 ### `docs.search`
 
@@ -1706,6 +1714,22 @@ Example: {"path":"scripts/enemy.js","content":"export default class ..."}. For b
 | `overwrite` | boolean | no | Allow replacing an existing file. Default true. |
 
 ## game
+
+### `game.click` (modifies state)
+
+Not released yet (on main after 0.3.0).
+
+Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.
+
+Give one target: `id` (a UI widget or screen-space Text: its centre is clicked), `position` ([x, y] in design pixels, top-left origin, +Y down) or `world` ([x, y] or [x, y, z] in world units, projected through the main camera). It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more frame (input.mouse.released, the ui "click" event). The same sequence as game.click in a test, so it runs hold + 1 frames. A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList) is an error that says why. game.input {"mouse":{"position":[x,y],"left":true}} only sets the state for the next frame and leaves the button held; a click is move + press + frame + release + frame, which this command does in one call. Returns {position, button, frames, widget, frame}: `widget` is the id of the topmost UI widget under the click (null over the world). Examples: game.click {"id":"play"}, game.click {"position":[640,360]}, game.click {"world":[3,-2],"button":"right"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | no | Entity id (or name) of a UI widget or screen-space Text; its centre is clicked. |
+| `position` | array | no | Screen position [x, y] in design pixels (top-left origin, +Y down). |
+| `world` | array | no | World position [x, y] or [x, y, z], projected through the main camera (needs a renderer). |
+| `button` | string ["left","right","middle"] | no | Mouse button. Default "left". |
+| `hold` | integer | no | Frames the button stays down before the release (1 = a tap). Default 1. |
 
 ### `game.input` (modifies state)
 

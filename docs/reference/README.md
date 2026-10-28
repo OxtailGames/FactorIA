@@ -119,10 +119,10 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [docs](commands/docs.md)
 
-- [`docs.commands`](commands/docs.md#docscommands): Reference of every available command (tool) with arguments.
-- [`docs.components`](commands/docs.md#docscomponents): Reference of every component and field (types, defaults, docs).
+- [`docs.commands`](commands/docs.md#docscommands): Reference of the available commands (tools) with arguments: a list of names, or one command in full.
+- [`docs.components`](commands/docs.md#docscomponents): Reference of components and fields (types, defaults, docs): a list of names, or one component in full.
 - [`docs.list`](commands/docs.md#docslist): List the engine documentation available offline.
-- [`docs.read`](commands/docs.md#docsread): Read a documentation page (Markdown).
+- [`docs.read`](commands/docs.md#docsread): Read a documentation page (Markdown), a section or a line range; long pages come in parts.
 - [`docs.search`](commands/docs.md#docssearch): Search the documentation by keywords.
 - [`docs.write_reference`](commands/docs.md#docswrite_reference-modifies-state): Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md. _Since 0.2.0._
 
@@ -147,6 +147,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [game](commands/game.md)
 
+- [`game.click`](commands/game.md#gameclick-modifies-state): Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click. _Not released yet._
 - [`game.input`](commands/game.md#gameinput-modifies-state): Inject input: press/release actions or keys, or set an action state, mouse position/buttons, gamepad buttons/sticks, touches.
 - [`game.logs`](commands/game.md#gamelogs): Read recent log lines (engine, scripts, assets...).
 - [`game.pause`](commands/game.md#gamepause-modifies-state): Pause the simulation (frame() stops simulating; game.step still works).

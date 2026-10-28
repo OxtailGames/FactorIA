@@ -610,3 +610,83 @@ TEST_CASE("ui: a focused TextField raises the on-screen keyboard and blur hides 
     CHECK_FALSE(e.input().keyboard_shown());
     e.shutdown();
 }
+
+TEST_CASE("game.input: a mouse button or key that goes up to down between frames is a press for scripts") {
+    TempProject p("press_edge");
+    p.write("scenes/main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+        {"id":"p","components":{"Script":{"path":"p.js"}}}]})");
+    p.write("p.js", "import { Behaviour, input } from 'factoria';\n"
+                    "globalThis.log = [];\n"
+                    "export default class P extends Behaviour {\n"
+                    "  onUpdate() { if (input.mouse.pressed('left')) log.push('mp@' + input.mouse.position.x);\n"
+                    "    if (input.mouse.released('left')) log.push('mr');\n"
+                    "    if (input.keyPressed('Space')) log.push('kp'); if (input.keyReleased('Space')) log.push('kr'); }\n"
+                    "}\n");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    auto call = [&](const char* cmd, const char* args) {
+        auto r = e.commands().call(cmd, Json::parse(args));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+    };
+    auto log = [&] { return e.commands().call("script.eval", Json{{"code", "log.join(',')"}}).result["value"].get<std::string>(); };
+    e.step(2);
+    call("game.input", R"({"mouse":{"position":[100,50],"left":true}})");
+    call("game.step", R"({"frames":1})");
+    CHECK(log() == "mp@100");
+    call("game.step", R"({"frames":2})");
+    call("game.input", R"({"mouse":{"left":false}})");
+    call("game.step", R"({"frames":1})");
+    CHECK(log() == "mp@100,mr");
+    call("game.input", R"({"key":"Space","down":true})");
+    call("game.step", R"({"frames":1})");
+    call("game.input", R"({"key":"Space","down":false})");
+    call("game.step", R"({"frames":1})");
+    CHECK(log() == "mp@100,mr,kp,kr");
+    e.shutdown();
+}
+
+TEST_CASE("game.click: by position and by widget id, scripts see pressed and released, buttons get the click") {
+    TempProject p("click_cmd");
+    p.write("scenes/main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+        {"id":"p","components":{"Script":{"path":"p.js"}}},
+        {"id":"menu","components":{"Transform":{"position":[160,20]},"Panel":{"size":[240,140],"pivot":[0.5,1],"layout":"column","padding":[8,8,8,8]}},
+         "children":[{"id":"play","components":{"Button":{"text":"Play","size":[200,30]}}},
+                     {"id":"hidden","components":{"Button":{"text":"Hidden","size":[200,30]}}}]}]})");
+    p.write("p.js", "import { Behaviour, input, ui, world } from 'factoria';\n"
+                    "globalThis.log = [];\n"
+                    "ui.on('click', (e) => log.push('click:' + e.id));\n"
+                    "export default class P extends Behaviour {\n"
+                    "  onStart() { world.find('hidden').active = false; }\n"
+                    "  onUpdate() { if (input.mouse.pressed('left')) log.push('mp@' + input.mouse.position.x + ',' + input.mouse.position.y);\n"
+                    "    if (input.mouse.released('left')) log.push('mr'); if (input.mouse.pressed('right')) log.push('rp'); }\n"
+                    "}\n");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    e.step(2);
+    auto log = [&] { return e.commands().call("script.eval", Json{{"code", "log.join(',')"}}).result["value"].get<std::string>(); };
+    auto r = e.commands().call("game.click", Json::parse(R"({"position":[10,20]})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["frames"] == 2);
+    CHECK(log() == "mp@10,20,mr");
+    r = e.commands().call("game.click", Json::parse(R"({"id":"play"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["widget"] == "play");
+    CHECK(log().find("click:play") != std::string::npos);
+    r = e.commands().call("game.click", Json::parse(R"({"position":[10,20],"button":"right","hold":3})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["frames"] == 4);
+    CHECK(log().find(",rp") != std::string::npos);
+    CHECK_FALSE(e.input().mouse_down(MouseButton::Right));
+    // Teaching errors: nothing to click, two targets, a widget that cannot be clicked.
+    CHECK_FALSE(e.commands().call("game.click", Json::object()).ok);
+    CHECK_FALSE(e.commands().call("game.click", Json::parse(R"({"id":"play","position":[1,1]})")).ok);
+    r = e.commands().call("game.click", Json::parse(R"({"id":"hidden"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("inactive") != std::string::npos);
+    r = e.commands().call("game.click", Json::parse(R"({"id":"plya"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("play") != std::string::npos);
+    e.shutdown();
+}
