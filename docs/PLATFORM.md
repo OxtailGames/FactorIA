@@ -130,7 +130,7 @@ A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place
 | `platform.achievements.reset()` | Development: clears every achievement. |
 | `platform.stats.get(id)` | The number. |
 | `platform.stats.set(id, value)` | The new value. An int stat needs a whole number. |
-| `platform.stats.add(id, delta)` | The new value (a get, then a set: not atomic). |
+| `platform.stats.add(id, delta)` | The new value. The fake store adds on the value it holds when it serves the request, so two adds made in one frame both count; another backend gets a `stats.get`, then a `stats.set` (not atomic). |
 | `platform.leaderboards.submit(id, score)` | `{ id, score, best }` (and `periodStart`, `periodEnd` when the store says; "Leaderboard periods"); `best` is the player's best after this (on a daily or weekly board: today's or this week's). The score is a whole number. |
 | `platform.leaderboards.entries(id, { range = "top", count = 10 })` | `[{ rank, name, score, playerId, isPlayer }]` (of the current period). `range`: `"top"`, `"around"` (the player's neighbours) or `"friends"`; `count` 1 to 100. |
 | `platform.cloud.save(key, value)` | `{ key, bytes }`. `value` is anything JSON can hold. Keys: `A-Z a-z 0-9 _ . -`, up to 64 characters. |
@@ -354,7 +354,7 @@ once, without `game.step()`.
 | `game.platform.ad(outcome, { gdpr, tracking, privacyOptions })` | How the fake's test ad ends from now on: `"watched"` (default, rewarded), `"closedEarly"`, `"noFill"` (no ad: `ads.available()` is false) or `"consentRefused"` (also answers denied in `ads.consent()`). `gdpr`, `tracking` and `privacyOptions` (`"required"`, `"notRequired"`, `"unknown"`) set what `ads.consent()` answers; a denied `gdpr` stops every ad, and with `privacyOptions: "required"` `platform.ads.privacyOptions()` "shows" the form and `state().fake.ads.privacyShown` counts it. `reset()` restores the defaults (and forgets the answer of `setUnderAge`); `state().fake.ads` counts `shown` and `rewarded`. Command: `platform.set_ad`. |
 | `game.platform.set({ signedIn, delayFrames, backend, cloudClock })` | `cloudClock: n` sets the time the next `cloud.save` stamps (Unix seconds, not negative), which `cloud.stat` then answers; the one after is a second later. `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. `backend: "none"` makes the fake behave as the none backend (section 4) until `reset()`: `platform.has(...)` is false, every call rejects `unavailable`, `signIn()` answers signed out; use it to test what an exported game without a store plugin does. An unknown option throws with a "did you mean". `platform.*` answers are ready at once (unless delayed), but `emit` events and `world.emit` reach listeners at the next `game.step`. |
 | `game.platform.state()` | The backend, services, player, the catalog's ids, the number of pending requests, and `fake`: achievements, stats, leaderboards, cloud, owned, unfinished, presence, and `calls`, the log of every request (`{ seq, frame, method, args }`). |
-| `game.platform.calls()` | `state().fake.calls`. The log holds what the fake performed, not what the script called: `platform.stats.add(id, d)` shows as a `stats.get` and a `stats.set` (assert the `stats.set`, or `state().fake.stats`), never as a `stats.add`. |
+| `game.platform.calls()` | `state().fake.calls`. The log holds what the fake performed, not what the script called: `platform.stats.add(id, d)` shows as one `stats.add` (assert `state().fake.stats`, or that call). Only the fake gets `stats.add`; a real store gets a `stats.get` and a `stats.set`. |
 | `game.platform.reset()` | A fresh fake: signed in, no delay, nothing owned, no guests, no scripted answers, an empty log, the cloud clock at its start; transactions, integrity tokens and guest sessions are numbered from 1 again. |
 
 ```js
@@ -727,6 +727,7 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 | `achievements.reset` | `{ achievements: [{ id, storeId }] }` | `{}` |
 | `stats.get` | `{ id, storeId, type }` | `{ id, value }` |
 | `stats.set` | `{ id, storeId, type, value }` | `{ id, value }` |
+| `stats.add` | `{ id, storeId, type, delta }` | `{ id, value }` (the new value). Only the fake backend gets it, so that two adds in a frame count twice; a backend plugin keeps implementing `stats.get` and `stats.set` and the script adds with those. |
 | `leaderboards.submit` | `{ id, storeId, name, order, period, periodKey, date, score }` | `{ id, score, best, periodStart?, periodEnd? }` |
 | `leaderboards.entries` | `{ id, storeId, name, order, period, periodKey, date, range, count }` | `[{ rank, name, score, playerId, isPlayer }]`, or `{ entries: [...], periodStart, periodEnd }` when the store says when the period runs |
 | `cloud.save` | `{ key, data }` (`data` is JSON text) | `{ key, bytes }` |

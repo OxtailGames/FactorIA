@@ -421,6 +421,9 @@ is not seen unless you open it with `steps`, a list per scene run before the che
 writes without a `key` is only checked at each text scale (in the state the steps reach). It reloads scenes and restores the language and text size afterwards, so run
 it on a fresh game, not in the middle of a play session.
 
+In a test, `game.checkLayout()` (docs/SCRIPTING.md, "Testing") runs the same check with `current: true`: no scene is loaded, so it
+measures the running scene with the panels the test has opened, and the game state is kept (`scenes` and `steps` do not apply).
+
 ## 9. Commands
 
 - `i18n.state` (read-only): `{enabled, default, current, languages: [{code, name, file, loaded, keys, missing,
@@ -431,7 +434,7 @@ it on a fresh game, not in the middle of a play session.
   translators exchange (section 8). Both write files, `i18n.export` only under `out` (default `build/translations/`,
   never in `locales/`).
 
-- `ui.check_layout {scenes?, languages?, textScales?, uiScales?, pseudo?, settleFrames?}`: the layout check above; returns
+- `ui.check_layout {scenes?, languages?, textScales?, uiScales?, pseudo?, current?, settleFrames?}`: the layout check above; returns
   `{ok, checked, skipped, issueCount, issues: [{scene, kind, entity, path, key, text, rect, other?, cases}]}` with `kind`
   `overflow`, `overlap` or `offscreen`.
 

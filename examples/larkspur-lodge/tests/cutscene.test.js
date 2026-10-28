@@ -141,7 +141,7 @@ describe("skipping reaches the same end state as watching", () => {
     expect(endState()).toBe(watched);
   };
 
-  test("Space", () => skipsWith(() => game.tapKey("Space")));
+  test("Space (the skip_cutscene action)", () => skipsWith(() => game.tap("skip_cutscene")));
 
   test("gamepad B", () => {
     game.gamepad(0).connect({ type: "xbox" });
@@ -174,11 +174,11 @@ describe("skipping reaches the same end state as watching", () => {
   test("a press in the first moments does not skip (it may be the one that closed a conversation)", () => {
     startIntro();
     game.step(2);
-    game.tapKey("Space");
+    game.tap("skip_cutscene");
     seconds(0.1);
     expect(cutscene.active()).toBe(true);
     seconds(1);
-    game.tapKey("Space");
+    game.tap("skip_cutscene");
     game.step(3);
     expect(cutscene.active()).toBe(false);
   });
@@ -190,7 +190,7 @@ describe("skipping reaches the same end state as watching", () => {
     expect(r.skippable).toBe(false);
     expect(view().skipVisible).toBe(false);
     seconds(1);
-    game.tapKey("Space");
+    game.tap("skip_cutscene");
     game.step(3);
     expect(cutscene.skip()).toBe(false);
     expect(cutscene.active()).toBe(true);
@@ -263,7 +263,7 @@ describe("the pause menu keeps working", () => {
     expect(game.paused).toBe(false);
     seconds(1);
     expect(cutscene.current().time).toBeGreaterThan(t0 + 0.5);
-    game.tapKey("Space");
+    game.tap("skip_cutscene");
     game.step(3);
     expect(cutscene.active()).toBe(false);
   });
@@ -315,7 +315,7 @@ describe("voice, captions and the mix", () => {
     const step = CUTSCENES.intro.timeline.find((s) => s.voice === "intro_01");
     seconds(step.at + 0.5);
     expect(game.captions().length).toBe(1);
-    game.tapKey("Space");
+    game.tap("skip_cutscene");
     game.step(3);
     expect(game.captions().length).toBe(0);
   });
@@ -391,7 +391,7 @@ describe("the story asks for them", () => {
     cutscene.play("adit_descent");
     game.step(20);
     expect(game.find("dialogue_ui").active).toBe(false);
-    game.tapKey("Space");
+    game.tap("skip_cutscene");
     game.step(3);
     expect(dialogue.current().line.node).toBe("dlg.ch1_mara.greet"); // the key went to the cut-scene, not to the conversation
     cutscene.skip();
