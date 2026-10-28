@@ -377,6 +377,7 @@ std::optional<Rect> ui_screen_rect(const World& w, Entity e, Vec2 designSize, co
 }
 
 void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) {
+    sync_interactables(w, design, m);  // state, slider knobs and visuals follow what scripts changed
     // Containers deepest first: a nested container is sized and fills itself before the container around it places it
     // (moving a container moves its whole subtree, so what it already placed stays in place).
     std::vector<std::pair<int, Entity>> containers;
