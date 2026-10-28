@@ -55,6 +55,9 @@ struct VisualFootprint {
     std::int32_t layer = 0;                      // the component's draw layer
     Vec2 anchor{0, 0};                           // Screen space only: the component's anchor (fraction of the design size)
     bool safeArea = false;                       // Screen space only: the anchor is relative to the safe area (anchor_point)
+    // Screen space only: the entity is mirrored (ui_mirrored, ui.mirrorRtl). `anchor` and `box` / `hull` are already the mirror
+    // image (anchor.x flipped, local x negated); the caller puts the world matrix's translation x negated in the formula below.
+    bool mirrored = false;
     // The drawn box in local space (y up), as 4 corners around the quad: what to outline and to hit-test. For a Diamond it is
     // the size box the tips touch; for a Line the stroked segment; for a Circle its bounding square.
     std::array<Vec2, 4> box{};
@@ -69,6 +72,7 @@ struct VisualFootprint {
 //
 // Screen space: the renderer draws these with local y negated and the translation moved by the anchor point, so a
 // point (lx, ly) of the box lands at world_matrix * (lx, -ly) + anchor_point(anchor, safeArea, designSize, insets)
+// (with `mirrored`, the matrix's translation x is negated first)
 // (ui_rect.h; plain anchor * designSize without safeArea). Callers that need that do it themselves. With an interface scale k
 // (World::ui_scale()) the box and the matrix are in UI units: on the screen the point lands at
 // k * world_matrix * (lx, -ly) + anchor_point(...), the anchor point not scaled (ui_layout_screen / ui_layout_insets give

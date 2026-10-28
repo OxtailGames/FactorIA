@@ -94,12 +94,13 @@ std::vector<Vec2> place(UiLayout layout, const std::vector<Child>& ch, const Rec
     return out;
 }
 
-// Moves the child's Transform.position so its rectangle's top-left lands on `slot` (a delta in screen pixels).
+// Moves the child's Transform.position so its rectangle's top-left lands on `slot` (a delta in screen pixels). A mirrored child
+// (ui_mirrored) is drawn at the mirror image of its position: its position moves the other way.
 void move_to(World& w, const Child& c, Vec2 slot) {
     const float dx = slot.x - c.r.x, dy = slot.y - c.r.y;
     if (std::fabs(dx) < 1e-4f && std::fabs(dy) < 1e-4f) return;
     Transform* t = w.get<Transform>(c.e);
-    t->position.x += dx;
+    t->position.x += ui_mirrored(w, c.e) ? -dx : dx;
     t->position.y += dy;
 }
 
@@ -349,8 +350,10 @@ std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     for (const VisualFootprint& f : visual_footprints(w, e, measure, true)) {
         if (f.space != RenderSpace::Screen) continue;
+        Mat4 fm = m;
+        if (f.mirrored) fm.at(3, 0) = -fm.at(3, 0);  // a mirrored visual: its box and anchor are already flipped (bounds.h)
         for (const Vec2& p : f.box) {  // the renderer draws a local point (lx, ly) at world_matrix * (lx, -ly) + the anchor point
-            const Vec3 q = m.transform_point({p.x, -p.y, 0.0f});
+            const Vec3 q = fm.transform_point({p.x, -p.y, 0.0f});
             const Vec2 a = anchor_point(f.anchor, f.safeArea, uiScreen, uiInsets);
             const float sx = q.x + a.x, sy = q.y + a.y;
             x0 = any ? std::min(x0, sx) : sx;

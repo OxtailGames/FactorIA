@@ -134,7 +134,8 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
         Vec2 size = measure.textSize ? measure.textSize(*t) : approx_text_size(*t, measure.textScale);
         // A centred or right-aligned Text with a maxWidth is drawn in a box of that width (the renderer aligns inside it), so
         // that is the box layout and ui.state must see: a short note aligned to the end of a wrap box stays in its rectangle.
-        const bool left = t->align == Align::Left || (t->align == Align::Start && !W.rtl()) || (t->align == Align::End && W.rtl());
+        const bool startIsRight = text_starts_right(*t, W.rtl());
+        const bool left = t->align == Align::Left || (t->align == Align::Start && !startIsRight) || (t->align == Align::End && startIsRight);
         if (t->maxWidth > 0.0f && !left) size.x = std::max(size.x, t->maxWidth);
         out.push_back(make("Text", t->space, t->layer, t->anchor, t->safeArea,
                            rect_quad(-t->pivot.x * size.x, -t->pivot.y * size.y, (1.0f - t->pivot.x) * size.x,
@@ -145,6 +146,14 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
         out.push_back(make(ui_kind_name(ui_kind(W, e)), RenderSpace::Screen, b->layer, b->anchor, b->safeArea,
                            rect_quad(-b->pivot.x * b->size.x, -b->pivot.y * b->size.y, (1.0f - b->pivot.x) * b->size.x,
                                      (1.0f - b->pivot.y) * b->size.y)));
+    if (includeScreenSpace && ui_mirrored(W, e))  // the mirror image of what is drawn in screen space: x flips about the origin
+        for (VisualFootprint& v : out) {
+            if (v.space != RenderSpace::Screen) continue;
+            v.mirrored = true;
+            v.anchor.x = 1.0f - v.anchor.x;
+            for (Vec2& p : v.box) p.x = -p.x;
+            for (Vec2& p : v.hull) p.x = -p.x;
+        }
     return out;
 }
 

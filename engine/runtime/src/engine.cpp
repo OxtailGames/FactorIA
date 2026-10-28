@@ -82,6 +82,11 @@ void Engine::Impl::apply_project_settings() {
         self->set_ui_scale(project.uiScale);
         if (atStart) std::erase_if(world.events().game, [](const GameEvent& e) { return e.name == "ui.scale"; });
     }
+    // The mirror option of factoria.json, applied when it changes (a script's ui.mirrorRtl survives an unrelated reload).
+    if (!appliedProjectMirrorRtl || *appliedProjectMirrorRtl != project.uiMirrorRtl) {
+        appliedProjectMirrorRtl = project.uiMirrorRtl;
+        world.set_ui_mirror_rtl(project.uiMirrorRtl);
+    }
     // The tooltip settings, when the project file changes them (a script's ui.tooltipDelay survives an unrelated reload).
     if (!appliedProjectTooltip || *appliedProjectTooltip != project.uiTooltip) {
         appliedProjectTooltip = project.uiTooltip;
@@ -1073,6 +1078,7 @@ void Engine::set_ui_scale(float scale) {  // the callers (ui.scale, ui.set_scale
     if (impl_->renderer) impl_->renderer->set_ui_scale(scale);
     if (impl_->renderer) impl_->renderStale = true;
 }
+bool Engine::default_ui_mirror_rtl() const { return impl_->project.uiMirrorRtl; }
 float Engine::default_ui_scale() const { return impl_->project.uiScale; }
 std::string Engine::load_scene_now_with_props(std::string_view scenePath, const Json& props) {
     impl_->nextProps = props;

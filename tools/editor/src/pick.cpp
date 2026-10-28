@@ -36,6 +36,7 @@ Mat4 part_matrix(const World& w, Entity e, const VisualFootprint& part, Vec2 des
     if (part.space == RenderSpace::Screen) {
         const float k = ui_scale_clamped(w.ui_scale());
         m = Mat4::scale({k, k, 1.0f}) * m;
+        if (part.mirrored) m.at(3, 0) = -m.at(3, 0);  // a mirrored part: its box and anchor are flipped already (bounds.h)
         const Vec2 a = anchor_point(part.anchor, part.safeArea, designSize, w.safe_insets());
         m.at(3, 0) += a.x;
         m.at(3, 1) += a.y;

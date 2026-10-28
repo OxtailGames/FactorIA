@@ -4,6 +4,7 @@
 #include "fa/core/log.h"
 #include "fa/scene/components.h"
 #include "fa/scene/localize.h"
+#include "fa/scene/ui_rect.h"
 #include "fa/scene/world.h"
 
 using namespace fa;
@@ -164,4 +165,45 @@ TEST_CASE("localize: a TouchButton takes a key and keyArgs") {
     w.add<TouchButton>(plain).text = "B";  // no key: untouched
     CHECK(localize_world(w, i18n) == 0);
     CHECK(w.get<TouchButton>(plain)->text == "B");
+}
+
+TEST_CASE("Text.direction: auto follows the first strong character, a localization key takes the language's direction") {
+    Text plain;
+    CHECK(plain.direction == TextDirection::Auto);
+    CHECK(text_paragraph_direction(plain, true) == TextDirection::Auto);  // no key: the text decides
+    CHECK_FALSE(text_starts_right(plain, false));
+    CHECK(text_starts_right(plain, true));  // align start is the right edge in a right-to-left language
+    Text keyed;
+    keyed.key = "menu.play";
+    CHECK(text_paragraph_direction(keyed, true) == TextDirection::Rtl);
+    CHECK(text_paragraph_direction(keyed, false) == TextDirection::Ltr);
+    keyed.direction = TextDirection::Ltr;  // explicit wins over the key
+    CHECK(text_paragraph_direction(keyed, true) == TextDirection::Ltr);
+    CHECK_FALSE(text_starts_right(keyed, true));
+    Text forced;
+    forced.direction = TextDirection::Rtl;
+    CHECK(text_starts_right(forced, false));
+}
+
+TEST_CASE("World: the UI is mirrored when a right-to-left language meets ui.mirrorRtl, and UiBox.mirror false opts a widget out") {
+    World w;
+    CHECK(w.ui_mirror_rtl());       // on by default
+    CHECK_FALSE(w.ui_mirror());     // but English is left to right
+    w.set_rtl(true);
+    CHECK(w.ui_mirror());
+    w.set_ui_mirror_rtl(false);
+    CHECK_FALSE(w.ui_mirror());
+    w.set_ui_mirror_rtl(true);
+    Entity parent = w.create("p", "p");
+    w.add<Panel>(parent);
+    Entity child = w.create("c", "c");
+    w.set_parent(child, parent);
+    w.add<Button>(child);
+    CHECK(ui_mirrored(w, child));
+    w.get<Panel>(parent)->mirror = false;  // an ancestor that opts out takes its subtree with it
+    CHECK_FALSE(ui_mirrored(w, child));
+    w.get<Panel>(parent)->mirror = true;
+    w.get<Button>(child)->mirror = false;
+    CHECK_FALSE(ui_mirrored(w, child));
+    CHECK(ui_mirrored(w, parent));
 }

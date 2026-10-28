@@ -235,6 +235,9 @@ public:
     }
     // The `ui.scale` of the project's factoria.json (1 when it has none): what a test starts from.
     virtual float default_ui_scale() const { return 1.0f; }
+    // The `ui.mirrorRtl` of factoria.json (true when it has none): what a test starts from. The option itself lives in the World
+    // (World::ui_mirror_rtl): a script or a command sets it there.
+    virtual bool default_ui_mirror_rtl() const { return true; }
 
     // Text to speech (`ui.speak`, the `ui.speak` command). Records every line; a game with its own window also gets the
     // system's speech (set_backend_factory), headless runs and tests only record (`game.spoken()`).

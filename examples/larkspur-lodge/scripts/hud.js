@@ -48,6 +48,8 @@ export default class Hud extends Behaviour {
   }
 
   setPrompt(text) {
+    // "[F] ..." starts with a Latin key name: in Hebrew the line is a right-to-left paragraph all the same (Text.direction).
+    this.promptLabel.get("Text").direction = i18n.direction === "rtl" ? "rtl" : "auto";
     if (text === this.promptText) return;
     this.promptText = text;
     this.promptPanel.active = text !== "";

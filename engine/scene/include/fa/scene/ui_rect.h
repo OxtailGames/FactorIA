@@ -45,6 +45,17 @@ const UiControl* ui_control(const World& w, Entity e);
 // corner, [1, 1] its bottom-right. The ONE definition behind drawing, layout, hit-testing and editor picking.
 Vec2 anchor_point(Vec2 anchor, bool safeArea, Vec2 designSize, const EdgeInsets& insets);
 
+// Whether `e` is drawn mirrored left to right (ui.mirrorRtl): the world's ui_mirror() (the project's ui.mirrorRtl in a
+// right-to-left language), `e` is a widget or lies below one (a Text, Sprite or Shape2D in a widget), and no widget from `e`
+// up to the root has UiBox.mirror false. Mirrored means that anchor.x, pivot.x and position.x flip: the widget is where its
+// mirror image about the middle of the screen (of the safe area, with safeArea) would be, with the same size.
+bool ui_mirrored(const World& w, Entity e);
+
+// `inner` reflected left to right about the middle of `outer`: where a part of a mirrored widget goes.
+inline Rect ui_mirror_in(const Rect& outer, const Rect& inner) {
+    return Rect{2.0f * outer.x + outer.w - inner.x - inner.w, inner.y, inner.w, inner.h};
+}
+
 // A "device profile" for tests and AI agents: the insets of a typical notched phone, as fractions of the design size.
 // Names: "none", "phone-portrait" (notch at the top, home indicator at the bottom), "phone-landscape" (notch on a side,
 // home indicator at the bottom). false (out alone) for any other name.
@@ -79,7 +90,13 @@ Rect ui_intersect(const Rect& a, const Rect& b);
 // the rest (when not empty), the track the next 50% (85% without a label) and the value text the last 15%. Both the
 // drawing and the mouse use it, so the knob is always under the pointer.
 // With Slider.labelAbove (and a label) the label does not take the 35%: the track gets the 85% of an unlabelled slider.
-std::pair<float, float> ui_slider_track(const Slider& s, const Rect& r);
+// `mirrored` (ui_mirrored): the same track reflected in `r`, so the label is at the right and the value text at the left; the
+// slider's value then grows from the track's right end to its left one (use ui_slider_fraction).
+std::pair<float, float> ui_slider_track(const Slider& s, const Rect& r, bool mirrored = false);
+
+// How far along its track a slider is when the pointer is at `x` (UI units), 0 .. 1: from the left end, or from the right end
+// of a mirrored track.
+float ui_slider_fraction(std::pair<float, float> track, float x, bool mirrored);
 
 // True when the Slider's label is drawn above the track (labelAbove and a non-empty label).
 inline bool ui_slider_label_above(const Slider& s) { return s.labelAbove && !s.label.empty(); }

@@ -284,16 +284,28 @@ i18n.t("ship_ready", { name: i18n.t("ship.skiff"), gender: i18n.gender("ship.ski
     and the panel's `align` and `justify` values `start` and `end` mean the right and the left edge. A column keeps its
     order from top to bottom. One scene therefore serves both directions: `"direction": "auto"` on the panels,
     `"align": "start"` on the columns and the wrapped Texts.
-  - Not mirrored by themselves: anchors and pivots, and the inside of a Toggle (box on the left) and a Slider. For a
-    HUD corner, read the direction once and pick the corner:
-
-    ```js
-    const rtl = i18n.direction === "rtl";
-    const name = world.find("player_name").get("Text");
-    name.anchor = [rtl ? 1 : 0, 0];   // the corner where the reading starts
-    name.pivot = [rtl ? 1 : 0, 1];
-    name.align = "start";
-    ```
+  - `Text.direction` is `"auto"` (default), `"ltr"` or `"rtl"`: the base direction of the paragraphs. `auto` is the
+    direction of the first strong character, except that a Text with a localization key (`Text.key`, and the label of a
+    Button, Toggle, Slider or TextField with a `key`) takes the language's direction. So a Hebrew line such as
+    `Tab או הכפתורים העליונים` or `[F] פתיחה` starts with Latin letters but is a right-to-left paragraph when it comes from a
+    key, without a U+200F mark in the translation. A Text whose `text` a script sets (no key) gets the same with
+    `direction = i18n.direction`; `"rtl"` also makes `align: "start"` the right edge. `Text.visibleCharacters` still
+    reveals in text order, from the first character.
+  - **Mirrored screens** (`ui.mirrorRtl`). In a right-to-left language the screen-space UI is mirrored by the engine, so
+    one scene serves both directions: the `anchor.x`, `pivot.x` and `Transform.position.x` of every widget (Panel,
+    Button, Toggle, Slider, TextField, ScrollList, Chart, ...) flip, so a Panel anchored to the left sits against the right
+    edge at the same distance; a Toggle's box is at the right of its label; a Slider runs from right (min) to left (max)
+    in the drawing, a click and the Left and Right keys (Left raises the value); a Button's icon changes side.
+    The Text, Sprite and Shape2D below a widget (children of a Panel, a Button's icon) are mirrored with it, a line goes
+    between the mirrored end points. `Panel.layout` still lays out the rectangles on screen, so a `direction: "auto"` row
+    keeps its first child at the right edge. `ui.rectOf`, `ui.state`, clicks, focus and `entity.bounds` report the mirrored
+    places. What is not mirrored: world-space Text and entities, and a screen-space Text, Sprite or Shape2D with no widget
+    above it (give it `anchor`, `pivot` and `align: "start"` by hand, as before).
+  - A `CameraView` takes its place like any widget (its rectangle flips) but never mirrors its picture: the camera is drawn as it sees, and `u`, `v`, `dx` and `dy` of `ui.viewPointer` count from the picture's own top-left corner and the screen's own directions. A widget that must not mirror at all, not even its place (a map, a minimap, a joystick, a clock face), has `mirror: false`
+    (`UiBox.mirror`, on every widget); its children stay with it. The option is on by default; `ui.mirrorRtl`
+    (`"ui": { "mirrorRtl": false }` in factoria.json, `ui.mirrorRtl = false` in a script, the `ui.set_mirror_rtl` command)
+    turns the mirroring off for a game that places its UI by hand. It does nothing in a left-to-right language. The text
+    inside a widget is not reordered by it: a label is laid out by its direction as above.
 
   The menus fixture (`tools/cli/tests/fixtures/menus`, [MENUS.md](MENUS.md)) is mirrored this way: its options panel has
   `direction: "auto"` and `align: "start"`, and `locales/ar.json` is its Arabic table. Check a layout with

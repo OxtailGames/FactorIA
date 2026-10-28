@@ -312,6 +312,66 @@ TEST_CASE("ui.set_scale is the interface scale: ui.scale, ui.state and the recta
     e.shutdown();
 }
 
+TEST_CASE("ui.mirrorRtl: on by default, factoria.json and ui.set_mirror_rtl turn it off, a script reads and sets it, a test file starts from it") {
+    TempProject p("uimirror", R"({
+  "format": "factoria.project/1", "name": "Ui Mirror", "mainScene": "scenes/main.scene.json",
+  "display": { "width": 320, "height": 180 }, "ui": { "mirrorRtl": false }
+})");
+    auto proj = load_project(p.dir.generic_string());
+    REQUIRE(proj.ok());
+    CHECK_FALSE(proj->uiMirrorRtl);
+    CHECK(proj->to_json()["ui"]["mirrorRtl"] == false);
+    TempProject none("uimirror_none");
+    CHECK(load_project(none.dir.generic_string())->uiMirrorRtl);
+    CHECK_FALSE(load_project(none.dir.generic_string())->to_json().contains("ui"));
+    TempProject bad("uimirror_bad", R"({"name":"x","ui":{"mirrorRtl":"yes"}})");
+    auto err1 = load_project(bad.dir.generic_string());
+    REQUIRE_FALSE(err1.ok());
+    CHECK(err1.error().message.find("/ui/mirrorRtl") != std::string::npos);
+    CHECK_FALSE(err1.error().hint.empty());
+
+    p.write("tests/mirror.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { ui } from "factoria";
+test("starts at the project's value, even after another file changed it", () => {
+  expect(ui.mirrorRtl).toBe(false);
+  ui.mirrorRtl = true;
+  expect(ui.mirrorRtl).toBe(true);
+});
+test("a number is no switch", () => { expect(() => { ui.mirrorRtl = 1; }).toThrow(); });
+)JS");
+    p.write("tests/mirror2.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { ui } from "factoria";
+test("a second file starts at the project's value again", () => { expect(ui.mirrorRtl).toBe(false); });
+)JS");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    CHECK_FALSE(e.world().ui_mirror_rtl());
+    CHECK_FALSE(e.default_ui_mirror_rtl());
+    const CommandInfo* info = e.commands().info("ui.set_mirror_rtl");
+    REQUIRE(info != nullptr);
+    CHECK_FALSE(info->readOnly);
+    CHECK(info->description.find("Example") != std::string::npos);
+    auto r = e.commands().call("ui.set_mirror_rtl", Json{{"value", true}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["mirrorRtl"] == true);
+    CHECK(r.result["mirrored"] == false);  // the language is left to right
+    e.world().set_rtl(true);
+    CHECK(e.commands().call("ui.set_mirror_rtl", Json{{"value", true}}).result["mirrored"] == true);
+    CHECK(e.commands().call("script.eval", Json{{"code", "ui.mirrorRtl"}}).result["value"] == true);
+    e.commands().call("script.eval", Json{{"code", "ui.mirrorRtl = false"}});
+    CHECK_FALSE(e.world().ui_mirror());
+    CHECK_FALSE(e.commands().call("ui.set_mirror_rtl", Json{{"value", "no"}}).ok);
+    e.world().set_rtl(false);
+    auto t = e.commands().call("project.test", Json::object());
+    REQUIRE_MESSAGE(t.ok, t.error.dump());
+    CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump(2));
+    CHECK(t.result["passed"].get<int>() == 3);
+    e.shutdown();
+}
+
 TEST_CASE("project: ui.scale is the interface scale a run starts with, it validates, and a test file starts from it") {
     TempProject p("uiscale_project", R"({
   "format": "factoria.project/1", "name": "Ui Scale", "mainScene": "scenes/main.scene.json",
