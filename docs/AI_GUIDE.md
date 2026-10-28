@@ -155,6 +155,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `assets_generate_texture`, `assets_rasterize_svg` | `assets.generate_texture`, `assets.rasterize_svg` | Art with no image provider: a seeded material (paper, parchment, wood, planks, leather, fabric, stone, noises, gradients, vignette; tileable, with a normal map) and an SVG you write turned into a PNG. Section 9.23, "Art without an image provider". |
 | `assets_draw_icon`, `assets_draw_capsules` | `assets.draw_icon`, `assets.draw_capsules` | Draw the game icon (1024x1024) and the Android adaptive-icon foreground from shapes and text, and the store page images (capsules, heroes, covers) at each store's sizes from key art and a logo, no image provider needed (docs: assets, exporting). |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
+| `engine_update_status` | `engine.update_status` | Whether FactorIA was replaced on disk after this server started (`restartDue`), the running and on-disk builds and the state of the project's `.mcp.json`. |
 | `project_<name>` | `project.<name>` | Your own tool from `tools/<name>.js`. |
 
 Examples:
@@ -178,6 +179,8 @@ feedback_list {"status":"open"}
 The argument names above are the ones the engine accepts. `fs_edit` requires the text in `find` to match exactly once, unless you pass `"replaceAll": true`.
 
 Without MCP, the same commands run from a shell: `factoria commands` lists them, `factoria call <command> '<json>'` runs one on a fresh engine, and `factoria call --batch` or `factoria session` run several on one engine (section 11).
+
+A tool result can end with a block that starts with `[FactorIA notice]`: the server restarted itself after a FactorIA update (the headless game restarts from the start scene), or it runs the old code and the user must reconnect (`/mcp`), or the project's `.mcp.json` changed after your client started. Read it, tell the user what it asks of them, and redo whatever it says was lost; `engine_update_status` repeats it ("MCP", docs `mcp`, "After an update").
 
 The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature` (`feature`), `fix-bug` (`description`) and `report-engine-gap`.
 

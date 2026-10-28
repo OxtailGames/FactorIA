@@ -253,6 +253,7 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
         register_docs_commands(registry);
         register_api_export_commands(registry);
         register_setup_commands(registry);
+        register_update_commands(registry);
         CommandInfo info;
         info.name = "project.templates";
         info.summary = "List the project templates `project.create` can start from.";

@@ -349,7 +349,10 @@ without a GPU), Metal (macOS), D3D11 with WARP fallback (Windows). Used by
 - **External agents** (Claude Code, Codex, any MCP client) connect to
   `factoria mcp --project <dir>` and get every command as a tool, docs as
   resources, and screenshots as images. Users keep using their own Claude /
-  ChatGPT subscriptions through those official CLIs.
+  ChatGPT subscriptions through those official CLIs. The server and the editor notice when the `factoria` file was replaced
+  under them (`fa/tooling/self_update.h`: stat, then the build identity written in the binary; `fa/mcp/update_monitor.h`): the
+  server re-executes itself between two messages (POSIX; `docs/MCP.md`, "After an update"), the editor offers a Restart notice
+  (`docs/EDITOR.md`, "Updates"), and `engine.update_status` says it.
 - **Built-in agent** (`factoria ai`, editor AI panel): providers
   `anthropic` (API key or `ant` CLI profile), `openai-compatible`
   (OpenAI, OpenRouter, Gemini, Groq, Ollama, LM Studio...), and CLI agents

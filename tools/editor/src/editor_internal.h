@@ -45,6 +45,7 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
+#include "fa/tooling/self_update.h"
 #include "fa/tooling/tooling.h"
 #include "ai_chat.h"
 #include "ai_usage.h"
@@ -436,6 +437,23 @@ public:
     std::atomic<float> updateProgress_{0};
     std::thread updateThread_;
     bool restartAfterQuit_ = false;  // on_cleanup starts the updated editor
+
+    // The program replaced on disk (tooling/self_update.h, docs/EDITOR.md "Updates"): files copied over the installation without
+    // the updater above. A non-blocking notice offers Restart / Not now; poll_disk_update() looks every few seconds and when the
+    // window gets focus.
+    std::unique_ptr<UpdateWatch> diskWatchOwn_;  // the autotest's watch over a fake program; null = this process's own
+    UpdateWatch& disk_watch() { return diskWatchOwn_ ? *diskWatchOwn_ : process_update_watch(); }
+    double diskPolled_ = -100;
+    bool diskPollNow_ = false;        // the window just got focus
+    bool diskSettling_ = false;       // the file changed and was not seen twice alike yet: look again in a second
+    FileStamp diskDismissed_;         // the file Not now was said to: the notice stays quiet until the file changes again
+    bool diskDismissedSet_ = false;
+    bool diskRestartRequested_ = false;  // the autotest: Restart was accepted (it must not really reopen the editor)
+    void poll_disk_update();             // every frame (dialogs.cpp)
+    bool disk_update_due();              // the notice is showing
+    std::string disk_restart_blocker();  // why Restart is not possible now; "" = it is
+    void request_disk_restart();         // quits (the unsaved-changes dialog still asks) and reopens on the same project
+    void draw_disk_update_notice();
     std::string pendingScene_;  // open-scene request waiting for the unsaved-changes dialog
     std::string windowTitle_;   // what set_window_title last set ("FactorIA <version> — <project>")
 
