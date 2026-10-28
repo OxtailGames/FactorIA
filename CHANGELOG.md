@@ -4,6 +4,18 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Shipping checks: a sandboxed save, long recordings and the iPad
+
+- The exported player takes `--persist-storage` with `--frames`, `--input`, `--dump-state` and `--screenshot`: `storage.*` and the
+  save files go to the game's real user folder (the container of a sandboxed Mac App Store build) instead of memory, so a
+  replay that presses Play and saves leaves a real file with no click (LL/FB-0801). `cli_larkspur_ship` does it for Larkspur Lodge.
+- `--record-video` no longer grows with the length of the recording: on macOS every frame read back from the GPU was kept until
+  the end of the run (4.4 GB for 25 s at 1080p); the memory is now flat (LL/FB-0802).
+- The iOS player plays an input replay in its window when started with `FA_INPUT_REPLAY=<file>` and turns the screen with
+  `FA_ORIENTATION=portrait|landscape` (iOS 16 or newer). `player.run_ios_sim` installs a Simulator build on an iPhone or an
+  iPad simulator, starts it with both, waits for the replay to end, takes a screenshot and stops it (LL/FB-0803). Not run on a
+  real iPad.
+
 Listing data files
 
 - Glob import of JSON data: `import tables from "../data/dialogue/*.json"` is an object of the parsed files directly in that

@@ -72,6 +72,14 @@ if(FA_BUILD_TESTS)
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_player_replay PROPERTIES TIMEOUT 300 LABELS "gpu")
 
+        # Larkspur Lodge on the exported player: a replay that presses Play, skips the intro and saves in slot 1 leaves a real
+        # save file with --persist-storage (the check of a sandboxed build, LL/FB-0801).
+        add_test(NAME cli_larkspur_ship
+            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/larkspur_ship_test.py $<TARGET_FILE:factoria>
+                    $<TARGET_FILE:factoria_player>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(cli_larkspur_ship PROPERTIES TIMEOUT 600 LABELS "gpu")
+
         # factoria dap: the Debug Adapter Protocol server driven over stdio (breakpoint, stack, locals, evaluate, step, logpoint,
         # test mode, disconnect). Headless GPU may be created for test mode: label gpu.
         add_test(NAME cli_dap
