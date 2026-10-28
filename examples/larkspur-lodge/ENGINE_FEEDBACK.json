@@ -152,9 +152,10 @@
       "suggestion": "Say it in the ui doc next to the Button fields (and in the field's doc string), or rename the field in a future format version.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md.",
+        "Fixed-in M33.15: the doc string of UiControl.key (docs/COMPONENTS.md) says it is a translation key, not a hotkey, and where a key press goes instead (an input action read with input.pressed)."
       ]
     },
     {
@@ -177,9 +178,10 @@
       "suggestion": "One sentence and a small picture in the ui doc, and a validate warning when a screen widget lies completely outside the design size.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md.",
+        "Fixed-in M33.15: docs/MENUS.md 'Anchors and pivots' (a picture) and the pivot doc string; factoria validate warns about a scene widget completely outside the design size, with its rectangle and the fix."
       ]
     },
     {
@@ -379,9 +381,10 @@
       "suggestion": "State in docs/PLATFORM.md when a request is answered (same call vs. next frame) and that fake.achievements only has the ids that were touched.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP.md.",
+        "Fixed-in M33.15: the fake answers inside the call (also from an event handler); the Promise settles in the next microtask, one per await of a chain. docs/PLATFORM.md and SCRIPTING.md say so, a test pins it (test_platform_api.cpp), and fake.achievements is documented as listing only the touched ids."
       ]
     },
     {
@@ -760,10 +763,11 @@
       "suggestion": "A scale mode that shows more world on 4:3 screens (the HUD anchored to the screen edges), and a way to send touches to the simulator or to play a replay on iOS.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-27 triage: work package M33.12 in feedback/ROADMAP.md. Its first half is already supported: display.scaleMode \"expand\" shows more world on a 4:3 screen (the game uses \"fit\"); M33.15 documents it for tablets, M33.12 takes the simulator input.",
-        "Second half fixed in M33.12 (branch m33/ship-checks): the iOS player plays an --input replay in its window (FA_INPUT_REPLAY) and turns the screen (FA_ORIENTATION), and the command player.run_ios_sim drives a Simulator build with them and takes a screenshot (docs/MOBILE.md, 'Play a replay on the Simulator'). Not run on a Simulator or an iPad in this task: it needs a Simulator build of the player; the command's steps are covered by a dryRun test and the player's windowed replay was checked on the desktop."
+        "Second half fixed in M33.12 (branch m33/ship-checks): the iOS player plays an --input replay in its window (FA_INPUT_REPLAY) and turns the screen (FA_ORIENTATION), and the command player.run_ios_sim drives a Simulator build with them and takes a screenshot (docs/MOBILE.md, 'Play a replay on the Simulator'). Not run on a Simulator or an iPad in this task: it needs a Simulator build of the player; the command's steps are covered by a dryRun test and the player's windowed replay was checked on the desktop.",
+        "First half fixed-in M33.15: docs/MOBILE.md 'Tablets and the iPad' documents display.scaleMode \"expand\" for 4:3 screens."
       ]
     },
     {
