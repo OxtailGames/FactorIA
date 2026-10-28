@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Hangul on the on-screen keyboard
+
+- The menu kit's on-screen keyboard has an input-method hook, `IME` in `scripts/ui/keyboard.js`: per language, `{ compose(text, ch),
+  decompose(text) }` say what the field's text becomes when a key is typed and when Delete is pressed. Korean's is built in: the keys
+  are Hangul jamo (Shift gives the doubled ones), jamo make syllables (ㄱ + ㅏ = 가, 가 + ㄴ = 간, 간 + ㅏ = 가나) and Delete takes the
+  last jamo away. `tests/slots.test.js` types a Korean slot name with the pad through the slot dialog (LL/FB-0905).
+
 The menu kit: text speed and save slots
 
 - `project.add_menu_kit` has a `textSpeed` part: a "Text speed" row (slow, normal, fast, instant) in the Options Audio tab, saved as

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds assets/fonts/NotoSansKR-Regular-subset.ttf: Noto Sans KR cut to the characters of locales/*.json.
+"""Builds assets/fonts/NotoSansKR-Regular-subset.ttf: Noto Sans KR cut to the characters of locales/*.json, the jamo and the syllables of KS X 1001 (names typed on the pad).
 
 Run from anywhere, again whenever a Korean string changes (`factoria validate` fails on a character the font lacks):
 
@@ -45,7 +45,11 @@ def main():
     sha = hashlib.sha256(open(source, "rb").read()).hexdigest()
     os.makedirs(os.path.join(PROJECT, "assets", "fonts"), exist_ok=True)
     open(os.path.join(PROJECT, "assets", "fonts", "OFL.txt"), "wb").write(open(ofl, "rb").read())
-    args = {"source": os.path.abspath(source), "out": OUT, "axes": {"wght": 400}, "locales": ["ko"]}
+    # The on-screen keyboard (scripts/ui/keyboard.js) types a save's name from jamo: keep the jamo and the 2350 syllables of
+    # KS X 1001 (the ones a name is made of), not only the syllables of the tables.
+    jamo = "".join(chr(c) for c in range(0x3131, 0x3164))
+    syllables = "".join(bytes([hi, lo]).decode("euc-kr", errors="ignore") for hi in range(0xB0, 0xC9) for lo in range(0xA1, 0xFF))
+    args = {"source": os.path.abspath(source), "out": OUT, "axes": {"wght": 400}, "locales": ["ko"], "keep": jamo + syllables}
     r = subprocess.run([a.factoria, "call", "--project", PROJECT, "assets.subset_font", json.dumps(args)],
                        capture_output=True, text=True)
     sys.stdout.write(r.stdout)
