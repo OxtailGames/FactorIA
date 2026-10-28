@@ -44,7 +44,7 @@ The game is built in packages. Each one adds to the contracts below and replaces
   outside walls, and fades what hides the porter.
 - **The porter** (`scripts/porter.js`): CharacterController3D plus the interaction system.
 - **Title, game, pause** use the menu kit: `menu` (Play, Options, Credits, Quit) loads `loading`, which preloads and loads the
-  first area; Escape / P / gamepad Start pauses (resume, options, back to the title).
+  first area; Escape / gamepad Start pauses (resume, options, back to the title).
 
 ## Controls
 

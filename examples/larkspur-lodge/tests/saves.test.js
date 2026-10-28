@@ -275,7 +275,7 @@ describe("the save / load screen", () => {
     game.step(2);
     expect(game.find("slot_dialog").active).toBe(true);
     expect(game.paused).toBe(true);
-    // The pause key and Escape belong to the text while it is typed: "P" is a letter here.
+    // Escape belongs to the text field while a name is typed, and every letter is text.
     const field = game.find("save_name").get("TextField");
     field.text = "";
     game.typeText("Pale oil");
