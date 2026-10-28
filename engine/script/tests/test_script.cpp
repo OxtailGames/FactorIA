@@ -388,6 +388,34 @@ TEST_CASE("behaviours exist synchronously after spawn, spawnPrefab and scene loa
     CHECK(ev_ok(h, "q.behaviour.speed") == 11);
 }
 
+TEST_CASE("glob import of JSON data: sorted, keyed by file name, hot reload, teaching errors") {
+    TestHost h("globimport");
+    h.file("data/t/b.json", "{\"n\": 2}");
+    h.file("data/t/a.json", "{\"n\": 1}");
+    h.file("data/t/c.txt", "ignored");
+    h.file("data/t/sub/d.json", "{\"n\": 4}");
+    h.file("scripts/main.js",
+           "import { Behaviour } from 'factoria';\nimport tables from '../data/t/*.json';\n"
+           "globalThis.G = [Object.keys(tables), Object.values(tables).map((t) => t.n)];\n"
+           "export default class M extends Behaviour {}\n");
+    h.file("scripts/bad1.js", "import x from '../data/*/a.json';\nexport default x;\n");
+    h.file("scripts/bad2.js", "import x from '../data/t/*.txt';\nexport default x;\n");
+    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"m","components":{"Script":{"path":"scripts/main.js"}}})")})).dump());
+    REQUIRE(h.start());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    CHECK(h.scripts.errors().empty());
+    CHECK(ev_ok(h, "globalThis.G") == Json::parse(R"([["a.json","b.json"],[1,2]])"));
+    // editing a matched file reloads the importers
+    h.file("data/t/a.json", "{\"n\": 10}");
+    h.scripts.reload_module("data/t/a.json");
+    CHECK(ev_ok(h, "globalThis.G[1][0]") == 10);
+    for (const char* bad : {"scripts/bad1.js", "scripts/bad2.js"}) {
+        auto e = h.scripts.check_props(bad, Json::object({{"a", 1}}));
+        REQUIRE(!e.empty());
+        CHECK(e[0].find("glob import") != std::string::npos);
+    }
+}
+
 TEST_CASE("relative imports, ../ and JSON modules") {
     TestHost h("imports");
     h.file("lib/util.js", "export const twice = (n) => n * 2;\n");

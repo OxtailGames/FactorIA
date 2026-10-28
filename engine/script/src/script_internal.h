@@ -247,6 +247,7 @@ struct ScriptSystem::Impl {
     // ================= modules
     std::string normalize_module(const std::string& base, const std::string& spec, std::string* err);
     JSModuleDef* load_module(const char* name);
+    JSModuleDef* load_glob_module(const std::string& name, const std::string& file);  // import "dir/*.json"
     JSModuleDef* make_builtin_module(const std::string& name);
     std::string module_file(const std::string& normalized) const;  // strips ?v=
     std::string module_name_for(const std::string& path) const;    // adds ?v= when reloaded

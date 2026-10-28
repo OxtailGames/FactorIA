@@ -308,6 +308,9 @@ std::string ScriptSystem::Impl::typescript_declarations(const ScriptSystem::Sinc
         if (name == "factoria") out += emit_components(since) + emit_plugins(plugins);
         out += "}\n\n";
     }
+    out += "/** JSON data: `import levels from \"../data/levels.json\"` is the parsed file; a glob import "
+           "(`import tables from \"../data/dialogue/*.json\"`) is an object of the parsed files keyed by file name, sorted. */\n"
+           "declare module \"*.json\" {\n  const data: any;\n  export default data;\n}\n";
     return out;
 }
 

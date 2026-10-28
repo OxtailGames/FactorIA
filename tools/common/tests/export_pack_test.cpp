@@ -134,6 +134,26 @@ TEST_CASE("export --release: a desktop game is one game.pak, with no loose scrip
     CHECK(testing::read_all(stdfs::path(proj) / "scripts" / "player.js").find("export default") != std::string::npos);
 }
 
+TEST_CASE("export --release: the files a glob import names are packed, and the compiled script reads them from game.pak") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    testing::write_all(stdfs::path(proj) / "data" / "tables" / "one.json", "{\"n\": 1}");
+    testing::write_all(stdfs::path(proj) / "data" / "tables" / "two.json", "{\"n\": 2}");
+    testing::write_all(stdfs::path(proj) / "scripts" / "tables.js",
+                       "import tables from \"../data/tables/*.json\";\nexport const names = Object.keys(tables);\n");
+    auto r = export_project(options_for(tmp, proj, "linux", true));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    auto pack = PackReader::open(tmp.sub("out/pack-test-linux/game.pak"));
+    REQUIRE(pack.ok());
+    const PackReader& p = *pack.value();
+    CHECK(p.contains("data/tables/one.json"));
+    CHECK(p.contains("data/tables/two.json"));
+    CHECK(p.list("data/tables", false).size() == 2);  // what the glob import lists at run time
+    auto script = p.read("scripts/tables.js");
+    REQUIRE(script.ok());
+    CHECK(is_script_bytecode(std::string_view(reinterpret_cast<const char*>(script->data()), script->size())));
+}
+
 TEST_CASE("export --release: export.scriptBytecode false packs the scripts as the source they are") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
