@@ -27,11 +27,11 @@ constexpr float kMaxUiScale = 3.0f;
 // The scale to use for arithmetic: 1 when `k` is not a usable number (NaN, <= 0), else `k` clamped to the range above.
 float ui_scale_clamped(float k);
 
-enum class UiKind : std::int32_t { None, Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, Captions, Video, Chart };
+enum class UiKind : std::int32_t { None, Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, Captions, Video, Chart, CameraView };
 const char* ui_kind_name(UiKind k);  // "Panel", "Button"... ("" for None)
 
 // The widget component of `e` (the first of Button, Toggle, Slider, TextField, ScrollList, Panel, TouchStick,
-// TouchButton, Captions, Video, Chart), None if it has none.
+// TouchButton, Captions, Video, Chart, CameraView), None if it has none.
 UiKind ui_kind(const World& w, Entity e);
 // Its shared geometry and background, nullptr if `e` is no widget.
 const UiBox* ui_box(const World& w, Entity e);

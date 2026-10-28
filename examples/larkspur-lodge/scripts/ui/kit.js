@@ -43,6 +43,20 @@ export function rect(id, x, y, w, h, color, layer = LAYER.back) {
   };
 }
 
+/**
+ * A CameraView: the picture of the Camera `camera` (an id), top-left corner at (x, y). It sits below the widgets (LAYER.line: its
+ * picture draws one layer higher, still under the buttons) and above the backdrop. `opts.color` shows behind the picture.
+ */
+export function cameraView(id, x, y, w, h, camera, opts = {}) {
+  return {
+    id,
+    components: {
+      Transform: { position: pos(mx(x, w), y) },
+      CameraView: { camera, size: [w, h], anchor: [0.5, 0.5], pivot: [0, 1], layer: LAYER.line, color: opts.color ?? [0, 0, 0, 0] },
+    },
+  };
+}
+
 /** A block of text whose top-left corner is at (x, y), wrapped at `width`. `opts`: size, color, markup, height (the room below it). */
 export function label(id, x, y, width, text, opts = {}) {
   return {

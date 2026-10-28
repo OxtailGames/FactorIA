@@ -383,6 +383,8 @@ struct CameraInfo {
     Vec3 right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
     Color clearColor{0.08f, 0.08f, 0.12f, 1};
     bool clear = true;
+    bool studio = false;          // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
+    float studioIntensity = 1.0f; // Camera.studioIntensity after clamping
     BloomSettings bloom;  // Camera.bloom* after clamping to the supported ranges
     int colorFilter = 0;  // Camera.colorFilter as an int (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
 };
