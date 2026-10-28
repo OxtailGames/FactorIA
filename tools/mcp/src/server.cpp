@@ -2,11 +2,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <condition_variable>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
+#include <thread>
 
 #include "fa/core/strings.h"
 #include "fa/tooling/api_export.h"
@@ -23,6 +28,89 @@ constexpr int kMethodNotFound = -32601;
 constexpr int kInvalidParams = -32602;
 constexpr int kInternalError = -32603;
 constexpr int kResourceNotFound = -32002;
+
+// "42s", "3m 05s", "1h 02m": the elapsed time that ends every progress message.
+std::string elapsed_label(std::chrono::seconds s) {
+    const long long n = s.count();
+    if (n < 60) return std::to_string(n) + "s";
+    char buf[32];
+    if (n < 3600) std::snprintf(buf, sizeof buf, "%lldm %02llds", n / 60, n % 60);
+    else std::snprintf(buf, sizeof buf, "%lldh %02lldm", n / 3600, (n / 60) % 60);
+    return buf;
+}
+
+// Sends notifications/progress for one tools/call: what the command reports (throttled), plus a heartbeat while it is
+// silent. report() runs on the calling thread, the heartbeat on a thread of its own; `send` must be thread-safe.
+class ProgressPump {
+public:
+    ProgressPump(Json token, std::function<void(const Json&)> send, std::chrono::milliseconds throttle,
+                 std::chrono::milliseconds heartbeat)
+        : token_(std::move(token)),
+          send_(std::move(send)),
+          throttle_(throttle),
+          heartbeat_(heartbeat),
+          start_(std::chrono::steady_clock::now()),
+          lastSent_(start_),
+          message_("working"),
+          thread_([this] { run(); }) {}
+    ~ProgressPump() {
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            done_ = true;
+        }
+        cv_.notify_all();
+        thread_.join();
+    }
+    ProgressPump(const ProgressPump&) = delete;
+    ProgressPump& operator=(const ProgressPump&) = delete;
+
+    bool report(std::string_view message) {
+        std::lock_guard<std::mutex> lock(mu_);
+        message_ = std::string(message);
+        fresh_ = true;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastSent_ >= throttle_) send_locked(now);  // else the thread sends it when the throttle is over
+        return true;
+    }
+
+private:
+    void send_locked(std::chrono::steady_clock::time_point now) {
+        lastSent_ = now;
+        fresh_ = false;
+        const auto secs = std::chrono::duration_cast<std::chrono::seconds>(now - start_);
+        send_(Json::object(
+            {{"jsonrpc", "2.0"},
+             {"method", "notifications/progress"},
+             {"params", Json::object({{"progressToken", token_},
+                                      {"progress", ++counter_},
+                                      {"message", message_ + " [" + elapsed_label(secs) + "]"}})}}));
+    }
+    void run() {
+        std::unique_lock<std::mutex> lock(mu_);
+        while (!done_) {
+            const auto now = std::chrono::steady_clock::now();
+            auto due = lastSent_ + heartbeat_;
+            if (fresh_) due = std::min(due, lastSent_ + throttle_);
+            if (now >= due) {
+                send_locked(now);
+                continue;
+            }
+            cv_.wait_until(lock, due);
+        }
+    }
+
+    Json token_;
+    std::function<void(const Json&)> send_;
+    std::chrono::milliseconds throttle_, heartbeat_;
+    std::chrono::steady_clock::time_point start_, lastSent_;
+    std::string message_;
+    bool fresh_ = false;  // a message that has not been sent yet
+    bool done_ = false;
+    double counter_ = 0;
+    std::mutex mu_;
+    std::condition_variable cv_;
+    std::thread thread_;  // last: starts when everything above exists
+};
 
 std::string dump_line(const Json& j) { return j.dump(-1, ' ', false, Json::error_handler_t::replace); }
 std::string dump_pretty(const Json& j) { return j.dump(2, ' ', false, Json::error_handler_t::replace); }
@@ -94,6 +182,11 @@ void McpServer::emit(const Json& message) {
     else queued_.push_back(std::move(line));
 }
 
+void McpServer::set_progress_timing(std::chrono::milliseconds throttle, std::chrono::milliseconds heartbeat) {
+    progressThrottle_ = throttle;
+    progressHeartbeat_ = heartbeat;
+}
+
 void McpServer::notify_tools_changed() {
     emit(Json::object({{"jsonrpc", "2.0"}, {"method", "notifications/tools/list_changed"}}));
 }
@@ -157,7 +250,18 @@ Json McpServer::call_tool(const Json& params) {
     if (command.empty())
         return textResult("unknown_tool: " + did_you_mean(toolName, toolNames) + "\nhint: call tools/list to see the available tools.", true);
 
+    // Progress: only when the client asked for it with a progressToken. The pump's thread sends the heartbeats; the
+    // scope lets the command report what it does (this thread only: see CommandProgressScope).
+    std::unique_ptr<ProgressPump> pump;
+    if (params.contains("_meta") && params["_meta"].is_object() && params["_meta"].contains("progressToken") &&
+        (params["_meta"]["progressToken"].is_string() || params["_meta"]["progressToken"].is_number()))
+        pump = std::make_unique<ProgressPump>(params["_meta"]["progressToken"], [this](const Json& m) { emit(m); },
+                                              progressThrottle_, progressHeartbeat_);
+    std::optional<CommandProgressScope> scope;
+    if (pump) scope.emplace([p = pump.get()](std::string_view message) { return p->report(message); });
     CommandResult r = host_.commands().call(command, args);
+    scope.reset();
+    pump.reset();  // no progress after the reply
     if (!r.ok) {
         std::string code = r.error.is_object() ? r.error.value("code", "failed") : "failed";
         std::string message = r.error.is_object() ? r.error.value("message", "") : r.error.dump();

@@ -1,5 +1,8 @@
 #include <doctest.h>
 
+#include <thread>
+#include <vector>
+
 #include "fa/core/command.h"
 #include "fa/core/json_schema.h"
 
@@ -109,4 +112,34 @@ TEST_CASE("command: listing, describe, remove") {
     CHECK(d[2]["readOnly"] == false);
     reg.remove("math.add");
     CHECK(!reg.has("math.add"));
+}
+
+TEST_CASE("command progress: reports reach the sink of the calling thread's scope, and nowhere else") {
+    CHECK_FALSE(command_progress_active());
+    CHECK_FALSE(report_command_progress("nobody listens"));  // a no-op without a scope
+
+    std::vector<std::string> outer, inner;
+    {
+        CommandProgressScope a([&](std::string_view m) {
+            outer.emplace_back(m);
+            return true;
+        });
+        CHECK(command_progress_active());
+        CHECK(report_command_progress("one"));
+        {
+            CommandProgressScope b([&](std::string_view m) {
+                inner.emplace_back(m);
+                return false;  // "nobody listens any more" comes back to the reporter
+            });
+            CHECK_FALSE(report_command_progress("two"));
+        }
+        CHECK(report_command_progress("three"));  // the outer scope is back
+        bool otherThread = true;
+        std::thread t([&] { otherThread = command_progress_active(); });
+        t.join();
+        CHECK_FALSE(otherThread);  // per thread
+    }
+    CHECK_FALSE(command_progress_active());
+    CHECK(outer == std::vector<std::string>{"one", "three"});
+    CHECK(inner == std::vector<std::string>{"two"});
 }
