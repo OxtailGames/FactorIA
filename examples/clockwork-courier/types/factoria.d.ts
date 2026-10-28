@@ -2773,7 +2773,7 @@ declare module "factoria" {
      */
     set(id: string, value: number): Promise<number>;
     /**
-     * get() then set(): resolves with the new value. Not atomic: two adds in flight can lose one.
+     * Resolves with the new value (an int stat needs a whole delta). The fake store (development, tests) adds on the value it holds when it serves the request, so two adds made in one frame both count. A real store gets a get() then a set(), which is not atomic.
      * @since 0.2.0
      */
     add(id: string, delta: number): Promise<number>;
@@ -7931,7 +7931,7 @@ declare module "factoria:test" {
     press(action: string): void;
     release(action: string): void;
     /**
-     * Press for one frame, then release.
+     * Taps what a player would press for the action: its first key binding (a chord included), else its first gamepad button, held for one frame and released over the next. The UI and every other action on that key or button see it too: game.tap("ui_submit") presses the focused Button or Toggle, and game.tap("interact") does what Space does when Space is also ui_submit. An action with no key or button binding (a stick, the mouse, none) is held as the action itself, which only readers of that action see.
      */
     tap(action: string): void;
     /**
@@ -8022,10 +8022,15 @@ declare module "factoria:test" {
      */
     setSystemLanguages(languages: string[]): void;
     /**
-     * Resets what the tests of one file share (each file already starts clean): storage clears the save data and any setStorageText text; platform runs platform.reset (nothing bought or unlocked, no scripted answers, no leaderboard scores) and restores the test ad and consent answers. Both default to true; an unknown key throws with a suggestion.
+     * Resets what the tests of one file share (each file already starts clean): storage clears the save data and any setStorageText text; platform runs platform.reset (nothing bought or unlocked, no scripted answers, no leaderboard scores) and restores the test ad and consent answers; audio stops the music (persist: true included, at once) and every voice, so the next audio.music of the same track starts it again and shows in audioLog(). All default to true; an unknown key throws with a suggestion.
      * @since unreleased
      */
-    resetState(options?: { storage?: boolean; platform?: boolean }): void;
+    resetState(options?: { storage?: boolean; platform?: boolean; audio?: boolean }): void;
+    /**
+     * The layout problems of the scene that runs now, with the panels the test has opened: the command ui.check_layout with current: true, which loads nothing and keeps the game state. It steps a few frames per case (every language x text scale x interface scale) and puts the language, text size and interface scale back. Same options as the command; scenes and steps do not apply. Example: expect(game.checkLayout({ textScales: [1, 2] }).issues).toEqual([]).
+     * @since unreleased
+     */
+    checkLayout(options?: { languages?: string[]; textScales?: number[]; uiScales?: number[]; pseudo?: boolean; settleFrames?: number }): { ok: boolean; issueCount: number; issues: { kind: "overflow" | "overlap" | "offscreen" | "tooltip"; scene: string; entity: string; path: string; key: string; text?: string; rect?: number[]; other?: { entity: string; path: string; key: string; text?: string; rect?: number[] }; cases: { language: string; textScale: number; uiScale: number; pseudo: boolean }[] }[]; checked: { scene: string; cases: { language: string; textScale: number; uiScale: number; pseudo: boolean }[] }[] };
     mouseMove(screenPos: Vec2Like): void;
     /**
      * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList.

@@ -83,7 +83,10 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
          "localization `key` follow the language and the pseudo pass; a text a script writes is checked at each text scale only "
          "(and in the state the steps reach). It RELOADS scenes: afterwards the running scene is loaded again and the language, text size, "
          "interface scale and pseudo mode are restored, but the game state is lost, so run it on a fresh game or session. Refused while a frame "
-         "runs. The warnings, errors and scripts of each load behave as in scene.load. Example: ui.check_layout {\"textScales\":[1,2],\"uiScales\":[0.75,1,1.5],\"pseudo\":true}",
+         "runs. The warnings, errors and scripts of each load behave as in scene.load. With `current: true` it does not load anything: it measures "
+         "the scene that runs, with the panels a test or the player has opened, in every language, text size and interface scale of the cases (it "
+         "steps a few frames per case so the layout settles, then puts the language, text size and scale back; the game state is kept), and "
+         "`scenes` and `steps` are not allowed. A test calls it as game.checkLayout() after opening a panel. Example: ui.check_layout {\"textScales\":[1,2],\"uiScales\":[0.75,1,1.5],\"pseudo\":true}",
          parse_schema(R"({"type":"object","properties":{
              "scenes":{"type":"array","items":{"type":"string"},"description":"Project-relative scene paths to check, e.g. [\"scenes/menu.scene.json\"]. Default: every scene of the project that has UI (a widget or a screen-space Text)."},
              "languages":{"type":"array","items":{"type":"string"},"description":"Languages to check, as in factoria.json localization.languages. Default: all of them (the current one when the game has no localization)."},
@@ -91,17 +94,25 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
              "uiScales":{"type":"array","items":{"type":"number","minimum":0.5,"maximum":3},"description":"Interface scales (ui.set_scale) to check, every one with every language and text size. Default: the current ui.scale. List every size the Options menu offers."},
              "pseudo":{"type":"boolean","description":"Also run the pseudo-localized pass (default language, every text scale). Default: true."},
              "steps":{"type":"object","description":"Per scene (project-relative path, as in `scenes`), a list run once after the scene loads and settles, before the checks, to reach a panel or state that is not there at the start: {\"click\":\"widget name or id\"} (the centre of its laid-out rectangle; an error when it is hidden, clipped or has no area), {\"key\":\"Enter\"} (press and release), {\"action\":\"jump\"} (press and release an input action), {\"frames\":n} (step n frames). The UI is laid out between steps. Example: {\"scenes/menu.scene.json\":[{\"click\":\"options_button\"},{\"frames\":10}]}.","additionalProperties":{"type":"array","items":{"type":"object","properties":{"click":{"type":"string"},"key":{"type":"string"},"action":{"type":"string"},"frames":{"type":"integer","minimum":0,"maximum":1000}}}}},
+             "current":{"type":"boolean","description":"Measure the running scene as it is now (the panels open, the state reached) instead of loading each scene: no reload, the game state is kept. Not with `scenes` or `steps`. Default: false."},
              "settleFrames":{"type":"integer","minimum":1,"maximum":120,"description":"Frames stepped after each change so scripts and layout settle. Default: 4."}}})"),
          false, "ui"},
         [&engine, &I](const Json& a) {
             if (I.inFrame) throw CommandError("invalid_state", "ui.check_layout cannot run while a frame runs.", "Call it from the CLI, the editor or a test, not from a script.");
             const int settle = a.value("settleFrames", 4);
+            const bool current = a.value("current", false);
+            if (current && (a.contains("scenes") || a.contains("steps")))
+                throw CommandError("invalid_argument", "current: true measures the running scene as it is, so `scenes` and `steps` do not apply.",
+                                   "Leave them out, or leave `current` out to load the scenes.");
 
             // Scenes.
             const std::vector<std::string> all = fs::list("scenes", true, ".json");
             std::vector<std::string> scenes;
             bool explicitScenes = false;
-            if (a.contains("scenes") && a["scenes"].is_array() && !a["scenes"].empty()) {
+            if (current) {
+                explicitScenes = true;
+                scenes.push_back(I.currentScene.empty() ? std::string("(current scene)") : I.currentScene);
+            } else if (a.contains("scenes") && a["scenes"].is_array() && !a["scenes"].empty()) {
                 explicitScenes = true;
                 for (const Json& s : a["scenes"]) {
                     std::string path = fs::normalize(s.get<std::string>());
@@ -250,7 +261,7 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
             auto restore = [&] {
                 I.i18n.set_pseudo(false);
                 if (!startLanguage.empty()) I.switch_language(startLanguage);
-                if (!startScene.empty()) {
+                if (!startScene.empty() && !current) {
                     std::string e;
                     I.load_scene_impl(startScene, &e);
                 }
@@ -260,10 +271,12 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& I) {
             };
 
             for (const std::string& scene : scenes) {
-                std::string err;
-                I.load_scene_impl(scene, &err);
-                if (!err.empty()) loadProblems.push_back(scene + ": " + err);
-                engine.step(settle);
+                if (!current) {
+                    std::string err;
+                    I.load_scene_impl(scene, &err);
+                    if (!err.empty()) loadProblems.push_back(scene + ": " + err);
+                    engine.step(settle);
+                }
                 try {
                     run_steps(scene);
                 } catch (...) {

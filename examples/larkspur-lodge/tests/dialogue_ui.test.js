@@ -20,7 +20,7 @@ const node = () => dialogue.current()?.line.node ?? null;
 function complete() {
   game.step(15);
   if (view().revealed < view().total) {
-    game.tapKey("Space");
+    game.tap("ui_submit");
     game.step(10);
   }
 }
@@ -31,7 +31,7 @@ function toChoices() {
   game.step(3);
   complete();
   game.step(15);
-  game.tapKey("Space"); // greet -> intro
+  game.tap("ui_submit"); // greet -> intro
   game.step(3);
   complete();
   expect(node()).toBe("dlg.ch1_mara.intro");
@@ -74,12 +74,12 @@ group("a line", () => {
     dialogue.start("ch1_mara", { speaker: "npc_mara" });
     game.step(20);
     expect(view().revealed).toBeLessThan(view().total);
-    game.tapKey("Space");
+    game.tap("ui_submit");
     game.step(2);
     expect(view().revealed).toBe(view().total);
     expect(node()).toBe("dlg.ch1_mara.greet");
     game.step(10);
-    game.tapKey("Space");
+    game.tap("ui_submit");
     game.step(2);
     expect(node()).toBe("dlg.ch1_mara.intro");
   });
@@ -87,7 +87,7 @@ group("a line", () => {
   test("a press in the first moments of a line is ignored (the one that ended the last is still down)", () => {
     dialogue.start("ch1_mara", { speaker: "npc_mara" });
     game.step(2);
-    game.tapKey("Space");
+    game.tap("ui_submit");
     game.step(2);
     expect(view().revealed).toBeLessThan(view().total);
   });
@@ -129,7 +129,7 @@ group("choices", () => {
     dialogue.start("ch1_mara", { speaker: "npc_mara" });
     complete();
     game.step(15);
-    game.tapKey("Space");
+    game.tap("ui_submit");
     game.step(3);
     expect(node()).toBe("dlg.ch1_mara.intro");
     expect(view().choicesShown).toBe(false);
@@ -210,7 +210,7 @@ group("choices", () => {
     dialogue.start("ch1_mara", { speaker: "npc_mara" });
     complete();
     game.step(15);
-    game.tapKey("Space");
+    game.tap("ui_submit");
     game.step(3);
     game.step(15);
     game.tapKey("1");
@@ -234,7 +234,7 @@ group("choices", () => {
     for (let i = 0; i < 4 && dialogue.active(); i++) {
       complete();
       game.step(15);
-      game.tapKey("Space");
+      game.tap("ui_submit");
       game.step(5);
     }
     game.step(30);
@@ -368,9 +368,9 @@ group("a conversation in the hall", () => {
     expect(dialogue.start("ch1_mara", { speaker: "npc_mara" }).started).toBe(true);
     game.step(120);
     game.screenshot(".factoria/screenshots/dialogue_line.png");
-    game.tapKey("Space");
+    game.tap("ui_submit");
     game.step(15);
-    game.tapKey("Space");
+    game.tap("ui_submit");
     game.step(15);
     complete();
     game.step(30);

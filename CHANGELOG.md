@@ -4,6 +4,19 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Tests that drive the UI like a player
+
+- `game.tap(action)` taps the first key (or else the first gamepad button) bound to the action, so the UI and every action on
+  that key see it: `game.tap("ui_submit")` presses the focused Button or Toggle (LL/FB-0009). An action with only a stick, the
+  mouse or no binding is still held as the action.
+- `game.checkLayout(options?)`, and `ui.check_layout {current: true}` for the command: measures the scene that runs now, with the
+  panels a test has opened, without loading anything, and keeps the game state (LL/FB-0702, TM/FB-0063).
+- `game.resetState()` also stops the music (`persist: true` included) and the voices; `{ audio: false }` leaves them (LL/FB-0704).
+- The fake store applies `platform.stats.add` on the value it holds when it serves the request, so two adds in one frame both
+  count; the call log shows one `stats.add` instead of a `stats.get` and a `stats.set`. A real store still gets a get and a set
+  (LL/FB-0502).
+- Larkspur Lodge drops its `tapKey("Space")` calls, its manual layout walk, its music reset and the pause between two saves.
+
 Input routing: a consumed action, text input mode and the wheel under a modal
 
 - `input.consume(action)`: later readers in the frame see the press as gone, for the action and for every action on the

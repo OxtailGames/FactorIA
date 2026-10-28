@@ -177,7 +177,7 @@ test("achievements and counts reach the store: the first ship unlocks its achiev
   expect(fake.stats.ships_docked).toBe(1);
   const calls = game.platform.state().fake.calls.map((c) => c.method);
   expect(calls).toContain("achievements.unlock");
-  expect(calls).toContain("stats.set"); // the fake store implements stats.add as get + set
+  expect(calls).toContain("stats.add"); // the fake store adds on the value it holds when it serves the request
 });
 
 test("a game with no store keeps playing: every call is refused and nothing breaks", () => {

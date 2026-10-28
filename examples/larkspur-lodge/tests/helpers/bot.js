@@ -65,7 +65,7 @@ export class Bot {
     if (!c) return;
     this.trail.push(`skip ${c.id}`);
     if (c.time < 0.4) game.step(Math.ceil((0.4 - c.time) * 60));
-    game.tapKey("Space");
+    game.tap("skip_cutscene");
     game.step(2);
   }
 

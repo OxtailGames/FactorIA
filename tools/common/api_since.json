@@ -1764,6 +1764,7 @@
     "test:TestGame.audioLog": "0.1.0",
     "test:TestGame.blur": "unreleased",
     "test:TestGame.captions": "0.2.0",
+    "test:TestGame.checkLayout": "unreleased",
     "test:TestGame.clearAudioLog": "0.1.0",
     "test:TestGame.clearSpoken": "0.2.0",
     "test:TestGame.click": "0.1.0",
