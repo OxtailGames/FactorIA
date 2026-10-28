@@ -152,9 +152,11 @@ Undo step).
 
 The panel holds several conversations as **tabs**: **+** opens an empty chat, the **x** on a tab closes it (the chat stays
 in History), and the title is the first message ("New chat" until then). Each tab has its own transcript, input, usage and
-attachments; a message in a tab continues that tab's conversation (see `docs/AI_PROVIDERS.md`). One chat runs at
-a time: Run is disabled in the other tabs while one works (hover it to see which). **History** lists the saved chats, newest
-first; click one to reopen it as a tab (the next message resumes it) or Delete it from the list.
+attachments; a message in a tab continues that tab's conversation (see `docs/AI_PROVIDERS.md`). Several chats can run at the
+same time, up to `limits.maxConcurrentRuns` (default 3, `ai.json`; `docs/AI_COSTS.md`): each has its own agent, live progress,
+usage, **Stop** and Revert point (see "Several chats at once" below). A tab with a run shows a `*` before its title. Run is
+disabled in a chat that is already running, and in the others once the limit is reached (hover it to see why). **History**
+lists the saved chats, newest first; click one to reopen it as a tab (the next message resumes it) or Delete it from the list.
 
 - **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
   the worker role, small mechanical edits to the fast role, the art to the artist role and the sound to the audio role
@@ -171,8 +173,10 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
   one after another) and an optional focus ("the shop screen"). Pressing
   one starts read-only agents that look at and play the game (they read `REVIEW.md` first) and give an opinion with a score
   from 0 to 10 and sub-scores. Each reviewer works in a chat tab of its own, titled "Art critique" or "Game review", where
-  you see what it does. They cost tokens, so nothing starts them but you: the orchestrator cannot. The buttons are disabled
-  while the game runs (the reviewers start it themselves) or another agent works. When a review is ready, the **AI
+  you see what it does. They cost tokens, so nothing starts them but you: the orchestrator cannot. A reviewer is one more run: it counts
+  toward the limit of chats at once (`limits.maxConcurrentRuns`), and the orchestrator's chats keep working while it does. The
+  buttons are disabled while the game runs (the reviewers start it themselves) or that limit is reached. Stop in the review's
+  tab ends the review and the reviewers after it. When a review is ready, the **AI
   reviews** window opens (also from **Reviews...**) with every saved review of the project, newest first, with its score,
   persona and game version, and the text of the selected one. **Send to orchestrator** posts that report as your message
   into the active orchestrator chat (a new one when the active tab is a review's own) so it plans the fixes and delegates
@@ -218,6 +222,32 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
   editor sends it to the orchestrator as a new message of the same conversation (Claude Code `--resume`), once. **Stop**
   stops the orchestrator and the worker, and sends no continuation.
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
+
+### Several chats at once
+
+Each chat that runs has its own agent thread (and, for Claude Code, its own MCP endpoint), so its transcript, status line,
+stuck warning, **Check activity**, usage and **Stop** are the chat's alone: Stop in one tab ends that run and its worker and
+leaves the other chats going. A worker that outlives its orchestrator's turn (see above) is also per chat. The commands of all
+the runs share the editor's main thread, one after another, and the Undo history gets each command's step in the order they ran.
+`limits.maxCostUsd` and `limits.maxTotalTokens` apply to each run on its own; the plan limits (Session, Week) are shared by all
+chats, since they are the provider's.
+
+- **Play and the scene:** while any run is going Play waits, and the note names the chats working ("The assistant is changing
+  the scene (chat "Add a coin" and "Fix the menu")").
+- **The same file in two chats:** when two chats that run at the same time change the same project file (a script, or the open
+  scene), both transcripts get an amber note: `Chat "Fix the menu" is running at the same time and also changed
+  scripts/menu.js. ...`. The editor sees a file changed through the editor's commands, through Claude Code's own Write / Edit
+  tools, and, when a run ends, through the checkpoint (a file a shell command wrote is credited to the run that has no other
+  claim on it). Each pair of runs is told once per file. Two runs writing the same
+  file is not prevented: the later write wins, and the note is there so you check the result.
+- **Revert with several chats:** each run has its own checkpoint, taken when it started. Reverting a run while no other chat's
+  run overlapped it works as before (the whole checkpoint goes back). If another chat's run was going at the same time (or ran
+  after it), only the files this run changed go back, and the dialog lists the files both runs changed, and names the chats
+  still running. **Revert, keep their changes** puts back the files only this run changed and leaves the listed ones, and
+  the open scene when the other chat edited it too, as they are now; **Revert including those files** also takes them back to
+  how they were before this run, losing the other chat's changes to them. Undo revert of a revert that kept someone's files
+  restores only the files that revert wrote. A run saved by an older editor has no start time and is treated as if it ran alone.
+  Revert stays disabled in a chat that is running.
 
 ### Revert an AI run
 
@@ -471,9 +501,10 @@ play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Sho
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
-agent through the MCP endpoint), P (revert an AI run) and Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
+agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
-its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout) and V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator). While you work on one part of the editor, run only the sections that cover it:
+its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator) and W (two AI chats at once against a scripted model: both finish with their own answers, the
+same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest

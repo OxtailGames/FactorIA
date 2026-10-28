@@ -528,6 +528,14 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         cfg.limits.maxCostUsd = num(*l, "maxCostUsd", cfg.limits.maxCostUsd);
         cfg.limits.maxTotalTokens = static_cast<u64>(num(*l, "maxTotalTokens", 0));
         cfg.limits.stuckAfterSeconds = static_cast<int>(num(*l, "stuckAfterSeconds", cfg.limits.stuckAfterSeconds));
+        cfg.limits.maxConcurrentRuns = static_cast<int>(num(*l, "maxConcurrentRuns", cfg.limits.maxConcurrentRuns));
+        if (cfg.limits.maxConcurrentRuns < 1 || cfg.limits.maxConcurrentRuns > kMaxConcurrentRunsCap) {
+            cfg.warnings.push_back(std::string(sourceName) + ": limits.maxConcurrentRuns is " + std::to_string(cfg.limits.maxConcurrentRuns) +
+                                   "; the editor runs between 1 and " + std::to_string(kMaxConcurrentRunsCap) +
+                                   " chats at once, so " +
+                                   std::to_string(std::clamp(cfg.limits.maxConcurrentRuns, 1, kMaxConcurrentRunsCap)) + " is used.");
+            cfg.limits.maxConcurrentRuns = std::clamp(cfg.limits.maxConcurrentRuns, 1, kMaxConcurrentRunsCap);
+        }
     }
     (void)anyApiKey;
     return cfg;
@@ -611,7 +619,8 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
     out["limits"] = Json::object({{"maxTurns", cfg.limits.maxTurns},
                                   {"maxCostUsd", cfg.limits.maxCostUsd},
                                   {"maxTotalTokens", cfg.limits.maxTotalTokens},
-                                  {"stuckAfterSeconds", cfg.limits.stuckAfterSeconds}});
+                                  {"stuckAfterSeconds", cfg.limits.stuckAfterSeconds},
+                                  {"maxConcurrentRuns", cfg.limits.maxConcurrentRuns}});
     return out;
 }
 
