@@ -133,7 +133,7 @@ private:
     double costUsd_ = 0;
     bool costFinal_ = false;  // costUsd_ is the CLI's total
     Pricing pricing_;
-    struct MessageUsage { Usage usage; double cost = 0; bool seen = false; };
+    struct MessageUsage { Usage usage; u64 cacheWrite1h = 0; double cost = 0; bool seen = false; };
     std::map<std::string, MessageUsage> messages_;  // Claude: by message id (one assistant event per content block)
     int anonMessages_ = 0;
     bool count_message(const Json& msg);  // true when the totals changed

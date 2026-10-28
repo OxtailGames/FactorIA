@@ -679,6 +679,7 @@ public:
     } aiReview_;
     int aiReviewCount_ = 1;                 // the count the buttons use (1..kMaxReviewers)
     std::string aiReviewFocus_;             // what to look at ("" = everything)
+    std::string aiReviewAsk_;               // the review kind ("art", "game") waiting for Start in the confirmation dialog
     bool aiReviewsShown_ = false;           // the "AI reviews" window
     std::vector<ai::Review> aiReviewList_;  // saved reviews, newest first (reloaded when aiReviewDirty_)
     bool aiReviewDirty_ = true;

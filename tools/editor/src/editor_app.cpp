@@ -1461,9 +1461,11 @@ void Editor::draw_toolbar() {
     if (ImGui::Button("Redo")) redo();
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
-    gizmo_toolbar_buttons();
+    if (!selected().is_null()) {  // the gizmo modes act on the selection: with nothing selected they are hidden
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+        gizmo_toolbar_buttons();
+    }
     ImGui::EndDisabled();
 
     const char* label = play_ == PlayState::Edit ? "EDIT" : play_ == PlayState::Playing ? "PLAYING" : "PAUSED";

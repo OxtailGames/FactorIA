@@ -58,7 +58,7 @@ Profiler stay closed). Two editors open at once share the file: the last one to 
 
 | Panel | What it does |
 |---|---|
-| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos)). Screenshot saves a PNG into the hidden `.factoria/screenshots/` of the project; its toast has a **Show in Finder / Explorer / file manager** button (the toast stays longer and does not vanish while the mouse is over it), and File > Open Screenshots Folder opens the folder (creating it if missing). The F9 mark screenshots of a play session go into the play session's own folder and are read by the AI panel's Attach last play session. |
+| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos); shown only while an entity is selected, the Q W E R keys work regardless). Screenshot saves a PNG into the hidden `.factoria/screenshots/` of the project; its toast has a **Show in Finder / Explorer / file manager** button (the toast stays longer and does not vanish while the mouse is over it), and File > Open Screenshots Folder opens the folder (creating it if missing). The F9 mark screenshots of a play session go into the play session's own folder and are read by the AI panel's Attach last play session. |
 | Hierarchy | The entity tree: select, drag to reparent, right-click for create / duplicate / rename / active / delete, search by name or id. |
 | Inspector | The selected entity's components, one widget per field, Add Component. |
 | Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at; the gizmos move, rotate and scale it ([Gizmos](#gizmos)). Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
@@ -93,8 +93,9 @@ the material field.
 
 ## Gizmos
 
-Select an entity and drag handles in the Viewport to move, rotate or scale it. The toolbar has four buttons (tooltips name
-the key) and the keys work while the Viewport is hovered or focused and no text box has the keyboard:
+Select an entity and drag handles in the Viewport to move, rotate or scale it. While an entity is selected the toolbar
+has four buttons (tooltips name the key); the keys work while the Viewport is hovered or focused and no text box has the
+keyboard:
 
 | Mode | Key | Handles |
 | --- | --- | --- |
@@ -161,18 +162,20 @@ lists the saved chats, newest first; click one to reopen it as a tab (the next m
 - **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
   the worker role, small mechanical edits to the fast role, the art to the artist role and the sound to the audio role
   by itself. The `artCritic` and `reviewer` roles never run unless you ask (see **Reviews** below). **Roles...** at the
-  top of the panel picks the provider, model and effort of each of the seven roles (the line next to it shows the current ones); Save writes them into `ai.json`
+  top of the panel picks the provider, model and effort of each of the seven roles (hover it to see the current ones); Save writes them into `ai.json`
   and the next message uses them (see `docs/AI_PROVIDERS.md`, Roles). The **Model** column is a dropdown of the models
   the provider really offers, fetched when the project opens; **Refresh models** asks again (new releases show up), and
   **Other...** types a name that is not listed (see `docs/AI_PROVIDERS.md`, Choosing a model). **Roles...** is disabled
   until `ai.json` has been read. Its **Context** column caps how much of the
   conversation a session keeps (full, or 100k to 800k): past it the earlier part is summarized, so each message costs
   less. It works with Claude Code and the Anthropic API.
-- **Reviews:** under the message box, the row **Review:** has an **Art critique** and a **Game review** button (and
-  **Reviews...**, below), and the row under it a **Reviewers** count (1 to 5 reviewers, each with a different point of view,
-  one after another) and an optional focus ("the shop screen"). Pressing
-  one starts read-only agents that look at and play the game (they read `REVIEW.md` first) and give an opinion with a score
-  from 0 to 10 and sub-scores. Each reviewer works in a chat tab of its own, titled "Art critique" or "Game review", where
+- **Reviews:** next to **Roles...**, at the top of the panel, **Review:** has an **Art critique** and a **Game review**
+  button (and **Reviews...**, below), then a **Reviewers** count (1 to 5 reviewers, each with a different point of view,
+  one after another) and an optional focus ("the shop screen"); a narrow panel moves the count and focus to a line of their
+  own. Pressing
+  one opens a confirmation (what runs, how many reviewers, the role's model, the focus); **Start** starts read-only
+  agents that look at and play the game (they read `REVIEW.md` first) and give an opinion with a score from 0 to 10 and
+  sub-scores. Each reviewer works in a chat tab of its own, titled "Art critique" or "Game review", where
   you see what it does. They cost tokens, so nothing starts them but you: the orchestrator cannot. A reviewer is one more run: it counts
   toward the limit of chats at once (`limits.maxConcurrentRuns`), and the orchestrator's chats keep working while it does. The
   buttons are disabled while the game runs (the reviewers start it themselves) or that limit is reached. Stop in the review's

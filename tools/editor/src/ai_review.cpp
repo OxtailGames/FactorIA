@@ -199,15 +199,22 @@ void Editor::draw_ai_review_row(bool gameRuns) {
     ImGui::TextDisabled("Review:");
     ImGui::SameLine();
     ImGui::BeginDisabled(busy || gameRuns);
-    if (ImGui::Button("Art critique")) ai_review_request("art", aiReviewCount_, aiReviewFocus_);
+    constexpr const char* kConfirm = "Start a review?##aireview";
+    if (ImGui::Button("Art critique")) {
+        aiReviewAsk_ = "art";
+        ImGui::OpenPopup(kConfirm);
+    }
     at_track("ai:review:art", !(busy || gameRuns));
     ImGui::SetItemTooltip("Read-only art critics look at the game (screenshots of every scene) and score its art from 0 to 10.\n"
-                          "They cannot change anything. It runs only when you press this, and costs tokens.");
+                          "They cannot change anything. It asks before it starts, and costs tokens.");
     ImGui::SameLine();
-    if (ImGui::Button("Game review")) ai_review_request("game", aiReviewCount_, aiReviewFocus_);
+    if (ImGui::Button("Game review")) {
+        aiReviewAsk_ = "game";
+        ImGui::OpenPopup(kConfirm);
+    }
     at_track("ai:review:game", !(busy || gameRuns));
     ImGui::SetItemTooltip("Read-only reviewers play the game and score it from 0 to 10, with the problems they found.\n"
-                          "They cannot change anything. It runs only when you press this, and costs tokens.");
+                          "They cannot change anything. It asks before it starts, and costs tokens.");
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Reviews...")) {
@@ -221,7 +228,10 @@ void Editor::draw_ai_review_row(bool gameRuns) {
         ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "%s %d of %d...", aiReview_.kind == "art" ? "art critique" : "game review",
                            std::min(aiReview_.next + 1, aiReview_.count), aiReview_.count);
     }
-    // Second line: how many reviewers and what to look at. The focus box takes the rest of the width.
+    // How many reviewers and what to look at, on the same line when it fits. The focus box takes the rest of the width.
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImGui::SameLine(0, style.ItemSpacing.x * 3);
+    if (ImGui::GetContentRegionAvail().x < ImGui::CalcTextSize("Reviewers:").x + 80 + 140 + style.ItemSpacing.x * 2) ImGui::NewLine();
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("Reviewers:");
     ImGui::SameLine();
@@ -233,6 +243,41 @@ void Editor::draw_ai_review_row(bool gameRuns) {
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##reviewfocus", "focus (optional): what to look at", &aiReviewFocus_);
     ImGui::SetItemTooltip("What to look at, e.g. \"the shop screen\". Empty: the whole game.");
+
+    // A review costs tokens: the buttons above only ask, Start here runs it.
+    if (ImGui::BeginPopupModal(kConfirm, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool art = aiReviewAsk_ == "art";
+        const std::string role = ai::review_role_for_kind(aiReviewAsk_);
+        ai::RoleConfig rc;
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            rc = (aiConfig_.providers.empty() ? ai::default_config() : aiConfig_).role(role);
+        }
+        const int n = std::clamp(aiReviewCount_, 1, ai::kMaxReviewers);
+        ImGui::Text("%s: %d reviewer%s, one after another.", art ? "Art critique" : "Game review", n, n == 1 ? "" : "s");
+        ImGui::TextDisabled("Role %s: %s%s", role.c_str(), rc.provider.c_str(), rc.model.empty() ? "" : (" / " + rc.model).c_str());
+        ImGui::Text("Focus: %s", aiReviewFocus_.empty() ? "the whole game" : aiReviewFocus_.c_str());
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32);
+        ImGui::TextWrapped("%s", art ? "Read-only critics take screenshots of every scene and score the art from 0 to 10."
+                                     : "Read-only reviewers play the game and score it from 0 to 10, with the problems they found.");
+        ImGui::TextWrapped("They cannot change anything, but each reviewer is a run of its own and costs tokens (or plan quota).");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        if (ImGui::Button("Start")) {
+            ai_review_request(aiReviewAsk_, aiReviewCount_, aiReviewFocus_);
+            aiReviewAsk_.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("ai:review:start");
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            aiReviewAsk_.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("ai:review:cancel");
+        ImGui::EndPopup();
+    }
 }
 
 void Editor::ai_review_send(const ai::Review& review) {

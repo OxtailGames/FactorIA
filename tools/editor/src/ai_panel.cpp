@@ -1230,6 +1230,28 @@ void Editor::draw_ai_panel() {
 
     draw_ai_roles_popup(cfg, status);
 
+    // The roles. Every message goes to the orchestrator; it hands the work to the worker, fast, artist and audio roles itself.
+    const std::string providerName = cfg.role(ai::kRoleOrchestrator).provider;
+    ImGui::BeginDisabled(!detected);  // before the first detection aiConfig_ is empty: Save would write roles without providers
+    if (ImGui::Button("Roles...")) aiRolesOpen_ = true;
+    ImGui::EndDisabled();
+    if (!detected && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Reading ai.json...");
+    } else if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+        std::string roles;  // the current roles live in the tooltip, not on the panel
+        for (const char* name : kRoleNames) {
+            const ai::RoleConfig rc = cfg.role(name);
+            roles += "\n" + std::string(name) + ": " + rc.provider + (rc.model.empty() ? "" : " / " + rc.model) +
+                     (rc.maxContextTokens ? " (" + format_tokens(rc.maxContextTokens) + ")" : "");
+        }
+        ImGui::SetTooltip("Choose the provider and model of each role. Takes effect with the next message.\n%s", roles.c_str());
+    }
+    // The reviews share the Roles line: they are run from here, apart from the chat. A review opens a tab of its own, so
+    // this row comes before the reference to the current chat below.
+    const bool gameRuns = play_ != PlayState::Edit;  // the assistant edits in edit mode only (see ai_start)
+    ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
+    draw_ai_review_row(gameRuns);
+
     AiChat& chat = chat_.current();  // (no chat_ change below this line: the reference stays valid)
     AiRun* const run = ai_run_of(chat.id);  // this tab's run (nullptr = none); valid for the frame: nothing below ends a run
     const bool isRunTab = run && run->active();  // includes the wait for a worker that outlived the orchestrator's turn
@@ -1237,25 +1259,6 @@ void Editor::draw_ai_panel() {
     const int maxRuns = cfg.limits.maxConcurrentRuns;
     const bool atCap = !isRunTab && runsOn >= std::clamp(maxRuns, 1, ai::kMaxConcurrentRunsCap);  // every slot is taken by other chats
     ImGui::PushID(chat.id.c_str());  // every widget below belongs to the tab: its own scroll position and input text
-
-    // The roles. Every message goes to the orchestrator; it hands the work to the worker, fast, artist and audio roles itself.
-    const std::string providerName = cfg.role(ai::kRoleOrchestrator).provider;
-    ImGui::BeginDisabled(!detected);  // before the first detection aiConfig_ is empty: Save would write roles without providers
-    if (ImGui::SmallButton("Roles...")) aiRolesOpen_ = true;
-    ImGui::EndDisabled();
-    if (!detected && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Reading ai.json...");
-    else ImGui::SetItemTooltip("Choose the provider and model of each role. Takes effect with the next message.");
-    std::string roles;
-    for (const char* name : kRoleNames) {
-        const ai::RoleConfig rc = cfg.role(name);
-        roles += (roles.empty() ? "" : "   ") + std::string(name) + ": " + rc.provider + (rc.model.empty() ? "" : " / " + rc.model) +
-                 (rc.maxContextTokens ? " (" + format_tokens(rc.maxContextTokens) + ")" : "");
-    }
-    ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("%s", roles.c_str());
-    ImGui::PopStyleColor();
-    ImGui::SetItemTooltip("%s", kRolesBlurb);
 
     if (!detected) {
         ImGui::TextDisabled(aiDetecting_.load() ? "Detecting providers..." : "Provider detection not started.");
@@ -1306,7 +1309,7 @@ void Editor::draw_ai_panel() {
                            static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= cfg.limits.stuckAfterSeconds &&
                            now_seconds() >= run->snoozeUntil;
     const float statusH = !isRunTab ? 0.0f : ImGui::GetFrameHeightWithSpacing() * (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
-    const float footer = stripH + noticeH + statusH + inputH + ImGui::GetFrameHeightWithSpacing() * 3.4f;  // buttons + the two review rows
+    const float footer = stripH + noticeH + statusH + inputH + ImGui::GetFrameHeightWithSpacing() * 1.4f;  // the buttons row
     ImGui::BeginChild("##chat", ImVec2(0, -footer), ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
     if (chat.items.empty()) {
@@ -1448,7 +1451,6 @@ void Editor::draw_ai_panel() {
     at_track("ai:input");
     text_menu(chat.input, false);
     ImGui::EndDisabled();
-    const bool gameRuns = play_ != PlayState::Edit;  // the assistant edits in edit mode only (see ai_start)
     if (!isRunTab && chat.input.empty()) {
         // hint text drawn over the empty box
         ImVec2 p = ImGui::GetItemRectMin();
@@ -1492,13 +1494,12 @@ void Editor::draw_ai_panel() {
     ImGui::SameLine();
     if (ImGui::Button("Attach last play session")) ai_attach_last_session();
     ImGui::SetItemTooltip("Adds a summary of your last Play .. Stop (frame times, errors, the problems you marked with F9) and the mark screenshots to your next message.");
-    if (isRunTab || runsOn > 0 || gameRuns) {  // the review rows below start on a line of their own
+    if (isRunTab || runsOn > 0 || gameRuns) {
         ImGui::SameLine();
         if (isRunTab) ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "running...");
         else if (runsOn > 0) ImGui::TextDisabled("%d other chat%s working", runsOn, runsOn == 1 ? "" : "s");
         else ImGui::TextDisabled("game running: Stop it to send");
     }
-    draw_ai_review_row(gameRuns);
     ImGui::PopID();
     ImGui::End();
     draw_ai_reviews_window();
