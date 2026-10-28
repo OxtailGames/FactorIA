@@ -1138,10 +1138,11 @@ devices and operating systems (M8, M9, M12, the lists above) need hardware this 
 
 ## M34. Found by the user's own game, Roguestory (S-L each, high; 6 entries and the agent's silence) — DONE (the `m34/*` branches)
 
-Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M34 (M34.1-M34.7): wall-clock time on every log line, live progress of
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M34 (M34.1-M34.8): wall-clock time on every log line, live progress of
 delegated agents with a stuck check, `game.click` and docs that fit an MCP result, `Shape2D` corners, softness and
 gradients, four bundled OFL font families with real bold and italic, `assets.generate_texture` and `assets.rasterize_svg`,
-and the `Interactable` component (any entity composition is a widget, in world or screen space).
+the `Interactable` component (any entity composition is a widget, in world or screen space), and an engine that
+notices it was updated on disk (the editor offers Restart, `factoria mcp` restarts itself in place).
 
 Left open:
 - M34.2 was run with a fake CLI and HTTP requests, not with the real Claude Code inside the editor on a long delegation, and
@@ -1154,6 +1155,8 @@ Left open:
   as materials but are plain.
 - M34.7: no tooltips on an Interactable; a slider drag is approximate under strong perspective; Roguestory still has
   `scripts/ink_ui.js` until it moves to `Interactable`.
+- M34.8: Windows cannot restart `factoria mcp` in place (it asks the client to reconnect) and its `_win32` stdin reader was
+  never compiled; an engine older than M34.8 has no watch, so the first update to it still needs a manual restart.
 - Everything: GitHub is suspended, so no CI ran on M34; Windows, Linux, Android and web were never compiled here.
 - The full ctest on the Mac (Debug) passes except the bot playthroughs of clockwork-courier (rooftops_3) and
   tidewater-market (scenarios) when the machine is loaded: they take 24-56 s against the 60 s per-test limit, the same

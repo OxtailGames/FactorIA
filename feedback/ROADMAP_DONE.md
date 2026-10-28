@@ -2907,3 +2907,12 @@ Done (merge `5734b287`): the `Interactable` component (`kind` button, toggle or 
 entity composition a widget of the same focus, navigation, events and modal scopes as Button, in world space (hit through the
 camera, following moving parents) or on the screen; `InteractableVisual` children show, hide or tint per state; `ui_next` and
 `ui_previous` (Tab, Shift+Tab) are new default actions; `ui.on` gets `hover`, `blur`, `press` and `release`.
+
+### M34.8 The engine notices it was updated (L) — asked by the user after installing M34 by hand
+
+Done (merge `5d20cf2a`): the editor watches the `factoria` it was started from (size and time, confirmed by the build
+fingerprint and a new `FA-ENGINE-VERSION:` marker) and shows "FactorIA was updated on disk" with Restart, disabled while an
+AI run, play session, export or setup is going, and Not now. `factoria mcp` over stdio re-executes the new binary between
+messages on Linux and macOS, carrying the negotiated session (`--resume-session`), and sends `tools/list_changed`; the
+first tool result says what restarted and what was lost. On Windows it asks the client to reconnect. A `.mcp.json` newer
+than the client gets a notice, and a missing `timeout` is added. `engine.update_status` reports all of it.
