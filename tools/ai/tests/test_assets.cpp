@@ -417,3 +417,35 @@ TEST_CASE("assets.set_provenance keeps the order of a hand-ordered assets.json a
     CHECK(game.manifest()["assets"].begin().key() == "assets/z.png");
     CHECK((--game.manifest()["assets"].end()).key() == "assets/b.png");
 }
+
+TEST_CASE("assets.generate_voice without a provider: the error names the keys, silent:true writes a silent clip of the line's length") {
+    Game game(config_from(R"({})"));
+    auto none = game.call("assets.generate_voice", {{"text", "Welcome, traveller."}, {"path", "assets/voice/welcome.wav"}});
+    REQUIRE_FALSE(none.ok);
+    CHECK(none.error["code"] == "no_provider");
+    const std::string hint = none.error["hint"].get<std::string>();
+    CHECK(hint.find("ELEVENLABS_API_KEY") != std::string::npos);
+    CHECK(hint.find("OPENAI_API_KEY") != std::string::npos);
+    CHECK(hint.find("silent") != std::string::npos);
+
+    const std::string text = "Welcome to the lodge, traveller. Mind the stairs.";
+    Json made = game.ok("assets.generate_voice", {{"text", text}, {"path", "assets/voice/welcome.wav"}, {"silent", true}});
+    CHECK(made["silent"] == true);
+    const std::string wav = game.file("assets/voice/welcome.wav");
+    REQUIRE(wav.size() > 44);
+    CHECK(wav.substr(0, 4) == "RIFF");
+    for (std::size_t i = 44; i < wav.size(); ++i) REQUIRE(wav[i] == 0);
+    const double seconds = static_cast<double>(wav.size() - 44) / 2 / 22050;
+    CHECK(seconds == doctest::Approx(0.06 * static_cast<double>(text.size())).epsilon(0.01));
+    CHECK(made["seconds"].get<double>() == doctest::Approx(seconds).epsilon(0.001));
+    const Json prov = game.provenance("assets/voice/welcome.wav");
+    CHECK(prov["ai"] == false);  // nothing was generated: it does not count in the AI disclosure
+    CHECK(prov["kind"] == "voice");
+    CHECK(prov["prompt"] == text);
+
+    // `seconds` sets the length; a silent clip is a WAV; an existing file is kept
+    game.ok("assets.generate_voice", {{"text", "Hi"}, {"path", "assets/voice/hi.wav"}, {"silent", true}, {"seconds", 2.5}});
+    CHECK(game.file("assets/voice/hi.wav").size() == 44 + 2 * 55125);
+    CHECK_FALSE(game.call("assets.generate_voice", {{"text", "Hi"}, {"path", "assets/voice/hi.mp3"}, {"silent", true}}).ok);
+    CHECK(game.call("assets.generate_voice", {{"text", "Hi"}, {"path", "assets/voice/hi.wav"}, {"silent", true}}).error["code"] == "exists");
+}

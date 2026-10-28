@@ -1025,6 +1025,21 @@ Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak 
 |---|---|---|---|
 | `path` | string | no | Project-relative sound file, e.g. assets/sfx/jump.wav. Omit to analyze every sound of the project. |
 
+### `assets.convert_audio` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Convert a WAV in the project to Ogg Vorbis (smaller, streams well) and record where it came from.
+
+Reads the WAV at `path` (8, 16, 24 or 32-bit PCM or float, mono or stereo) and writes an Ogg Vorbis file at `to` (default: the same name ending in .ogg), with the encoder of this engine (fixed block size, no stereo coupling: about 4 to 6 times smaller than 16-bit WAV at the default quality, less than libvorbis would reach). The sample rate and length are kept. The WAV stays; the provenance of the WAV is copied to the Ogg with a note. Use it for music and long ambience (a streamed .ogg keeps little in memory, docs/ASSETS.md); keep short effects as WAV. Example: {"path":"assets/audio/wind.wav","quality":0.6}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The WAV to convert, project-relative, under assets/. |
+| `to` | string | no | Where to write the Ogg, under assets/ and ending in .ogg. Default: next to the WAV, same name. |
+| `quality` | number | no | 0 to 1. Higher is bigger and closer to the WAV; 0.6 suits ambience, 0.8 music. Default 0.6. |
+| `overwrite` | boolean | no | Replace the Ogg when it already exists. Default false. |
+
 ### `assets.disclosure`
 
 Since 0.1.6.
@@ -1096,6 +1111,42 @@ Calls the provider that ai.json assigns to "image" (assets.image; there is no de
 | `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
+
+### `assets.generate_loop` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Make a seamless loop offline (a wind or fire bed, a clock, a drone or chord pad) as a WAV or Ogg: no provider, no key.
+
+Synthesizes a mono loop at `path` (under assets/, .wav or .ogg) from `kind`, with no AI provider and no key. The same arguments and `seed` always give the same bytes. The end of the loop meets its start: filters run round the loop, gusts and hums have a whole number of cycles, and pops, ticks and notes wrap round the end. Records provenance in assets.json (origin original, ai false, license CC0).
+kind "noise": a bed of `color` noise (white = hiss, pink = rain, brown = rumble and wind) low-passed at `cutoff` Hz and scaled by `level`; `gusts` (0 to 1) swells it slowly; `crackles` adds random pops per second (a fire); `tick` adds a tick-tock every that many seconds (a clock; make `seconds` a multiple of it and `level` 0 for the ticks alone); `hum` adds sines at those Hz (a cellar's mains hum).
+kind "drone": `chords`, an array of chords of notes ("A3", "F#2", "Eb4", or Hz); each chord is a soft pad lasting `chordSeconds`, with the first note an octave down at `bass` level. A single chord is a drone. `arpeggio` {every, pattern, gain} plays music-box plucks over it: `pattern` holds chord indexes (null = a rest, past the chord's end = an octave up).
+Wind: {"kind":"noise","color":"brown","cutoff":900,"gusts":0.6,"seconds":20}. Fire: {"kind":"noise","color":"brown","cutoff":600,"crackles":4}. Clock: {"kind":"noise","level":0,"tick":1,"seconds":4}. Score: {"kind":"drone","chords":[["D3","F3","A3"],["Bb2","D3","F3"]],"chordSeconds":6,"arpeggio":{"every":0.75,"pattern":[0,2,1,2],"gain":0.16}}. A WAV loops sample for sample; an Ogg loop is smaller and within the codec's noise at the seam (see assets.convert_audio).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the loop, project-relative, under assets/ and ending in .wav or .ogg, e.g. "assets/audio/wind.wav". |
+| `kind` | string ["noise","drone"] | yes | noise: a bed (wind, fire, rain, a clock). drone: pads and chords (music, a mood). |
+| `seconds` | number | no | Length of the loop (default 12). For a drone with chordSeconds, leave it out to get chords x chordSeconds. |
+| `sampleRate` | integer | no | Sample rate in Hz. 22050 is plenty for ambience; the engine resamples. Default 22050. |
+| `seed` | integer | no | Chooses the take: the same arguments and seed give the same file. Default 0. |
+| `peak` | number | no | Loudest sample as a fraction of full scale. Default 0.6 (-4.4 dBFS). Default 0.6. |
+| `quality` | number | no | Ogg only: quality of the encoding (more quality, bigger file). Default 0.6. |
+| `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
+| `color` | string ["white","pink","brown"] | no | (Default brown.) noise: the colour of the noise. |
+| `cutoff` | number | no | (Default 0.) noise: low-pass in Hz; 0 leaves the noise as it is. Lower is darker (wind 500-1500, fire 400-800). |
+| `level` | number | no | (Default 1.) noise: volume of the bed relative to the pops, ticks and hum; 0 makes them the only sound. |
+| `gusts` | number | no | (Default 0.) noise: depth of slow swells of the bed (0 steady, 1 deep gusts). |
+| `crackles` | number | no | (Default 0.) noise: random pops per second (a fire: 3-6). |
+| `tick` | number | no | (Default 0.) noise: seconds between the ticks of a clock (alternating tick and tock); 0 for none. |
+| `hum` | array | no | noise: frequencies in Hz (or note names) of steady hum tones added to the bed. |
+| `chords` | array | no | drone: chords, each an array of note names ("A3", "F#2") or Hz. The first note of a chord is also played an octave down. |
+| `chordSeconds` | number | no | drone: seconds each chord lasts. Default: seconds divided by the number of chords. |
+| `bass` | number | no | (Default 0.5.) drone: level of the low note under each chord. |
+| `brightness` | number | no | (Default 0.3.) drone: level of the octave partial above each note (0 dull, 1 bright). |
+| `underNote` | any | no | drone: one soft note held under the whole loop, whatever the chords do: a name such as "D1" or a frequency in Hz. |
+| `underLevel` | number | no | (Default 0.5.) drone: level of `underNote`. |
+| `arpeggio` | object | no | drone: music-box plucks over the chords. |
 
 ### `assets.generate_model` (modifies state)
 
@@ -1185,12 +1236,14 @@ Since 0.1.6.
 
 Generate spoken audio from text with the voice asset provider and record where it came from.
 
-Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text` with `voice` (default: the voice in ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). Example: {"text":"Welcome, traveller.","path":"assets/voice/welcome.mp3"}
+Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text` with `voice` (default: the voice in ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). Needs a key in the environment: ELEVENLABS_API_KEY (elevenlabs) or OPENAI_API_KEY (openai); without a provider the error says what to add to ai.json. To test code that depends on voice lines without a provider or a key, pass `silent: true`: it writes a silent .wav as long as the line (about 0.06 s per character, or `seconds`) and records it as a placeholder, not AI. Example: {"text":"Welcome, traveller.","path":"assets/voice/welcome.mp3"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Where to write the file, project-relative, under assets/ (for example "assets/sfx/jump.wav"). The extension must match what the provider makes. |
 | `text` | string | yes | The words to speak. |
+| `silent` | boolean | no | Write a silent WAV of the line's length instead of calling a provider (no key needed). For tests of code that plays voice lines; `path` must end in .wav. Default false. |
+| `seconds` | number | no | With silent: the length of the clip. Default: about 0.06 s per character of `text`, from 0.4 to 20 s. Ignored by providers. |
 | `voice` | string | no | The provider's voice name or id (openai: alloy, verse...; elevenlabs: a voice id). Default: assets.voice.voice in ai.json. |
 | `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
 | `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |

@@ -1,0 +1,11 @@
+{
+  "path": "assets/audio/wind.wav",
+  "kind": "noise",
+  "color": "brown",
+  "cutoff": 900,
+  "gusts": 0.6,
+  "seconds": 20,
+  "seed": 11,
+  "peak": 0.7,
+  "overwrite": true
+}

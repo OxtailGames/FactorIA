@@ -1,0 +1,47 @@
+{
+  "path": "assets/audio/music_title.wav",
+  "kind": "drone",
+  "chords": [
+    [
+      "A3",
+      "C4",
+      "E4"
+    ],
+    [
+      "F3",
+      "A3",
+      "C4"
+    ],
+    [
+      "C3",
+      "E4",
+      "G4"
+    ],
+    [
+      "G3",
+      "B3",
+      "D4"
+    ]
+  ],
+  "chordSeconds": 6,
+  "sampleRate": 16000,
+  "seed": 1,
+  "peak": 0.55,
+  "bass": 0.5,
+  "brightness": 0.35,
+  "arpeggio": {
+    "every": 1.5,
+    "pattern": [
+      2,
+      1,
+      0,
+      1,
+      2,
+      3,
+      1,
+      0
+    ],
+    "gain": 0.22
+  },
+  "overwrite": true
+}

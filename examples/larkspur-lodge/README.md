@@ -314,7 +314,8 @@ the chapter begins, before the chapter card. `adit_descent` and `adit_rescue`: a
 and lasts as long as its voice clip, or its `seconds` when there is none. `data/cutscenes/voice_script.json` lists the 24 lines to
 speak; `data/cutscenes/voice.json` maps a line id to `{ path, seconds }` once a clip exists. **No clip ships yet**: no voice provider
 was available to `assets.generate_voice` (ENGINE_FEEDBACK FB-0601), so captions run on their placeholder timing; adding the clips
-to `voice.json` is all it takes. Voice plays on the `voiceover` bus (`factoria.json` `audio.buses`), with the reverb of the
+to `voice.json` is all it takes. Without a provider, `assets.generate_voice {silent: true}` writes a silent clip of the line's
+length to test with. Voice plays on the `voiceover` bus (`factoria.json` `audio.buses`), with the reverb of the
 cut-scene's room and the music ducked under it (`scripts/mix.js`).
 
 ### Save data (P5)
@@ -404,8 +405,10 @@ changes (`session.musicTrack` remembers what runs); chapter 0 has none, the titl
 `scripts/main_menu.js`. `scripts/mix.js` (P4) still ducks `music` and `sfx` (so `ambience`) under `voiceover`; `sound.js` only
 calls `mix.setup()`. Test fields of the behaviour: `room`, `surface`, `bedLevels`, `steps`, `track`, `rects`.
 The footsteps are Kenney CC0 clips imported with `assets.import`; the beds and the five chapter scores plus the title
-theme are written by `assets/src/make_sound.py` (seeded, pure Python) and recorded as `origin: "original"`: there was no audio tooling
-to convert and no CC0 pack for them (FB-0701). They are placeholders in quality: replace the files, keep the names.
+theme are made by `assets.generate_loop` (seeded, offline) and recorded as `origin: "original"`: no CC0 pack had them (FB-0701).
+The call of each file is in `assets/src/sound/<name>.json`; run `factoria call assets.generate_loop @assets/src/sound/wind.json`
+(they all say `overwrite: true`) and the same bytes come back. They are placeholders in quality: replace the files, keep the names.
+`assets.convert_audio` would turn any of them into an Ogg if the size ever mattered.
 
 **Options** (`scripts/settings.js`, saved in `storage "settings"`, never in a save slot). `settings.save()` emits
 `EVENTS.settingsChanged`; the camera, the dialogue box, the cut-scene player and the glyph prompts listen to it, and it applies the

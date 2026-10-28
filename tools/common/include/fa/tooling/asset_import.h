@@ -15,7 +15,7 @@
 
 namespace fa {
 
-// (assets.synth_sound, an offline sound maker, is registered with them.)
+// (assets.synth_sound, assets.generate_loop and assets.convert_audio, the offline sound makers, are registered with them.)
 // Registers assets.import and assets.slice_sheet for the project at `projectDir`.
 void register_asset_commands(CommandRegistry& registry, const std::string& projectDir);
 
