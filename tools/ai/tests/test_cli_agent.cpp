@@ -98,6 +98,7 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     REQUIRE(std::filesystem::exists(mcpPath));
     Json mcp = Json::parse(read_file(mcpPath.string()));
     CHECK(mcp["mcpServers"]["factoria"]["command"] == "factoria");
+    CHECK(mcp["mcpServers"]["factoria"]["timeout"] == kMcpToolTimeoutMs);  // Claude Code's per-call ceiling: ai_run runs long
     CHECK(mcp["mcpServers"]["factoria"]["args"] == Json::parse(R"(["mcp","--project",")" + dir.str() + R"("])"));
     CHECK(argv.find("--mcp-config\n" + mcpPath.string() + "\n") != std::string::npos);
 }

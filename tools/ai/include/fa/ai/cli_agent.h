@@ -5,9 +5,11 @@
 // FactorIA never touches subscription credentials.
 #pragma once
 
+#include <functional>
 #include "fa/ai/config.h"
 #include "fa/ai/process.h"
 #include "fa/ai/types.h"
+#include "fa/tooling/mcp_config.h"
 
 namespace fa::ai {
 
@@ -27,6 +29,8 @@ struct CliRunRequest {
     // An MCP endpoint already serving this project (the editor's, fa/mcp/http_server.h): the {mcp_config} file points
     // there, so the CLI's tool calls run on that process's world. Empty = the config starts `factoria mcp --project`.
     std::string mcpUrl;
+    // Called once with the CLI process's pid when it started (ProcessOptions::onStart).
+    std::function<void(long long pid)> onStart;
 };
 
 struct CliRunResult {
@@ -70,7 +74,11 @@ std::vector<LimitWindow> parse_codex_rate_limits(const Json& rateLimits, i64 now
 void merge_limit_windows(std::vector<LimitWindow>& into, const std::vector<LimitWindow>& from);
 
 // JSON for `claude --mcp-config`: {"type": "http", "url": mcpUrl} when there is one, else a `factoria mcp --project`
-// stdio server.
+// stdio server. Both carry "timeout": kMcpToolTimeoutMs, Claude Code's per-server limit (milliseconds) on one tool call.
+// Without it Claude Code aborts a call that sends no sign of life for 300 s; an ai_run that hands a whole task to
+// the worker runs far longer. The server also sends progress while such a call runs (notifications/progress), so this
+// is only the ceiling for a call that really never ends.
+inline constexpr long long kMcpToolTimeoutMs = kClaudeCodeMcpToolTimeoutMs;  // 4 hours
 Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl = {});
 
 // Install/login instructions per CLI.

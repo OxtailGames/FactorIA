@@ -1,5 +1,6 @@
 #include "fa/ai/commands.h"
 
+#include <atomic>
 #include <memory>
 
 #include "asset_commands.h"
@@ -157,11 +158,28 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             so.stream = flag(args, "stream", true);
             so.mcpUrl = opts->mcpUrl;
             for (const auto& w : scan_project_for_keys(so.projectDir, 500)) cfg->warnings.push_back(w);
+            static std::atomic<int> nextRun{1};
+            AiRunInfo info;
+            info.id = "run-" + std::to_string(nextRun.fetch_add(1));
+            info.role = so.role;
+            info.task = str(args, "task");
+            if (opts->onRunProcess) so.onProcessStart = [opts, info](long long pid, const std::string&) { opts->onRunProcess(info, pid); };
             AgentSession session(registry, *cfg, so);
-            if (opts->onEvent) session.set_event_handler(opts->onEvent);
+            // What the sub-agent does goes to the caller as MCP progress (when the call carries a progressToken: the
+            // reply of ai_run can take many minutes and Claude Code aborts a call that stays silent for 300 s), and to
+            // the host's callbacks. Every event runs on this thread: the progress scope is this thread's.
+            session.set_event_handler([opts, info](const AgentEvent& e) {
+                if (opts->onEvent) opts->onEvent(e);
+                if (opts->onRunEvent) opts->onRunEvent(info, e);
+                const std::string what = describe_agent_event(e);
+                if (!what.empty()) report_command_progress(info.role + (e.depth > 0 ? " > " : ": ") + what);
+            });
             if (opts->providerFactory) session.set_provider_factory(opts->providerFactory);
             session.set_cancel_flag(opts->cancel);
-            SessionResult r = session.run(str(args, "task"));
+            report_command_progress(info.role + ": starting");
+            if (opts->onRunStart) opts->onRunStart(info);
+            SessionResult r = session.run(info.task);
+            if (opts->onRunEnd) opts->onRunEnd(info, r.ok, r.finalText, r.ok ? std::string() : r.error);
             Json out = r.to_json();
             out["warnings"] = cfg->warnings;
             if (!r.ok) {

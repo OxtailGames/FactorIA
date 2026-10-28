@@ -48,6 +48,11 @@ TEST_CASE("config parsing merges over defaults") {
     REQUIRE(cfg);
     CHECK(cfg->limits.maxTurns == 12);
     CHECK(cfg->limits.maxCostUsd == doctest::Approx(3.5));
+    CHECK(cfg->limits.stuckAfterSeconds == 180);  // the default: the example file does not set it
+    auto stuck = parse_config(Json::parse(R"({"limits":{"stuckAfterSeconds":45}})"), "stuck");
+    REQUIRE(stuck);
+    CHECK(stuck->limits.stuckAfterSeconds == 45);
+    CHECK(config_to_json(*stuck)["limits"]["stuckAfterSeconds"] == 45);
     // orchestrator: only provider given => Anthropic default model/effort
     CHECK(cfg->role("orchestrator").model == "claude-opus-5-5");
     CHECK(cfg->role("orchestrator").effort == "xhigh");

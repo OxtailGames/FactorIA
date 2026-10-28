@@ -169,3 +169,52 @@ double estimate_cost(const Usage& u, const Pricing& p) {
 }
 
 }  // namespace fa::ai
+
+namespace fa::ai {
+
+namespace {
+
+std::string shorten(std::string text, std::size_t max) {
+    for (char& c : text)
+        if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+    const std::size_t first = text.find_first_not_of(' ');
+    text = first == std::string::npos ? std::string() : text.substr(first);
+    if (text.size() > max) {
+        std::size_t cut = max;
+        while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;  // not inside a UTF-8 character
+        text = text.substr(0, cut) + "...";
+    }
+    return text;
+}
+
+}  // namespace
+
+std::string describe_agent_event(const AgentEvent& e) {
+    switch (e.type) {
+        case AgentEvent::Type::ToolStart: {
+            std::string name = e.toolName;
+            if (name.rfind("mcp__factoria__", 0) == 0) name = name.substr(15);  // "scene_spawn"
+            std::string detail;
+            if (e.toolInput.is_object()) {
+                for (const char* key : {"command", "description", "file_path", "path", "pattern", "url", "name", "task"}) {
+                    if (e.toolInput.contains(key) && e.toolInput[key].is_string() && !e.toolInput[key].get<std::string>().empty()) {
+                        detail = shorten(e.toolInput[key].get<std::string>(), 60);
+                        break;
+                    }
+                }
+            }
+            return "running " + name + (detail.empty() ? std::string() : " (" + detail + ")");
+        }
+        case AgentEvent::Type::TextDelta: return "writing";
+        case AgentEvent::Type::ThinkingDelta: return "thinking";
+        case AgentEvent::Type::Usage: return "working";
+        case AgentEvent::Type::Error: return "error: " + shorten(e.text, 100);
+        case AgentEvent::Type::Info: return shorten(e.text, 100);
+        case AgentEvent::Type::Done: return "finished";
+        case AgentEvent::Type::SessionStart: return "started";
+        case AgentEvent::Type::ToolEnd: break;
+    }
+    return {};
+}
+
+}  // namespace fa::ai

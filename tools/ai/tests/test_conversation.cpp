@@ -60,11 +60,12 @@ TEST_CASE("argv template: {session} adds --resume, an empty one removes it") {
     // the rest of the placeholders keep working
     auto c = expand_cli_argv(default_cli_argv(ProviderKind::Codex), req, "", "factoria");
     CHECK(c == std::vector<std::string>{"exec", "--json", "-m", "sonnet", "-c", "mcp_servers.factoria.command=\"factoria\"", "-c",
-                                        "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/proj dir\"]", "-"});
+                                        "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/proj dir\"]", "-c",
+                                        "mcp_servers.factoria.tool_timeout_sec=14400", "-"});
     CliRunRequest nomodel{"x", "", "/p"};
     auto d = expand_cli_argv(default_cli_argv(ProviderKind::Codex), nomodel, "", "factoria");
     CHECK(std::find(d.begin(), d.end(), "-m") == d.end());
-    CHECK(d.size() == 7);
+    CHECK(d.size() == 9);
     CHECK(expand_cli_argv({"--ask", "{prompt}", "--dir", "{project}", "--m={model}"}, req, "", "f") ==
           std::vector<std::string>{"--ask", "do it", "--dir", "/proj dir", "--m=sonnet"});
 }
