@@ -4,6 +4,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Audio without a provider
+
+- `assets.generate_voice` names the keys it needs (`ELEVENLABS_API_KEY`, `OPENAI_API_KEY`) when no provider is configured, and
+  `silent: true` writes a silent clip of the line's length (or `seconds`) to test voice-dependent code (LL/FB-0601).
+- `assets.generate_loop`: a seeded, seamless noise bed (wind, fire, clock) or chord drone, as WAV or Ogg. `assets.convert_audio`:
+  WAV to Ogg Vorbis with an encoder built into the engine (long blocks, mono or stereo). Larkspur Lodge's beds and scores are made
+  by calls kept in `assets/src/sound/*.json`; its `make_sound.py` is gone (LL/FB-0701).
+
 Listing data files
 
 - Glob import of JSON data: `import tables from "../data/dialogue/*.json"` is an object of the parsed files directly in that

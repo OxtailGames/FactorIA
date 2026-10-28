@@ -363,10 +363,55 @@ Json generate_sprite_sheet(const Ctx& ctx, const Json& args) {
 
 // ---- Sounds, music, voice, 3D models ----------------------------------------------------------------------------------
 
+// A mono 16-bit 22.05 kHz WAV of digital silence, `seconds` long.
+std::string silent_wav(double seconds) {
+    constexpr std::uint32_t rate = 22050;
+    const std::uint32_t frames = static_cast<std::uint32_t>(std::llround(seconds * rate)), dataBytes = frames * 2;
+    std::string out;
+    const auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) out.push_back(static_cast<char>((v >> (8 * i)) & 0xFF)); };
+    const auto u16 = [&](std::uint16_t v) { for (int i = 0; i < 2; ++i) out.push_back(static_cast<char>((v >> (8 * i)) & 0xFF)); };
+    out += "RIFF"; u32(36 + dataBytes); out += "WAVEfmt "; u32(16); u16(1); u16(1); u32(rate); u32(rate * 2); u16(2); u16(16);
+    out += "data"; u32(dataBytes);
+    out.append(dataBytes, '\0');
+    return out;
+}
+
+// assets.generate_voice with silent:true: no provider, no key. Code that plays voice lines (captions that last as long as the
+// clip, ducking, a validator that checks the file) is tested with a clip of the right length that makes no sound.
+Json generate_silent_voice(const Json& args, const std::string& path, const std::string& text) {
+    require_extension(path, ".wav", "a silent voice clip is a WAV file");
+    require_free(path, flag(args, "overwrite"));
+    // about 15 characters a second, like the fake provider's buzz: 0.4 to 20 s unless `seconds` says
+    const double seconds = args.contains("seconds") ? num(args, "seconds", 0) : std::clamp(0.06 * static_cast<double>(text.size()), 0.4, 20.0);
+    if (!(seconds >= 0.1 && seconds <= 60)) {
+        throw CommandError("invalid_argument", "seconds must be from 0.1 to 60 for a silent clip", "Leave `seconds` out to get a length from the text.");
+    }
+    const std::string bytes = silent_wav(seconds);
+    if (auto w = fs::write_bytes(path, bytes.data(), bytes.size()); !w) fail("write_failed", w.error());
+    const Json provenance = Json::object({{"origin", "original"},
+                                          {"ai", false},
+                                          {"kind", "voice"},
+                                          {"provider", "factoria silent placeholder"},
+                                          {"prompt", text},
+                                          {"license", "CC0-1.0"},
+                                          {"author", str(args, "author", "factoria")},
+                                          {"notes", "Digital silence of " + std::format("{:.2f}", seconds) + " s standing in for the spoken line; replace it with a real recording or assets.generate_voice before shipping."},
+                                          {"date", assets::today()}});
+    record(path, provenance);
+    return Json::object({{"path", path},
+                         {"bytes", bytes.size()},
+                         {"kind", "voice"},
+                         {"seconds", seconds},
+                         {"silent", true},
+                         {"provenance", provenance},
+                         {"next", "Play it like any clip; run assets.generate_voice again without `silent` (and with overwrite:true) once a voice provider is configured."}});
+}
+
 Json generate_file(const Ctx& ctx, const Json& args, MediaKind kind) {
     const bool voice = kind == MediaKind::Voice;
     const std::string path = asset_path(args);
     const std::string prompt = required_text(args, voice ? "text" : "prompt");
+    if (voice && flag(args, "silent")) return generate_silent_voice(args, path, prompt);
     const AiConfig cfg = load_ai_config(ctx);
     const AssetTarget target = resolve_target(cfg, args, kind);
     const std::string wanted = asset_extension(*target.provider, kind);
@@ -562,8 +607,13 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         registry, ctx, "assets.generate_voice", "Generate spoken audio from text with the voice asset provider and record where it came from.",
         "Calls the provider that ai.json assigns to \"voice\" (assets.voice) to speak `text` with `voice` (default: the voice in "
         "ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). "
+        "Needs a key in the environment: ELEVENLABS_API_KEY (elevenlabs) or OPENAI_API_KEY (openai); without a provider the error says "
+        "what to add to ai.json. To test code that depends on voice lines without a provider or a key, pass `silent: true`: it writes a "
+        "silent .wav as long as the line (about 0.06 s per character, or `seconds`) and records it as a placeholder, not AI. "
         "Example: {\"text\":\"Welcome, traveller.\",\"path\":\"assets/voice/welcome.mp3\"}",
         file_schema(R"J("text":{"type":"string","description":"The words to speak."},
+    "silent":{"type":"boolean","default":false,"description":"Write a silent WAV of the line's length instead of calling a provider (no key needed). For tests of code that plays voice lines; `path` must end in .wav."},
+    "seconds":{"type":"number","minimum":0.1,"maximum":60,"description":"With silent: the length of the clip. Default: about 0.06 s per character of `text`, from 0.4 to 20 s. Ignored by providers."},
     "voice":{"type":"string","description":"The provider's voice name or id (openai: alloy, verse...; elevenlabs: a voice id). Default: assets.voice.voice in ai.json."},)J",
                     R"(["text","path"])"),
         false, file_handler(MediaKind::Voice));

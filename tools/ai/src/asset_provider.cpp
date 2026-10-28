@@ -36,7 +36,12 @@ Result<AssetTarget> resolve_asset_target(const AiConfig& cfg, MediaKind kind, co
         return make_error("No provider is configured for " + name + " generation",
                           "Generation costs money, so there is no default. Add this to " + where + ": {\"assets\": {\"" + name +
                               "\": " + example_route(kind) + "}}. To try the pipeline offline and for free, use the fake provider: "
-                              "{\"assets\": {\"" + name + "\": {\"provider\": \"fake\"}}}. Or pass `provider` to the command.");
+                              "{\"assets\": {\"" + name + "\": {\"provider\": \"fake\"}}}. Or pass `provider` to the command." +
+                              (kind == MediaKind::Voice
+                                   ? " Real voices need a key in the environment: ELEVENLABS_API_KEY for elevenlabs, OPENAI_API_KEY for an openai provider "
+                                     "(ai.providers action doctor says which keys are set). To test code that plays voice lines without any provider, pass "
+                                     "`silent: true` to assets.generate_voice (a silent WAV of the line's length)."
+                                   : std::string()));
     }
     const ProviderConfig* p = cfg.provider(route.provider);
     if (!p) {
