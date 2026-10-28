@@ -18,6 +18,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <cstdio>
 #include <cstdlib>
 #include <future>
@@ -93,7 +95,7 @@ std::string random_token() {
 }  // namespace
 
 struct McpHttpServer::Impl {
-    Handler handler;
+    StreamHandler handler;
     std::chrono::milliseconds streamAfter{};
     std::string url, path;
     Socket listener = kNoSocket;
@@ -167,22 +169,71 @@ struct McpHttpServer::Impl {
         buf.erase(0, bodyAt + size);
         const bool keepAlive = !iequals(headers["connection"], "close");
         // A tool call can run for minutes (ai_run hands a whole task to the worker), longer than an HTTP client waits
-        // for an answer (fetch gives up after 5 idle minutes). So a call still running after `streamAfter` is answered
-        // as an event stream at once, kept alive with a comment line every 15 s until its reply is ready.
-        auto pending = std::async(std::launch::async, [&] { return handler(body); });
-        if (pending.wait_for(streamAfter) == std::future_status::timeout &&
-            headers["accept"].find("text/event-stream") != std::string::npos) {
-            bool open = send_all(c, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n"
-                                    "Connection: close\r\n\r\n");
-            while (open && pending.wait_for(std::chrono::seconds(15)) == std::future_status::timeout)
-                open = send_all(c, ": working\n\n");
-            const std::optional<std::string> response = pending.get();  // stop() needs the handler done anyway
-            if (open && response) send_all(c, "event: message\ndata: " + std::string(trim(*response)) + "\n\n");
-            return false;  // the stream ends with the connection
+        // for an answer (fetch gives up after 5 idle minutes). So a call still running after `streamAfter`, or one
+        // that notifies the client (progress), is answered as an event stream at once: notifications go out as they
+        // come, a comment line every 15 s keeps it alive, and the reply ends it.
+        const bool canStream = headers["accept"].find("text/event-stream") != std::string::npos;
+        struct Call {
+            std::mutex mu;
+            std::condition_variable cv;
+            std::deque<std::string> out;  // notifications not written yet
+            std::optional<std::string> response;
+            bool done = false;
+            bool closed = false;  // the client is gone, or does not take notifications
+        };
+        auto call = std::make_shared<Call>();
+        call->closed = !canStream;  // the handler's notifications have nowhere to go
+        const Notify notify = [call](const std::string& message) {
+            std::lock_guard<std::mutex> lock(call->mu);
+            if (call->closed) return false;
+            call->out.push_back(message);
+            call->cv.notify_all();
+            return true;
+        };
+        auto pending = std::async(std::launch::async, [&, call] {
+            std::optional<std::string> r = handler(body, notify);
+            std::lock_guard<std::mutex> lock(call->mu);
+            call->response = std::move(r);
+            call->done = true;
+            call->cv.notify_all();
+        });
+        std::unique_lock<std::mutex> lock(call->mu);
+        call->cv.wait_for(lock, streamAfter, [&] { return call->done || !call->out.empty(); });
+        if (!call->done || !call->out.empty()) {
+            if (!canStream) {  // cannot stream: wait for the reply like a plain call
+                call->cv.wait(lock, [&] { return call->done; });
+            } else {
+                lock.unlock();
+                bool open = send_all(c, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n"
+                                        "Connection: close\r\n\r\n");
+                lock.lock();
+                for (;;) {
+                    if (!open) call->closed = true;
+                    if (call->out.empty() && !call->done)
+                        if (!call->cv.wait_for(lock, std::chrono::seconds(15), [&] { return call->done || !call->out.empty(); })) {
+                            lock.unlock();
+                            open = open && send_all(c, ": working\n\n");
+                            lock.lock();
+                            continue;
+                        }
+                    std::deque<std::string> batch;
+                    batch.swap(call->out);
+                    const bool finished = call->done;
+                    lock.unlock();
+                    for (const std::string& m : batch) open = open && send_all(c, "event: message\ndata: " + m + "\n\n");
+                    lock.lock();
+                    if (finished && call->out.empty()) break;
+                }
+                lock.unlock();
+                pending.get();  // stop() needs the handler done anyway
+                if (open && call->response) send_all(c, "event: message\ndata: " + std::string(trim(*call->response)) + "\n\n");
+                return false;  // the stream ends with the connection
+            }
         }
-        const std::optional<std::string> response = pending.get();
-        if (!response) return reply(c, 202, "Accepted", "", keepAlive);
-        return reply(c, 200, "OK", *response, keepAlive);
+        lock.unlock();
+        pending.get();
+        if (!call->response) return reply(c, 202, "Accepted", "", keepAlive);
+        return reply(c, 200, "OK", *call->response, keepAlive);
     }
 };
 
@@ -192,6 +243,10 @@ McpHttpServer::~McpHttpServer() { stop(); }
 const std::string& McpHttpServer::url() const { return impl_->url; }
 
 Result<std::string> McpHttpServer::start(Handler handler, std::chrono::milliseconds streamAfter) {
+    return start(StreamHandler([h = std::move(handler)](std::string_view m, const Notify&) { return h(m); }), streamAfter);
+}
+
+Result<std::string> McpHttpServer::start(StreamHandler handler, std::chrono::milliseconds streamAfter) {
     stop();
 #ifdef _WIN32
     WSADATA wsa;

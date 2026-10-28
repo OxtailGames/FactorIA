@@ -2,8 +2,11 @@
 
 #include <filesystem>
 #include <fstream>
+#include <chrono>
+#include <mutex>
 #include <set>
 #include <sstream>
+#include <thread>
 
 #include "fa/mcp/client_config.h"
 #include "fa/mcp/server.h"
@@ -337,6 +340,62 @@ TEST_CASE("mcp: tools/list_changed and log notifications") {
     CHECK(f.rpc("logging/setLevel", {{"level", "loud"}})["error"]["code"] == -32602);
     f.server.notify_tools_changed();
     CHECK(got.size() == 3);
+}
+
+TEST_CASE("mcp: a long tool call with a progressToken sends notifications/progress; without one nothing") {
+    Fixture f;
+    CommandInfo i;
+    i.name = "test.slow";
+    i.summary = "Reports what it does, then returns.";
+    f.registry.add(i, [](const Json&) {
+        report_command_progress("step one");
+        std::this_thread::sleep_for(std::chrono::milliseconds(120));
+        report_command_progress("step two");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        return Json::object({{"done", true}});
+    });
+    std::mutex mu;
+    std::vector<Json> got;
+    f.server.set_notification_sink([&](const std::string& m) {
+        std::lock_guard<std::mutex> lock(mu);
+        got.push_back(Json::parse(m));
+    });
+    f.server.set_progress_timing(std::chrono::milliseconds(50), std::chrono::milliseconds(100));
+
+    // No token: the client did not ask for progress.
+    auto plain = f.rpc("tools/call", {{"name", "test_slow"}, {"arguments", Json::object()}});
+    CHECK(plain["result"]["isError"] == false);
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        CHECK(got.empty());
+    }
+
+    auto reply = f.rpc("tools/call", {{"name", "test_slow"},
+                                      {"arguments", Json::object()},
+                                      {"_meta", Json::object({{"progressToken", 7}})}});
+    CHECK(reply["result"]["isError"] == false);
+    std::lock_guard<std::mutex> lock(mu);
+    REQUIRE(got.size() >= 3);
+    double last = 0;
+    bool sawStepTwo = false, sawHeartbeat = false;
+    for (const Json& n : got) {
+        CHECK(n["method"] == "notifications/progress");
+        CHECK(n["params"]["progressToken"] == 7);
+        CHECK(n["params"]["progress"].get<double>() > last);  // strictly increasing, as the MCP spec requires
+        last = n["params"]["progress"].get<double>();
+        const std::string msg = n["params"]["message"].get<std::string>();
+        CHECK(msg.find("[") != std::string::npos);  // ends with the elapsed time
+        if (msg.rfind("step two", 0) == 0) sawStepTwo = true;
+        if (msg.rfind("step two", 0) == 0 && &n != &got.front()) sawHeartbeat = true;  // repeated while silent
+    }
+    CHECK(sawStepTwo);
+    CHECK(sawHeartbeat);
+    // A quick call sends nothing at all (the first message waits for the throttle).
+    got.clear();
+    CHECK(f.rpc("tools/call", {{"name", "test_echo_value"},
+                               {"arguments", Json::object({{"value", 1}})},
+                               {"_meta", Json::object({{"progressToken", "abc"}})}})["result"]["isError"] == false);
+    CHECK(got.empty());
 }
 
 TEST_CASE("mcp: stdio transport is newline-delimited and writes only protocol messages") {
