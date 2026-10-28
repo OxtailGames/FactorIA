@@ -157,7 +157,8 @@ Json brief_state(Engine::Impl& I, std::uint64_t errorsBefore, std::uint64_t last
     j["newLogErrors"] = error_count() - errorsBefore;
     Json logs = Json::array();
     for (const LogEntry& l : recent_logs(10, LogLevel::Warn, lastSeq))
-        logs.push_back(Json::object({{"level", log_level_name(l.level)}, {"category", l.category}, {"message", l.message}}));
+        logs.push_back(Json::object({{"wallTime", log_wall_iso(l.wallMs)}, {"level", log_level_name(l.level)},
+                                     {"category", l.category}, {"message", l.message}}));
     if (!logs.empty()) j["newWarnings"] = logs;
     if (I.quit) j["quitRequested"] = true;
     return j;
@@ -692,7 +693,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"game.logs", "Read recent log lines (engine, scripts, assets...).",
-           "Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {\"minLevel\":\"warn\",\"max\":50}",
+           "Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {\"minLevel\":\"warn\",\"max\":50}",
            parse_schema(R"({"type":"object","properties":{
                "minLevel":{"type":"string","enum":["trace","debug","info","warn","error"],"default":"info"},
                "after":{"type":"integer","default":0,"description":"Only entries with seq greater than this."},
@@ -705,7 +706,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               auto entries = recent_logs(std::size_t(a.value("max", 100)), lv, a.value("after", std::uint64_t(0)));
               Json list = Json::array();
               for (const LogEntry& l : entries)
-                  list.push_back(Json::object({{"seq", l.seq}, {"frame", l.frame}, {"level", log_level_name(l.level)},
+                  list.push_back(Json::object({{"seq", l.seq}, {"frame", l.frame}, {"wallTime", log_wall_iso(l.wallMs)}, {"level", log_level_name(l.level)},
                                                {"category", l.category}, {"message", l.message}}));
               return Json::object({{"count", list.size()}, {"lastSeq", entries.empty() ? a.value("after", std::uint64_t(0)) : entries.back().seq},
                                    {"logs", list}});
