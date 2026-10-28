@@ -1,0 +1,85 @@
+{
+ "_comment": "Plays like a person at the keyboard: Play, skip the intro cut-scene, Pause, Save game, slot 1, name, Save. tools/cli/tests/larkspur_ship_test.py runs it on the exported player with --persist-storage and looks for the save file (LL/FB-0801); 520 frames.",
+ "frames": {
+  "10": {
+   "press": [
+    "ui_submit"
+   ]
+  },
+  "11": {
+   "release": [
+    "ui_submit"
+   ]
+  },
+  "300": {
+   "press": [
+    "skip_cutscene"
+   ]
+  },
+  "301": {
+   "release": [
+    "skip_cutscene"
+   ]
+  },
+  "400": {
+   "press": [
+    "pause"
+   ]
+  },
+  "401": {
+   "release": [
+    "pause"
+   ]
+  },
+  "410": {
+   "press": [
+    "ui_down"
+   ]
+  },
+  "411": {
+   "release": [
+    "ui_down"
+   ]
+  },
+  "420": {
+   "press": [
+    "ui_submit"
+   ]
+  },
+  "421": {
+   "release": [
+    "ui_submit"
+   ]
+  },
+  "440": {
+   "press": [
+    "ui_submit"
+   ]
+  },
+  "441": {
+   "release": [
+    "ui_submit"
+   ]
+  },
+  "460": {
+   "press": [
+    "ui_down"
+   ]
+  },
+  "461": {
+   "release": [
+    "ui_down"
+   ]
+  },
+  "470": {
+   "press": [
+    "ui_submit"
+   ]
+  },
+  "471": {
+   "release": [
+    "ui_submit"
+   ]
+  }
+ }
+}

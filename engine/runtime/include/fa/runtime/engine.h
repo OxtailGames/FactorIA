@@ -73,6 +73,13 @@ struct EngineConfig {
     // Windowed runs only (run_windowed / make_app_desc): draw this many frames, then close the window; the exit code is 1 when
     // a script recorded an error by then. For smoke-testing an exported game (factoria_player --frames N). 0 = run until closed.
     int maxFrames = 0;
+    // Windowed runs only: an input replay (the JSON `input.record` writes, the one `factoria run --input` plays) the window plays
+    // while it runs: the entry of frame N is applied before the Nth frame is simulated, as in a headless run. The frame times are
+    // the real ones (a replay's "timing" is not used), so a replay made of presses and releases plays the same but a game that
+    // reads dt may differ from the recording. The player logs "player: replaying <file>" and "player: replay done after N
+    // frames" (the window stays open). The iOS player takes the file from the FA_INPUT_REPLAY environment variable
+    // (`xcrun simctl launch` with SIMCTL_CHILD_FA_INPUT_REPLAY; the `player.run_ios_sim` command does it). "" = none.
+    std::string inputReplayPath;
     bool hotReload = true;         // watch scripts/scenes/assets (desktop, not headless)
     // Watch only the files the renderer rebuilds in place (materials, shader snippets, textures, fonts, models) and
     // leave scripts, scenes and locales alone. For hosts that manage those themselves (the editor). Ignored when

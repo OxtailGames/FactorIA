@@ -44,9 +44,13 @@ def main():
             return
         os.makedirs(os.path.join(game, "scripts"), exist_ok=True)
         with open(os.path.join(game, "scripts", "mover.js"), "w", encoding="utf-8") as f:
-            f.write('import { Behaviour, input } from "factoria";\n'
+            f.write('import { Behaviour, input, storage } from "factoria";\n'
                     "export default class Mover extends Behaviour {\n"
-                    "  onUpdate() { this.entity.position.x += input.axis(\"move_left\", \"move_right\") * 4; }\n"
+                    "  onUpdate() {\n"
+                    "    const a = input.axis(\"move_left\", \"move_right\");\n"
+                    "    this.entity.position.x += a * 4;\n"
+                    "    if (a !== 0) storage.set(\"slot1\", { x: this.entity.position.x });  // the save a sandbox check looks for\n"
+                    "  }\n"
                     "}\n")
         scene_file = os.path.join(game, "scenes", "main.scene.json")
         with open(scene_file, encoding="utf-8") as f:
@@ -102,6 +106,19 @@ def main():
         code, out = play("--frames", frames, "--input", "replay.json", "--dump-state=rel_state.json", cwd=here)
         check(code == 0 and os.path.isfile(os.path.join(here, "rel_state.json")) and
               read(os.path.join(here, "rel_state.json")) == read(ref_state), "relative paths are relative to the current directory (exit %s)" % code, out)
+
+        # --persist-storage: the save the replay makes lands in the user folder (HOME here), not in memory.
+        saves = os.path.join(home, "Library", "Application Support") if HOST == "macos" else home
+        slot = [os.path.join(d, f) for d, _, fs in os.walk(saves) for f in fs if f == "slot1.json"]
+        check(not slot, "without --persist-storage the replay leaves no save file")
+        code, out = play("--frames", frames, "--input", replay, "--persist-storage")
+        slot = [os.path.join(d, f) for d, _, fs in os.walk(saves) for f in fs if f == "slot1.json"]
+        if check(code == 0 and len(slot) == 1, "--persist-storage: the replay leaves a real save file (exit %s)" % code, out):
+            with open(slot[0], encoding="utf-8") as f:
+                saved = json.load(f)
+            check(saved.get("key") == "slot1" and saved.get("value", {}).get("x", 0) > 0, "the save holds what the script stored: %s" % saved)
+        code, out = play("--persist-storage")
+        check(code == 2 and "--persist-storage" in out and "--frames" in out, "--persist-storage alone is a usage error (exit %s)" % code, out)
 
         code, out = play("--dump-state", out_state)
         check(code == 2 and "--frames" in out, "--dump-state without --frames is a usage error (exit %s)" % code, out)

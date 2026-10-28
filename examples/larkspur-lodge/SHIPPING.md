@@ -79,11 +79,13 @@ The whole game is in `game.pak` (187 files, scripts compiled to bytecode).
    com.oxtailgames.larkspurlodge/log.txt`, and the state dump and a screenshot it was told to write went into `Data/`.
    A relative `--input` path fails there: the working directory of a sandboxed app is its container, so pass an
    absolute path inside it.
-3. **Not seen: a save file.** The exported player's headless flags keep storage in memory, and the windowed run needs a
-   real click on Play and then a save; osascript and CGEvent were refused (no Accessibility permission) (FB-0801). So the
-   container holds the log, the dump, the screenshot and the replay, and no `saves/` file. The app was quit afterwards
-   (no process left).
-4. **By hand, once** (a few minutes): double-click the sandboxed app, Play, press Esc, Save game in slot 1, quit, then check
+3. **A save file, without a click.** The exported player takes `--persist-storage` with `--frames` and `--input`, so a replay
+   that presses Play, skips the intro and saves in slot 1 (`tests/replays/save_slot1.json`) leaves a real `slot1.json`:
+   `player --frames 520 --input <absolute path> --persist-storage` (FB-0801). `ctest -R cli_larkspur_ship` runs it on the
+   exported game with `HOME` in a temporary folder and finds the file. **Not repeated inside the signed sandbox container
+   after that change**: the container still holds only what the earlier run left, so item 4 below is the one check left.
+4. **Once, in the container** (a few minutes): run the sandboxed app with the replay and `--persist-storage` as in 3 (an absolute path
+   inside the container for `--input`), or double-click the sandboxed app, Play, press Esc, Save game in slot 1, quit, then check
    `ls ~/Library/Containers/com.oxtailgames.larkspurlodge/Data/Library/Application\ Support/com.oxtailgames.larkspurlodge/`.
 
 ## 5. iPad (iOS Simulator)
@@ -94,7 +96,12 @@ simulator in portrait, so the landscape game shows turned on its side). The pict
 "Larkspur Lodge" and the Play, Load game, Options and Credits buttons, all text sharp, the 16:9 area with black bars on the
 4:3 screen (FB-0803). The app was terminated and the simulator shut down.
 
-**Not done:** playing it. `simctl` cannot tap, so only the first screen was seen; and the picture is a build output, not a
+**Playing it on the Simulator** is now one command, with the same replay as section 4 (the player takes the replay and the
+turn of the screen itself, because `simctl` cannot tap or rotate):
+`factoria call player.run_ios_sim '{"app":"<factoria_player.app>","input":"tests/replays/save_slot1.json","device":"iPad Pro 13-inch","orientation":"landscape","screenshot":"build/ipad.png"}'`
+(docs/MOBILE.md). It was **not run** on this game's Simulator build after it was written; run it once and look at the screenshot.
+
+**Not done:** playing it on a real iPad. Only the first screen was seen there; and the picture is a build output, not a
 store screenshot. By hand: run `./build_ios.sh --run` on a real iPad with a Team id, play a chapter with touch, and take
 the App Store screenshots there (2752x2064).
 
@@ -158,6 +165,6 @@ submit to Valve's review. Expect the review to ask for the Steam Input glyph poi
 
 ## 9. Could not be checked
 
-- A save file in the sandbox container (section 4), playing the iPad build (section 5), and the Windows and Linux runs.
+- The save in the sandbox container itself (section 4, item 4), the replay on the iPad Simulator and the real iPad (section 5), and the Windows and Linux runs.
 - Anything that needs a store account: uploads, review, signing with real identities.
 - The Steam Deck answers marked "no" in section 7.

@@ -1788,6 +1788,10 @@ factoria run --headless --input replays/trailer.json --frames 900 --render-scale
   2 GB, which is roughly 3 minutes of 1080p at 60 fps (twice that at 720p). When the video reaches it, recording stops at that
   frame, the run goes on, and the report lists the reason in `problems` (exit code 2). Record a shorter replay
   (`--frames`) or use a smaller `--render-scale`.
+  The frames are written to a spool file next to the output as they are drawn, so the memory of the run stays flat however long
+  the recording is (a 1480-frame recording at 1080p once peaked at 4.4 GB on macOS, because every frame read back from the GPU
+  was kept until the end of the run; `video_tests.cpp` watches for it). The disk needs the size of the video twice while the
+  file is being finished.
 - `.mp4` (H.264 + AAC, what Steam, Google Play and the App Store accept for previews) is made by
   [ffmpeg](https://ffmpeg.org/download.html), found like the store tools of [Finding the tools](#finding-the-tools):
   `FACTORIA_FFMPEG` (the executable or its folder), `"publish": {"ffmpeg": "<path>"}` in `~/.factoria/export.json`, `PATH`,
@@ -1870,6 +1874,12 @@ cmp out/state.json out/ref.json && cmp out/last.png out/ref.png
   (no window, no audio, fixed time step, seed 1, in-memory storage, fake platform), the same path as `factoria run
   --headless`, so it also works on a CI machine without a display (it still needs a GPU or the Mesa software renderer).
   Missing parent folders of the outputs are created.
+- `--persist-storage` (with those flags, as `factoria run --persist-storage`): `storage.*` and the save files go to the game's
+  real user folder instead of memory. It is how to see that a save lands where it should: inside the container of a
+  sandboxed Mac App Store build (`~/Library/Containers/<bundle id>/Data/Library/Application Support/<bundle id>/`), or in
+  `HOME` (`APPDATA`, `XDG_DATA_HOME`) pointed at a temporary folder in a test. A replay that presses Play and saves leaves
+  the file, with no click on the window (`cli_larkspur_ship` does that for Larkspur Lodge). Start from a clean folder: the
+  files stay between runs. Without any of the three flags it is a usage error (exit 2).
 - Exit code: `0`; `1` when a script raised an error (printed on stderr), like `factoria run`; `2` for a usage error: a missing
   or malformed replay, an output that cannot be written, `--frames` missing.
 - What to compare: the state dump should be **byte-equal** to `factoria run`'s for the same replay and frame count (it is

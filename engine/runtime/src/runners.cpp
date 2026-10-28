@@ -30,6 +30,9 @@ struct WindowedState {
     int exitCode = 0;
     int framesRendered = 0;  // drawn frames, for the run marker in AppDesc.frame
     int framesRun = 0;       // frames run so far, for EngineConfig::maxFrames
+    int replayFrame = 0;     // windowed frames run so far, the frame number of EngineConfig::inputReplayPath
+    std::map<int, Json> replay;
+    int replayLast = -1;     // the last frame the replay has an entry for
     int framesSinceResume = -1;  // -1: not waiting for the post-resume marker; else drawn frames since Resumed
     // The player's date when it came from the wall clock (no --date): read again when the app comes back, see refresh_clock_date.
     std::optional<CalendarDate> clockDate;
@@ -179,6 +182,27 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             return;
         }
         apply_expand(st->engine, app_framebuffer_width(), app_framebuffer_height());
+        if (!st->cfg.inputReplayPath.empty()) {
+            auto r = load_json_file(st->cfg.inputReplayPath);
+            const Json* frames = r.ok() && r.value().is_object() && r.value().contains("frames") ? &r.value()["frames"] : nullptr;
+            if (!r.ok()) {
+                FA_ERROR("player", "Cannot read the input replay: {}", r.error().to_string());
+            } else if (!frames || !frames->is_object()) {
+                FA_ERROR("player", "The input replay {} must look like {{\"frames\": {{\"0\": {{\"press\": [\"jump\"]}}}}}}",
+                         st->cfg.inputReplayPath);
+            } else {
+                for (auto it = frames->begin(); it != frames->end(); ++it) {
+                    try {
+                        const int n = std::stoi(it.key());
+                        st->replay[n] = *it;
+                        st->replayLast = std::max(st->replayLast, n);
+                    } catch (...) {
+                        FA_WARN("player", "replay: frame key '{}' is not a number", it.key());
+                    }
+                }
+                FA_INFO("player", "replaying {} ({} frames with input)", st->cfg.inputReplayPath, st->replay.size());
+            }
+        }
         // The rectangle of a TextField for the platform's keyboard (a plugin's text input handler) is in window pixels.
         // A raw pointer: the engine keeps this function and `st` owns the engine (a shared_ptr would never be freed).
         st->engine.set_design_to_window([s = st.get()](Vec2 p) {
@@ -195,6 +219,15 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         if (st->clockDate && std::chrono::steady_clock::now() - st->clockRead >= std::chrono::seconds(60)) refresh_clock_date(*st);
         if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get()) window->throttle();  // window.frameCap
         apply_safe_insets(*st);  // before the frame: layout and drawing read it
+        if (!st->replay.empty()) {
+            if (auto it = st->replay.find(st->replayFrame); it != st->replay.end()) {
+                std::vector<std::string> problems;
+                st->engine.apply_input_entry(it->second, problems, st->replayFrame);
+                for (const std::string& p : problems) FA_WARN("player", "{}", p);
+            }
+            if (st->replayFrame == st->replayLast + 1) FA_INFO("player", "replay done after {} frames", st->replayFrame);
+        }
+        ++st->replayFrame;
         st->engine.frame(dt);
         apply_input_requests(*st);
         // Run marker: ONE info line after the 60th drawn frame. The device smoke tests (scripts/ios-smoke.sh,
