@@ -215,9 +215,10 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
     const float unitsPerPx = fontSize / float(px);          // local units per raster pixel
     const float maxW = t.maxWidth > 0 ? t.maxWidth / unitsPerPx : 0.0f;  // in raster pixels
 
-    struct KeyHead { float fontSize, maxWidth, pivotX, pivotY; int px, align, wordBreak; } head{};
+    struct KeyHead { float fontSize, maxWidth, pivotX, pivotY; int px, align, wordBreak, direction; } head{};
     head.fontSize = fontSize; head.maxWidth = t.maxWidth; head.pivotX = t.pivot.x; head.pivotY = t.pivot.y;
     head.px = px; head.align = int(t.align) + (tightBox ? 1000 : 0) + (t.markup ? 2000 : 0) + (t.bold ? 4000 : 0);
+    head.direction = int(t.direction);
     head.wordBreak = int(t.wordBreak);  // visibleCharacters is not part of the key: it clips a layout, it never changes one
     std::string cacheKey(reinterpret_cast<const char*>(&head), sizeof head);
     cacheKey += t.font;
@@ -282,7 +283,7 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
     ShapedText shaped;
     for (int attempt = 0; attempt < 2; ++attempt) {  // a second pass when the atlas was reset halfway: UVs of the first are stale
         const unsigned epoch = im.atlasEpoch;
-        shaped = shape_text(text, px, maxW, chainSize, chain, rich ? &shaping : nullptr, t.wordBreak);
+        shaped = shape_text(text, px, maxW, chainSize, chain, rich ? &shaping : nullptr, t.wordBreak, t.direction);
         const std::vector<std::uint32_t> graphemeOf = grapheme_index(text);
         const auto grapheme_at = [&](std::uint32_t cluster) { return cluster < graphemeOf.size() ? std::int32_t(graphemeOf[cluster]) : std::int32_t(0); };
         out = TextLayout{};

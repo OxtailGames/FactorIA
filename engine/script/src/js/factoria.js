@@ -1848,6 +1848,11 @@
     // store it with `storage`. Setting a number outside 0.5 .. 3 throws. Changing it sends the "scale" event (ui.on).
     get scale() { return N.uiScale(); },
     set scale(v) { N.setUiScale(v); },
+    // Whether the screen-space UI is mirrored in a right-to-left language (i18n.direction "rtl"): anchor.x, pivot.x and position.x
+    // flip, Toggle boxes and Sliders run right to left; a widget with `mirror: false` stays. The `ui.mirrorRtl` of factoria.json
+    // (default true) is where a game starts. Not saved by the engine.
+    get mirrorRtl() { return N.uiMirrorRtl(); },
+    set mirrorRtl(v) { N.setUiMirrorRtl(v); },
     // on(type, fn) / on(type, target, fn): the widget events the engine sends as "ui.<type>" (see world.on), with the id
     // of the widget in `e.id` and, for "change" and "submit", the new value in `e.value`. `target` (an Entity or an entity
     // id) limits it to one widget. Returns the function that stops listening.

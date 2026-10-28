@@ -99,6 +99,7 @@ struct ProjectSettings {
     float pixelsPerMeter = 100.0f;
     Json inputActions = Json::object();
     Json inputSchemes = Json::object();  // "input.schemes": the key sets local players can use (Input::set_key_schemes checks them at start)
+    bool uiMirrorRtl = true;  // "ui": {"mirrorRtl"}: mirror the screen-space UI in a right-to-left language (ui.mirrorRtl)
     float uiScale = 1.0f;  // "ui": {"scale"}: the interface scale a run starts with (ui.scale, 0.5 .. 3; ui_rect.h)
     UiTooltipSettings uiTooltip;  // "ui": {"tooltipDelay", "tooltipOnTouch", "tooltip"}: when a tooltip shows and how it looks (ui_tooltip.h)
     double inputDeadzone = 0.2;  // gamepad sticks (radial) and triggers; 0 <= value < 1 (see Input::set_gamepad_deadzone)

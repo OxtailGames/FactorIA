@@ -787,6 +787,20 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return Json::object({{"uiScale", engine.ui_scale()}});
           });
 
+    I.commands.add({"ui.set_mirror_rtl", "Turn the mirroring of the screen-space UI in a right-to-left language on or off.",
+           "The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, \"Right to left\"). On (the default, or the "
+           "\"ui\": {\"mirrorRtl\"} of factoria.json) and with i18n.direction \"rtl\", the screen-space widgets and the Text, Sprite "
+           "and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run "
+           "right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is "
+           "mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {\"value\":false}",
+           parse_schema(R"({"type":"object","required":["value"],"properties":{
+               "value":{"type":"boolean","description":"true mirrors the UI in a right-to-left language, false never does."}}})"),
+           false, "ui"},
+          [&I](const Json& a) {
+              I.world.set_ui_mirror_rtl(a.at("value").get<bool>());
+              return Json::object({{"mirrorRtl", I.world.ui_mirror_rtl()}, {"mirrored", I.world.ui_mirror()}});
+          });
+
     I.commands.add({"ui.speak", "Say a line aloud with the system's text to speech (or record it, headless).",
            "The same as `ui.speak(text, { interrupt })` in a script: the line is said in the game's current language (i18n.language) "
            "with the system voice for it. `interrupt` (default true) stops what is being said first; false queues the line. "

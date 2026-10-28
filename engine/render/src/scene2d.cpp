@@ -75,7 +75,12 @@ void polygon_shape(const QuadEmitter& em, const Vec2* p, int n, Vec2 centre, boo
 }
 
 // Screen-space anchoring: moves the entity's translation to the anchor point (the safe area when `safeArea`).
-void apply_anchor(Mat4& m, Vec2 anchor, bool safeArea, const World& world, const Frame& f) {
+// `mirrored` (ui_mirrored, ui.mirrorRtl): the mirror image, anchor.x and the translation x flipped; the caller flips the pivot.
+void apply_anchor(Mat4& m, Vec2 anchor, bool safeArea, const World& world, const Frame& f, bool mirrored = false) {
+    if (mirrored) {
+        anchor.x = 1.0f - anchor.x;
+        m.at(3, 0) = -m.at(3, 0);
+    }
     const Vec2 a = anchor_point(anchor, safeArea, Vec2{float(f.targetW), float(f.targetH)}, world.safe_insets());
     m.at(3, 0) += a.x;
     m.at(3, 1) += a.y;
@@ -274,13 +279,15 @@ void gather_2d(World& world, Frame& f) {
         Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
-        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f);
+        const bool mirrored = screen && ui_mirrored(world, e);
+        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, mirrored);
         QuadList& list = pick(s.space);
         list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend, clip);
         const bool lit = s.lit && !screen;
         if (lit) list.set_lit(s.normalMap.empty() ? nullptr : assets.texture(s.normalMap));
         const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
-        const float bx0 = -s.pivot.x * size.x, bx1 = (1 - s.pivot.x) * size.x, by0 = -s.pivot.y * size.y, by1 = (1 - s.pivot.y) * size.y;
+        const float pivotX = mirrored ? 1.0f - s.pivot.x : s.pivot.x;
+        const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -s.pivot.y * size.y, by1 = (1 - s.pivot.y) * size.y;
 
         // One copy of the sprite drawn with matrix `mm`.
         auto draw = [&](const Mat4& mm) {
@@ -358,7 +365,8 @@ void gather_2d(World& world, Frame& f) {
         Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
-        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f);
+        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, screen && ui_mirrored(world, e));
+        if (screen && ui_mirrored(world, e)) m = m * Mat4::scale({-1.0f, 1.0f, 1.0f});  // every shape is symmetric about its box, but a line
         QuadList& list = pick(s.space);
         list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
         if (s.lit && !screen) list.set_lit(nullptr);
@@ -537,9 +545,14 @@ void gather_2d(World& world, Frame& f) {
         // align start / end are the edges of the current language's direction; the font layer only knows left / right.
         Text resolved;
         const Text* drawn = &t;
-        if (t.align == Align::Start || t.align == Align::End) {
+        const bool mirrored = screen && ui_mirrored(world, e);
+        const TextDirection dir = world.language().empty() ? t.direction : text_paragraph_direction(t, world.rtl());
+        if (t.align == Align::Start || t.align == Align::End || mirrored || dir != t.direction) {
             resolved = t;
-            resolved.align = (t.align == Align::Start) != world.rtl() ? Align::Left : Align::Right;
+            if (t.align == Align::Start || t.align == Align::End)
+                resolved.align = (t.align == Align::Start) != text_starts_right(t, world.rtl()) ? Align::Left : Align::Right;
+            if (mirrored) resolved.pivot.x = 1.0f - t.pivot.x;
+            resolved.direction = dir;
             drawn = &resolved;
         }
         // The size comes from fit_text (text_fit.h): the player's text size capped by maxTextScale, shrunk by autoShrink.
@@ -549,7 +562,7 @@ void gather_2d(World& world, Frame& f) {
         TextLayout lay = f.fonts->layout(*drawn, px, eff);
         if (lay.quads.empty() && lay.icons.empty()) return;
         if (t.visibleCharacters == 0) return;
-        if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f);
+        if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f, mirrored);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
         if ((screen || !f.cam.perspective) && axis_aligned(m)) {
             float ox = screen ? 0.0f : f.cam.visible.x, oy = screen ? 0.0f : f.cam.visible.y;

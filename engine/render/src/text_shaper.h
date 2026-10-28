@@ -38,9 +38,11 @@ struct ShapedText {
 // first of the chain that has it (a combining mark or joiner stays with its base character): `chain(i)` returns the
 // i-th font of `chainSize`, or nullptr to skip one (a font that failed to load); chain(0) must not be null. Fonts are
 // asked for only when a character needs them, so a fallback font nobody needs is never loaded. `wordBreak`: where a line
-// may end between letters that have no space (Text.wordBreak).
+// may end between letters that have no space (Text.wordBreak). `direction`: the base direction of every paragraph (Text.direction):
+// auto = the first strong character's, ltr / rtl = that way whatever the text starts with.
 ShapedText shape_text(std::string_view text, int px, float maxWidth, std::size_t chainSize,
-                      const std::function<FontFace*(std::size_t)>& chain, WordBreak wordBreak = WordBreak::Auto);
+                      const std::function<FontFace*(std::size_t)>& chain, WordBreak wordBreak = WordBreak::Auto,
+                      TextDirection direction = TextDirection::Auto);
 
 // Rich text (Text.markup, Text.bold) for the shaper. `attrs` has one entry per code point of the text; a code point whose
 // attr names an icon is shaped as a picture `iconAdvance[icon]` pixels wide (and as tall as the line).
@@ -53,7 +55,8 @@ struct RichShaping {
 
 // The same on code points already decoded (decode_text) and read as markup; `rich` may be null.
 ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::size_t chainSize,
-                      const std::function<FontFace*(std::size_t)>& chain, const RichShaping* rich, WordBreak wordBreak = WordBreak::Auto);
+                      const std::function<FontFace*(std::size_t)>& chain, const RichShaping* rich, WordBreak wordBreak = WordBreak::Auto,
+                      TextDirection direction = TextDirection::Auto);
 
 // The grapheme cluster each code point of `text` belongs to, counted from 0: a base character with its combining marks,
 // joiners, variation selectors and Hangul jamo, an emoji sequence, a flag and CR LF are one. What Text.visibleCharacters counts.

@@ -43,6 +43,18 @@ Remove every subtitle from the screen now.
 
 The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}
 
+## `ui.set_mirror_rtl` (modifies state)
+
+Not released yet (on main after 0.2.0).
+
+Turn the mirroring of the screen-space UI in a right-to-left language on or off.
+
+The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right to left"). On (the default, or the "ui": {"mirrorRtl"} of factoria.json) and with i18n.direction "rtl", the screen-space widgets and the Text, Sprite and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {"value":false}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `value` | boolean | yes | true mirrors the UI in a right-to-left language, false never does. |
+
 ## `ui.set_scale` (modifies state)
 
 Not released yet (on main after 0.2.0).

@@ -211,6 +211,7 @@ public:
     void step_frames(int n) override;
     void set_text_scale(float scale) override;  // also the renderer's
     void set_ui_scale(float scale) override;    // also the renderer's (text measuring)
+    bool default_ui_mirror_rtl() const override;  // the ui.mirrorRtl of factoria.json
     float default_ui_scale() const override;    // the ui.scale of factoria.json
     double render_scale() const override;       // window.renderScale: the held render scale
     std::string set_render_scale(double scale) override;
