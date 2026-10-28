@@ -434,7 +434,7 @@ The voice stays English in every language; the captions follow the language. The
 changes every open screen at once: the engine re-translates the texts it owns and the screens, the HUD and the dialogue box write
 their own again on `i18n.on("change")`. Read-aloud speaks the focused widget in the current language.
 
-- **Korean** uses a subset of Noto Sans KR as a fallback font (`assets/fonts/`, OFL, provenance in `assets.json`). The subset holds the
+- **Korean** uses a subset of Noto Sans KR as a fallback font (`assets/fonts/`, OFL, provenance in `assets.json`). The subset holds the Hangul jamo and the 2350 syllables of KS X 1001 (a save name typed on the on-screen keyboard) and the
   characters of the tables: after editing a Korean string run `python3 -I assets/src/build_fonts.py` (it uses the engine command
   `assets.subset_font`), or `factoria validate` names the missing character.
 - **Hebrew** is right to left. The engine mirrors the screen-space UI (`ui.mirrorRtl`: anchors, pivots, positions, Toggle boxes, Sliders)
@@ -453,7 +453,7 @@ notebook, the board, the items page, the dialogue and the save slots at 100 % an
 overflow, switches the language live and checks what read-aloud says, and a cut-scene caption. The screenshots are in
 `.factoria/screenshots/lang/<tag>_<100|200>_<screen>.png`. `tests/keyboard_layout.test.js` covers the on-screen keyboard keys. P8 adds
 FB-0901 to FB-0905 (glyph atlas clear leaves texts blank, Korean line breaking, RTL mirroring of anchors and toggles, base direction of
-a line, no Hangul on the on-screen keyboard).
+a line, no Hangul on the on-screen keyboard: fixed by the kit's IME hook, M33.14).
 
 ## Tests
 

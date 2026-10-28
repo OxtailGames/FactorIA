@@ -325,11 +325,21 @@ What the command does, file by file; do it by hand when you want to see each fil
   for that field. It opens as above everywhere the platform shows none.
   *Layout and languages.* The keys follow `i18n.language`: Latin (a-z, the digits and the accented letters of Spanish,
   French, German, Portuguese, Italian, Polish, Turkish, Swedish, Danish, Norwegian and Czech: `EXTRA`), Cyrillic
-  (Russian, Ukrainian, Bulgarian, Serbian, Macedonian) and Greek. Every other language (Arabic, Hebrew, Chinese,
-  Japanese, Korean, Thai, Hindi...) gets the **Latin keys**: a pad cannot compose those scripts, so on a PC or phone the
-  player uses the system keyboard and IME, and a game that must take a name in such a script on a pad adds a layout:
-  `LAYOUTS.ja = "..."` and `SCRIPT_OF.ja = "ja"` (one character per key, lower case first). The labels of Space,
-  Delete and Done are the strings `keyboard.space`, `keyboard.delete` and `keyboard.done` of the locale tables.
+  (Russian, Ukrainian, Bulgarian, Serbian, Macedonian), Greek and Korean (Hangul jamo, below). Every other language (Arabic,
+  Hebrew, Chinese, Japanese, Thai, Hindi...) gets the **Latin keys**: on a PC or phone the player uses the system keyboard
+  and IME, and a game that must take a name in such a script on a pad adds a layout: `LAYOUTS.he = "..."` and
+  `SCRIPT_OF.he = "he"` (one character per key, lower case first). The labels of Space, Delete and Done are the strings
+  `keyboard.space`, `keyboard.delete` and `keyboard.done` of the locale tables.
+  *Input methods (IME).* A script whose letters are parts of characters needs more than one character per key. `IME` maps a
+  language code to `{ compose(text, ch), decompose(text) }`: `compose` returns the field's text after the key `ch` is typed (it
+  may change the last character) and `decompose` the text after Delete (it may take only a part of the last character away).
+  Both look at the text alone and keep no state; the field's `maxLength` counts the characters of the result. Korean's is built
+  in (`hangulIme`, for `ko` and `ko-KR`): the keys are the jamo of the two-set layout (consonants, then vowels; Shift gives the
+  doubled ones, `SHIFTED`), a vowel after a consonant makes a syllable (ㄱ + ㅏ = 가), a consonant after it is its final
+  (가 + ㄴ = 간, compound finals such as 닭 included), a vowel after a final takes that consonant to a new syllable
+  (간 + ㅏ = 가나), and Delete takes the last jamo away (간 -> 가 -> ㄱ -> nothing). A game with another such language sets
+  `IME.xx = { compose, decompose }`. The Text's font must have the jamo and the syllables a name can hold (docs/TEXT.md,
+  `assets.subset_font` with `keep`). `tests/slots.test.js` types a Korean slot name through the slot dialog with the pad.
 - **Add an option.** Add a widget to `options.prefab.json` (with a `key` for its label), read and write its value in
   `options.js`, and keep it in `settings.js` (`defaults()` and `apply`). The colour filter of the Video tab is such an
   option: it sets `Camera.colorFilter` on the scene's camera (the entity with the id `camera`), so `applyOnce()` sets it
@@ -2939,7 +2949,7 @@ export default class PauseMenu extends Behaviour {
 // An on-screen keyboard for players with only a gamepad. Put this behaviour on one entity of every scene that has a
 // TextField. When a TextField takes the focus because the player used the pad (input.lastDevice is "gamepad"), or when
 // the player presses A on a focused TextField, the keyboard (prefabs/ui/keyboard.prefab.json) opens over the game: the
-// d-pad walks the keys, A types one, "Delete" removes the last character, "Done" closes it and sends ui.submit for the
+// d-pad walks the keys, A types one, "Delete" removes the last character (the last jamo of a Korean syllable), "Done" closes it and sends ui.submit for the
 // field (what Enter does), B closes it and keeps the text. Typing goes through the same events a real keyboard sends
 // (ui.change), so the game's code does not know the difference. Phones and keyboards use their own keyboard: the engine
 // raises the phone's when a TextField gets the focus, and this one stays closed unless the last input was a pad. A
@@ -2947,6 +2957,8 @@ export default class PauseMenu extends Behaviour {
 // input.platformKeyboard is true this one stays closed too.
 //
 // The keys follow the language (i18n.language): see LAYOUTS. A language whose script is not listed gets the Latin keys.
+// A language whose letters are made of parts (Korean: jamo make syllables) has an input method in IME: a pair of functions
+// that say what the text becomes when a key is typed and when Delete is pressed. Korean's is built in (hangulIme).
 import { Behaviour, ui, input, world, i18n } from "factoria";
 
 /** Lowercase letters of each script, then the digits are added. A game can add its own: LAYOUTS.ja = "...". */
@@ -2954,15 +2966,100 @@ export const LAYOUTS = {
   latin: "abcdefghijklmnopqrstuvwxyz",
   cyrillic: "абвгдежзийклмнопрстуфхцчшщъыьэюя",
   greek: "αβγδεζηθικλμνξοπρστυφχψω",
+  // Hangul jamo (the two-set layout's letters): the consonants, then the vowels. Shift gives the doubled ones: SHIFTED.
+  korean: "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎㅏㅑㅓㅕㅗㅛㅜㅠㅡㅣㅐㅔ",
 };
+/** What Shift shows on a key whose upper case is not the letter's own (Hangul: the doubled consonants and vowels). */
+export const SHIFTED = { "ㄱ": "ㄲ", "ㄷ": "ㄸ", "ㅂ": "ㅃ", "ㅅ": "ㅆ", "ㅈ": "ㅉ", "ㅐ": "ㅒ", "ㅔ": "ㅖ" };
 /** Language code -> script of LAYOUTS (languages not listed use "latin"). */
-export const SCRIPT_OF = { ru: "cyrillic", uk: "cyrillic", bg: "cyrillic", sr: "cyrillic", mk: "cyrillic", el: "greek" };
+export const SCRIPT_OF = { ru: "cyrillic", uk: "cyrillic", bg: "cyrillic", sr: "cyrillic", mk: "cyrillic", el: "greek", ko: "korean" };
 /** Extra letters a Latin language needs, after the digits. */
 export const EXTRA = {
   es: "ñáéíóúü", fr: "àâçèéêëîïôùûœ", de: "äöüß", pt: "ãõçáéíóúâê", it: "àèéìòù", pl: "ąćęłńóśźż",
   tr: "çğıişöü", sv: "åäö", da: "åæø", nb: "åæø", no: "åæø", cs: "áčďéěíňóřšťúůýž",
 };
 const DIGITS = "0123456789";
+
+// ---- Input methods -------------------------------------------------------------------------------------------------
+// An input method is { compose(text, ch) -> string, decompose(text) -> string }: compose returns the field's text after
+// the key `ch` is typed (it may change the last character: a vowel after a consonant makes a syllable), decompose the
+// text after Delete (it may take a part of the last character away instead of all of it). Both look only at the text,
+// so they need no state. A game adds one for another language: IME.ja = { compose, decompose }.
+
+const LEADS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+const VOWELS = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
+const TAILS = [
+  "", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ", "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ",
+  "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
+];
+const COMPOUND_VOWEL = { ㅗㅏ: "ㅘ", ㅗㅐ: "ㅙ", ㅗㅣ: "ㅚ", ㅜㅓ: "ㅝ", ㅜㅔ: "ㅞ", ㅜㅣ: "ㅟ", ㅡㅣ: "ㅢ" };
+const COMPOUND_TAIL = {
+  ㄱㅅ: "ㄳ", ㄴㅈ: "ㄵ", ㄴㅎ: "ㄶ", ㄹㄱ: "ㄺ", ㄹㅁ: "ㄻ", ㄹㅂ: "ㄼ", ㄹㅅ: "ㄽ", ㄹㅌ: "ㄾ", ㄹㅍ: "ㄿ", ㄹㅎ: "ㅀ", ㅂㅅ: "ㅄ",
+};
+const split = (table) => Object.fromEntries(Object.entries(table).map(([pair, whole]) => [whole, Array.from(pair)]));
+const VOWEL_PARTS = split(COMPOUND_VOWEL);
+const TAIL_PARTS = split(COMPOUND_TAIL);
+const SYLLABLE_FIRST = 0xac00;
+const SYLLABLE_LAST = 0xd7a3;
+const isSyllable = (c) => !!c && c.codePointAt(0) >= SYLLABLE_FIRST && c.codePointAt(0) <= SYLLABLE_LAST;
+const isVowel = (c) => !!c && VOWELS.includes(c);
+const isConsonant = (c) => !!c && (LEADS.includes(c) || TAILS.includes(c));
+const syllable = (lead, vowel, tail = "") =>
+  String.fromCodePoint(SYLLABLE_FIRST + (LEADS.indexOf(lead) * VOWELS.length + VOWELS.indexOf(vowel)) * TAILS.length + TAILS.indexOf(tail));
+/** [lead, vowel, tail] of a syllable character. */
+function parts(c) {
+  const n = c.codePointAt(0) - SYLLABLE_FIRST;
+  return [LEADS[Math.floor(n / (VOWELS.length * TAILS.length))], VOWELS[Math.floor(n / TAILS.length) % VOWELS.length], TAILS[n % TAILS.length]];
+}
+
+/** Hangul: jamo make syllables (ㄱ + ㅏ = 가, 가 + ㄴ = 간, 간 + ㅏ = 가나), and Delete takes the last jamo away (간 -> 가 -> ㄱ). */
+export const hangulIme = {
+  compose(text, ch) {
+    const chars = Array.from(text);
+    const last = chars[chars.length - 1];
+    const head = chars.slice(0, -1).join("");
+    if (!isVowel(ch) && !isConsonant(ch)) return text + ch;
+    if (isSyllable(last)) {
+      const [lead, vowel, tail] = parts(last);
+      if (isVowel(ch)) {
+        if (tail === "") {
+          const both = COMPOUND_VOWEL[vowel + ch];
+          return both ? head + syllable(lead, both) : text + ch;
+        }
+        // The last consonant of the syllable starts the next one: 각 + ㅏ = 가가, 닭 + ㅏ = 달가.
+        const pair = TAIL_PARTS[tail];
+        const keep = pair ? pair[0] : "";
+        const move = pair ? pair[1] : tail;
+        return head + syllable(lead, vowel, keep) + syllable(move, ch);
+      }
+      if (tail === "") return TAILS.includes(ch) ? head + syllable(lead, vowel, ch) : text + ch;
+      const both = COMPOUND_TAIL[tail + ch];
+      return both ? head + syllable(lead, vowel, both) : text + ch;
+    }
+    if (isVowel(ch) && last && LEADS.includes(last)) return head + syllable(last, ch);
+    return text + ch;
+  },
+  decompose(text) {
+    const chars = Array.from(text);
+    const last = chars.pop();
+    if (last === undefined) return "";
+    const head = chars.join("");
+    if (!isSyllable(last)) return head;
+    const [lead, vowel, tail] = parts(last);
+    if (tail) return head + syllable(lead, vowel, TAIL_PARTS[tail]?.[0] ?? "");
+    if (VOWEL_PARTS[vowel]) return head + syllable(lead, VOWEL_PARTS[vowel][0]);
+    return head + lead;
+  },
+};
+/** Language code -> input method (languages not listed type one character per key). */
+export const IME = { ko: hangulIme };
+const plainIme = { compose: (text, ch) => text + ch, decompose: (text) => Array.from(text).slice(0, -1).join("") };
+
+/** The input method of a language such as "ko" or "ko-KR". */
+export function imeFor(language) {
+  const base = String(language || "en").toLowerCase().split(/[-_]/)[0];
+  return IME[base] ?? plainIme;
+}
 
 /** The characters of the keyboard for a language such as "es" or "pt-BR". */
 export function keysFor(language) {
@@ -3030,6 +3127,7 @@ export default class OnScreenKeyboard extends Behaviour {
   open(field) {
     this.field = field;
     this.shift = false;
+    this.ime = imeFor(i18n.language);
     OnScreenKeyboard.isOpen = true;
     input.textInputMode = true; // the typed keys belong to the keyboard: game actions on letters read as up meanwhile
     this.build(keysFor(i18n.language));
@@ -3102,7 +3200,8 @@ export default class OnScreenKeyboard extends Behaviour {
   relabel() {
     this.base.forEach((ch, i) => {
       const up = ch.toUpperCase();
-      world.find("osk_key_" + i).get("Button").text = this.shift && Array.from(up).length === 1 ? up : ch;
+      const shifted = SHIFTED[ch] ?? (Array.from(up).length === 1 ? up : ch);
+      world.find("osk_key_" + i).get("Button").text = this.shift ? shifted : ch;
     });
   }
 
@@ -3112,7 +3211,7 @@ export default class OnScreenKeyboard extends Behaviour {
     switch (entity.id) {
       case "osk_done": return this.close(true);
       case "osk_space": return this.type(" ");
-      case "osk_delete": return this.set(Array.from(text).slice(0, -1).join(""));
+      case "osk_delete": return this.set(this.ime.decompose(text));
       case "osk_shift":
         this.shift = !this.shift;
         return this.relabel();
@@ -3121,11 +3220,12 @@ export default class OnScreenKeyboard extends Behaviour {
     }
   }
 
-  /** Adds one character, within the field's maxLength. */
+  /** Types one key through the language's input method, within the field's maxLength. */
   type(ch) {
     const f = this.field.get("TextField");
-    if (f.maxLength > 0 && Array.from(f.text).length >= f.maxLength) return;
-    this.set(f.text + ch);
+    const text = this.ime.compose(f.text, ch);
+    if (f.maxLength > 0 && Array.from(text).length > f.maxLength) return;
+    this.set(text);
   }
 
   /** Writes the field's text and sends ui.change, as a real keyboard's typing does. */
@@ -4432,17 +4532,18 @@ The dialog that names a save or confirms a delete.
 
 ### `tests/slots.test.js`
 
-The kit's test of the slots part: records, the cloud merge, the screen's save, load and delete, and a cloud answer that arrives after the scene is gone.
+The kit's test of the slots part: records, the cloud merge, the screen's save, load and delete, a Korean name typed with the pad, and a cloud answer that arrives after the scene is gone.
 
 ```js tests/slots.test.js
 // The save slots (scripts/slots.js) and their screen (scripts/ui/slot_screen.js): the record, the counter, a bare save, a damaged
 // slot, the cloud merge by counter, the screen's save dialog (a name typed, the default name, cancel), loading, deleting (the cloud
 // copy too) and a game that cannot be saved right now. The scene is built here, so this test passes in any game that has the slots part.
 import { test, expect, game } from "factoria:test";
-import { world, ui, storage, platform, scene } from "factoria";
+import { world, ui, storage, platform, scene, i18n } from "factoria";
 import { MenuStack } from "../scripts/ui/menu_stack.js";
 import { Slots, formatTime } from "../scripts/slots.js";
 import { SlotScreen } from "../scripts/ui/slot_screen.js";
+import { keysFor, hangulIme, IME, imeFor } from "../scripts/ui/keyboard.js";
 
 // A 1x1 PNG: a picture that is certainly valid, whatever a headless renderer captures.
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
@@ -4713,6 +4814,67 @@ test("the cloud answer draws nothing into a scene that replaced the screen's", a
   await settle();
   expect(counter.draws).toBe(before);
   expect(slots.peek(4).record.name).toBe("From the cloud"); // the sync still stored the copy
+});
+
+test("Hangul: jamo make syllables, a final consonant moves to the next syllable, Delete takes the last jamo away", () => {
+  const type = (...keys) => keys.reduce((text, ch) => hangulIme.compose(text, ch), "");
+  expect(type("ㅎ", "ㅏ", "ㄴ", "ㄱ", "ㅡ", "ㄹ")).toBe("한글");
+  expect(type("ㄱ", "ㅏ", "ㄱ", "ㅏ")).toBe("가가"); // 각 + ㅏ
+  expect(type("ㄷ", "ㅏ", "ㄹ", "ㄱ", "ㅏ")).toBe("달가"); // 닭 + ㅏ: the second part of a compound final moves
+  expect(type("ㅇ", "ㅗ", "ㅏ")).toBe("와"); // ㅗ + ㅏ = ㅘ
+  expect(type("ㄱ", "ㅏ", "ㅃ")).toBe("가ㅃ"); // ㅃ cannot end a syllable
+  expect(type("ㄱ", "ㅏ", "1", "ㄴ")).toBe("가1ㄴ"); // a digit ends the composition
+  expect(type("ㅏ", "ㅏ")).toBe("ㅏㅏ");
+  let text = "읽";
+  const steps = [];
+  for (let i = 0; i < 4; i++) steps.push((text = hangulIme.decompose(text)));
+  expect(steps).toEqual(["일", "이", "ㅇ", ""]);
+  expect(hangulIme.decompose("과")).toBe("고");
+  expect(hangulIme.decompose("한글 ")).toBe("한글");
+  expect(imeFor("ko-KR")).toBe(IME.ko);
+  expect(imeFor("en").compose("a", "b")).toBe("ab");
+  expect(keysFor("ko")).toContain("ㅎ");
+  expect(keysFor("ko")).not.toContain("a");
+});
+
+test("the save dialog takes a Korean name from the pad: jamo become syllables, Delete takes one jamo away, Done saves", () => {
+  const pad = game.gamepad(0);
+  const { slots, menus } = openScreen("save");
+  // The keyboard follows i18n.language; this test has no Korean table, so the language is answered by hand.
+  const own = Object.getOwnPropertyDescriptor(i18n, "language");
+  Object.defineProperty(i18n, "language", { get: () => "ko", configurable: true });
+  try {
+    pad.tap("A"); // on slot 1: the dialog opens, its name field takes the focus, and the keyboard opens for a pad player
+    game.step(2);
+    expect(menus.top).toBe("slot_dialog");
+    const field = world.find("save_name").get("TextField");
+    field.text = "";
+    expect(world.find("keyboard").activeInHierarchy).toBe(true);
+    const chars = keysFor("ko");
+    const typeKey = (ch) => {
+      const target = chars.indexOf(ch);
+      const at = Number(ui.focused.id.slice("osk_key_".length));
+      for (let i = 0; i < Math.abs((target % 10) - (at % 10)); i++) pad.tap(target % 10 > at % 10 ? "DpadRight" : "DpadLeft");
+      for (let i = 0; i < Math.abs(Math.floor(target / 10) - Math.floor(at / 10)); i++) pad.tap(Math.floor(target / 10) > Math.floor(at / 10) ? "DpadDown" : "DpadUp");
+      expect(ui.focused.get("Button").text).toBe(ch);
+      pad.tap("A");
+    };
+    for (const ch of ["ㅎ", "ㅏ", "ㄴ", "ㄱ", "ㅡ", "ㄹ"]) typeKey(ch);
+    expect(field.text).toBe("한글");
+    expect(world.find("keyboard_preview").get("Text").text).toBe("한글_");
+    for (let i = 0; i < 8 && ui.focused.id.startsWith("osk_key_"); i++) pad.tap("DpadDown");
+    while (ui.focused.id !== "osk_delete") pad.tap("DpadRight");
+    pad.tap("A"); // 글 -> 그
+    expect(field.text).toBe("한그");
+    while (ui.focused.id !== "osk_done") pad.tap("DpadRight");
+    pad.tap("A");
+    game.step(3);
+    expect(slots.peek(1).record.name).toBe("한그");
+    expect(menus.top).toBe("slots");
+  } finally {
+    if (own) Object.defineProperty(i18n, "language", own);
+    else delete i18n.language;
+  }
 });
 ```
 
