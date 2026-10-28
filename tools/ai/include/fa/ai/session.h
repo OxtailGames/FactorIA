@@ -43,6 +43,9 @@ struct SessionOptions {
     bool allowDelegation = true;       // orchestrator gets agent_delegate
     std::string extraSystem;           // appended to the system prompt
     std::string mcpUrl;                // CLI agents attach this MCP endpoint (the editor's) instead of `factoria mcp`
+    // A CLI agent's process started (any depth): its pid (fa/core/process.h process_tree()) and role. Runs on the thread
+    // that runs the session. The editor's "check activity" asks the OS about these processes.
+    std::function<void(long long pid, const std::string& role)> onProcessStart;
 };
 
 struct SessionResult {

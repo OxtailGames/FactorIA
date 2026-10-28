@@ -12,6 +12,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/mcp_config.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -192,7 +193,9 @@ std::vector<std::string> default_cli_argv(ProviderKind kind) {
                     "--permission-mode", "acceptEdits"};
         case ProviderKind::Codex:
             return {"exec", "--json", "-m", "{model}", "-c", "mcp_servers.factoria.command={factoria_json}",
-                    "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",{project_json}]", "-"};
+                    "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",{project_json}]",
+                    // Codex gives up on an MCP tool call after 60 s by default; an ai_run call runs for minutes.
+                    "-c", "mcp_servers.factoria.tool_timeout_sec=" + std::to_string(kCodexMcpToolTimeoutSec), "-"};
         default: return {};
     }
 }
@@ -469,6 +472,7 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         cfg.limits.maxTurns = static_cast<int>(num(*l, "maxTurns", cfg.limits.maxTurns));
         cfg.limits.maxCostUsd = num(*l, "maxCostUsd", cfg.limits.maxCostUsd);
         cfg.limits.maxTotalTokens = static_cast<u64>(num(*l, "maxTotalTokens", 0));
+        cfg.limits.stuckAfterSeconds = static_cast<int>(num(*l, "stuckAfterSeconds", cfg.limits.stuckAfterSeconds));
     }
     (void)anyApiKey;
     return cfg;
@@ -551,7 +555,8 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
     out["roles"] = roles;
     out["limits"] = Json::object({{"maxTurns", cfg.limits.maxTurns},
                                   {"maxCostUsd", cfg.limits.maxCostUsd},
-                                  {"maxTotalTokens", cfg.limits.maxTotalTokens}});
+                                  {"maxTotalTokens", cfg.limits.maxTotalTokens},
+                                  {"stuckAfterSeconds", cfg.limits.stuckAfterSeconds}});
     return out;
 }
 

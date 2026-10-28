@@ -113,3 +113,77 @@ TEST_CASE("ai.models lists the models of every available provider; one failure s
     CHECK(unknown.error["code"] == "unknown_provider");
     CHECK(unknown.error["hint"].get<std::string>().find("codex") != std::string::npos);
 }
+
+TEST_CASE("ai.run reports what the sub-agent does: MCP progress for the caller, callbacks for the host") {
+    TempDir dir;
+    CommandRegistry registry = make_registry();
+    auto provider = std::make_shared<FakeProvider>();
+    provider->script = {text_response("All done.")};
+
+    std::vector<std::string> log;
+    AiCommandOptions opt;
+    opt.loadConfig = [] { return Result<AiConfig>(default_config()); };
+    opt.projectDir = [&] { return dir.str(); };
+    opt.providerFactory = [&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::static_pointer_cast<ChatProvider>(provider);
+    };
+    opt.onRunStart = [&](const AiRunInfo& i) { log.push_back("start " + i.id + " " + i.role + " " + i.task); };
+    opt.onRunEvent = [&](const AiRunInfo&, const AgentEvent& e) { log.push_back(std::string("event ") + event_type_name(e.type)); };
+    opt.onRunEnd = [&](const AiRunInfo& i, bool ok, const std::string& report, const std::string& error) {
+        log.push_back(std::string("end ") + i.role + (ok ? " ok " : " failed ") + report + error);
+    };
+    register_ai_commands(registry, opt);
+
+    std::vector<std::string> progress;
+    {
+        CommandProgressScope scope([&](std::string_view m) {
+            progress.emplace_back(m);
+            return true;
+        });
+        auto run = registry.call("ai.run", Json::object({{"task", "Do something"}, {"role", "worker"}}));
+        REQUIRE(run.ok);
+    }
+    REQUIRE(log.size() >= 3);
+    CHECK(log.front().rfind("start run-", 0) == 0);
+    CHECK(log.front().find(" worker Do something") != std::string::npos);
+    CHECK(log.back() == "end worker ok All done.");
+    CHECK(std::count(log.begin(), log.end(), "event done") == 1);
+    REQUIRE_FALSE(progress.empty());
+    CHECK(progress.front() == "worker: starting");
+    CHECK(std::all_of(progress.begin(), progress.end(), [](const std::string& m) { return m.rfind("worker", 0) == 0; }));
+
+    // A failure ends the run with ok=false and the error.
+    log.clear();
+    provider->script = {text_response("x", StopReason::Refusal)};
+    provider->calls = 0;
+    CHECK_FALSE(registry.call("ai.run", Json::object({{"task", "t"}, {"role", "worker"}})).ok);
+    REQUIRE_FALSE(log.empty());
+    CHECK(log.back().rfind("end worker failed", 0) == 0);
+}
+
+TEST_CASE("describe_agent_event: one short line per event worth showing") {
+    AgentEvent tool;
+    tool.type = AgentEvent::Type::ToolStart;
+    tool.toolName = "Bash";
+    tool.toolInput = Json::object({{"command", "cmake --build build/dev\n  -j8"}});
+    CHECK(describe_agent_event(tool) == "running Bash (cmake --build build/dev   -j8)");
+    tool.toolName = "mcp__factoria__scene_spawn";
+    tool.toolInput = Json::object({{"name", "Player"}});
+    CHECK(describe_agent_event(tool) == "running scene_spawn (Player)");
+    tool.toolInput = Json::object({{"command", std::string(200, 'x')}});
+    CHECK(describe_agent_event(tool).size() < 90);  // long commands are cut
+    tool.toolName = "Read";
+    tool.toolInput = Json::object();
+    CHECK(describe_agent_event(tool) == "running Read");
+
+    AgentEvent e;
+    e.type = AgentEvent::Type::TextDelta;
+    CHECK(describe_agent_event(e) == "writing");
+    e.type = AgentEvent::Type::ThinkingDelta;
+    CHECK(describe_agent_event(e) == "thinking");
+    e.type = AgentEvent::Type::Error;
+    e.text = "rate limited";
+    CHECK(describe_agent_event(e) == "error: rate limited");
+    e.type = AgentEvent::Type::ToolEnd;
+    CHECK(describe_agent_event(e).empty());
+}

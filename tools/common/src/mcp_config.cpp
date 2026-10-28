@@ -22,6 +22,7 @@ Json claude_code_mcp_config(const McpClientOptions& o) {
     Json server = Json::object();
     server["command"] = o.command;
     server["args"] = Json::array({"mcp", "--project", o.projectDir});
+    server["timeout"] = kClaudeCodeMcpToolTimeoutMs;
     return Json::object({{"mcpServers", Json::object({{o.serverName, server}})}});
 }
 
@@ -30,6 +31,7 @@ std::string codex_mcp_toml(const McpClientOptions& o) {
     s << "[mcp_servers." << o.serverName << "]\n";
     s << "command = " << toml_quote(o.command) << "\n";
     s << "args = [\"mcp\", \"--project\", " << toml_quote(o.projectDir) << "]\n";
+    s << "tool_timeout_sec = " << kCodexMcpToolTimeoutSec << "\n";
     return s.str();
 }
 

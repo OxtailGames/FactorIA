@@ -183,7 +183,8 @@ TEST_CASE("a CLI agent given the endpoint runs its tool calls there (fake Claude
 
     // The MCP config points the CLI at the endpoint, not at a `factoria mcp` process of its own.
     auto cfg = Json::parse(read_file(project / ".factoria" / "ai" / "mcp-claude-code.json"));
-    CHECK(cfg["mcpServers"]["factoria"] == Json::object({{"type", "http"}, {"url", ep.url}}));
+    CHECK(cfg["mcpServers"]["factoria"] ==
+          Json::object({{"type", "http"}, {"url", ep.url}, {"timeout", ai::kMcpToolTimeoutMs}}));  // long calls are allowed
     // ...and its tool call ran on the endpoint's registry, with the result sent back.
     REQUIRE(ep.spawned.size() == 1);
     CHECK(ep.spawned[0] == "CliCoin");
