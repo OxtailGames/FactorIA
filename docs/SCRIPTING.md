@@ -782,7 +782,7 @@ A studio intro that any button skips: [MENUS.md](MENUS.md).
   size the player's text size option makes it) or `"world"`. Headless runs approximate (0.6 × fontSize per character,
   times `ui.textScale` for `"screen"`) and warn once. `markup` and `bold` are the `Text` fields of the same names
   ([TEXT.md](TEXT.md), "Rich text").
-- `ui.markupProblems(text)` → `string[]`: what is wrong with the `[b]`, `[c:name]` and `[icon:name]` tags of `text`
+- `ui.markupProblems(text)` → `string[]`: what is wrong with the `[b]`, `[i]`, `[c:name]` and `[icon:name]` tags of `text`
   (unknown tag, `[` without `]`, unclosed tag, a colour or icon the project's `text` section lacks), `[]` when clean.
   A test can walk the strings of the game and fail with the list.
 - `ui.textScale` (get / set, 0.5 to 3, default 1) is the player's text size option: screen-space `Text` and the labels of

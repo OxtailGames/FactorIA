@@ -31,6 +31,9 @@
 // shader dialects of the platform (windows hlsl5, linux glsl430, macos metal_macos, ios metal_ios and metal_sim, android and
 // web glsl300es) and the GLSL snippets they name are not shipped. A material that does not compile fails the export with the
 // errors `factoria validate` lists. ExportReport::materials lists them.
+// The built-in fonts that are files of factoria (builtin:serif, builtin:hand, builtin:blackletter, builtin:display) ship as
+// builtin-fonts/<file> when a scene, prefab, script, data file or factoria.json of the project names them (the name written out
+// in full); games that do not use them do not grow. ExportReport::builtinFonts lists them.
 // Every export also writes FACTORIA_NOTICES.txt (the licenses of the runtime inside the game, fa/tooling/notices.h):
 // next to the executable (linux, windows), in Contents/Resources (macos), in the APK assets (android), in game/ (ios).
 // A project with assets recorded as made with AI (provenance in assets.json) also gets AI_CONTENT_DISCLOSURE.md at the top
@@ -134,6 +137,8 @@ struct ExportReport {
     std::vector<std::string> packed;       // release desktop export: the project-relative paths in the pack, sorted
     std::vector<std::string> materials;    // the *.material.json that ship (project-relative, sorted), each with its compiled
                                            // shaders <material>.json.<slang>.shader for the platform's dialects
+    std::vector<std::string> builtinFonts;  // the built-in fonts that are files, not inside the player ("builtin:serif"), that the project
+                                           // names: shipped as builtin-fonts/<file>, with their licenses in FACTORIA_NOTICES.txt
     std::vector<std::string> pluginsLeftOut;  // allowMissingPlugins: the native plugins whose build for this platform was missing, so the
                                            // export does not hold them (a warning names each); empty otherwise
     std::vector<ExportSize> largestFolders;  // the folders (at most two levels deep) that weigh most in what ships, biggest first (at most 5)

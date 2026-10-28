@@ -208,6 +208,12 @@ with every copy, so every export writes `FACTORIA_NOTICES.txt` with all of them 
 | Android | `app/src/main/assets/` (inside the APK) |
 | iOS | `game/` (inside the app bundle) |
 
+The built-in fonts that are not inside the player (`builtin:serif`, `builtin:hand`, `builtin:blackletter`,
+`builtin:display`, [TEXT.md](TEXT.md#built-in-fonts)) are different: the export copies the files of the ones your game names
+to `builtin-fonts/` (a scene, prefab, script, data file or `factoria.json` that contains the name written out in full; a
+name a script builds from pieces is not seen) and adds their OFL license texts to `FACTORIA_NOTICES.txt`. A game that names
+none carries neither the files nor the texts. The report lists them as `builtinFonts`.
+
 Keep it in what you distribute (zip, installer, store build). You may also show it on a credits or licenses screen;
 nothing else is required. `factoria docs licenses` prints the full list, including what only the developer tools
 contain (Dear ImGui, in the editor, and the Gradle wrapper, Apache-2.0, which an Android export writes into its Gradle

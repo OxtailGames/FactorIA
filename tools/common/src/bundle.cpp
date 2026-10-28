@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 
+#include "fa/render/builtin_fonts.h"
 #include "util.h"
 
 #if defined(FA_HAS_EMBEDDED_FILES)
@@ -56,5 +57,15 @@ std::optional<std::string> bundled_read(std::string_view path) {
     return tooling_detail::read_file(std::filesystem::path(FA_SOURCE_ROOT) / std::string(path));
 #endif
 }
+
+namespace {
+// Every program that links the tooling (factoria, the editor, the tests) finds the files of the built-in fonts that are not
+// inside the player (builtin:serif, ...) among the bundled files; a player finds them in the game folder, where the export puts
+// them. A static initializer, because there is no startup function all these programs share.
+[[maybe_unused]] const bool kFontSourceInstalled = [] {
+    set_builtin_font_source([](std::string_view file) { return bundled_read("engine/render/assets/fonts/extra/" + std::string(file)); });
+    return true;
+}();
+}  // namespace
 
 }  // namespace fa

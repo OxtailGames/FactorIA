@@ -541,7 +541,7 @@ stdfs::path notices_dir(const Project& p, const std::string& platform, const std
 
 Result<void> write_notices(const Project& p, const std::string& platform, const stdfs::path& outRoot, ExportReport& report) {
     const stdfs::path dir = notices_dir(p, platform, outRoot);
-    if (auto r = write_text(dir / kExportNoticesFile, third_party_notices(NoticeScope::Game)); !r.ok()) return r;
+    if (auto r = write_text(dir / kExportNoticesFile, third_party_notices(NoticeScope::Game, std::set<std::string>(report.builtinFonts.begin(), report.builtinFonts.end()))); !r.ok()) return r;
     report.notices = generic((dir.lexically_relative(outRoot) / kExportNoticesFile).lexically_normal());
     report.nextSteps.push_back(report.notices + " holds the licenses of the FactorIA runtime inside the game: keep it in "
                                "what you distribute (docs/EXPORTING.md, \"License notices\")");
@@ -777,6 +777,7 @@ Json ExportReport::to_json() const {
         j["packed"] = packed;
     }
     if (!materials.empty()) j["materials"] = materials;
+    if (!builtinFonts.empty()) j["builtinFonts"] = builtinFonts;
     if (!pluginsLeftOut.empty()) j["pluginsLeftOut"] = pluginsLeftOut;
     j["files"] = files;
     auto size_rows = [](const std::vector<ExportSize>& rows) {
@@ -969,7 +970,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "installed or build). windows with `format` \"msix\" (or export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the "
         "Microsoft Store, from any computer (reported as `artifact`, format \"msix\"; identity in export.windows.msix; sign it with `sign.windows`, upload it with "
         "`publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
-        "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). "
+        "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). The built-in fonts that are files "
+        "(builtin:serif, builtin:hand, builtin:blackletter, builtin:display) are copied to builtin-fonts/ only when a scene, prefab, script, data file or factoria.json "
+        "names them in full, with their licenses in the notices (`builtinFonts` in the result). "
         "Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], "
         "warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and "
         "writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, "

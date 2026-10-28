@@ -3,11 +3,24 @@
 #include <format>
 
 #include "embedded_fonts.h"
+#include "fa/render/builtin_fonts.h"
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 #include "font_internal.h"
 
 namespace fa::render {
+
+namespace {
+const std::vector<std::string>& builtin_names() {
+    static const std::vector<std::string> names = [] {
+        std::vector<std::string> out;
+        for (const BuiltinFont& f : builtin_fonts()) out.push_back(f.name);
+        return out;
+    }();
+    return names;
+}
+}  // namespace
 
 FontFace::~FontFace() {
     if (hbFont) hb_font_destroy(hbFont);
@@ -34,13 +47,51 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
         }
         return false;
     };
-    if (font == "builtin") init_builtin("DejaVuSans.ttf");
-    else if (font == "builtin:pixel") init_builtin("PressStart2P-Regular.ttf");
-    else {
+    // "builtin:serif#bold" names one face of a family (Fonts::variant_face); users write the family name only.
+    std::string familyName = font;
+    bool wantBold = false, wantItalic = false;
+    if (const auto hash = font.find('#'); hash != std::string::npos && font.rfind("builtin:", 0) == 0) {
+        familyName = font.substr(0, hash);
+        const std::string v = font.substr(hash + 1);
+        wantBold = v == "bold" || v == "bolditalic";
+        wantItalic = v == "italic" || v == "bolditalic";
+    }
+    const BuiltinFont* builtin = font == "builtin" || font.rfind("builtin:", 0) == 0 ? find_builtin_font(familyName) : nullptr;
+    if (builtin && builtin->embedded) {
+        init_builtin(builtin->name == "builtin" ? "DejaVuSans.ttf" : "PressStart2P-Regular.ttf");
+    } else if (builtin) {
+        const std::string file = builtin_variant_file(*builtin, wantBold, wantItalic);
+        if (file.empty()) {
+            f->error = std::format("font '{}' has no such face", font);
+            f->hint = std::format("{} has {}; use '{}' instead.", builtin->family,
+                                  builtin->hasBold || builtin->hasItalic ? "some faces only" : "one face only", builtin->name);
+            return f;
+        }
+        // The developer tools hold the files; a player finds them where the export put them.
+        if (auto bytes = builtin_font_file(file)) {
+            f->ownedData.assign(bytes->begin(), bytes->end());
+        } else if (auto disk = fs::read_bytes(std::string(kBuiltinFontDir) + "/" + file)) {
+            f->ownedData = std::move(*disk);
+        } else {
+            f->error = std::format("font '{}' ({}) is not in this build: {}/{} was not found", builtin->name, builtin->family, kBuiltinFontDir, file);
+            f->hint = "An exported game carries the built-in fonts it names in builtin-fonts/: export again with `factoria export`. "
+                      "The name must appear literally in a scene, prefab, script or factoria.json (the export looks for it there).";
+            return f;
+        }
+        f->data = f->ownedData.data();
+        f->size = f->ownedData.size();
+    } else if (font.rfind("builtin:", 0) == 0) {
+        f->error = std::format("unknown built-in font '{}'", font);
+        f->hint = "The built-in fonts are " + builtin_font_list() + ". " +
+                  (closest_match(familyName, builtin_names()).empty() ? std::string()
+                                                                      : "Did you mean '" + closest_match(familyName, builtin_names()) + "'? ") +
+                  "Or use a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.";
+        return f;
+    } else {
         auto bytes = fs::read_bytes(font);
         if (!bytes) {
             f->error = std::format("font '{}' not found: {}", font, bytes.error().message);
-            f->hint = "Use \"\" (DejaVu Sans), \"builtin:pixel\" (Press Start 2P) or a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.";
+            f->hint = "Use \"\" (DejaVu Sans), a built-in font (" + builtin_font_list() + ") or a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.";
             return f;
         }
         f->ownedData = std::move(*bytes);

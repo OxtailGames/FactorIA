@@ -34,11 +34,16 @@ list(FILTER FA_EMBED_PLATFORMS EXCLUDE REGEX "/platforms/plugins/[^/]+/tests/")
 # file (Apache-2.0) or a LICENSES/ folder for parts of it has those embedded too.
 file(GLOB FA_EMBED_LICENSES CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/external/*/LICENSE* ${FA_ROOT}/external/*/NOTICE*
      ${FA_ROOT}/external/*/COPYING ${FA_ROOT}/external/harfbuzz/src/ms-use/COPYING
-     ${FA_ROOT}/external/*/LICENSES/* ${FA_ROOT}/engine/render/assets/fonts/*.txt)
+     ${FA_ROOT}/external/*/LICENSES/* ${FA_ROOT}/engine/render/assets/fonts/*.txt
+     ${FA_ROOT}/engine/render/assets/fonts/extra/*.txt)
 # sokol-shdc and what it statically links (tools/shaders/licenses/): in the notices of the factoria downloads, not of games.
 file(GLOB FA_EMBED_SHADER_LICENSES CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/tools/shaders/licenses/*.txt)
 list(APPEND FA_EMBED_LICENSES ${FA_EMBED_SHADER_LICENSES})
 list(APPEND FA_EMBED_LICENSES ${FA_ROOT}/LICENSE)
+# The built-in fonts that are not inside the player (serif, hand, blackletter, display: fa/render/builtin_fonts.h). factoria and the
+# editor carry them; `factoria export` copies the ones a project names into the game.
+file(GLOB FA_EMBED_EXTRA_FONTS CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/engine/render/assets/fonts/extra/*.ttf)
+list(APPEND FA_EMBED_LICENSES ${FA_EMBED_EXTRA_FONTS})
 # The mesh shader template (engine/render/shaders/*_common.glsl, @included by every mesh program): custom materials are
 # compiled against it (docs/design/CUSTOM_SHADERS.md), also by an installed factoria without the engine source.
 file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/shaders/*_common.glsl)
