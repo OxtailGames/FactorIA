@@ -3260,7 +3260,7 @@ declare module "factoria" {
      */
     components(): string[];
     /**
-     * Destroys the entity (and children) at the end of the frame. It leaves physics at once: no collisions and no raycast or overlap hits from the call on.
+     * Destroys the entity (and children) at the end of the frame: the memory and the components stay until then (`alive` stays true), so a handle you hold keeps working for the rest of the frame. The entity is gone for lookups at once: world.find, world.findAll, world.findByTag and world.entities no longer return it and its id can be used by a new entity in the same frame (spawn a rebuilt screen with the same ids, no prefix needed). It leaves physics at once: no collisions and no raycast or overlap hits from the call on.
      */
     destroy(): void;
     readonly parent: Entity | null;
@@ -3402,13 +3402,16 @@ declare module "factoria" {
    */
   export interface WorldAPI {
     /**
-     * Finds by stable id first, then by name.
+     * Finds by stable id first, then by name. Skips an entity that was destroyed this frame (entity.destroy() takes effect at the end of the frame, but the entity is not found from the call on).
      */
     find(idOrName: string): Entity | null;
+    /**
+     * Every entity with this name, in creation order. Skips the ones destroyed this frame.
+     */
     findAll(name: string): Entity[];
     findByTag(tag: string): Entity[];
     /**
-     * All alive entities in creation order.
+     * All alive entities in creation order, without the ones destroyed this frame.
      */
     entities(): Entity[];
     /**
@@ -4576,7 +4579,15 @@ declare module "factoria" {
      */
     load(path: string, props?: Json): void;
     reload(): void;
+    /**
+     * The path of the running scene. A reload of the same scene leaves it equal: use `generation` to tell the two apart.
+     */
     readonly current: string;
+    /**
+     * Counts the scene loads: it changes on every load (scene.load, scene.reload, game.load in a test), a reload of the same scene included, and never goes back. A script that awaits something (a timeline, a preload, a platform answer) keeps `const gen = scene.generation` and drops the answer when `scene.generation !== gen`; that also catches a reload, which `scene.current` and a held entity handle of the old load cannot tell from the scene itself. Example: `const gen = scene.generation; await cutscene.play(); if (scene.generation !== gen) return;`.
+     * @since unreleased
+     */
+    readonly generation: number;
   }
 
   /**
