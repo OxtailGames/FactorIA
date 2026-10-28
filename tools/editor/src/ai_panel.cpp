@@ -44,6 +44,22 @@ constexpr float kThumbSent = 48.0f;            // pictures in the transcript
 
 i64 now_epoch() { return static_cast<i64>(std::time(nullptr)); }
 
+// The editor's own clock for "how long since": steady, in milliseconds (never the simulation's clock).
+long long now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+double now_seconds() { return static_cast<double>(now_ms()) / 1000.0; }
+
+// One line of at most n bytes (cut at a UTF-8 character boundary), "..." when it was longer.
+std::string short_line(std::string s, size_t n) {
+    std::ranges::replace(s, '\n', ' ');
+    if (s.size() <= n) return s;
+    size_t cut = n;
+    while (cut > 0 && (static_cast<unsigned char>(s[cut]) & 0xC0) == 0x80) --cut;
+    s.resize(cut);
+    return s + "...";
+}
+
 std::string clip(std::string s, size_t n) {
     if (s.size() > n) {
         s.resize(n);
@@ -348,6 +364,39 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry() {
     ao.providerFactory = aiFactory_;
     ao.cancel = &aiCancel_;
     ao.mcpUrl = aiMcp_.url();
+    // The worker's events reach the panel live: into aiPending_ (one lock, same queue as the orchestrator's own events,
+    // so the order is the order they happened), drawn one level in. They are drained into aiRunChat_, the chat that
+    // started the run, whichever tab is in front.
+    ao.onRunStart = [this](const ai::AiRunInfo& info) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        AiDelegate d;
+        d.info = info;
+        aiDelegates_.push_back(std::move(d));
+        aiLastActivityMs_ = now_ms();
+        aiActivity_ = info.role + ": starting";
+    };
+    ao.onRunEvent = [this](const ai::AiRunInfo&, const ai::AgentEvent& ev) {
+        ai::AgentEvent shown = ev;
+        shown.depth += 1;
+        ai_note_event(shown);
+    };
+    ao.onRunProcess = [this](const ai::AiRunInfo& info, long long pid) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        aiProcs_.push_back(AiProc{pid, info.id, info.role});
+    };
+    ao.onRunEnd = [this](const ai::AiRunInfo& info, bool ok, const std::string& report, const std::string& error) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        for (AiDelegate& d : aiDelegates_) {
+            if (d.info.id != info.id) continue;
+            d.ended = true;
+            d.ok = ok;
+            d.report = report;
+            d.error = error;
+        }
+        std::erase_if(aiProcs_, [&](const AiProc& p) { return p.runId == info.id; });
+        std::erase_if(aiTools_, [](const AiTool& t) { return t.depth >= 1; });
+        aiLastActivityMs_ = now_ms();
+    };
     ai::register_ai_commands(*reg, ao);
     return reg;
 }
@@ -417,7 +466,10 @@ void Editor::ai_start(const std::string& task) {
     if (aiRunning_.load() || !aiRunChat_.empty()) return;
     if (aiThread_.joinable()) aiThread_.join();
     if (aiMcp_.url().empty()) {  // the endpoint CLI agents attach (see the top of this file)
-        auto started = aiMcp_.start([this, dir = projectDir_](std::string_view message) -> std::optional<std::string> {
+        // StreamHandler: a long ai.run call reports progress (what the worker does) as MCP notifications on its own request, so
+        // Claude Code, which aborts a call that stays silent for 300 s, keeps waiting for as long as the worker really works.
+        auto started = aiMcp_.start([this, dir = projectDir_](std::string_view message,
+                                                              const McpHttpServer::Notify& emit) -> std::optional<std::string> {
             std::shared_ptr<CommandRegistry> proxy;
             {
                 std::lock_guard<std::mutex> lock(aiMu_);
@@ -425,7 +477,9 @@ void Editor::ai_start(const std::string& task) {
             }
             if (!proxy) return std::nullopt;  // not reached: the URL is handed out after the run's proxy exists
             SimpleMcpHost host(*proxy, dir);
-            return McpServer(host).handle_message(message);  // stateless: one server per message
+            McpServer server(host);  // stateless: one server per message
+            server.set_notification_sink([&emit](const std::string& n) { emit(n); });
+            return server.handle_message(message);
         });
         if (!started) {
             notify(started.error().to_string(), 2);
@@ -439,12 +493,6 @@ void Editor::ai_start(const std::string& task) {
         cfg = aiConfig_;
         if (cfg.providers.empty()) cfg = ai::default_config();
     }
-    ai::SessionOptions opt;
-    opt.projectDir = projectDir_;
-    opt.role = ai::kRoleOrchestrator;  // it hands the work to the worker and fast roles itself (the "AI roles" popup)
-    opt.conversation = chat.conversation;  // resumes the chat when the provider is the same one that produced it
-    opt.mcpUrl = aiMcp_.url();
-    aiRunProvider_ = cfg.role(opt.role).provider;
 
     ChatItem user;
     user.kind = ChatItem::Kind::User;
@@ -473,6 +521,45 @@ void Editor::ai_start(const std::string& task) {
 
     aiRunChat_ = chat.id;
     aiCancel_ = false;
+    {  // a fresh run: nothing is left of the previous one's liveness
+        std::lock_guard<std::mutex> lock(aiMu_);
+        aiDelegates_.clear();
+        aiProcs_.clear();
+        aiTools_.clear();
+        aiActivity_.clear();
+    }
+    aiDetachedOk_ = false;
+    aiRunStartMs_ = aiLastActivityMs_ = now_ms();
+    aiSnoozeUntil_ = 0;
+    aiSampledAt_ = 0;
+    aiCpu_.clear();
+    aiLastTree_.clear();
+    ai_launch(prompt, imageFiles);
+}
+
+void Editor::ai_launch(const std::string& prompt, const std::vector<std::string>& imageFiles) {
+    AiChat* chat = chat_.find(aiRunChat_);
+    if (!chat) {  // the chat is gone (the project changed): nothing to run for
+        ai_end_run(nullptr);
+        return;
+    }
+    if (aiThread_.joinable()) aiThread_.join();
+    ai::AiConfig cfg;
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        cfg = aiConfig_;
+        if (cfg.providers.empty()) cfg = ai::default_config();
+    }
+    ai::SessionOptions opt;
+    opt.projectDir = projectDir_;
+    opt.role = ai::kRoleOrchestrator;  // it hands the work to the worker and fast roles itself (the "AI roles" popup)
+    opt.conversation = chat->conversation;  // resumes the chat when the provider is the same one that produced it
+    opt.mcpUrl = aiMcp_.url();
+    opt.onProcessStart = [this](long long pid, const std::string& role) {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        aiProcs_.push_back(AiProc{pid, std::string(), role});
+    };
+    aiRunProvider_ = cfg.role(opt.role).provider;
     queue_.reopen();
     auto proxy = make_proxy_registry();
     {
@@ -480,22 +567,52 @@ void Editor::ai_start(const std::string& task) {
         aiProxy_ = proxy;
     }
     aiRunning_ = true;
+    aiLastActivityMs_ = now_ms();
     ai::ProviderFactory factory = aiFactory_;
     aiThread_ = std::thread([this, cfg, opt, prompt, imageFiles, proxy, factory] {
         ai::AgentSession session(*proxy, cfg, opt);
         if (factory) session.set_provider_factory(factory);
-        session.set_event_handler([this](const ai::AgentEvent& ev) {
-            std::lock_guard<std::mutex> lock(aiMu_);
-            aiPending_.push_back(ev);
-        });
+        session.set_event_handler([this](const ai::AgentEvent& ev) { ai_note_event(ev); });
         session.set_cancel_flag(&aiCancel_);
         ai::SessionResult r = session.run(prompt, imageFiles);
         {
             std::lock_guard<std::mutex> lock(aiMu_);
             aiResult_ = r;
+            // The orchestrator's own process and tool calls are over. A delegated worker that still runs is an orphan:
+            // its ai_run call will never return its result to anyone (Claude Code gave up on it, or its turn ended
+            // without waiting). The run stays "running" until that worker ends (ai_drain_events).
+            std::erase_if(aiProcs_, [](const AiProc& p) { return p.runId.empty(); });
+            std::erase_if(aiTools_, [](const AiTool& t) { return t.depth == 0; });
+            bool orphans = false;
+            for (AiDelegate& d : aiDelegates_) {
+                if (d.ended) continue;
+                d.orphan = true;
+                orphans = true;
+            }
+            if (orphans) aiDetached_ = true;  // before aiRunning_ goes false: ai_running() never flickers
         }
         aiRunning_ = false;
     });
+}
+
+// Bookkeeping of one agent event: queued for the main thread, and the liveness the watchdog and the activity line read.
+void Editor::ai_note_event(const ai::AgentEvent& ev) {
+    using T = ai::AgentEvent::Type;
+    const std::string what = ai::describe_agent_event(ev);
+    std::lock_guard<std::mutex> lock(aiMu_);
+    aiPending_.push_back(ev);
+    aiLastActivityMs_ = now_ms();
+    if (!what.empty()) aiActivity_ = (ev.depth > 0 ? (ev.role.empty() ? std::string("worker") : ev.role) + " > " : std::string()) + what;
+    if (ev.type == T::ToolStart) {
+        aiTools_.push_back(AiTool{ev.toolName, what, ev.depth, now_ms()});
+    } else if (ev.type == T::ToolEnd) {
+        for (auto it = aiTools_.rbegin(); it != aiTools_.rend(); ++it) {
+            if (it->name == ev.toolName && it->depth == ev.depth) {
+                aiTools_.erase(std::next(it).base());
+                break;
+            }
+        }
+    }
 }
 
 void Editor::ai_stop() {
@@ -504,22 +621,171 @@ void Editor::ai_stop() {
     if (aiThread_.joinable()) aiThread_.join();
     aiMcp_.stop();  // after the cancel and the closed queue: its requests (ai.run included) end instead of waiting
     aiRunning_ = false;
+    ai_drain_events();  // the cancelled run's last events and result: its chat is saved here (cancel still set: no continuation)
+    if (!aiRunChat_.empty() || aiDetached_.load()) ai_end_run(chat_.find(aiRunChat_));  // a worker that never reported back
     aiCancel_ = false;
     queue_.reopen();
-    ai_drain_events();  // the cancelled run's last events and result: its chat is saved here
+    aiRunProvider_.clear();
+}
+
+void Editor::ai_end_run(AiChat* c) {
+    if (c) {
+        for (ChatItem& it : c->items) {  // a tool call whose end never came (the call was cut off)
+            if (it.kind == ChatItem::Kind::Tool && !it.done) {
+                it.done = true;
+                it.isError = true;
+                it.result = "no result: the run ended before this call returned";
+            }
+        }
+        ai_run_checkpoint_finish(*c);
+        chat_.save(*c);  // saved after every run (no timer): the chat survives a crash or a closed editor
+        chat_.save_open_list();
+    } else {
+        aiRunCheckpoint_.clear();
+    }
     aiRunChat_.clear();
     aiRunProvider_.clear();
+    aiDetached_ = false;
+    aiDetachedOk_ = false;
+    std::lock_guard<std::mutex> lock(aiMu_);
+    aiDelegates_.clear();
+    aiProcs_.clear();
+    aiTools_.clear();
+}
+
+// What the orchestrator is told when a worker it started finished after its turn ended.
+static std::string continuation_prompt(const std::vector<std::pair<ai::AiRunInfo, std::string>>& reports) {
+    std::string out =
+        "The worker you started with ai_run finished after your turn ended, so its result never reached you. "
+        "Here is what it reported.\n";
+    for (const auto& [info, text] : reports) {
+        out += "\n--- " + info.role + " worker, task: " + clip(info.task, 300) + "\n" + text + "\n";
+    }
+    out += "\nCarry on from here: check the result against what the user asked, finish whatever is left, and tell the user "
+           "what was done. Do not start the same work again.";
+    return out;
+}
+
+// Called every frame while a run is on, from ai_drain_events. About every 5 s it samples the CPU use of the CLI agents'
+// processes (what "Check activity" compares) and notices a process that is gone while its run is not over: a crashed
+// CLI whose descendants keep the pipes open would otherwise leave the panel saying "running" for good.
+void Editor::ai_watchdog_tick() {
+    if (!ai_running()) return;
+    const double now = now_seconds();
+    if (now - aiSampledAt_ < 5) return;
+    aiSampledAt_ = now;
+    std::vector<AiProc> procs;
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        procs = aiProcs_;
+    }
+    std::vector<ProcessEntry> all;
+    const AiProc* dead = nullptr;
+    for (const AiProc& p : procs) {
+        std::vector<ProcessEntry> tree = process_tree(p.pid);
+        if (tree.empty()) {
+            double& since = aiDeadSince_[p.pid];
+            if (since == 0) since = now;
+            else if (now - since >= 10 && !dead) dead = &p;  // gone for two samples, and its run is still going
+        } else {
+            aiDeadSince_.erase(p.pid);
+            all.insert(all.end(), tree.begin(), tree.end());
+        }
+    }
+    aiLastTree_ = all;
+    aiCpu_.add(now, all);
+    if (dead && !aiCancel_.load()) {
+        if (AiChat* chat = chat_.find(aiRunChat_)) {
+            ChatItem it;
+            it.kind = ChatItem::Kind::Error;
+            it.text = "The " + dead->label + " agent's process (pid " + std::to_string(dead->pid) +
+                      ") is gone but its run did not end: stopping the run. The agent probably crashed or was closed.";
+            chat->items.push_back(std::move(it));
+            chat->scrollDown = true;
+        }
+        aiCancel_ = true;
+    }
+}
+
+// The "Check activity" button of the stuck warning: looks at the agents' processes, the tool in flight, the project's
+// files and the last event, says in the chat whether the agent is working, and snoozes the warning for another period.
+void Editor::ai_check_activity() {
+    AiChat* chat = chat_.find(aiRunChat_);
+    if (!chat) return;
+    const long long nowM = now_ms();
+    std::vector<AiProc> procs;
+    std::string lastEvent;
+    AiTool tool;
+    bool hasTool = false;
+    int stuckAfter = 180;
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        procs = aiProcs_;
+        lastEvent = aiActivity_;
+        if (!aiTools_.empty()) {
+            tool = aiTools_.back();  // the newest call: the innermost one (a worker's under the orchestrator's ai_run)
+            hasTool = true;
+        }
+        if (aiConfig_.limits.stuckAfterSeconds > 0) stuckAfter = aiConfig_.limits.stuckAfterSeconds;
+    }
+    ai::ActivityInput in;
+    in.runSeconds = static_cast<double>(nowM - aiRunStartMs_.load()) / 1000.0;
+    in.idleSeconds = static_cast<double>(nowM - aiLastActivityMs_.load()) / 1000.0;
+    in.lastEvent = lastEvent;
+    if (hasTool) {
+        in.tool = tool.text.empty() ? tool.name : tool.text;
+        in.toolSeconds = static_cast<double>(nowM - tool.startMs) / 1000.0;
+    }
+    in.trackedProcess = !procs.empty();
+    for (const AiProc& p : procs) {
+        std::vector<ProcessEntry> tree = process_tree(p.pid);
+        if (tree.empty()) continue;
+        ++in.roots;
+        in.processes.insert(in.processes.end(), tree.begin(), tree.end());
+    }
+    aiCpu_.add(now_seconds(), in.processes);
+    in.cpuPercent = aiCpu_.percent();
+    in.cpuWindowSeconds = aiCpu_.span();
+    in.changesWithinSeconds = 120;
+    in.changes = ai::recent_file_changes(projectDir_, in.changesWithinSeconds);
+    const ai::ActivityVerdict v = ai::judge_activity(in);
+    ChatItem it;
+    it.kind = v.stuck ? ChatItem::Kind::Error : ChatItem::Kind::Info;
+    it.text = "Activity check: " + v.summary;
+    for (const std::string& d : v.details) it.text += "\n  " + d;
+    chat->items.push_back(std::move(it));
+    chat->scrollDown = true;
+    aiSnoozeUntil_ = now_seconds() + stuckAfter;  // asked once: quiet until another period of silence has passed
+    if (v.processGone && !aiCancel_.load()) {
+        ChatItem stop;
+        stop.kind = ChatItem::Kind::Info;
+        stop.text = "stopping the run";
+        chat->items.push_back(std::move(stop));
+        aiCancel_ = true;
+    }
 }
 
 void Editor::ai_drain_events() {
     std::vector<ai::AgentEvent> events;
     std::optional<ai::SessionResult> result;
+    bool detached = false, orphansDone = false;
+    std::vector<AiDelegate> finished;  // the orphaned workers, once all of them ended
     {
+        // One lock for the events, the result and the workers' state: a worker's last events and its end are seen together.
         std::lock_guard<std::mutex> lock(aiMu_);
         events.swap(aiPending_);
         result.swap(aiResult_);
+        detached = aiDetached_.load();
+        if (detached) {
+            orphansDone = std::ranges::all_of(aiDelegates_, [](const AiDelegate& d) { return !d.orphan || d.ended; });
+            if (orphansDone) {
+                for (AiDelegate& d : aiDelegates_)
+                    if (d.orphan) finished.push_back(d);
+            }
+        }
     }
-    if (events.empty() && !result) return;
+    if (!events.empty() || result || aiRunning_.load() || detached) ai_watchdog_tick();
+    if (events.empty() && !result && !(detached && orphansDone)) return;
     AiChat orphan;  // the run's chat is gone (the project changed under it): its text is dropped, the plan limits are kept
     AiChat* found = chat_.find(aiRunChat_);
     AiChat& c = found ? *found : orphan;
@@ -607,6 +873,10 @@ void Editor::ai_drain_events() {
             it.kind = ChatItem::Kind::Error;
             it.text = (result->error.empty() ? "run ended: " + result->stopReason : result->error) +
                       (result->hint.empty() ? "" : "\nHint: " + result->hint);
+        } else if (detached) {
+            it.kind = ChatItem::Kind::Info;
+            it.text = "The orchestrator's turn ended while its worker is still running. When the worker finishes, its report goes "
+                      "back to the orchestrator and the work continues (Stop ends both).";
         } else {
             it.kind = ChatItem::Kind::Info;
             it.text = "done (" + result->stopReason + ", " + std::to_string(result->turns) + " turn(s))";
@@ -619,14 +889,70 @@ void Editor::ai_drain_events() {
         if (!result->conversation.empty()) c.conversation = result->conversation;  // a failed first run keeps the old one
         c.updated = now_epoch();
         c.scrollDown = true;
-        if (found) ai_run_checkpoint_finish(c);
-        else aiRunCheckpoint_.clear();
-        if (found) {  // saved after every run (no timer): the chat survives a crash or a closed editor
-            chat_.save(c);
-            chat_.save_open_list();
+        if (detached) {
+            aiDetachedOk_ = result->ok && !aiCancel_.load();
+            for (ChatItem& t : items) {  // the orchestrator's ai_run call will never return
+                if (t.kind == ChatItem::Kind::Tool && !t.done && t.depth == 0) {
+                    t.done = true;
+                    t.isError = true;
+                    t.result = "no result: the orchestrator's turn ended while the worker still ran";
+                }
+            }
+        } else {
+            ai_end_run(found);
+            return;
         }
-        aiRunChat_.clear();
-        aiRunProvider_.clear();
+    }
+    if (detached && orphansDone) {
+        // Every worker that outlived the orchestrator's turn is done. Its report is in the chat; the orchestrator, whose
+        // session never saw it, is continued with it (the same Claude Code session) unless Stop was pressed.
+        std::vector<std::pair<ai::AiRunInfo, std::string>> reports;
+        for (const AiDelegate& d : finished) {
+            ChatItem head;
+            head.kind = d.ok ? ChatItem::Kind::Info : ChatItem::Kind::Error;
+            head.depth = 1;
+            head.text = d.ok ? d.info.role + " agent finished" : d.info.role + " agent failed: " + d.error;
+            items.push_back(std::move(head));
+            std::string streamed;  // the report is usually the worker's last streamed text: do not print it twice
+            for (std::size_t k = items.size() > 40 ? items.size() - 40 : 0; k < items.size(); ++k)
+                if (items[k].kind == ChatItem::Kind::Assistant && items[k].depth == 1) streamed += items[k].text;
+            const bool shown = streamed.find(d.report) != std::string::npos;
+            if (d.ok && !d.report.empty() && !shown) {
+                ChatItem rep;
+                rep.kind = ChatItem::Kind::Assistant;
+                rep.depth = 1;
+                rep.role = d.info.role;
+                rep.text = d.report;
+                items.push_back(std::move(rep));
+            }
+            reports.emplace_back(d.info, d.ok ? d.report : "The worker failed: " + d.error);
+        }
+        c.scrollDown = true;
+        const bool cont = found && aiDetachedOk_ && !aiCancel_.load() && engine_ && play_ == PlayState::Edit;
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            aiDelegates_.clear();
+            aiProcs_.clear();
+            aiTools_.clear();
+        }
+        if (cont) {
+            ChatItem note;
+            note.kind = ChatItem::Kind::Info;
+            note.text = "continuing the orchestrator with the worker's report";
+            items.push_back(std::move(note));
+            aiDetachedOk_ = false;
+            ai_launch(continuation_prompt(reports), {});  // aiRunning_ is true before the flag below drops
+            aiDetached_ = false;
+            c.updated = now_epoch();
+        } else {
+            if (aiCancel_.load()) {
+                ChatItem note;
+                note.kind = ChatItem::Kind::Info;
+                note.text = "stopped";
+                items.push_back(std::move(note));
+            }
+            ai_end_run(found);
+        }
     }
 }
 
@@ -811,7 +1137,7 @@ void Editor::draw_ai_panel() {
         cfgErr = aiConfigError_;
     }
     const bool detected = aiDetected_.load();
-    const bool running = aiRunning_.load();
+    const bool running = ai_running();  // includes the wait for a worker that outlived the orchestrator's turn
     bool anyAvailable = false;
     // "Ready" = an API key or a CLI login was found; local-server presets (ollama...) are always listed
     // as available but are not verified, so they do not count as configured.
@@ -977,7 +1303,13 @@ void Editor::draw_ai_panel() {
     // Transcript.
     const float inputH = ImGui::GetTextLineHeight() * 3.4f + 8;
     const float noticeH = playNotice_.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing();
-    const float footer = stripH + noticeH + inputH + ImGui::GetFrameHeightWithSpacing() * 1.4f;
+    // The run's status lines (below the transcript): the pulse, "worker still running", the stuck warning.
+    const bool showDetached = isRunTab && aiDetached_.load();
+    const bool showStuck = isRunTab && cfg.limits.stuckAfterSeconds > 0 &&
+                           static_cast<double>(now_ms() - aiLastActivityMs_.load()) / 1000.0 >= cfg.limits.stuckAfterSeconds &&
+                           now_seconds() >= aiSnoozeUntil_;
+    const float statusH = !isRunTab ? 0.0f : ImGui::GetFrameHeightWithSpacing() * (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
+    const float footer = stripH + noticeH + statusH + inputH + ImGui::GetFrameHeightWithSpacing() * 1.4f;
     ImGui::BeginChild("##chat", ImVec2(0, -footer), ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
     if (chat.items.empty()) {
@@ -1077,6 +1409,41 @@ void Editor::draw_ai_panel() {
         if (ImGui::SmallButton("Attach##playnotice")) ai_attach_last_session();
     }
 
+    // The run's pulse: how long it has been going, how long since the agent last did anything, and what it did. Under
+    // it the warning for an agent that has been silent for limits.stuckAfterSeconds (ai.json), with the way out.
+    if (isRunTab) {
+        const long long nowM = now_ms();
+        const double idle = static_cast<double>(nowM - aiLastActivityMs_.load()) / 1000.0;
+        const double elapsed = static_cast<double>(nowM - aiRunStartMs_.load()) / 1000.0;
+        std::string activity;
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            activity = aiActivity_;
+        }
+        if (showDetached) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "Worker still running: the orchestrator's turn ended, its report will continue the chat.");
+            ImGui::PopTextWrapPos();
+            at_track("ai:detached");
+        }
+        ImGui::TextDisabled("running %s  |  last activity %s ago%s%s", ai::format_duration(elapsed).c_str(), ai::format_duration(idle).c_str(),
+                            activity.empty() ? "" : "  |  ", short_line(activity, 60).c_str());
+        at_track("ai:status");
+        if (showStuck) {
+            ImGui::TextColored(ImVec4(1, 0.6f, 0.35f, 1), "No activity for %s: the agent may be stuck.", ai::format_duration(idle).c_str());
+            at_track("ai:stuck");
+            if (ImGui::SmallButton("Stop##stuck")) aiCancel_ = true;
+            at_track("ai:stuck:stop");
+            ImGui::SetItemTooltip("Stops the agent (and a worker it started).");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Check activity##stuck")) ai_check_activity();
+            at_track("ai:stuck:check");
+            ImGui::SetItemTooltip("Looks at the agent's process (alive? using CPU?), the tool call it is waiting for, its child\n"
+                                  "processes and the project's recent file changes, and says whether it is still working.\n"
+                                  "The warning stays quiet for another period afterwards.");
+        }
+    }
+
     // Input.
     ImGui::BeginDisabled(isRunTab);
     bool submit = ImGui::InputTextMultiline("##ai_input", &chat.input, ImVec2(-FLT_MIN, inputH),
@@ -1119,6 +1486,7 @@ void Editor::draw_ai_panel() {
     ImGui::SameLine();
     ImGui::BeginDisabled(!isRunTab);
     if (ImGui::Button("Stop")) aiCancel_ = true;
+    at_track("ai:stop");
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Attach image...")) {

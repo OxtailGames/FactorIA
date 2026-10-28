@@ -253,6 +253,30 @@ public:
 private:
     int turn_ = 0;
 };
+
+// Section Q's worker: says something, takes `delayMs` to think (cancellable), then reports. Nothing else; no tool calls.
+class SlowWorkerProvider : public ai::ChatProvider {
+public:
+    explicit SlowWorkerProvider(int delayMs) : delayMs_(delayMs) {}
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest&, const ai::ChatHooks& hooks, const ai::CancelFlag* cancel) override {
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 300;
+        r.usage.outputTokens = 30;
+        if (hooks.onText) hooks.onText("Making the coin. ");
+        for (int waited = 0; waited < delayMs_ && !(cancel && cancel->load()); waited += 25)
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        r.message.text = "Making the coin. Worker report: coin done";
+        if (hooks.onText) hooks.onText("Worker report: coin done");
+        r.stopReason = ai::StopReason::EndTurn;
+        return r;
+    }
+
+private:
+    int delayMs_;
+};
 }  // namespace
 
 void Editor::at_build_tools_script() {
@@ -2451,6 +2475,186 @@ void Editor::at_build_tools_script() {
         std::error_code ec;
         stdfs::remove(project_file("scripts/revert_old.js"), ec);
         stdfs::remove(project_file("scripts/revert_new.js"), ec);
+        aiFactory_ = nullptr;
+        if (atSavedConfig_) {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            aiConfig_ = std::move(*atSavedConfig_);
+            atSavedConfig_.reset();
+        }
+        chat_.clear();
+        focus_window("###Viewport");
+    });
+
+
+    // ------------------------------------------------------------------------- Q. The agent is never silent
+    section("Q");
+    // The fake Claude Code of the AI tests stands in for a real orchestrator. (1) It stays silent for longer than
+    // limits.stuckAfterSeconds: the panel warns, "Check activity" writes a verdict in the chat and quiets the warning, Stop
+    // ends the run. (2) It calls ai_run (a worker, over the editor's MCP endpoint) and ends its turn without waiting for the
+    // answer: the panel keeps showing the worker's progress, and when the worker finishes its report is in the chat and the
+    // orchestrator is continued with it (once). (3) Stop while the worker runs ends both and sends no continuation.
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return aiDetected_.load(); };
+    });
+    step(2, [this, project_file] {
+#ifdef _WIN32
+        stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.cmd");
+#else
+        stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.sh");
+#endif
+        atQFake_.clear();
+        if (!stdfs::exists(fake) || ai::which("curl").empty()) {
+            atLog_.push_back("SKIP the agent is never silent (no " + fake.string() + " or no curl)");
+            return;
+        }
+        atQFake_ = fake.make_preferred().string();
+        atQArgv_ = (stdfs::temp_directory_path() / "fa_autotest_q_argv.txt").string();
+        std::error_code ec;
+        stdfs::remove(atQArgv_, ec);
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            atSavedConfig_ = aiConfig_;
+            if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+            ai::ProviderConfig cc;
+            cc.name = "claude-code";
+            cc.kind = ai::ProviderKind::ClaudeCode;
+            cc.command = atQFake_;
+            cc.env["FAKE_ARGV_FILE"] = atQArgv_;
+            cc.env["FAKE_SLEEP"] = "7";
+            aiConfig_.providers[cc.name] = cc;
+            aiConfig_.roles[ai::kRoleOrchestrator] = ai::RoleConfig{cc.name};
+            ai::RoleConfig& worker = aiConfig_.roles[ai::kRoleWorker];
+            worker.provider = "anthropic";
+            worker.model = "mock";
+            aiConfig_.limits.stuckAfterSeconds = 2;
+        }
+        aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+            return std::shared_ptr<ai::ChatProvider>(std::make_shared<SlowWorkerProvider>(2500));
+        };
+        chat_.clear();
+        focus_window("AI Assistant");
+        ai_start("Think for a while.");
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return at_visible("ai:stuck"); };
+    });
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        at_check(ai_running(), "the agent is still running while it is silent");
+        at_check(at_visible("ai:status"), "the panel shows the run's elapsed time and last activity");
+        at_check(at_visible("ai:stuck") && at_visible("ai:stuck:stop") && at_visible("ai:stuck:check"),
+                 "a silent agent gets a warning with Stop and Check activity");
+    });
+    snap("editor_ai_stuck.png");
+    click("ai:stuck:check");
+    step(3, [this] {
+        if (atQFake_.empty()) return;
+        const ChatItem* check = nullptr;
+        for (const ChatItem& c : chat())
+            if ((c.kind == ChatItem::Kind::Info || c.kind == ChatItem::Kind::Error) && c.text.rfind("Activity check:", 0) == 0) check = &c;
+        at_check(check && check->text.find("Process:") != std::string::npos && check->text.find("Last event:") != std::string::npos,
+                 "Check activity writes a verdict with what it saw in the chat");
+        at_check(!at_visible("ai:stuck"), "...and quiets the warning");
+    });
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        at_check(!ai_running(), "the silent agent finished in the end");
+        // A second silent run, ended with the warning's Stop.
+        ai_start("Think for a while again.");
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return at_visible("ai:stuck"); };
+    });
+    click("ai:stuck:stop");
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        at_check(!ai_running() && !ai_busy(), "Stop in the warning ends the run");
+        // (2) the orchestrator delegates and ends its turn.
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            ai::ProviderConfig& cc = aiConfig_.providers["claude-code"];
+            cc.env["FAKE_MODE"] = "mcp_run_detach";
+            cc.env.erase("FAKE_SLEEP");
+            aiConfig_.limits.stuckAfterSeconds = 120;
+        }
+        std::error_code ec;
+        stdfs::remove(atQArgv_, ec);
+        chat_.clear();
+        ai_start("Delegate the coin.");
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return aiDetached_.load(); };
+    });
+    step(3, [this] {
+        if (atQFake_.empty()) return;
+        at_check(ai_running() && !aiRunning_.load(), "the orchestrator's turn ended and the run goes on for the worker");
+        at_check(at_visible("ai:detached"), "the panel says a worker is still running");
+        bool live = false;
+        for (const ChatItem& c : chat()) live = live || (c.kind == ChatItem::Kind::Assistant && c.depth == 1 && c.text.find("Making the coin") != std::string::npos);
+        at_check(live, "the worker's progress is in the chat while it runs, one level in");
+        play();
+        at_check(play_state() == PlayState::Edit, "Play waits for the worker");
+    });
+    snap("editor_ai_worker_running.png");
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(3, [this] {
+        if (atQFake_.empty()) return;
+        at_check(!ai_running() && !ai_busy(), "the run ended after the continuation");
+        int reports = 0, continued = 0;
+        for (const ChatItem& c : chat()) {
+            if (c.kind == ChatItem::Kind::Assistant && c.depth == 1 && c.text.find("Worker report: coin done") != std::string::npos) ++reports;
+            if (c.kind == ChatItem::Kind::Info && c.text.find("continuing the orchestrator") != std::string::npos) ++continued;
+        }
+        at_check(reports == 1, "the worker's report is in the chat once");
+        at_check(continued == 1, "the transcript says the orchestrator was continued");
+        const std::string argv = read_file(atQArgv_);
+        std::size_t stdins = 0, resumes = 0;
+        for (std::size_t at = argv.find("stdin:"); at != std::string::npos; at = argv.find("stdin:", at + 1)) ++stdins;
+        for (std::size_t at = argv.find("--resume"); at != std::string::npos; at = argv.find("--resume", at + 1)) ++resumes;
+        at_check(stdins == 2, "the orchestrator ran twice: its first turn and one continuation (" + std::to_string(stdins) + ")");
+        at_check(resumes == 1, "the continuation resumed the same Claude Code session");
+        at_check(argv.find("Worker report: coin done") != std::string::npos, "the continuation carried the worker's report");
+        // (3) Stop while the worker runs.
+        std::error_code ec;
+        stdfs::remove(atQArgv_, ec);
+        chat_.clear();
+        aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+            return std::shared_ptr<ai::ChatProvider>(std::make_shared<SlowWorkerProvider>(20000));
+        };
+        ai_start("Delegate the coin, slowly.");
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return aiDetached_.load(); };
+    });
+    click("ai:stop");
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(3, [this] {
+        if (atQFake_.empty()) return;
+        at_check(!ai_running() && !ai_busy(), "Stop ends the run while the worker works");
+        const std::string argv = read_file(atQArgv_);
+        std::size_t stdins = 0;
+        for (std::size_t at = argv.find("stdin:"); at != std::string::npos; at = argv.find("stdin:", at + 1)) ++stdins;
+        at_check(stdins == 1, "...and no continuation is sent");
+        bool continued = false;
+        for (const ChatItem& c : chat()) continued = continued || c.text.find("continuing the orchestrator") != std::string::npos;
+        at_check(!continued, "...and the transcript does not claim one");
+        std::error_code ec;
+        stdfs::remove(atQArgv_, ec);
         aiFactory_ = nullptr;
         if (atSavedConfig_) {
             std::lock_guard<std::mutex> lock(aiMu_);

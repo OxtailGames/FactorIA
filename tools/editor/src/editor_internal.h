@@ -27,6 +27,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "fa/ai/activity.h"
+#include "fa/ai/commands.h"
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/provider.h"
@@ -34,6 +36,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
+#include "fa/core/process.h"
 #include "fa/editor/editor.h"
 #include "fa/editor/update.h"
 #include "fa/mcp/http_server.h"
@@ -304,6 +307,15 @@ public:
     void ai_start(const std::string& task);   // sends `task` (+ the pending pictures) in the active chat
     void ai_stop();                           // joins the agent thread, applies its last events, saves the chats
     void ai_drain_events();
+    // Launches the agent thread for `prompt` in the chat aiRunChat_ names (ai_start's second half; also the automatic
+    // continuation of an orchestrator whose delegated worker finished after its turn ended).
+    void ai_launch(const std::string& prompt, const std::vector<std::string>& imageFiles);
+    // Ends the run of aiRunChat_: its checkpoint item, the saved chat, the run state cleared. `c` is the chat or nullptr.
+    void ai_end_run(AiChat* c);
+    // Everything about "is it still working": called every frame while a run is on (ai_panel.cpp).
+    void ai_watchdog_tick();
+    void ai_check_activity();                 // the "Check activity" button: inspects the processes, writes the verdict in the chat
+    void ai_note_event(const ai::AgentEvent& ev);  // activity bookkeeping of one event (takes aiMu_)
     // Revert an AI run (ai_revert.cpp): a checkpoint of the project before each run, the Revert button after it.
     void ai_run_checkpoint_begin(const std::string& task);   // in ai_start, before the agent thread exists
     void ai_run_checkpoint_finish(AiChat& chat);             // when the run's result is drained: the "changed N files" item
@@ -321,7 +333,9 @@ public:
     void ai_paste_image();                    // clipboard picture -> pending attachment (does nothing without one)
     std::shared_ptr<CommandRegistry> make_proxy_registry();
     MainThreadQueue& queue() { return queue_; }
-    bool ai_running() const { return aiRunning_.load(); }
+    // True from ai_start until the run is over: the agent thread, or the wait for a delegated worker whose orchestrator turn
+    // already ended (aiDetached_).
+    bool ai_running() const { return aiRunning_.load() || aiDetached_.load(); }
     bool ai_blocks_play();  // in edit mode while the assistant works: true (and says why), Play / Step must wait
     const std::vector<ChatItem>& chat() const { return chat_.current().items; }  // transcript of the active chat
 
@@ -567,7 +581,40 @@ public:
     std::thread aiThread_;
     std::atomic<bool> aiRunning_{false};
     std::atomic<bool> aiCancel_{false};
-    std::vector<ai::AgentEvent> aiPending_;  // produced by the agent thread, drained on the main thread
+    std::vector<ai::AgentEvent> aiPending_;  // produced by the agent thread and the ai.run callbacks, drained on the main thread
+    // A worker delegated with ai.run (the orchestrator's tool call runs on an MCP connection thread). All under aiMu_.
+    struct AiDelegate {
+        ai::AiRunInfo info;
+        bool ended = false;
+        bool orphan = false;      // still running when the orchestrator's turn ended: nobody will hand it its result
+        bool ok = false;
+        std::string report, error;
+    };
+    std::vector<AiDelegate> aiDelegates_;
+    // Set by the agent thread (under aiMu_) when its turn ended while a delegate still ran: the run goes on as "worker
+    // still running" until every orphan ended, then its report continues the orchestrator's conversation.
+    std::atomic<bool> aiDetached_{false};
+    bool aiDetachedOk_ = false;       // main thread: the orchestrator's turn ended well (so a continuation makes sense)
+    // Liveness (steady-clock milliseconds; aiMu_ for the strings and vectors).
+    std::atomic<long long> aiRunStartMs_{0}, aiLastActivityMs_{0};
+    std::string aiActivity_;          // the latest thing the agent did ("worker > running Bash (cmake)")
+    struct AiTool {
+        std::string name, text;       // text: describe_agent_event() ("running Bash (cmake --build)")
+        int depth = 0;
+        long long startMs = 0;
+    };
+    std::vector<AiTool> aiTools_;     // tool calls started and not ended
+    struct AiProc {
+        long long pid = 0;
+        std::string runId;            // "" = the orchestrator's own process, else the ai.run it belongs to
+        std::string label;            // role
+    };
+    std::vector<AiProc> aiProcs_;     // CLI agent processes of the run
+    ai::CpuSampler aiCpu_;            // main thread: CPU use of those processes (sampled by the watchdog)
+    double aiSampledAt_ = 0;          // main thread: seconds of the last watchdog sample
+    double aiSnoozeUntil_ = 0;        // main thread: the stuck warning stays quiet until then (a check snoozes it)
+    std::vector<ProcessEntry> aiLastTree_;  // main thread: the processes of the last sample
+    std::map<long long, double> aiDeadSince_;  // main thread: pid -> seconds when the watchdog first found it gone
     std::optional<ai::SessionResult> aiResult_;
     AiChats chat_;                  // the conversations (tabs); the active one is chat_.current()
     std::string aiRunChat_;         // id of the chat the agent thread works for ("" = no run); set by ai_start, cleared on the result
@@ -651,6 +698,7 @@ public:
     size_t atUndoBeforeAi_ = 0;
     bool atWaitAi_ = false;
     std::vector<ai::ProviderStatus> atSavedStatus_;
+    std::string atQFake_, atQArgv_;  // section Q: the fake Claude Code and the file it records its argv and stdin in
     std::optional<ai::AiConfig> atSavedConfig_;  // the AI config while the CLI-agent check swaps in the fake Claude Code
     int atWaitCount_ = 0;
     // A frame that never ends (a GPU read-back that waits for ever) would leave the window frozen on the user's screen: the
