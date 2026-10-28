@@ -40,6 +40,7 @@ Result<void> prepare_game_assets(Project& p, const std::string& platform, std::v
     if (auto r = convert_shaders(ea); !r.ok()) return r;  // first: a material that does not compile stops the export before slow steps
     if (auto r = convert_textures(ea); !r.ok()) return r;
     if (auto r = convert_audio(ea); !r.ok()) return r;
+    if (auto r = stage_builtin_fonts(ea); !r.ok()) return r;
 
     if (hasManifest || ea.manifest.size() > 1) {
         const stdfs::path shipped = ea.cacheDir / assets::kManifestFile;

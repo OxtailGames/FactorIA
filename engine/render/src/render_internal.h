@@ -523,7 +523,9 @@ public:
 private:
     FontFace* load(const std::string& font);  // the face of that file even when it failed to load (ok == false)
     GlyphInfo glyph(FontFace* face, int px, std::uint32_t gid, bool synthBold = false);
-    FontFace* bold_face(FontFace* regular);
+    // The face of `regular` for bold and/or italic text: the project's text.fonts entry, else the built-in family's own face
+    // (builtin:serif has bold, italic and bold italic), else null. boldDrawn: the face returned is a bold one.
+    FontFace* variant_face(FontFace* regular, bool bold, bool italic, bool& boldDrawn);
     void warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<char32_t>& missing);
     void warn_markup(const std::string& source, const MarkupText& m);
 

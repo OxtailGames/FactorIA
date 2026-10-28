@@ -213,10 +213,16 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
                 out.missing.push_back(c);
         }
         faceOf[i] = f;
-        if (rich && attr_of(i).bold) {
-            FontFace* bf = rich->boldFace ? rich->boldFace(f) : nullptr;
-            if (bf && (bf->has_glyph(c) || is_default_ignorable(c))) faceOf[i] = bf;
-            else synth[i] = 1;
+        if (rich && (attr_of(i).bold || attr_of(i).italic)) {
+            const bool bold = attr_of(i).bold;
+            bool boldDrawn = false;
+            FontFace* vf = rich->variantFace ? rich->variantFace(f, bold, attr_of(i).italic, boldDrawn) : nullptr;
+            if (vf && (vf->has_glyph(c) || is_default_ignorable(c))) {
+                faceOf[i] = vf;
+                if (bold && !boldDrawn) synth[i] = 1;
+            } else if (bold) {
+                synth[i] = 1;
+            }
         }
         for (char32_t part : composed_parts(c))  // the shaper decomposes SARA AM whatever the font has
             if (!f->has_glyph(part) && out.missing.size() < 8 && std::find(out.missing.begin(), out.missing.end(), part) == out.missing.end())

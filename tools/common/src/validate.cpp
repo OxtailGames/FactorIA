@@ -18,6 +18,7 @@
 #include "fa/core/video.h"
 #include "fa/physics/physics.h"
 #include "fa/platform/input.h"
+#include "fa/render/builtin_fonts.h"
 #include "fa/runtime/plugins.h"
 #include "fa/runtime/project.h"
 #include "fa/scene/mesh_geometry.h"
@@ -549,6 +550,10 @@ void check_text_settings(Ctx& c, const TextSettingsParse& parsed) {
         if (bold.rfind("builtin:", 0) != 0 && !stdfs::exists(stdfs::path(c.dir) / bold))
             c.error(kProjectFileName, "/text/fonts/" + font + "/bold", "The bold font '" + bold + "' does not exist.",
                     "Fix the path or add the .ttf to the project; until then [b] and Text.bold emulate bold from the regular face.");
+    for (const auto& [font, italic] : parsed.style.italicFonts)
+        if (italic.rfind("builtin:", 0) != 0 && !stdfs::exists(stdfs::path(c.dir) / italic))
+            c.error(kProjectFileName, "/text/fonts/" + font + "/italic", "The italic font '" + italic + "' does not exist.",
+                    "Fix the path or add the .ttf to the project; until then [i] text stays upright.");
 }
 
 // A Text, Button, Toggle, Slider or TouchButton that asks for markup or bold: the markup of its text must be clean, and a font
@@ -564,10 +569,11 @@ void check_rich_text_use(Ctx& c, const std::string& file, const std::string& poi
         if (const auto t = fields.find(field->second); t != fields.end() && t->is_string())
             for (const std::string& problem : markup_problems(t->get<std::string>(), &c.richStyle))
                 c.warn(file, pointer + "/" + field->second, "markup: " + problem,
-                       "Write [[ for a literal '['. Tags: [b]..[/b], [c:name]..[/c], [icon:name]; colours and icons are declared in factoria.json \"text\".");
+                       "Write [[ for a literal '['. Tags: [b]..[/b], [i]..[/i], [c:name]..[/c], [icon:name]; colours and icons are declared in factoria.json \"text\".");
     std::string font = fields.contains("font") && fields["font"].is_string() ? fields["font"].get<std::string>() : std::string();
     if (font == "builtin") font.clear();
     if (c.richStyle.boldFonts.count(font) || c.boldSuggested.count(font)) return;
+    if (const BuiltinFont* family = font.rfind("builtin:", 0) == 0 ? find_builtin_font(font) : nullptr; family && family->hasBold) return;  // its own bold face
     c.boldSuggested.insert(font);
     const std::string shown = font.empty() ? "the built-in font" : "font '" + font + "'";
     c.warn(file, pointer + (markup ? "/markup" : "/bold"),

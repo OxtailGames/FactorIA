@@ -49,7 +49,9 @@ ShapedText shape_text(std::string_view text, int px, float maxWidth, std::size_t
 struct RichShaping {
     const std::vector<MarkupAttr>* attrs = nullptr;
     std::vector<float> iconAdvance;                 // pixels, by attr.icon
-    std::function<FontFace*(FontFace*)> boldFace;   // the bold face of a font, or null when the project gives it none
+    // The face of `font` for a bold and/or italic character, or null when there is none. `boldDrawn` is set when the face
+    // returned is drawn bold (otherwise a bold character is emboldened by the engine).
+    std::function<FontFace*(FontFace*, bool bold, bool italic, bool& boldDrawn)> variantFace;
     float syntheticExtra = 0.0f;                    // pixels a character emboldened by the engine is wider
 };
 

@@ -33,6 +33,14 @@ Watching the game and reading the docs over MCP
   and `next`, and `heading` reads one section. `docs.components` and `docs.commands` list names with a one-line summary by
   default; `name` returns one in full, `filter` narrows the list, `full` returns everything (Roguestory/FB-0005).
 
+- Four more built-in fonts, all SIL OFL: `builtin:serif` (Crimson Text, with real bold, italic and bold italic), `builtin:hand`
+  (Kalam, with bold), `builtin:blackletter` (UnifrakturMaguntia) and `builtin:display` (IM Fell English, with italic), for
+  storybook and handwritten looks (Roguestory/FB-0002). They are files of `factoria` and the editor, not of the player: an
+  export copies the ones a game names to `builtin-fonts/` and adds their licenses to `FACTORIA_NOTICES.txt`, so other games do
+  not grow. `[i]...[/i]` joins `[b]` in rich text (italic face from `text.fonts` `"italic"` or the built-in family), and
+  `[b]` / `Text.bold` use the built-in families' real bold faces. An unknown `builtin:` name now fails with the list of all of
+  them (`docs/TEXT.md`, "Built-in fonts").
+
 ## 0.3.0
 
 FactorIA 0.3.0 is about the games themselves: four more reference games (a 3D phone game, a couch co-op game, a management

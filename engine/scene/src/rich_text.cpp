@@ -38,7 +38,7 @@ MarkupText parse_markup(std::u32string_view src) {
     MarkupText out;
     out.text.reserve(src.size());
     out.attrs.reserve(src.size());
-    int bold = 0;
+    int bold = 0, italic = 0;
     std::vector<int> colorStack;  // indices into out.colors + 1 (0 = no colour: a malformed [c:] still nests)
     const auto color_index = [&](const std::string& name) {
         const auto it = std::find(out.colors.begin(), out.colors.end(), name);
@@ -49,6 +49,7 @@ MarkupText parse_markup(std::u32string_view src) {
     const auto put = [&](char32_t c, int icon = -1) {
         MarkupAttr a;
         a.bold = bold > 0;
+        a.italic = italic > 0;
         a.color = colorStack.empty() ? 0 : colorStack.back();
         a.icon = icon;
         out.text.push_back(c);
@@ -83,6 +84,11 @@ MarkupText parse_markup(std::u32string_view src) {
         } else if (tag == "/b") {
             if (bold == 0) problem(i, "[/b] without [b]");
             else --bold;
+        } else if (tag == "i") {
+            ++italic;
+        } else if (tag == "/i") {
+            if (italic == 0) problem(i, "[/i] without [i]");
+            else --italic;
         } else if (starts_with(tag, "c:")) {
             const std::string name = tag.substr(2);
             if (name.empty()) {
@@ -104,12 +110,13 @@ MarkupText parse_markup(std::u32string_view src) {
                 put(kIconChar, int(it - out.icons.begin()));
             }
         } else {
-            problem(i, "unknown tag [" + tag + "] (tags: [b] [/b], [c:<colour>] [/c], [icon:<name>], [[ for a literal [)");
+            problem(i, "unknown tag [" + tag + "] (tags: [b] [/b], [i] [/i], [c:<colour>] [/c], [icon:<name>], [[ for a literal [)");
             for (std::size_t k = i; k <= end; ++k) put(src[k]);  // shown as written
         }
         i = end;
     }
     if (bold > 0) problem(src.size(), "[b] is never closed (add [/b])");
+    if (italic > 0) problem(src.size(), "[i] is never closed (add [/i])");
     if (!colorStack.empty()) problem(src.size(), "[c:...] is never closed (add [/c])");
     return out;
 }
@@ -265,25 +272,29 @@ TextSettingsParse parse_text_settings(const Json& section) {
                 const std::string where = "/fonts/" + c.key();
                 if (!c->is_object()) {
                     issue(where, "expected {\"bold\": \"<font file>\"}, got " + describe_json_value(*c),
-                          "Name the font file that draws [b] text and Text.bold for this font.");
+                          "Name the font file that draws [b] text and Text.bold for this font, and/or the one that draws [i] text: "
+                          "{\"bold\": \"assets/fonts/Body-Bold.ttf\", \"italic\": \"assets/fonts/Body-Italic.ttf\"}.");
                     continue;
                 }
-                static const std::vector<std::string> fontKeys = {"bold"};
+                static const std::vector<std::string> fontKeys = {"bold", "italic"};
                 for (auto k = c->begin(); k != c->end(); ++k)
-                    if (k.key() != "bold")
+                    if (k.key() != "bold" && k.key() != "italic")
                         r.warnings.push_back({"/text" + where + "/" + k.key(),
                                               "unknown key \"" + k.key() + "\" in a font entry (ignored). " + did_you_mean(k.key(), fontKeys),
-                                              "Only \"bold\" is read."});
-                const auto b = c->find("bold");
-                if (b == c->end()) {
-                    issue(where, "font entry has no \"bold\"", "Add \"bold\": \"assets/fonts/Body-Bold.ttf\".");
+                                              "Only \"bold\" and \"italic\" are read."});
+                if (c->find("bold") == c->end() && c->find("italic") == c->end()) {
+                    issue(where, "font entry has neither \"bold\" nor \"italic\"",
+                          "Add \"bold\": \"assets/fonts/Body-Bold.ttf\" and/or \"italic\": \"assets/fonts/Body-Italic.ttf\".");
                     continue;
                 }
-                std::string bold;
-                if (read_path(*b, where + "/bold", "the bold font", bold)) {
-                    std::string key = c.key();
-                    if (!key.empty() && key != "builtin" && key.rfind("builtin:", 0) != 0) key = fs::normalize(key);
-                    r.style.boldFonts[key] = bold;
+                std::string key = c.key();
+                if (!key.empty() && key != "builtin" && key.rfind("builtin:", 0) != 0) key = fs::normalize(key);
+                for (const char* which : {"bold", "italic"}) {
+                    const auto v = c->find(which);
+                    if (v == c->end()) continue;
+                    std::string file;
+                    if (read_path(*v, where + "/" + which, which[0] == 'b' ? "the bold font" : "the italic font", file))
+                        (std::string_view(which) == "bold" ? r.style.boldFonts : r.style.italicFonts)[key] = file;
                 }
             }
         }
