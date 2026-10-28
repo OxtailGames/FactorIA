@@ -7,6 +7,8 @@ call (MCP tool, `factoria call`, editor console):
    ([AI_PROVIDERS.md](AI_PROVIDERS.md)).
 2. **Import** files made elsewhere (`assets.import`): Aseprite, PSD, OBJ, FBX...
 3. **Write** them directly (`fs.write`), for files the engine already reads (PNG, JPG, WAV, OGG, MP3, glTF, TTF).
+4. **Make** them offline, with no provider and no key: `assets.generate_texture` (materials), `assets.rasterize_svg`
+   (pictures written as SVG), `assets.synth_sound`, `assets.generate_loop`, `assets.draw_icon`.
 
 Whatever the way, `assets.json` at the project root records where each asset came from (provenance) and how the engine
 and `factoria export` treat it (import settings).
@@ -164,6 +166,67 @@ assets.synth_sound {"path":"assets/audio/dog_bark.wav","preset":"bark","seed":3}
 `overwrite` replaces an existing file. The provenance in `assets.json` is origin `original`, `ai` false, license CC0, with
 the preset and the seed. These are synthesizer sounds: fine for a game's feedback, not a replacement for recorded or
 composed audio.
+
+### Materials without a provider: assets.generate_texture
+
+With no image provider (`assets.generate_image` fails with `no_provider`), `assets.generate_texture` paints a material
+offline: no provider, no key, no cost. It makes surfaces, not drawings: backgrounds, desks, book covers and pages, floors,
+walls. The same arguments give the same picture with the same build of factoria (change `seed` for another take); it is
+not promised to be bit-identical between platforms.
+
+```
+assets.generate_texture {"path":"assets/textures/desk.png","preset":"planks","width":1280,"height":720,"seed":4}
+assets.generate_texture {"path":"assets/textures/cover.png","preset":"leather","color":"#5b2a1a","accent":"#1d0d07","normalMap":true}
+assets.generate_texture {"path":"assets/textures/page.png","preset":"parchment","width":640,"height":900,"vignette":0.6}
+assets.generate_texture {"path":"assets/textures/floor.png","preset":"stone","tileable":true,"scale":2}
+```
+
+`preset` is `paper`, `parchment`, `wood`, `planks`, `leather`, `fabric`, `stone`, the noises `value`, `fbm` and `cellular`,
+and `gradient`, `radial` and `vignette`. The command description lists what each one is and its default colours. The
+size is `width` x `height` (up to 2048; the height defaults to the width; 512 when neither is given). Options:
+
+| Field | What it does |
+|---|---|
+| `color`, `accent` | Recolour the material: the main colour and the second one (shadow, late wood, creases, joints, the far end of a gradient). |
+| `scale` | Size of the features, 0.1 to 10 (1 is the preset's natural size for the picture). |
+| `roughness` | 0 smooth and even to 1 worn and uneven. |
+| `tileable` | The picture repeats with no seam at its edges (the materials and the noises; `gradient`, `radial` and `vignette` ignore it and say so in `warnings`). |
+| `vignette` | Darkens the edge with a ragged border (a worn page); 0.5 by default on `parchment`. Not used when tileable. |
+| `angle` | The direction of a `gradient` in degrees. |
+| `normalMap`, `normalStrength` | Also write `<name>_n.png`, a tangent-space normal map of the same relief (+Y up, the convention of `Sprite.normalMap` and glTF). |
+| `overwrite` | Replace an existing file. |
+
+The result has the `warnings`, the `nextSteps` (the `Sprite` to use, or `tileable` hints) and a preview of the picture:
+look at it and call again with other `seed`, `scale` or `color`. The textures are lit from the upper left, so grooves and
+bumps read. The provenance in `assets.json` is origin `original`, `ai` false, license CC0, with the arguments in the
+notes; the normal map gets its own record. Smooth presets (`gradient`, `radial`, `paper`...) carry a little dither
+against banding, so their PNGs are larger than a flat image.
+
+### Pictures you write as SVG: assets.rasterize_svg
+
+For a subject (a crest, a silhouette, an ornament, a map symbol) an agent with no image provider writes the shapes as SVG
+and rasterizes them: `assets.rasterize_svg` takes the SVG text in `svg` or a project `.svg` file in `source` and writes
+an anti-aliased PNG at `path` on the CPU (nanosvg, vendored in `external/nanosvg`, zlib license).
+
+```
+assets.rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M50 6 L90 22 V52 C90 76 70 90 50 96 C30 90 10 76 10 52 V22 Z' fill='#8b1e1e' stroke='#e8c66a' stroke-width='4'/><circle cx='50' cy='48' r='14' fill='#e8c66a'/></svg>"}
+```
+
+- **Size.** The SVG is fitted inside `width` x `height`, aspect kept and centred; with only one of them the other follows
+  the SVG's proportions; with neither, the size the SVG declares. Up to 4096. `background` puts it over a colour
+  (transparent by default).
+- **Supported.** `path` (every command), `rect` (with `rx` and `ry`), `circle`, `ellipse`, `line`, `polyline`,
+  `polygon`, `g`, `defs`, `linearGradient` and `radialGradient` fills, `fill`, `stroke`, `stroke-width`,
+  `stroke-linecap`, `stroke-linejoin`, `stroke-miterlimit`, `stroke-dasharray`, `fill-rule`, `opacity`, `fill-opacity`,
+  `stroke-opacity`, `transform`, the `style` attribute, `viewBox` and `preserveAspectRatio`.
+- **Not supported.** `text` and `tspan` (turn letters into paths, or put a `Text` entity in the scene), filters (blur,
+  drop shadow), masks, clip paths, embedded images, `<use>`, patterns, markers and CSS classes in `<style>`. They are
+  drawn as nothing and named in `warnings`.
+- **Gradients.** Write the coordinates in percent (`x2="100%"`) or with `gradientUnits="userSpaceOnUse"` and real
+  coordinates: nanosvg reads a bare `0` to `1` such as `x2="1"` as pixels.
+- **Provenance.** By default the record is origin `generated`, `ai` true, because the agent that calls the command wrote
+  the SVG (it counts for the store's AI-content disclosure). For an SVG a person drew or licensed pass `ai: false`, with
+  `author` and `license`: the record is then origin `original`. Where the SVG came from is in `source`.
 
 ### The game icon without a provider: assets.draw_icon
 
@@ -458,8 +521,8 @@ and next steps with the component settings to use. Each written file gets an `as
 | `.mpg` `.mpeg` | Copied into `assets/video/` after the engine opened it (it must be MPEG-1 video; the size, length and frame rate are in `details`). |
 | `.mp4` `.m4v` `.mov` `.webm` `.mkv` `.avi` | An `.mpg` in `assets/video/`, converted by ffmpeg (see "Video" below). |
 
-Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.svg` `.psb`
-(convert to PNG), `.flac` `.m4a` `.aac` (convert to OGG or WAV), and SDF/MSDF font atlases.
+Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.psb`
+(convert to PNG), `.svg` (`assets.rasterize_svg` makes the PNG), `.flac` `.m4a` `.aac` (convert to OGG or WAV), and SDF/MSDF font atlases.
 
 ### Aseprite
 

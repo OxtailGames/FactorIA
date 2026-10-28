@@ -222,9 +222,9 @@ AiConfig load_ai_config(const Ctx& ctx) {
     return std::move(*cfg);
 }
 
-AssetTarget resolve_target(const AiConfig& cfg, const Json& args, MediaKind kind) {
+AssetTarget resolve_target(const Ctx& ctx, const AiConfig& cfg, const Json& args, MediaKind kind) {
     auto target = resolve_asset_target(cfg, kind, str(args, "provider"), str(args, "model"),
-                                       kind == MediaKind::Voice ? str(args, "voice") : std::string());
+                                       kind == MediaKind::Voice ? str(args, "voice") : std::string(), ctx.runtime.env);
     if (!target) fail("no_provider", target.error());
     return std::move(*target);
 }
@@ -243,7 +243,7 @@ Json generate_image_file(const Ctx& ctx, const Json& args, const ImageJob& job) 
     require_extension(job.path, ".png", "generated images are written as PNG");
     require_free(job.path, flag(args, "overwrite"));
     const AiConfig cfg = load_ai_config(ctx);
-    const AssetTarget target = resolve_target(cfg, args, MediaKind::Image);
+    const AssetTarget target = resolve_target(ctx, cfg, args, MediaKind::Image);
     const Style style = flag(args, "style", true) ? load_style() : Style{};
 
     AssetRequest request;
@@ -413,7 +413,7 @@ Json generate_file(const Ctx& ctx, const Json& args, MediaKind kind) {
     const std::string prompt = required_text(args, voice ? "text" : "prompt");
     if (voice && flag(args, "silent")) return generate_silent_voice(args, path, prompt);
     const AiConfig cfg = load_ai_config(ctx);
-    const AssetTarget target = resolve_target(cfg, args, kind);
+    const AssetTarget target = resolve_target(ctx, cfg, args, kind);
     const std::string wanted = asset_extension(*target.provider, kind);
     require_extension(path, wanted,
                       std::format("the provider '{}' makes {} as {} files", target.provider->name, media_kind_name(kind), wanted));
