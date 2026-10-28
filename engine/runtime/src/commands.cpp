@@ -483,20 +483,33 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: "
            "only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a "
            "scene FILE without touching the running world use scene.import_ascii with `path`. Example: "
-           "scene.save {\"path\":\"scenes/snapshot.scene.json\"}",
+           "scene.save {\"path\":\"scenes/snapshot.scene.json\"}. Entities a script created at runtime (world.spawn, "
+           "world.spawnPrefab) and their children are NOT written: the script builds them again when the scene loads, so saving "
+           "them would duplicate them. The result lists them under `skippedSpawned` (count, first ids) with a hint; pass "
+           "includeSpawned:true only to bake them into the file on purpose (then the script must not spawn them again). Entities "
+           "made with scene.spawn, the editor or other authoring commands are always saved.",
            parse_schema(R"({"type":"object","properties":{
-               "path":{"type":"string","description":"Project-relative output path. Default: the current scene."}}})"),
+               "path":{"type":"string","description":"Project-relative output path. Default: the current scene."},
+               "includeSpawned":{"type":"boolean","default":false,"description":"Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load."}}})"),
            false, "scene"},
           [&engine, &I](const Json& a) {
               std::string path = a.value("path", I.currentScene);
               if (path.empty())
                   throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
               if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
-              auto r = save_scene_file(I.world, path);
+              SpawnedSkip skip;
+              auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip);
               if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
               if (I.watchSeeded) I.watched[path] = fs::modified_time(path);
               if (I.currentScene.empty()) I.currentScene = path;
-              return Json::object({{"saved", path}, {"entityCount", I.world.entity_count()}});
+              Json out = Json::object({{"saved", path}, {"entityCount", I.world.entity_count() - skip.count}});
+              if (skip.count > 0) {
+                  out["skippedSpawned"] = Json::object({{"count", skip.count}, {"first", skip.labels}});
+                  out["hint"] = "Left out " + std::to_string(skip.count) + " entities a script spawned at runtime (the script "
+                                "creates them again when the scene loads, so saving them would duplicate them). To bake them "
+                                "into the file on purpose pass {\"includeSpawned\":true}, and then stop the script spawning them.";
+              }
+              return out;
           });
 
     I.commands.add({"scene.reload", "Reload the current scene from disk (discards runtime changes).",

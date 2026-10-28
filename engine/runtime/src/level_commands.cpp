@@ -953,7 +953,7 @@ Json import_ascii(Engine::Impl& I, const Json& a) {
                                r.error().hint);
         if (I.watchSeeded) I.watched[I.currentScene] = fs::modified_time(I.currentScene);
         out["saved"] = I.currentScene;
-        add_note(out, "SAVED '" + I.currentScene + "': that is the RUNNING scene, so everything in the running world went into the file. "
+        add_note(out, "SAVED '" + I.currentScene + "': that is the RUNNING scene, so everything in the running world went into the file (except entities scripts spawned at runtime). "
                       "To change a scene file without touching the running game, pass \"path\" (and optionally \"from\").");
     }
     return out;

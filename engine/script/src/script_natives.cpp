@@ -688,6 +688,7 @@ NATIVE(spawn) {
     }
     for (const auto& m : report.messages)
         if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
+    for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
     for (const DeferredRef& d : report.deferred) I->waitingRefs.push_back({d, 0});
     I->resolve_waiting_refs(false);  // this spawn may be the knob an earlier slider is waiting for
     I->construct_for(report.created);  // entity.behaviour exists right away; onStart runs before the first update
@@ -710,6 +711,7 @@ NATIVE(spawnPrefab) {
     LoadReport report;
     Entity e = instantiate_prefab(W, path, parent, report, overrides, index);
     if (!report.ok() || e.is_null()) return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
+    for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
     I->construct_for(report.created);
     localize_created(I, report.created);
     return ent_val(ctx, e);
