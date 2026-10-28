@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The menu kit: text speed and save slots
+
+- `project.add_menu_kit` has a `textSpeed` part: a "Text speed" row (slow, normal, fast, instant) in the Options Audio tab, saved as
+  `settings.textSpeed` in characters per second, with `settings.revealedCharacters(seconds)` for the dialogue box. `addOptionsRow()`
+  of `scripts/ui/options.js` adds a row of the game to any Options section without editing the panel (LL/FB-0011).
+- A `slots` part: five named slots and an autosave in `storage`, each a record with a counter, name, chapter, play time, picture and
+  the game's data; a cloud copy with a higher counter replaces the local slot; damaged slots say why and can be deleted; and a
+  save / load screen whose dialog names a save, with the on-screen keyboard for a gamepad player. It brings `core` and `keyboard`
+  and its own `tests/slots.test.js` (LL/FB-0501).
+
 Shipping checks: a sandboxed save, long recordings and the iPad
 
 - The exported player takes `--persist-storage` with `--frames`, `--input`, `--dump-state` and `--screenshot`: `storage.*` and the

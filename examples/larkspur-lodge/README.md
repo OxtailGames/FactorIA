@@ -319,7 +319,7 @@ cut-scene's room and the music ducked under it (`scripts/mix.js`).
 
 ### Save data (P5)
 
-`scripts/save_data.js` builds and applies the plain object of a saved game; `scripts/saves.js` keeps it in the slots.
+`scripts/save_data.js` builds and applies the plain object of a saved game; `scripts/saves.js` keeps it in the kit's slots.
 The current format is **version 2**, `larkspur.save/2`:
 
 ```json
@@ -361,7 +361,7 @@ Call it when the module loads (at the top level). A save that was applied before
 `session.savePending`; `register()` hands it over, and `snapshot()` writes it back untouched meanwhile, so no part is lost by
 a scene that does not import it. The title screen's Play, and the chapter select, call `save_data.resetAll()`.
 
-**Slots.** `scripts/saves.js`: five manual slots (`slot1`..`slot5`) and the autosave (`slot_auto`) in `storage`. A slot holds
+**Slots.** The records and the screen are the menu kit's `slots` part (`scripts/slots.js`, `scripts/ui/slot_screen.js`, the `slots` and `slot_dialog` prefabs); `scripts/saves.js` is the lodge's side of it (the save layout, when saving is refused, the chapter autosave, launching a slot). Five manual slots (`slot1`..`slot5`) and the autosave (`slot_auto`) in `storage`. A slot holds
 a record `{ counter, name, chapter, playTime, pic, data }`: `data` is the versioned save, `pic` a 192x108 PNG of the game
 (base64, or null when nothing could be drawn), `counter` goes up on every save and decides which copy wins between a cloud
 copy and a local one (the wall clock is never read). A slot that holds a bare v1 file reads as a record with no name or

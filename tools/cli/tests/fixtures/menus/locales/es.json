@@ -45,7 +45,15 @@
     "analytics": "Compartir datos de uso anónimos",
     "on": "activado",
     "off": "desactivado",
-    "percent": "{value} por ciento"
+    "percent": "{value} por ciento",
+    "textSpeed": "Velocidad del texto: {speed}",
+    "speed": {
+      "slow": "lenta",
+      "normal": "normal",
+      "fast": "rápida",
+      "instant": "instantánea",
+      "custom": "personalizada"
+    }
   },
   "credits": {
     "madeWith": "Hecho con FactorIA",
@@ -86,5 +94,29 @@
   },
   "card": {
     "continue": "Continuar"
+  },
+  "slots": {
+    "titleSave": "Guardar partida",
+    "titleLoad": "Cargar partida",
+    "empty": "Ranura {n}: vacía",
+    "emptyAuto": "Autoguardado: vacío",
+    "used": "Ranura {n}: {name}\nCapítulo {chapter}, {time}",
+    "usedAuto": "Autoguardado: {name}\nCapítulo {chapter}, {time}",
+    "damaged": "Ranura {n}: dañada (bórrala para liberar la ranura)",
+    "damagedAuto": "Autoguardado: dañado (bórralo)",
+    "damagedNote": "No se puede leer una ranura. Bórrala o carga otra.",
+    "unnamed": "Sin nombre",
+    "autoName": "autoguardado",
+    "delete": "Borrar",
+    "nameTitle": "Nombre de la partida en la ranura {n}",
+    "namePlaceholder": "Ponle un nombre a la partida",
+    "confirmSave": "Guardar",
+    "cancel": "Cancelar",
+    "deleteTitle": "¿Borrar la ranura {n}?",
+    "confirmDelete": "Borrar",
+    "saved": "Guardado en la ranura {n}.",
+    "noGame": "Todavía no hay ninguna partida que guardar.",
+    "busy": "Ahora no se puede guardar.",
+    "noSave": "Aquí no se puede guardar."
   }
 }

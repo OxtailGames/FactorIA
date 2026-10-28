@@ -293,6 +293,18 @@
                 "layer": 302
               }
             }
+          },
+          {
+            "id": "text_speed",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Text speed",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
           }
         ]
       },

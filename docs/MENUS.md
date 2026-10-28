@@ -24,6 +24,7 @@ paths in your project. The parts, in the order of `templates/menus/kit.json`:
 |---|---|---|
 | `core` | `scripts/settings.js`, `scripts/ui/menu_stack.js`, `scripts/ui/read_aloud.js` | `menu.*` |
 | `options` | `prefabs/ui/options.prefab.json`, `scripts/ui/options.js` | `options.*` |
+| `textSpeed` | none (a row of the options prefab) | `options.textSpeed`, `options.speed.*` |
 | `credits` | `scripts/ui/credits.js` | `credits.*` |
 | `shop` | `scripts/ui/shop.js`, `scripts/store_events.js` | `shop.*` |
 | `ageGate` | `prefabs/ui/age_gate.prefab.json`, `scripts/ui/age_gate.js`, `tests/age_gate.test.js` | `ageGate.*` |
@@ -32,11 +33,12 @@ paths in your project. The parts, in the order of `templates/menus/kit.json`:
 | `pause` | `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js` | `pause.*` |
 | `loading` | `scenes/loading.scene.json`, `scripts/loading.js` | `loading.*` |
 | `keyboard` | `prefabs/ui/keyboard.prefab.json`, `scripts/ui/keyboard.js` | `keyboard.*` |
+| `slots` | `scripts/slots.js`, `scripts/ui/slot_screen.js`, `prefabs/ui/slots.prefab.json`, `prefabs/ui/slot_dialog.prefab.json`, `tests/slots.test.js` | `slots.*` |
 | `dialogue` | `scripts/dialogue.js` | `captions.*` (sample lines) |
 | `card` | `prefabs/ui/card.prefab.json`, `scripts/ui/card.js`, `tests/card.test.js` | `card.*` |
 | `cameraRig` | `scripts/camera_rig.js`, `tests/camera_rig.test.js` | none |
 
-A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` and `analyticsConsent` add `core`, `card` needs nothing else, `main-menu` adds `core`, `options` and `credits`. `cameraRig` is not a menu: it is the strategy camera of AI_GUIDE.md section 9.6.1, shipped in the kit because it is added the same way (it adds its `camera_*` input actions to `factoria.json`). The result
+A part brings the parts it needs: `pause` adds `core` and `options`, `textSpeed` adds `core` and `options` (and without it `options.prefab.json` has no `text_speed` row), `slots` adds `core` and `keyboard`, `ageGate` and `analyticsConsent` add `core`, `card` needs nothing else, `main-menu` adds `core`, `options` and `credits`. `cameraRig` is not a menu: it is the strategy camera of AI_GUIDE.md section 9.6.1, shipped in the kit because it is added the same way (it adds its `camera_*` input actions to `factoria.json`). The result
 lists them in `requiredBy`. The shop, the age gate and the analytics question are optional for the main menu: with no `parts` (everything) it has the Shop button, the shop
 panel and the lines that open the age gate and the analytics question; `{"parts":["main-menu"]}` writes a main menu without them (no `shop_button`, `shop`,
 `age_gate` or `analytics_consent` in the scene, no import of `age_gate.js` or `analytics_consent.js` in `scripts/main_menu.js`), and
@@ -350,6 +352,42 @@ What the command does, file by file; do it by hand when you want to see each fil
 - **Phones: playing without a pad.** The menus already work by touch. For the game itself, add a `TouchStick` and a few
   `TouchButton`s to the game scene: they press the same gamepad bindings a real pad does, show only while the player
   uses touch and sit in the safe area (docs/MOBILE.md, "On-screen gamepad").
+
+## Save slots
+
+The `slots` part is the save / load screen of a game with several saves: five named slots and an autosave, each a record
+`{ counter, name, chapter, playTime, pic, data }` in `storage` (key `slot1`..`slot5`, `slot_auto`), where `data` is whatever the game
+saves. `counter` goes up by one on every save, so with cloud saves (`platform.has("cloudSave")`) the copy with the higher counter wins
+when the screen opens (`slots.syncCloud()`); a delete removes the cloud copy too. A text in a slot that has no `data` is read as a bare
+save (a game can start with plain saves), and one that cannot be read or is from a version `upgrade` rejects is `damaged`: the row says
+so, with the reason, and the player can delete it. The game supplies two things: what is saved (`snapshot`, or `save` to write the slot
+yourself) and how a slot is loaded (`launch`). Everything else is the kit's: the screen builds `prefabs/ui/slots.prefab.json` and
+`slot_dialog.prefab.json`, a click on a slot in save mode opens the dialog with a TextField for the name (the on-screen keyboard opens
+by itself for a gamepad player), an empty name saves under `defaultName()`, and a delete asks first. `cannotSave()` returns a string-table
+key (`"slots.busy"`) while the game may not be saved (a cut-scene, a loading screen); the save rows are greyed out and the key is shown
+under the title. A cloud answer that arrives after the scene changed draws nothing (the screen compares `scene.generation`).
+
+```js
+const slots = new Slots({ upgrade: migrate, describe: (d) => ({ chapter: d.level, playTime: d.seconds }) });
+const screen = new SlotScreen(menus, {
+  slots,
+  launch: (data) => startFrom(data),                              // load
+  snapshot: () => ({ data: mySave(), chapter: 3, playTime: 3725 }), // save
+  cannotSave: () => (inCutscene ? "slots.busy" : ""),
+  getPic: () => pic,                                              // capturePic() taken before the menu opened
+});
+screen.open("save");                                             // or "load"; call screen.tick() every frame
+```
+
+The files are listed in "The files" below. `tests/slots.test.js` builds its own scene, so it passes in any game with the part.
+
+## Text speed
+
+`{"parts":["textSpeed"]}` (or the whole kit) adds a "Text speed" button to the Options Audio tab: slow, normal, fast and instant
+(`TEXT_SPEEDS` in `scripts/settings.js`), kept as `settings.load().textSpeed` in characters per second (0 = a whole line at once; the
+default is 45, or 0 when the system asks to reduce motion). The kit does not draw dialogue lines: the game's dialogue box sets
+`Text.visibleCharacters = settings.revealedCharacters(secondsSinceTheLineAppeared)`. For any other row of the game, call
+`addOptionsRow("audio", { id, text, click })` of `scripts/ui/options.js` before the panel is spawned (its comment says how).
 
 ## Pressing the focused widget in a test
 
@@ -740,6 +778,18 @@ import { storage, audio, window, input, session, i18n, world, ui, game } from "f
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
 
+/**
+ * Speeds of the dialogue text, in characters per second (0 = a whole line at once): the choices of the options "Text speed" row
+ * (project.add_menu_kit with textSpeed: true) and the locale name `options.speed.<name>`. settings.load().textSpeed is the chosen
+ * speed; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds).
+ */
+export const TEXT_SPEEDS = [
+  { name: "slow", cps: 20 },
+  { name: "normal", cps: 45 },
+  { name: "fast", cps: 90 },
+  { name: "instant", cps: 0 },
+];
+
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
 
@@ -765,6 +815,7 @@ function defaults() {
     uiScale: null, // the interface size (ui.scale), or null: keep the factoria.json ui.scale
     reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
+    textSpeed: system.reduceMotion ? 0 : 45, // dialogue text reveal in characters per second (TEXT_SPEEDS), 0 = a whole line at once
   };
 }
 
@@ -774,6 +825,11 @@ export function load() {
   if (saved.windowMode === undefined && typeof saved.fullscreen === "boolean") saved.windowMode = saved.fullscreen ? "fullscreen" : "windowed"; // saved by an older kit
   const base = defaults();
   return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
+}
+
+/** The value for Text.visibleCharacters of a dialogue line `seconds` after it appeared, at the player's text speed: -1 (everything) when the speed is 0. */
+export function revealedCharacters(seconds, s = load()) {
+  return s.textSpeed > 0 ? Math.floor(seconds * s.textSpeed) : -1;
 }
 
 export function save(s) {
@@ -1284,7 +1340,8 @@ export default class StoreEvents extends Behaviour {
           { "id": "sfx_volume", "components": { "Slider": { "autoSize": true, "label": "Effects", "key": "options.volume.effects", "size": [560, 44], "layer": 302 } } },
           { "id": "ui_volume", "components": { "Slider": { "autoSize": true, "label": "Interface", "key": "options.volume.interface", "size": [560, 44], "layer": 302 } } },
           { "id": "read_aloud", "components": { "Toggle": { "autoSize": true, "label": "Read menus aloud", "key": "options.readAloud", "size": [560, 44], "layer": 302 } } },
-          { "id": "subtitles", "components": { "Toggle": { "autoSize": true, "label": "Subtitles", "key": "options.subtitles", "value": true, "size": [560, 44], "layer": 302 } } }
+          { "id": "subtitles", "components": { "Toggle": { "autoSize": true, "label": "Subtitles", "key": "options.subtitles", "value": true, "size": [560, 44], "layer": 302 } } },
+          { "id": "text_speed", "components": { "Button": { "autoSize": true, "text": "Text speed", "size": [560, 44], "layer": 302, "fontSize": 22 } } }
         ] },
       { "id": "controls_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
@@ -1326,6 +1383,27 @@ const UI_SCALES = [0.75, 1, 1.25, 1.5, 2];
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
 const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
+/** @type {Array<{ section: string, id: string, text: () => string, click: () => void }>} */
+const gameRows = [];
+
+/**
+ * Adds a row of the GAME to a section of the options (a Button that the panel keeps in step with the language), without editing the
+ * panel's files. Call it before the panel is spawned: when the module that owns the game's setting loads, or in the host's onStart before
+ * it spawns prefabs/ui/options.prefab.json. `section` is "video", "audio", "controls" or "language". `text()` returns the label (use
+ * i18n.t; it is called again when the language changes and after every click), `click()` changes the setting (save it with
+ * settings.save, the panel does not know it). The section grows by one row; the panel is sized for its Video tab, so a section with more
+ * rows than that needs a taller prefab. A second call with the same id replaces the row.
+ *   addOptionsRow("audio", { id: "screen_shake", text: () => i18n.t("options.shake", { on: s.shake }), click: () => toggleShake() });
+ * @param {string} section
+ * @param {{ id: string, text: () => string, click: () => void }} row
+ */
+export function addOptionsRow(section, row) {
+  if (!TABS.includes(section)) throw new Error(`addOptionsRow: there is no options section "${section}". The sections are ${TABS.join(", ")}.`);
+  const at = gameRows.findIndex((r) => r.id === row.id);
+  if (at >= 0) gameRows.splice(at, 1);
+  gameRows.push({ section, ...row });
+}
+
 export default class Options extends Behaviour {
   runWhilePaused = true; // the pause menu opens it while game.paused
   /**
@@ -1351,14 +1429,18 @@ export default class Options extends Behaviour {
     this.showTab("video");
     this.setupVideo();
     this.setupAudio();
+    this.setupTextSpeed();
     this.setupControls();
     this.setupLanguage();
     this.setupPrivacy();
+    this.setupGameRows();
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
+      this.refreshTextSpeed();
       this.refreshControls();
       this.refreshLanguage();
+      this.refreshGameRows();
     });
   }
 
@@ -1491,6 +1573,54 @@ export default class Options extends Behaviour {
       settings.applySubtitles(this.s);
       settings.save(this.s);
     });
+  }
+
+  // ------------------------------------------------------------------------------------------------------ text speed
+  /** The "Text speed" button (the textSpeed part; without it the prefab has no such row and this does nothing). */
+  setupTextSpeed() {
+    const row = world.find("text_speed");
+    if (!row) return;
+    const panel = world.find("audio_section")?.get("Panel"); // the prefab's panel is sized without the row: grow it by one row, as addOptionsRow() does
+    if (panel) panel.size = [panel.size.x, panel.size.y + 44 + panel.spacing];
+    ui.on("click", "text_speed", () => {
+      const all = settings.TEXT_SPEEDS;
+      const at = all.findIndex((x) => x.cps === this.s.textSpeed);
+      this.s.textSpeed = all[(at + 1) % all.length].cps;
+      settings.save(this.s);
+      this.refreshTextSpeed();
+    });
+    this.refreshTextSpeed();
+  }
+
+  refreshTextSpeed() {
+    const row = world.find("text_speed");
+    if (!row) return;
+    const speed = settings.TEXT_SPEEDS.find((x) => x.cps === this.s.textSpeed);
+    row.get("Button").text = i18n.t("options.textSpeed", { speed: i18n.t(`options.speed.${speed ? speed.name : "custom"}`) });
+  }
+
+  // ------------------------------------------------------------------------------------------------------- game rows
+  /** Builds the buttons of addOptionsRow(). */
+  setupGameRows() {
+    for (const row of gameRows) {
+      const section = world.find(`${row.section}_section`);
+      if (!section || world.find(row.id)) continue;
+      world.spawn({ id: row.id, components: { Button: { text: "", size: [560, 44], fontSize: 22, layer: 302, autoSize: true } } }, { parent: section });
+      const panel = section.get("Panel");
+      panel.size = [panel.size.x, panel.size.y + 44 + panel.spacing];
+      ui.on("click", row.id, () => {
+        row.click();
+        this.refreshGameRows();
+      });
+    }
+    this.refreshGameRows();
+  }
+
+  refreshGameRows() {
+    for (const row of gameRows) {
+      const entity = world.find(row.id);
+      if (entity) entity.get("Button").text = row.text();
+    }
   }
 
   // --------------------------------------------------------------------------------------------------------- controls
@@ -3141,7 +3271,15 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "analytics": "Share anonymous usage data",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent"
+    "percent": "{value} percent",
+    "textSpeed": "Text speed: {speed}",
+    "speed": {
+      "slow": "slow",
+      "normal": "normal",
+      "fast": "fast",
+      "instant": "instant",
+      "custom": "custom"
+    }
   },
   "credits": {
     "madeWith": "Made with FactorIA",
@@ -3182,6 +3320,30 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
   },
   "card": {
     "continue": "Continue"
+  },
+  "slots": {
+    "titleSave": "Save game",
+    "titleLoad": "Load game",
+    "empty": "Slot {n}: empty",
+    "emptyAuto": "Autosave: empty",
+    "used": "Slot {n}: {name}\nChapter {chapter}, {time}",
+    "usedAuto": "Autosave: {name}\nChapter {chapter}, {time}",
+    "damaged": "Slot {n}: damaged (delete it to free the slot)",
+    "damagedAuto": "Autosave: damaged (delete it)",
+    "damagedNote": "A slot cannot be read. Delete it, or load another.",
+    "unnamed": "Unnamed",
+    "autoName": "autosave",
+    "delete": "Delete",
+    "nameTitle": "Name the save in slot {n}",
+    "namePlaceholder": "Name this save",
+    "confirmSave": "Save",
+    "cancel": "Cancel",
+    "deleteTitle": "Delete slot {n}?",
+    "confirmDelete": "Delete",
+    "saved": "Saved to slot {n}.",
+    "noGame": "There is no game to save yet.",
+    "busy": "You cannot save right now.",
+    "noSave": "Saving is not available here."
   }
 }
 ```
@@ -3239,7 +3401,15 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "analytics": "Compartir datos de uso anónimos",
     "on": "activado",
     "off": "desactivado",
-    "percent": "{value} por ciento"
+    "percent": "{value} por ciento",
+    "textSpeed": "Velocidad del texto: {speed}",
+    "speed": {
+      "slow": "lenta",
+      "normal": "normal",
+      "fast": "rápida",
+      "instant": "instantánea",
+      "custom": "personalizada"
+    }
   },
   "credits": {
     "madeWith": "Hecho con FactorIA",
@@ -3280,6 +3450,30 @@ third language by editing the values only (keep the keys and the `{placeholders}
   },
   "card": {
     "continue": "Continuar"
+  },
+  "slots": {
+    "titleSave": "Guardar partida",
+    "titleLoad": "Cargar partida",
+    "empty": "Ranura {n}: vacía",
+    "emptyAuto": "Autoguardado: vacío",
+    "used": "Ranura {n}: {name}\nCapítulo {chapter}, {time}",
+    "usedAuto": "Autoguardado: {name}\nCapítulo {chapter}, {time}",
+    "damaged": "Ranura {n}: dañada (bórrala para liberar la ranura)",
+    "damagedAuto": "Autoguardado: dañado (bórralo)",
+    "damagedNote": "No se puede leer una ranura. Bórrala o carga otra.",
+    "unnamed": "Sin nombre",
+    "autoName": "autoguardado",
+    "delete": "Borrar",
+    "nameTitle": "Nombre de la partida en la ranura {n}",
+    "namePlaceholder": "Ponle un nombre a la partida",
+    "confirmSave": "Guardar",
+    "cancel": "Cancelar",
+    "deleteTitle": "¿Borrar la ranura {n}?",
+    "confirmDelete": "Borrar",
+    "saved": "Guardado en la ranura {n}.",
+    "noGame": "Todavía no hay ninguna partida que guardar.",
+    "busy": "Ahora no se puede guardar.",
+    "noSave": "Aquí no se puede guardar."
   }
 }
 ```
@@ -3309,6 +3503,1216 @@ test("gamepad only: main menu -> options -> music volume -> back, and the volume
   expect(ui.focused.id).toBe("options_button");
   expect(audio.getVolume("music")).toBeCloseTo(0.7);
   expect(storage.get("settings").volume.music).toBeCloseTo(0.7);
+});
+```
+
+### `scripts/slots.js`
+
+The records: `Slots` reads and writes the slots in `storage` (and the cloud when the player is signed in), `formatTime` and `capturePic` help the screen. The game passes `upgrade` (migrate an older save, or say why it cannot be read) and `describe` (chapter and play time of a bare save).
+
+```js scripts/slots.js
+// @ts-check
+// Save slots: named slots and an autosave in `storage`, each a string of JSON text and, when the player is signed in to a store,
+// a copy in the cloud under the same key. A slot holds a RECORD:
+//
+//   { "counter": 7, "name": "Before the cellar", "chapter": 3, "playTime": 3725.5, "pic": "<base64 PNG>" | null, "data": <the game's save> }
+//
+// `data` is whatever the game saves (any JSON); the rest is what the slot screen (scripts/ui/slot_screen.js) shows without opening
+// the slot. `counter` goes up by one on every save (the wall clock is never read): when a cloud copy and a local one differ, the
+// higher counter wins (syncCloud). A text that is not a record (no "data" field) is read as a bare save: a record without a
+// name, picture or counter, so a game can start with plain saves and move to slots later.
+//
+//   const slots = new Slots({ upgrade: (data) => ({ ok: true, data }), describe: (data) => ({ chapter: data.chapter, playTime: data.playTime }) });
+//   slots.write(1, { name: "Before the cellar", data: mySave, chapter: 3, playTime: 3725.5, pic: capturePic() });
+//   const p = slots.peek(1);                  // { status: "used", record } | { status: "empty" } | { status: "damaged", reason, hint }
+//   if (p.status === "used") load(p.record.data);
+//   await slots.syncCloud();                  // when the slot screen opens, and again when the game starts
+//
+// The game decides WHEN it may save (a cut-scene or a loading screen may not) and what is in `data`; this file never looks inside it
+// except through `upgrade` (migrates an older save when it is read) and `describe` (chapter and play time of a bare save).
+import { storage, platform, render } from "factoria";
+
+/** Size of the picture kept with a slot (16:9, a few KB as PNG). */
+export const PIC = Object.freeze({ width: 192, height: 108 });
+
+/** "h:mm:ss" for a number of seconds. */
+export function formatTime(seconds) {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+}
+
+/**
+ * A picture of the game as the player sees it (render.captureTexture), as base64 PNG, or null when nothing real can be drawn (a
+ * headless run has no graphics). Take it before a menu covers the game.
+ * @param {{ width: number, height: number }} [size]
+ */
+export function capturePic(size = PIC) {
+  try {
+    const tex = render.captureTexture({ width: size.width, height: size.height });
+    const png = tex.placeholder ? null : tex.toPNG();
+    tex.destroy();
+    return png;
+  } catch (e) {
+    console.warn(`slots: no picture for the slot: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * @typedef {{ counter: number, name: string, chapter: number, playTime: number, pic: string | null, data: any }} SlotRecord
+ * @typedef {{ ok: true, data: any } | { ok: false, message: string, hint?: string }} Upgraded
+ */
+
+export class Slots {
+  /**
+   * @param {object} [options]
+   * @param {Array<number | string>} [options.ids] the manual slots, default 1 to 5. The slot screen's prefab has a row for each of 1..5 and "auto".
+   * @param {string | null} [options.auto] id of the autosave slot ("auto"); null = no autosave
+   * @param {string} [options.keyPrefix] storage (and cloud) key of slot N is `${keyPrefix}${N}`, "slot1"; the autosave is `${keyPrefix}_${auto}`
+   * @param {string} [options.counterKey] storage key of the highest counter handed out
+   * @param {string} [options.lastKey] storage key of the id of the slot saved last (for a "Continue" button)
+   * @param {(data: any) => Upgraded} [options.upgrade] migrates the data of a slot to the newest layout when it is read; a not-ok result makes the slot "damaged" with that message
+   * @param {(data: any) => { chapter?: number, playTime?: number }} [options.describe] chapter and play time of a bare save (a record's own fields win)
+   */
+  constructor(options = {}) {
+    this.SLOTS = Object.freeze([...(options.ids ?? [1, 2, 3, 4, 5])]);
+    this.AUTO = options.auto === undefined ? "auto" : options.auto;
+    /** Every slot the screen shows, the autosave first. */
+    this.ALL = Object.freeze(this.AUTO === null ? [...this.SLOTS] : [this.AUTO, ...this.SLOTS]);
+    this.keyPrefix = options.keyPrefix ?? "slot";
+    this.counterKey = options.counterKey ?? "saveCounter";
+    this.lastKey = options.lastKey ?? "lastSlot";
+    this.upgrade = options.upgrade ?? ((data) => ({ ok: true, data }));
+    this.describe = options.describe ?? (() => ({}));
+  }
+
+  /** The storage key (and cloud key) of a slot id. */
+  key(id) {
+    return id === this.AUTO ? `${this.keyPrefix}_${id}` : `${this.keyPrefix}${id}`;
+  }
+
+  /**
+   * Reads the text of a slot (or a cloud copy). `{ ok: true, record }` with the data in the newest layout, or `{ ok: false, reason, hint }`
+   * for text that is not JSON, not an object, or refused by `upgrade`. Never throws.
+   * @param {any} text
+   * @returns {{ ok: true, record: SlotRecord } | { ok: false, reason: string, hint: string }}
+   */
+  parse(text) {
+    let raw;
+    try {
+      raw = typeof text === "string" ? JSON.parse(text) : text;
+    } catch (e) {
+      return { ok: false, reason: `not valid JSON (${e.message})`, hint: "Delete the slot." };
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, reason: "not a JSON object", hint: "Delete the slot." };
+    const bare = !Object.hasOwn(raw, "data");
+    let up;
+    try {
+      up = this.upgrade(bare ? raw : raw.data);
+    } catch (e) {
+      up = { ok: false, message: `the save could not be read (${e.message})` };
+    }
+    if (!up.ok) return { ok: false, reason: up.message, hint: up.hint ?? "Delete the slot." };
+    const info = this.describe(up.data) ?? {};
+    const number = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+    return {
+      ok: true,
+      record: {
+        counter: !bare && Number.isInteger(raw.counter) && raw.counter >= 0 ? raw.counter : 0,
+        name: !bare && typeof raw.name === "string" ? raw.name : "",
+        chapter: (bare ? undefined : number(raw.chapter)) || number(info.chapter) || 0,
+        playTime: (bare ? undefined : number(raw.playTime)) ?? number(info.playTime) ?? 0,
+        pic: !bare && typeof raw.pic === "string" && raw.pic !== "" ? raw.pic : null,
+        data: up.data,
+      },
+    };
+  }
+
+  /** What the slot screen shows: `{ status: "empty" | "used" | "damaged", reason?, hint?, record? }`. */
+  peek(id) {
+    const text = storage.get(this.key(id), null);
+    if (text === null) return { status: "empty" };
+    const r = this.parse(text);
+    if (!r.ok) return { status: "damaged", reason: r.reason, hint: r.hint };
+    return { status: "used", record: r.record };
+  }
+
+  /** The id of the slot that was saved last, if it still exists, else null. */
+  last() {
+    const id = storage.get(this.lastKey, null);
+    return id !== null && this.ALL.includes(id) && this.peek(id).status === "used" ? id : null;
+  }
+
+  nextCounter() {
+    let top = storage.get(this.counterKey, 0);
+    for (const id of this.ALL) {
+      const p = this.peek(id);
+      if (p.status === "used") top = Math.max(top, p.record.counter);
+    }
+    storage.set(this.counterKey, top + 1);
+    return top + 1;
+  }
+
+  /**
+   * Saves into slot `id`: the record gets the next counter, is written to storage and uploaded to the cloud when the player is signed in
+   * (a failed upload never matters: the local save stands). `name` is trimmed; empty stays empty (the screen shows "Unnamed").
+   * Returns the record.
+   * @param {number | string} id
+   * @param {{ data: any, name?: string, chapter?: number, playTime?: number, pic?: string | null }} save
+   * @returns {SlotRecord}
+   */
+  write(id, { data, name = "", chapter = 0, playTime = 0, pic = null }) {
+    const record = { counter: this.nextCounter(), name: String(name).trim(), chapter, playTime, pic, data };
+    const text = JSON.stringify(record);
+    storage.set(this.key(id), text);
+    storage.set(this.lastKey, id);
+    this.upload(id, text);
+    return record;
+  }
+
+  /** Empties slot `id` here and in the cloud (otherwise the next sync would bring it back). */
+  remove(id) {
+    storage.remove(this.key(id));
+    if (storage.get(this.lastKey, null) === id) storage.remove(this.lastKey);
+    if (platform.has("cloudSave")) platform.cloud.remove(this.key(id)).catch(() => {}); // a failed delete can come back at the next sync
+  }
+
+  upload(id, text) {
+    if (platform.has("cloudSave")) platform.cloud.save(this.key(id), text).catch(() => {}); // the local save stands whatever the store says
+  }
+
+  /**
+   * Compares every slot with its cloud copy: the one with the higher counter wins (a cloud copy replaces the local slot, a better
+   * local one is uploaded). A store that is down or a player who is not signed in changes nothing. Resolves with true when a local
+   * slot was replaced. The caller checks that its scene is still the current one before it draws the result.
+   */
+  async syncCloud() {
+    if (!platform.has("cloudSave")) return false;
+    let replaced = false;
+    for (const id of this.ALL) {
+      try {
+        const cloud = await platform.cloud.load(this.key(id));
+        const local = this.peek(id);
+        const remote = cloud === undefined || cloud === null ? null : this.parse(cloud);
+        if (remote?.ok && (local.status !== "used" || remote.record.counter > local.record.counter)) {
+          storage.set(this.key(id), JSON.stringify(remote.record));
+          replaced = true;
+        } else if (local.status === "used" && (!remote?.ok || local.record.counter > remote.record.counter)) {
+          this.upload(id, storage.get(this.key(id)));
+        }
+      } catch {
+        return replaced; // offline or signed out: keep what is here
+      }
+    }
+    return replaced;
+  }
+}
+```
+
+### `scripts/ui/slot_screen.js`
+
+The screen: the host (pause menu, title screen) builds one `SlotScreen` with its `MenuStack` and opens it in `"save"` or `"load"` mode.
+
+```js scripts/ui/slot_screen.js
+// @ts-check
+// The save / load screen (prefabs/ui/slots.prefab.json) and the small dialog that names a save or asks before a delete
+// (prefabs/ui/slot_dialog.prefab.json). Not a behaviour: the pause menu (save and load) and the title screen (load) each build one
+// with their MenuStack and call tick() every frame.
+//
+//   const slots = new Slots();                                 // scripts/slots.js: the records
+//   const screen = new SlotScreen(menus, {
+//     slots,
+//     launch: (data) => startGameFrom(data),                    // load: put the game back from a slot's data -> { ok, message?, hint? }
+//     snapshot: () => ({ data: mySave(), chapter: 3, playTime: 3725.5 }),   // save: what goes into the slot
+//     cannotSave: () => (cutscene ? "slots.busy" : ""),         // a string-table key saying why saving is not possible now, or ""
+//     defaultName: () => i18n.t("level.title"),                 // the name of a save the player left unnamed
+//     getPic: () => this.pic,                                   // the picture to keep with a save (capturePic() taken before the menu opened) or null
+//   });
+//   screen.open("save");  // or "load"
+//
+// Six rows: the autosave (never a save target) and the five slots, each with its picture, name, chapter and play time. Mouse, touch and
+// gamepad all use the same Buttons. Saving a slot opens the dialog with a TextField for the name (the on-screen keyboard of
+// scripts/ui/keyboard.js opens by itself for a gamepad player, and its entity is spawned here); Enter or Done saves, Cancel / Escape / B
+// goes back. The host's ui.on("cancel") handler returns screen.cancel() first, which closes the dialog and consumes the press (ui_cancel).
+// The cloud copies are compared when the screen opens (slots.syncCloud) and the rows are drawn again if one replaced a slot.
+import { ui, i18n, world, scene, render } from "factoria";
+import { MenuStack } from "./menu_stack.js";
+import OnScreenKeyboard from "./keyboard.js";
+import { formatTime } from "../slots.js";
+
+export class SlotScreen {
+  /**
+   * @param {MenuStack} menus the host's panel stack
+   * @param {object} opts
+   * @param {import("../slots.js").Slots} opts.slots the records
+   * @param {(data: any) => { ok: boolean, message?: string, hint?: string }} [opts.launch] load mode: starts playing from a slot's data; not ok = it shows `message` and `hint` on the screen. Without it the screen only saves.
+   * @param {() => { data: any, chapter?: number, playTime?: number }} [opts.snapshot] save mode: what goes into the slot (the screen adds the name and the picture). Without it (and without `save`) the screen only loads.
+   * @param {(id: number | string, save: { name: string, pic: string | null }) => (import("../slots.js").SlotRecord | null)} [opts.save] save mode, instead of `snapshot`: writes the slot yourself (slots.write) and returns the record, or null when the game cannot be saved now
+   * @param {() => string} [opts.cannotSave] a string-table key that says why saving is not possible now ("" = it is); the save rows are greyed out and the key is the note under the title
+   * @param {() => string} [opts.defaultName] the name offered for a new save (and used when the player clears the field)
+   * @param {() => (string | null)} [opts.getPic] the picture to keep with a save (base64 PNG) or null
+   */
+  constructor(menus, opts) {
+    this.menus = menus;
+    this.slots = opts.slots;
+    this.launch = opts.launch ?? null;
+    this.snapshot = opts.snapshot ?? null;
+    this.saveSlot = opts.save ?? null;
+    this.cannotSave = opts.cannotSave ?? (() => (this.saveSlot || this.snapshot ? "" : "slots.noSave"));
+    this.defaultName = opts.defaultName ?? (() => "");
+    this.getPic = opts.getPic ?? (() => null);
+    /** "save" | "load" */
+    this.mode = "load";
+    /** The line under the title: a result ("Saved to slot 2."), else why saving is not possible, else nothing. */
+    this.message = "";
+    /** @type {{ kind: "name" | "delete", id: any } | null} */
+    this.dialog = null;
+    /** Runtime textures of the pictures shown, freed before they are drawn again. */
+    this.pics = [];
+    this.kbWasOpen = false;
+    for (const id of ["slots", "slot_dialog"]) {
+      const panel = world.spawnPrefab(`prefabs/ui/${id}.prefab.json`);
+      panel.id = id; // MenuStack shows panels by id
+      panel.active = false;
+    }
+    // The on-screen keyboard for a gamepad player who names a save (it opens by itself on a TextField).
+    world.spawn({ id: "keyboard_host", components: { Script: { path: "scripts/ui/keyboard.js" } } });
+    for (const id of this.slots.ALL) {
+      ui.on("click", `slot_${id}`, () => this.pick(id));
+      ui.on("click", `delete_${id}`, () => this.openDialog("delete", id));
+    }
+    ui.on("click", "dialog_confirm", () => this.confirm());
+    ui.on("click", "dialog_cancel", () => this.closeDialog());
+    ui.on("submit", "save_name", () => this.confirm());
+    i18n.on("change", () => this.menus.top === "slots" && this.refresh());
+  }
+
+  /** Call every frame: remembers whether the on-screen keyboard was open before this frame's presses. */
+  tick() {
+    this.kbWasOpen = OnScreenKeyboard.isOpen;
+  }
+
+  /**
+   * The host calls this for Escape / the pad's B: while the dialog is on top it closes it (but not when the on-screen keyboard was open
+   * at the start of the frame: that press only closes the keyboard) and returns true, so the host does not also go back.
+   */
+  cancel() {
+    if (!this.dialogOpen) return false;
+    if (!this.kbWasOpen) this.closeDialog();
+    return true;
+  }
+
+  /** True while the dialog is the panel on top. */
+  get dialogOpen() {
+    return this.menus.top === "slot_dialog";
+  }
+
+  /** Shows the screen in mode "save" or "load". */
+  open(mode) {
+    this.mode = mode;
+    this.message = "";
+    this.menus.show("slots");
+    this.refresh();
+    this.focusFirst();
+    const generation = scene.generation; // a reload of the same scene counts too
+    this.slots
+      .syncCloud()
+      .then((changed) => {
+        if (changed && scene.generation === generation && this.menus.top === "slots") this.refresh(); // the scene may be gone by now
+      })
+      .catch(() => {});
+  }
+
+  focusFirst() {
+    let first = "slots_back";
+    if (this.mode === "save") {
+      if (!this.cannotSave()) first = "slot_1";
+    } else {
+      const id = this.slots.ALL.find((i) => this.slots.peek(i).status === "used");
+      if (id !== undefined) first = `slot_${id}`;
+    }
+    ui.focus(world.find(first));
+  }
+
+  /** Frees the runtime textures (the host calls it when the scene goes). */
+  dispose() {
+    for (const id of this.slots.ALL) {
+      const row = world.find(`pic_${id}`);
+      if (row) row.get("Panel").texture = "";
+    }
+    for (const tex of this.pics) tex.destroy();
+    this.pics = [];
+  }
+
+  /** Writes the rows from the slots. */
+  refresh() {
+    this.dispose();
+    const reason = this.mode === "save" ? this.cannotSave() : "";
+    let damaged = false;
+    for (const id of this.slots.ALL) {
+      const p = this.slots.peek(id);
+      const auto = id === this.slots.AUTO;
+      const button = world.find(`slot_${id}`).get("Button");
+      if (p.status === "used") {
+        const r = p.record;
+        button.text = i18n.t(auto ? "slots.usedAuto" : "slots.used", {
+          n: id,
+          name: r.name || i18n.t("slots.unnamed"),
+          chapter: r.chapter,
+          time: formatTime(r.playTime),
+        });
+      } else if (p.status === "damaged") {
+        button.text = i18n.t(auto ? "slots.damagedAuto" : "slots.damaged", { n: id });
+        damaged = true;
+      } else {
+        button.text = i18n.t(auto ? "slots.emptyAuto" : "slots.empty", { n: id });
+      }
+      button.interactable = this.mode === "save" ? !auto && !reason : p.status === "used";
+      world.find(`delete_${id}`).get("Button").interactable = p.status !== "empty";
+      const pic = world.find(`pic_${id}`).get("Panel");
+      if (p.status === "used" && p.record.pic) {
+        try {
+          const tex = render.textureFromPNG(p.record.pic);
+          this.pics.push(tex);
+          pic.texture = tex.id;
+          pic.color = [1, 1, 1, 1];
+        } catch (e) {
+          console.warn(`slots: the picture of slot ${id} is not an image: ${e.message}`);
+          pic.color = [0.08, 0.09, 0.12, 1];
+        }
+      } else pic.color = [0.08, 0.09, 0.12, 1];
+    }
+    world.find("slots_title").get("Text").text = i18n.t(this.mode === "save" ? "slots.titleSave" : "slots.titleLoad");
+    const note = this.message || (reason ? i18n.t(reason) : damaged ? i18n.t("slots.damagedNote") : "");
+    world.find("slots_note").get("Text").text = note;
+  }
+
+  pick(id) {
+    const p = this.slots.peek(id);
+    if (this.mode === "load") {
+      if (p.status !== "used") return;
+      this.dispose();
+      const r = this.launch ? this.launch(p.record.data) : { ok: false, message: "this screen has no launch()", hint: "pass launch to the SlotScreen" };
+      if (!r.ok) {
+        this.message = `${r.message}. ${r.hint ?? ""}`;
+        this.refresh();
+      }
+      return;
+    }
+    if (id === this.slots.AUTO || this.cannotSave()) return;
+    this.openDialog("name", id);
+  }
+
+  /** Writes slot `id`; null when the game cannot be saved now. */
+  write(id, typed) {
+    if (this.cannotSave()) return null;
+    const name = typed.trim() || this.defaultName();
+    const pic = this.getPic();
+    if (this.saveSlot) return this.saveSlot(id, { name, pic });
+    if (!this.snapshot) return null;
+    return this.slots.write(id, { ...this.snapshot(), name, pic });
+  }
+
+  openDialog(kind, id) {
+    this.dialog = { kind, id };
+    const name = world.find("save_name");
+    const field = name.get("TextField");
+    if (kind === "name") {
+      const p = this.slots.peek(id);
+      field.text = p.status === "used" ? p.record.name : this.defaultName();
+      world.find("dialog_title").get("Text").text = i18n.t("slots.nameTitle", { n: id });
+      world.find("dialog_confirm").get("Button").text = i18n.t("slots.confirmSave");
+    } else {
+      world.find("dialog_title").get("Text").text = i18n.t("slots.deleteTitle", { n: id === this.slots.AUTO ? i18n.t("slots.autoName") : id });
+      world.find("dialog_confirm").get("Button").text = i18n.t("slots.confirmDelete");
+    }
+    this.menus.show("slot_dialog");
+    name.active = kind === "name";
+    ui.focus(world.find(kind === "name" ? "save_name" : "dialog_cancel"));
+  }
+
+  closeDialog() {
+    this.dialog = null;
+    this.menus.back(); // gives the focus back to the button that opened the dialog
+    this.refresh();
+  }
+
+  confirm() {
+    const d = this.dialog;
+    if (!d || this.menus.top !== "slot_dialog") return;
+    if (d.kind === "name") {
+      const record = this.write(d.id, world.find("save_name").get("TextField").text);
+      this.message = record ? i18n.t("slots.saved", { n: d.id }) : i18n.t(this.cannotSave() || "slots.busy");
+    } else {
+      this.slots.remove(d.id);
+      this.message = "";
+    }
+    this.closeDialog();
+    if (d.kind === "name") ui.focus(world.find(`slot_${d.id}`));
+    else this.focusFirst();
+  }
+}
+```
+
+### `prefabs/ui/slots.prefab.json`
+
+The panel: a row per slot (picture, name, chapter and play time, a Delete button) and a Back button.
+
+```json prefabs/ui/slots.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Slots",
+    "components": {
+      "Panel": {
+        "size": [980, 640],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 10,
+        "padding": [20, 16, 20, 16],
+        "color": [0.06, 0.07, 0.1, 0.97]
+      }
+    },
+    "children": [
+      {
+        "id": "slots_title",
+        "components": {
+          "Text": {
+            "text": "Save game",
+            "fontSize": 36,
+            "space": "screen",
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "slots_note",
+        "components": {
+          "Text": {
+            "text": "",
+            "fontSize": 20,
+            "space": "screen",
+            "layer": 301,
+            "maxWidth": 900
+          }
+        }
+      },
+      {
+        "id": "slots_list",
+        "components": {
+          "ScrollList": {
+            "size": [940, 420],
+            "layer": 301,
+            "spacing": 8,
+            "padding": [6, 6, 6, 6],
+            "color": [0, 0, 0, 0.25]
+          }
+        },
+        "children": [
+          {
+            "id": "row_auto",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_auto",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_auto",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_auto",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_1",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_1",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_1",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_1",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_2",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_2",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_2",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_2",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_3",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_3",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_3",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_3",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_4",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_4",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_4",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_4",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_5",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_5",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_5",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_5",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "slots_back",
+        "tags": ["back"],
+        "components": {
+          "Button": {
+            "text": "Back",
+            "key": "menu.back",
+            "autoSize": true,
+            "layer": 302
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+### `prefabs/ui/slot_dialog.prefab.json`
+
+The dialog that names a save or confirms a delete.
+
+```json prefabs/ui/slot_dialog.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "SlotDialog",
+    "components": {
+      "Panel": {
+        "anchor": [0.5, 0.5],
+        "layer": 310,
+        "layout": "column",
+        "spacing": 14,
+        "padding": [28, 24, 28, 24],
+        "fit": true,
+        "minSize": [560, 0],
+        "color": [0.06, 0.07, 0.1, 0.97]
+      }
+    },
+    "children": [
+      {
+        "id": "dialog_title",
+        "components": {
+          "Text": {
+            "text": "Name this save",
+            "fontSize": 30,
+            "space": "screen",
+            "layer": 311,
+            "maxWidth": 520
+          }
+        }
+      },
+      {
+        "id": "save_name",
+        "components": {
+          "TextField": {
+            "size": [500, 52],
+            "layer": 311,
+            "maxLength": 28,
+            "placeholder": "Name this save",
+            "key": "slots.namePlaceholder"
+          }
+        }
+      },
+      {
+        "id": "dialog_buttons",
+        "components": {
+          "Panel": {
+            "layer": 311,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 12,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "dialog_confirm",
+            "components": {
+              "Button": {
+                "text": "Save",
+                "key": "slots.confirmSave",
+                "autoSize": true,
+                "layer": 312
+              }
+            }
+          },
+          {
+            "id": "dialog_cancel",
+            "components": {
+              "Button": {
+                "text": "Cancel",
+                "key": "slots.cancel",
+                "autoSize": true,
+                "layer": 312
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### `tests/slots.test.js`
+
+The kit's test of the slots part: records, the cloud merge, the screen's save, load and delete, and a cloud answer that arrives after the scene is gone.
+
+```js tests/slots.test.js
+// The save slots (scripts/slots.js) and their screen (scripts/ui/slot_screen.js): the record, the counter, a bare save, a damaged
+// slot, the cloud merge by counter, the screen's save dialog (a name typed, the default name, cancel), loading, deleting (the cloud
+// copy too) and a game that cannot be saved right now. The scene is built here, so this test passes in any game that has the slots part.
+import { test, expect, game } from "factoria:test";
+import { world, ui, storage, platform, scene } from "factoria";
+import { MenuStack } from "../scripts/ui/menu_stack.js";
+import { Slots, formatTime } from "../scripts/slots.js";
+import { SlotScreen } from "../scripts/ui/slot_screen.js";
+
+// A 1x1 PNG: a picture that is certainly valid, whatever a headless renderer captures.
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+const label = (id) => world.find(id).get("Button").text;
+
+/** The slots of this test's imaginary game: its save is { level, gold } and a save with "old" in it is from a game version nobody can read. */
+function makeSlots() {
+  return new Slots({
+    upgrade: (data) => (data.old ? { ok: false, message: "this save is from an older version", hint: "Delete the slot." } : { ok: true, data }),
+    describe: (data) => ({ chapter: data.level, playTime: data.seconds }),
+  });
+}
+
+/** Lets the store's answers through (they are Promises). */
+async function settle() {
+  for (let frame = 0; frame < 12; frame++) {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    game.step(1);
+  }
+}
+
+/** A clean run: empty storage, a signed-in fake store, an empty scene. */
+function clean() {
+  storage.clear();
+  game.platform.reset();
+  game.loadJson({ format: "factoria.scene/1", entities: [] });
+  game.step(2);
+}
+
+/** The screen over a menu stack of its own, for a game that can always be saved except when `state.busy`. */
+function openScreen(mode, state = { busy: false, level: 3, loaded: [] }, seed = () => {}) {
+  clean();
+  const slots = makeSlots();
+  seed(slots);
+  const menus = new MenuStack(null);
+  const screen = new SlotScreen(menus, {
+    slots,
+    snapshot: () => ({ data: { level: state.level, gold: 40, seconds: 3725.5 }, chapter: state.level, playTime: 3725.5 }),
+    launch: (data) => {
+      state.loaded.push(data);
+      return { ok: true };
+    },
+    cannotSave: () => (state.busy ? "slots.busy" : ""),
+    defaultName: () => `Level ${state.level}`,
+    getPic: () => PNG,
+  });
+  screen.open(mode);
+  game.step(2);
+  return { slots, menus, screen, state };
+}
+
+test("a record: counter, name, chapter, play time, picture and data; the counter goes up by one on every save", () => {
+  clean();
+  const slots = makeSlots();
+  expect(slots.ALL).toEqual(["auto", 1, 2, 3, 4, 5]);
+  expect(slots.key(2)).toBe("slot2");
+  expect(slots.key("auto")).toBe("slot_auto");
+  expect(slots.peek(1).status).toBe("empty");
+  const a = slots.write(1, { data: { level: 2, gold: 5, seconds: 70 }, name: "  Before the cellar  ", chapter: 2, playTime: 70, pic: PNG });
+  const b = slots.write(2, { data: { level: 3, gold: 9, seconds: 80 }, chapter: 3, playTime: 80 });
+  expect([a.counter, b.counter]).toEqual([1, 2]);
+  const p = slots.peek(1);
+  expect(p.status).toBe("used");
+  expect(p.record).toEqual({ counter: 1, name: "Before the cellar", chapter: 2, playTime: 70, pic: PNG, data: { level: 2, gold: 5, seconds: 70 } });
+  expect(slots.peek(2).record.pic).toBe(null);
+  expect(slots.last()).toBe(2);
+  slots.remove(2);
+  expect(slots.peek(2).status).toBe("empty");
+  expect(slots.last()).toBe(null);
+  expect(slots.write(3, { data: { level: 1 } }).counter).toBe(3); // a removed slot's counter is not given again
+  expect(formatTime(3725.5)).toBe("1:02:05");
+  expect(formatTime(-4)).toBe("0:00:00");
+});
+
+test("a bare save is read as a record without a name; text that is not a save damages the slot with a reason", () => {
+  clean();
+  const slots = makeSlots();
+  storage.set("slot1", JSON.stringify({ level: 4, gold: 1, seconds: 125 })); // no "data" field: the game's save as it is
+  const bare = slots.peek(1);
+  expect(bare.status).toBe("used");
+  expect(bare.record).toEqual({ counter: 0, name: "", chapter: 4, playTime: 125, pic: null, data: { level: 4, gold: 1, seconds: 125 } });
+  storage.set("slot2", "{ not json");
+  storage.set("slot3", "[1, 2]");
+  storage.set("slot4", JSON.stringify({ counter: 3, name: "x", data: { old: true } }));
+  for (const id of [2, 3, 4]) {
+    const p = slots.peek(id);
+    expect(p.status).toBe("damaged");
+    expect(p.reason.length).toBeGreaterThan(0);
+    expect(p.hint).toBeTruthy();
+  }
+  expect(slots.peek(4).reason).toBe("this save is from an older version");
+  expect(slots.parse("{ not json").ok).toBe(false);
+  expect(slots.nextCounter()).toBe(1); // counters of readable slots only: the damaged slot 4 (counter 3) does not count
+});
+
+test("the cloud: a save is uploaded, a delete removes the copy, the higher counter wins, failures never lose the local save", async () => {
+  clean();
+  const slots = makeSlots();
+  slots.write(2, { data: { level: 1 }, name: "Cloudy" });
+  await settle();
+  expect(Object.keys(game.platform.state().fake.cloud)).toContain("slot2");
+  expect(JSON.parse(await platform.cloud.load("slot2")).name).toBe("Cloudy");
+  slots.remove(2);
+  await settle();
+  expect(Object.keys(game.platform.state().fake.cloud)).not.toContain("slot2");
+  expect(await slots.syncCloud()).toBe(false);
+  expect(slots.peek(2).status).toBe("empty");
+
+  const rec = (counter, name) => JSON.stringify({ counter, name, chapter: 1, playTime: 10, pic: null, data: { level: 1 } });
+  storage.set("slot1", rec(2, "local old"));
+  storage.set("slot2", rec(9, "local new"));
+  storage.set("slot3", "{ damaged");
+  await platform.cloud.save("slot1", rec(4, "cloud new"));
+  await platform.cloud.save("slot2", rec(3, "cloud old"));
+  await platform.cloud.save("slot3", rec(1, "cloud only"));
+  expect(await slots.syncCloud()).toBe(true);
+  expect(slots.peek(1).record.name).toBe("cloud new");
+  expect(slots.peek(2).record.name).toBe("local new");
+  expect(JSON.parse(await platform.cloud.load("slot2")).counter).toBe(9); // the better local one went up
+  expect(slots.peek(3).record.name).toBe("cloud only");
+
+  game.platform.respond("cloud.save", { error: "network" });
+  expect(slots.write(1, { data: { level: 1 }, name: "Offline" })).toBeTruthy();
+  await settle();
+  expect(slots.peek(1).record.name).toBe("Offline");
+  game.platform.set({ backend: "none" }); // no store: nothing to do
+  expect(await slots.syncCloud()).toBe(false);
+  expect(slots.write(2, { data: { level: 1 }, name: "No store" })).toBeTruthy();
+  game.platform.reset();
+});
+
+test("the screen saves: a click on a slot asks for a name; typing one and Save writes it with the picture", () => {
+  const { slots, menus } = openScreen("save");
+  expect(world.find("slots").active).toBe(true);
+  expect(world.find("slots_title").get("Text").text).toBe("Save game");
+  expect(world.find("slot_auto").get("Button").interactable).toBe(false); // the autosave is never a target
+  expect(label("slot_1")).toBe("Slot 1: empty");
+  expect(ui.focused.id).toBe("slot_1");
+  game.click(world.find("slot_1"));
+  game.step(2);
+  expect(menus.top).toBe("slot_dialog");
+  const field = world.find("save_name").get("TextField");
+  expect(field.text).toBe("Level 3"); // the default name
+  field.text = "";
+  game.typeText("Pale oil");
+  game.step(2);
+  game.click(world.find("dialog_confirm"));
+  game.step(2);
+  const r = slots.peek(1).record;
+  expect([r.name, r.chapter, r.playTime, r.pic]).toEqual(["Pale oil", 3, 3725.5, PNG]);
+  expect(r.data).toEqual({ level: 3, gold: 40, seconds: 3725.5 });
+  expect(menus.top).toBe("slots");
+  expect(label("slot_1")).toBe("Slot 1: Pale oil\nChapter 3, 1:02:05");
+  expect(world.find("slots_note").get("Text").text).toBe("Saved to slot 1.");
+  expect(world.find("pic_1").get("Panel").texture).not.toBe("");
+  expect(world.find("pic_2").get("Panel").texture).toBe("");
+});
+
+test("an empty name saves under the default one; cancel writes nothing and Escape closes the dialog before the screen", () => {
+  const { slots, menus, screen } = openScreen("save");
+  game.click(world.find("slot_2"));
+  game.step(2);
+  world.find("save_name").get("TextField").text = "   ";
+  game.click(world.find("dialog_confirm"));
+  game.step(2);
+  expect(slots.peek(2).record.name).toBe("Level 3");
+  game.click(world.find("slot_3"));
+  game.step(2);
+  expect(screen.dialogOpen).toBe(true);
+  expect(screen.cancel()).toBe(true); // what the host's ui.on("cancel") handler asks first
+  game.step(1);
+  expect(menus.top).toBe("slots");
+  expect(slots.peek(3).status).toBe("empty");
+  expect(screen.cancel()).toBe(false); // nothing to close: the host goes back itself
+});
+
+test("the screen loads: only used slots can be picked, and the slot's data reaches launch()", () => {
+  const state = { busy: false, level: 3, loaded: [] };
+  clean();
+  const first = makeSlots();
+  first.write(4, { data: { level: 2, gold: 7, seconds: 9 }, name: "Night 4", chapter: 2, playTime: 9 });
+  storage.set("slot5", "{ damaged");
+  const menus = new MenuStack(null);
+  const screen = new SlotScreen(menus, { slots: makeSlots(), launch: (data) => (state.loaded.push(data), { ok: true }) });
+  screen.open("load");
+  game.step(2);
+  expect(world.find("slots_title").get("Text").text).toBe("Load game");
+  expect(ui.focused.id).toBe("slot_4"); // the first used slot
+  expect(world.find("slot_1").get("Button").interactable).toBe(false);
+  expect(label("slot_5")).toContain("damaged");
+  expect(world.find("slots_note").get("Text").text).toContain("cannot be read");
+  game.click(world.find("slot_1"));
+  game.step(1);
+  expect(state.loaded.length).toBe(0);
+  game.click(world.find("slot_4"));
+  game.step(1);
+  expect(state.loaded).toEqual([{ level: 2, gold: 7, seconds: 9 }]);
+  screen.dispose();
+});
+
+test("a load that fails says why on the screen", () => {
+  clean();
+  const slots = makeSlots();
+  slots.write(1, { data: { level: 1 }, name: "Broken" });
+  const screen = new SlotScreen(new MenuStack(null), { slots, launch: () => ({ ok: false, message: "the level is gone", hint: "Start again." }) });
+  screen.open("load");
+  game.step(2);
+  game.click(world.find("slot_1"));
+  game.step(1);
+  expect(world.find("slots_note").get("Text").text).toBe("the level is gone. Start again.");
+});
+
+test("a delete asks first and removes the slot and its cloud copy", async () => {
+  const { slots } = openScreen("load", undefined, (slots) => slots.write(3, { data: { level: 1 }, name: "Under the stairs" }));
+  await settle();
+  expect(Object.keys(game.platform.state().fake.cloud)).toContain("slot3");
+  expect(label("slot_3")).toContain("Under the stairs");
+  game.click(world.find("delete_3"));
+  game.step(2);
+  expect(world.find("slot_dialog").active).toBe(true);
+  expect(world.find("save_name").active).toBe(false); // a delete asks, it does not name
+  game.click(world.find("dialog_confirm"));
+  game.step(2);
+  await settle();
+  expect(slots.peek(3).status).toBe("empty");
+  expect(label("slot_3")).toBe("Slot 3: empty");
+  expect(Object.keys(game.platform.state().fake.cloud)).not.toContain("slot3");
+});
+
+test("a game that cannot be saved right now greys the slots out and says why", () => {
+  const { slots, menus } = openScreen("save", { busy: true, level: 1, loaded: [] });
+  expect(world.find("slot_1").get("Button").interactable).toBe(false);
+  expect(world.find("slots_note").get("Text").text).toBe("You cannot save right now.");
+  game.click(world.find("slot_1"));
+  game.step(1);
+  expect(menus.top).toBe("slots"); // no dialog
+  expect(slots.peek(1).status).toBe("empty");
+});
+
+/** A screen opened while the cloud holds a better copy of slot 4; counts how often it draws its rows. */
+async function openWithCloudCopy() {
+  clean();
+  const slots = makeSlots();
+  await platform.cloud.save("slot4", JSON.stringify({ counter: 5, name: "From the cloud", chapter: 1, playTime: 1, pic: null, data: { level: 1 } }));
+  const screen = new SlotScreen(new MenuStack(null), { slots });
+  const counter = { draws: 0 };
+  const draw = screen.refresh.bind(screen);
+  screen.refresh = () => (counter.draws++, draw());
+  screen.open("load"); // draws the rows once; the store's answer comes later, not before this test lets a frame or a Promise through
+  return { slots, counter };
+}
+
+test("the cloud answer redraws the screen while its scene is current", async () => {
+  const { counter } = await openWithCloudCopy();
+  const before = counter.draws;
+  await settle();
+  expect(counter.draws).toBeGreaterThan(before);
+  expect(label("slot_4")).toContain("From the cloud");
+});
+
+test("the cloud answer draws nothing into a scene that replaced the screen's", async () => {
+  const { slots, counter } = await openWithCloudCopy();
+  const before = counter.draws;
+  const generation = scene.generation;
+  game.loadJson({ format: "factoria.scene/1", entities: [] });
+  game.step(2);
+  expect(scene.generation).not.toBe(generation);
+  await settle();
+  expect(counter.draws).toBe(before);
+  expect(slots.peek(4).record.name).toBe("From the cloud"); // the sync still stored the copy
 });
 ```
 
