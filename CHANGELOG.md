@@ -4,6 +4,11 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Fixed
+
+- `factoria validate` no longer reports a built-in font set in a scene or prefab (`"font": "builtin:display"`, or one face
+  such as `builtin:serif#bold`) as a missing project file; a misspelt one is named with a "did you mean" (seen in Roguestory).
+
 Several AI chats at the same time
 
 - The editor's AI panel can run up to 3 chats at once (`limits.maxConcurrentRuns` in `ai.json`, 1 to 8; before, one chat ran

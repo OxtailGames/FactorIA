@@ -123,3 +123,26 @@ TEST_CASE("validate: export.exclude is checked, a glob that matches nothing is a
     CHECK(find_issue(r.errors, "factoria.json", "/export/exclude/0") != nullptr);
     CHECK(find_issue(r.errors, "factoria.json", "/export/exclude/1") != nullptr);
 }
+
+TEST_CASE("validate: a built-in font in a scene is the engine's, not a missing project file; a misspelt one is named") {
+    testing::TempDir tmp;
+    const std::string dir = tmp.sub("game");
+    REQUIRE(create_project(dir, "2d-empty").ok());
+    testing::write_all(stdfs::path(dir) / "scenes/fonts.scene.json", R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        {"id": "title", "components": {"Text": {"text": "Roguestory", "font": "builtin:display"}}},
+        {"id": "body", "components": {"Text": {"text": "Once", "font": "builtin:serif#bold"}}},
+        {"id": "plain", "components": {"Text": {"text": "Hi", "font": "builtin"}}},
+        {"id": "typo", "components": {"Text": {"text": "Oops", "font": "builtin:serfi"}}}
+      ]
+    })");
+
+    const ValidationReport r = validate_project(dir);
+    for (const char* ok : {"/entities/0/components/Text/font", "/entities/1/components/Text/font", "/entities/2/components/Text/font"})
+        CHECK(find_issue(r.errors, "scenes/fonts.scene.json", ok) == nullptr);
+    const ValidationIssue* typo = find_issue(r.errors, "scenes/fonts.scene.json", "/entities/3/components/Text/font");
+    REQUIRE(typo != nullptr);
+    CHECK(typo->message.find("Unknown built-in font 'builtin:serfi'") != std::string::npos);
+    CHECK(typo->hint.find("Did you mean 'builtin:serif'?") != std::string::npos);
+}
