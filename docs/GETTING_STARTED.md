@@ -375,7 +375,7 @@ Each task uses a role. In `~/.factoria/ai.json` you can assign a provider and a 
 | Worker (`worker`) | Implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
 | Fast (`fast`) | Small, mechanical changes | `claude-haiku-5-5`, effort `max` |
 
-`factoria ai run` uses the orchestrator role unless you pass another one with `--role orchestrator|worker|fast`. You can also choose the provider and model with `--provider` and `--model`, and limit the run with `--max-turns` and `--max-cost` (in dollars).
+`factoria ai run` uses the orchestrator role unless you pass another one with `--role orchestrator|worker|fast|artist|audio` (the art critics and game reviewers run with `factoria ai review`, see `docs/AI_PROVIDERS.md`). You can also choose the provider and model with `--provider` and `--model`, and limit the run with `--max-turns` and `--max-cost` (in dollars).
 
 The `maxTurns` (number of steps) and `maxCostUsd` (maximum cost in dollars) limits stop a run when they are reached. Cost figures are estimates: the provider's invoice is what counts. `docs/AI_COSTS.md` (`factoria docs read ai-costs`) says what a whole game cost in tokens and money, what drives it and how to cap it. The two limits are enforced for API providers; Claude Code and Codex run their own loop, so their ceiling is the plan.
 

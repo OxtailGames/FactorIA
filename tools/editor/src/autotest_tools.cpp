@@ -293,6 +293,28 @@ public:
 private:
     int delayMs_;
 };
+// Section U's reviewer: no tool calls, one report that ends in the score block. It records the tools it was offered, so the
+// test can see that a read-only role really is not given the ones that change the project.
+std::vector<std::string> g_reviewToolsOffered;
+class ReviewerProvider : public ai::ChatProvider {
+public:
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks, const ai::CancelFlag*) override {
+        g_reviewToolsOffered.clear();
+        for (const ai::ToolDef& t : req.tools) g_reviewToolsOffered.push_back(t.name);
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 900;
+        r.usage.outputTokens = 60;
+        r.message.text =
+            "The first minute is clear and the controls answer at once.\n\n```json\n"
+            "{\"score\": 7.5, \"subScores\": {\"fun\": 8, \"polish\": 6}, \"summary\": \"Clear and quick\"}\n```";
+        if (hooks.onText) hooks.onText(r.message.text);
+        r.stopReason = ai::StopReason::EndTurn;
+        return r;
+    }
+};
 }  // namespace
 
 void Editor::at_build_tools_script() {
@@ -2846,6 +2868,92 @@ void Editor::at_build_tools_script() {
             reopen_wait(false);
         });
     }
+    // ------------------------------------------------------------------------------------------------------ U. Reviews
+    section("V");
+    // A review runs only when its button is pressed: it opens a tab of its own, the reviewer is offered only tools that look
+    // and play, the report is saved with its score, and nothing reaches the orchestrator until "Send to orchestrator".
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return aiDetected_.load(); };
+    });
+    step(2, [this, project_file] {
+        std::error_code ec;
+        stdfs::remove_all(project_file(".factoria/ai/reviews"), ec);
+        aiReviewDirty_ = true;
+        aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+            return std::shared_ptr<ai::ChatProvider>(std::make_shared<ReviewerProvider>());
+        };
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            atSavedConfig_ = aiConfig_;
+            if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+            for (const char* role : {ai::kRoleOrchestrator, ai::kRoleReviewer, ai::kRoleArtCritic}) {
+                ai::RoleConfig& rc = aiConfig_.roles[role];
+                rc.provider = "anthropic";
+                rc.model = "mock";
+            }
+        }
+        while (chat_.tabs.size() > 1) chat_.close(0);
+        chat_.clear();
+        g_reviewToolsOffered.clear();
+        focus_window("AI Assistant");
+    });
+    step(3, [this] {
+        at_check(at_visible("ai:review:game") && at_visible("ai:review:art"), "the AI Assistant has an Art critique and a Game review button");
+        at_check(chat().empty() && !ai_busy(), "nothing runs and nothing is asked until a button is pressed");
+    });
+    click("ai:review:game");
+    step(2, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return !aiReview_.active && !ai_busy(); };
+    });
+    step(4, [this] {
+        at_check(!aiReview_.active && !ai_running(), "the review finished");
+        const auto saved = ai::list_reviews(projectDir_);
+        at_check(saved.size() == 1 && saved[0].role == ai::kRoleReviewer && saved[0].score == 7.5 && saved[0].persona == "all-rounder",
+                 "the report was saved with its score and persona (" + std::to_string(saved.size()) + " review(s))");
+        at_check(saved.size() == 1 && stdfs::exists(saved[0].path) && saved[0].subScores.size() == 2 &&
+                     saved[0].text.find("```") == std::string::npos,
+                 "...with its sub-scores and the text without the score block");
+        const bool hasLook = std::ranges::find(g_reviewToolsOffered, "scene_list_entities") != g_reviewToolsOffered.end();
+        bool hasEdit = false;
+        for (const char* t : {"scene_spawn", "fs_write", "scene_set_component", "ai_run", "agent_delegate"})
+            hasEdit = hasEdit || std::ranges::find(g_reviewToolsOffered, t) != g_reviewToolsOffered.end();
+        at_check(hasLook && !hasEdit, "the reviewer was offered tools that look, and none that change the project");
+        bool onlyReview = chat().size() >= 2;
+        for (const ChatItem& c : chat())
+            if (c.kind == ChatItem::Kind::User) onlyReview = onlyReview && c.role == "review";
+        at_check(onlyReview, "the review ran in its own tab: nothing was posted as a message to the orchestrator");
+        at_check(aiReviewsShown_, "the AI reviews window opens with the report");
+        at_check(play_state() == PlayState::Edit, "the project stays in edit mode");
+    });
+    snap("editor_ai_review.png");
+    click("ai:review:send");
+    step(2, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return !ai_busy(); };
+    });
+    step(4, [this] {
+        const AiChat& cur = chat_.current();
+        bool sent = false;
+        for (const ChatItem& c : cur.items)
+            sent = sent || (c.kind == ChatItem::Kind::User && c.role != "review" && c.text.find("7.5") != std::string::npos);
+        at_check(sent, "Send to orchestrator posts the report as a user message into an orchestrator chat");
+        at_check(chat_.tabs.size() >= 2, "...in a new tab, because the active one was the review's own");
+        std::error_code ec;
+        stdfs::remove_all(projectDir_ + "/.factoria/ai/reviews", ec);
+        aiReviewDirty_ = true;
+        aiReviewsShown_ = false;
+        aiFactory_ = nullptr;
+        if (atSavedConfig_) {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            aiConfig_ = std::move(*atSavedConfig_);
+            atSavedConfig_.reset();
+        }
+        while (chat_.tabs.size() > 1) chat_.close(0);
+        chat_.clear();
+        focus_window("###Viewport");
+    });
 
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;

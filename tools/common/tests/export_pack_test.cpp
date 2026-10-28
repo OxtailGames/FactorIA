@@ -219,6 +219,15 @@ TEST_CASE("export: the project's own README.md is not part of any export, a READ
     CHECK(stdfs::exists(game + "/data/README.md"));
 }
 
+TEST_CASE("export: REVIEW.md (the note the AI reviewers read first) is not part of any export") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    testing::write_all(stdfs::path(proj) / "REVIEW.md", "# How to play\n");
+    auto r = export_project(options_for(tmp, proj, "windows", false));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK_FALSE(stdfs::exists(tmp.sub("out/pack-test-windows/game") + "/REVIEW.md"));
+}
+
 TEST_CASE("export.exclude: the files and folders it names are in neither the game folder nor game.pak") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);

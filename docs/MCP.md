@@ -52,6 +52,12 @@ that.)
   treats a progress notification as a sign of life (it resets its 5 minute idle timeout); it does not show the message, so
   the editor's AI panel and `factoria ai run` get their live view from other paths (see `docs/EDITOR.md`).
   A command written in C++ reports progress with `CommandContext::progress` (`engine/core/include/fa/core/command.h`).
+- **Read-only mode**: `factoria mcp --read-only` serves only the commands that look and play (reading, `game_step`,
+  `game_input`, `game_click`, `game_screenshot`, `scene_load`, UI scale checks, ...). The others are not listed and a call
+  to one is refused. `ai_run`, `ai_review` and everything that edits the project are among the hidden ones. FactorIA starts
+  Codex's server this way for the `artCritic` and `reviewer` roles (`docs/AI_PROVIDERS.md`, Reviews).
+- **Roles of `ai_run`**: `ai_run {role, task}` runs the `worker`, `fast`, `artist` or `audio` role (and `orchestrator`, the default of the
+  command). The art critics and the game reviewers are not available through it: the user asks for them.
 - **Instructions**: the server sends a short engine guide on `initialize`, including the rule to call
   `feedback_report` whenever the engine lacks something.
 

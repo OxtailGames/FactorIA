@@ -98,6 +98,25 @@ EnvLookup system_env() {
     };
 }
 
+bool is_known_role(std::string_view role) {
+    for (const char* r : kAllRoles) if (role == r) return true;
+    return false;
+}
+bool is_review_role(std::string_view role) { return role == kRoleArtCritic || role == kRoleReviewer; }
+bool is_delegable_role(std::string_view role) {
+    return role == kRoleWorker || role == kRoleFast || role == kRoleArtist || role == kRoleAudio;
+}
+const char* role_summary(std::string_view role) {
+    if (role == kRoleOrchestrator) return "plans, reviews and delegates to the other roles";
+    if (role == kRoleWorker) return "implements features and fixes";
+    if (role == kRoleFast) return "small mechanical edits, quickly";
+    if (role == kRoleArtist) return "makes the game's art: images, textures, sprites, models, UI skins, the look";
+    if (role == kRoleAudio) return "makes the game's audio: sound effects, music, voice, mixing";
+    if (role == kRoleArtCritic) return "art critics: look at the game and judge its art (read-only, asked by you)";
+    if (role == kRoleReviewer) return "game reviewers: play the game, review it and score it (read-only, asked by you)";
+    return "";
+}
+
 const ProviderConfig* AiConfig::provider(std::string_view name) const {
     auto it = providers.find(std::string(name));
     return it == providers.end() ? nullptr : &it->second;
@@ -161,14 +180,35 @@ ProviderConfig make_preset_provider(const Preset& p) {
 
 struct RoleDefault {
     const char* role;
-    const char* model;
-    const char* effort;
+    const char* model;   // Anthropic API
+    const char* effort;  // Anthropic API and Claude Code
+    const char* base;    // "" for the three original roles; else the role whose provider and model this one follows
 };
 constexpr RoleDefault kAnthropicRoles[] = {
-    {kRoleOrchestrator, "claude-opus-5-5", "xhigh"},
-    {kRoleWorker, "claude-sonnet-5-5", "medium"},
-    {kRoleFast, "claude-haiku-5-5", "max"},
+    {kRoleOrchestrator, "claude-opus-5-5", "xhigh", ""},
+    {kRoleWorker, "claude-sonnet-5-5", "medium", ""},
+    {kRoleFast, "claude-haiku-5-5", "max", ""},
+    {kRoleArtist, "claude-opus-5-5", "high", kRoleOrchestrator},
+    {kRoleAudio, "claude-sonnet-5-5", "medium", kRoleWorker},
+    {kRoleArtCritic, "claude-opus-5-5", "high", kRoleOrchestrator},
+    {kRoleReviewer, "claude-opus-5-5", "high", kRoleOrchestrator},
 };
+
+const RoleDefault* find_role_default(std::string_view role) {
+    for (const auto& d : kAnthropicRoles) if (role == d.role) return &d;
+    return nullptr;
+}
+
+// artist, audio, artCritic and reviewer follow the roles the user already configured (`roles` holds the final
+// orchestrator and worker): same provider and model, the role's own effort when the provider takes one.
+void derive_extra_role(std::map<std::string, RoleConfig>& roles, const AiConfig& cfg, const RoleDefault& d) {
+    auto it = roles.find(d.base);
+    if (it == roles.end()) return;
+    RoleConfig r = it->second;
+    const ProviderConfig* p = cfg.provider(r.provider);
+    if (!p || p->kind == ProviderKind::Anthropic || p->kind == ProviderKind::ClaudeCode) r.effort = d.effort;
+    roles[d.role] = std::move(r);
+}
 
 }  // namespace
 
@@ -212,6 +252,7 @@ std::map<std::string, RoleConfig> default_roles_for(const AiConfig& cfg) {
     std::map<std::string, RoleConfig> roles;
     const ProviderConfig* dp = cfg.provider(cfg.defaultProvider);
     for (const auto& d : kAnthropicRoles) {
+        if (*d.base) continue;
         RoleConfig r;
         r.provider = cfg.defaultProvider;
         if (!dp || dp->kind == ProviderKind::Anthropic) {
@@ -222,6 +263,7 @@ std::map<std::string, RoleConfig> default_roles_for(const AiConfig& cfg) {
         }
         roles[d.role] = r;
     }
+    for (const auto& d : kAnthropicRoles) if (*d.base) derive_extra_role(roles, cfg, d);
     return roles;
 }
 
@@ -429,44 +471,57 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         }
     }
 
-    // Roles: defaults first, then overrides.
+    // Roles: defaults first, then overrides. The three original roles come first: artist, audio, artCritic and reviewer that
+    // the file does not set follow what it says about them (same provider, model of the matching tier).
     cfg.roles = default_roles_for(cfg);
-    if (const Json* roles = child(j, "roles")) {
-        for (auto it = roles->begin(); it != roles->end(); ++it) {
-            RoleConfig r = cfg.roles[it.key()];
-            const Json& rj = it.value();
-            const bool setProvider = rj.contains("provider");
-            if (setProvider) r.provider = str(rj, "provider");
-            if (r.provider.empty()) r.provider = cfg.defaultProvider;
-            const ProviderConfig* p = cfg.provider(r.provider);
-            if (!p) {
-                std::vector<std::string> names;
-                for (const auto& [n, _] : cfg.providers) names.push_back(n);
-                return make_error(std::string(sourceName) + ": /roles/" + it.key() + "/provider: unknown provider '" +
-                                      r.provider + "'",
-                                  fa::did_you_mean(r.provider, names));
-            }
-            if (is_asset_only_kind(p->kind)) {
-                return make_error(std::string(sourceName) + ": /roles/" + it.key() + "/provider: '" + r.provider +
-                                      "' only generates assets, it cannot play a role",
-                                  "Roles need a chat provider (anthropic, claude-code, openai...). Asset providers go under "
-                                  "\"assets\".");
-            }
-            // Provider changed => model/effort defaults come from the new provider.
-            if (setProvider) {
-                r.model.clear();
-                r.effort.clear();
-            }
-            RoleDefault rd{};
-            for (const auto& d : kAnthropicRoles) if (it.key() == d.role) rd = d;
-            if (rj.contains("model")) r.model = str(rj, "model");
-            else if (r.model.empty()) r.model = p->kind == ProviderKind::Anthropic && rd.model ? rd.model : p->defaultModel;
-            if (rj.contains("effort")) r.effort = str(rj, "effort");
-            else if (r.effort.empty() && p->kind == ProviderKind::Anthropic && rd.effort) r.effort = rd.effort;
-            if (rj.contains("maxTokens")) r.maxTokens = static_cast<int>(num(rj, "maxTokens"));
-            if (rj.contains("maxContextTokens")) r.maxContextTokens = static_cast<u64>(num(rj, "maxContextTokens"));
-            cfg.roles[it.key()] = std::move(r);
+    const Json* roles = child(j, "roles");
+    auto apply_role = [&](const std::string& name, const Json& rj) -> Result<void> {
+        RoleConfig r = cfg.roles[name];
+        const bool setProvider = rj.contains("provider");
+        if (setProvider) r.provider = str(rj, "provider");
+        if (r.provider.empty()) r.provider = cfg.defaultProvider;
+        const ProviderConfig* p = cfg.provider(r.provider);
+        if (!p) {
+            std::vector<std::string> names;
+            for (const auto& [n, _] : cfg.providers) names.push_back(n);
+            return make_error(std::string(sourceName) + ": /roles/" + name + "/provider: unknown provider '" + r.provider + "'",
+                              fa::did_you_mean(r.provider, names));
         }
+        if (is_asset_only_kind(p->kind)) {
+            return make_error(std::string(sourceName) + ": /roles/" + name + "/provider: '" + r.provider +
+                                  "' only generates assets, it cannot play a role",
+                              "Roles need a chat provider (anthropic, claude-code, openai...). Asset providers go under "
+                              "\"assets\".");
+        }
+        // Provider changed => model/effort defaults come from the new provider.
+        if (setProvider) {
+            r.model.clear();
+            r.effort.clear();
+        }
+        const RoleDefault* rd = find_role_default(name);
+        if (rj.contains("model")) r.model = str(rj, "model");
+        else if (r.model.empty()) r.model = p->kind == ProviderKind::Anthropic && rd ? rd->model : p->defaultModel;
+        if (rj.contains("effort")) r.effort = str(rj, "effort");
+        else if (r.effort.empty() && p->kind == ProviderKind::Anthropic && rd) r.effort = rd->effort;
+        if (rj.contains("maxTokens")) r.maxTokens = static_cast<int>(num(rj, "maxTokens"));
+        if (rj.contains("maxContextTokens")) r.maxContextTokens = static_cast<u64>(num(rj, "maxContextTokens"));
+        cfg.roles[name] = std::move(r);
+        return {};
+    };
+    if (roles && roles->is_object()) {
+        for (auto it = roles->begin(); it != roles->end(); ++it) {
+            if (const RoleDefault* d = find_role_default(it.key()); d && *d->base) continue;
+            if (auto ok = apply_role(it.key(), it.value()); !ok) return ok.error();
+        }
+        for (const auto& d : kAnthropicRoles) {
+            if (!*d.base) continue;
+            derive_extra_role(cfg.roles, cfg, d);
+            if (roles->contains(d.role)) {
+                if (auto ok = apply_role(d.role, (*roles)[d.role]); !ok) return ok.error();
+            }
+        }
+    } else {
+        for (const auto& d : kAnthropicRoles) if (*d.base) derive_extra_role(cfg.roles, cfg, d);
     }
     if (const Json* l = child(j, "limits")) {
         cfg.limits.maxTurns = static_cast<int>(num(*l, "maxTurns", cfg.limits.maxTurns));
