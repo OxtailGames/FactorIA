@@ -2793,11 +2793,12 @@ Transform and EntityInfo cannot be removed. Example: scene.remove_component {"id
 
 Save the running world to a scene file (current scene path by default).
 
-Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a scene FILE without touching the running world use scene.import_ascii with `path`. Example: scene.save {"path":"scenes/snapshot.scene.json"}
+Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a scene FILE without touching the running world use scene.import_ascii with `path`. Example: scene.save {"path":"scenes/snapshot.scene.json"}. Entities a script created at runtime (world.spawn, world.spawnPrefab) and their children are NOT written: the script builds them again when the scene loads, so saving them would duplicate them. The result lists them under `skippedSpawned` (count, first ids) with a hint; pass includeSpawned:true only to bake them into the file on purpose (then the script must not spawn them again). Entities made with scene.spawn, the editor or other authoring commands are always saved.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | no | Project-relative output path. Default: the current scene. |
+| `includeSpawned` | boolean | no | Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load. Default false. |
 
 ### `scene.set_component` (modifies state)
 

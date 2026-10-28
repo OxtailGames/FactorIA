@@ -62,11 +62,22 @@ struct SceneLoadOptions {
 // Scenes
 LoadReport load_scene(World& world, const Json& scene, std::string_view sourceName, const SceneLoadOptions& opts = {});
 LoadReport load_scene_file(World& world, std::string_view path, const SceneLoadOptions& opts = {});
+// What a save left out because a script spawned it at runtime: every entity of the skipped subtrees, and the label
+// ("<id>" or "<id> (<name>)") of the first few subtree roots.
+struct SpawnedSkip {
+    std::size_t count = 0;
+    std::vector<std::string> labels;  // at most 5
+};
+
 // Canonical JSON: nested children, only non-default fields, stable key order. The one exception is the gravity: `settings`
 // always carries gravity2D and gravity3D, even at their defaults, so a reader of the file sees what the level uses.
-Json save_scene(const World& world);
-// Writes the scene with the reviewable layout of dump_scene_json (below).
-Result<void> save_scene_file(const World& world, std::string_view path);
+// Includes entities scripts spawned at runtime (the editor's Play/Stop snapshot and undo need them); pass skipSpawned to leave them out.
+Json save_scene(const World& world, bool skipSpawned = false, SpawnedSkip* skipped = nullptr);
+// Writes the scene with the reviewable layout of dump_scene_json (below). Entities a script spawned at runtime
+// (world.spawn, world.spawnPrefab) are NOT written unless includeSpawned: the script builds them again on load, so saving
+// them duplicates them. `skipped` (may be null) reports what was left out.
+Result<void> save_scene_file(const World& world, std::string_view path, bool includeSpawned = false,
+                             SpawnedSkip* skipped = nullptr);
 
 // Text of a scene or prefab document as written to disk: 2-space indent, with the short arrays of scalars on one line
 // (vectors, colors, rects, tags, solidTiles; long ones wrap at about 100 columns) and a Tilemap's flat `tiles` array
@@ -100,6 +111,10 @@ struct EntityJsonOptions {
     bool includeChildren = true;
     bool includeDefaults = false;   // true = every field (useful for AI inspection)
     bool includeRuntime = false;    // include runtime-only fields (velocity mirrors, animator time...)
+    // Leave out entities a script spawned at runtime (EntityInfo::scriptSpawned) together with their children.
+    bool skipSpawned = false;
+    // When skipSpawned: filled with what was left out (may be null).
+    SpawnedSkip* skipped = nullptr;
 };
 Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts = {});
 // Creates an entity (and children) from entity JSON. Errors go to `report`.
