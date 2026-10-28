@@ -22,6 +22,13 @@ The AI agent is never silent
 Drawing
 
 - `Shape2D` gets rounded corners, soft edges and gradients, one entity each instead of stacks of translucent rectangles: `cornerRadius` (rectangle), `softness` (a blurred edge of that width on a rectangle or circle: drop shadows, vignettes, light pools) and `gradient` (`linear` with `gradientAngle`, or `radial`) from `color` to `color2`, dithered so it does not band. Everything defaults to off and plain shapes draw and batch as before (Roguestory FB-0003).
+- Four more built-in fonts, all SIL OFL: `builtin:serif` (Crimson Text, with real bold, italic and bold italic), `builtin:hand`
+  (Kalam, with bold), `builtin:blackletter` (UnifrakturMaguntia) and `builtin:display` (IM Fell English, with italic), for
+  storybook and handwritten looks (Roguestory/FB-0002). They are files of `factoria` and the editor, not of the player: an
+  export copies the ones a game names to `builtin-fonts/` and adds their licenses to `FACTORIA_NOTICES.txt`, so other games do
+  not grow. `[i]...[/i]` joins `[b]` in rich text (italic face from `text.fonts` `"italic"` or the built-in family), and
+  `[b]` / `Text.bold` use the built-in families' real bold faces. An unknown `builtin:` name now fails with the list of all of
+  them (`docs/TEXT.md`, "Built-in fonts").
 
 Watching the game and reading the docs over MCP
 
@@ -32,14 +39,6 @@ Watching the game and reading the docs over MCP
 - `docs.read` fits an MCP tool result by default (`maxBytes`, 40000): a cut page carries `contents` (headings with line numbers)
   and `next`, and `heading` reads one section. `docs.components` and `docs.commands` list names with a one-line summary by
   default; `name` returns one in full, `filter` narrows the list, `full` returns everything (Roguestory/FB-0005).
-
-- Four more built-in fonts, all SIL OFL: `builtin:serif` (Crimson Text, with real bold, italic and bold italic), `builtin:hand`
-  (Kalam, with bold), `builtin:blackletter` (UnifrakturMaguntia) and `builtin:display` (IM Fell English, with italic), for
-  storybook and handwritten looks (Roguestory/FB-0002). They are files of `factoria` and the editor, not of the player: an
-  export copies the ones a game names to `builtin-fonts/` and adds their licenses to `FACTORIA_NOTICES.txt`, so other games do
-  not grow. `[i]...[/i]` joins `[b]` in rich text (italic face from `text.fonts` `"italic"` or the built-in family), and
-  `[b]` / `Text.bold` use the built-in families' real bold faces. An unknown `builtin:` name now fails with the list of all of
-  them (`docs/TEXT.md`, "Built-in fonts").
 
 ## 0.3.0
 
