@@ -47,8 +47,16 @@ struct AssetTarget {
     std::string model;  // "" = the provider's default for the kind
     std::string voice;
 };
+// When nothing is configured for `kind`, the error's hint carries asset_provider_report(cfg, kind, env).
 Result<AssetTarget> resolve_asset_target(const AiConfig& cfg, MediaKind kind, const std::string& providerOverride = {},
-                                         const std::string& modelOverride = {}, const std::string& voiceOverride = {});
+                                         const std::string& modelOverride = {}, const std::string& voiceOverride = {},
+                                         const EnvLookup& env = system_env());
+
+// A plain-text answer to "why can I not make a `kind` asset, and what would let me": the providers that can make it (with
+// whether their key is set in `env`), the ones that cannot and why, the keys that would enable a real provider, and the
+// offline tools that need no provider (assets.generate_texture and assets.rasterize_svg for images). The names it prints
+// are the providers of `cfg`, built-in ones included.
+std::string asset_provider_report(const AiConfig& cfg, MediaKind kind, const EnvLookup& env = system_env());
 
 // Makes one asset. HTTP and process failures are Errors that say what to check. rt.transport, rt.env and rt.sleep are the
 // seams tests use.

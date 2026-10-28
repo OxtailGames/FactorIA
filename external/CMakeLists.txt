@@ -16,6 +16,9 @@ target_include_directories(fa_ext_cgltf SYSTEM INTERFACE ${FA_EXT}/cgltf)
 add_library(fa_ext_drlibs INTERFACE)
 target_include_directories(fa_ext_drlibs SYSTEM INTERFACE ${FA_EXT}/dr_libs)
 
+add_library(fa_ext_nanosvg INTERFACE)
+target_include_directories(fa_ext_nanosvg SYSTEM INTERFACE ${FA_EXT}/nanosvg)
+
 add_library(fa_ext_qoa INTERFACE)
 target_include_directories(fa_ext_qoa SYSTEM INTERFACE ${FA_EXT}/qoa)
 

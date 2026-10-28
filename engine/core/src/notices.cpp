@@ -13,6 +13,7 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         {"stb", "https://github.com/nothings/stb", "MIT OR Unlicense", "external/stb/LICENSE",
          "image decoding and encoding, TrueType fonts, rectangle packing, Ogg Vorbis", true},
         {"cgltf", "https://github.com/jkuhlmann/cgltf", "MIT", "external/cgltf/LICENSE", "glTF 2.0 models", true},
+        {"nanosvg", "https://github.com/memononen/nanosvg", "zlib", "external/nanosvg/LICENSE", "SVG rasterizer of assets.rasterize_svg", false},
         {"Basis Universal", "https://github.com/BinomialLLC/basis_universal", "Apache-2.0", "external/basis_universal/LICENSE",
          "GPU texture compression: games decode KTX2 textures, `factoria export` encodes them", true},
         // Parts of the Basis Universal encoder, which only the developer tools contain.
