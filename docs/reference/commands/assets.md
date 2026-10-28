@@ -219,6 +219,47 @@ Like assets.generate_image, but the picture is a grid of `frames` animation fram
 | `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
+## `assets.generate_texture` (modifies state)
+
+Not released yet (on main after 0.3.0).
+
+Make a material texture (paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, vignette) offline: a seeded PNG, no provider and no key.
+
+Paints a procedural texture at `path` (under assets/, ending in .png) with no AI provider and no key: free, offline and seeded (the same arguments give the same picture with the same build of factoria; another `seed` is another take of the material). Use it for backgrounds, desks, book covers and pages, floors, walls and surfaces when no image provider is configured (assets.generate_image would fail with no_provider), or when you want a flat material you can tune: `color` and `accent` recolour it, `scale` makes the features bigger or smaller, `roughness` goes from smooth and even (0) to worn and uneven (1), `tileable` makes the picture repeat with no seam, `normalMap` also writes a tangent-space normal map next to it (`<name>_n.png`, +Y up) for lit sprites and 3D materials. Textures are lit from the upper left, so grooves and bumps read. It makes surfaces, not drawings: for a picture of a subject (a portrait, an icon, an ornament) write an SVG and call assets.rasterize_svg. Records provenance in assets.json (origin original, ai false, license CC0, the arguments in the notes). Look at the picture in the result and adjust. Presets:
+- paper: cream paper: fibres, mottling and a fine tooth (default colours #efe6d2 paper, #bba67f shadow tone).
+- parchment: old parchment: warm stains, creases and (when not tileable) darkened edges (default colours #e1c98f skin, #8b5a2b stain).
+- wood: wood grain: growth rings, streaks and pores along the width (default colours #b07a45 light wood, #4f2f17 late wood).
+- planks: wooden planks (a floor or a desk top) with joints, gaps and a different grain in every board (default colours #a9743f wood, #3d2412 gaps and grain).
+- leather: pebbled leather with creases, wear and a soft sheen (default colours #7a4a2a leather, #2a150a creases).
+- fabric: woven cloth (plain weave): threads that go over and under, slubs and uneven tone (default colours #c4b490 thread, #6b5c3e shadows).
+- stone: flagstone: blocks with joints, grain, cracks and speckles (default colours #9a968e stone, #4a4640 joints and cracks).
+- value: value noise (smooth blobs) from `color` to `accent` (default colours #202020 to #f2f2f2).
+- fbm: fractal noise (clouds; `roughness` adds octaves) from `color` to `accent` (default colours #202020 to #f2f2f2).
+- cellular: cellular (Worley) noise: distance to the nearest point, from `color` (at a point) to `accent` (default colours #202020 to #f2f2f2).
+- gradient: a linear gradient from `color` to `accent` along `angle` (the alphas of the colours are blended too) (default colours #f4ead5 to #8c6a42).
+- radial: a radial gradient: `color` in the middle to `accent` at the corners (`scale` is the radius, 1 = the corners) (default colours #f4ead5 to #5a3d22).
+- vignette: a transparent middle fading to `color` at the edges (an overlay for a scene: put it over a Sprite); `vignette` is its strongest alpha (default colours #000000).
+Examples: {"path":"assets/textures/desk.png","preset":"planks","width":1280,"height":720,"seed":4} / {"path":"assets/textures/cover.png","preset":"leather","color":"#5b2a1a","accent":"#1d0d07","normalMap":true} / {"path":"assets/textures/page.png","preset":"parchment","width":640,"height":900,"vignette":0.6} / {"path":"assets/textures/floor.png","preset":"stone","tileable":true,"scale":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the PNG, project-relative, under assets/ and ending in .png, e.g. "assets/textures/paper.png". |
+| `preset` | string ["paper","parchment","wood","planks","leather","fabric","stone","value","fbm","cellular","gradient","radial","vignette"] | yes | The material or pattern. See the list in the command description. |
+| `width` | integer | no | Width in pixels (up to 2048; tile it for larger areas). Default 512. |
+| `height` | integer | no | Height in pixels. Default: the width (512 when neither is given). |
+| `seed` | integer | no | Chooses the take: the same arguments always give the same file; change it for another sample of the material. Default 0. |
+| `color` | any | no | The main colour: "#rrggbb", "#rrggbbaa", a name like "white" or [r, g, b] in 0..1. Default: the preset's own (see the preset list). For vignette, the colour of the shade; for gradient, the start. |
+| `accent` | any | no | The second colour (shadow, late wood, creases, joints, the far end of a gradient). Same formats as `color`. Default: the preset's own. |
+| `scale` | number | no | Size of the features: 1 is the preset's natural size relative to the picture, 2 makes them twice as big, 0.5 half as big (more planks, finer weave, smaller pebbles). For radial and vignette it is the radius (1 reaches the corners); for gradient it stretches the ramp. Default 1. |
+| `roughness` | number | no | 0 is smooth and even, 1 is worn and uneven (more stains, deeper creases, a rougher weave). For vignette: the softness of the edge; for cellular: how irregular the cells are. Default 0.5. |
+| `tileable` | boolean | no | Make the picture repeat with no seam at its edges. The material presets and the noises can; gradient, radial and vignette have an edge by nature and ignore it (with a warning). Default false. |
+| `vignette` | number | no | Darkens the edge with a ragged border (a worn page, a burnt corner) on any preset except gradient and radial; ignored when tileable. Default 0.5 for parchment, 0 for the others. For the vignette preset it is the alpha at the edge (default 0.85). |
+| `angle` | number | no | gradient only: direction in degrees. 0 runs from the top to the bottom, 90 from the left to the right. Default 0. |
+| `normalMap` | boolean | no | Also write the tangent-space normal map of the same relief as <path without .png>_n.png (+X right, +Y up the picture, the convention of Sprite.normalMap and glTF), with its own provenance record. Default false. |
+| `normalStrength` | number | no | How deep the relief of the normal map is: 1 subtle, 3 clear, 10 deep. Default 3. |
+| `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
+| `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
+
 ## `assets.generate_voice` (modifies state)
 
 Since 0.1.6.
@@ -306,6 +347,27 @@ With `path`, the provenance record of that file (null when it has none). Without
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | no | Project-relative path under assets/. Omit to list every record. |
+
+## `assets.rasterize_svg` (modifies state)
+
+Not released yet (on main after 0.3.0).
+
+Turn an SVG (text or a project file) into a PNG at a given size, offline: art you write as vector shapes, no provider and no key.
+
+Rasterizes an SVG to a PNG at `path` (under assets/, ending in .png) with no AI provider and no key, anti-aliased, on the CPU (no GPU, so it works headless and in CI). Pass the SVG text in `svg` or an .svg file of the project in `source`. This is how an agent without an image provider draws a subject (a crest, a portrait silhouette, an ornament, a map symbol): write the shapes as SVG, rasterize, look at the picture in the result, edit the SVG, repeat. The size is `width` x `height` (the SVG is fitted inside, aspect kept, centred; give one and the other follows the SVG's proportions); leave both out for the size the SVG declares. Supported: path (all commands), rect (with rx, ry), circle, ellipse, line, polyline, polygon, g, defs, linearGradient and radialGradient fills (stops, gradientTransform, gradientUnits; write gradient coordinates in percent, x2="100%", or with gradientUnits="userSpaceOnUse" and real coordinates: a bare 0..1 such as x2="1" is read as one pixel), fill, stroke, stroke-width, stroke-linecap, stroke-linejoin, stroke-miterlimit, stroke-dasharray, fill-rule, opacity, fill-opacity, stroke-opacity, transform, the style attribute, viewBox and preserveAspectRatio. NOT supported (drawn as nothing, and named in `warnings`): text and tspan (convert letters to paths, or draw text in the engine with a Text entity), filters (blur, drop shadow), masks, clip paths, embedded images, <use>, patterns, markers and CSS classes in <style>. For a texture of a material (wood, paper, stone) use assets.generate_texture instead. Provenance is recorded in assets.json: by default as AI-made (origin generated, ai true, because the calling agent wrote the SVG, which counts for Steam's AI disclosure); pass ai: false for an SVG a person drew or licensed, with `author` and `license`. Example: {"path":"assets/art/crest.png","width":256,"svg":"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M50 6 L90 22 V52 C90 76 70 90 50 96 C30 90 10 76 10 52 V22 Z' fill='#8b1e1e' stroke='#e8c66a' stroke-width='4'/><circle cx='50' cy='48' r='14' fill='#e8c66a'/></svg>"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the PNG, project-relative, under assets/ and ending in .png. |
+| `svg` | string | no | The SVG document as text, starting with <svg ...>. Give this or `source`. |
+| `source` | string | no | A project-relative .svg file, e.g. "assets/art/crest.svg". Give this or `svg`. |
+| `width` | integer | no | Width in pixels. With only the height given, it follows the SVG's proportions. Default: the SVG's own size. |
+| `height` | integer | no | Height in pixels. With only the width given, it follows the SVG's proportions. |
+| `background` | any | no | A colour to put the picture over ("#rrggbb", "#rrggbbaa", a name or [r, g, b]). Default: transparent. |
+| `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
+| `ai` | boolean | no | Whether the SVG was written by an AI (the default, since the caller is an agent). Set false for an SVG a person drew or a licensed one; it then counts as original work in the AI disclosure. Default true. |
+| `author` | string | no | Who gets the credit in the provenance record. |
+| `license` | string | no | License of the picture for the provenance record. Default "CC0-1.0". |
 
 ## `assets.set_provenance` (modifies state)
 

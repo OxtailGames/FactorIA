@@ -20,6 +20,7 @@ every exported game, and a tooling test fails until it is there.
 | [SheenBidi](https://github.com/Tehreer/SheenBidi) | `v3.0.0` (2026-01-24) | Apache-2.0 | render | Unicode Bidirectional Algorithm: paragraph direction and embedding levels for right-to-left text |
 | [dr_libs](https://github.com/mackron/dr_libs) | `dfe8377` (2026-09-01) | MIT-0 / Public domain | audio | WAV and MP3 decoding |
 | [qoa](https://github.com/phoboslab/qoa) | `bc05897` (2026-09-27) | MIT | audio, tooling | QOA audio: decoding in the engine, WAV to QOA conversion in `factoria export` |
+| [nanosvg](https://github.com/memononen/nanosvg) | `239e102` (2026-07-09) | zlib | tooling | SVG parsing and CPU rasterization: `assets.rasterize_svg` turns an SVG into a PNG (no text, filters or masks) |
 | [pl_mpeg](https://github.com/phoboslab/pl_mpeg) | `c871f2b` (2025-12-30) | MIT | core | Video: MPEG-1 video and MP2 audio decoding in an `.mpg` (the `Video` component, `fa/core/video.h`). Upstream ships no license file: `external/pl_mpeg/LICENSE` is the MIT text its header declares (`SPDX-License-Identifier: MIT`) |
 | [acorn](https://github.com/acornjs/acorn) | `8.15.0` | MIT | tooling | Parses project JS for the script debugger's instrumentation; developer binary only (`external/acorn/dist/acorn.js`, the npm package's file unmodified) |
 | [nlohmann/json](https://github.com/nlohmann/json) | `v3.12.0` | MIT | everywhere | JSON (scenes, project files, MCP, AI APIs) |
@@ -38,6 +39,11 @@ no FreeType/ICU/GLib/CoreText/DirectWrite glue (those compile to nothing without
 builds `harfbuzz.cc` with `HB_LEAN` and `HB_NO_AAT` for the engine, and `harfbuzz-subset.cc` whole as `fa_ext_harfbuzz_subset`, which
 only `fa_tooling` links (assets.subset_font) and which then defines every hb_* symbol instead of the lean library. `external/sheenbidi/`
 holds `Headers/` and `Source/` of the v3.0.0 release, built through its unity file `Source/SheenBidi.c` (`SB_CONFIG_UNITY`).
+
+`external/nanosvg/` holds `nanosvg.h` (parser) and `nanosvgrast.h` (rasterizer), the two header-only files of upstream master at the
+commit above, unmodified, plus `LICENSE`. `external/CMakeLists.txt` exposes them as the interface library `fa_ext_nanosvg`;
+`tools/common/src/assets_svg.cpp` is the one translation unit that defines `NANOSVG_IMPLEMENTATION` and `NANOSVGRAST_IMPLEMENTATION`,
+and only `fa_tooling` links it (a game never contains it).
 
 ## Tools (not vendored)
 

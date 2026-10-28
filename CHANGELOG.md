@@ -4,6 +4,19 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Art without an image provider
+
+- `assets.generate_texture` (MCP `assets_generate_texture`) paints a material offline, seeded, with no provider and no key:
+  `paper`, `parchment`, `wood`, `planks`, `leather`, `fabric`, `stone`, the noises `value`, `fbm` and `cellular`, and
+  `gradient`, `radial` and `vignette`. `color`, `accent`, `scale`, `roughness`, `tileable` (no seam at the edges) and
+  `normalMap` (also writes `<name>_n.png`) tune it; the provenance is `original`, CC0 (Roguestory/FB-0001).
+- `assets.rasterize_svg` (MCP `assets_rasterize_svg`) turns an SVG, as text or a project file, into a PNG at the size you
+  ask for, with the vendored nanosvg (zlib license): paths, basic shapes, gradients, strokes and transforms; no text,
+  filters, masks, clip paths, `<use>` or CSS classes (named in `warnings`).
+- The `no_provider` error of `assets.generate_image`, the sprite sheet and the other generators lists which configured
+  providers can make that kind and which cannot (and why), the environment variables that would enable one, and the
+  offline commands to use meanwhile. `assets.import` of an `.svg` points to `assets.rasterize_svg`.
+
 Drawing
 
 - `Shape2D` gets rounded corners, soft edges and gradients, one entity each instead of stacks of translucent rectangles: `cornerRadius` (rectangle), `softness` (a blurred edge of that width on a rectangle or circle: drop shadows, vignettes, light pools) and `gradient` (`linear` with `gradientAngle`, or `radial`) from `color` to `color2`, dithered so it does not band. Everything defaults to off and plain shapes draw and batch as before (Roguestory FB-0003).

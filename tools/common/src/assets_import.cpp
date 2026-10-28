@@ -325,7 +325,8 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     if (route == routes().end()) {
         std::string hint = "Supported: " + supported_extensions() + ".";
         if (ext == ".blend") hint = "Export the model from Blender as glTF (File > Export > glTF 2.0) and import that. " + hint;
-        else if (ext == ".webp" || ext == ".gif" || ext == ".svg" || ext == ".psb") hint = "Convert it to PNG first. " + hint;
+        else if (ext == ".svg") hint = "Rasterize it with assets.rasterize_svg {\"source\": <the .svg in the project>, \"path\": \"assets/<name>.png\"} (copy the file into the project first). " + hint;
+        else if (ext == ".webp" || ext == ".gif" || ext == ".psb") hint = "Convert it to PNG first. " + hint;
         else if (ext == ".gif" || ext == ".flv" || ext == ".wmv") hint = "Convert it to .mp4 with ffmpeg first (factoria setup ffmpeg). " + hint;
         else if (ext == ".flac" || ext == ".m4a" || ext == ".aac") hint = "Convert it to OGG or WAV first. " + hint;
         fail("invalid_argument", "assets.import cannot read '" + ext + "' files.", hint);
@@ -470,6 +471,8 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     register_draw_icon_command(registry, projectDir);
     register_draw_capsules_command(registry, projectDir);
     register_synth_sound_command(registry, projectDir);
+    register_texture_command(registry, projectDir);
+    register_svg_command(registry, projectDir);
     register_audio_commands(registry, projectDir);
     register_subset_font_command(registry, projectDir);
 }

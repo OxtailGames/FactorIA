@@ -113,6 +113,41 @@ TEST_CASE("assets.generate_image: wrong paths and missing configuration teach") 
     CHECK(wrongKind.error["message"].get<std::string>().find("cannot generate image") != std::string::npos);
 }
 
+TEST_CASE("assets.generate_image: the no_provider error lists the providers, the keys and the offline tools") {
+    Wire wire;  // the environment the error reads: only OPENROUTER_API_KEY is set
+    Game game(default_config(), wire.runtime({{"OPENROUTER_API_KEY", "test-key"}}));
+    for (const char* name : {"assets.generate_image", "assets.generate_sprite_sheet"}) {
+        const Json args = std::string(name) == "assets.generate_image"
+                              ? Json{{"prompt", "x"}, {"path", "assets/a.png"}}
+                              : Json{{"prompt", "x"}, {"path", "assets/a.png"}, {"frames", 2}, {"frameWidth", 16}, {"frameHeight", 16}};
+        auto none = game.call(name, args);
+        REQUIRE_FALSE(none.ok);
+        CHECK(none.error["code"] == "no_provider");
+        const std::string hint = none.error["hint"];
+        INFO(hint);
+        // which providers can make images, and whether their key is there
+        CHECK(hint.find("Providers that can make image:") != std::string::npos);
+        CHECK(hint.find("- openai (openai-compatible): no key: OPENAI_API_KEY is not set") != std::string::npos);
+        CHECK(hint.find("- openrouter (openai-compatible): key found (OPENROUTER_API_KEY), ready to use") != std::string::npos);
+        CHECK(hint.find("- fake (fake): needs no key, but only draws placeholders") != std::string::npos);
+        // which cannot, and why
+        CHECK(hint.find("Providers that cannot make image:") != std::string::npos);
+        CHECK(hint.find("anthropic (chat only)") != std::string::npos);
+        CHECK(hint.find("elevenlabs (makes sound, music and voice)") != std::string::npos);
+        CHECK(hint.find("meshy (makes 3D models)") != std::string::npos);
+        // the keys that would enable a real provider and the offline tools
+        CHECK(hint.find("set OPENAI_API_KEY") != std::string::npos);
+        CHECK(hint.find("assets.generate_texture") != std::string::npos);
+        CHECK(hint.find("assets.rasterize_svg") != std::string::npos);
+        CHECK(hint.find("Art without an image provider") != std::string::npos);
+    }
+    // the sound kinds point to their own offline tools
+    auto sound = game.call("assets.generate_sound", {{"prompt", "x"}, {"path", "assets/a.mp3"}});
+    REQUIRE_FALSE(sound.ok);
+    CHECK(sound.error["hint"].get<std::string>().find("assets.synth_sound") != std::string::npos);
+    CHECK(sound.error["hint"].get<std::string>().find("ELEVENLABS_API_KEY") != std::string::npos);
+}
+
 TEST_CASE("assets.generate_image: no project folder") {
     AiCommandOptions opt;
     opt.loadConfig = [] { return Result<AiConfig>(fake_config()); };
