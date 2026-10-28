@@ -24,7 +24,7 @@ Names may be input actions from factoria.json, key names (Space, A, Left...) or 
 
 Read recent log lines (engine, scripts, assets...).
 
-Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {"minLevel":"warn","max":50}
+Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {"minLevel":"warn","max":50}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

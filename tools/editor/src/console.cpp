@@ -98,7 +98,10 @@ void Editor::draw_console() {
     for (const LogEntry& l : logs) {
         if (!consoleFilter_.empty() && !contains_ci(l.message, consoleFilter_) && !contains_ci(l.category, consoleFilter_)) continue;
         ImGui::PushStyleColor(ImGuiCol_Text, level_color(l.level));
-        ImGui::TextDisabled("%7.2f", l.time);
+        ImGui::TextDisabled("%s", log_wall_time(l.wallMs).c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\nframe %llu, %.2f s since start", log_wall_iso(l.wallMs).substr(0, 10).c_str(),
+                              (unsigned long long)l.frame, l.time);
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.45f, 0.62f, 0.9f, 1), "[%s]", l.category.c_str());
         ImGui::SameLine();

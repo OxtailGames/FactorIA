@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <deque>
 #include <map>
 #include <mutex>
@@ -64,7 +65,8 @@ void write_stderr(const LogEntry& e, LogFormat format) {
                   {"level", log_level_name(e.level)},
                   {"cat", e.category},
                   {"msg", e.message},
-                  {"frame", e.frame}};
+                  {"frame", e.frame},
+                  {"wallTime", log_wall_iso(e.wallMs)}};
         line = j.dump(-1, ' ', false, Json::error_handler_t::replace);
     } else {
         line = format_log_line(e);
@@ -89,9 +91,50 @@ void write_stderr(const LogEntry& e, LogFormat format) {
 
 }  // namespace
 
+std::int64_t log_wall_now_ms() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+namespace {
+std::tm local_tm(std::int64_t wallMs) {
+    std::time_t secs = std::time_t(wallMs >= 0 ? wallMs / 1000 : -((-wallMs + 999) / 1000));
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &secs);
+#else
+    localtime_r(&secs, &tm);
+#endif
+    return tm;
+}
+int ms_part(std::int64_t wallMs) { return int(((wallMs % 1000) + 1000) % 1000); }
+}  // namespace
+
+std::string log_wall_time(std::int64_t wallMs) {
+    if (wallMs == 0) return "--:--:--.---";
+    std::tm tm = local_tm(wallMs);
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%02d:%02d:%02d.%03d", tm.tm_hour, tm.tm_min, tm.tm_sec, ms_part(wallMs));
+    return buf;
+}
+
+std::string log_wall_iso(std::int64_t wallMs) {
+    if (wallMs == 0) return {};
+    std::tm tm = local_tm(wallMs);
+    char zone[16] = "+00:00";
+    char off[16];
+    if (std::strftime(off, sizeof off, "%z", &tm) == 5)  // "+0100"
+        std::snprintf(zone, sizeof zone, "%c%c%c:%c%c", off[0], off[1], off[2], off[3], off[4]);
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "%04d-%02d-%02dT%02d:%02d:%02d.%03d%s", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                  tm.tm_hour, tm.tm_min, tm.tm_sec, ms_part(wallMs), zone);
+    return buf;
+}
+
 std::string format_log_line(const LogEntry& e) {
-    char head[96];
-    std::snprintf(head, sizeof head, "[%7.3f] %s %s: ", e.time, padded_level(e.level), e.category.c_str());
+    char head[128];
+    std::snprintf(head, sizeof head, "%s [%7.3f] %s %s: ", log_wall_time(e.wallMs).c_str(), e.time, padded_level(e.level),
+                  e.category.c_str());
     return head + e.message;
 }
 
@@ -126,6 +169,7 @@ void log(LogLevel level, std::string_view category, std::string message) {
         entry.seq = s.nextSeq++;
         entry.time = std::chrono::duration<double>(std::chrono::steady_clock::now() - s.start).count();
         entry.frame = s.frame;
+        entry.wallMs = log_wall_now_ms();
         entry.level = level;
         entry.category = std::string(category);
         entry.message = std::move(message);

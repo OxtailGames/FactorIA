@@ -66,3 +66,38 @@ TEST_CASE("log: thread safety") {
     set_log_format(LogFormat::Text);
     clear_recent_logs();
 }
+
+TEST_CASE("log: entries carry the computer's wall-clock time") {
+    set_log_format(LogFormat::None);
+    set_log_level(LogLevel::Info);
+    clear_recent_logs();
+    const std::int64_t before = log_wall_now_ms();
+    FA_INFO("t", "first");
+    FA_INFO("t", "second");
+    const std::int64_t after = log_wall_now_ms();
+    auto logs = recent_logs();
+    REQUIRE(logs.size() == 2);
+    for (const LogEntry& e : logs) {
+        CHECK(e.wallMs >= before);
+        CHECK(e.wallMs <= after);
+    }
+    CHECK(logs[0].wallMs <= logs[1].wallMs);
+
+    // 14:03:22.517 local; ISO form is the same moment with a UTC offset.
+    const std::string t = log_wall_time(logs[0].wallMs);
+    REQUIRE(t.size() == 12);
+    CHECK(t[2] == ':');
+    CHECK(t[5] == ':');
+    CHECK(t[8] == '.');
+    const std::string iso = log_wall_iso(logs[0].wallMs);
+    REQUIRE(iso.size() == 29);
+    CHECK(iso[10] == 'T');
+    CHECK(iso.substr(11, 12) == t);
+    CHECK((iso[23] == '+' || iso[23] == '-'));
+    CHECK(iso[26] == ':');
+    CHECK(format_log_line(logs[0]).rfind(t + " [", 0) == 0);
+    CHECK(log_wall_time(0) == "--:--:--.---");
+    CHECK(log_wall_iso(0).empty());
+    clear_recent_logs();
+    set_log_format(LogFormat::Text);
+}
