@@ -17,6 +17,8 @@ struct ThirdPartyComponent {
     std::string licenseFile;  // repository-relative, bundled: "external/sokol/LICENSE"
     std::string usedFor;      // one line for the reader
     bool inGames = true;      // false: only in the developer tools (the editor's UI library)
+    std::string fontKey = {};  // a built-in font that is not inside the player ("builtin:serif"): an export ships it, and so lists
+                              // this component, only in games that name it (inGames is false)
 };
 
 // FactorIA itself first, then the third-party parts, in a fixed order.

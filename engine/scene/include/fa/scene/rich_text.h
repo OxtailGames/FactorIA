@@ -4,6 +4,7 @@
 // same way.
 //
 //   [b]bold[/b]          the project's bold face of the font (a font with none is emboldened by the engine)
+//   [i]italic[/i]        the italic face of the font (a font with none stays upright)
 //   [c:good]green[/c]    a colour: a name of "text.colors", a built-in colour name or #rgb / #rrggbb / #rrggbbaa
 //   [icon:fish]          a picture of "text.icons", as tall as the line
 //   [[                   a literal [
@@ -33,7 +34,8 @@ struct RichTextStyle {
     std::map<std::string, Color> colors;              // [c:name]
     std::map<std::string, RichIcon> icons;            // [icon:name]
     std::map<std::string, std::string> boldFonts;     // a font as a Text names it ("" = the built-in font) -> its bold face
-    bool empty() const { return colors.empty() && icons.empty() && boldFonts.empty(); }
+    std::map<std::string, std::string> italicFonts;   // the same -> its italic face ([i])
+    bool empty() const { return colors.empty() && icons.empty() && boldFonts.empty() && italicFonts.empty(); }
     bool operator==(const RichTextStyle&) const = default;
 };
 
@@ -62,6 +64,7 @@ inline constexpr char32_t kIconChar = 0xFFFC;
 // Markup read: the visible text and what styles each of its characters.
 struct MarkupAttr {
     bool bold = false;
+    bool italic = false;
     int color = 0;   // 0 = the Text's colour, k = colors[k - 1] of the MarkupText
     int icon = -1;   // >= 0: this character (kIconChar) is the picture icons[icon]
 };
