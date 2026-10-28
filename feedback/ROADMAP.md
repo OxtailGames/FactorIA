@@ -1162,6 +1162,24 @@ Left open:
   tidewater-market (scenarios) when the machine is loaded: they take 24-56 s against the 60 s per-test limit, the same
   with the engine from before M34. Give those tests more room or a lighter bot before CI runs them on slow runners.
 
+## M35. Asked by the user after building Roguestory in the editor (L; 4 packages) — DONE (the `m35/*` branches)
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M35 (M35.1-M35.4): `artist`, `audio`, `artCritic` and `reviewer` roles with
+reviews that only run when the user presses a button (saved, scored, sent to the orchestrator on request), live tokens, cost
+and limits during a run, the editor's open panels kept with the layout, closed feedback archived to
+`ENGINE_FEEDBACK.archive.json`, and up to three AI chats running at once with Revert per run.
+
+Left open:
+- M35.1: the reviews were run with a fake CLI; no real art critique or game review of Roguestory yet. A reviewer sees the
+  game through screenshots and `game.*` commands, so a game without `REVIEW.md` gets a shallower review.
+- M35.2: Claude Code reports a message's final `output_tokens` only at its end and the plan windows once per message, so the
+  live numbers run a little short until then (the tooltip says "As of HH:MM").
+- M35.3: a whole layout reset after reopening was never reproduced; only the closed panels were found lost. Two editors
+  open at once share one layout file, a possible cause that was not tested.
+- M35.4: the same-file warning comes from tool calls and the end-of-run checkpoint, so a file written by Bash is only seen
+  when its run ends; `checkpoint_restore` with a file list is C++ only, not a command.
+- Everything: GitHub is suspended, so no CI ran on M35; Windows, Linux, Android and web were never compiled here.
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,

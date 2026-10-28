@@ -2916,3 +2916,42 @@ AI run, play session, export or setup is going, and Not now. `factoria mcp` over
 messages on Linux and macOS, carrying the negotiated session (`--resume-session`), and sends `tools/list_changed`; the
 first tool result says what restarted and what was lost. On Windows it asks the client to reconnect. A `.mcp.json` newer
 than the client gets a notice, and a missing `timeout` is added. `engine.update_status` reports all of it.
+
+## M35. Asked by the user after building Roguestory in the editor — DONE (the `m35/*` branches)
+
+Planned 2026-10-28 against `07470548` (the top of M34), from what the user saw while making Roguestory with the editor's AI:
+no roles for art, audio or critique; one AI chat at a time; usage that jumped only when a run ended; panels that came back
+after closing them; fixed feedback that stayed in `ENGINE_FEEDBACK.json` forever.
+
+### M35.1 Art, audio, critic and reviewer roles; reviews on request (L) — the user
+
+Done (merge `3f1dde74`): four roles in `ai.json` (`artist`, `audio`, and the read-only `artCritic` and `reviewer`, which give
+an opinion with a score from 0 to 10 and sub-scores); a role left out follows the provider already in use. Reviews run only
+when the user asks (the **Art critique** and **Game review** buttons with 1-5 reviewers of different points of view and a
+focus, `factoria ai review art|game`, `ai.review`); the orchestrator cannot start them. Each is saved in
+`.factoria/ai/reviews/` (`ai.reviews`), the **AI reviews** window lists them and **Send to orchestrator** posts one into an
+orchestrator chat. Read-only is enforced per provider (the built-in loop's tool list, Claude Code's `--disallowedTools`,
+Codex's read-only sandbox with the new `factoria mcp --read-only`). A game's `REVIEW.md` tells reviewers how to play it; the
+AGENTS.md template and the AI guide ask for one and exports leave it out. A Claude Code orchestrator runs without Claude
+Code's own `Agent`/`Task` sub-agents and delegates with `ai_run` (seen in Roguestory). Editor autotest section V.
+
+### M35.2 Usage, cost and limits update live (M) — the user
+
+Done (merge `72c3f75c`): every Claude Code model call (and each Codex turn) adds its tokens while the agent works, the cost
+is estimated with the engine's price table until the CLI's total arrives, a delegated worker's spending shows live and is
+kept per agent (`RunUsage`), and `limits.maxCostUsd` / `limits.maxTotalTokens` stop a CLI run as it crosses them.
+
+### M35.3 The editor keeps its panels; closed feedback is archived (M) — the user
+
+Done (merge `bc47b50c`): which panels are open is saved with the layout (`[FactorIAEditor][Panels]` in
+`~/.factoria/editor_layout2.ini`), View > Reset layout reopens the defaults; editor autotest section U. Closed entries of
+`ENGINE_FEEDBACK.json` move to `ENGINE_FEEDBACK.archive.json` when the editor opens the project and with `feedback.archive`;
+ids stay unique, a report matching an archived fix reopens it as a possible regression, the Engine Feedback panel has
+"Show archive" and "Archive closed", and exports leave the archive out.
+
+### M35.4 Several AI chats at once (L) — the user
+
+Done (merge `58278dd0`): up to `limits.maxConcurrentRuns` (default 3) chats run at the same time, each with its own agent
+thread, MCP endpoint, Stop, status and live usage (`AiRun`); a review is one more run. When two chats change the same file
+both get a warning, and Revert of one run restores only its files (`checkpoint_restore` with a file list), asking first
+when another chat changed some of them. Editor autotest section W.
