@@ -5909,7 +5909,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -6055,7 +6055,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -6114,7 +6114,7 @@ declare module "factoria" {
      */
     font: string;
     /**
-     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script.
      * @since 0.2.0
      */
     key: string;
@@ -6244,7 +6244,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -6303,7 +6303,7 @@ declare module "factoria" {
      */
     font: string;
     /**
-     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script.
      * @since 0.2.0
      */
     key: string;
@@ -6414,7 +6414,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -6473,7 +6473,7 @@ declare module "factoria" {
      */
     font: string;
     /**
-     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script.
      * @since 0.2.0
      */
     key: string;
@@ -6619,7 +6619,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -6678,7 +6678,7 @@ declare module "factoria" {
      */
     font: string;
     /**
-     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script.
      * @since 0.2.0
      */
     key: string;
@@ -6769,7 +6769,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -6868,7 +6868,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.2.0
      */
     get pivot(): Vec2;
@@ -6967,7 +6967,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.2.0
      */
     get pivot(): Vec2;
@@ -7111,7 +7111,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.2.0
      */
     get pivot(): Vec2;
@@ -7227,7 +7227,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since unreleased
      */
     get pivot(): Vec2;
@@ -7351,7 +7351,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since unreleased
      */
     get pivot(): Vec2;
@@ -7445,7 +7445,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since unreleased
      */
     get pivot(): Vec2;

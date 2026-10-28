@@ -667,6 +667,19 @@ gives the rectangle itself. Controls anchored to the safe area move with it, so 
 notch. The rectangles follow `game.setSafeArea` / `screen.set_safe_area` one step later: take a `game.step(1)` after
 changing the safe area and before reading a rectangle or touching a control.
 
+### Tablets and the iPad: `display.scaleMode: "expand"`
+
+A tablet is closer to 4:3 than a phone is (an iPad Pro 13-inch is 4:3, a 16:9 design on it shows black bars with the
+default `"fit"`, about a quarter of the screen). Set `"display": { "scaleMode": "expand" }` in `factoria.json` to keep
+the design's scale and show more world instead: the visible area grows on the long axis (a 1280 x 720 design on a 4:3
+landscape screen becomes 1280 x 960), with no bars. The UI follows the grown
+screen: widgets with `anchor` at an edge or corner (`[1, 0]`, `[0.5, 1]`) stay on the screen's edges, so a HUD anchored to
+them fits any tablet, a phone and a window of any shape. A widget placed from the top-left corner with a large `position` is
+not moved. The world a 2D camera shows grows on the long axis; with an `orthoSize` the design's height (its width, on a screen
+taller than the design) stays fixed.
+`"fit"` stays the right choice when the level is built to the exact frame (a puzzle board, pixel art that must not show
+what is outside the room); the bars are then the price.
+
 ## Phone features
 
 What a phone has that a desktop does not, in the scripts (`import { screen, input } from "factoria"`). Every call is a

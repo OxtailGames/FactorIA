@@ -1514,7 +1514,7 @@ and the rest of its file is skipped; a file has no limit of its own, so split a 
 
 Timing in a test: `world.emit(name, data)` is queued, and its listeners (`world.on`, `onEvent`) run at the next
 `game.step`, so call `game.step(1)` after emitting before you check or await a script that waits for it. The answers
-of `platform.*` (the fake store) are ready at once, unless `game.platform.set({ delayFrames })` holds them. Run only some
+of `platform.*` (the fake store) are served inside the call, unless `game.platform.set({ delayFrames })` holds them; the Promise settles in the next microtask, one per `await` of a chain (docs/PLATFORM.md, "The fake store"). Run only some
 test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"` (MCP `project_test` takes `files`).
 
 ## Runtime notes
