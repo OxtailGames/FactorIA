@@ -4,6 +4,19 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A camera inside the UI, and studio lighting
+
+- New widget `CameraView`: it draws a named Camera inside its rectangle, clipped by a ScrollList, layered like any widget and
+  under a modal Panel's own widgets, so a 3D item, a portrait or a minimap needs no hole cut in the page. The pointer over it
+  is the game event `ui.viewPointer` (`ui.on("viewPointer", fn)`: down, drag, up and the wheel, with `u`, `v`, `dx`, `dy`) so a
+  script can turn what it shows; `pointerEvents`, `captureWheel`, `tint` and `resolution` tune it. docs/MENUS.md, "A camera inside
+  the UI". Not yet: a render texture as the source (only cameras), and in a view no bloom, colour filter or debug draw.
+- `Camera.lighting: "studio"` ignores the scene's lights, ambient, sky and fog and lights with a key, fill and rim of its own
+  (`studioIntensity` scales them): an item looks the same on a stage far from the level and in a bright scene.
+- `Camera.viewport` says which rectangle its fractions count (the game target, the design resolution grown by Expand), and
+  `Camera.viewportSpace: "design"` counts them on the design area instead (LL/FB-0014). `RenderStats` has `views`.
+- Larkspur Lodge's item view is a `CameraView`: no four bands around a hole, no darkened colours; the wheel zooms it.
+
 Input routing: a consumed action, text input mode and the wheel under a modal
 
 - `input.consume(action)`: later readers in the frame see the press as gone, for the action and for every action on the

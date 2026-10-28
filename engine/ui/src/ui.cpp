@@ -291,6 +291,7 @@ void UiSystem::reset() {
     tooltipManualContent_ = nullptr;
     tooltipWarned_.clear();
     drag_ = DragState{};
+    viewDrag_ = kNullEntity;
     chartHover_ = kNullEntity;
     chartHoverSeries_ = chartHoverIndex_ = -1;
     dragCand_ = dragImage_ = kNullEntity;
@@ -552,6 +553,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
 
     // ---- wheel: scrolls the innermost ScrollList under the pointer
     wheelConsumed_ = false;
+    update_view_pointer(w, in, design, mouse, ptrDown, ptrPressed, ptrReleased);  // before the lists: a view under the pointer takes the wheel
     if (in.mouse_wheel() != 0.0f) {
         ScrollList* target = nullptr;
         Entity targetEntity;

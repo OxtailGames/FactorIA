@@ -913,6 +913,11 @@ the press is released over the same widget; a Slider follows the pointer while p
   accepts a drop, `ui.setDragImage(widget)` makes a widget follow the pointer, `ui.cancelDrag()` ends the drag and
   `ui.dragging` is `null` or `{ source, payload, from, x, y, target, accepts }`. The click the release would make never
   happens. In tests `game.drag(from, to)`. Details: [MENUS.md](MENUS.md), "Drag and drop".
+- **A camera inside the UI.** `ui.on("viewPointer", fn)` (or `ui.on("viewPointer", view, fn)`) gets `{ id, entity, phase, x, y,
+  u, v, dx, dy, wheel }` for a `CameraView`: `phase` is `"down"`, `"drag"` (while the button or finger is held and moves), `"up"`
+  or `"wheel"`; `x, y` is the pointer in design pixels, `u, v` its place in the view (0..1, outside while a drag leaves it),
+  `dx, dy` the move since the last event and `wheel` the notches. A script that awaits something (a spawn, a load) and then
+  moves what the view shows checks that its scene is still the current one first. Details: [MENUS.md](MENUS.md), "A camera inside the UI".
 - **`active` and `activeInHierarchy`.** `entity.active = false` hides the entity and everything under it, but it does not
   change the `active` of the children: a child of a hidden Panel keeps `active` true. `activeInHierarchy` is true only when
   the entity and every ancestor are active, so ask that to know whether a menu is open (`panel.activeInHierarchy`), not

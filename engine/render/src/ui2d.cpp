@@ -285,6 +285,32 @@ void draw_video(const Ctx& c, const Video& v, const UiBox& b, const Rect& r) {
     c.list().end_item();
 }
 
+// A CameraView: its background (when it has one), then the picture of its camera inside the rectangle `r`. The picture is an
+// image of the rectangle's own size in screen pixels (the camera's aspect is the rectangle's), made and drawn into before the
+// frame's own jobs by the renderer (Renderer::Impl::render); it is registered here, in Frame::views. Only the background is
+// drawn while no active Camera has the name (the script may not have made it yet).
+void draw_camera_view(const Ctx& c, const World& world, Entity e, const CameraView& v, const UiBox& b, const Rect& r) {
+    Entity cam = v.camera.empty() ? kNullEntity : world.find(v.camera);
+    if (cam && (!world.has<Camera>(cam) || !world.active_in_hierarchy(cam))) cam = kNullEntity;
+    // Whole screen pixels, as background() rounds them: the image maps one to one onto its rectangle.
+    const float x0 = snap(c, r.x), y0 = snap(c, r.y), x1 = snap(c, r.x + r.w), y1 = snap(c, r.y + r.h);
+    TextureAsset* tex = nullptr;
+    if (cam && c.f.viewImage && x1 > x0 && y1 > y0) {
+        const float res = std::isfinite(v.resolution) ? std::clamp(v.resolution, 0.25f, 2.0f) : 1.0f;
+        const Vec2 size{(x1 - x0) * c.k, (y1 - y0) * c.k};  // design pixels
+        const int pxW = std::clamp(int(std::lround(double(size.x) * c.f.renderScale * res)), 1, 4096);
+        const int pxH = std::clamp(int(std::lround(double(size.y) * c.f.renderScale * res)), 1, 4096);
+        tex = c.f.viewImage(std::uint64_t(e.bits()), pxW, pxH);
+        if (tex) c.f.views.push_back(ViewRequest{std::uint64_t(e.bits()), cam, size, pxW, pxH});
+    }
+    if (b.color.a > 0.0f || !b.texture.empty()) background(c, b, r, b.color);
+    if (!tex) return;
+    c.list().begin_item(v.layer + 1, 0, tex, SamplerKind::LinearClamp, BlendMode::Alpha, c.clip);
+    const float top = c.f.viewFlipV ? 1.0f : 0.0f, bottom = c.f.viewFlipV ? 0.0f : 1.0f;
+    quad(c, x0, y0, x1, y1, 0, top, 1, bottom, pack(v.tint, c.fade));
+    c.list().end_item();
+}
+
 // A thick segment from `a` to `b` (UI units) as one quad of the current item.
 void segment(const Ctx& c, Vec2 a, Vec2 b, float thickness, std::uint32_t col) {
     const Vec2 d = b - a;
@@ -357,6 +383,7 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     if (kind == UiKind::Captions) return draw_captions(c, world, *world.get<Captions>(e), b, r);
     if (kind == UiKind::Video) return draw_video(c, *world.get<Video>(e), b, r);
     if (kind == UiKind::Chart) return draw_chart(c, world, *world.get<Chart>(e), b, r);
+    if (kind == UiKind::CameraView) return draw_camera_view(c, world, e, *world.get<CameraView>(e), b, r);
     const UiControl* ctl = ui_control(world, e);
     if (ctl) c.capScale = ctl->maxTextScale;
     Color tint = b.color;
@@ -457,7 +484,8 @@ void gather_ui(World& world, Frame& f) {
     bool any = false;
     for (const TypeInfo* t : {&World::type_of<Panel>(), &World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(),
                               &World::type_of<TextField>(), &World::type_of<ScrollList>(), &World::type_of<TouchStick>(),
-                              &World::type_of<TouchButton>(), &World::type_of<Captions>(), &World::type_of<Video>(), &World::type_of<Chart>()})
+                              &World::type_of<TouchButton>(), &World::type_of<Captions>(), &World::type_of<Video>(), &World::type_of<Chart>(),
+                              &World::type_of<CameraView>()})
         any = any || !world.entities_with(t).empty();
     if (any)
         for (Entity root : world.roots()) visit(f, world, root);
