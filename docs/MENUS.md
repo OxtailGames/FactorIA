@@ -399,6 +399,26 @@ default is 45, or 0 when the system asks to reduce motion). The kit does not dra
 `Text.visibleCharacters = settings.revealedCharacters(secondsSinceTheLineAppeared)`. For any other row of the game, call
 `addOptionsRow("audio", { id, text, click })` of `scripts/ui/options.js` before the panel is spawned (its comment says how).
 
+## Anchors and pivots
+
+A widget is placed by two points that count Y in opposite directions. `anchor` is a point of the screen as a fraction,
+counted from the top-left with Y DOWN (`[0, 0]` top-left, `[1, 1]` bottom-right). `pivot` is a point of the widget, counted
+with Y UP (`[0, 0]` its bottom-left corner, `[1, 1]` its top-right, `[0.5, 0.5]` its centre). The widget's pivot sits on
+the anchor point, moved by `position`. So a bar on the bottom edge is `anchor [0.5, 1]` with `pivot [0.5, 0]`: its bottom
+edge rests on the screen's bottom edge. With `pivot [0.5, 1]` the same bar would hang below the screen.
+
+```
+anchor Y (down)            pivot Y (up)
+
+(0,0)---------(1,0)        (0,1)---------(1,1)    pivot [0.5, 0] = middle of the
+  |   screen     |           |    widget    |      bottom edge, so with
+  |              |           |      x       |      anchor [0.5, 1] the widget
+(0,1)---------(1,1)        (0,0)---------(1,0)    stands ON the screen's bottom
+```
+
+`factoria validate` warns about a widget of a scene that lies completely outside the design size, which is what a wrong
+pivot Y usually does: the warning names the widget, the rectangle it covers and the fix.
+
 ## Pressing the focused widget in a test
 
 `game.tap("ui_submit")` presses the focused widget, like Enter, Space or the pad's A: it holds the action for one frame,

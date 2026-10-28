@@ -256,6 +256,46 @@ test("a rejection somebody handles is no script error", async () => {
     CHECK(h.scripts.errors().empty());
 }
 
+TEST_CASE("platform api: without delayFrames the fake answers inside the call, the promise settles in the next microtask") {
+    TestHost h("platform_timing", settings());
+    h.file("tests/timing.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { platform, world } from "factoria";
+
+test("the fake's state changes in the call; only the touched achievements are listed", async () => {
+  game.platform.reset();
+  expect(game.platform.state().fake.achievements).toEqual({});
+  let settled = false;
+  const p = platform.achievements.unlock("first_win").then((r) => { settled = r.newly; });
+  // No game.step and no await yet: the store has the answer already, the continuation has not run.
+  expect(game.platform.state().fake.achievements).toEqual({ first_win: { unlocked: true, progress: 1 } });
+  expect(game.platform.state().pending).toBe(0);
+  expect(settled).toBe(false);
+  await p;
+  expect(settled).toBe(true);
+  // "veteran" is in the catalog but was never touched: it is not in the fake's list (the list() call has the whole catalog).
+  expect(Object.keys(game.platform.state().fake.achievements)).toEqual(["first_win"]);
+  expect((await platform.achievements.list()).map((a) => a.id)).toEqual(["first_win", "veteran"]);
+});
+
+test("a request made inside a frame (an event handler) is answered in that frame", async () => {
+  game.platform.reset();
+  const off = world.on("test.go", () => { platform.achievements.unlock("veteran").catch(() => {}); });
+  world.emit("test.go", {});
+  expect(game.platform.state().fake.achievements).toEqual({});  // emit is queued: the handler runs at the next step
+  game.step(1);
+  expect(game.platform.state().fake.achievements).toEqual({ veteran: { unlocked: true, progress: 1 } });
+  off();
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/timing.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 2);
+    CHECK(h.scripts.errors().empty());
+}
+
 TEST_CASE("platform api: delayed answers arrive at the start of a frame, events reach listeners") {
     TestHost h("platform_delay", settings());
     h.file("tests/delay.test.js", R"(

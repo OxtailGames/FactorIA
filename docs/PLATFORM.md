@@ -340,7 +340,12 @@ own best; `integrity.token` answers `{ token: "fake-integrity-1" }`, then `fake-
 can verify these: a development server has to accept them on purpose); `cloud.stat` answers a `modified` that starts at
 `1767225600` (2026-01-01T00:00:00Z) and goes up one second with each `cloud.save` (no wall clock); `remotePlay.sessions`
 lists the guests the test connected. `await` works in tests, and an answer is ready at
-once, without `game.step()`.
+once, without `game.step()`. "At once" means: the fake serves the request inside the call (also one made from an event handler
+during a frame), so `game.platform.state().fake` already shows its effect when the call returns; the Promise settles in the
+next microtask, and a game that chains several steps (`await stat(...)`, then `await save(...)`) needs one microtask per step,
+so a test awaits the chain (or the microtasks: `await Promise.resolve()` a few times) instead of stepping frames. Only
+`delayFrames` makes an answer wait for frames. `state().fake.achievements` lists only the ids that were touched (unlocked or
+given progress) since the last `reset()`, not the catalog; `platform.achievements.list()` has the whole catalog.
 
 `import { game } from "factoria:test"` gives `game.platform`, the store's controls:
 
