@@ -174,6 +174,13 @@ public:
     // clear() and scene loads, like the safe insets.
     bool rtl() const { return rtl_; }
     void set_rtl(bool rtl) { rtl_ = rtl; }
+    // `ui.mirrorRtl` (factoria.json "ui": {"mirrorRtl"}, default true): in a right-to-left language the screen-space UI is drawn
+    // mirrored (ui_rect.h, ui_mirrored). The runtime sets it from the project and from `ui.mirrorRtl = ...`; survives clear()
+    // and scene loads, like rtl().
+    bool ui_mirror_rtl() const { return uiMirrorRtl_; }
+    void set_ui_mirror_rtl(bool on) { uiMirrorRtl_ = on; }
+    // True when the UI is mirrored right now: ui_mirror_rtl() and rtl().
+    bool ui_mirror() const { return uiMirrorRtl_ && rtl_; }
     // The game's current language tag ("" = English / localization off): what a Chart writes its axis labels in. Set by the
     // runtime with the language, like rtl(); survives clear() and scene loads.
     const std::string& language() const { return language_; }
@@ -211,6 +218,7 @@ private:
     UiTooltipSettings tooltipSettings_;
     UiTooltipView tooltip_;
     bool rtl_ = false;
+    bool uiMirrorRtl_ = true;
     std::string language_;
     std::uint64_t frame_ = 0;
     double time_ = 0.0;

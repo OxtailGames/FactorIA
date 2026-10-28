@@ -407,7 +407,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         if (d >= Left && kind == UiKind::Slider) {
             Slider& s = *w.get<Slider>(focus_);
             const float inc = s.step > 0.0f ? s.step : (s.max - s.min) / 20.0f;
-            const float v = snap_slider(s, s.value + (d == Right ? inc : -inc));
+            // On a mirrored slider the knob runs right to left: the right arrow lowers the value.
+            const float v = snap_slider(s, s.value + ((d == Right) != ui_mirrored(w, focus_) ? inc : -inc));
             if (v != s.value) {
                 s.value = v;
                 emit(w, "ui.change", focus_, to_json(s.value));
@@ -526,8 +527,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             const Item* it = find(press_);
             const float k = ui_scale_clamped(w.ui_scale());  // the track is laid out in UI units, the pointer is in pixels
             const Rect unitRect{it->rect.x / k, it->rect.y / k, it->rect.w / k, it->rect.h / k};
-            const auto [left, right] = ui_slider_track(*s, unitRect);
-            const float t = right > left ? std::clamp((mouse.x / k - left) / (right - left), 0.0f, 1.0f) : 0.0f;
+            const bool mirrored = ui_mirrored(w, press_);
+            const float t = ui_slider_fraction(ui_slider_track(*s, unitRect, mirrored), mouse.x / k, mirrored);
             const float v = snap_slider(*s, s->min + t * (std::max(s->min, s->max) - s->min));
             if (v != s->value) {
                 s->value = v;

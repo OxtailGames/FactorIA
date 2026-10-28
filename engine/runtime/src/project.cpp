@@ -84,9 +84,11 @@ Json ProjectSettings::to_json() const {
     if (!inputSchemes.empty()) input["schemes"] = inputSchemes;
     else input.erase("schemes");
     j["input"] = input;
-    if (uiScale != 1.0f || (j.contains("ui") && j["ui"].is_object())) {
+    if (uiScale != 1.0f || !uiMirrorRtl || (j.contains("ui") && j["ui"].is_object())) {
         Json ui = j.contains("ui") && j["ui"].is_object() ? j["ui"] : Json::object();
         ui["scale"] = uiScale;
+        if (!uiMirrorRtl) ui["mirrorRtl"] = false;
+        else ui.erase("mirrorRtl");
         j["ui"] = ui;
     }
     Json plats = Json::array();
@@ -522,6 +524,10 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
                                   "(docs/TEXT.md, \"Interface size\"). The Options menu and scripts change it with ui.scale.");
             s.uiScale = float(v);
         }
+        if (auto mr = it->find("mirrorRtl"); mr != it->end() && !mr->is_null()) {
+            if (!mr->is_boolean()) return field_error("/ui/mirrorRtl", "true or false", *mr);
+            s.uiMirrorRtl = mr->get<bool>();
+        }
         Result<UiTooltipSettings> tip = parse_tooltip_settings(*it, at("/ui"));
         if (!tip.ok()) return tip.error();
         s.uiTooltip = tip.value();
@@ -642,6 +648,10 @@ constexpr const char* kSchemaText =
           "minimum": 0.5,
           "maximum": 3,
           "description": "The interface scale the game starts with (default 1): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Text with space \"screen\"...) are multiplied by it, on top of the text size option (ui.textScale). Scripts and the Options menu change it while the game runs (ui.scale = 1.25, the ui.set_scale command); tests start from this value. docs/COMPONENTS.md, \"Interface scale\"."
+        },
+        "mirrorRtl": {
+          "type": "boolean",
+          "description": "Whether a right-to-left language (i18n.direction \"rtl\") mirrors the screen-space UI (default true): anchor.x, pivot.x and position.x flip, Toggle boxes and Sliders run right to left, and a widget with UiBox.mirror false stays. Scripts change it with ui.mirrorRtl, the ui.set_mirror_rtl command too. docs/LOCALIZATION.md, \"Right to left\"."
         },
         "tooltipDelay": {
           "type": "number",

@@ -44,8 +44,9 @@ const DARK = [0.045, 0.055, 0.085, 1];
 const TABS = ["items", "notebook", "board"];
 /** The hole of the Items page where the 3D view shows, in design pixels: x, y, w, h. */
 const HOLE = { x: 430, y: 84, w: 400, h: 360 };
-/** Where the hole really is: the screens are mirrored in a right-to-left language (kit.mx), so is the 3D view. */
-const hole = () => ({ x: kit.mx(HOLE.x, HOLE.w), y: HOLE.y, w: HOLE.w, h: HOLE.h });
+/** Where the hole really is: the engine mirrors the screens in a right-to-left language, the 3D view (a camera viewport) is placed here. */
+const mirrored = () => ui.mirrorRtl && i18n.direction === "rtl";
+const hole = () => ({ x: mirrored() ? kit.W - HOLE.x - HOLE.w : HOLE.x, y: HOLE.y, w: HOLE.w, h: HOLE.h });
 /** Where the 3D stage stands: far above the lodge, so no lodge mesh or light reaches it. */
 const STAGE_Y = 300;
 const HINT_Y = 692;

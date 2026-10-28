@@ -9,11 +9,9 @@ import { i18n } from "factoria";
 export const W = 1280;
 export const H = 720;
 
-/**
- * Right-to-left languages (Hebrew) mirror the whole screen: every builder takes its x for a left-to-right reading and puts the
- * widget at the same distance from the RIGHT edge instead. `x` is the left edge, `w` the width of the widget.
- */
-export const mx = (x, w) => (i18n.direction === "rtl" ? W - x - w : x);
+// Right-to-left languages (Hebrew): nothing here. Every builder places its widget for a left-to-right reading and the engine
+// mirrors the screen-space UI by itself (ui.mirrorRtl, on by default when i18n.direction is "rtl"): anchor.x, pivot.x and
+// position.x flip, a line is drawn from its mirrored end points.
 
 /** Layers: backdrop pieces, lines, widgets, texts. The dialogue box uses 220-252, the HUD 210. */
 export const LAYER = Object.freeze({ back: 300, line: 305, widget: 310, text: 320, frame: 330 });
@@ -37,7 +35,7 @@ export function rect(id, x, y, w, h, color, layer = LAYER.back) {
   return {
     id,
     components: {
-      Transform: { position: pos(mx(x, w), y) },
+      Transform: { position: pos(x, y) },
       Panel: { size: [w, h], anchor: [0.5, 0.5], pivot: [0, 1], layer, color, layout: "none", padding: [0, 0, 0, 0] },
     },
   };
@@ -48,7 +46,7 @@ export function label(id, x, y, width, text, opts = {}) {
   return {
     id,
     components: {
-      Transform: { position: pos(mx(x, width), y) },
+      Transform: { position: pos(x, y) },
       Panel: { anchor: [0.5, 0.5], pivot: [0, 1], layer: LAYER.text - 1, color: [0, 0, 0, 0], layout: "column", padding: [0, 0, 0, 0], align: "start", direction: "auto", fit: true, minSize: [width, 0], maxSize: [width, 0] },
     },
     children: [
@@ -66,6 +64,8 @@ export function label(id, x, y, width, text, opts = {}) {
             minFontSize: 9,
             maxHeight: opts.height ?? 0,
             align: "start", // the left edge in English, the right edge in Hebrew
+            // The line is a translation, not a key: in Hebrew it is a right-to-left paragraph even when it starts with a key name ("Tab ...").
+            direction: i18n.direction === "rtl" ? "rtl" : "auto",
             markup: opts.markup ?? false,
             layer: LAYER.text,
             space: "screen",
@@ -83,7 +83,7 @@ export function button(id, x, y, w, h, text, opts = {}) {
   return {
     id,
     components: {
-      Transform: { position: pos(mx(x, w), y) },
+      Transform: { position: pos(x, y) },
       Button: {
         text,
         size: [w, h],
@@ -109,8 +109,8 @@ export function line(id, x1, y1, x2, y2, color, thickness = 2) {
   return {
     id,
     components: {
-      Transform: { position: pos(i18n.direction === "rtl" ? W - x1 : x1, y1) },
-      Shape2D: { shape: "line", size: [i18n.direction === "rtl" ? x1 - x2 : x2 - x1, -(y2 - y1)], color, thickness, layer: LAYER.line, space: "screen", anchor: [0.5, 0.5] },
+      Transform: { position: pos(x1, y1) },
+      Shape2D: { shape: "line", size: [x2 - x1, -(y2 - y1)], color, thickness, layer: LAYER.line, space: "screen", anchor: [0.5, 0.5] },
     },
   };
 }
@@ -120,7 +120,7 @@ export function list(id, x, y, w, h, children) {
   return {
     id,
     components: {
-      Transform: { position: pos(mx(x, w), y) },
+      Transform: { position: pos(x, y) },
       ScrollList: { size: [w, h], anchor: [0.5, 0.5], pivot: [0, 1], layer: LAYER.widget - 1, color: [0, 0, 0, 0.25], spacing: 8, padding: [6, 6, 6, 6] },
     },
     children,

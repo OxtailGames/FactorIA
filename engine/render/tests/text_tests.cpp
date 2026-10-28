@@ -61,8 +61,9 @@ struct Faces {
             REQUIRE_MESSAGE(faces.back()->ok, faces.back()->error);
         }
     }
-    fr::ShapedText shape(std::string_view text, int px = 20, float maxW = 0, WordBreak wb = WordBreak::Auto) {
-        return fr::shape_text(text, px, maxW, faces.size(), [&](std::size_t i) { return faces[i].get(); }, wb);
+    fr::ShapedText shape(std::string_view text, int px = 20, float maxW = 0, WordBreak wb = WordBreak::Auto,
+                         TextDirection dir = TextDirection::Auto) {
+        return fr::shape_text(text, px, maxW, faces.size(), [&](std::size_t i) { return faces[i].get(); }, wb, dir);
     }
     // The advance of a code point drawn on its own, without shaping, in pixels.
     float nominal_advance(std::size_t font, char32_t cp, int px) const {
@@ -754,6 +755,67 @@ TEST_CASE("text: Align is explicit: Left stays at the left edge for right-to-lef
     CHECK(left.x0 < 60 + 8);
     CHECK(right.x1 > 260 - 8);
     CHECK(std::abs((center.x0 + center.x1) / 2 - 160) < 8);
+}
+
+TEST_CASE("text: a Hebrew line that starts with a key name is a right-to-left paragraph with Text.direction rtl or a localization key") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    // "Tab" then Hebrew words (alef bet, gimel dalet), no U+200F in front.
+    const std::string line = "Tab \xD7\x90\xD7\x91 \xD7\x92\xD7\x93";
+    {  // shaping: the first strong character is Latin, so auto reads left to right; rtl puts "Tab" at the right end
+        Faces f({""});
+        const fr::ShapedText autoDir = f.shape(line);
+        const fr::ShapedText rtlDir = f.shape(line, 20, 0, WordBreak::Auto, TextDirection::Rtl);
+        const fr::ShapedText ltrDir = f.shape(line, 20, 0, WordBreak::Auto, TextDirection::Ltr);
+        CHECK(screen_order(autoDir) == std::vector<std::uint32_t>{0, 1, 2, 3, 8, 7, 6, 5, 4});  // Tab, then the Hebrew words from the right
+        CHECK(screen_order(ltrDir) == screen_order(autoDir));
+        CHECK(screen_order(rtlDir) == std::vector<std::uint32_t>{8, 7, 6, 5, 4, 3, 0, 1, 2});  // the Hebrew words, then Tab at the right end
+    }
+    auto drawn = [&](bool keyed, bool languageRtl, TextDirection dir) {
+        World w; add_black_camera(w);
+        w.set_rtl(languageRtl);
+        w.set_language(languageRtl ? "he" : "en");
+        Entity e = put_text(w, line, {-100, 40, 0}, 24, "", Align::Start, 200);
+        Text& t = *w.get<Text>(e);
+        t.direction = dir;
+        if (keyed) t.key = "hint";  // the text stays as it is: this test draws, it does not translate
+        return ink(g.render(w));
+    };
+    // The same Hebrew line in a box 200 px wide, Align::Start: at the right edge when the paragraph is right to left.
+    const Ink autoLtr = drawn(false, true, TextDirection::Auto);   // no key, starts with a Latin letter: left to right, so start = left?
+    const Ink keyed = drawn(true, true, TextDirection::Auto);      // a key in a right-to-left language: right to left
+    const Ink explicitRtl = drawn(false, true, TextDirection::Rtl);
+    REQUIRE((autoLtr.any() && keyed.any() && explicitRtl.any()));
+    CHECK(keyed.x1 > 260 - 8);                // start is the right edge of the 200 px box that begins at pixel 60
+    CHECK(explicitRtl.x1 > 260 - 8);
+    CHECK(keyed.w() == explicitRtl.w());      // the same line, laid out the same way
+    // and in English a keyed Text is left to right
+    const Ink keyedEn = drawn(true, false, TextDirection::Auto);
+    REQUIRE(keyedEn.any());
+    CHECK(keyedEn.x0 < 60 + 8);
+}
+
+TEST_CASE("text: visibleCharacters reveals a right-to-left paragraph in text order, from the first character") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    World w; add_black_camera(w);
+    const std::string line = "Tab \xD7\x90\xD7\x91\xD7\x92\xD7\x93";
+    Entity e = put_text(w, line, {-100, 40, 0}, 24, "", Align::Start, 200);
+    Text& t = *w.get<Text>(e);
+    t.direction = TextDirection::Rtl;
+    t.visibleCharacters = -1;
+    const Ink full = ink(g.render(w));
+    t.visibleCharacters = 3;  // "Tab": the first characters of the text, drawn at the right end of the line
+    const Ink tab = ink(g.render(w));
+    REQUIRE((full.any() && tab.any()));
+    CHECK(tab.x1 == full.x1);
+    CHECK(tab.x0 > full.x0 + full.w() / 3);
+    t.visibleCharacters = 5;  // plus the space and the first Hebrew letter: it grows to the left
+    const Ink more = ink(g.render(w));
+    CHECK(more.x1 == full.x1);
+    CHECK(more.x0 < tab.x0);
 }
 
 TEST_CASE("text: Align start / end are the left / right edge in English and the right / left edge in Arabic") {

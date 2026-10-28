@@ -134,7 +134,7 @@
     "load": "טעינת משחק"
   },
   "prompt": {
-    "format": "\u200f[{key}] {verb} {name}",
+    "format": "[{key}] {verb} {name}",
     "click": "לחיצה",
     "tap": "הקשה"
   },
@@ -333,15 +333,15 @@
     "useOnBoard": "בחירה על הלוח",
     "undo": "ביטול פעולה",
     "redo": "ביצוע חוזר",
-    "hintItems": "\u200fTab או הכפתורים העליונים: העמוד הבא.   Esc או B: סגירה.",
+    "hintItems": "Tab או הכפתורים העליונים: העמוד הבא.   Esc או B: סגירה.",
     "hintBoard": "בחר שני רמזים כדי לקשר ביניהם.   Z: ביטול   Y: ביצוע חוזר   Esc או B: סגירה.",
     "kindKey": "מפתח",
     "kindClue": "רמז",
     "kindTool": "כלי",
     "deductions": "מסקנות",
     "clues": "רמזים",
-    "hintJournal": "\u200fTab, Page Up / Page Down או הכפתורים העליונים: החלפת עמוד.   Esc או B: סגירה.",
-    "hintPuzzle": "\u200fEsc או B: חזרה.",
+    "hintJournal": "Tab, Page Up / Page Down או הכפתורים העליונים: החלפת עמוד.   Esc או B: סגירה.",
+    "hintPuzzle": "Esc או B: חזרה.",
     "itemDetail": "{kind}",
     "try": "ניסיון",
     "state": "מצב"
@@ -493,7 +493,7 @@
       "line03": "לשלום? ככה אתה קורא לזה?"
     },
     "skip": "דילוג",
-    "hint": "\u200f{key} לדילוג"
+    "hint": "{key} לדילוג"
   },
   "keyboard": {
     "space": "רווח",

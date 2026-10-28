@@ -72,7 +72,8 @@ bool can_break_between(char32_t a, char32_t b, WordBreak wb) {
 
 // Only text with right-to-left letters or direction controls needs the bidirectional algorithm; everything else is one
 // left-to-right level.
-bool needs_bidi(std::u32string_view p) {
+bool needs_bidi(std::u32string_view p, TextDirection dir) {
+    if (dir == TextDirection::Rtl) return true;  // even Latin text sits in a right-to-left paragraph
     for (char32_t c : p)
         if ((c >= 0x0590 && c <= 0x08FF) || (c >= 0xFB1D && c <= 0xFDFF) || (c >= 0xFE70 && c <= 0xFEFF) || (c >= 0x10800 && c <= 0x10FFF) ||
             (c >= 0x1E800 && c <= 0x1EFFF) || (c >= 0x202A && c <= 0x202E) || (c >= 0x2066 && c <= 0x2069) || c == 0x200F || c == 0x061C)
@@ -87,12 +88,12 @@ struct Bidi {
     SBAlgorithmRef algo = nullptr;
     SBParagraphRef para = nullptr;
 
-    explicit Bidi(std::u32string_view p) {
+    explicit Bidi(std::u32string_view p, TextDirection dir) {
         seq.stringEncoding = SBStringEncodingUTF32;
         seq.stringBuffer = p.data();
         seq.stringLength = p.size();
         algo = SBAlgorithmCreate(&seq);
-        if (algo) para = SBAlgorithmCreateParagraph(algo, 0, p.size(), SBLevelDefaultLTR);
+        if (algo) para = SBAlgorithmCreateParagraph(algo, 0, p.size(), dir == TextDirection::Rtl ? SBLevel(1) : dir == TextDirection::Ltr ? SBLevel(0) : SBLevelDefaultLTR);
         if (para && SBParagraphGetLength(para) != p.size()) {  // cannot happen after decode_text; do not trust half a paragraph
             SBParagraphRelease(para);
             para = nullptr;
@@ -177,8 +178,8 @@ void shape_run(hb_buffer_t* buf, std::u32string_view p, std::size_t a, std::size
     for (std::size_t k = first; k < clusters.size(); ++k) clusters[k].end = k + 1 < clusters.size() ? clusters[k + 1].first : std::uint32_t(b);
 }
 
-void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float maxW, WordBreak wordBreak, Chain& chain, HbBuffer& buf,
-                     const RichShaping* rich, ShapedText& out) {
+void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float maxW, WordBreak wordBreak, TextDirection direction, Chain& chain,
+                     HbBuffer& buf, const RichShaping* rich, ShapedText& out) {
     const std::size_t n = p.size();
     if (n == 0) {
         out.lines.emplace_back();
@@ -237,8 +238,8 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
     for (std::size_t i = 0; i < n && script[i] == HB_SCRIPT_INVALID; ++i) script[i] = firstScript;
 
     std::unique_ptr<Bidi> bidi;
-    if (needs_bidi(p)) {
-        bidi = std::make_unique<Bidi>(p);
+    if (needs_bidi(p, direction)) {
+        bidi = std::make_unique<Bidi>(p, direction);
         if (!bidi->active()) bidi.reset();
     }
     const SBLevel* level = bidi ? bidi->levels() : nullptr;
@@ -356,12 +357,12 @@ std::vector<std::uint32_t> grapheme_index(std::u32string_view text) {
 }
 
 ShapedText shape_text(std::string_view utf8, int px, float maxWidth, std::size_t chainSize,
-                      const std::function<FontFace*(std::size_t)>& chainFn, WordBreak wordBreak) {
-    return shape_text(decode_text(utf8), px, maxWidth, chainSize, chainFn, nullptr, wordBreak);
+                      const std::function<FontFace*(std::size_t)>& chainFn, WordBreak wordBreak, TextDirection direction) {
+    return shape_text(decode_text(utf8), px, maxWidth, chainSize, chainFn, nullptr, wordBreak, direction);
 }
 
 ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::size_t chainSize,
-                      const std::function<FontFace*(std::size_t)>& chainFn, const RichShaping* rich, WordBreak wordBreak) {
+                      const std::function<FontFace*(std::size_t)>& chainFn, const RichShaping* rich, WordBreak wordBreak, TextDirection direction) {
     ShapedText out;
     Chain chain(std::max<std::size_t>(chainSize, 1), chainFn);
     if (!chain.at(0)) {
@@ -372,7 +373,7 @@ ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::siz
     for (std::size_t start = 0;;) {
         const std::size_t nl = text.find(U'\n', start);
         const std::size_t end = nl == std::u32string::npos ? text.size() : nl;
-        shape_paragraph(text.substr(start, end - start), std::uint32_t(start), px, maxWidth, wordBreak, chain, buf, rich, out);
+        shape_paragraph(text.substr(start, end - start), std::uint32_t(start), px, maxWidth, wordBreak, direction, chain, buf, rich, out);
         if (nl == std::u32string::npos) break;
         start = nl + 1;
     }

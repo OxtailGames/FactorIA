@@ -437,9 +437,11 @@ their own again on `i18n.on("change")`. Read-aloud speaks the focused widget in 
 - **Korean** uses a subset of Noto Sans KR as a fallback font (`assets/fonts/`, OFL, provenance in `assets.json`). The subset holds the
   characters of the tables: after editing a Korean string run `python3 -I assets/src/build_fonts.py` (it uses the engine command
   `assets.subset_font`), or `factoria validate` names the missing character.
-- **Hebrew** is right to left. Text and Panel rows mirror by themselves (`direction: auto`, `align: start`); the screens that place
-  widgets by hand mirror their x through `kit.mx` (`scripts/ui/kit.js`), and the 3D item view mirrors its hole. A Hebrew string that
-  starts with a key name or a placeholder begins with U+200F so the line stays right to left (FB-0904).
+- **Hebrew** is right to left. The engine mirrors the screen-space UI (`ui.mirrorRtl`: anchors, pivots, positions, Toggle boxes, Sliders)
+  and Text and Panel rows follow the language (`direction: auto`, `align: start`), so the builders of `scripts/ui/kit.js` place every
+  widget as if for English; only the 3D item view, a camera viewport and not a widget, mirrors its hole by hand (`screens.js`). A Hebrew
+  string that starts with a key name or a placeholder is a right-to-left paragraph through `Text.direction` (the hint labels, the
+  prompt) or a `key` (the Skip button); the translations have no U+200F (FB-0903, FB-0904).
 - **German** is the longest language: labels shrink (`autoShrink`, `minFontSize`) inside fixed boxes and the panels have heights, so
   nothing overflows at 200 % text (`ui.overflowed`, checked per language).
 - The dialogue validator (`project.validate_dialogue`) also reports a line, choice, chapter, ending or name that one language lacks,

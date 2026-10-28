@@ -61,6 +61,17 @@ const UiControl* ui_control(const World& w, Entity e) {
     return ui_is_control(ui_kind(w, e)) ? static_cast<const UiControl*>(ui_box(w, e)) : nullptr;
 }
 
+bool ui_mirrored(const World& w, Entity e) {
+    if (!w.ui_mirror()) return false;
+    bool inWidget = false;
+    for (Entity a = e; a; a = w.parent(a))
+        if (const UiBox* b = ui_box(w, a)) {
+            if (!b->mirror) return false;
+            inWidget = true;
+        }
+    return inWidget;
+}
+
 Vec2 anchor_point(Vec2 anchor, bool safeArea, Vec2 designSize, const EdgeInsets& insets) {
     if (!safeArea) return {anchor.x * designSize.x, anchor.y * designSize.y};
     return {insets.left + anchor.x * (designSize.x - insets.left - insets.right),
@@ -101,9 +112,15 @@ EdgeInsets ui_layout_insets(const World& w) {
 std::optional<Rect> ui_layout_rect(const World& w, Entity e, Vec2 designSize) {
     const UiBox* b = ui_box(w, e);
     if (!b) return std::nullopt;
-    const Vec3 t = w.world_matrix(e).translation();
-    const Vec2 a = anchor_point(b->anchor, b->safeArea, ui_layout_screen(w, designSize), ui_layout_insets(w));
-    return Rect{t.x + a.x - b->pivot.x * b->size.x, t.y + a.y - (1.0f - b->pivot.y) * b->size.y, b->size.x, b->size.y};
+    Vec3 t = w.world_matrix(e).translation();
+    Vec2 anchor = b->anchor, pivot = b->pivot;
+    if (ui_mirrored(w, e)) {  // the mirror image: anchor, pivot and position flip left to right
+        anchor.x = 1.0f - anchor.x;
+        pivot.x = 1.0f - pivot.x;
+        t.x = -t.x;
+    }
+    const Vec2 a = anchor_point(anchor, b->safeArea, ui_layout_screen(w, designSize), ui_layout_insets(w));
+    return Rect{t.x + a.x - pivot.x * b->size.x, t.y + a.y - (1.0f - pivot.y) * b->size.y, b->size.x, b->size.y};
 }
 
 std::optional<Rect> ui_rect(const World& w, Entity e, Vec2 designSize) {
@@ -129,12 +146,20 @@ std::optional<Rect> ui_clip_rect(const World& w, Entity e, Vec2 designSize) {
     return clip;
 }
 
-std::pair<float, float> ui_slider_track(const Slider& s, const Rect& r) {
+float ui_slider_fraction(std::pair<float, float> track, float x, bool mirrored) {
+    if (!(track.second > track.first)) return 0.0f;
+    const float t = std::clamp((x - track.first) / (track.second - track.first), 0.0f, 1.0f);
+    return mirrored ? 1.0f - t : t;
+}
+
+std::pair<float, float> ui_slider_track(const Slider& s, const Rect& r, bool mirrored) {
     const float inner0 = r.x + 8.0f, innerW = std::max(0.0f, r.w - 16.0f);
     const bool side = !s.label.empty() && !s.labelAbove;  // a label above the track leaves the whole width to it
     const float labelW = side ? innerW * 0.35f : 0.0f;
     const float zone0 = inner0 + labelW, zoneW = innerW * (side ? 0.5f : 0.85f);
-    return {zone0 + 8.0f, std::max(zone0 + 8.0f, zone0 + zoneW - 8.0f)};
+    const float left = zone0 + 8.0f, right = std::max(zone0 + 8.0f, zone0 + zoneW - 8.0f);
+    if (mirrored) return {2.0f * r.x + r.w - right, 2.0f * r.x + r.w - left};
+    return {left, right};
 }
 
 float ui_slider_mid_y(const Slider& s, const Rect& r) {

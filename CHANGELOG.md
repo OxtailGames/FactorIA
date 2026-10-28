@@ -4,6 +4,22 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Right to left: the UI mirrors itself and a Text has a direction
+
+- `ui.mirrorRtl` (on by default; `"ui": { "mirrorRtl": false }` in factoria.json, `ui.mirrorRtl = false` in a script, the
+  `ui.set_mirror_rtl` command): in a right-to-left language (`i18n.direction` rtl) the screen-space UI is mirrored by the
+  engine. The `anchor.x`, `pivot.x` and `position.x` of every widget flip, a Toggle's box sits at the right of its label, a
+  Slider runs from right to left (drawing, click and arrow keys), a Button's icon changes side, and the Text, Sprite and
+  Shape2D below a widget go with it. `ui.rectOf`, `ui.state`, clicks and the editor's picking follow. A project that placed
+  its widgets by hand for Arabic or Hebrew turns it off, or deletes that code (LL/FB-0903).
+- `UiBox.mirror` (`mirror: false` on any widget): the widget and everything below it keep the place they were authored in,
+  for a map, a 3D view or a joystick.
+- `Text.direction`: `auto` (default), `ltr` or `rtl`, the base direction of the paragraphs. `auto` with a localization
+  key (`key` on a Text or a widget) takes the language's direction, so a Hebrew line that starts with a key name or a
+  placeholder is right to left without a U+200F mark; `rtl` also makes `align: "start"` the right edge. The `visibleCharacters`
+  reveal still follows the order of the text (LL/FB-0904). docs/LOCALIZATION.md, section 6.
+- Larkspur Lodge lost `kit.mx` and the U+200F marks of `locales/he.json`.
+
 A typewriter reveal and Korean that keeps its words
 
 - `Text.visibleCharacters` (-1 = all, the default) draws only the first n characters of a Text, counted in grapheme clusters

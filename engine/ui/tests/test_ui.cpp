@@ -1095,6 +1095,7 @@ TEST_CASE("ui tree: widgets under a plain entity click, drag, focus and hit-test
 // ------------------------------------------------------------------------------- right-to-left layouts --
 TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-left language only") {
     Ui t;
+    t.w.set_ui_mirror_rtl(false);  // these check the layout direction alone; the mirrored screen has its own tests below
     Entity p = t.add<Panel>("p", {0, 0}, {300, 100});
     Panel& panel = *t.w.get<Panel>(p);
     panel.layout = UiLayout::Row;
@@ -1128,6 +1129,7 @@ TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-
 
 TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in English and right in Arabic") {
     Ui t;
+    t.w.set_ui_mirror_rtl(false);  // these check the layout direction alone; the mirrored screen has its own tests below
     Entity p = t.add<Panel>("p", {0, 0}, {300, 200});
     Panel& panel = *t.w.get<Panel>(p);
     panel.layout = UiLayout::Column;
@@ -1151,6 +1153,132 @@ TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in
     const Rect ar = *ui_screen_rect(t.w, label, t.design);
     CHECK(ar.x + ar.w == doctest::Approx(290));  // the box ends at the right edge of the padded box
     CHECK(ar.w == doctest::Approx(en.w));
+}
+
+// ----------------------------------------------------------------------------------- mirrored screens --
+TEST_CASE("ui mirror: a right-to-left language flips the rectangles about the middle of the screen, mirror false stays") {
+    Ui t;
+    Entity a = t.button("a", {10, 20}, {100, 30});
+    Entity b = t.button("b", {10, 60}, {100, 30});
+    t.w.get<Button>(b)->mirror = false;
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(10));       // English: as authored
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.w.ui_mirror());
+    CHECK(t.rect(a).x == doctest::Approx(320 - 10 - 100));  // the mirror image: same size, other side
+    CHECK(t.rect(a).w == doctest::Approx(100));
+    CHECK(t.rect(a).y == doctest::Approx(20));       // only x flips
+    CHECK(t.rect(b).x == doctest::Approx(10));       // mirror false: where it is written
+    t.w.set_ui_mirror_rtl(false);                    // the option off: nothing is mirrored
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(10));
+    // anchor.x and pivot.x flip: a button anchored to the right edge sits at the left edge
+    t.w.set_ui_mirror_rtl(true);
+    Button& ba = *t.w.get<Button>(a);
+    ba.anchor = {1, 0};
+    ba.pivot = {1, 0};
+    t.w.get<Transform>(a)->position = {-8, 20, 0};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(8));
+    t.w.set_rtl(false);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(320 - 8 - 100));
+}
+
+TEST_CASE("ui mirror: a click on a mirrored button lands where it is drawn") {
+    Ui t;
+    Entity a = t.button("a", {10, 20}, {100, 30});
+    t.w.set_rtl(true);
+    t.frame();
+    t.events();
+    t.click({20, 30});  // the left side is empty now
+    CHECK(t.events().empty());
+    t.click({250, 30});
+    const auto ev = t.events();
+    CHECK(std::find(ev.begin(), ev.end(), "ui.click:a") != ev.end());
+    (void)a;
+}
+
+TEST_CASE("ui mirror: a Slider runs right to left, a click and the arrow keys follow") {
+    Ui t;
+    Entity e = t.add<Slider>("s", {0, 0}, {320, 40});
+    Slider& s = *t.w.get<Slider>(e);
+    s.autoFocus = true;
+    s.value = 0.5f;
+    t.w.set_rtl(true);
+    t.frame();
+    t.events();
+    const auto [left, right] = ui_slider_track(s, t.rect(e), true);
+    t.in.on_mouse_move({left + (right - left) * 0.2f, 20});  // near the left end: the large values
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(s.value == doctest::Approx(0.8f));
+    t.in.on_mouse_move({left + (right - left) * 0.9f, 20});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(s.value == doctest::Approx(0.1f));
+    t.tap_key(Key::Left);  // left grows the value in a mirrored slider: that is where the fill goes
+    CHECK(s.value == doctest::Approx(0.2f));
+    t.tap_key(Key::Right);
+    t.tap_key(Key::Right);
+    CHECK(s.value == doctest::Approx(0.0f));
+    t.w.set_rtl(false);  // English: the same click lands on the other end
+    t.frame();
+    const auto [l2, r2] = ui_slider_track(s, t.rect(e));
+    t.in.on_mouse_move({l2 + (r2 - l2) * 0.2f, 20});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(s.value == doctest::Approx(0.2f));
+}
+
+TEST_CASE("ui mirror: a Toggle's label sits left of its box and a Slider's label right of its track") {
+    Ui t;
+    Entity tg = t.add<Toggle>("t", {0, 0}, {200, 40});
+    Entity sl = t.add<Slider>("s", {0, 60}, {200, 40});
+    t.w.get<Slider>(sl)->label = "Volume";
+    t.ui.layout(t.w, t.design, {});
+    const Rect tr = t.rect(tg);
+    const Rect lt = ui_label(t.w, tg, tr)->zone;
+    CHECK(lt.x > tr.x);  // English: the label is right of the box, which is at the left edge
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    const Rect tm = t.rect(tg);
+    const Rect lm = ui_label(t.w, tg, tm)->zone;
+    CHECK(lm.x + lm.w <= tm.x + tm.w);
+    CHECK(lm.x - tm.x == doctest::Approx((tr.x + tr.w) - (lt.x + lt.w)));  // the zone is the mirror image of the English one
+    CHECK(lm.w == doctest::Approx(lt.w));
+    CHECK(ui_mirrored(t.w, tg));
+    t.w.get<Toggle>(tg)->mirror = false;
+    CHECK_FALSE(ui_mirrored(t.w, tg));
+}
+
+TEST_CASE("ui mirror: a Panel row in a mirrored screen keeps its children inside it, first child at the right") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {10, 10}, {200, 60});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Row;
+    panel.spacing = 10;
+    panel.padding = {0, 0, 0, 0};
+    panel.direction = UiDirection::Auto;
+    Entity a = t.button("a", {0, 0}, {50, 20}, p), b = t.button("b", {0, 0}, {50, 20}, p);
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    const Rect pr = t.rect(p);
+    CHECK(pr.x == doctest::Approx(320 - 10 - 200));  // the panel is mirrored
+    CHECK(t.rect(a).x + t.rect(a).w == doctest::Approx(pr.x + pr.w));  // the first child at the panel's right edge
+    CHECK(t.rect(b).x + t.rect(b).w == doctest::Approx(t.rect(a).x - 10));
+    CHECK(t.rect(b).x >= pr.x);
+    panel.mirror = false;  // a Panel that opts out takes its children with it
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(p).x == doctest::Approx(10));
+    CHECK(t.rect(a).x + t.rect(a).w == doctest::Approx(10 + 200));  // still right to left inside (direction auto)
 }
 
 TEST_CASE("ui Panel.uniformSize: autoSize widgets inside share the largest size and shrink back with it") {

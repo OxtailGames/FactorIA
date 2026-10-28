@@ -70,7 +70,11 @@ export default class CutsceneView extends Behaviour {
   labelSkip() {
     if (!this.shown || !this.skippable) return;
     const key = glyphs.device() === "touch" ? "" : glyphs.label("skip_cutscene");
-    this.skipButton.get("Button").text = key ? i18n.t("cutscene.hint", { key }) : i18n.t("cutscene.skip");
+    // The button has the key too, so the engine lays "Space ..." out in the language's direction (right to left in Hebrew).
+    const b = this.skipButton.get("Button");
+    b.key = key ? "cutscene.hint" : "cutscene.skip";
+    b.keyArgs = key ? { key } : {};
+    b.text = key ? i18n.t("cutscene.hint", { key }) : i18n.t("cutscene.skip");
   }
 
   /** A card of big text in the middle of the screen for `seconds`, fading in and out. */

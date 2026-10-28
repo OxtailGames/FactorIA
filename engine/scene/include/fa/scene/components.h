@@ -95,6 +95,10 @@ enum class Align : std::int32_t { Left, Center, Right, Start, End };
 // ideographs and kana at spaces only.
 enum class WordBreak : std::int32_t { Auto, Normal, KeepAll };
 
+// The base direction of a Text paragraph. Auto: the first strong character decides (Unicode bidi), except that a Text with a
+// localization key takes the language's direction. Ltr / Rtl: the paragraph runs that way whatever its first letter is.
+enum class TextDirection : std::int32_t { Auto, Ltr, Rtl };
+
 struct Sprite {
     std::string texture;              // asset path; "" draws a solid quad of `color`
     Rect region{0, 0, 0, 0};          // source rect in texture pixels (top-left origin); 0 size = whole texture
@@ -164,6 +168,7 @@ struct Text {
     float maxTextScale = 0.0f;        // > 0: ui.textScale stops growing this text at this scale (screen space); 0 = no cap
     bool markup = false;              // true: [b], [c:colour] and [icon:name] in `text` are tags (fa/scene/rich_text.h)
     bool bold = false;                // true: the whole text is bold (the project's bold face, else emboldened by the engine)
+    TextDirection direction = TextDirection::Auto;  // base direction of the paragraphs: first strong character (a keyed Text: the language's), ltr, rtl
     WordBreak wordBreak = WordBreak::Auto;  // where a wrapped line may break without a space: Hangul at spaces only (auto), anywhere (normal), keepAll
     std::int32_t visibleCharacters = -1;    // >= 0: only the first n characters (grapheme clusters) are drawn; the box keeps the size of the whole text. -1 = all
     std::int32_t layer = 100;
@@ -171,6 +176,16 @@ struct Text {
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
     bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
 };
+
+// Whether align start is the right edge of `t` (and end the left): direction rtl, or auto in a right-to-left language.
+inline bool text_starts_right(const Text& t, bool languageRtl) {
+    return t.direction == TextDirection::Rtl || (t.direction == TextDirection::Auto && languageRtl);
+}
+// The base direction its paragraphs are shaped with: Text.direction, except that auto with a localization key is the language's.
+inline TextDirection text_paragraph_direction(const Text& t, bool languageRtl) {
+    if (t.direction == TextDirection::Auto && !t.key.empty()) return languageRtl ? TextDirection::Rtl : TextDirection::Ltr;
+    return t.direction;
+}
 
 // One tile written through set_tilemap_tile(): `cell` is row * width + col, the indices are tile_index() of the old and the
 // new value (-1 = empty). 2D physics reads these to patch only the colliders that changed.
@@ -292,6 +307,7 @@ struct UiBox {
     Vec4 slice{0, 0, 0, 0};                   // 9-slice borders in texture pixels [left, top, right, bottom]
     Json tooltip;                             // null = none; a locale key / text, or {title, lines, args}: shown after the pointer rests on it
     Json draggable;                           // null / false = no; true or {payload, slop}: the player can drag it (ui.on("dragStart" ...))
+    bool mirror = true;                       // false: stays where it is written in a right-to-left language (ui.mirrorRtl): a map, a 3D view
 };
 
 // What Button, Toggle, Slider and TextField add to UiBox.
