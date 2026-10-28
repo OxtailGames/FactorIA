@@ -2193,10 +2193,12 @@
   const platformStats = {
     get(id) { return platformCall("stats.get", platformLabel("stats.get", [id]), { id }, (r) => r.value); },
     set(id, value) { return platformCall("stats.set", platformLabel("stats.set", [id, value]), { id, value }, (r) => r.value); },
-    // get, then set: resolves with the new value. An int stat needs a whole delta.
+    // Resolves with the new value. An int stat needs a whole delta. The fake store (development, tests) adds on the value it holds
+    // when it serves the request, so two adds made in one frame both count; a real store gets a get, then a set.
     add(id, delta) {
       if (typeof delta !== "number" || !Number.isFinite(delta))
         throw new Error(`${platformLabel("stats.add", [id, delta])}: delta must be a finite number, e.g. platform.stats.add("wins", 1), got ${platformArg(delta)}`);
+      if (N.platformInfo().backend === "fake") return platformCall("stats.add", platformLabel("stats.add", [id, delta]), { id, delta }, (r) => r.value);
       return platformStats.get(id).then((v) => platformStats.set(id, v + delta));
     },
   };
@@ -3430,7 +3432,24 @@
     step(frames = 1) { stepN(frames); },
     press(action) { N.inSetAction(action, true); },
     release(action) { N.inSetAction(action, false); },
-    tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
+    // Taps what a player would press for the action: its first key binding (a chord such as "Ctrl+Z" included), else its first
+    // gamepad button, held over one step and let go over the next. The UI and every other action bound to the same key or button
+    // see it too, so game.tap("ui_submit") presses the focused Button or Toggle and game.tap("interact") does what Space does when
+    // Space is also ui_submit. An action with no key or button binding (a stick, the mouse, no binding at all) is held as the
+    // action itself, which only that action's readers see.
+    tap(action) {
+      const list = N.inBindings(action);
+      const key = list.find((b) => !/^(Mouse|Touch|Gamepad)/.test(b.split("+").pop()));
+      if (key !== undefined) { gameApiBase.tapKey(key); return; }
+      const pad = list.find((b) => /^Gamepad(?!.*(Stick|Trigger))/.test(b));
+      if (pad !== undefined) {
+        const button = pad.slice("Gamepad".length);
+        let pressed = false;
+        try { N.testPad(0, 0, button, 0); pressed = true; } catch (e) { /* not a button */ }
+        if (pressed) { stepN(1); N.testPad(1, 0, button, 0); stepN(1); return; }
+      }
+      N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1);
+    },
     // Presses a key and releases it over one frame, like tap does for an action (keyDown / keyUp hold it): game.tapKey("Enter")
     // submits the focused TextField. `key` is a key name such as "Enter", "Escape", "A", or a chord: tapKey("Ctrl+Z") holds Ctrl
     // while Z is tapped and lets go of it after. keyDown/keyUp take "Ctrl", "Shift", "Alt" and "Super" (the left key) too, so a
@@ -3442,6 +3461,15 @@
       N.inKeyEvent(main, true); stepN(1); N.inKeyEvent(main, false);
       for (const m of parts.reverse()) N.inKeyEvent(m, false);
       stepN(1);
+    },
+    // The layout problems of what is on screen now, panels a test opened included, without reloading the scene: the command
+    // ui.check_layout with current: true. options (all optional): languages, textScales, uiScales, pseudo, settleFrames, as in the
+    // command. It steps a few frames per case and puts the language, text size and interface scale back. Returns
+    // { ok, issueCount, issues: [{ kind: "overflow" | "overlap" | "offscreen" | "tooltip", entity, path, key, text, rect, cases }] }:
+    // expect(game.checkLayout().issues).toEqual([]) after opening a panel.
+    checkLayout(options = {}) {
+      if (!isObj(options)) throw new Error(`game.checkLayout(options) expects an object like { textScales: [1, 2] }, but got ${inspect(options)}`);
+      return fa.call("ui.check_layout", { ...plain(options), current: true });
     },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
@@ -3500,21 +3528,24 @@
         throw new Error(`game.setSystemLanguages(list) expects an array of language tags like ["es-ES", "en"], but got ${inspect(list)}`);
       N.testSystemLanguages(list.slice());
     },
-    // Resets what tests of one file share: { storage = true, platform = true }. storage clears the save data (what storage.get
-    // sees) and any game.setStorageText text; platform runs platform.reset (nothing bought, unlocked or scripted, signed in, no
-    // leaderboard scores) and puts the test ad and consent answers back. Each test file already starts clean.
+    // Resets what tests of one file share: { storage = true, platform = true, audio = true }. storage clears the save data (what
+    // storage.get sees) and any game.setStorageText text; platform runs platform.reset (nothing bought, unlocked or scripted,
+    // signed in, no leaderboard scores) and puts the test ad and consent answers back; audio stops the music (persist: true
+    // included, at once, no fade) and every voice, so the next audio.music of the same track starts it again and shows in
+    // game.audioLog(). The play log itself is cleared before each test, not here. Each test file already starts clean.
     resetState(options) {
       const o = options === undefined ? {} : options;
-      if (!isObj(o)) throw new Error(`game.resetState(options) expects { storage?: boolean, platform?: boolean }, but got ${inspect(options)}`);
+      if (!isObj(o)) throw new Error(`game.resetState(options) expects { storage?: boolean, platform?: boolean, audio?: boolean }, but got ${inspect(options)}`);
       for (const k of Object.keys(o)) {
-        if (k === "storage" || k === "platform") {
+        if (k === "storage" || k === "platform" || k === "audio") {
           if (typeof o[k] !== "boolean") throw new Error(`game.resetState: ${k} must be true or false, but got ${inspect(o[k])}`);
           continue;
         }
-        const sug = closest(k, ["storage", "platform"]);
-        throw new Error(`game.resetState: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use storage and platform.`);
+        const sug = closest(k, ["storage", "platform", "audio"]);
+        throw new Error(`game.resetState: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use storage, platform and audio.`);
       }
       if (o.storage !== false) { N.testStorageText(null); N.storageClear(); }
+      if (o.audio !== false) { voiceEnded.clear(); N.audioStopAll(); N.audioStopMusic(0); }
       if (o.platform !== false) {
         try { fa.call("platform.reset"); fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); }
         catch (e) { /* a real backend: nothing to reset */ }

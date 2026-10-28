@@ -115,7 +115,7 @@ export function walkLanguage(lang) {
         stand(15, 20.9, 0);
         dialogue.start("ch1_mara", { speaker: "npc_mara" });
         game.step(150);
-        game.tapKey("Space");
+        game.tap("ui_submit");
         game.step(30);
         audit(game.find("dlg_box"), "dialogue");
         shot(lang, scale, "dialogue");

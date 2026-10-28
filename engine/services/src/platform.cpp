@@ -44,6 +44,9 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
         {"achievements.reset", "achievements", "Development only: lock every achievement again."},
         {"stats.get", "stats", "Read one stat."},
         {"stats.set", "stats", "Set one stat."},
+        {"stats.add", "stats",
+         "Add a delta to one stat on the value the store holds when it serves the request (args: id, delta; result: id, value). Only the fake "
+         "backend gets it: a real store gets a stats.get and a stats.set."},
         {"leaderboards.submit", "leaderboards", "Submit a score to a leaderboard."},
         {"leaderboards.entries", "leaderboards", "Read the top, the neighbours of the player, or the friends' entries."},
         {"cloud.save", "cloudSave", "Store a text under a key in the player's cloud."},
@@ -265,7 +268,7 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         return Json::object({{"achievements", std::move(list)}});
     }
 
-    if (method == "stats.get" || method == "stats.set") {
+    if (method == "stats.get" || method == "stats.set" || method == "stats.add") {
         const auto& s = lookup(cat.stats, need_string(in, "id", "the id of a stat"), "a stat", "stats", "{\"id\": \"wins\", \"type\": \"int\"}");
         Json out = id_pair(s, be);
         out["type"] = s.type;
@@ -279,6 +282,13 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
             } else {
                 out["value"] = v;
             }
+        }
+        if (method == "stats.add") {
+            const double d = need_number(in, "delta", "the amount to add to the stat");
+            if (s.type == "int" && !is_whole(d))
+                throw Bad{"the stat " + in_quotes(s.id) + " is an int: \"delta\" must be a whole number, got " + describe_json_value(in["delta"]),
+                          "Declare it with \"type\": \"float\" in factoria.json platform.stats to keep fractions."};
+            out["delta"] = d;
         }
         return out;
     }

@@ -225,9 +225,10 @@
       "suggestion": "Say in the testing doc which one drives the UI focus (the physical key or pad button), or let game.tap(action) go through the same path.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md.",
+        "Fixed in M33.8: game.tap(action) taps the first key or pad button bound to the action, so game.tap(\"ui_submit\") presses the focused Button; tests use it for the dialogue and the cut-scene skip (tapKey('Space') calls removed)."
       ]
     },
     {
@@ -324,9 +325,10 @@
       "suggestion": "Make the fake apply add() on the stored value when the request is served, or document that stats.add calls must be awaited one after another.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md.",
+        "Fixed in M33.8: The fake store applies stats.add on the stored value when it serves the request, so two adds in one frame count twice; tests/saves.test.js no longer settles between its two saves."
       ]
     },
     {
@@ -620,9 +622,10 @@
       "suggestion": "Expose game.call(command, args) in factoria:test, and let ui.check_layout take a script to open panels before measuring.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md. Its first half is already supported: a test calls any command with fa.call (SCRIPTING.md); the package makes ui.check_layout measure the current frame with open panels (the rest of TM/FB-0063)."
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md. Its first half is already supported: a test calls any command with fa.call (SCRIPTING.md); the package makes ui.check_layout measure the current frame with open panels (the rest of TM/FB-0063).",
+        "Fixed in M33.8: game.checkLayout() (ui.check_layout with current: true) measures the running scene with the panels a test opened, without reloading; tests/options.test.js uses it instead of its manual walk."
       ]
     },
     {
@@ -670,9 +673,10 @@
       "suggestion": "game.resetState() should stop the music and the voices, or the docs say it does not.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP.md.",
+        "Fixed in M33.8: game.resetState() stops the music (persist included) and the voices (option audio, on by default); scripts/sound.js asks the audio module whether a track plays instead of keeping session.musicTrack, and the tests' manual music reset is gone."
       ]
     },
     {

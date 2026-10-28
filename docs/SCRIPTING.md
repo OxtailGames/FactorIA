@@ -1335,7 +1335,9 @@ test("player jumps", () => {
   `loadJson(sceneObject)`, `step(frames = 1)`, `touch(pos, frames = 1)`, `touchStart(pos, id?)`, `touchMove(pos, id?)`,
   `touchEnd(id?)` (fill `input.touches`; `pressed` is true for the frame after `touchStart`; like a finger on a device,
   the first finger also moves the mouse and holds the left button, so `touch` alone tests mouse handling too: no
-  `click` needed), `press(action)`, `release(action)`, `tap(action)`,
+  `click` needed), `press(action)`, `release(action)`, `tap(action)`
+  (taps the first key, else the first gamepad button, bound to the action, so the UI and every action on that key see it:
+  `tap("ui_submit")` presses the focused Button or Toggle; an action with only a stick, mouse or no binding is held as the action),
   `keyDown(key)`, `keyUp(key)` (hold and release; `"Ctrl"`, `"Shift"`, `"Alt"`, `"Super"` work, so `keyDown("Shift"); click(pos);
   keyUp("Shift")` is a Shift+click), `tapKey(key)` (`tapKey("Ctrl+Z")` holds Ctrl while Z is tapped), `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path, {scale?})` (scale 0.25 to 4 renders natively larger), `state()`, `audioLog()` (sounds played since the test started:
@@ -1354,8 +1356,8 @@ run never stops because of it, and it is cleared before each test), `closeWindow
 button: raises `game.on("quit")` and returns true when the window would close, false when a handler cancelled), `setSystemLanguages(["es-ES", "en"])` (what
 `i18n.systemLanguages` answers, so a game's own first-run language choice can be tested; the engine's start language is
 not picked again, a test starts in the default language; empty again before each test) and
-`resetState({ storage = true, platform = true })`, which clears the save data and resets the fake store (purchases,
-unlocks, ads, leaderboards; see docs/PLATFORM.md) between tests of one file. Each test file already starts clean; tests of
+`resetState({ storage = true, platform = true, audio = true })`, which clears the save data, resets the fake store (purchases,
+unlocks, ads, leaderboards; see docs/PLATFORM.md) and stops the music (`persist: true` too, at once) and every voice, between tests of one file. Each test file already starts clean; tests of
 one file share storage and the fake store unless you call `resetState`.
 
 **Clicking a widget.** `game.click(widget)` (also `mouseMove`, `touch`, `touchStart`, `touchMove`) given an `Entity` or an
@@ -1365,7 +1367,8 @@ be clicked: it or a parent is inactive, it has no area (size 0), or it is scroll
 `{x, y}` to click a spot whatever is there.
 
 **Keys.** `game.tapKey(key)` presses and releases a key over one frame (press, step, release, step), as `tap` does for an
-action; `keyDown` / `keyUp` hold it. A `TextField` reads the Enter key itself, not an action, so this submits it:
+action; `keyDown` / `keyUp` hold it. `game.tap(action)` is `tapKey` of the action's first key (or a tap of its first pad
+button), so it goes through the UI like a player: `game.tap("ui_submit")` presses the focused Button. A `TextField` reads the Enter key itself, not an action, so this submits it:
 
 ```js
 test("Enter submits the name", () => {
@@ -1410,6 +1413,19 @@ test("every widget fits and the Spanish table is complete", () => {
 `ui.check_layout` loads each scene again (in each language and text size) and then loads the running scene once more, so
 it does not see the state of the current frame and the game state is lost: call it on a fresh scene, and read
 `ui.state` before it, not after.
+
+**Layout of what is open.** `game.checkLayout(options?)` is `ui.check_layout` with `current: true`: it measures the scene that
+runs, as it is now, with the panels the test opened, and loads nothing (the game state is kept; it steps a few frames per
+case and puts the language, text size and interface scale back). `options` are `languages`, `textScales`, `uiScales`,
+`pseudo` and `settleFrames` of the command.
+
+```js
+test("the options panel fits at 200 % text in every language", () => {
+  game.load("scenes/menu.scene.json");
+  game.click("options_button");
+  expect(game.checkLayout({ textScales: [1, 2], pseudo: false }).issues).toEqual([]);
+});
+```
 
 ### Scene props
 

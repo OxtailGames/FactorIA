@@ -54,6 +54,11 @@ test("achievements, stats and leaderboards", async () => {
   expect(await platform.stats.set("wins", 4)).toBe(4);
   expect(await platform.stats.add("wins", 3)).toBe(7);
   expect(await platform.stats.add("distance", 1.5)).toBe(1.5);
+  // Two adds made before the first answer arrives both count: the fake adds on the value it holds when it serves each request.
+  const both = [platform.stats.add("wins", 1), platform.stats.add("wins", 1)];
+  expect(await Promise.all(both)).toEqual([8, 9]);
+  expect(await platform.stats.get("wins")).toBe(9);
+  expect(game.platform.calls().map((c) => c.method)).toContain("stats.add");
   expect((await platform.leaderboards.submit("high_score", 120)).best).toBe(120);
   const rows = await platform.leaderboards.entries("high_score", { range: "around", count: 3 });
   expect(rows.length).toBe(1);
@@ -187,6 +192,7 @@ test("wrong arguments throw", async () => {
   expect(() => platform.presence.set("x", { level: 3 })).toThrow("must be strings");
   expect(() => platform.overlay.open("achievments")).toThrow('did you mean "achievements"');
   expect(() => platform.stats.add("wins", "1")).toThrow("delta must be a finite number");
+  expect(() => platform.stats.add("wins", 0.5)).toThrow("is an int");
   // An unknown transaction is a store-like failure, not a mistake in the call: the Promise rejects with unknownId.
   let finishError;
   await platform.purchases.finish("nope").catch((e) => { finishError = e; });
