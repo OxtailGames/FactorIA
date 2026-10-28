@@ -59,8 +59,8 @@ command between frames. So:
 
 The endpoint speaks MCP Streamable HTTP without a server stream or a session (a POST with one JSON-RPC message gets its
 reply as `application/json`, a notification gets 202, GET gets 405). A call that runs longer than 10 s, such as an `ai_run`
-that hands a task to the worker, is answered as an event stream kept alive every 15 s, so the CLI does not give up on it
-after its HTTP timeout (5 minutes). Only the token's path is served, so other programs on
+that hands a task to the worker, is answered as an event stream that carries `notifications/progress` (what the sub-agent just did, at most one every 3 s,
+and a heartbeat every 15 s), so the CLI does not give up on it after 5 minutes of silence. Only the token's path is served, so other programs on
 the machine cannot drive the editor. **Codex** still starts its own `factoria mcp` (its argv names the command, not a
 config file): its scene edits happen in that process, not in the open scene.
 
@@ -186,6 +186,29 @@ server instead, which runs the `worker` or `fast` role from `ai.json` and return
 its report. So `orchestrator: claude-code/opus`, `worker: claude-code/sonnet`,
 `fast: claude-code/haiku` works on a Claude subscription alone. `--no-delegate`
 turns delegation off.
+
+`ai_run` blocks: the orchestrator's tool call returns when the sub-agent has finished, which can take many minutes, and the
+orchestrator is told so (it waits for the result and never promises to continue later or polls with Bash). While it runs:
+
+* **in the editor** the sub-agent's steps (its messages and tool calls) appear in the chat as they happen, indented under
+  the orchestrator's `ai_run` call, and the panel shows how long the run has lasted and when the agent last did something
+  (see `docs/EDITOR.md`, AI Assistant);
+* **toward the MCP client** the call reports progress (`notifications/progress`, `docs/MCP.md`), so Claude Code does not
+  abort it after 5 minutes of silence, and the MCP config the editor and `factoria new` write carries a four-hour
+  `timeout` for one tool call;
+* **in a terminal**, `factoria ai run` prints `  | worker > ...` lines for the sub-agent's steps (with `--json`, events
+  `{"event":"progress","text":...}`). The `ai_run` call runs in the `factoria mcp` process that the CLI orchestrator
+  starts, so that process appends the lines to `.factoria/ai/progress.log` of the project, and the terminal follows the
+  file while the run lasts. The file only grows; delete it any time.
+
+If the orchestrator's turn ends while the sub-agent still runs (the CLI cut the call off, for instance), the editor keeps
+the sub-agent going, and when it finishes it puts the report in the chat and continues the orchestrator's conversation
+with it (the same Claude Code session, resumed): see `docs/EDITOR.md`. Outside the editor nothing continues the
+orchestrator, so the report is only in the sub-agent's own output.
+
+An agent that stops producing events is not necessarily stuck: a model can think for minutes before its next step. The
+editor warns after `limits.stuckAfterSeconds` of silence (default 180, 0 = never; `docs/AI_COSTS.md`) and lets you check
+what the agent's process is doing before you decide.
 
 `factoria ai run "task"` and the `ai.run` command use the `orchestrator` role
 unless told otherwise (`role`, `provider`, `model` options). The editor AI panel
