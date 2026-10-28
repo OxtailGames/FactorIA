@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "fa/core/process.h"
@@ -125,6 +126,55 @@ TEST_CASE("process runner: timeout") {
     auto r = run_process(po);
     REQUIRE(r);
     CHECK(r->timedOut);
+}
+
+#endif  // !_WIN32
+
+#ifndef _WIN32
+
+TEST_CASE("process: onStart gives the pid, process_tree sees the program and what it started, and sees it end") {
+    ProcessOptions po;
+    po.argv = {"/bin/sh", "-c", "sleep 3 & wait"};
+    long long pid = 0;
+    std::vector<ProcessEntry> during;
+    po.onStart = [&](long long p) { pid = p; };
+    po.onStdoutLine = [](std::string_view) {};
+    CancelFlag cancel{false};
+    po.cancel = &cancel;
+    std::thread watcher([&] {
+        for (int i = 0; i < 100 && during.size() < 2; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            if (pid) during = process_tree(pid);
+        }
+        cancel = true;
+    });
+    auto r = run_process(po);
+    watcher.join();
+    REQUIRE(r);
+    REQUIRE(pid > 0);
+    REQUIRE(during.size() >= 2);  // the shell and its sleep
+    CHECK(during[0].pid == pid);
+    CHECK(during[0].name.find("sh") != std::string::npos);
+    CHECK(during[1].parentPid == pid);
+    CHECK(during[1].name == "sleep");
+    CHECK(during[1].cpuSeconds >= 0);
+    CHECK(process_tree(pid).empty());  // gone
+    CHECK(process_tree(0).empty());
+}
+
+TEST_CASE("process: endWithChild returns when the program exits although a descendant holds its pipes") {
+    ProcessOptions po;
+    po.argv = {"/bin/sh", "-c", "sleep 30 & echo started"};  // the background sleep inherits stdout
+    std::vector<std::string> lines;
+    po.onStdoutLine = [&](std::string_view l) { lines.emplace_back(l); };
+    po.endWithChild = true;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto r = run_process(po);
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    REQUIRE(r);
+    CHECK(r->exitCode == 0);
+    CHECK(lines == std::vector<std::string>{"started"});
+    CHECK(seconds < 10);  // without the flag this would take the 30 s of the sleep
 }
 
 #endif  // !_WIN32

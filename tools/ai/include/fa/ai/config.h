@@ -74,6 +74,9 @@ struct Limits {
     int maxTurns = 40;
     double maxCostUsd = 0;      // 0 = unlimited
     u64 maxTotalTokens = 0;     // 0 = unlimited
+    // The editor warns "may be stuck" when a running agent (the orchestrator or a sub-agent) has produced no event for this
+    // many seconds (it offers Stop and "Check activity"). 0 = never warn. Only the editor reads it.
+    int stuckAfterSeconds = 180;
 };
 
 inline constexpr const char* kRoleOrchestrator = "orchestrator";

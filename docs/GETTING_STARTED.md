@@ -293,8 +293,10 @@ claude
 2. `factoria new` creates a `.mcp.json` file in the project with this configuration:
 
 ```json
-{ "mcpServers": { "factoria": { "command": "factoria", "args": ["mcp", "--project", "."] } } }
+{ "mcpServers": { "factoria": { "command": "factoria", "args": ["mcp", "--project", "."], "timeout": 14400000 } } }
 ```
+
+`timeout` is the longest one tool call may take (4 hours), enough for a task the AI hands to a sub-agent. `claude mcp add` does not set it; add it to the file if you use that command.
 
 If your project does not have a `.mcp.json`, add the same server with:
 

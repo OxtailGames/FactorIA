@@ -4,6 +4,21 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The AI agent is never silent
+
+- When the editor's AI (Claude Code) hands a task to the worker, the worker's steps now stream into the chat as it works, and the
+  panel shows how long the run has lasted and when the agent last did something. Before, a long delegation was a silent wait
+  and Claude Code gave up on it after 5 minutes, so the worker's report never reached the chat.
+- The MCP server reports progress (`notifications/progress`, with a heartbeat) on long calls over stdio and over the editor's
+  HTTP endpoint, and the `.mcp.json` that `factoria new` writes carries a four-hour `timeout` for one tool call (add
+  `"timeout": 14400000` to the server in an older project; `tool_timeout_sec = 14400` for Codex).
+- After `limits.stuckAfterSeconds` (default 180, `ai.json`) without a sign of life, the panel warns that the agent may be stuck
+  and offers **Stop** and **Check activity**, which looks at the agent's process, CPU, tool in flight, child processes and the
+  project's recent file changes and says whether it is still working. A CLI process that disappears stops the run with a message.
+- If the orchestrator's turn ends while the worker still runs, the panel says so, keeps showing its progress and, when the worker
+  finishes, puts its report in the chat and continues the orchestrator's conversation by itself, once.
+- `factoria ai run` prints the sub-agent's steps in the terminal (`  | worker > ...`), and `{"event":"progress"}` lines with `--json`.
+
 Drawing
 
 - `Shape2D` gets rounded corners, soft edges and gradients, one entity each instead of stacks of translucent rectangles: `cornerRadius` (rectangle), `softness` (a blurred edge of that width on a rectangle or circle: drop shadows, vignettes, light pools) and `gradient` (`linear` with `gradientAngle`, or `radial`) from `color` to `color2`, dithered so it does not band. Everything defaults to off and plain shapes draw and batch as before (Roguestory FB-0003).

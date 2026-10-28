@@ -158,6 +158,26 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
   the editor's main thread like an API provider's, so its edits show in the viewport as it works, each is a Ctrl+Z step,
   and Play waits for it. Codex still uses a `factoria mcp` process of its own (see `docs/AI_PROVIDERS.md`, CLI agents in
   the editor).
+- **A run that is going shows its pulse** under the transcript: `running 4 min | last activity 12 s ago | <last thing it
+  did>`. A CLI agent's sub-agent (the orchestrator's `ai_run`) streams into the chat as it works, each step indented under
+  the `ai_run` call, so a long delegation is not a silent wait.
+- **"The agent may be stuck":** after `limits.stuckAfterSeconds` (default 180, `ai.json`, 0 turns it off; `docs/AI_COSTS.md`)
+  without any event from the agent, a warning appears with two buttons. **Stop** cancels the run and a worker it started.
+  **Check activity** looks, without touching anything, at the agent's CLI process and everything below it (is it alive, CPU
+  used over the last seconds, child processes such as a shell command), the tool call it waits for and for how long, the
+  files that changed in the project in the last 2 minutes, and its last event. It writes a chat line starting with
+  "Activity check:" with a verdict (a plain `Still working: ...` or `Looks stuck: ...`, followed by the evidence) and
+  keeps the warning quiet for another `stuckAfterSeconds`. A model thinking for a long time looks like a stuck agent
+  (alive, idle, no tool), so the verdict says to press Stop if you do not want to wait. It reads the CPU and process
+  list through the operating system (`/proc` on Linux, `libproc` on macOS, the toolhelp snapshot on Windows); where a
+  figure is not available the check skips it and still reports the rest. An API provider has no process, so the verdict
+  there covers only the tool call, the files and the last event. The panel also stops a run by itself, with a message, when
+  the CLI process has disappeared for 10 seconds while the run goes on.
+- **Worker still running:** if the orchestrator's turn ends while an `ai_run` is still going (Claude Code cut the call off, for
+  example), the panel says "Worker still running: the orchestrator's turn ended, its report will continue the chat" and keeps
+  showing the worker's live steps. Play stays blocked. When the worker finishes, its report goes into the chat and the
+  editor sends it to the orchestrator as a new message of the same conversation (Claude Code `--resume`), once. **Stop**
+  stops the orchestrator and the worker, and sends no continuation.
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
 
 ### Revert an AI run
@@ -411,8 +431,9 @@ The autotest is a list of sections, each a letter (`tools/editor/src/autotest_se
 play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), A (Audio panel), A2 (Profiler panel), B (commands that
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
-(custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel) and O (the CLI
-agent through the MCP endpoint). While you work on one part of the editor, run only the sections that cover it:
+(custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
+agent through the MCP endpoint) and Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
+the stuck warning, Check activity, the detached worker and its single continuation). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest

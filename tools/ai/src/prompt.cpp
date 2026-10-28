@@ -44,7 +44,12 @@ the "worker" role (default for coding) or tiny mechanical edits to the "fast" ro
 chose for those roles, so prefer them over doing the work yourself or over sub-agents of your own. Answer
 questions and tiny one-step changes yourself. Give each delegated task all the context it needs (file paths,
 acceptance criteria): the sub-agent does not see this conversation. It returns its final report as the tool
-result. Review results yourself (run project_validate, screenshots) before finishing.)";
+result. Review results yourself (run project_validate, screenshots) before finishing.
+
+%TOOL% blocks until the sub-agent has finished, which can take many minutes, while the user watches its progress
+live. Just wait for the result: it comes back as the tool result. Never end your turn promising to continue or to
+be notified later (nothing wakes you up), and never wait for a sub-agent with Bash (sleep, polling loops, background
+processes).)";
 
 std::string read_head(const fsys::path& p, std::size_t maxBytes) {
     std::ifstream f(p, std::ios::binary);
@@ -110,7 +115,8 @@ std::string build_system_prompt(const PromptContext& ctx) {
     out += "\n\n";
     if (ctx.canDelegate) {
         std::string role = kOrchestrator;
-        role.replace(role.find("%TOOL%"), 6, ctx.delegateTool.empty() ? kDelegateTool : ctx.delegateTool);
+        const std::string tool = ctx.delegateTool.empty() ? kDelegateTool : ctx.delegateTool;
+        for (std::size_t at; (at = role.find("%TOOL%")) != std::string::npos;) role.replace(at, 6, tool);
         out += role;
         out += "\n\n";
     } else if (ctx.role == kRoleWorker) {

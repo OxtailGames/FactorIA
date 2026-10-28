@@ -111,6 +111,7 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
 Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl) {
     Json server = mcpUrl.empty() ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
                                  : Json::object({{"type", "http"}, {"url", mcpUrl}});
+    server["timeout"] = kMcpToolTimeoutMs;  // Claude Code: milliseconds a tool call may take at most
     return Json::object({{"mcpServers", Json::object({{"factoria", server}})}});
 }
 
@@ -564,6 +565,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         po.stdinText = effective.prompt;
     po.cancel = cancel;
     po.captureStdout = false;
+    po.onStart = req.onStart;
+    po.endWithChild = true;  // the CLI died but a job it started holds the pipes: do not wait for them forever
     CliStreamParser parser(cfg_.kind);
     std::vector<AgentEvent> events;
     po.onStdoutLine = [&](std::string_view line) {
