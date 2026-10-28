@@ -410,6 +410,56 @@ struct Slider : UiControl {
     Slider() { size = {320, 40}; }
 };
 
+// ---- Interactable: any entity composition as a widget (the UI module, ui.h)
+// What the widget does: a button clicks, a toggle flips `on`, a slider sets `value`.
+enum class InteractableKind : std::int32_t { Button, Toggle, Slider };
+// Where the hit area is: Auto = screen space when the entity (or a child, with the area from the children) draws in screen
+// space or has a UI box, else world space.
+enum class InteractableSpace : std::int32_t { Auto, World, Screen };
+// Slider only: the local axis of the entity the knob runs along.
+enum class InteractableAxis : std::int32_t { X, Y };
+// The state the visuals follow (priority: disabled, pressed, hover, focused, normal).
+enum class InteractableState : std::int32_t { Normal, Hover, Pressed, Focused, Disabled };
+struct Interactable {
+    InteractableKind kind = InteractableKind::Button;
+    bool enabled = true;                      // false: the Disabled state; never hovered, focused, pressed or clicked
+    bool autoFocus = false;                   // takes focus when nothing is focused (like UiControl.autoFocus)
+    bool focusOnHover = false;                // the pointer entering it moves the keyboard / gamepad focus to it
+    Vec2 size{0, 0};                          // hit area [w, h] in the entity's local units; 0 = the bounds of the entity and its children
+    Vec2 offset{0, 0};                        // centre of the explicit area from the entity origin (ignored for size 0)
+    InteractableSpace space = InteractableSpace::Auto;
+    bool on = false;                          // toggle: the value
+    float value = 0.0f;                       // slider: the value in [min, max]
+    float min = 0.0f;                         // slider: lowest value
+    float max = 1.0f;                         // slider: highest value
+    float step = 0.0f;                        // slider: keyboard / pad increment and snapping; 0 = continuous (keys move 1/20 of the range)
+    InteractableAxis axis = InteractableAxis::X;  // slider: the track runs along the local x (min at the left) or y (min at the bottom) of the area
+    Entity knob = kNullEntity;                // slider: entity moved along the track to the value
+    Entity fill = kNullEntity;                // slider: entity whose scale along the axis becomes the fraction 0..1 (pivot at the track start)
+    std::string label;                        // accessibility label; "" = the text of the first Text among the entity and its children
+    std::string key;                          // localization key written into `label` ("" = none)
+    Json keyArgs = Json::object();            // values of the key's {placeholders}
+    bool focused = false;                     // runtime: has keyboard / gamepad focus
+    bool hovered = false;                     // runtime: the pointer is over it
+    bool pressed = false;                     // runtime: the pointer is held down on it
+    InteractableState state = InteractableState::Normal;  // runtime: the one state the visuals show
+};
+
+// What a child of an Interactable does with its state, with no script: Show (the entity is active only while `when` holds) or
+// Tint (the colour of the entity's Sprite / Shape2D / Text follows the state).
+enum class VisualMode : std::int32_t { Show, Tint };
+enum class VisualWhen : std::int32_t { Always, Normal, Hover, Pressed, Focused, Disabled, On, Off };
+struct InteractableVisual {
+    Entity target = kNullEntity;              // the Interactable to follow; empty = the nearest ancestor that has one
+    VisualMode mode = VisualMode::Show;
+    VisualWhen when = VisualWhen::Hover;      // Show: the condition that makes the entity active
+    Color normal{1, 1, 1, 1};                 // Tint: colour in the Normal state
+    Color hover{1, 1, 1, 1};                  // Tint: colour in the Hover state
+    Color pressed{1, 1, 1, 1};                // Tint: colour in the Pressed state
+    Color focused{1, 1, 1, 1};                // Tint: colour in the Focused state (not hovered or pressed)
+    Color disabled{0.5f, 0.5f, 0.5f, 0.6f};   // Tint: colour in the Disabled state
+};
+
 struct TextField : UiControl {
     std::string text;
     std::string placeholder;

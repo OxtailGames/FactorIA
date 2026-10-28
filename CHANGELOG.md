@@ -142,6 +142,12 @@ Tests that drive the UI like a player
   count; the call log shows one `stats.add` instead of a `stats.get` and a `stats.set`. A real store still gets a get and a set
   (LL/FB-0502).
 - Larkspur Lodge drops its `tapKey("Space")` calls, its manual layout walk, its music reset and the pause between two saves.
+- New `Interactable` component: any entity made of sprites, shapes, text and children is a widget of the same focus, navigation and events
+  as Button, Toggle and Slider, in world space (hit through the camera, following moving, scaled and turning parents) or on the
+  screen. Hover, press, click, focus, arrows and d-pad, `Tab` / `Shift+Tab` (new default actions `ui_next` and `ui_previous`), confirm and cancel,
+  `Panel.modal` scopes, `kind` toggle and slider (with a `knob` and a `fill` entity), and `InteractableVisual` children that show, hide or tint per state with no
+  script. `ui.on` gets `hover`, `blur`, `press` and `release`; `game.click`, `ui.widgetAt`, `ui.rectOf`, `ui.focus`, `ui.state` and
+  `ui.set_slider` find it by id. The recipe is in docs/MENUS.md, "Widgets from your own entities" (Roguestory FB-0006).
 
 A camera inside the UI, and studio lighting
 

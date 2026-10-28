@@ -2218,15 +2218,15 @@ declare module "factoria" {
   }
 
   /**
-   * What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField).
+   * What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField, Interactable).
    * @since 0.1.6
    */
   export interface UiEvent {
     /**
-     * Which event: click (Button pressed by ui_submit or the mouse), change (Toggle flipped, Slider moved, TextField edited), submit (TextField Enter), focus (a widget took focus), cancel (ui_cancel pressed: Escape or the pad's B).
+     * Which event: click (Button pressed by ui_submit or the mouse), change (Toggle flipped, Slider moved, TextField edited), submit (TextField Enter), focus (a widget took focus), cancel (ui_cancel pressed: Escape or the pad's B). blur, hover, press and release are sent by Interactable widgets only: blur (it lost the focus), hover (the pointer came over it or left it, see `value`), press (the pointer went down on it), release (the pointer went up).
      * @since 0.1.6
      */
-    readonly type: "click" | "change" | "submit" | "focus" | "cancel";
+    readonly type: "click" | "change" | "submit" | "focus" | "blur" | "hover" | "press" | "release" | "cancel";
     /**
      * Id of the widget entity (the "id" of the scene entity). null for a cancel with nothing focused.
      * @since 0.1.6
@@ -2238,7 +2238,7 @@ declare module "factoria" {
      */
     readonly entity: Entity | null;
     /**
-     * change and submit only: the Toggle's value (boolean), the Slider's value (number) or the TextField's text (string).
+     * change and submit: the Toggle's value (boolean), the Slider's value (number) or the TextField's text (string); an Interactable of kind toggle or slider sends its value. hover: true when the pointer came over the Interactable, false when it left. release: true when the pointer was still over it (a click follows).
      * @since 0.1.6
      */
     readonly value?: boolean | number | string;
@@ -2441,7 +2441,7 @@ declare module "factoria" {
      */
     overflowed(entityOrId: Entity | string): boolean;
     /**
-     * Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area, the interface scale (ui.scale: at 1.5 a widget of size 100 is 150 wide) and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite) and for one that is hidden, by itself or by an inactive parent (`activeInHierarchy` false), like `ui.state`, which does not list it. Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
+     * Where a UI widget, an Interactable (a world-space one as its camera shows it) or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area, the interface scale (ui.scale: at 1.5 a widget of size 100 is 150 wide) and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite) and for one that is hidden, by itself or by an inactive parent (`activeInHierarchy` false), like `ui.state`, which does not list it. Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
      * @since 0.2.0
      */
     rectOf(entityOrId: Entity | string): Rect | null;
@@ -2559,14 +2559,14 @@ declare module "factoria" {
      * Listens to a widget event from any widget. A "cancel" handler that returns true handled the press: input.consume("ui_cancel") is called for it, so the same Escape does not also read as pressed for "pause" or any action on that key later in the frame (Escape closes a dialog and the pause menu stays shut). The click of a focused Button or Toggle pressed by ui_submit is consumed by the UI itself. Returns the function that stops listening. Inside a behaviour prefer this.on("ui.click", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion.
      * @since 0.1.6
      */
-    on(type: "click" | "change" | "submit" | "focus" | "cancel", fn: (e: UiEvent) => void | boolean): () => void;
+    on(type: "click" | "change" | "submit" | "focus" | "blur" | "hover" | "press" | "release" | "cancel", fn: (e: UiEvent) => void | boolean): () => void;
     /**
      * Listens to a widget event from one widget only (a "cancel" handler that returns true consumes ui_cancel, see above); `target` is the widget Entity or its entity id, e.g. ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json")).
      * @since 0.1.6
      */
-    on(type: "click" | "change" | "submit" | "focus" | "cancel", target: Entity | string, fn: (e: UiEvent) => void | boolean): () => void;
+    on(type: "click" | "change" | "submit" | "focus" | "blur" | "hover" | "press" | "release" | "cancel", target: Entity | string, fn: (e: UiEvent) => void | boolean): () => void;
     /**
-     * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Returns true when the widget took focus, and false (changing nothing) when it is a Button, Toggle, Slider or TextField with interactable false, so a screen that restores a remembered focus can fall back to another widget. Throws, saying why and what to do, when the entity cannot take focus at all (not a focusable widget, or inactive).
+     * Gives keyboard / gamepad focus to a Button, Toggle, Slider, TextField or Interactable (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Returns true when the widget took focus, and false (changing nothing) when it is a Button, Toggle, Slider or TextField with interactable false (or an Interactable with enabled false), so a screen that restores a remembered focus can fall back to another widget. Throws, saying why and what to do, when the entity cannot take focus at all (not a focusable widget, or inactive).
      * @since 0.1.6
      */
     focus(target: Entity | string | null): boolean;
@@ -2596,7 +2596,7 @@ declare module "factoria" {
      */
     readonly speechAvailable: boolean;
     /**
-     * The topmost visible widget at a screen point, in design pixels with y down (like ui.rectOf): a Button, Toggle, Slider, TextField, ScrollList, Panel that draws something (a fully transparent Panel with no texture is skipped), or a TouchStick / TouchButton that is shown. Topmost is the highest `layer`, then the entity made last. It is null over empty space, over an inactive widget and where a ScrollList clips the widget away (a row scrolled out of view). It includes widgets with interactable false, so check Button.interactable for a click target. Reads the last layout: call it after game.step or ui.layout(). Use it for a gamepad cursor and for "is the pointer over the UI" questions. Example: const w = ui.widgetAt(640, 360); if (w && w.has("Button")) console.log(w.id);
+     * The topmost visible widget at a screen point, in design pixels with y down (like ui.rectOf): a Button, Toggle, Slider, TextField, ScrollList, Interactable, Panel that draws something (a fully transparent Panel with no texture is skipped), or a TouchStick / TouchButton that is shown. Topmost is the highest `layer`, then the entity made last. It is null over empty space, over an inactive widget and where a ScrollList clips the widget away (a row scrolled out of view). It includes widgets with interactable false, so check Button.interactable for a click target. Reads the last layout: call it after game.step or ui.layout(). A screen-space widget wins over a world-space Interactable under the same point, which is looked up through the camera that draws at that point. Use it for a gamepad cursor and for "is the pointer over the UI" questions. Example: const w = ui.widgetAt(640, 360); if (w && w.has("Button")) console.log(w.id);
      * @since 0.3.0
      */
     widgetAt(x: number, y: number): Entity | null;
@@ -6632,6 +6632,182 @@ declare module "factoria" {
     formatKey: string;
   }
   /**
+   * Makes this entity, whatever it is made of (sprites, shapes, text, children), a widget that joins the same focus, navigation and events as Button, Toggle and Slider: hover, press, click, focus, the arrow keys / d-pad (spatial navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and the ui.* commands find it by id. The hit area is `size` (a rectangle in the entity's local space) or, with size 0, the bounds of the entity and its children; in world space it is projected through the camera that draws there, so it follows parents that move, scale or rotate (a turning page, a swaying sign). An entity with screen-space visuals is a screen-space widget. An entity that is also a Button, Toggle, Slider, TextField, Panel or other UI-box component keeps that role and its Interactable is ignored. Draw the look with ordinary children and InteractableVisual (show, hide or tint per state). Events (ui.on): click (button), change (toggle / slider, value), focus, blur, hover (value true = entered, false = left), press and release (value true = released over it). A world-space widget under a screen-space widget (or outside a modal Panel) is not reached.
+   * 
+   * Category: UI
+   * @since unreleased
+   */
+  export interface InteractableComponent {
+    /**
+     * button: a click or ui_submit sends ui.click {id}. toggle: it flips `on` and sends ui.change {id, value: bool}. slider: dragging along the area or left / right (down / up with axis y) sets `value` and sends ui.change {id, value: number}.
+     * @since unreleased
+     */
+    kind: "button" | "toggle" | "slider";
+    /**
+     * false: the Disabled state. It is never hovered, focused, pressed or clicked and sends no events; a focused one loses focus. Visuals with when/disabled show.
+     * @since unreleased
+     */
+    enabled: boolean;
+    /**
+     * Same rule as Button.autoFocus: when NOTHING is focused the first widget with autoFocus (reading order of their areas on the screen) takes the keyboard / gamepad focus. Mark the first item of each menu.
+     * @since unreleased
+     */
+    autoFocus: boolean;
+    /**
+     * true: the pointer entering the widget moves the focus to it (once per entry, so the arrow keys still move it away). false (default, like the built-in widgets): the focus moves on a press.
+     * @since unreleased
+     */
+    focusOnHover: boolean;
+    /**
+     * Hit area [w, h] in the entity's LOCAL units, y up (screen space: UI units), so it scales and turns with the entity and its parents. [0, 0] (default) = the bounding box (in the entity's own frame) of the visuals of the entity and its active children, not counting InteractableVisual entities that Show/Hide with the state, a slider's knob and fill, and children that are Interactables themselves; an entity with no visuals then has no area and cannot be hit.
+     * @since unreleased
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Centre of the explicit area [x, y] from the entity origin, in local units. Ignored when size is [0, 0].
+     * @since unreleased
+     */
+    get offset(): Vec2;
+    set offset(value: Vec2Like);
+    /**
+     * auto (default): screen space when the entity or one of its children draws in screen space or has a UI box, else world space. world: the area is projected through the camera. screen: the area is in screen space (UI units; the anchor and safeArea of the entity's own screen-space Text, Sprite or Shape2D, else the top-left corner of the screen).
+     * @since unreleased
+     */
+    space: "auto" | "world" | "screen";
+    /**
+     * Toggle: the value. Scripts may write it; no event is sent for a write. Visuals with when on / off follow it.
+     * @since unreleased
+     */
+    on: boolean;
+    /**
+     * Slider: the value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write. `knob` and `fill` follow it every frame.
+     * @since unreleased
+     */
+    value: number;
+    /**
+     * Slider: the smallest value.
+     * @since unreleased
+     */
+    min: number;
+    /**
+     * Slider: the largest value.
+     * @since unreleased
+     */
+    max: number;
+    /**
+     * Slider: the keyboard / gamepad increment and the grid the value snaps to (also when dragging). 0 = continuous: keys move (max - min) / 20 per press.
+     * @since unreleased
+     */
+    step: number;
+    /**
+     * Slider: the track runs along the area's local x (min at the left end, max at the right) or local y (min at the bottom, max at the top). The area is the track: its length along the axis is the travel of the knob.
+     * @since unreleased
+     */
+    axis: "x" | "y";
+    /**
+     * Slider: id of the entity moved along the track so that it sits at the value (only its local position along `axis` is set, in the frame of its own parent: make it a child of this entity). Empty = none.
+     * @since unreleased
+     */
+    get knob(): Entity | null;
+    set knob(value: EntityLike);
+    /**
+     * Slider: id of the entity whose local scale along `axis` becomes the fraction (value - min) / (max - min), and whose position along the axis is the start of the track. Give it a pivot at its start (a Shape2D or Sprite with pivot [0, 0.5]) and the size of the whole track. Empty = none.
+     * @since unreleased
+     */
+    get fill(): Entity | null;
+    set fill(value: EntityLike);
+    /**
+     * Accessibility label, what ui.state reports as `text` and the read-aloud recipe speaks. Empty = the text of the first Text among the entity and its children. Overwritten by the translation while `key` is set.
+     * @since unreleased
+     */
+    label: string;
+    /**
+     * Localization key for `label` (docs/LOCALIZATION.md), like Button.key. Empty = not translated.
+     * @since unreleased
+     */
+    key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    keyArgs: any;
+    /**
+     * Runtime: has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     * @since unreleased
+     */
+    readonly focused: boolean;
+    /**
+     * Runtime: the pointer (mouse or first touch) is over it and it is the top-most widget there. Read-only.
+     * @since unreleased
+     */
+    readonly hovered: boolean;
+    /**
+     * Runtime: the pointer is held down on it. Read-only.
+     * @since unreleased
+     */
+    readonly pressed: boolean;
+    /**
+     * Runtime: the one state the visuals show: disabled (enabled is false), else pressed, else hover, else focused, else normal. Written by the UI every frame. Read-only.
+     * @since unreleased
+     */
+    readonly state: "normal" | "hover" | "pressed" | "focused" | "disabled";
+  }
+  /**
+   * Makes this entity follow the state of an Interactable with no script. Show: the entity is active only while `when` holds (a highlight on hover, a check mark when a toggle is on, a pressed sprite). Tint: the colour of its Sprite, Shape2D or Text (the first one it has) is set from the state every frame. Put it on a child of the Interactable or give `target`.
+   * 
+   * Category: UI
+   * @since unreleased
+   */
+  export interface InteractableVisualComponent {
+    /**
+     * Id of the Interactable to follow. Empty (default) = the nearest ancestor that has an Interactable.
+     * @since unreleased
+     */
+    get target(): Entity | null;
+    set target(value: EntityLike);
+    /**
+     * show: the entity is active only while `when` holds. tint: its colour follows the state (the colours below).
+     * @since unreleased
+     */
+    mode: "show" | "tint";
+    /**
+     * Show only. always: always active. normal: neither hovered, pressed, focused nor disabled. hover, pressed, focused: that flag is set (a hovered and focused widget shows both). disabled: enabled is false. on / off: a toggle's `on` is true / false.
+     * @since unreleased
+     */
+    when: "always" | "normal" | "hover" | "pressed" | "focused" | "disabled" | "on" | "off";
+    /**
+     * Tint: colour in the normal state.
+     * @since unreleased
+     */
+    get normal(): Color;
+    set normal(value: ColorLike);
+    /**
+     * Tint: colour while hovered (and not pressed).
+     * @since unreleased
+     */
+    get hover(): Color;
+    set hover(value: ColorLike);
+    /**
+     * Tint: colour while pressed.
+     * @since unreleased
+     */
+    get pressed(): Color;
+    set pressed(value: ColorLike);
+    /**
+     * Tint: colour while focused (and not hovered or pressed).
+     * @since unreleased
+     */
+    get focused(): Color;
+    set focused(value: ColorLike);
+    /**
+     * Tint: colour while the Interactable is not enabled.
+     * @since unreleased
+     */
+    get disabled(): Color;
+    set disabled(value: ColorLike);
+  }
+  /**
    * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
    * 
    * Category: UI
@@ -7742,6 +7918,8 @@ declare module "factoria" {
     Button: ButtonComponent;
     Toggle: ToggleComponent;
     Slider: SliderComponent;
+    Interactable: InteractableComponent;
+    InteractableVisual: InteractableVisualComponent;
     TextField: TextFieldComponent;
     ScrollList: ScrollListComponent;
     TouchStick: TouchStickComponent;
@@ -7784,6 +7962,8 @@ declare module "factoria" {
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
+    Interactable: { kind?: "button" | "toggle" | "slider"; enabled?: boolean; autoFocus?: boolean; focusOnHover?: boolean; size?: Vec2Like; offset?: Vec2Like; space?: "auto" | "world" | "screen"; on?: boolean; value?: number; min?: number; max?: number; step?: number; axis?: "x" | "y"; knob?: EntityLike; fill?: EntityLike; label?: string; key?: string; keyArgs?: any };
+    InteractableVisual: { target?: EntityLike; mode?: "show" | "tint"; when?: "always" | "normal" | "hover" | "pressed" | "focused" | "disabled" | "on" | "off"; normal?: ColorLike; hover?: ColorLike; pressed?: ColorLike; focused?: ColorLike; disabled?: ColorLike };
     TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
@@ -8238,7 +8418,7 @@ declare module "factoria:test" {
      */
     typeText(text: string): void;
     /**
-     * Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Throws when the entity has no Slider, or is inactive or not interactable.
+     * Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Works on an Interactable of kind "slider" too. Throws when the entity is no slider, or is inactive or not interactable (enabled false for an Interactable).
      * @since 0.3.0
      */
     setSlider(id: string, value: number): void;

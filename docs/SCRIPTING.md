@@ -842,7 +842,8 @@ entities are ignored. Every field is documented in `docs/COMPONENTS.md`; the one
   wheel" below), so a camera that zooms with the wheel needs no check of its own.
 
 **Focus and navigation.** A widget can have keyboard / gamepad focus when it is a Button, Toggle, Slider or TextField,
-active and `interactable`. Nothing takes focus by itself except one thing: when no widget is focused, the first
+active and `interactable`, or an `Interactable` entity that is active and `enabled` (any composition of sprites, shapes and text as a
+widget, in world or screen space: docs/MENUS.md, "Widgets from your own entities"; below, "widget" means both). Nothing takes focus by itself except one thing: when no widget is focused, the first
 focusable widget (top to bottom, then left to right) with `autoFocus: true` takes it. So a HUD button never reacts to the
 gameplay keys; a menu marks its first item `autoFocus` (or calls `ui.focus(...)` when it opens). A focused widget that is
 destroyed, deactivated or made not interactable loses focus, and `autoFocus` applies again. When every visible
@@ -857,8 +858,9 @@ under a tab), and only when there is none, anywhere in that half of the screen (
 | `ui_up` `ui_down` `ui_left` `ui_right` | arrows, d-pad, left stick | move the focus; on a focused Slider, left / right change the value by `step` |
 | `ui_submit` | Enter, Space, `GamepadA` | click the focused Button, flip the focused Toggle (a TextField ignores it) |
 | `ui_cancel` | Escape, `GamepadB` | send `ui.cancel` (also with nothing focused) |
+| `ui_next` `ui_previous` | Tab, Shift+Tab | focus the next / previous widget in reading order, wrapping around; they need a focused widget to start from |
 
-The engine installs these six unless `input.actions` in `factoria.json` defines an action of the same name, so to rebind
+The engine installs these eight unless `input.actions` in `factoria.json` defines an action of the same name, so to rebind
 a key, add the action there: `"ui_submit": ["Enter", "GamepadA"]` (the project's list replaces the default one).
 A focused TextField takes typed characters (`maxLength` code points, UTF-8), Backspace deletes (it repeats) and the
 Enter key sends `ui.submit`. The mouse (and the first touch) hovers, presses and focuses; a Button or Toggle acts when
@@ -871,14 +873,18 @@ the press is released over the same widget; a Slider follows the pointer while p
 
 | event | when | `data` |
 |---|---|---|
-| `ui.click` | a Button was clicked (mouse, or `ui_submit` while focused) | `{ id }` |
-| `ui.change` | a Toggle flipped, a Slider moved, a TextField was edited | `{ id, value }` (boolean, number, string) |
+| `ui.click` | a Button or button `Interactable` was clicked (mouse, or `ui_submit` while focused) | `{ id }` |
+| `ui.change` | a Toggle flipped, a Slider moved, a TextField was edited (also an `Interactable` toggle or slider) | `{ id, value }` (boolean, number, string) |
 | `ui.submit` | Enter in a TextField | `{ id, value }` |
 | `ui.focus` | a widget took the focus | `{ id }` |
+| `ui.blur` | an `Interactable` lost the focus | `{ id }` |
+| `ui.hover` | the pointer came over an `Interactable` (`value` true) or left it (false) | `{ id, value }` |
+| `ui.press` | the pointer went down on an `Interactable` | `{ id }` |
+| `ui.release` | the pointer went up after pressing an `Interactable` (`value` true when still over it; `ui.click` / `ui.change` follow) | `{ id, value }` |
 | `ui.cancel` | `ui_cancel` was pressed | `{ id }` (`null` when nothing is focused) |
 
-- `ui.on(type, fn)` / `ui.on(type, target, fn)` → unsubscribe function. `type` is `"click"`, `"change"`, `"submit"`, `"focus"`
-  or `"cancel"`; `target` (an Entity or an entity id) limits it to one widget; `fn` gets `{ type, id, entity, value }`.
+- `ui.on(type, fn)` / `ui.on(type, target, fn)` → unsubscribe function. `type` is `"click"`, `"change"`, `"submit"`, `"focus"`,
+  `"cancel"`, or (`Interactable` only) `"blur"`, `"hover"`, `"press"` or `"release"`; `target` (an Entity or an entity id) limits it to one widget; `fn` gets `{ type, id, entity, value }`.
   A wrong `type` throws with a "did you mean". Inside a behaviour prefer `this.on("ui.click", (data, source) => ...)`:
   it is removed with the behaviour. Scripts do not need to poll the widgets:
   ```js
@@ -889,17 +895,18 @@ the press is released over the same widget; a Slider follows the pointer while p
   `Panel.size` or `ui.rectOf(...)`. `Panel.usingFallback` tells whether a panel is laid out with its `fallbackLayout`.
 - `ui.focus(target | null)` gives the focus to a widget (null clears it) and sends `ui.focus`; it returns `true` when the
   widget took the focus and `false`, changing nothing, when the widget has `interactable: false` (a greyed-out button: fall back to
-  another one); it throws, saying why, when the entity is not a focusable widget or is inactive. `ui.focus(null)` holds: an open
+  another one); it throws, saying why, when the entity is not a focusable widget or is inactive (a disabled `Interactable`, `enabled: false`, also gives `false`). `ui.focus(null)` holds: an open
   panel's `autoFocus` does not take the focus back until the next `ui_up` / `ui_down` / `ui_left` / `ui_right` press
   (that press only wakes `autoFocus`; it does not also move the new focus). `ui.focused` and `ui.hovered`
   are the focused widget and the one under the pointer (Entity or `null`): check `ui.hovered` so a click meant for a
   button does not also fire the gun.
 - **Pointer, hit test and the wheel.** `ui.widgetAt(x, y)` is the topmost visible widget at a screen point (design
   pixels, y down) or `null`: a Button, Toggle, Slider, TextField, ScrollList, Panel (one that draws something: alpha 0
-  with no texture is skipped), a shown TouchStick / TouchButton. Topmost is the highest `layer`, then the entity made
+  with no texture is skipped), a shown TouchStick / TouchButton, or an `Interactable` (a world-space one is looked up through the
+  camera that draws at that point; a screen-space widget wins over it). Topmost is the highest `layer`, then the entity made
   last. What a ScrollList clips away at that point, an inactive widget and empty space give `null`; a widget with
   `interactable: false` is returned (check the component). `ui.pointerOverUi` says the same for the pointer at this
-  frame's UI update: a game's own click or zoom skips when it is true. `ui.setPointer(x, y, { down })` replaces the
+  frame's UI update (an `Interactable` under the pointer counts): a game's own click or zoom skips when it is true. `ui.setPointer(x, y, { down })` replaces the
   mouse for the UI from the next frame on (hover, press, Slider drag, click on release, the wheel's target) until
   `ui.setPointer(null)`; use it for a gamepad cursor and in tests. `ui.wheelConsumed` is true on a frame whose wheel
   scrolled a ScrollList (`input.mouse.wheel` reads 0 then). A modal Panel consumes the wheel too, unless it has

@@ -2442,11 +2442,11 @@
     {
      "kind": "interface",
      "name": "UiEvent",
-     "doc": "What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField).",
+     "doc": "What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField, Interactable).",
      "members": [
       {
-       "sig": "readonly type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\"",
-       "doc": "Which event: click (Button pressed by ui_submit or the mouse), change (Toggle flipped, Slider moved, TextField edited), submit (TextField Enter), focus (a widget took focus), cancel (ui_cancel pressed: Escape or the pad's B)."
+       "sig": "readonly type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"blur\" | \"hover\" | \"press\" | \"release\" | \"cancel\"",
+       "doc": "Which event: click (Button pressed by ui_submit or the mouse), change (Toggle flipped, Slider moved, TextField edited), submit (TextField Enter), focus (a widget took focus), cancel (ui_cancel pressed: Escape or the pad's B). blur, hover, press and release are sent by Interactable widgets only: blur (it lost the focus), hover (the pointer came over it or left it, see `value`), press (the pointer went down on it), release (the pointer went up)."
       },
       {
        "sig": "readonly id: string | null",
@@ -2458,7 +2458,7 @@
       },
       {
        "sig": "readonly value?: boolean | number | string",
-       "doc": "change and submit only: the Toggle's value (boolean), the Slider's value (number) or the TextField's text (string)."
+       "doc": "change and submit: the Toggle's value (boolean), the Slider's value (number) or the TextField's text (string); an Interactable of kind toggle or slider sends its value. hover: true when the pointer came over the Interactable, false when it left. release: true when the pointer was still over it (a click follows)."
       }
      ]
     },
@@ -2629,7 +2629,7 @@
       },
       {
        "sig": "rectOf(entityOrId: Entity | string): Rect | null",
-       "doc": "Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area, the interface scale (ui.scale: at 1.5 a widget of size 100 is 150 wide) and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite) and for one that is hidden, by itself or by an inactive parent (`activeInHierarchy` false), like `ui.state`, which does not list it. Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf(\"options.panel\"); expect(r.x + r.w).toBeLessThan(1280);"
+       "doc": "Where a UI widget, an Interactable (a world-space one as its camera shows it) or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area, the interface scale (ui.scale: at 1.5 a widget of size 100 is 150 wide) and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite) and for one that is hidden, by itself or by an inactive parent (`activeInHierarchy` false), like `ui.state`, which does not list it. Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf(\"options.panel\"); expect(r.x + r.w).toBeLessThan(1280);"
       },
       {
        "sig": "layout(): void",
@@ -2720,16 +2720,16 @@
        "doc": "Like on(type, fn) for one widget: for dragStart and dragCancel `target` is the dragged widget, for dragOver and drop it is the drop target, e.g. ui.on(\"drop\", \"slot_1\", (e) => assign(e.payload))."
       },
       {
-       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\", fn: (e: UiEvent) => void | boolean): () => void",
+       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"blur\" | \"hover\" | \"press\" | \"release\" | \"cancel\", fn: (e: UiEvent) => void | boolean): () => void",
        "doc": "Listens to a widget event from any widget. A \"cancel\" handler that returns true handled the press: input.consume(\"ui_cancel\") is called for it, so the same Escape does not also read as pressed for \"pause\" or any action on that key later in the frame (Escape closes a dialog and the pause menu stays shut). The click of a focused Button or Toggle pressed by ui_submit is consumed by the UI itself. Returns the function that stops listening. Inside a behaviour prefer this.on(\"ui.click\", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion."
       },
       {
-       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\", target: Entity | string, fn: (e: UiEvent) => void | boolean): () => void",
+       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"blur\" | \"hover\" | \"press\" | \"release\" | \"cancel\", target: Entity | string, fn: (e: UiEvent) => void | boolean): () => void",
        "doc": "Listens to a widget event from one widget only (a \"cancel\" handler that returns true consumes ui_cancel, see above); `target` is the widget Entity or its entity id, e.g. ui.on(\"click\", \"play_button\", () => scene.load(\"scenes/level1.scene.json\"))."
       },
       {
        "sig": "focus(target: Entity | string | null): boolean",
-       "doc": "Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Returns true when the widget took focus, and false (changing nothing) when it is a Button, Toggle, Slider or TextField with interactable false, so a screen that restores a remembered focus can fall back to another widget. Throws, saying why and what to do, when the entity cannot take focus at all (not a focusable widget, or inactive)."
+       "doc": "Gives keyboard / gamepad focus to a Button, Toggle, Slider, TextField or Interactable (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Returns true when the widget took focus, and false (changing nothing) when it is a Button, Toggle, Slider or TextField with interactable false (or an Interactable with enabled false), so a screen that restores a remembered focus can fall back to another widget. Throws, saying why and what to do, when the entity cannot take focus at all (not a focusable widget, or inactive)."
       },
       {
        "sig": "speak(text: string, opts?: { interrupt?: boolean }): void",
@@ -2753,7 +2753,7 @@
       },
       {
        "sig": "widgetAt(x: number, y: number): Entity | null",
-       "doc": "The topmost visible widget at a screen point, in design pixels with y down (like ui.rectOf): a Button, Toggle, Slider, TextField, ScrollList, Panel that draws something (a fully transparent Panel with no texture is skipped), or a TouchStick / TouchButton that is shown. Topmost is the highest `layer`, then the entity made last. It is null over empty space, over an inactive widget and where a ScrollList clips the widget away (a row scrolled out of view). It includes widgets with interactable false, so check Button.interactable for a click target. Reads the last layout: call it after game.step or ui.layout(). Use it for a gamepad cursor and for \"is the pointer over the UI\" questions. Example: const w = ui.widgetAt(640, 360); if (w && w.has(\"Button\")) console.log(w.id);"
+       "doc": "The topmost visible widget at a screen point, in design pixels with y down (like ui.rectOf): a Button, Toggle, Slider, TextField, ScrollList, Interactable, Panel that draws something (a fully transparent Panel with no texture is skipped), or a TouchStick / TouchButton that is shown. Topmost is the highest `layer`, then the entity made last. It is null over empty space, over an inactive widget and where a ScrollList clips the widget away (a row scrolled out of view). It includes widgets with interactable false, so check Button.interactable for a click target. Reads the last layout: call it after game.step or ui.layout(). A screen-space widget wins over a world-space Interactable under the same point, which is looked up through the camera that draws at that point. Use it for a gamepad cursor and for \"is the pointer over the UI\" questions. Example: const w = ui.widgetAt(640, 360); if (w && w.has(\"Button\")) console.log(w.id);"
       },
       {
        "sig": "setPointer(x: number, y: number, opts?: { down?: boolean }): void",
@@ -4776,7 +4776,7 @@
       },
       {
        "sig": "setSlider(id: string, value: number): void",
-       "doc": "Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Throws when the entity has no Slider, or is inactive or not interactable."
+       "doc": "Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Works on an Interactable of kind \"slider\" too. Throws when the entity is no slider, or is inactive or not interactable (enabled false for an Interactable)."
       },
       {
        "sig": "pressBack(): void",
