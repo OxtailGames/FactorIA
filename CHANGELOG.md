@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Entity and scene lifetime
+
+- `scene.generation`: a counter that changes on every scene load (`scene.load`, `scene.reload`, `game.load` in a test), a reload
+  of the same scene included. A script that awaits a timeline, a preload or an answer keeps it and drops the result when it
+  changed, which `scene.current` cannot tell on a reload (LL/FB-0602).
+- `world.entities()` skips entities destroyed this frame, as `find`, `findAll` and `findByTag` already did, and the doc of
+  `Entity.destroy` says when an entity is gone: lookups and ids at once, the handle (`alive`) at the end of the frame
+  (LL/FB-0015). Larkspur Lodge's screens no longer prefix their ids with a build serial.
+
 Tests that drive the UI like a player
 
 - `game.tap(action)` taps the first key (or else the first gamepad button) bound to the action, so the UI and every action on

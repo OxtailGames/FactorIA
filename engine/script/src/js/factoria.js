@@ -1613,6 +1613,7 @@
     load(path, props) { N.requestScene(path, props); },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
+    get generation() { return N.sceneGeneration(); },
   };
 
   const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit", "gamepadConnected", "gamepadDisconnected"];

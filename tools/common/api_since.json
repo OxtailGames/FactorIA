@@ -1448,6 +1448,7 @@
     "RngAPI.shuffle": "0.1.0",
     "SceneAPI": "0.1.0",
     "SceneAPI.current": "0.1.0",
+    "SceneAPI.generation": "unreleased",
     "SceneAPI.load": "0.1.0",
     "SceneAPI.preload": "unreleased",
     "SceneAPI.reload": "0.1.0",

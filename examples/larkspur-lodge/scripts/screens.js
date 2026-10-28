@@ -23,9 +23,9 @@
 // layered like any other, the page needs no hole in it and the zoom buttons sit over the picture. The widget sends
 // ui.viewPointer for the turning (a drag, a finger) and the zoom (the wheel).
 //
-// The UI is rebuilt whenever its state changes (a dirty flag handled in onUpdate, never inside a click handler); every widget id
-// carries the serial of the build, so ids never collide with the previous build that is still alive until the end of the frame.
-// Tests find a widget with `world.find(screens.id("tab_board"))`.
+// The UI is rebuilt whenever its state changes (a dirty flag handled in onUpdate, never inside a click handler): the old root is
+// destroyed and the new one spawned with the same ids in the same frame (a destroyed entity is gone for world.find and its id is
+// free at once). Tests find a widget with `world.find(screens.id("tab_board"))`.
 //
 // Fields tests read: `mode` (null | "journal" | "puzzle"), `tab`, `puzzle`, `selItem`, `sel` (board), `message`, `view` ({yaw,
 // pitch, zoom, item}).
@@ -66,8 +66,6 @@ export default class Screens extends Behaviour {
     this.message = "";
     this.strip = -1;
     this.dirty = false;
-    this.serial = 0;
-    this.p = "scr0_";
     this.handlers = {};
     this.root = null;
     this.releaseIn = 0;
@@ -125,9 +123,9 @@ export default class Screens extends Behaviour {
     return b;
   }
 
-  /** The full entity id of a widget of the current build: `name` as used in this file ("tab_board", "card_oil"). */
+  /** The entity id of a widget: `name` as used in this file ("tab_board", "card_oil"). */
   id(name) {
-    return this.p + name;
+    return name;
   }
 
   // ---------------------------------------------------------------------------------------------------- opening and closing
@@ -263,8 +261,8 @@ export default class Screens extends Behaviour {
       this.open(id === "hud_items" ? "items" : "notebook");
       return;
     }
-    if (!this.mode || !id.startsWith(this.p)) return;
-    const fn = this.handlers[id.slice(this.p.length)];
+    if (!this.mode) return;
+    const fn = Object.hasOwn(this.handlers, id) ? this.handlers[id] : null;
     if (fn) fn();
   }
 
@@ -277,8 +275,6 @@ export default class Screens extends Behaviour {
   build() {
     const focusName = this.focusName();
     if (this.root) this.root.destroy();
-    this.serial++;
-    this.p = `scr${this.serial}_`;
     this.handlers = {};
     this.dirty = false;
     this.dragging = false;
@@ -294,10 +290,12 @@ export default class Screens extends Behaviour {
     if (want) ui.focus(want);
   }
 
-  /** The name (id without the build prefix) of the focused widget of the build that is going away. */
+  /** The id of the focused widget of the build that is going away ("" when the focus is outside the screen). */
   focusName() {
     const f = ui.focused;
-    return f && f.alive && f.id.startsWith(this.p) ? f.id.slice(this.p.length) : "";
+    if (!f || !f.alive || !this.root || !this.root.alive) return "";
+    for (let e = f; e; e = e.parent) if (e.id === this.root.id) return f.id; // only a widget of the screen on show
+    return "";
   }
 
   // ----------------------------------------------------------------------------------------------------------------- journal
@@ -497,7 +495,7 @@ export default class Screens extends Behaviour {
    * another scene is ignored.
    */
   onViewPointer(e) {
-    if (this.mode !== "journal" || this.tab !== "items" || !e.id.startsWith(this.p)) return;
+    if (this.mode !== "journal" || this.tab !== "items" || e.id !== "view") return;
     const v = this.view;
     if (e.phase === "down") this.dragging = true;
     else if (e.phase === "up") this.dragging = false;
