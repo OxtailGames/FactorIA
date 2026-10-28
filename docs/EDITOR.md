@@ -48,7 +48,13 @@ whether the notice shows and what blocks Restart). While the updater above insta
 The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Hierarchy** over **Inspector** on the left,
 the **Viewport** in the middle, **AI Assistant** on the right, and Console / Project / Engine Feedback / Audio / Profiler as tabs
 under the view. You can also edit by hand with the Hierarchy and the Inspector, by dragging gizmos in the Viewport (below) and by
-dragging files from the Project panel ([Project panel](#project-panel)). Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
+dragging files from the Project panel ([Project panel](#project-panel)). Use Undo to take back what it or you did. View > Reset layout restores this layout.
+
+The editor keeps your layout in `~/.factoria/editor_layout2.ini`: where panels sit, their sizes, floating panels, tabs moved to
+another dock, and which panels are open (a panel closed with its X, or one opened from the View menu, stays that way). It is
+written a few seconds after a change and again when the editor closes or another project opens, and read when the editor starts,
+so the layout is the same after reopening the editor or switching project. Reset layout also reopens the default panels (Audio and
+Profiler stay closed). Two editors open at once share the file: the last one to close writes it.
 
 | Panel | What it does |
 |---|---|
@@ -449,7 +455,7 @@ wrapping, right-click menu), G (delete a project), H (Export window), I (Platfor
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
 agent through the MCP endpoint), P (revert an AI run) and Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation) and R (a program updated on disk: the Restart notice,
-its button state and Not now). While you work on one part of the editor, run only the sections that cover it:
+its button state and Not now) and U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest

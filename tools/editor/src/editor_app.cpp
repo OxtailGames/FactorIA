@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <thread>
 #include <filesystem>
 
@@ -498,6 +499,8 @@ bool Editor::boot(const std::string& dirIn) {
         gfxUp_ = true;
     }
     ui::setup(iniPath_.empty() ? nullptr : iniPath_.c_str());
+    panelMask_ = -1;
+    register_layout_settings();
     // sokol_app hands back the last pasted text when the clipboard holds no text (a picture): ImGui would paste that
     // again, and the AI panel's Ctrl+V would never see an empty clipboard and attach the picture.
     ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) {
@@ -751,9 +754,10 @@ void Editor::on_frame(double dt) {
     time_ += dt;
     poll_disk_update();
     if (dt > 0) fps_ = fps_ * 0.9 + (1.0 / dt) * 0.1;
-    if (!pendingOpen_.empty()) {
+    if (!pendingOpen_.empty() || pendingWelcome_) {
         std::string dir = std::move(pendingOpen_);
         pendingOpen_.clear();
+        pendingWelcome_ = false;
         boot(dir);
         if (!bootError_.empty()) {
             dlgError_ = bootError_;
@@ -1053,6 +1057,42 @@ void Editor::open_screenshots_folder() {
 
 // ------------------------------------------------------------------------------------------
 // Layout and top-level UI
+// The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
+int Editor::panels_mask() const {
+    const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_, showProject_,
+                          showAi_,       showFeedback_,  showAudio_,     showProfiler_};
+    int mask = 0;
+    for (std::size_t i = 0; i < std::size(flags); ++i)
+        if (flags[i]) mask |= 1 << i;
+    return mask;
+}
+
+void Editor::set_panels_mask(int mask) {
+    bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_, &showProject_,
+                     &showAi_,       &showFeedback_,  &showAudio_,     &showProfiler_};
+    for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
+}
+
+// The layout file also says which panels are open: a closed panel stays closed the next time the editor opens. The handler
+// is registered after the context is created and before its first frame, which is when ImGui reads the ini file.
+void Editor::register_layout_settings() {
+    ImGuiSettingsHandler h;
+    h.TypeName = "FactorIAEditor";
+    h.TypeHash = ImHashStr("FactorIAEditor");
+    h.UserData = this;
+    h.ReadOpenFn = [](ImGuiContext*, ImGuiSettingsHandler*, const char* name) -> void* {
+        return std::strcmp(name, "Panels") == 0 ? reinterpret_cast<void*>(1) : nullptr;
+    };
+    h.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, void*, const char* line) {
+        int mask = 0;
+        if (std::sscanf(line, "Open=%d", &mask) == 1) static_cast<Editor*>(handler->UserData)->set_panels_mask(mask);
+    };
+    h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* out) {
+        out->appendf("[%s][Panels]\nOpen=%d\n\n", handler->TypeName, static_cast<Editor*>(handler->UserData)->panels_mask());
+    };
+    ImGui::AddSettingsHandler(&h);
+}
+
 void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGui::DockBuilderRemoveNode(dockId);
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
@@ -1132,7 +1172,13 @@ void Editor::build_ui() {
         if (resetLayout_ || oldLayout || ImGui::DockBuilderGetNode(dockId) == nullptr)
             build_default_layout(dockId, ImGui::GetContentRegionAvail());
         layoutBuilt_ = true;
+        if (resetLayout_) set_panels_mask(0x7F);  // the default panels: Audio and Profiler stay closed
         resetLayout_ = false;
+    }
+    {  // a panel opened or closed (its X, the Window menu): the ini file is written soon, with the layout
+        const int mask = panels_mask();
+        if (panelMask_ >= 0 && mask != panelMask_) ImGui::MarkIniSettingsDirty();
+        panelMask_ = mask;
     }
     ImGui::DockSpace(dockId, ImVec2(0, 0), ImGuiDockNodeFlags_None);
     ImGui::End();

@@ -19,6 +19,7 @@
 #include "autotest_sections.h"
 #include "editor_internal.h"
 #include "sokol_app.h"
+#include "imgui_internal.h"
 #include "ui_backend.h"
 
 namespace fa::editor {
@@ -26,6 +27,21 @@ namespace fa::editor {
 namespace {
 
 namespace stdfs = std::filesystem;
+
+// Section U: where a panel is now. Floating panels have no dock node; a docked one names its node.
+ImGuiWindow* panel_window(const char* name) { return ImGui::FindWindowByName(name); }
+bool panel_floating(const char* name) {
+    const ImGuiWindow* w = panel_window(name);
+    return w && !w->DockIsActive && w->DockNode == nullptr;
+}
+ImGuiID panel_node(const char* name) {
+    const ImGuiWindow* w = panel_window(name);
+    return w && w->DockNode ? w->DockNode->ID : 0;
+}
+float panel_width(const char* name) {
+    const ImGuiWindow* w = panel_window(name);
+    return w ? w->Size.x : 0.0f;
+}
 
 void write_file(const std::string& path, const std::string& bytes) {
     std::error_code ec;
@@ -2742,6 +2758,92 @@ void Editor::at_build_tools_script() {
             diskSettling_ = false;
             std::error_code ec;
             stdfs::remove(atOutDir_ + "/fake_factoria", ec);
+        });
+    }
+
+    // ------------------------------------------------------------------------------------ U. Layout kept
+    section("U");
+    // A layout the user changed (a panel floated, a tab moved to another dock, a column made wider) is in the layout file when the
+    // editor goes down, and comes back when a project opens again: straight away, and after a visit to the welcome screen (which
+    // has its own ImGui context, without the dock space). The test uses its own layout file; the real one is put back at the end.
+    {
+        auto reopen_wait = [this](bool viaWelcome) {
+            const std::string dir = projectDir_;
+            const std::uint64_t u0 = uiFrame_;
+            if (viaWelcome) {
+                close_project();
+                atReopenDir_ = dir;
+                atReopenIn_ = 10;
+            } else {
+                open_project(dir);
+            }
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, u0, viaWelcome] { return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 && uiFrame_ >= u0 + 8 + (viaWelcome ? 10 : 0); };
+        };
+        step(2, [this, reopen_wait] {
+            atIniSaved_ = iniPath_;
+            iniPath_ = atOutDir_ + "/layout_test.ini";
+            std::error_code ec;
+            stdfs::remove(iniPath_, ec);
+            reopen_wait(false);  // no layout file yet: the default layout, and the file is written when the UI goes down
+        });
+        step(2, [this] {
+            at_check(!panel_floating("Console") && panel_node("Console") != 0, "no layout file: Console starts docked (the default layout)");
+            at_check(panel_node("Project") == panel_node("Console"), "...in the same dock as Project");
+            at_check(panel_node("Project") != panel_node("Hierarchy"), "...and Project is not with the Hierarchy");
+            // The user's changes: Console floats, Project joins the Hierarchy and the left column gets wider.
+            ImGuiContext& g = *GImGui;
+            ImGuiWindow* console = panel_window("Console");
+            ImGui::DockContextQueueUndockWindow(&g, console);
+            ImGuiWindow* hier = panel_window("Hierarchy");
+            if (hier && hier->DockNode && panel_window("Project"))
+                ImGui::DockContextQueueDock(&g, hier->DockNode->HostWindow, hier->DockNode, panel_window("Project"), ImGuiDir_None, 0.0f, false);
+            if (hier && hier->DockNode) {
+                ImGuiDockNode* col = hier->DockNode->ParentNode;
+                while (col && col->ParentNode && col->ParentNode->SplitAxis != ImGuiAxis_X) col = col->ParentNode;
+                if (col && col->ParentNode) {  // the node of the left column inside the X split: take 200 px from its sibling
+                    ImGuiDockNode* sib = col->ParentNode->ChildNodes[0] == col ? col->ParentNode->ChildNodes[1] : col->ParentNode->ChildNodes[0];
+                    col->SizeRef.x += 200;
+                    if (sib) sib->SizeRef.x = std::max(100.0f, sib->SizeRef.x - 200);
+                }
+            }
+            showFeedback_ = false;  // a panel closed with its X, and one opened from the View menu
+            showAudio_ = true;
+            atLayoutWidth_ = panel_width("Hierarchy");
+        });
+        step(4, [] {
+            ImGui::SetWindowPos("Console", ImVec2(300, 300));
+            ImGui::SetWindowSize("Console", ImVec2(420, 210));
+        });
+        step(6, [this] {
+            at_check(panel_floating("Console"), "the test floated Console");
+            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0, "the test moved Project next to the Hierarchy");
+            at_check(panel_width("Hierarchy") > atLayoutWidth_ + 100, "the test made the left column wider (" + std::to_string(atLayoutWidth_) + " -> " +
+                                                                        std::to_string(panel_width("Hierarchy")) + ")");
+            atLayoutWidth_ = panel_width("Hierarchy");
+        });
+        step(2, [reopen_wait] { reopen_wait(false); });
+        auto check_changed_layout = [this](const std::string& when) {
+            at_check(!showFeedback_ && showAudio_ && showConsole_, "the closed panel (Engine Feedback) is still closed and the opened one (Audio) still open " + when);
+            at_check(panel_floating("Console"), "Console is still floating " + when);
+            const ImGuiWindow* c = panel_window("Console");
+            at_check(c && std::fabs(c->Size.x - 420) < 3 && std::fabs(c->Size.y - 210) < 3, "...with the size the user gave it " + when);
+            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0, "Project is still next to the Hierarchy " + when);
+            at_check(std::fabs(panel_width("Hierarchy") - atLayoutWidth_) < 6,
+                     "the left column keeps its width " + when + " (" + std::to_string(panel_width("Hierarchy")) + " vs " + std::to_string(atLayoutWidth_) + ")");
+        };
+        step(2, [check_changed_layout] { check_changed_layout("after the project is opened again"); });
+        step(2, [reopen_wait] { reopen_wait(true); });  // through the welcome screen: its context must not wipe the dock data
+        step(2, [check_changed_layout] { check_changed_layout("after a visit to the welcome screen"); });
+        step(2, [this] { resetLayout_ = true; });
+        step(4, [this] {
+            at_check(!panel_floating("Console") && panel_node("Console") == panel_node("Project"), "Reset layout puts Console back in the bottom dock");
+            at_check(panel_node("Project") != panel_node("Hierarchy"), "...and Project away from the Hierarchy");
+            at_check(showFeedback_ && !showAudio_, "...and the panels that are open by default again");
+        });
+        step(2, [this, reopen_wait] {  // the real layout file again (none in the autotest), through a last reopen
+            iniPath_ = atIniSaved_;
+            reopen_wait(false);
         });
     }
 

@@ -4,6 +4,13 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The editor keeps your layout
+
+- Which panels are open is saved with the layout (`~/.factoria/editor_layout2.ini`): a panel closed with its X, or one opened from
+  the View menu, is the same the next time the editor opens or another project opens; before, only where the panels sit was kept
+  and every closed panel came back. View > Reset layout also reopens the default panels. The editor autotest has a section (U)
+  that floats, moves, widens and closes panels and checks they survive a reopen and a visit to the welcome screen.
+
 The AI agent is never silent
 
 - When the editor's AI (Claude Code) hands a task to the worker, the worker's steps now stream into the chat as it works, and the
