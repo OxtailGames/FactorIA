@@ -38,6 +38,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"N", "Project panel"},
     {"O", "CLI agent through the editor's MCP endpoint"},
     {"P", "Revert an AI run: checkpoint, Revert, Undo revert"},
+    {"Q", "AI agent liveness: stuck warning, Check activity, a worker that outlives the orchestrator's turn"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

@@ -4,6 +4,9 @@
 # control_request on stdin with a control_response listing three models, after one hook event line; with FAKE_HANG it then keeps running) | resume_fails (--resume is answered with
 # claude's "No conversation found" error) | mcp_spawn (calls the tool scene_spawn {"name":"CliCoin"} on the HTTP MCP
 # server of its --mcp-config with curl, like Claude Code calling a tool; the reply goes to $FAKE_ARGV_FILE.mcp).
+# mcp_run_detach (calls the tool ai_run {"task":"Make a coin","role":"worker"} in the background and ends its turn at once,
+# like an orchestrator whose ai_run call was cut off; a prompt that says a worker "finished after your turn ended" -- the
+# editor's continuation -- gets a plain answer instead). FAKE_SLEEP=<seconds> keeps it silent that long after its init line.
 # A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>".
 # fake_claude.cmd is the same script for Windows.
 if [ -n "$FAKE_ARGV_FILE" ]; then
@@ -46,9 +49,22 @@ case "$FAKE_MODE" in
     if [ -n "$FAKE_ARGV_FILE" ]; then out="$FAKE_ARGV_FILE.mcp"; fi
     curl -s -o "$out" -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
       -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"scene_spawn","arguments":{"name":"CliCoin"}}}' "$url" ;;
+  mcp_run_detach)
+    case "$stdin" in
+      *"finished after your turn ended"*) ;;
+      *)
+        cfg=""; prev=""
+        for a in "$@"; do if [ "$prev" = "--mcp-config" ]; then cfg="$a"; fi; prev="$a"; done
+        url=$(sed -n 's/.*"url": *"\([^"]*\)".*/\1/p' "$cfg")
+        curl -s -m 120 -o /dev/null -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+          -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ai_run","arguments":{"task":"Make a coin","role":"worker"}}}' "$url" \
+          >/dev/null 2>&1 </dev/null &
+        sleep 1 ;;
+    esac ;;
 esac
 cost=${FAKE_COST:-0.0123}
 echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"sonnet","mcp_servers":[{"name":"factoria","status":"connected"},{"name":"other","status":"failed"}]}'
+if [ -n "$FAKE_SLEEP" ]; then sleep "$FAKE_SLEEP"; fi
 echo 'plain warning line that is not json'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Looking at the project."},{"type":"tool_use","id":"tu1","name":"mcp__factoria__project_validate","input":{}}]}}'
 echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu1","content":[{"type":"text","text":"{\"ok\":true}"}],"is_error":false}]}}'
