@@ -121,6 +121,11 @@ struct UiDropHooks {
     std::function<bool(const Json& drag)> world;
 };
 
+// Where a world point lands on the screen (design pixels) for the camera that draws at `pointer` (null = the main camera). The
+// runtime gives the renderer's projection (perspective and viewports included); without one the UI uses the orthographic maths of
+// the scene's cameras (fa/scene/camera_query.h), which is also what a game without a GPU gets.
+using UiProjectFn = std::function<Vec2(Vec3 world, const Vec2* pointer)>;
+
 class UiSystem {
 public:
     // Every frame, before scripts.update: lays out containers, then updates hover / press / focus / values from `input`
@@ -167,6 +172,13 @@ public:
     // True when the wheel of the last update() scrolled a ScrollList under the pointer: Input::mouse_wheel() reads 0 for
     // the rest of that frame, so scripts and the game do not also zoom or scroll with it.
     bool wheel_consumed() const { return wheelConsumed_; }
+
+    // The camera projection the world-space Interactable widgets are hit-tested with (see UiProjectFn). Empty = the default.
+    void set_world_projection(UiProjectFn project) { project_ = std::move(project); }
+
+    // ui_widget_at() plus the Interactable widgets: a screen widget (or screen-space Interactable) wins over a world-space one under the
+    // same point, which is seen through the camera that draws at `p`. `measure` sizes the visuals of the Interactables.
+    Entity widget_at(const World& world, Vec2 designSize, Vec2 p, const VisualMeasure& measure = {}, Entity ignore = kNullEntity) const;
 
     Entity focused() const { return focus_; }
     // Gives focus to `e` (kNullEntity clears it, and the focus then stays empty: an open Panel's autoFocus does not take
@@ -223,6 +235,11 @@ public:
     // CameraView: "down" at the press, "drag" while it moves with the button held, "up" at the release (to the view that was
     // pressed, wherever the pointer is then), "wheel" for the mouse wheel (which the view then keeps from scripts and ScrollLists).
 
+    // Interactable. Writes the runtime state of every Interactable (`state`, no flags while disabled), moves the knob and fill of
+    // the sliders to their value and applies the InteractableVisual entities. update() ends with it and layout() starts with it,
+    // so what a script changed (enabled, on, value) is drawn in the same frame.
+    void sync_interactables(World& world, Vec2 designSize, const VisualMeasure& measure);
+
     // Scene load: no focus, no hover, no press, no tooltip, no drag.
     void reset();
 
@@ -242,6 +259,9 @@ private:
     std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
 
     Entity focus_, hover_, press_;
+    Entity prevHover_;                    // the Interactable the pointer was over at the last update (ui.hover is sent on a change)
+    UiProjectFn project_;
+    std::unordered_set<u64> warnedKnobs_;  // knobs / fills that are not children of their slider, already reported
     bool focusCleared_ = false;   // set_focus(null) was called: autoFocus waits for a navigation press
     bool pointerOn_ = false, pointerDown_ = false, pointerPrevDown_ = false, pointerOverUi_ = false, wheelConsumed_ = false;
     Vec2 pointerPos_{};
@@ -250,6 +270,7 @@ private:
     Entity platformField_;  // the TextField the platform keyboard was taken for (kNullEntity = none)
     Entity askedField_;     // the TextField the handler was asked about since it got the focus
     void release_platform_keyboard(const World* world);
+    void drop_focus(World& world);  // lets go of the focus: the flag goes down, an Interactable sends ui.blur
     bool keyboardRaised_ = false;  // the UI asked for the phone's keyboard (a TextField has focus, last input not a pad)
     bool scrollToFocus_ = false;  // the focus changed: the next layout scrolls the focused widget into view
     float clock_ = 0.0f;          // the UI's own unscaled clock (caret blink)
