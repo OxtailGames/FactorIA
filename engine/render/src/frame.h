@@ -1,6 +1,8 @@
 // Per-frame CPU state shared by the gather passes (2D, particles, debug, 3D).
 #pragma once
 
+#include <functional>
+
 #include "fa/scene/text_fit.h"
 #include "render_internal.h"
 
@@ -16,6 +18,14 @@ struct ShadowCache {
     };
     std::unordered_map<std::uint64_t, Entry> rows;
     std::uint64_t tick = 0;  // one per drawn frame (the renderer counts it): a row not used this frame may be dropped
+};
+
+// A CameraView the UI gather met: the camera it shows rendered into an image of pxW x pxH pixels, drawn in `size` design pixels.
+struct ViewRequest {
+    std::uint64_t key = 0;   // the CameraView widget (its entity bits): one image and one job per widget
+    Entity camera;           // the Camera entity to draw
+    Vec2 size{0, 0};         // the widget's rectangle in design pixels: the aspect of the camera and the size of its UI units
+    int pxW = 1, pxH = 1;    // the image's pixels
 };
 
 struct Frame {
@@ -35,6 +45,12 @@ struct Frame {
     float textScale = 1.0f;  // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
     float uiScale = 1.0f;    // World::ui_scale() of this frame: screen-space UI is drawn this many times as big (ui_rect.h)
     bool white_used = false;
+    // CameraViews (ui2d.cpp, draw_camera_view): `viewImage` makes (or keeps) the image of a view and answers its texture (null when it
+    // cannot be made), `views` collects what the renderer must draw before the frame's own jobs. `viewFlipV`: the images of this
+    // backend are stored bottom-up (GL), so the quad that shows one reads it upside down.
+    std::function<TextureAsset*(std::uint64_t key, int pxW, int pxH)> viewImage;
+    std::vector<ViewRequest> views;
+    bool viewFlipV = false;
     // Lit 2D visuals (Sprite.lit, Tilemap.lit): the lights of this frame (gather_2d) and the base light.
     std::vector<Light2DData> lights2d;
     Color ambient2d{0.25f, 0.25f, 0.3f, 1.0f};

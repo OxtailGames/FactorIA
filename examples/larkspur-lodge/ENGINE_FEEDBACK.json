@@ -200,9 +200,10 @@
       "suggestion": "input.consume(action) or an event that tells the other readers that ui_cancel handled the press, or document in the menus doc that a cancel handler must set MenuStack.busy.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md.",
+        "Fixed in M33.6 (branch m33/input-routing): input.consume(action); a ui.on(\"cancel\") handler that returns true consumes ui_cancel, so \"pause\" does not read the same Escape. The dialogue log and the screens no longer set MenuStack.busy."
       ]
     },
     {
@@ -348,9 +349,10 @@
       "suggestion": "input.pressed('pause') could be false while a TextField has the focus (text input mode), and MenuStack.busy should reset on scene.load.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md.",
+        "Fixed in M33.6 (branch m33/input-routing): input.textInputMode (a focused TextField, or the on-screen keyboard) turns printable-key actions off; MenuStack.busy resets when a scene builds a MenuStack. SlotScreen no longer sets busy to type a name."
       ]
     },
     {
@@ -397,9 +399,10 @@
       "suggestion": "A Panel option (for example wheelPassThrough) or a rectangle in which a modal leaves the wheel to the game.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP.md.",
+        "Fixed in M33.6 (branch m33/input-routing): Panel.wheelPassThrough leaves the wheel to scripts under a modal Panel. The inventory item view can read input.mouse.wheel again."
       ]
     },
     {
@@ -414,16 +417,17 @@
       "severity": "minor",
       "title": "No UI widget that shows a 3D view",
       "missing": "The inventory shows the selected item turning in 3D inside a window of the page. The UI draws over every camera, so a Camera viewport behind the UI is hidden by any panel that covers it, and no widget draws a camera or a render target.",
-      "workaround": "A second perspective Camera (viewport = the window) looks at a stage 300 m above the lodge, and the page is four opaque bands and a frame around a clear rectangle (the hole).",
+      "workaround": "A second perspective Camera (viewport = the window) looks at a stage 300 m above the lodge, and the page is four opaque bands and a frame around a clear rectangle (the hole). (removed in M33.5)",
       "workaroundFiles": [
         "scripts/screens.js"
       ],
       "suggestion": "A viewport widget (or Panel.camera) that draws a named camera or a render texture inside its rectangle, clipped and layered like any widget.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md.",
+        "Fixed in M33.5: the CameraView widget draws a named camera inside its rectangle (clipped, layered, modal-aware) and sends ui.viewPointer; docs/MENUS.md, 'A camera inside the UI'. screens.js lost its four bands. Only named cameras: a render texture as the source is not built."
       ]
     },
     {
@@ -438,16 +442,17 @@
       "severity": "nice-to-have",
       "title": "Camera viewport fractions are not documented as fractions of the window",
       "missing": "The item view camera has viewport fractions of the design area. As far as I could tell they count the whole window, so the view would not match the hole of a UI laid out in a fit design area when the window is not 16:9. Only 16:9 was checked.",
-      "workaround": "The game is designed and tested at 16:9 only.",
+      "workaround": "The game is designed and tested at 16:9 only. (removed in M33.5)",
       "workaroundFiles": [
         "scripts/screens.js"
       ],
       "suggestion": "Say in the Camera.viewport doc which rectangle the fractions count, and offer a mode that follows the UI design area.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md.",
+        "Fixed in M33.5: the Camera.viewport doc says the fractions count the game target (the design resolution grown by Expand), and Camera.viewportSpace 'design' counts them on the design area. A CameraView needs no viewport at all."
       ]
     },
     {
@@ -486,16 +491,17 @@
       "severity": "nice-to-have",
       "title": "Lights of a scene overexpose objects on a stage far from it",
       "missing": "The item view stage has two point lights of its own, but ambient light and tone mapping made pale parts a white blot, so the colours of data/items.json came out far too bright.",
-      "workaround": "The two lights are weak, the camera sits further back and the part colours are multiplied by 0.45.",
+      "workaround": "The two lights are weak, the camera sits further back and the part colours are multiplied by 0.45. (removed in M33.5)",
       "workaroundFiles": [
         "scripts/screens.js"
       ],
       "suggestion": "An option on Camera or MeshRenderer to ignore the scene ambient (a studio lighting preset for product views).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP.md.",
+        "Fixed in M33.5: Camera.lighting 'studio' (with studioIntensity) ignores the scene's lights and ambient and lights with its own key, fill and rim. screens.js lost its two stage lights and its 0.45 colour factor."
       ]
     },
     {

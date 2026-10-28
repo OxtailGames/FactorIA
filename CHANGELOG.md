@@ -4,6 +4,31 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+A camera inside the UI, and studio lighting
+
+- New widget `CameraView`: it draws a named Camera inside its rectangle, clipped by a ScrollList, layered like any widget and
+  under a modal Panel's own widgets, so a 3D item, a portrait or a minimap needs no hole cut in the page. The pointer over it
+  is the game event `ui.viewPointer` (`ui.on("viewPointer", fn)`: down, drag, up and the wheel, with `u`, `v`, `dx`, `dy`) so a
+  script can turn what it shows; `pointerEvents`, `captureWheel`, `tint` and `resolution` tune it. docs/MENUS.md, "A camera inside
+  the UI". Not yet: a render texture as the source (only cameras), and in a view no bloom, colour filter or debug draw.
+- `Camera.lighting: "studio"` ignores the scene's lights, ambient, sky and fog and lights with a key, fill and rim of its own
+  (`studioIntensity` scales them): an item looks the same on a stage far from the level and in a bright scene.
+- `Camera.viewport` says which rectangle its fractions count (the game target, the design resolution grown by Expand), and
+  `Camera.viewportSpace: "design"` counts them on the design area instead (LL/FB-0014). `RenderStats` has `views`.
+- Larkspur Lodge's item view is a `CameraView`: no four bands around a hole, no darkened colours; the wheel zooms it.
+
+Input routing: a consumed action, text input mode and the wheel under a modal
+
+- `input.consume(action)`: later readers in the frame see the press as gone, for the action and for every action on the
+  same key (Escape is `ui_cancel` and `pause`). The UI consumes `ui_submit` when it clicks a focused Button or Toggle and
+  `ui_cancel` when a drag takes it or a `ui.on("cancel")` handler returns `true`, so Escape closes a dialog without also
+  opening the pause menu (LL/FB-0008).
+- `input.textInputMode`: true while a TextField has the focus (or a script set it); actions bound to printable keys read
+  as up meanwhile, so typing P in a TextField does not pause. The menu kit's on-screen keyboard sets it, its
+  `ui.on("cancel")` returns `true`, and `MenuStack.busy` resets when a scene builds a `MenuStack` (LL/FB-0503).
+- `Panel.wheelPassThrough`: a modal Panel leaves the mouse wheel to scripts (LL/FB-0012).
+- Larkspur Lodge drops its `MenuStack.busy` routing around the dialogue log, the screens and the save dialog.
+
 Right to left: the UI mirrors itself and a Text has a direction
 
 - `ui.mirrorRtl` (on by default; `"ui": { "mirrorRtl": false }` in factoria.json, `ui.mirrorRtl = false` in a script, the
@@ -12,6 +37,8 @@ Right to left: the UI mirrors itself and a Text has a direction
   Slider runs from right to left (drawing, click and arrow keys), a Button's icon changes side, and the Text, Sprite and
   Shape2D below a widget go with it. `ui.rectOf`, `ui.state`, clicks and the editor's picking follow. A project that placed
   its widgets by hand for Arabic or Hebrew turns it off, or deletes that code (LL/FB-0903).
+- A `CameraView` changes side with its layout but never shows a mirrored picture, and its `ui.viewPointer` `u`, `v`, `dx` and `dy` are not
+  flipped.
 - `UiBox.mirror` (`mirror: false` on any widget): the widget and everything below it keep the place they were authored in,
   for a map, a 3D view or a joystick.
 - `Text.direction`: `auto` (default), `ltr` or `rtl`, the base direction of the paragraphs. `auto` with a localization

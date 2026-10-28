@@ -44,6 +44,7 @@ export default class OnScreenKeyboard extends Behaviour {
 
   onStart() {
     OnScreenKeyboard.isOpen = false;
+    input.textInputMode = false;
     this.panel = world.spawnPrefab("prefabs/ui/keyboard.prefab.json");
     this.panel.id = "keyboard";
     this.panel.active = false;
@@ -55,7 +56,11 @@ export default class OnScreenKeyboard extends Behaviour {
     this.ignoreAge = 0;
     ui.on("focus", (e) => this.onFocus(e.entity));
     ui.on("click", (e) => e.entity.hasTag("osk") && this.onClick(e.entity));
-    ui.on("cancel", () => this.field && this.close(false));
+    ui.on("cancel", () => {
+      if (!this.field) return false;
+      this.close(false);
+      return true; // B / Escape closed the keyboard: nothing else acts on this press (ui_cancel is consumed)
+    });
   }
 
   onDestroy() {
@@ -91,6 +96,7 @@ export default class OnScreenKeyboard extends Behaviour {
     this.field = field;
     this.shift = false;
     OnScreenKeyboard.isOpen = true;
+    input.textInputMode = true; // the typed keys belong to the keyboard: game actions on letters read as up meanwhile
     this.build(keysFor(i18n.language));
     this.holdOthers();
     this.panel.active = true;

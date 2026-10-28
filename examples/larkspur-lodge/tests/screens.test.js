@@ -10,7 +10,6 @@ import * as puzzles from "../scripts/puzzles.js";
 import * as notebook from "../scripts/notebook.js";
 import * as save from "../scripts/save_data.js";
 import { screenState } from "../scripts/ui/screen_state.js";
-import { MenuStack } from "../scripts/ui/menu_stack.js";
 import strings from "../locales/en.json";
 
 const screens = () => game.find("screens").behaviour;
@@ -22,7 +21,7 @@ const click = (name) => {
   game.click(w(name));
   game.step(2);
 };
-/** The hole where the item shows, in the middle of it. */
+/** The middle of the view where the item shows. */
 const HOLE_MID = [630, 264];
 
 const fresh = () => {
@@ -40,7 +39,6 @@ describe("opening and closing", () => {
     expect(screens().tab).toBe("notebook");
     expect(porter().behaviour.locked).toBe(true);
     expect(screenState.open).toBe(true);
-    expect(MenuStack.busy).toBe(true);
     expect(game.find("hud_items").active).toBe(false);
     const yaw = cam().behaviour.yaw;
     game.mouseMove([200, 300]);
@@ -71,7 +69,6 @@ describe("opening and closing", () => {
     game.step(4);
     expect(porter().behaviour.locked).toBe(false);
     expect(screenState.open).toBe(false);
-    expect(MenuStack.busy).toBe(false);
     expect(game.find("hud_items").active).toBe(true);
   });
 
@@ -109,12 +106,10 @@ describe("opening and closing", () => {
   test("a scene change with a screen open never leaves the lodge locked", () => {
     screens().open("items");
     game.step(3);
-    expect(MenuStack.busy).toBe(true);
     game.load("scenes/cellar.scene.json", { arrive: "spawn_default" });
     game.step(30);
     expect(scene.current).toBe("scenes/cellar.scene.json");
     expect(screenState.open).toBe(false);
-    expect(MenuStack.busy).toBe(false);
     expect(porter().behaviour.locked).toBe(false);
     expect(screens().mode).toBe(null);
   });
@@ -151,7 +146,7 @@ describe("the items page", () => {
     const v = screens().view;
     expect(v.item).toBe("library_key");
     const yaw = v.yaw;
-    game.mouseMove([100, 300]); // outside the hole
+    game.mouseMove([100, 300]); // outside the view
     game.mouseDown();
     game.step(1);
     game.mouseMove([200, 300]);
@@ -172,6 +167,41 @@ describe("the items page", () => {
     const part = game.find(screens().viewParts.id);
     expect(part.get("Transform").rotation[1]).toBeCloseTo(v.yaw, 3);
     game.screenshot(".factoria/screenshots/p3_items_turned.png");
+  });
+
+  test("the item is a CameraView on a studio-lit camera: no bands around a hole, no darkened colours", () => {
+    screens().open("items");
+    game.step(3);
+    const view = w("view");
+    expect(view).not.toBe(null);
+    expect(view.has("CameraView")).toBe(true);
+    expect(view.get("CameraView").camera).toBe(screens().viewCam.id);
+    const cam = screens().viewCam.get("Camera");
+    expect(cam.primary).toBe(false);
+    expect(cam.lighting).toBe("studio");
+    for (const band of ["band_top", "band_left", "band_right", "band_bottom"]) expect(w(band)).toBe(null);
+    // The parts keep the colour the data gives them (the lodge lights are not in the view, so nothing needs to dim them).
+    const first = items.get("library_key").view.parts[0];
+    const part = game.find(screens().viewParts.id.replace(/_stage$/, "_p0"));
+    expect(part).not.toBe(null);
+    expect(part.get("MeshRenderer").color).toEqual(first.color ?? [1, 1, 1, 1]);
+  });
+
+  test("the wheel over the view zooms it; over the list it does not", () => {
+    screens().open("items");
+    game.step(3);
+    const v = screens().view;
+    game.mouseMove(HOLE_MID);
+    game.step(1);
+    game.wheel(1);
+    game.step(2);
+    expect(v.zoom).toBeLessThan(1);
+    const z = v.zoom;
+    game.mouseMove([100, 300]);
+    game.step(1);
+    game.wheel(1);
+    game.step(2);
+    expect(v.zoom).toBe(z);
   });
 
   test("the zoom buttons, the zoom keys, the triggers and the right stick zoom and turn it; picking another item starts it fresh", () => {

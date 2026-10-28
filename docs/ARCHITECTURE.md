@@ -185,6 +185,18 @@ by the scene's ambient light only when the frame has several cameras (the screen
 shows the whole frame: its picking uses the camera under the pointer, but its outlines and gizmos project through the first
 camera drawn, so in a split frame they line up with the first view only.
 
+**Cameras inside the UI.** A `CameraView` (a UiBox widget) names a Camera. The UI gather (`draw_camera_view` in `ui2d.cpp`)
+asks the renderer for an image of the widget's size (`Frame::viewImage`; `Impl::viewTargets` caches one per widget, same formats
+and sample count as the game target so the pipelines fit, freed at the end of a frame that did not ask for it) and registers a
+`ViewRequest`; the widget's quad samples that image at `layer + 1`, so clipping, layers, the modal Panel and the mirroring are the
+UI's own. `Renderer::render` gathers one extra world frame per request (`build_camera` with the widget's size: the viewport
+forced to the whole image, always cleared, no screen space, no post effects, no debug draw, no 2D light buffer) and draws those
+jobs before the frame's own (`draw_view_job` swaps the target members of `Impl` for the image's). `Camera.lighting = studio`
+replaces the scene's directional/point lights, ambient, sky and fog on the CPU, in `draw_job`, with a camera-relative key, fill and
+rim, so it needs no shader change. `Camera.viewportSpace = design` converts the viewport fractions of the design area to the
+target's in `build_camera`. The pointer side is `fa_ui` (`view.cpp`): the topmost widget under the pointer (`ui_widget_at`)
+decides, and the game event `ui.viewPointer` goes out like the other ui.* events.
+
 **Custom materials** ([guide for game makers](SHADERS.md), [design](design/CUSTOM_SHADERS.md)):
 
 - *Template and hook points.* `mesh_common.glsl` defines the contract structs (`SurfaceInput`, `Surface`, `VertexData`)
