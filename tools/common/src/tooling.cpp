@@ -7,6 +7,7 @@
 #include "fa/tooling/ios_sim.h"
 #include "fa/tooling/menu_kit.h"
 #include "fa/tooling/perf.h"
+#include "fa/tooling/self_update.h"
 #include "fa/tooling/sign.h"
 
 namespace fa {
@@ -33,6 +34,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_checkpoint_commands(registry, projectDir);
     register_platform_setup_commands(registry, projectDir);
     register_setup_commands(registry);
+    register_update_commands(registry);
 }
 
 ValidateOptions engine_validate_options(Engine& engine) {

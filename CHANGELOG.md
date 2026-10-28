@@ -18,6 +18,13 @@ The AI agent is never silent
 - If the orchestrator's turn ends while the worker still runs, the panel says so, keeps showing its progress and, when the worker
   finishes, puts its report in the chat and continues the orchestrator's conversation by itself, once.
 - `factoria ai run` prints the sub-agent's steps in the terminal (`  | worker > ...`), and `{"event":"progress"}` lines with `--json`.
+- A FactorIA copied over the old one, without the in-app updater, is noticed. The editor shows "FactorIA was updated on disk
+  (old -> new). Restart the editor to use it." with **Restart** (reopens on the same project, chats included) and **Not now**;
+  Restart is off, with the reason, while an AI run, a play session or an export runs. `factoria mcp` restarts itself in place on
+  Linux and macOS (same stdin and stdout, no disconnect, no lost request), sends `tools/list_changed` and says so in the next tool
+  result; on Windows it says in the next tool result and a log message that the client must reconnect (`/mcp`). A client that
+  started before `.mcp.json` changed is told once to restart or reconnect, and a missing `"timeout"` is added to the file. The
+  new read-only command `engine.update_status` (MCP `engine_update_status`) reports it.
 
 Art without an image provider
 

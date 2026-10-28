@@ -735,6 +735,7 @@
     "docs.search": "0.1.0",
     "docs.write_reference": "0.2.0",
     "engine.info": "0.1.0",
+    "engine.update_status": "unreleased",
     "feedback.list": "0.1.0",
     "feedback.report": "0.1.0",
     "feedback.update": "0.1.0",

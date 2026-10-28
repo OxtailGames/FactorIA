@@ -17,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "fa/core/command.h"
@@ -121,6 +122,21 @@ public:
     bool initialized() const { return initialized_; }
     const std::string& protocol_version() const { return protocol_; }
     const std::string& client_name() const { return clientName_; }
+    const Json& client_capabilities() const { return clientCapabilities_; }
+    const std::string& log_level() const { return logLevel_; }
+
+    // The handshake, as a JSON object: {protocolVersion, clientInfo, clientCapabilities, logLevel}. A server that restarts
+    // itself in place (fa/mcp/update_monitor.h) hands it to the new process, which restores it so that the client, which
+    // initialized the old process, needs no new `initialize`. restore_session() marks the server initialized; a value that is
+    // not an object, or has no protocolVersion, is refused (false) and leaves the server as it was.
+    Json session_state() const;
+    bool restore_session(const Json& state);
+
+    // A note for the AI that reads the next tool result: `text` is added as a last text block of the result of the next
+    // tools/call (the result itself stays the first block), once. A notice with the same `key` replaces the one still waiting.
+    void add_tool_notice(const std::string& key, const std::string& text);
+    // The notices waiting for a tools/call: texts in the order they were added.
+    std::vector<std::string> pending_tool_notices() const;
 
     // The tools/list entries for the current registry.
     Json tools_json() const;
@@ -129,13 +145,18 @@ private:
     std::optional<Json> handle_one(const Json& msg);
     Json handle_request(const std::string& method, const Json& params, const Json& id);
     Json call_tool(const Json& params);
+    Json run_tool(const Json& params);
     void emit(const Json& message);
 
     McpHost& host_;
     bool initialized_ = false;
     std::string protocol_ = kMcpLatestProtocol;
     std::string clientName_;
+    Json clientInfo_ = Json::object();
+    Json clientCapabilities_ = Json::object();
     std::string logLevel_ = "info";
+    std::vector<std::pair<std::string, std::string>> notices_;  // {key, text} waiting for a tools/call
+    mutable std::mutex noticeMutex_;
     Sink sink_;
     std::chrono::milliseconds progressThrottle_{3000};
     std::chrono::milliseconds progressHeartbeat_{15000};

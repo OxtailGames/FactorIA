@@ -1,5 +1,11 @@
 add_library(fa_mcp STATIC)
 file(GLOB_RECURSE mcp_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+# Host-platform files (stdio_reader_posix.cpp / _win32.cpp, update_restart_posix.cpp / _win32.cpp).
+if(WIN32)
+    list(FILTER mcp_srcs EXCLUDE REGEX "_posix\\.cpp$")
+else()
+    list(FILTER mcp_srcs EXCLUDE REGEX "_win32\\.cpp$")
+endif()
 target_sources(fa_mcp PRIVATE ${mcp_srcs})
 target_include_directories(fa_mcp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(fa_mcp PUBLIC fa_tooling PRIVATE fa_warnings)

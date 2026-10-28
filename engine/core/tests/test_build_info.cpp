@@ -22,3 +22,13 @@ TEST_CASE("build info: find_build_fingerprint reads a marker of another build an
     // The first complete marker wins when a cut one comes before it.
     CHECK(find_build_fingerprint("FA-BUILD-FINGERPRINT:ab FA-BUILD-FINGERPRINT:cd;") == "cd");
 }
+
+TEST_CASE("build info: this program carries its engine version, and find_build_version reads another build's") {
+    const std::string bytes = std::string("junk\0", 5) + "FA-ENGINE-VERSION:" + FA_ENGINE_VERSION + ";" + " tail";
+    CHECK(find_build_version(bytes) == FA_ENGINE_VERSION);
+    CHECK(find_build_version("xx FA-ENGINE-VERSION:1.12.0-beta+3; yy") == "1.12.0-beta+3");
+    CHECK(find_build_version("no marker").empty());
+    CHECK(find_build_version("FA-ENGINE-VERSION:1.2.3").empty());  // cut
+    CHECK(find_build_version("FA-ENGINE-VERSION:;").empty());
+    (void)build_fingerprint();  // keeps both markers in the program
+}

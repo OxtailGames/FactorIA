@@ -86,6 +86,13 @@ if(FA_BUILD_TESTS)
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/dap_test.py $<TARGET_FILE:factoria>
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_dap PROPERTIES TIMEOUT 600 LABELS "gpu")
+
+        # factoria mcp after an update: a copy of the binary is replaced under a running server (restart in place, list_changed,
+        # the notice in the first tool result) and a project .mcp.json without a timeout is fixed and reported.
+        add_test(NAME cli_mcp_update
+            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/mcp_update_test.py $<TARGET_FILE:factoria>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(cli_mcp_update PROPERTIES TIMEOUT 300)
     endif()
 endif()
 
