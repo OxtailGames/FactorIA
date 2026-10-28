@@ -40,6 +40,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"P", "Revert an AI run: checkpoint, Revert, Undo revert"},
     {"Q", "AI agent liveness: stuck warning, Check activity, a worker that outlives the orchestrator's turn"},
     {"R", "Program updated on disk: the Restart notice, its button state, Not now"},
+    {"U", "AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

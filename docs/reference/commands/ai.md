@@ -22,16 +22,49 @@ action "list" (default) shows providers and the role mapping from ~/.factoria/ai
 |---|---|---|---|
 | `action` | string ["list","doctor"] | no | list or doctor. Default "list". |
 
+## `ai.review` (modifies state)
+
+Not released yet (on main after 0.3.0).
+
+Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done).
+
+Starts `count` read-only AI reviewers (1 to 5, one after the other, each with a different persona; the first is always the all-rounder, so the score of one reviewer stays comparable over time). They play the current build (REVIEW.md first), never change the project, and write a report with a score from 0 to 10 and sub-scores. Each review is saved in <project>/.factoria/ai/reviews/ and returned: {reviews:[{id, path, persona, score, subScores, summary, text}], averageScore, costUsd, errors}. Only a person asks for reviews: the orchestrator is told not to call this. The roles artCritic and reviewer of ~/.factoria/ai.json choose the models. Example: {"kind":"game","count":3,"focus":"the first five minutes"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `kind` | string ["art","game"] | yes | art: the art critics (role artCritic). game: the game reviewers (role reviewer). |
+| `count` | integer | no | How many critics or reviewers, each with a different persona. Default 1. |
+| `focus` | string | no | Something to pay special attention to (optional), e.g. "the UI" or "the boss fight". |
+| `provider` | string | no | Override the role's provider. |
+| `model` | string | no | Override the role's model. |
+| `maxTurns` | integer | no |  |
+| `maxCostUsd` | number | no | Cost limit of each review. |
+| `stream` | boolean | no |  Default true. |
+
+## `ai.reviews`
+
+Not released yet (on main after 0.3.0).
+
+List the saved reviews of the art critics and the game reviewers, newest first, with their scores.
+
+Reads <project>/.factoria/ai/reviews/. Each entry has id, path, role, persona, time, engineVersion, gameVersion, score (0 to 10, null when none), subScores and summary; `text` (the report) only with includeText. Use it to see how the score changes between builds. Example: {"kind":"game","limit":10}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `kind` | string ["art","game"] | no | Only the art critiques or only the game reviews. Omit for both. |
+| `limit` | integer | no | At most this many (newest first). |
+| `includeText` | boolean | no | Include each report's full text. Default false. |
+
 ## `ai.run` (modifies state)
 
 Run an AI agent on a task in the current project (blocks until it finishes).
 
-Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" or "fast" and a self-contained task; the result's finalText is the sub-agent's report. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
+Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" (code), "fast" (small edits), "artist" (all the art) or "audio" (all the sound) and a self-contained task; the result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user asks for reviews (ai.review). Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `task` | string | yes | What the agent should do. |
-| `role` | string ["orchestrator","worker","fast"] | no |  Default "orchestrator". |
+| `role` | string ["orchestrator","worker","fast","artist","audio"] | no |  Default "orchestrator". |
 | `provider` | string | no | Override the role's provider (e.g. claude-code, codex, openrouter). |
 | `model` | string | no | Override the role's model. |
 | `maxTurns` | integer | no |  |

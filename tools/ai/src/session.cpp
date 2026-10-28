@@ -106,10 +106,44 @@ std::string tool_name_for_command(std::string_view name) {
     return out;
 }
 
-std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate) {
+bool is_read_only_tool(const CommandInfo& info) {
+    if (info.readOnly) return true;
+    // Playing the game changes the running session, not the project's files.
+    static const char* const kPlay[] = {"game.step",         "game.input",       "game.click",     "game.pause",
+                                        "game.resume",       "game.screenshot",  "scene.load",     "scene.reload",
+                                        "ui.set_text_scale", "ui.set_scale",     "ui.set_slider",  "ui.check_layout",
+                                        "i18n.set_language", "screen.set_safe_area"};
+    for (const char* name : kPlay) {
+        if (info.name == name) return true;
+    }
+    return false;
+}
+
+std::string mcp_tool_name_for(std::string_view commandName) {
+    std::string out = tool_name_for_command(commandName);
+    if (out.size() > 64) out.resize(64);
+    return out;
+}
+
+std::vector<std::string> cli_disallowed_tools(const CommandRegistry& registry, std::string_view role, bool canDelegate) {
+    std::vector<std::string> out = {"Agent", "Task"};
+    if (!canDelegate) out.push_back("mcp__factoria__ai_run");
+    out.push_back("mcp__factoria__ai_review");
+    if (is_review_role(role)) {
+        for (const char* t : {"Edit", "MultiEdit", "Write", "NotebookEdit", "Bash"}) out.push_back(t);
+        for (const CommandInfo* info : registry.list()) {
+            if (info->name == "ai.run" || info->name == "ai.review") continue;  // already listed
+            if (!is_read_only_tool(*info)) out.push_back("mcp__factoria__" + mcp_tool_name_for(info->name));
+        }
+    }
+    return out;
+}
+
+std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate, bool readOnly) {
     std::vector<ToolDef> tools;
     for (const CommandInfo* info : registry.list()) {  // sorted by name
         if (is_agent_tool_excluded(info->name)) continue;
+        if (readOnly && !is_read_only_tool(*info)) continue;
         ToolDef t;
         t.name = tool_name_for_command(info->name);
         t.description = info->description.empty() ? info->summary : info->summary + "\n\n" + info->description;
@@ -121,10 +155,12 @@ std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool w
         d.name = kDelegateTool;
         d.description =
             "Delegate a self-contained task to a sub-agent with its own context and a cheaper model. role \"worker\" "
-            "implements features and fixes; role \"fast\" does small mechanical edits. The sub-agent has the same tools "
-            "but cannot delegate and does not see this conversation: include all needed context in `task`. Returns the "
-            "sub-agent's final report.";
-        d.inputSchema = Json::parse(R"({"type":"object","properties":{"role":{"type":"string","enum":["worker","fast"],
+            "implements features and fixes; role \"fast\" does small mechanical edits; role \"artist\" makes the game's "
+            "art (images, textures, sprites, models, the look); role \"audio\" makes its sound effects, music, voice "
+            "and mixing. The sub-agent has the same tools but cannot delegate and does not see this conversation: include "
+            "all needed context in `task`. Returns the sub-agent's final report. (Art critics and game reviewers are not "
+            "available here: the user asks for reviews.)";
+        d.inputSchema = Json::parse(R"({"type":"object","properties":{"role":{"type":"string","enum":["worker","fast","artist","audio"],
             "description":"Which sub-agent runs the task."},"task":{"type":"string","description":"Complete task description with file paths and acceptance criteria."}},
             "required":["role","task"],"additionalProperties":false})");
         tools.push_back(std::move(d));
@@ -246,6 +282,10 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     req.model = rc.model == kPlaceholderModel ? std::string() : rc.model;
     req.projectDir = opt_.projectDir;
     req.mcpUrl = opt_.mcpUrl;
+    // The agent delegates only through ai_run (and the read-only roles change nothing): its own sub-agent tools and, for
+    // artCritic and reviewer, the tools that edit, are switched off (cli_disallowed_tools).
+    req.disallowedTools = cli_disallowed_tools(registry_, role, canDelegate);
+    req.readOnly = is_review_role(role);
     if (opt_.onProcessStart) req.onStart = [this, role](long long pid) { opt_.onProcessStart(pid, role); };
 
     AgentEvent start;
@@ -348,8 +388,14 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
     if (call.name == kDelegateTool && depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation) {
         std::string r = str(call.input, "role");
         std::string task = str(call.input, "task");
-        if ((r != kRoleWorker && r != kRoleFast) || task.empty()) {
-            return fail("invalid_arguments", "agent_delegate needs role (\"worker\" or \"fast\") and a non-empty task", "");
+        if (is_review_role(r)) {
+            return fail("not_delegable", "Role '" + r + "' cannot be delegated to: critics and reviewers run only when the user asks",
+                        "The user starts reviews with the review buttons of the editor's AI panel (or `factoria ai review`). "
+                        "When they send you a review, act on it. Delegate with role worker, fast, artist or audio.");
+        }
+        if (!is_delegable_role(r) || task.empty()) {
+            return fail("invalid_arguments",
+                        "agent_delegate needs role (\"worker\", \"fast\", \"artist\" or \"audio\") and a non-empty task", "");
         }
         AgentEvent info;
         info.type = AgentEvent::Type::Info;
@@ -440,11 +486,14 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     req.maxTokens = rc.maxTokens;
     req.maxContextTokens = rc.maxContextTokens;  // only the Anthropic provider sends it (server-side compaction)
     req.system = build_system_prompt(pctx);
-    req.tools = tools_from_registry(registry_, canDelegate);
+    const bool readOnly = is_review_role(role);  // critics and reviewers observe and play, they change nothing
+    req.tools = tools_from_registry(registry_, canDelegate, readOnly);
     req.stream = opt_.stream;
     toolToCommand_.clear();
     for (const CommandInfo* info : registry_.list()) {
-        if (!is_agent_tool_excluded(info->name)) toolToCommand_[tool_name_for_command(info->name)] = info->name;
+        if (is_agent_tool_excluded(info->name)) continue;
+        if (readOnly && !is_read_only_tool(*info)) continue;  // not offered, and not callable either
+        toolToCommand_[tool_name_for_command(info->name)] = info->name;
     }
 
     AgentEvent start;
