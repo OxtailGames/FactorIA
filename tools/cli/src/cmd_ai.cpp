@@ -2,10 +2,12 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 
 #include "common.h"
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
+#include "fa/ai/progress_file.h"
 #include "fa/ai/session.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/validate.h"
@@ -206,8 +208,10 @@ Command make_ai_command() {
 
         const bool asJson = a.has("json");
         bool midLine = false;
+        std::mutex outMu;  // the progress thread below prints too
         auto handler = [&](const ai::AgentEvent& e) {
             using T = ai::AgentEvent::Type;
+            std::lock_guard<std::mutex> lock(outMu);
             if (asJson) {
                 Json j = Json::object({{"event", ai::event_type_name(e.type)}, {"depth", e.depth}, {"role", e.role}});
                 if (!e.text.empty()) j["text"] = e.text;
@@ -239,7 +243,21 @@ Command make_ai_command() {
 
         ai::AgentSession agent(session->registry(), cfg, ao);
         agent.set_event_handler(handler);
-        ai::SessionResult res = agent.run(task);
+        ai::SessionResult res;
+        {
+            // A CLI orchestrator delegates with ai_run to `factoria mcp`, a process of its own: its sub-agents' steps come
+            // through the project's progress file, and are printed here as "  | worker > running Bash (...)" lines so a
+            // long delegation is not a silent terminal.
+            ai::ProgressTail tail(dir, [&](const std::string& line) {
+                std::lock_guard<std::mutex> lock(outMu);
+                if (midLine) ctx.out << "\n";
+                midLine = false;
+                if (asJson) ctx.out << Json::object({{"event", "progress"}, {"text", line}}).dump() << "\n";
+                else ctx.out << "  | " << line << "\n";
+                ctx.out.flush();
+            });
+            res = agent.run(task);
+        }
         if (midLine) ctx.out << "\n";
         if (asJson) {
             print_json(ctx.out, res.to_json());
