@@ -24,6 +24,7 @@ struct LogEntry {
     std::uint64_t seq = 0;    // monotonically increasing id
     double time = 0.0;        // seconds since process start
     std::uint64_t frame = 0;  // engine frame index when logged (0 before the loop starts)
+    std::int64_t wallMs = 0;  // computer clock (system_clock) when logged: milliseconds since the Unix epoch
     LogLevel level = LogLevel::Info;
     std::string category;
     std::string message;
@@ -33,7 +34,16 @@ enum class LogFormat : std::uint8_t { Text, Json, None };
 
 void log(LogLevel level, std::string_view category, std::string message);
 
-// One entry as the text format writes it, without the newline: "[  1.234] WARN  render: message".
+// The local time of day of a wall-clock stamp: "14:03:22.517". A stamp of 0 (not set) gives "--:--:--.---".
+std::string log_wall_time(std::int64_t wallMs);
+// The same moment as ISO 8601 local time with the UTC offset: "2026-10-28T14:03:22.517+01:00" (the form of the
+// `wallTime` field in JSON). Empty for a stamp of 0.
+std::string log_wall_iso(std::int64_t wallMs);
+// The current computer clock in the unit of LogEntry::wallMs.
+std::int64_t log_wall_now_ms();
+
+// One entry as the text format writes it, without the newline:
+// "14:03:22.517 [  1.234] WARN  render: message" (local time, seconds since start, level, category).
 std::string format_log_line(const LogEntry& entry);
 
 void set_log_level(LogLevel minLevel);  // affects stderr sink + ring buffer
