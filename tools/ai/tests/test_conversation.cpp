@@ -465,6 +465,18 @@ TEST_CASE("claude stream: tokens and cost update live; a message counts once; su
     CHECK_FALSE(p.cost_is_estimate());
 }
 
+TEST_CASE("claude stream: 1-hour cache writes are priced at twice the input, as the final result bills them") {
+    CliStreamParser p(ProviderKind::ClaudeCode);
+    std::vector<AgentEvent> ev;
+    // opus-5: in 4.0, out 20.0, cache read 0.20, 5-minute cache write 5.0 USD per 1M; a 1-hour write is 8.0
+    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":10,"cache_creation_input_tokens":3000,"cache_read_input_tokens":1000,"output_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":2000}}},"parent_tool_use_id":null})", ev);
+    CHECK(last_usage(ev).costUsd == doctest::Approx((10 * 4.0 + 5 * 20.0 + 1000 * 0.20 + 1000 * 5.0 + 2000 * 8.0) / 1e6));
+    ev.clear();
+    // a later event of the same message counts it once, with the same split
+    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":10,"cache_creation_input_tokens":3000,"cache_read_input_tokens":1000,"output_tokens":45,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":2000}}},"parent_tool_use_id":null})", ev);
+    CHECK(last_usage(ev).costUsd == doctest::Approx((10 * 4.0 + 45 * 20.0 + 1000 * 0.20 + 1000 * 5.0 + 2000 * 8.0) / 1e6));
+}
+
 TEST_CASE("claude stream: a model with no price in the table uses the provider's price, else no cost") {
     CliStreamParser p(ProviderKind::ClaudeCode);
     std::vector<AgentEvent> ev;

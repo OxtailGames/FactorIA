@@ -343,21 +343,28 @@ bool CliStreamParser::count_message(const Json& msg) {
     now.outputTokens = std::max(now.outputTokens, m.usage.outputTokens);
     now.cacheCreationTokens = std::max(now.cacheCreationTokens, m.usage.cacheCreationTokens);
     now.cacheReadTokens = std::max(now.cacheReadTokens, m.usage.cacheReadTokens);
+    // Claude Code writes its prompt cache with a 1-hour lifetime, billed at twice the input price instead of the
+    // 5-minute write price in Pricing::cacheWrite: {"cache_creation": {"ephemeral_1h_input_tokens": n, ...}}.
+    u64 write1h = 0;
+    if (const Json* cc = child(*u, "cache_creation"); cc && cc->is_object()) write1h = static_cast<u64>(num(*cc, "ephemeral_1h_input_tokens"));
+    write1h = std::min(std::max(write1h, m.cacheWrite1h), now.cacheCreationTokens);
     if (now.inputTokens == m.usage.inputTokens && now.outputTokens == m.usage.outputTokens &&
         now.cacheCreationTokens == m.usage.cacheCreationTokens && now.cacheReadTokens == m.usage.cacheReadTokens &&
-        m.seen) {
+        write1h == m.cacheWrite1h && m.seen) {
         return false;
     }
     m.seen = true;
     const std::string model = str(msg, "model");
     const Pricing price = builtin_pricing(model).known ? builtin_pricing(model) : pricing_;
-    const double cost = estimate_cost(now, price);
+    double cost = estimate_cost(now, price);
+    if (price.known) cost += static_cast<double>(write1h) * (2.0 * price.input - price.cacheWrite) / 1e6;
     usage_.inputTokens += now.inputTokens - m.usage.inputTokens;
     usage_.outputTokens += now.outputTokens - m.usage.outputTokens;
     usage_.cacheCreationTokens += now.cacheCreationTokens - m.usage.cacheCreationTokens;
     usage_.cacheReadTokens += now.cacheReadTokens - m.usage.cacheReadTokens;
     if (!costFinal_) costUsd_ += cost - m.cost;
     m.usage = now;
+    m.cacheWrite1h = write1h;
     m.cost = cost;
     return true;
 }

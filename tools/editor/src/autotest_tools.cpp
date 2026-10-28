@@ -2966,6 +2966,11 @@ void Editor::at_build_tools_script() {
         at_check(chat().empty() && !ai_busy(), "nothing runs and nothing is asked until a button is pressed");
     });
     click("ai:review:game");
+    step(3, [this] {
+        at_check(at_visible("ai:review:start") && !aiReview_.active && !ai_busy() && chat().empty(),
+                 "a review button asks first: nothing runs until Start is pressed");
+    });
+    click("ai:review:start");
     step(2, [this] {
         atWaitCount_ = 0;
         atWaitUntil_ = [this] { return !aiReview_.active && !ai_busy(); };

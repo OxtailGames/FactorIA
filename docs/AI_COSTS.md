@@ -14,11 +14,13 @@ billed in four kinds of tokens:
 |---|---|---|
 | input | new text the model reads this step | $2 |
 | output | what the model writes (text, tool calls, thinking) | $10 |
-| cache write | the context stored so the next step can reuse it | $2.50 |
+| cache write | the context stored so the next step can reuse it | $2.50 (5-minute cache); $4 (1-hour cache) |
 | cache read | the stored context read again | $0.20 |
 
-(Opus 5.5 is $4 input / $20 output / $0.20 cache read; Haiku 5.5 is $0.10 / $0.50 / $0.01. The engine's table is for
-prompts up to 100K tokens; see section 2 for why that matters.)
+(Opus 5.5 is $4 input / $20 output / $0.20 cache read; Haiku 5.5 is $0.10 / $0.50 / $0.01. A cache write costs 1.25 times
+the input price for a 5-minute cache and twice the input price for a 1-hour cache; Claude Code writes the 1-hour kind, and
+the live estimate prices each kind as the message reports it (`cache_creation.ephemeral_1h_input_tokens`). The engine's
+table is for prompts up to 100K tokens; see section 2 for why that matters.)
 
 You pay for tokens in one of two ways:
 

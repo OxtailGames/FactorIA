@@ -4,6 +4,20 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+AI panel
+
+- The roles line next to **Roles...** is gone (hover **Roles...** to see the current roles); the review buttons and the
+  **Reviewers** count and focus moved up next to it, so the transcript gets two more lines.
+- **Art critique** and **Game review** ask first: a dialog shows what runs, how many reviewers, the role's model and the
+  focus, and **Start** runs it. Before, a click started the reviewers (and their token cost) at once.
+- The live cost estimate of a Claude Code run prices its 1-hour cache writes at twice the input price, as the CLI's final
+  total does; before, the estimate stayed well under the real cost while the agent worked and jumped when it finished.
+
+Editor
+
+- The toolbar's **Select / Move / Rotate / Scale** buttons show only while an entity is selected (Q W E R still switch the
+  mode at any time).
+
 Fixed
 
 - `factoria validate` no longer reports a built-in font set in a scene or prefab (`"font": "builtin:display"`, or one face
