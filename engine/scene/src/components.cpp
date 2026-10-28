@@ -1365,6 +1365,103 @@ void register_builtin_components(TypeRegistry& r) {
                    "stays as it is.");
     }
     {
+        auto ia = r.add<Interactable>("Interactable",
+                  "Makes this entity, whatever it is made of (sprites, shapes, text, children), a widget that joins the same focus, "
+                  "navigation and events as Button, Toggle and Slider: hover, press, click, focus, the arrow keys / d-pad (spatial "
+                  "navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and "
+                  "the ui.* commands find it by id. The hit area is `size` (a rectangle in the entity's local space) or, with size "
+                  "0, the bounds of the entity and its children; in world space it is projected through the camera that draws "
+                  "there, so it follows parents that move, scale or rotate (a turning page, a swaying sign). An entity with a UI box "
+                  "(Panel, Image...) or screen-space visuals is a screen-space widget. Draw the look with ordinary children and "
+                  "InteractableVisual (show, hide or tint per state). Events (ui.on): click (button), change (toggle / slider, "
+                  "value), focus, blur, hover (value true = entered, false = left), press and release (value true = released over it). "
+                  "A world-space widget under a screen-space widget (or outside a modal Panel) is not reached.",
+                  "UI");
+        ia.enum_field("kind", &Interactable::kind, {"button", "toggle", "slider"},
+                      "button: a click or ui_submit sends ui.click {id}. toggle: it flips `on` and sends ui.change {id, value: bool}. "
+                      "slider: dragging along the area or left / right (down / up with axis y) sets `value` and sends "
+                      "ui.change {id, value: number}.")
+          .field("enabled", &Interactable::enabled,
+                 "false: the Disabled state. It is never hovered, focused, pressed or clicked and sends no events; a focused one loses "
+                 "focus. Visuals with when/disabled show.")
+          .field("autoFocus", &Interactable::autoFocus,
+                 "Same rule as Button.autoFocus: when NOTHING is focused the first widget with autoFocus (reading order of their "
+                 "areas on the screen) takes the keyboard / gamepad focus. Mark the first item of each menu.")
+          .field("focusOnHover", &Interactable::focusOnHover,
+                 "true: the pointer entering the widget moves the focus to it (once per entry, so the arrow keys still move it "
+                 "away). false (default, like the built-in widgets): the focus moves on a press.")
+          .field("size", &Interactable::size,
+                 "Hit area [w, h] in the entity's LOCAL units, y up (screen space: UI units), so it scales and turns with the entity "
+                 "and its parents. [0, 0] (default) = the bounding box (in the entity's own frame) of the visuals of the entity and "
+                 "its active children, not counting InteractableVisual entities that Show/Hide with the state; "
+                 "an entity with no visuals then has no area and cannot be hit.")
+          .field("offset", &Interactable::offset,
+                 "Centre of the explicit area [x, y] from the entity origin, in local units. Ignored when size is [0, 0].")
+          .enum_field("space", &Interactable::space, {"auto", "world", "screen"},
+                      "auto (default): screen space when the entity or one of its children draws in screen space or has a UI box, "
+                      "else world space. world: the area is projected through the camera. screen: the area is in screen space "
+                      "(UI units, position as a Panel's: the anchor of the UI box, else the top-left corner of the screen).")
+          .field("on", &Interactable::on,
+                 "Toggle: the value. Scripts may write it; no event is sent for a write. Visuals with when on / off follow it.")
+          .field("value", &Interactable::value,
+                 "Slider: the value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is "
+                 "sent for a write. `knob` and `fill` follow it every frame.")
+          .field("min", &Interactable::min, "Slider: the smallest value.")
+          .field("max", &Interactable::max, "Slider: the largest value.")
+          .field("step", &Interactable::step,
+                 "Slider: the keyboard / gamepad increment and the grid the value snaps to (also when dragging). 0 = continuous: "
+                 "keys move (max - min) / 20 per press.").range(0, 1000000)
+          .enum_field("axis", &Interactable::axis, {"x", "y"},
+                      "Slider: the track runs along the area's local x (min at the left end, max at the right) or local y (min at the "
+                      "bottom, max at the top). The area is the track: its length along the axis is the travel of the knob.")
+          .field("knob", &Interactable::knob,
+                 "Slider: id of the entity moved along the track so that it sits at the value (only its local position along "
+                 "`axis` is set, in the frame of its own parent: make it a child of this entity). Empty = none.")
+          .field("fill", &Interactable::fill,
+                 "Slider: id of the entity whose local scale along `axis` becomes the fraction (value - min) / (max - min), and "
+                 "whose position along the axis is the start of the track. Give it a pivot at its start (a Shape2D or Sprite with "
+                 "pivot [0, 0.5]) and the size of the whole track. Empty = none.")
+          .field("label", &Interactable::label,
+                 "Accessibility label, what ui.state reports as `text` and the read-aloud recipe speaks. Empty = the text of the "
+                 "first Text among the entity and its children. Overwritten by the translation while `key` is set.")
+          .field("key", &Interactable::key,
+                 "Localization key for `label` (docs/LOCALIZATION.md), like Button.key. Empty = not translated.")
+          .field("keyArgs", &Interactable::keyArgs, kKeyArgsDoc)
+          .field("focused", &Interactable::focused,
+                 "Runtime: has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity).")
+          .runtime_only().read_only()
+          .field("hovered", &Interactable::hovered,
+                 "Runtime: the pointer (mouse or first touch) is over it and it is the top-most widget there.")
+          .runtime_only().read_only()
+          .field("pressed", &Interactable::pressed, "Runtime: the pointer is held down on it.")
+          .runtime_only().read_only()
+          .enum_field("state", &Interactable::state, {"normal", "hover", "pressed", "focused", "disabled"},
+                      "Runtime: the one state the visuals show: disabled (enabled is false), else pressed, else hover, else focused, "
+                      "else normal. Written by the UI every frame.")
+          .runtime_only().read_only();
+    }
+    {
+        auto vis = r.add<InteractableVisual>("InteractableVisual",
+                  "Makes this entity follow the state of an Interactable with no script. Show: the entity is active only while `when` "
+                  "holds (a highlight on hover, a check mark when a toggle is on, a pressed sprite). Tint: the colour of its Sprite, "
+                  "Shape2D or Text (the first one it has) is set from the state every frame. Put it on a child of the Interactable "
+                  "or give `target`.",
+                  "UI");
+        vis.field("target", &InteractableVisual::target,
+                  "Id of the Interactable to follow. Empty (default) = the nearest ancestor that has an Interactable.")
+           .enum_field("mode", &InteractableVisual::mode, {"show", "tint"},
+                       "show: the entity is active only while `when` holds. tint: its colour follows the state (the colours below).")
+           .enum_field("when", &InteractableVisual::when, {"always", "normal", "hover", "pressed", "focused", "disabled", "on", "off"},
+                       "Show only. always: always active. normal: neither hovered, pressed, focused nor disabled. hover, pressed, "
+                       "focused: that flag is set (a hovered and focused widget shows both). disabled: enabled is false. on / off: "
+                       "a toggle's `on` is true / false.")
+           .field("normal", &InteractableVisual::normal, "Tint: colour in the normal state.")
+           .field("hover", &InteractableVisual::hover, "Tint: colour while hovered (and not pressed).")
+           .field("pressed", &InteractableVisual::pressed, "Tint: colour while pressed.")
+           .field("focused", &InteractableVisual::focused, "Tint: colour while focused (and not hovered or pressed).")
+           .field("disabled", &InteractableVisual::disabled, "Tint: colour while the Interactable is not enabled.");
+    }
+    {
         auto field = r.add<TextField>("TextField",
                   "Single-line text input. While focused it appends the typed characters (Input text), Backspace removes "
                   "the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at "
