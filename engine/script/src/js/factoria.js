@@ -989,6 +989,10 @@
   const players = [];  // input.player(i) objects, made on first use
   const input = {
     down: (a) => N.inAction(0, a), pressed: (a) => N.inAction(1, a), released: (a) => N.inAction(2, a),
+    // consume(action): this frame's press of the action is handled; later readers (input.pressed of the same action or of any
+    // action that shares one of its bindings) read false until the next frame. The UI consumes ui_submit when it clicks a
+    // focused Button or Toggle, and ui_cancel when a ui.on("cancel") handler returns true or a drag takes it.
+    consume: (a) => N.inConsume(a),
     // value(action): 0..1, analog for gamepad sticks and triggers (the action is "down" from 0.5). axis() and vector() are analog too.
     value: (a) => N.inValue(a),
     axis: (neg, pos) => N.inAxis(neg, pos),
@@ -1056,6 +1060,12 @@
     // True while the platform shows its own keyboard for the focused TextField (the Steam Deck's, through a native plugin):
     // the menu kit's on-screen keyboard stays closed then. Read-only; false without such a plugin.
     get platformKeyboard() { return N.inCursor(3); },
+    // Text input mode: true while a TextField has the focus (the engine sets it) or a script turned it on. Actions bound to
+    // printable keys (letters, digits, Space, punctuation) read as not down / pressed meanwhile, so typing P does not pause. A
+    // script that runs its own text entry (the menu kit's on-screen keyboard) sets it true while it is open and false after;
+    // setting it never turns off the TextField's own mode, and a scene load turns the script's flag off.
+    get textInputMode() { return N.inCursor(4); },
+    set textInputMode(on) { N.inCursor(4, !!on); },
     // The system Back button or gesture (Android). Handlers run newest first at the start of the frame; the first one that
     // does not return false consumes the press. When none does (or there is none), the game quits, as Back always did.
     // Handlers end with the scene, like ui.on. Returns the function that removes the handler.
@@ -1810,7 +1820,7 @@
   };
 
   const DRAG_EVENTS = ["dragStart", "dragOver", "drop", "dragCancel"];
-  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel", "scale", "textScale", "chartHover", ...DRAG_EVENTS];
+  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel", "scale", "textScale", "chartHover", "viewPointer", ...DRAG_EVENTS];
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
     // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
@@ -1858,6 +1868,9 @@
     // id) limits it to one widget. Returns the function that stops listening.
     // "chartHover": the sample of a Chart under the pointer changed; the event has `index` (0 = the first value of the series), `series`
     // and `value`; index and series are -1 (and there is no value) when the pointer left the chart.
+    // "viewPointer": the pointer pressed, dragged, released or turned the wheel over a CameraView; the event has `phase` ("down", "drag", "up" or
+    // "wheel"), `x` and `y` (the pointer in design pixels), `u` and `v` (where it is in the view, 0..1 from its top-left corner), `dx` and `dy`
+    // (how far it moved since the last event of the press) and `wheel` (the steps of a "wheel" event).
     // "scale" and "textScale" are about no widget: they fire once each time ui.scale / ui.textScale changes to another value,
     // with `e.value` the new one and `e.previous` the old one (no target; like i18n.on("change")). They arrive with the
     // game events of the frame, after the script that changed the option has returned.
@@ -1888,7 +1901,12 @@
       }
       return addListener(`ui.${type}`, (data, source) => {
         if (id !== null && (!data || data.id !== id)) return;
-        if (type === "chartHover") fn({ type, id: data?.id ?? null, entity: source, index: data?.index ?? -1, series: data?.series ?? -1, value: data?.value });
+        if (type === "cancel") {  // a handler that returns true handled the press: input.pressed("ui_cancel" | "pause"...) reads false after it
+          if (fn({ type, id: data?.id ?? null, entity: source, value: data?.value, previous: data?.previous }) === true) N.inConsume("ui_cancel");
+          return;
+        }
+        if (type === "viewPointer") fn({ type, id: data?.id ?? null, entity: source, phase: data?.phase, x: data?.x ?? 0, y: data?.y ?? 0, u: data?.u ?? 0, v: data?.v ?? 0, dx: data?.dx ?? 0, dy: data?.dy ?? 0, wheel: data?.wheel ?? 0 });
+        else if (type === "chartHover") fn({ type, id: data?.id ?? null, entity: source, index: data?.index ?? -1, series: data?.series ?? -1, value: data?.value });
         else fn({ type, id: data?.id ?? null, entity: source, value: data?.value, previous: data?.previous });
       }, null);
     },
@@ -2002,7 +2020,7 @@
       if (what !== null && typeof what !== "string" && (typeof what !== "object" || Array.isArray(what)))
         throw new Error(`ui.setTooltip(entity, tooltip): tooltip is a string, { title, lines }, a function that returns one, or null, but got ${inspect(what)}`);
       const e = entityOf(h);
-      const kind = ["Button", "Toggle", "Slider", "TextField", "Panel", "ScrollList", "TouchStick", "TouchButton", "Captions", "Video", "Chart"].find((k) => e.has(k));
+      const kind = ["Button", "Toggle", "Slider", "TextField", "Panel", "ScrollList", "TouchStick", "TouchButton", "Captions", "Video", "Chart", "CameraView"].find((k) => e.has(k));
       if (!kind) throw new Error(`ui.setTooltip(entity, tooltip): '${e.id}' is not a widget (it has no Panel, Button, Toggle, Slider, TextField or ScrollList component), so it has no tooltip. For something else use ui.setWorldTooltip or ui.showTooltip.`);
       e.set(kind, { tooltip: what });
     },
@@ -3607,7 +3625,7 @@
       N.testDevice(o);
     },
     // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
-    // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,
+    // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views,
     // shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialFallbacks, textureMB, width, height,
     // renderScale }. lights are the 3D lights, lights2d the Light2D ones (lights2dShadowed: those with a shadow). Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
@@ -3753,7 +3771,7 @@
   }
 
   function resetScene() {
-    voiceEnded.clear(); timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
+    voiceEnded.clear(); timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; N.inCursor(4, false); pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
   }

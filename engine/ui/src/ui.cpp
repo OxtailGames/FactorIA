@@ -291,6 +291,7 @@ void UiSystem::reset() {
     tooltipManualContent_ = nullptr;
     tooltipWarned_.clear();
     drag_ = DragState{};
+    viewDrag_ = kNullEntity;
     chartHover_ = kNullEntity;
     chartHoverSeries_ = chartHoverIndex_ = -1;
     dragCand_ = dragImage_ = kNullEntity;
@@ -444,14 +445,17 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         const UiKind kind = ui_kind(w, focus_);
         if (kind == UiKind::Button) {
             emit(w, "ui.click", focus_);
+            in.consume_action("ui_submit");  // handled: a script that reads the same key later does not act on it too
         } else if (kind == UiKind::Toggle) {
             Toggle& t = *w.get<Toggle>(focus_);
             t.value = !t.value;
             emit(w, "ui.change", focus_, Json(t.value));
+            in.consume_action("ui_submit");
         }
     }
     const bool navCancel = in.action_pressed("ui_cancel");
     if (navCancel && !drag_.active) emit(w, "ui.cancel", focus_);  // while dragging, cancel ends the drag instead
+    if (navCancel && drag_.active) in.consume_action("ui_cancel");  // the drag took it
 
     if (focus_) {
         if (TextField* tf = w.get<TextField>(focus_)) {
@@ -550,6 +554,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
 
     // ---- wheel: scrolls the innermost ScrollList under the pointer
     wheelConsumed_ = false;
+    update_view_pointer(w, in, design, mouse, ptrDown, ptrPressed, ptrReleased);  // before the lists: a view under the pointer takes the wheel
     if (in.mouse_wheel() != 0.0f) {
         ScrollList* target = nullptr;
         Entity targetEntity;
@@ -577,7 +582,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         }
     }
 
-    if (modal && in.mouse_wheel() != 0.0f && !wheelConsumed_) {  // the wheel stays in the modal: the game below must not zoom
+    const Panel* modalPanel = modal ? w.get<Panel>(modal) : nullptr;
+    if (modal && in.mouse_wheel() != 0.0f && !wheelConsumed_ && !(modalPanel && modalPanel->wheelPassThrough)) {  // the wheel stays in the modal: the game below must not zoom
         wheelConsumed_ = true;
         in.consume_mouse_wheel();
     }
@@ -616,6 +622,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         }
     }
     in.set_platform_keyboard(platformField_ != kNullEntity);
+    // Text input mode: a focused TextField takes the typed keys, so game actions bound to letters read as up meanwhile.
+    in.set_ui_text_input(focus_ && w.get<TextField>(focus_));
 
     // ---- the phone's keyboard follows a TextField's focus: up when one gets it, down when it goes. Only the changes
     // count, so a script's input.showKeyboard() in between still works. A pad player gets the game's on-screen keyboard

@@ -4,7 +4,7 @@
 //
 // The journal has three pages, switched by the tab buttons, Tab / PageUp / PageDown or the gamepad shoulders:
 //   Items     what the porter carries. Pick one to read it and turn it in 3D (drag with the mouse or a finger, right stick or
-//             Q / E; the + and - buttons, pinch, R / V or the gamepad triggers come closer or go farther). "Combine" joins two items by the table data/combos.json;
+//             Q / E; the + and - buttons, the mouse wheel, pinch, R / V or the gamepad triggers come closer or go farther). "Combine" joins two items by the table data/combos.json;
 //             "Piece together" opens the torn-letter puzzle.
 //   Notebook  every clue known (a clue is a set story flag, data/notebook.json) and every deduction made, in rich text. Click
 //             an entry to find it on the board.
@@ -14,13 +14,14 @@
 // (interactable kind "puzzle") and, for the letter, from the Items page.
 //
 // Opening a screen locks the porter ("screen") and tells the camera script to ignore drags (scripts/ui/screen_state.js). Escape
-// is ui_cancel and "pause" at once, so MenuStack.busy keeps the pause menu away while a screen is open and two frames after.
+// is ui_cancel and "pause" at once: the cancel handler returns true, which consumes the press so the pause menu stays shut.
 // Closing releases the porter two frames later too: the click or press that closed the screen must not also walk him.
 //
-// The 3D view of an item is a second perspective Camera, spawned at run time, that draws a small stage far from the lodge
-// (y = 300) into the "hole" the Items page leaves in the UI: the UI draws over all cameras, so the page is four opaque bands around
-// a clear rectangle. Nothing here is a draggable widget: the turning reads input.mouse, which also stays clear of
-// ENGINE_FEEDBACK LL/FB-0001 (UiSystem::update_drag).
+// The 3D view of an item is a CameraView widget (docs/MENUS.md, "A camera inside the UI") that shows a second perspective
+// Camera, spawned at run time, which looks at a small stage far from the lodge (y = 300). The camera is not primary and uses
+// the studio lighting (Camera.lighting), so neither the lodge's lights nor its ambient reach the item; the widget is clipped and
+// layered like any other, the page needs no hole in it and the zoom buttons sit over the picture. The widget sends
+// ui.viewPointer for the turning (a drag, a finger) and the zoom (the wheel).
 //
 // The UI is rebuilt whenever its state changes (a dirty flag handled in onUpdate, never inside a click handler); every widget id
 // carries the serial of the build, so ids never collide with the previous build that is still alive until the end of the frame.
@@ -30,7 +31,6 @@
 // pitch, zoom, item}).
 import { Behaviour, ui, input, world, i18n } from "factoria";
 import { EVENTS } from "./events.js";
-import { MenuStack } from "./ui/menu_stack.js";
 import { screenState } from "./ui/screen_state.js";
 import * as kit from "./ui/kit.js";
 import * as items from "./items.js";
@@ -42,17 +42,14 @@ const GREY = [0.62, 0.65, 0.72, 1];
 const GOOD = [0.62, 0.85, 0.65, 1];
 const DARK = [0.045, 0.055, 0.085, 1];
 const TABS = ["items", "notebook", "board"];
-/** The hole of the Items page where the 3D view shows, in design pixels: x, y, w, h. */
+/** Where the 3D view of the Items page shows, in design pixels: x, y, w, h (kit.cameraView mirrors it in a right-to-left language). */
 const HOLE = { x: 430, y: 84, w: 400, h: 360 };
-/** Where the hole really is: the engine mirrors the screens in a right-to-left language, the 3D view (a camera viewport) is placed here. */
-const mirrored = () => ui.mirrorRtl && i18n.direction === "rtl";
-const hole = () => ({ x: mirrored() ? kit.W - HOLE.x - HOLE.w : HOLE.x, y: HOLE.y, w: HOLE.w, h: HOLE.h });
+/** What the view's camera clears to. */
+const VIEW_CLEAR = [0.09, 0.1, 0.15, 1];
 /** Where the 3D stage stands: far above the lodge, so no lodge mesh or light reaches it. */
 const STAGE_Y = 300;
 const HINT_Y = 692;
 
-/** The lodge lights are strong: the parts of an item are drawn darker so a pale one is not a white blot. */
-const dim = (c) => [c[0] * 0.45, c[1] * 0.45, c[2] * 0.45, c[3]];
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 export default class Screens extends Behaviour {
@@ -77,7 +74,6 @@ export default class Screens extends Behaviour {
     this.view = { yaw: 25, pitch: 15, zoom: 1, item: "" };
     this.viewParts = null;
     this.viewCam = null;
-    this.viewLights = [];
     this.viewSerial = 0;
     this.dragging = false;
     this.pinchLast = 0;
@@ -93,14 +89,18 @@ export default class Screens extends Behaviour {
     notebook.markSeen();
     world.on(EVENTS.flagChanged, () => this.announceClues());
     ui.on("click", (e) => this.onClick(e.entity.id));
-    ui.on("cancel", () => this.mode && this.back());
+    ui.on("viewPointer", (e) => this.onViewPointer(e));
+    ui.on("cancel", () => {
+      if (!this.mode) return false;
+      this.back();
+      return true;
+    });
   }
 
   /** The scene is going away (an area change, a chapter fade, a load): a screen left open must not leave the lodge locked. */
   onDestroy() {
     if (this.mode || this.releaseIn > 0) {
       screenState.open = false;
-      MenuStack.busy = false;
     }
     this.mode = null;
     this.releaseIn = 0;
@@ -183,7 +183,6 @@ export default class Screens extends Behaviour {
     this.releaseIn = 0;
     this.porterBehaviour()?.lock("screen");
     screenState.open = true;
-    MenuStack.busy = true;
   }
 
   /** One step back: a puzzle opened from the Items page returns to it, anything else closes. */
@@ -230,7 +229,6 @@ export default class Screens extends Behaviour {
     if (this.releaseIn > 0 && --this.releaseIn === 0) {
       this.porterBehaviour()?.unlock("screen");
       screenState.open = false;
-      MenuStack.busy = false;
     }
     this.updateHud();
     if (!this.mode) {
@@ -283,6 +281,7 @@ export default class Screens extends Behaviour {
     this.p = `scr${this.serial}_`;
     this.handlers = {};
     this.dirty = false;
+    this.dragging = false;
     this.defaultFocus = "";
     const children = this.mode === "puzzle" ? this.puzzleChildren() : this.journalChildren();
     this.root = world.spawn(kit.root(this.id("root"), children));
@@ -304,20 +303,14 @@ export default class Screens extends Behaviour {
   // ----------------------------------------------------------------------------------------------------------------- journal
   journalChildren() {
     const out = [];
+    out.push(kit.rect(this.id("bg"), 0, 0, kit.W, kit.H, DARK));
     if (this.tab === "items") {
       const { x, y, w, h } = HOLE;
-      const solid = [0.045, 0.055, 0.085, 1];
-      out.push(kit.rect(this.id("band_top"), 0, 0, kit.W, y, solid));
-      out.push(kit.rect(this.id("band_left"), 0, y, x, kit.H - y, solid));
-      out.push(kit.rect(this.id("band_right"), x + w, y, kit.W - x - w, kit.H - y, solid));
-      out.push(kit.rect(this.id("band_bottom"), x, y + h, w, kit.H - y - h, solid));
       const gold = [0.78, 0.62, 0.28, 1];
       out.push(kit.rect(this.id("frame_t"), x - 3, y - 3, w + 6, 3, gold, kit.LAYER.frame));
       out.push(kit.rect(this.id("frame_b"), x - 3, y + h, w + 6, 3, gold, kit.LAYER.frame));
       out.push(kit.rect(this.id("frame_l"), x - 3, y - 3, 3, h + 6, gold, kit.LAYER.frame));
       out.push(kit.rect(this.id("frame_r"), x + w, y - 3, 3, h + 6, gold, kit.LAYER.frame));
-    } else {
-      out.push(kit.rect(this.id("bg"), 0, 0, kit.W, kit.H, DARK));
     }
     const names = { items: "screens.items", notebook: "screens.notebook", board: "screens.board" };
     TABS.forEach((t, i) => {
@@ -385,7 +378,10 @@ export default class Screens extends Behaviour {
       this.on("piece", () => this.openPuzzle("letter", true));
     }
     out.push(kit.label(this.id("msg"), 440, 530, 390, this.message || " ", { size: 20, color: GOLD, height: 70 }));
-    // Zoom buttons in the corner of the view, for a mouse or a finger without a pinch (a modal panel keeps the wheel for itself).
+    // The picture of the item: below the zoom buttons (they are made after it and have the higher layer).
+    this.ensureViewCam();
+    out.push(kit.cameraView(this.id("view"), HOLE.x, HOLE.y, HOLE.w, HOLE.h, this.viewCam.id, { color: VIEW_CLEAR }));
+    // Zoom buttons in the corner of the view, for a mouse or a finger without a pinch (the wheel zooms too).
     out.push(kit.button(this.id("zoom_out"), HOLE.x + HOLE.w - 100, HOLE.y + HOLE.h - 52, 44, 44, "-", { size: 28 }));
     out.push(kit.button(this.id("zoom_in"), HOLE.x + HOLE.w - 50, HOLE.y + HOLE.h - 52, 44, 44, "+", { size: 28 }));
     this.on("zoom_out", () => this.zoom(0.15));
@@ -413,35 +409,33 @@ export default class Screens extends Behaviour {
   }
 
   // ------------------------------------------------------------------------------------------------------- the 3D item view
-  /** Makes the view camera, the stage and its lights for the item selected (idempotent). */
+  /** Makes the camera the view widget shows, once: not primary (only the widget draws it), lit by the studio rig. */
+  ensureViewCam() {
+    if (this.viewCam && this.viewCam.alive) return;
+    this.viewSerial++;
+    this.viewCam = world.spawn({
+      id: `iv${this.viewSerial}_cam`,
+      components: {
+        Transform: { position: [0, STAGE_Y, 3], rotation: [0, 0, 0] },
+        Camera: {
+          projection: "perspective",
+          fov: 35,
+          nearPlane: 0.05,
+          farPlane: 40,
+          primary: false,
+          clear: true,
+          clearColor: VIEW_CLEAR,
+          lighting: "studio",
+        },
+      },
+    });
+    this.view.item = "";
+  }
+
+  /** Makes the view camera and the stage of the item selected (idempotent). */
   syncView() {
     const it = items.get(this.selItem);
-    if (!this.viewCam || !this.viewCam.alive) {
-      this.viewSerial++;
-      const s = `iv${this.viewSerial}`;
-      this.viewCam = world.spawn({
-        id: `${s}_cam`,
-        components: {
-          Transform: { position: [0, STAGE_Y, 3], rotation: [0, 0, 0] },
-          Camera: {
-            projection: "perspective",
-            fov: 35,
-            nearPlane: 0.05,
-            farPlane: 40,
-            primary: true,
-            depth: 50,
-            clear: true,
-            clearColor: [0.09, 0.1, 0.15, 1],
-            viewport: [hole().x / kit.W, HOLE.y / kit.H, HOLE.w / kit.W, HOLE.h / kit.H],
-          },
-        },
-      });
-      this.viewLights = [
-        world.spawn({ id: `${s}_l1`, components: { Transform: { position: [2.2, STAGE_Y + 2.4, 4] }, Light: { type: "point", intensity: 3, range: 14, color: [1, 0.95, 0.85, 1] } } }),
-        world.spawn({ id: `${s}_l2`, components: { Transform: { position: [-3, STAGE_Y - 1, 3] }, Light: { type: "point", intensity: 1.2, range: 14, color: [0.7, 0.8, 1, 1] } } }),
-      ];
-      this.view.item = "";
-    }
+    this.ensureViewCam();
     if (this.view.item !== this.selItem) {
       if (this.viewParts && this.viewParts.alive) {
         this.viewParts.active = false;
@@ -464,7 +458,7 @@ export default class Screens extends Behaviour {
               Transform: { position: part.position ?? [0, 0, 0], rotation: part.rotation ?? [0, 0, 0], scale: part.scale ?? [1, 1, 1] },
               MeshRenderer: {
                 mesh: part.mesh,
-                color: dim(part.color ?? [1, 1, 1, 1]),
+                color: part.color ?? [1, 1, 1, 1],
                 metallic: part.metallic ?? 0,
                 roughness: part.roughness ?? 0.6,
                 emissive: part.emissive ?? [0, 0, 0, 1],
@@ -481,7 +475,7 @@ export default class Screens extends Behaviour {
   }
 
   destroyView() {
-    for (const e of [this.viewCam, this.viewParts, ...this.viewLights]) {
+    for (const e of [this.viewCam, this.viewParts]) {
       if (e && e.alive) {
         e.active = false;
         e.destroy();
@@ -489,7 +483,6 @@ export default class Screens extends Behaviour {
     }
     this.viewCam = null;
     this.viewParts = null;
-    this.viewLights = [];
     this.view.item = "";
   }
 
@@ -498,21 +491,28 @@ export default class Screens extends Behaviour {
     if (this.viewCam && this.viewCam.alive) this.viewCam.position = [0, STAGE_Y, (this.viewDistance ?? 3) * 1.25 * this.view.zoom];
   }
 
-  /** Turning and zooming the item: mouse drag inside the hole (a finger too), the right stick or Q / E, pinch, R / V, the triggers. */
+  /**
+   * ui.viewPointer of the picture: a drag turns the item (the mouse or the first finger; two fingers pinch instead), the wheel
+   * zooms. Only the picture of the build on screen counts: a view of a build that is gone sends nothing and a late event of
+   * another scene is ignored.
+   */
+  onViewPointer(e) {
+    if (this.mode !== "journal" || this.tab !== "items" || !e.id.startsWith(this.p)) return;
+    const v = this.view;
+    if (e.phase === "down") this.dragging = true;
+    else if (e.phase === "up") this.dragging = false;
+    else if (e.phase === "drag" && this.dragging && input.touches.length < 2) {
+      v.yaw += e.dx * 0.7;
+      v.pitch = clamp(v.pitch + e.dy * 0.5, -80, 80);
+    } else if (e.phase === "wheel") v.zoom = clamp(v.zoom - e.wheel * 0.1, 0.45, 1.5);
+    this.applyView();
+  }
+
+  /** Turning and zooming the item: the right stick or Q / E, pinch, R / V, the triggers (the drag and the wheel: onViewPointer). */
   turnItem(dt) {
     if (!this.viewCam || !this.viewCam.alive) return;
-    const m = input.mouse;
     const v = this.view;
-    const hl = hole();
-    const inside = (p) => p.x >= hl.x && p.x < hl.x + hl.w && p.y >= hl.y && p.y < hl.y + hl.h;
     const touches = input.touches;
-    if (m.pressed("left") && inside(m.position) && touches.length < 2 && !ui.hovered?.has("Button")) this.dragging = true;
-    if (!m.down("left")) this.dragging = false;
-    if (this.dragging && touches.length < 2) {
-      const d = m.delta;
-      v.yaw += d.x * 0.7;
-      v.pitch = clamp(v.pitch + d.y * 0.5, -80, 80);
-    }
     const ax = input.axis("camera_left", "camera_right");
     const ay = input.axis("camera_up", "camera_down");
     v.yaw += ax * 140 * dt;

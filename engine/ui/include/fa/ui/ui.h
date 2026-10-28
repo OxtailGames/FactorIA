@@ -219,6 +219,10 @@ public:
     // written to Chart.hoverIndex / hoverSeries and the game event ui.chartHover {id, index, series, value} is sent each time the
     // chart or the sample changes; {index: -1, series: -1} (no value) when the pointer leaves the chart or the chart goes away.
 
+    // CameraViews. update() sends the game event ui.viewPointer {id, phase, x, y, u, v, dx, dy, wheel} for the pointer over the topmost
+    // CameraView: "down" at the press, "drag" while it moves with the button held, "up" at the release (to the view that was
+    // pressed, wherever the pointer is then), "wheel" for the mouse wheel (which the view then keeps from scripts and ScrollLists).
+
     // Scene load: no focus, no hover, no press, no tooltip, no drag.
     void reset();
 
@@ -257,6 +261,11 @@ private:
     void update_chart_hover(World& world, Vec2 designSize, Vec2 mouse);
     Entity chartHover_;
     std::int32_t chartHoverSeries_ = -1, chartHoverIndex_ = -1;
+
+    // CameraView pointer events (view.cpp): the view a press landed on, and where the pointer was at the last event.
+    void update_view_pointer(World& world, Input& input, Vec2 designSize, Vec2 mouse, bool down, bool pressed, bool released);
+    Entity viewDrag_;
+    Vec2 viewLast_{};
 
     // drag and drop (drag.cpp)
     struct DragState {

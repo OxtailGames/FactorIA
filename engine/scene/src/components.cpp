@@ -38,7 +38,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
     return b
         .field("size", static_cast<Vec2 T::*>(&UiBox::size),
                "Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
-               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200). A Panel "
+               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel "
                "with fit = true recomputes it every frame (within its minSize and maxSize).")
         .field("pivot", static_cast<Vec2 T::*>(&UiBox::pivot),
                "Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, "
@@ -79,7 +79,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills "
                "from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. "
                "Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays "
-               "where it is written, for what is not text-like: a map, a 3D view, a joystick. Does nothing in a left-to-right "
+               "where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right "
                "language or with ui.mirrorRtl off (docs/LOCALIZATION.md, \"Right to left\").");
 }
 
@@ -254,7 +254,9 @@ void register_builtin_components(TypeRegistry& r) {
                "colorFilter) use. Cameras with the same depth keep the order of creation.")
         .field("viewport", &Camera::viewport,
                "The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the "
-               "TOP-LEFT corner and +Y down (like screen space). [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left "
+               "TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): "
+               "not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. "
+               "[0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left "
                "half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap "
                "inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. "
                "The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel "
@@ -263,7 +265,32 @@ void register_builtin_components(TypeRegistry& r) {
                "own, so a Light2D only lights the cameras it reaches. The post effects (bloom, colorFilter, bloomScreenSpace) "
                "are applied once to the finished frame with the settings of the lowest-depth camera; the other cameras' "
                "values are ignored. UI and screen-space items cover the whole screen, not one viewport. "
-               "camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point.")
+               "camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. "
+               "To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a "
+               "CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and "
+               "ignores this field.")
+        .enum_field("viewportSpace", &Camera::viewportSpace, {"screen", "design"},
+                    "Which rectangle the fractions of `viewport` count. screen (default): the whole game target, that is the design "
+                    "resolution, or the area the Expand scale mode grows it to for a window with another shape (the letterbox bars of "
+                    "the Fit modes are not part of it). design: the design resolution (display.designWidth x designHeight) from the "
+                    "top-left corner, which is where a UI laid out from anchor [0, 0] in design pixels sits, so a viewport of "
+                    "[430 / 1280, 84 / 720, 400 / 1280, 360 / 720] lands on the same pixels as a 400 x 360 Panel at [430, 84] "
+                    "even when Expand has grown the target. The two are the same in every mode but Expand. For a rectangle that "
+                    "follows a widget, use a CameraView.")
+        .enum_field("lighting", &Camera::lighting, {"scene", "studio"},
+                    "What lights the 3D meshes this camera draws. scene (default): the Light entities, SceneSettings.ambientLight, "
+                    "the sky and environment colours and the fog of the scene. studio: a rig that follows the camera instead, "
+                    "whatever the scene holds and wherever the camera is: a warm key light from the upper left, a cool fill from the "
+                    "right, a rim light from behind, a neutral ambient and environment for reflections, no sky (the camera paints "
+                    "clearColor), no fog, no shadows. Scene lights do not reach the camera and a 2D lit sprite it draws is lit by "
+                    "the ambient alone (full brightness). Use it for an item turning on a stage in a menu (CameraView), or a "
+                    "portrait, that must look the same in a dark cellar and in a bright field. MeshRenderer.unlit meshes are "
+                    "not affected. Scale the rig with studioIntensity.")
+        .field("studioIntensity", &Camera::studioIntensity,
+               "Only used when lighting is studio. Multiplies the brightness of the studio rig (the three lights, the ambient and "
+               "the environment): 1 (default) shows a mid-grey surface at about its own colour, 0.5 is dimmer, 2 is bright and "
+               "may wash out pale colours.")
+        .range(0, 8)
         .field("bloom", &Camera::bloom,
                "Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / "
                "explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD "
@@ -1190,6 +1217,11 @@ void register_builtin_components(TypeRegistry& r) {
                    "scope. It does not pause the game: a script that wants that holds the clock itself (the menu kit's "
                    "card does, with its `holdClock` option). A fully transparent panel draws nothing and is not hit, but "
                    "still scopes the input; give it a dim `color` as a backdrop to block clicks on the sprites too.")
+            .field("wheelPassThrough", &Panel::wheelPassThrough,
+                   "true: a `modal` panel leaves the mouse wheel to scripts instead of consuming it: input.mouse.wheel keeps "
+                   "reading what the player turned (a zoom in an inventory view that is a modal). A ScrollList inside the "
+                   "modal that has more to show still scrolls and keeps the wheel for itself, as before. Only the modal "
+                   "panel that scopes the input counts; no effect on a panel that is not modal.")
             .enum_field("fallbackLayout", &Panel::fallbackLayout, {"none", "row", "column", "grid"},
                         "Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen "
                         "(none = never switch). The panel leaves the screen when its content size + padding, or the size of "
@@ -1473,6 +1505,43 @@ void register_builtin_components(TypeRegistry& r) {
             .runtime_only().range(0, 1000000)
             .field("duration", &Video::duration, "Runtime: length of the video in seconds; 0 while the file is not open.")
             .runtime_only().read_only();
+    }
+
+    {
+        auto cv = r.add<CameraView>("CameraView",
+                  "A 3D (or 2D) view inside the UI (docs/MENUS.md, \"A camera inside the UI\"): draws the camera named by `camera` into "
+                  "this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the "
+                  "clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera "
+                  "is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before "
+                  "the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also "
+                  "draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the "
+                  "picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = \"studio\" lights it with its own key, "
+                  "fill and rim lights, wherever it stands. bloom and colorFilter of the camera are ignored (the frame has one set of "
+                  "post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, "
+                  "x, y, u, v, dx, dy, wheel}; `ui.on(\"viewPointer\", fn)` in scripts) so a script can turn what it shows. It "
+                  "is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render "
+                  "pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). "
+                  "Defaults: 320 x 240, no background colour.",
+                  "UI");
+        ui_box_fields(cv)
+            .field("camera", &CameraView::camera,
+                   "Id or name of the Camera entity to draw (an id is tried first, then a name). \"\" or an entity that is missing, "
+                   "inactive or has no Camera draws only the background `color`. The same camera may be "
+                   "shown by several CameraViews: each gets its own image.")
+            .field("tint", &CameraView::tint,
+                   "Colour multiplied with the picture: white (default) leaves it as it is, alpha below 1 fades the view over what is "
+                   "behind it. `color` (the background) is a separate colour.")
+            .field("pointerEvents", &CameraView::pointerEvents,
+                   "true (default): a pointer (mouse or finger) pressed over the view sends ui.viewPointer events \"down\", then \"drag\" "
+                   "while it moves and \"up\" when it is released, to the view that was pressed. false: no events, the widget still "
+                   "blocks clicks to what is below it.")
+            .field("captureWheel", &CameraView::captureWheel,
+                   "true (default): the mouse wheel over the view is sent as a ui.viewPointer event with phase \"wheel\" and kept from "
+                   "scripts that read input.mouse.wheel (a zoom). false: the wheel is left alone.")
+            .field("resolution", &CameraView::resolution,
+                   "Pixels of the view's image per pixel of its rectangle: 1 (default) is sharp, 0.5 draws four times fewer pixels "
+                   "(soft, cheap), 2 supersamples. The result is multiplied by the renderer's own render scale.")
+            .range(0.25f, 2);
     }
 
     {

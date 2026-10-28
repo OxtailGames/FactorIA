@@ -298,7 +298,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `viewport` ([x, y, w, h] of the screen, 0..1, top-left origin, default [0, 0, 1, 1]), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) | The view. Without a primary camera the screenshot is black. Every active camera with `primary: true` draws into its `viewport` in ascending `depth`: two or more make a split screen or an inset (section 9.29), and the lowest `depth` is the camera of the post effects, `camera.main` and the default of the screen conversions. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). |
+| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `viewport` ([x, y, w, h] of the game target, 0..1, top-left origin, default [0, 0, 1, 1]), `viewportSpace` (`screen` or `design`), `lighting` (`scene` or `studio`), `studioIntensity`, `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) | The view. Without a primary camera the screenshot is black. Every active camera with `primary: true` draws into its `viewport` in ascending `depth`: two or more make a split screen or an inset (section 9.29), and the lowest `depth` is the camera of the post effects, `camera.main` and the default of the screen conversions. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). `lighting: "studio"` ignores the scene's lights and ambient and lights with a key, fill and rim of its own; with `primary: false` and a `CameraView` widget it is the 3D picture of an item inside a menu ([MENUS.md](MENUS.md) "A camera inside the UI"). |
 | `Sprite` | `texture` (asset path; empty = solid `color`), `size` (0 = image size), `pivot` (default [0.5, 0.5]), `color`, `flipX`, `flipY`, `layer`, `space`, `anchor`, `blend`, `region`, `pixelArt` | An image or a coloured quad. |
 | `SpriteAnimator` | `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet. |
 | `Video` | `path`, `autoplay`, `loop`, `volume`, `bus`, `fit`, `tint` + the UiBox fields; runtime `playing`, `time`, `duration`, `ended` | An `.mpg` (MPEG-1 + MP2) drawn in a UI rectangle with its sound; time follows the game clock. Script: `entity.video.play()`, `.seek(s)`, `.on("ended", fn)`. Bring any video with `assets.import` (needs ffmpeg). [ASSETS.md](ASSETS.md) "Video", [MENUS.md](MENUS.md) studio intro. |
@@ -1598,6 +1598,12 @@ viewport such as `[0.72, 0.04, 0.24, 0.24]` and `clear: true`. Give the cameras 
 zoom: the visible HEIGHT is `2 * orthoSize` in every viewport and the visible width follows the rectangle (a half-width view
 sees half the width). With `orthoSize: 0` the camera keeps one world unit per design pixel, so a half-width view sees half the
 world. A `viewport` outside 0..1 or without size makes the scene fail to load with the entity and the field in the message.
+
+The fractions count the GAME TARGET: the design resolution, grown on the long axis by `display.scaleMode: "expand"` (the letterbox
+bars of `fit` are not part of it). With `viewportSpace: "design"` they count the design area from its top-left corner
+instead, so a minimap placed with `[0.72, 0.04, 0.24, 0.24]` keeps the same design pixels when Expand makes the window wider
+(the camera is kept inside the target). `Camera.viewport` is ignored by a camera a `CameraView` shows: the view's own rectangle
+decides ([MENUS.md](MENUS.md), "A camera inside the UI").
 
 ```js
 // scripts/follow_target.js (one per camera; `target` is the id of the player it follows)

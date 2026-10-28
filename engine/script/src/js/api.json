@@ -1039,6 +1039,14 @@
        "doc": "The last value given to showKeyboard() (false at start)."
       },
       {
+       "sig": "consume(action: string): void",
+       "doc": "This frame's press of `action` is handled: until the next frame input.pressed() reads false for it and for every other action that shares one of its bindings that went down (Escape is both \"pause\" and \"ui_cancel\"). Only the press is taken: down() and value() keep reading the held input, and players (input.player(i)) are not affected. The UI runs before scripts and consumes ui_submit when it clicks a focused Button or Toggle, ui_cancel when a drag took it or when a ui.on(\"cancel\") handler returns true. Call it in your own handler when you take a press that another script would also act on. Unknown actions throw with a suggestion. Example: ui.on(\"cancel\", () => { if (!dialog.open) return false; dialog.close(); return true; });"
+      },
+      {
+       "sig": "textInputMode: boolean",
+       "doc": "True while the player is typing text: a TextField has the focus (the engine sets it) or a script turned it on. Actions bound to printable keys (letters, digits, Space, punctuation, alone or with Shift; not Enter, Escape, arrows, F keys or Ctrl/Alt/Super chords) read as not down, pressed or released meanwhile for those bindings, so typing P in a save-name field does not pause. Assigning true is for a script's own text entry (the menu kit's on-screen keyboard); assigning false only clears the script's flag, a focused TextField keeps the mode on. A scene load clears the script's flag."
+      },
+      {
        "sig": "readonly platformKeyboard: boolean",
        "doc": "True while the platform shows its own keyboard for the focused text field, because a native plugin took it (the Steam Deck's keyboard, through the Steam plugin); false otherwise. Only a gamepad player's focus can start it. The menu kit's on-screen keyboard stays closed while it is true. Read-only."
       },
@@ -2483,6 +2491,57 @@
     },
     {
      "kind": "interface",
+     "name": "UiViewPointerEvent",
+     "doc": "What ui.on(\"viewPointer\", ...) receives: the pointer (mouse or finger) pressed, dragged, released or turned the wheel over a CameraView.",
+     "members": [
+      {
+       "sig": "readonly type: \"viewPointer\"",
+       "doc": "The event type."
+      },
+      {
+       "sig": "readonly id: string",
+       "doc": "Id of the CameraView entity."
+      },
+      {
+       "sig": "readonly entity: Entity | null",
+       "doc": "The CameraView entity."
+      },
+      {
+       "sig": "readonly phase: \"down\" | \"drag\" | \"up\" | \"wheel\"",
+       "doc": "down: the pointer was pressed over the view. drag: it moved with the button held (sent to the view that was pressed, also outside its rectangle). up: the button was released (to the same view). wheel: the mouse wheel turned over the view (when captureWheel)."
+      },
+      {
+       "sig": "readonly x: number",
+       "doc": "The pointer in design pixels (top-left origin, y down)."
+      },
+      {
+       "sig": "readonly y: number",
+       "doc": "The pointer in design pixels."
+      },
+      {
+       "sig": "readonly u: number",
+       "doc": "Where the pointer is across the view, 0 (left edge) to 1 (right edge); outside that range while a drag leaves the view."
+      },
+      {
+       "sig": "readonly v: number",
+       "doc": "Where the pointer is down the view, 0 (top edge) to 1 (bottom edge)."
+      },
+      {
+       "sig": "readonly dx: number",
+       "doc": "How far the pointer moved since the last event of this press, in design pixels (0 for down and wheel)."
+      },
+      {
+       "sig": "readonly dy: number",
+       "doc": "The same vertically (positive = down)."
+      },
+      {
+       "sig": "readonly wheel: number",
+       "doc": "wheel only: the steps the wheel turned (positive = away from the player, like input.mouse.wheel); 0 for the other phases."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "UiDragEvent",
      "doc": "What a ui.on(\"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\", ...) callback receives: one step of a drag that started on a widget with `draggable`.",
      "members": [
@@ -2641,6 +2700,14 @@
        "doc": "Like on(\"chartHover\", fn) for one Chart, e.g. ui.on(\"chartHover\", \"sales_chart\", (e) => showDay(e.index))."
       },
       {
+       "sig": "on(type: \"viewPointer\", fn: (e: UiViewPointerEvent) => void): () => void",
+       "doc": "Listens to the pointer over a CameraView: the callback gets { type, id, entity, phase, x, y, u, v, dx, dy, wheel } on a press (\"down\"), while the button is held and the pointer moves (\"drag\"), on the release (\"up\") and when the wheel turns over the view (\"wheel\"). Use it to turn or zoom what the view shows: ui.on(\"viewPointer\", (e) => { if (e.phase === \"drag\") yaw += e.dx * 0.7; }). Returns the function that stops listening; listeners end with the scene."
+      },
+      {
+       "sig": "on(type: \"viewPointer\", target: Entity | string, fn: (e: UiViewPointerEvent) => void): () => void",
+       "doc": "Like on(\"viewPointer\", fn) for one CameraView, e.g. ui.on(\"viewPointer\", \"item_view\", (e) => turn(e))."
+      },
+      {
        "sig": "on(type: \"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\", fn: (e: UiDragEvent) => void): () => void",
        "doc": "Listens to the steps of a drag that began on a widget with `draggable` (UiBox.draggable): dragStart, dragOver, drop (released over a target that accepts: a widget with a rule from ui.setDropTarget, or the world) and dragCancel (rejected, cancelled with ui_cancel, the source gone or ui.cancelDrag()). The event has the source, its payload, the pointer (x, y) and the target (null over the world). Returns the function that stops listening; listeners end with the scene."
       },
@@ -2649,12 +2716,12 @@
        "doc": "Like on(type, fn) for one widget: for dragStart and dragCancel `target` is the dragged widget, for dragOver and drop it is the drop target, e.g. ui.on(\"drop\", \"slot_1\", (e) => assign(e.payload))."
       },
       {
-       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\", fn: (e: UiEvent) => void): () => void",
-       "doc": "Listens to a widget event from any widget. Returns the function that stops listening. Inside a behaviour prefer this.on(\"ui.click\", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion."
+       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\", fn: (e: UiEvent) => void | boolean): () => void",
+       "doc": "Listens to a widget event from any widget. A \"cancel\" handler that returns true handled the press: input.consume(\"ui_cancel\") is called for it, so the same Escape does not also read as pressed for \"pause\" or any action on that key later in the frame (Escape closes a dialog and the pause menu stays shut). The click of a focused Button or Toggle pressed by ui_submit is consumed by the UI itself. Returns the function that stops listening. Inside a behaviour prefer this.on(\"ui.click\", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion."
       },
       {
-       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\", target: Entity | string, fn: (e: UiEvent) => void): () => void",
-       "doc": "Listens to a widget event from one widget only; `target` is the widget Entity or its entity id, e.g. ui.on(\"click\", \"play_button\", () => scene.load(\"scenes/level1.scene.json\"))."
+       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\", target: Entity | string, fn: (e: UiEvent) => void | boolean): () => void",
+       "doc": "Listens to a widget event from one widget only (a \"cancel\" handler that returns true consumes ui_cancel, see above); `target` is the widget Entity or its entity id, e.g. ui.on(\"click\", \"play_button\", () => scene.load(\"scenes/level1.scene.json\"))."
       },
       {
        "sig": "focus(target: Entity | string | null): boolean",
@@ -4720,7 +4787,7 @@
        "doc": "Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: \"desktop\", gpuBackend: \"headless\", memoryGB: 8, tier: \"high\", steamDeck: false, handheld: false }, except handheld, which is true when you set steamDeck: true or a phone or tablet formFactor (and nothing else says it is not). For a Steam Deck: game.setDevice({ steamDeck: true }). An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: \"phone\", tier: \"low\" })."
       },
       {
-       "sig": "renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number }",
+       "sig": "renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number }",
        "doc": "What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000)."
       },
       {

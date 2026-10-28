@@ -44,6 +44,11 @@ struct Transform {
 enum class Projection : std::int32_t { Orthographic, Perspective };
 // Last post-process of the frame, see Camera::colorFilter.
 enum class ColorFilter : std::int32_t { None, Greyscale, HighContrast, Protanopia, Deuteranopia, Tritanopia };
+// Camera.lighting: Scene = the lights, ambient light, environment and fog of the scene; Studio = the camera's own key, fill and
+// rim lights (see Camera::studioIntensity).
+enum class CameraLighting : std::int32_t { Scene, Studio };
+// Camera.viewportSpace: which rectangle the fractions of Camera.viewport count.
+enum class ViewportSpace : std::int32_t { Screen, Design };
 struct Camera {
     Projection projection = Projection::Orthographic;
     float fov = 60.0f;          // perspective: vertical field of view (degrees)
@@ -58,6 +63,14 @@ struct Camera {
     // the screen and +Y down (like screen space and design pixels): [0, 0, 1, 1] is the whole screen (default), [0, 0, 0.5, 1]
     // the left half, [0.5, 0.5, 0.5, 0.5] the bottom-right quarter. See camera_viewport_problem().
     Rect viewport{0, 0, 1, 1};
+    // Which rectangle the fractions of `viewport` count: Screen = the whole game target (the design resolution, grown by the
+    // Expand scale mode; the letterbox bars of a window with another shape are outside it); Design = the design resolution
+    // (display.designWidth x designHeight) from the top-left corner, which is where a UI laid out from anchor [0, 0] sits.
+    ViewportSpace viewportSpace = ViewportSpace::Screen;
+    // Scene = lit by the scene (lights, SceneSettings.ambientLight, sky, fog); Studio = lit by a studio rig that follows this
+    // camera (a key, a fill and a rim light, a neutral ambient and environment, no sky, no fog), whatever the scene holds.
+    CameraLighting lighting = CameraLighting::Scene;
+    float studioIntensity = 1.0f;  // Studio only: multiplies the brightness of the rig
     // Bloom post-process (glow around bright pixels), flat fields because reflection has no nested structs.
     // Applied by fa_render to the finished frame (screen-space items too unless bloomScreenSpace is false); off by default.
     bool bloom = false;
@@ -340,6 +353,7 @@ struct Panel : UiBox {
     Vec2 maxSize{0, 0};                       // upper bound of the size, per axis (0 = none); holds when fit is true too
     bool uniformSize = false;                 // autoSize buttons / toggles / sliders inside share the largest size
     bool modal = false;                       // while active: only the widgets inside it get the pointer, the wheel and navigation
+    bool wheelPassThrough = false;            // modal only: the wheel is left to scripts (input.mouse.wheel) instead of consumed
     UiLayout fallbackLayout = UiLayout::None; // layout used instead of `layout` when that would not fit the screen
     bool usingFallback = false;               // runtime: laid out with fallbackLayout right now
 };
@@ -507,6 +521,21 @@ struct Chart : UiBox {
     Chart() {
         size = {480, 200};
         color = {0, 0, 0, 0.35f};
+    }
+};
+
+// A named camera drawn inside the rectangle of this widget: the view is rendered into its own image of the widget's size (the
+// camera's aspect follows the rectangle) and that image is drawn like the picture of a Video, so it is clipped by a ScrollList,
+// layered by `layer` and mirrored in a right-to-left language like any widget.
+struct CameraView : UiBox {
+    std::string camera;                       // id or name of the Camera entity to draw ("" = nothing)
+    Color tint{1, 1, 1, 1};                   // multiplied with the picture (alpha < 1 fades the view over what is below)
+    bool pointerEvents = true;                // the pointer pressing, dragging and releasing over it sends ui.viewPointer events
+    bool captureWheel = true;                 // the wheel over it is sent as a ui.viewPointer event and kept from scripts that read input
+    float resolution = 1.0f;                  // pixels of the image per pixel of the rectangle (0.25 .. 2)
+    CameraView() {
+        size = {320, 240};
+        color = {0, 0, 0, 0};
     }
 };
 

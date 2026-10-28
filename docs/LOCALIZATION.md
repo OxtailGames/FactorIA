@@ -301,7 +301,7 @@ i18n.t("ship_ready", { name: i18n.t("ship.skiff"), gender: i18n.gender("ship.ski
     keeps its first child at the right edge. `ui.rectOf`, `ui.state`, clicks, focus and `entity.bounds` report the mirrored
     places. What is not mirrored: world-space Text and entities, and a screen-space Text, Sprite or Shape2D with no widget
     above it (give it `anchor`, `pivot` and `align: "start"` by hand, as before).
-  - A widget that must not mirror (a map, a minimap, a 3D view, a joystick, a clock face) has `mirror: false`
+  - A `CameraView` takes its place like any widget (its rectangle flips) but never mirrors its picture: the camera is drawn as it sees, and `u`, `v`, `dx` and `dy` of `ui.viewPointer` count from the picture's own top-left corner and the screen's own directions. A widget that must not mirror at all, not even its place (a map, a minimap, a joystick, a clock face), has `mirror: false`
     (`UiBox.mirror`, on every widget); its children stay with it. The option is on by default; `ui.mirrorRtl`
     (`"ui": { "mirrorRtl": false }` in factoria.json, `ui.mirrorRtl = false` in a script, the `ui.set_mirror_rtl` command)
     turns the mirroring off for a game that places its UI by hand. It does nothing in a left-to-right language. The text

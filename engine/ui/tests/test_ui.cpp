@@ -2351,3 +2351,185 @@ TEST_CASE("Chart: the sample under the pointer is written to the component and s
     t.frame();
     CHECK(chart_events().size() == 1);
 }
+
+// ------------------------------------------------------------------------------- CameraView: ui.viewPointer --
+namespace {
+
+// The ui.viewPointer events since the last call (the other ui.* events are dropped).
+std::vector<Json> view_events(Ui& t) {
+    std::vector<Json> out;
+    for (const GameEvent& e : t.w.events().game)
+        if (e.name == "ui.viewPointer") {
+            CHECK(e.source != kNullEntity);
+            out.push_back(e.data);
+        }
+    t.w.events().game.clear();
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("CameraView: press, drag and release send ui.viewPointer with the pointer, u/v and the delta") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.in.on_mouse_move({40, 40});
+    t.frame();
+    CHECK(view_events(t).empty());  // hovering alone says nothing
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    auto ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["phase"] == "down");
+    CHECK(ev[0]["id"] == "view");
+    CHECK(ev[0]["x"].get<float>() == 40.0f);
+    CHECK(ev[0]["u"].get<float>() == doctest::Approx(0.2f));   // 20 of 100 px from the left
+    CHECK(ev[0]["v"].get<float>() == doctest::Approx(0.25f));  // 20 of 80 px from the top
+    t.in.on_mouse_move({55, 36});
+    t.frame();
+    ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["phase"] == "drag");
+    CHECK(ev[0]["dx"].get<float>() == 15.0f);
+    CHECK(ev[0]["dy"].get<float>() == -4.0f);
+    t.frame();
+    CHECK(view_events(t).empty());  // no move, no event
+    t.in.on_mouse_move({300, 150});  // the drag goes on outside the view: u and v leave 0..1
+    t.frame();
+    ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["u"].get<float>() > 1.0f);
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["phase"] == "up");
+    CHECK(ev[0]["id"] == "view");
+    t.frame();
+    CHECK(view_events(t).empty());
+    (void)view;
+}
+
+TEST_CASE("CameraView: a press outside, pointerEvents off or an inactive view send nothing; a press elsewhere never drags it") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.in.on_mouse_move({200, 150});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_move({60, 60});  // dragged into the view from outside: not a drag of the view
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(view_events(t).empty());
+
+    t.w.get<CameraView>(view)->pointerEvents = false;
+    t.click({60, 60});
+    CHECK(view_events(t).empty());
+    t.w.get<CameraView>(view)->pointerEvents = true;
+    t.w.set_active(view, false);
+    t.click({60, 60});
+    CHECK(view_events(t).empty());
+}
+
+TEST_CASE("CameraView: a Button over it keeps the click, a view under a modal Panel hears nothing, a ScrollList clips it") {
+    Ui t;
+    t.add<CameraView>("view", {20, 20}, {100, 80});
+    Entity over = t.button("over", {30, 30}, {40, 20});
+    t.w.get<Button>(over)->layer = 500;
+    t.click({40, 40});
+    CHECK(view_events(t).empty());
+    t.click({100, 90});  // the part of the view the button does not cover
+    CHECK(view_events(t).size() == 2);  // down and up
+    t.w.events().game.clear();
+
+    Entity modal = t.add<Panel>("modal", {0, 0}, {320, 180});
+    t.w.get<Panel>(modal)->modal = true;
+    t.w.get<Panel>(modal)->layer = 600;
+    t.click({100, 90});
+    CHECK(view_events(t).empty());
+    t.w.set_active(modal, false);
+
+    Entity list = t.add<ScrollList>("list", {150, 20}, {100, 40});
+    t.add<CameraView>("inlist", {0, 0}, {100, 120}, list);
+    t.click({200, 40});
+    CHECK(view_events(t).size() == 2);
+    t.click({200, 100});  // below the list's bottom edge: clipped away
+    CHECK(view_events(t).empty());
+}
+
+TEST_CASE("CameraView: the wheel over it is sent and consumed (captureWheel); off, it scrolls the list under it as before") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.in.on_mouse_move({60, 60});
+    t.frame();
+    t.in.on_mouse_wheel(-2);
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    auto ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["phase"] == "wheel");
+    CHECK(ev[0]["wheel"].get<float>() == -2.0f);
+    CHECK(t.ui.wheel_consumed());
+    CHECK(t.in.mouse_wheel() == 0.0f);
+    t.in.begin_frame();
+
+    t.w.get<CameraView>(view)->captureWheel = false;
+    t.in.on_mouse_wheel(-2);
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    CHECK(view_events(t).empty());
+    CHECK(!t.ui.wheel_consumed());
+    CHECK(t.in.mouse_wheel() == -2.0f);
+}
+
+TEST_CASE("CameraView: a view destroyed or hidden in the middle of a drag ends the drag quietly") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.in.on_mouse_move({40, 40});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    CHECK(view_events(t).size() == 1);
+    t.w.destroy(view);
+    t.in.on_mouse_move({50, 50});
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(view_events(t).empty());
+
+    Entity second = t.add<CameraView>("second", {20, 20}, {100, 80});
+    t.in.on_mouse_move({40, 40});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    CHECK(view_events(t).size() == 1);
+    t.w.set_active(second, false);
+    t.in.on_mouse_move({60, 50});
+    t.frame();
+    CHECK(view_events(t).empty());
+    t.w.set_active(second, true);
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(view_events(t).empty());  // the drag was dropped when the view went away; a late release is not an "up"
+}
+
+TEST_CASE("ui mirror: a CameraView's rectangle flips with the layout but its picture and u/v are not mirrored") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(view).x == doctest::Approx(320 - 20 - 100));  // the rectangle is on the other side
+    t.in.on_mouse_move({220 + 20, 40});  // 20 px from the view's left edge, which is on screen
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    auto ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["u"].get<float>() == doctest::Approx(0.2f));  // u still counts from the picture's own left edge
+    CHECK(ev[0]["v"].get<float>() == doctest::Approx(0.25f));
+    t.in.on_mouse_move({255, 36});
+    t.frame();
+    ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["dx"].get<float>() == 15.0f);  // a drag to the right is still a positive dx
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    view_events(t);
+    t.w.get<CameraView>(view)->mirror = false;  // mirror false keeps even the rectangle where it is written
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(view).x == doctest::Approx(20));
+}
