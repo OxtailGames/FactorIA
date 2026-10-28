@@ -254,3 +254,88 @@ TEST_CASE("api export: markdown for components and commands") {
     CHECK(md.find("| `name` |") != std::string::npos);
     CHECK(export_commands_json(reg).size() == 3);
 }
+
+TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read ends with contents and the call that continues") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    for (const char* doc : {"ai-guide", "components", "licenses"}) {
+        CAPTURE(doc);
+        auto r = reg.call("docs.read", {{"name", doc}});
+        REQUIRE(r.ok);
+        CHECK(r.result.dump().size() < 70000);  // far under 25k tokens
+        REQUIRE(r.result["truncated"] == true);
+        CHECK(r.result["content"].get<std::string>().size() <= 40000);
+        const std::string contents = r.result["contents"].get<std::string>();
+        if (std::string(doc) != "licenses") CHECK(contents.find("(line ") != std::string::npos);  // that page has no headings
+        CHECK(contents.size() <= 8000);
+        CHECK(r.result["next"].get<std::string>().find("docs.read") != std::string::npos);
+        // Continuing with nextStartLine leaves no gap and no overlap.
+        auto more = reg.call("docs.read", {{"name", doc}, {"startLine", r.result["nextStartLine"]}});
+        REQUIRE(more.ok);
+        CHECK(more.result["startLine"] == r.result["endLine"].get<long>() + 1);
+    }
+    // maxBytes is respected (down to one line at least).
+    auto small = reg.call("docs.read", {{"name", "ai-guide"}, {"maxBytes", 2000}});
+    REQUIRE(small.ok);
+    CHECK(small.result["content"].get<std::string>().size() <= 2000);
+    // A small page is returned whole, with no contents.
+    auto whole = reg.call("docs.read", {{"name", "ai-guide"}, {"startLine", 10}, {"maxLines", 3}});
+    REQUIRE(whole.ok);
+    CHECK(whole.result["endLine"] == 12);
+}
+
+TEST_CASE("docs.read: a section is read by heading, exact title first, several matches are listed") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    auto r = reg.call("docs.read", {{"name", "ai-guide"}, {"heading", "9.1 platformer character"}});
+    REQUIRE(r.ok);
+    const std::string content = r.result["content"].get<std::string>();
+    CHECK(content.rfind("### 9.1 Platformer character", 0) == 0);
+    CHECK(content.find("9.2 Top-down movement") == std::string::npos);  // stops at the next heading of its level
+    CHECK(r.result["truncated"] == false);
+    auto partial = reg.call("docs.read", {{"name", "ai-guide"}, {"heading", "Top-down movement"}});
+    REQUIRE(partial.ok);
+    CHECK(partial.result["heading"] == "9.2 Top-down movement");
+    auto many = reg.call("docs.read", {{"name", "ai-guide"}, {"heading", "9."}});
+    REQUIRE_FALSE(many.ok);
+    CHECK(many.error["message"].get<std::string>().find("matches") != std::string::npos);
+    auto none = reg.call("docs.read", {{"name", "ai-guide"}, {"heading", "Platformr character"}});
+    REQUIRE_FALSE(none.ok);
+    CHECK(none.error["message"].get<std::string>().find("Did you mean") != std::string::npos);
+}
+
+TEST_CASE("docs.components and docs.commands: the default lists names, name gives one in full, filter narrows, full is everything") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    auto list = reg.call("docs.components");
+    REQUIRE(list.ok);
+    const std::string md = list.result["markdown"].get<std::string>();
+    CHECK(md.size() < 40000);
+    CHECK(md.find("- `Sprite`: ") != std::string::npos);
+    CHECK(md.find("docs.components {\"name\":") != std::string::npos);
+    auto one = reg.call("docs.components", {{"name", "sprite"}});
+    REQUIRE(one.ok);
+    CHECK(one.result["markdown"].get<std::string>().find("| Field | Type | Default | Description |") != std::string::npos);
+    auto bad = reg.call("docs.components", {{"name", "Spritee"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("Did you mean 'Sprite'") != std::string::npos);
+    auto filtered = reg.call("docs.components", {{"filter", "sprite"}});
+    REQUIRE(filtered.ok);
+    CHECK(filtered.result["markdown"].get<std::string>().size() < md.size());
+    auto full = reg.call("docs.components", {{"full", true}});
+    REQUIRE(full.ok);
+    CHECK(full.result["markdown"].get<std::string>().size() > 100000);
+    auto json = reg.call("docs.components", {{"format", "json"}});
+    REQUIRE(json.ok);
+    CHECK(json.result.dump().size() < 40000);
+
+    auto cmds = reg.call("docs.commands");
+    REQUIRE(cmds.ok);
+    CHECK(cmds.result["markdown"].get<std::string>().size() < 40000);
+    auto cmd = reg.call("docs.commands", {{"name", "docs.read"}});
+    REQUIRE(cmd.ok);
+    CHECK(cmd.result["markdown"].get<std::string>().find("| `maxBytes` |") != std::string::npos);
+    CHECK_FALSE(reg.call("docs.commands", {{"name", "docs.reed"}}).ok);
+}

@@ -4,7 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Watching the game and reading the docs over MCP
+
 - Every log line carries the computer's time. The editor Console starts each line with `HH:MM:SS.mmm` (hover it for the date, the frame and the seconds since start); `game.logs` and `game.step`'s `newWarnings` give `wallTime` (ISO 8601 with offset), and the text and JSON stderr formats show it too.
+- `game.click` (MCP `game_click`) clicks like a player: by UI widget `id`, screen `position` or `world` point it moves the mouse,
+  presses, steps a frame, releases and steps another, so scripts see `input.mouse.pressed` then `released` and Buttons get their
+  `click`. The AI guide and the generated AGENTS.md give the recipe (Roguestory/FB-0004).
+- `docs.read` fits an MCP tool result by default (`maxBytes`, 40000): a cut page carries `contents` (headings with line numbers)
+  and `next`, and `heading` reads one section. `docs.components` and `docs.commands` list names with a one-line summary by
+  default; `name` returns one in full, `filter` narrows the list, `full` returns everything (Roguestory/FB-0005).
 
 ## 0.3.0
 

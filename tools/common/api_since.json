@@ -705,6 +705,7 @@
     "fs.read": "0.1.0",
     "fs.search": "0.1.0",
     "fs.write": "0.1.0",
+    "game.click": "unreleased",
     "game.input": "0.1.0",
     "game.logs": "0.1.0",
     "game.pause": "0.1.0",

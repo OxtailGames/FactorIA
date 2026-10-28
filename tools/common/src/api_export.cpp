@@ -6,6 +6,7 @@
 #include <sstream>
 
 #include "fa/core/reflect.h"
+#include "fa/core/strings.h"
 #include "fa/scene/components.h"
 #include "fa/script/script.h"
 #include "fa/tooling/bundle.h"
@@ -281,36 +282,135 @@ std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& regist
     return pages;
 }
 
+namespace {
+// docs.components / docs.commands: no argument lists names with a one-line summary (the whole reference is over 200 KB, more than an
+// MCP tool result may carry); `name` gives one entry in full, `filter` narrows the list, `full` gives everything.
+Json docs_filter_schema(const char* what) {
+    const std::string n = what;
+    return Json::object({{"type", "object"},
+        {"properties", Json::object({
+            {"name", Json::object({{"type", "string"}, {"description", "Exact " + n + " name (case-insensitive): returns its full reference."}})},
+            {"filter", Json::object({{"type", "string"}, {"description", "Keep the " + n + "s whose name, category or summary contains this text (case-insensitive)."}})},
+            {"full", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Return every " + n + " in full (over 200 KB: too large for most MCP clients; prefer name or filter)."}})},
+            {"format", Json::object({{"type", "string"}, {"enum", Json::array({"markdown", "json"})}, {"default", "markdown"}, {"description", "Output format."}})}})}});
+}
+
+bool contains_ci(const std::string& hay, const std::string& needle) { return to_lower(hay).find(to_lower(needle)) != std::string::npos; }
+
+struct Entry {
+    std::string name, category, summary;
+    const Json* json = nullptr;        // components
+    const CommandInfo* info = nullptr;  // commands
+};
+
+Json entries_json(const std::vector<Entry>& v) {
+    Json arr = Json::array();
+    for (const Entry& e : v) arr.push_back(Json::object({{"name", e.name}, {"category", e.category}, {"summary", e.summary}}));
+    return arr;
+}
+
+std::string entries_markdown(const std::vector<Entry>& v, const std::string& title, const std::string& tool, const std::string& example,
+                             const std::string& filterNote) {
+    std::ostringstream o;
+    o << "# " << title << " (" << v.size() << ")\n\n" << filterNote
+      << "One line per entry. Read one in full: `" << tool << " {\"name\":\"" << example << "\"}`; narrow the list with `{\"filter\":\"text\"}`; "
+      << "everything at once with `{\"full\":true}` (over 200 KB).\n\n";
+    std::string last = "\x01";
+    for (const Entry& e : v) {
+        if (e.category != last) { if (last != "\x01") o << "\n"; last = e.category; o << "## " << (last.empty() ? "general" : last) << "\n\n"; }
+        o << "- `" << e.name << "`: " << e.summary << "\n";
+    }
+    return o.str();
+}
+
+// Picks the entries for the arguments; throws not_found (with a did-you-mean) for a `name` that does not exist.
+std::vector<Entry> select_entries(const std::vector<Entry>& all, const Json& args, const char* what, const char* listTool, const Entry** exact) {
+    *exact = nullptr;
+    const std::string name = tooling_detail::arg_string(args, "name", false);
+    if (!name.empty()) {
+        for (const Entry& e : all)
+            if (to_lower(e.name) == to_lower(name)) { *exact = &e; return {e}; }
+        std::vector<std::string> names;
+        for (const Entry& e : all) names.push_back(e.name);
+        throw CommandError("not_found", std::string("There is no ") + what + " named '" + name + "'. " + did_you_mean(name, names),
+                           std::string("Call ") + listTool + " {} for the list of names, or {\"filter\":\"" + name + "\"} to search.");
+    }
+    const std::string filter = tooling_detail::arg_string(args, "filter", false);
+    std::vector<Entry> out;
+    for (const Entry& e : all)
+        if (filter.empty() || contains_ci(e.name, filter) || contains_ci(e.category, filter) || contains_ci(e.summary, filter)) out.push_back(e);
+    return out;
+}
+}  // namespace
+
 void register_api_export_commands(CommandRegistry& registry) {
-    auto fmt_schema = [] {
-        return Json::object({{"type", "object"},
-            {"properties", Json::object({{"format", Json::object({{"type", "string"}, {"enum", Json::array({"markdown", "json"})},
-                                                                  {"default", "markdown"}, {"description", "Output format."}})}})}});
-    };
     {
         CommandInfo info;
         info.name = "docs.components";
         info.category = "docs";
-        info.summary = "Reference of every component and field (types, defaults, docs).";
-        info.description = "Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON.";
-        info.inputSchema = fmt_schema();
+        info.summary = "Reference of components and fields (types, defaults, docs): a list of names, or one component in full.";
+        info.description = "Generated from the engine's reflection data; always accurate for this build. Use before writing scene JSON. "
+                           "With no argument it lists every component with a one-line summary (the whole reference is over 200 KB, more than "
+                           "an MCP tool result carries). {\"name\":\"Sprite\"} returns that component with all its fields, "
+                           "{\"filter\":\"physics\"} the components whose name, category or summary contains the text, "
+                           "{\"full\":true} everything.";
+        info.inputSchema = docs_filter_schema("component");
         registry.add(info, [](const Json& args) {
-            if (tooling_detail::arg_string(args, "format", false, "markdown") == "json")
-                return Json::object({{"components", export_components_json()}});
-            return Json::object({{"markdown", export_components_markdown()}});
+            const bool json = tooling_detail::arg_string(args, "format", false, "markdown") == "json";
+            if (tooling_detail::arg_bool(args, "full", false) && !args.contains("name") && !args.contains("filter")) {
+                if (json) return Json::object({{"components", export_components_json()}});
+                return Json::object({{"markdown", export_components_markdown()}});
+            }
+            const Json all = export_components_json();
+            std::vector<Entry> entries;
+            for (const Json& t : all) entries.push_back({t.value("name", ""), t.value("category", ""), first_sentence(t.value("doc", "")), &t, nullptr});
+            const Entry* exact = nullptr;
+            std::vector<Entry> picked = select_entries(entries, args, "component", "docs.components", &exact);
+            if (exact) {
+                if (json) return Json::object({{"components", Json::array({*exact->json})}});
+                std::ostringstream o;
+                write_component(o, *exact->json, "##");
+                return Json::object({{"markdown", o.str()}});
+            }
+            if (json) return Json::object({{"components", entries_json(picked)}, {"hint", "docs.components {\"name\":\"<name>\"} returns one in full."}});
+            const std::string f = tooling_detail::arg_string(args, "filter", false);
+            return Json::object({{"markdown", entries_markdown(picked, "Components", "docs.components", picked.empty() ? "Sprite" : picked.front().name,
+                                                                f.empty() ? "" : "Filter: `" + f + "`.\n\n")}});
         });
     }
     {
         CommandInfo info;
         info.name = "docs.commands";
         info.category = "docs";
-        info.summary = "Reference of every available command (tool) with arguments.";
-        info.description = "Lists the commands of this session, including project tools from tools/*.js.";
-        info.inputSchema = fmt_schema();
+        info.summary = "Reference of the available commands (tools) with arguments: a list of names, or one command in full.";
+        info.description = "Lists the commands of this session, including project tools from tools/*.js. With no argument it lists every command "
+                           "with its summary (the whole reference is over 200 KB, more than an MCP tool result carries). "
+                           "{\"name\":\"game.click\"} returns that command with its arguments, {\"filter\":\"ui\"} the commands whose name, "
+                           "category or summary contains the text, {\"full\":true} everything.";
+        info.inputSchema = docs_filter_schema("command");
         registry.add(info, [&registry](const Json& args) {
-            if (tooling_detail::arg_string(args, "format", false, "markdown") == "json")
-                return Json::object({{"commands", export_commands_json(registry)}});
-            return Json::object({{"markdown", export_commands_markdown(registry)}});
+            const bool json = tooling_detail::arg_string(args, "format", false, "markdown") == "json";
+            if (tooling_detail::arg_bool(args, "full", false) && !args.contains("name") && !args.contains("filter")) {
+                if (json) return Json::object({{"commands", export_commands_json(registry)}});
+                return Json::object({{"markdown", export_commands_markdown(registry)}});
+            }
+            std::vector<Entry> entries;
+            for (const CommandInfo* c : registry.list()) entries.push_back({c->name, c->category, c->summary, nullptr, c});
+            const Entry* exact = nullptr;
+            std::vector<Entry> picked = select_entries(entries, args, "command", "docs.commands", &exact);
+            if (exact) {
+                if (json) {
+                    for (const Json& c : export_commands_json(registry))
+                        if (c.value("name", "") == exact->name) return Json::object({{"commands", Json::array({c})}});
+                }
+                std::ostringstream o;
+                write_command(o, exact->info, "##");
+                return Json::object({{"markdown", o.str()}});
+            }
+            if (json) return Json::object({{"commands", entries_json(picked)}, {"hint", "docs.commands {\"name\":\"<name>\"} returns one in full."}});
+            const std::string f = tooling_detail::arg_string(args, "filter", false);
+            return Json::object({{"markdown", entries_markdown(picked, "Commands", "docs.commands", picked.empty() ? "game.step" : picked.front().name,
+                                                                f.empty() ? "" : "Filter: `" + f + "`.\n\n")}});
         });
     }
 }
