@@ -1275,9 +1275,9 @@ export default class Menu extends Behaviour {
 
 - **Navigation is automatic.** Up / down / left / right (keys, d-pad, left stick) move the focus to the nearest widget
   in that direction (widgets lined up with the focused one first, so Right along a row of tabs stays on the row),
-  `ui_submit` (Enter, Space, pad A) clicks, `ui_cancel` (Escape, pad B) sends `ui.cancel`; the mouse works too. Nothing is
+  `ui_submit` (Enter, Space, pad A) clicks, `ui_cancel` (Escape, pad B) sends `ui.cancel`; the mouse works too. An entity made of sprites, shapes or text that is not a Button gets all of this with the `Interactable` component (docs/MENUS.md, "Widgets from your own entities"). Nothing is
   focused until an `autoFocus` widget or `ui.focus(entity)` takes the focus, which keeps Space / A (jump) from clicking HUD
-  buttons during play. Rebind the six `ui_*` actions in `factoria.json` `input.actions` if you want other keys.
+  buttons during play. Tab and Shift+Tab (`ui_next`, `ui_previous`) walk the widgets in reading order from a focused one. Rebind the eight `ui_*` actions in `factoria.json` `input.actions` if you want other keys.
 - **Looks.** A plain widget is a translucent dark rectangle with a label; give `texture` + `slice` (9-slice borders in
   texture pixels) for a themed one, and `color`, `textColor`, `accentColor` to restyle. Everything is design pixels, so
   `size`, `padding` and `spacing` do not change with the window size (only with the interface size, `ui.scale`, which the player may change); use `anchor` and `pivot` to pin a panel to a corner

@@ -1371,8 +1371,9 @@ void register_builtin_components(TypeRegistry& r) {
                   "navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and "
                   "the ui.* commands find it by id. The hit area is `size` (a rectangle in the entity's local space) or, with size "
                   "0, the bounds of the entity and its children; in world space it is projected through the camera that draws "
-                  "there, so it follows parents that move, scale or rotate (a turning page, a swaying sign). An entity with a UI box "
-                  "(Panel, Image...) or screen-space visuals is a screen-space widget. Draw the look with ordinary children and "
+                  "there, so it follows parents that move, scale or rotate (a turning page, a swaying sign). An entity with "
+                  "screen-space visuals is a screen-space widget. An entity that is also a Button, Toggle, Slider, TextField, Panel "
+                  "or other UI-box component keeps that role and its Interactable is ignored. Draw the look with ordinary children and "
                   "InteractableVisual (show, hide or tint per state). Events (ui.on): click (button), change (toggle / slider, "
                   "value), focus, blur, hover (value true = entered, false = left), press and release (value true = released over it). "
                   "A world-space widget under a screen-space widget (or outside a modal Panel) is not reached.",
@@ -1393,14 +1394,14 @@ void register_builtin_components(TypeRegistry& r) {
           .field("size", &Interactable::size,
                  "Hit area [w, h] in the entity's LOCAL units, y up (screen space: UI units), so it scales and turns with the entity "
                  "and its parents. [0, 0] (default) = the bounding box (in the entity's own frame) of the visuals of the entity and "
-                 "its active children, not counting InteractableVisual entities that Show/Hide with the state; "
-                 "an entity with no visuals then has no area and cannot be hit.")
+                 "its active children, not counting InteractableVisual entities that Show/Hide with the state, a slider's knob and fill, "
+                 "and children that are Interactables themselves; an entity with no visuals then has no area and cannot be hit.")
           .field("offset", &Interactable::offset,
                  "Centre of the explicit area [x, y] from the entity origin, in local units. Ignored when size is [0, 0].")
           .enum_field("space", &Interactable::space, {"auto", "world", "screen"},
                       "auto (default): screen space when the entity or one of its children draws in screen space or has a UI box, "
                       "else world space. world: the area is projected through the camera. screen: the area is in screen space "
-                      "(UI units, position as a Panel's: the anchor of the UI box, else the top-left corner of the screen).")
+                      "(UI units; the anchor and safeArea of the entity's own screen-space Text, Sprite or Shape2D, else the top-left corner of the screen).")
           .field("on", &Interactable::on,
                  "Toggle: the value. Scripts may write it; no event is sent for a write. Visuals with when on / off follow it.")
           .field("value", &Interactable::value,
