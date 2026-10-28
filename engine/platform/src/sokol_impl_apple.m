@@ -172,3 +172,31 @@ bool fa_sapp_safe_insets(float* left, float* top, float* right, float* bottom) {
     return false;
 #endif
 }
+
+bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h) {
+#if !TARGET_OS_IPHONE
+    if (rgba == NULL || w <= 0 || h <= 0 || NSApp == nil) return false;
+    NSBitmapImageRep* rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+                                                                    pixelsWide:w
+                                                                    pixelsHigh:h
+                                                                 bitsPerSample:8
+                                                               samplesPerPixel:4
+                                                                      hasAlpha:YES
+                                                                      isPlanar:NO
+                                                                colorSpaceName:NSDeviceRGBColorSpace
+                                                                  bitmapFormat:NSBitmapFormatAlphaNonpremultiplied
+                                                                   bytesPerRow:w * 4
+                                                                  bitsPerPixel:32];
+    if (rep == nil) return false;
+    memcpy(rep.bitmapData, rgba, (size_t)w * (size_t)h * 4);
+    NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(w, h)];
+    [image addRepresentation:rep];
+    NSApp.applicationIconImage = image;
+    return true;
+#else
+    (void)rgba;
+    (void)w;
+    (void)h;
+    return false;
+#endif
+}

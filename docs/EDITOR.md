@@ -453,10 +453,20 @@ badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its p
 - **Right-click** a file: **Show in Finder** (Explorer, file manager), **Copy path**, **Delete...** (asks first, then `fs.delete`;
   it is not an Undo step, the file is gone from disk).
 
+## The program icon
+
+The editor's window icon (Windows, Linux) and its macOS Dock icon are the PNGs in `tools/editor/icon/`, embedded in the
+editor; `factoria.exe` and `FactorIA-Editor.exe` carry the same sizes in `tools/cli/windows/factoria.ico`. They are made from
+the sources in `tools/editor/icon/src/`: the artwork (`factoria_art.png`, 1024 px) for 32 px and up, and a simplified
+drawing (`factoria_small.svg`, rendered to `factoria_small.png`) for 16 and 24 px, where the artwork turns into a blur. After
+changing a source run `python3 tools/editor/icon/make_icons.py` (needs Pillow) and commit what it writes.
+
+The icon of a game is its own (`factoria.json` `icon`, docs/EXPORTING.md), not this one.
+
 ## Testing the editor
 
 - `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed and the Profiler view (`tools/editor/src/editor_tools.*`), picking geometry
-  (`pick.cpp`), the Project panel's tree, filter and sort (`project_browser_model.*`), the reflected fields the AI edits, what Save writes, the window title, and the Export window's logic
+  (`pick.cpp`), the Project panel's tree, filter and sort (`project_browser_model.*`), the reflected fields the AI edits, what Save writes, the window title, the program icon (`app_icon.*`: every window size and the Dock icon decode), and the Export window's logic
   (`export_job.*`: the options each platform's button exports with, the rows' checks, the export on its worker thread, its
   progress lines and cancelling), the Platform settings window's logic (`platform_settings.*`: the working copy, Save and
   Revert, validation, icons, the Android toolchain, the keystore command and creation) and the Set Up This Computer window's

@@ -380,6 +380,13 @@ bool fa_sapp_set_vsync(bool on) {
 #endif
 }
 
+bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h) {
+    (void)rgba;  // macOS only (sokol_impl_apple.m): Windows and Linux take the window icon from sapp_desc.icon
+    (void)w;
+    (void)h;
+    return false;
+}
+
 #if defined(__ANDROID__)
 // Ending the process when the activity is destroyed.
 //

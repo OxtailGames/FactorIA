@@ -23,6 +23,11 @@ fa_embed_files(fa_editor fa_editor_fonts editor_fonts
     FILES ${FA_ROOT}/engine/render/assets/fonts/DejaVuSans.ttf
     BASE ${FA_ROOT}/engine/render/assets/fonts)
 
+# The FactorIA icon (window and Dock; tools/editor/icon/make_icons.py makes it); header "editor_icon.h", namespace
+# fa_editor_icon.
+file(GLOB editor_icon_pngs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/icon/*.png)
+fa_embed_files(fa_editor fa_editor_icon editor_icon FILES ${editor_icon_pngs} BASE ${CMAKE_CURRENT_SOURCE_DIR}/icon)
+
 # The sokol_imgui implementation TU embeds third-party code: relax warnings there.
 if(MSVC)
     set_source_files_properties(src/imgui_backend.cpp PROPERTIES COMPILE_OPTIONS "/w")

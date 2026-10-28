@@ -1,0 +1,3 @@
+// The FactorIA icon of factoria.exe and FactorIA-Editor.exe (Windows only; tools/cli/CMakeLists.txt compiles this file
+// into both). factoria.ico is generated with the editor's window icon by tools/editor/icon/make_icons.py.
+1 ICON "factoria.ico"
