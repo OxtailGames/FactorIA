@@ -1821,7 +1821,7 @@
   };
 
   const DRAG_EVENTS = ["dragStart", "dragOver", "drop", "dragCancel"];
-  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel", "scale", "textScale", "chartHover", "viewPointer", ...DRAG_EVENTS];
+  const UI_EVENTS = ["click", "change", "submit", "focus", "blur", "hover", "press", "release", "cancel", "scale", "textScale", "chartHover", "viewPointer", ...DRAG_EVENTS];
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
     // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
@@ -1841,7 +1841,7 @@
     // True when the text of a Text entity (with a maxWidth / maxHeight box) or the label of a widget still does not fit its box at
     // the size it is drawn at (autoShrink and maxTextScale applied). Read it after game.step or ui.layout().
     overflowed(entityOrId) { return N.overflowed(entityHandle(entityOrId, "ui.overflowed")); },
-    // Where a widget or a screen-space Text really is: a Rect { x, y, w, h } in design pixels, (x, y) the TOP-LEFT corner, y down,
+    // Where a widget, an Interactable (a world-space one as the camera shows it) or a screen-space Text really is: a Rect { x, y, w, h } in design pixels, (x, y) the TOP-LEFT corner, y down,
     // the safe area included (not the +Y-up convention of entity.bounds()). Takes an Entity or an id/name; null for anything
     // that is neither (a world-space sprite). Layout runs each frame: read it after game.step or ui.layout().
     rectOf(entityOrId) {
@@ -1867,6 +1867,11 @@
     // on(type, fn) / on(type, target, fn): the widget events the engine sends as "ui.<type>" (see world.on), with the id
     // of the widget in `e.id` and, for "change" and "submit", the new value in `e.value`. `target` (an Entity or an entity
     // id) limits it to one widget. Returns the function that stops listening.
+    // "hover", "blur", "press" and "release" are sent by Interactable widgets (the Interactable component, docs/MENUS.md "Widgets from your
+    // own entities"), not by Button, Toggle or Slider: "hover" has `e.value` true when the pointer came over the widget and false when
+    // it left; "blur" is the focus leaving (the counterpart of "focus"); "press" is the pointer going down on it; "release" is the pointer
+    // going up, with `e.value` true when it was still over the widget (then "click" follows). An Interactable also sends "click",
+    // "focus", "submit" (confirm on the focused one), "change" (its toggle or slider value in `e.value`) and "cancel".
     // "chartHover": the sample of a Chart under the pointer changed; the event has `index` (0 = the first value of the series), `series`
     // and `value`; index and series are -1 (and there is no value) when the pointer left the chart.
     // "viewPointer": the pointer pressed, dragged, released or turned the wheel over a CameraView; the event has `phase` ("down", "drag", "up" or
@@ -1942,11 +1947,12 @@
     stopSpeaking() { N.stopSpeaking(); },
     // True when the system can speak (headless runs and tests: always true, they record). Hide a "read menus aloud" option when false.
     get speechAvailable() { return N.speechAvailable(); },
-    // Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears it). Throws, saying why, when
-    // the entity cannot take focus.
+    // Gives keyboard / gamepad focus to a Button, Toggle, Slider, TextField or Interactable (null clears it). Returns false for a
+    // disabled one. Throws, saying why, when the entity cannot take focus.
     focus(target) { return N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
-    // The topmost visible widget (Button, Toggle, Slider, TextField, Panel, ScrollList...) under the screen point, or null over empty
-    // space or what a ScrollList clips away. x, y in design pixels, y down, like ui.rectOf.
+    // The topmost visible widget (Button, Toggle, Slider, TextField, Panel, ScrollList... or an Interactable, also one in world space,
+    // seen through the camera that draws at the point; a screen-space widget wins over a world one) under the screen point, or null over
+    // empty space or what a ScrollList clips away. x, y in design pixels, y down, like ui.rectOf.
     widgetAt(x, y) {
       if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`ui.widgetAt(x, y) expects two numbers (design pixels, y down), e.g. ui.widgetAt(640, 360), but got ${inspect(x)}, ${inspect(y)}`);
       return entityOf(N.uiWidgetAt(x, y));
@@ -3391,8 +3397,8 @@
   }
 
   const stepN = (n) => N.testStep(n);
-  // A position, or a widget id / Entity: the centre of its laid-out rectangle (the safe area is included; a widget moves one
-  // game.step after game.setSafeArea).
+  // A position, or a widget id / Entity (an Interactable too, also one in world space): the centre of its laid-out rectangle (the
+  // safe area is included; a widget moves one game.step after game.setSafeArea).
   // A widget is laid out first (a panel opened since the last step has no rectangle yet) and one that cannot be clicked throws.
   const posArg = (p, what, check = true) => {
     if (typeof p === "string" || p instanceof Entity) {
@@ -3485,7 +3491,7 @@
     keyUp(key) { N.inKeyEvent(key, false); },
     // Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change
     // {id, value} is sent when the number changed (to ui.on listeners at the next step). Writing Slider.value from a script
-    // sends nothing; this does. Throws when the entity is no Slider, or is inactive or not interactable.
+    // sends nothing; this does. Works on an Interactable of kind "slider" too. Throws when the entity is no slider, or is inactive or not interactable.
     setSlider(id, value) {
       if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`game.setSlider(id, value) expects a number, but got ${inspect(value)}`);
       fa.call("ui.set_slider", { id: typeof id === "string" ? id : (id && id.id) || String(id), value });
