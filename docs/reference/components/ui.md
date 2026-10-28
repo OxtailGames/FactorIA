@@ -141,6 +141,54 @@ A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines i
 | `hoverIndex` | int | `-1` | Runtime: the sample under the pointer (0 = the first value of the series), -1 when none. Written by the UI every frame. Read-only. Runtime-only (not saved). |
 | `hoverSeries` | int | `-1` | Runtime: the series of the sample under the pointer, -1 when none. Read-only. Runtime-only (not saved). |
 
+## Interactable
+
+Not released yet (on main after 0.3.0).
+
+Makes this entity, whatever it is made of (sprites, shapes, text, children), a widget that joins the same focus, navigation and events as Button, Toggle and Slider: hover, press, click, focus, the arrow keys / d-pad (spatial navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and the ui.* commands find it by id. The hit area is `size` (a rectangle in the entity's local space) or, with size 0, the bounds of the entity and its children; in world space it is projected through the camera that draws there, so it follows parents that move, scale or rotate (a turning page, a swaying sign). An entity with screen-space visuals is a screen-space widget. An entity that is also a Button, Toggle, Slider, TextField, Panel or other UI-box component keeps that role and its Interactable is ignored. Draw the look with ordinary children and InteractableVisual (show, hide or tint per state). Events (ui.on): click (button), change (toggle / slider, value), focus, blur, hover (value true = entered, false = left), press and release (value true = released over it). A world-space widget under a screen-space widget (or outside a modal Panel) is not reached.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `kind` | enum: button \\| toggle \\| slider | `"button"` | button: a click or ui_submit sends ui.click {id}. toggle: it flips `on` and sends ui.change {id, value: bool}. slider: dragging along the area or left / right (down / up with axis y) sets `value` and sends ui.change {id, value: number}. |
+| `enabled` | bool | `true` | false: the Disabled state. It is never hovered, focused, pressed or clicked and sends no events; a focused one loses focus. Visuals with when/disabled show. |
+| `autoFocus` | bool | `false` | Same rule as Button.autoFocus: when NOTHING is focused the first widget with autoFocus (reading order of their areas on the screen) takes the keyboard / gamepad focus. Mark the first item of each menu. |
+| `focusOnHover` | bool | `false` | true: the pointer entering the widget moves the focus to it (once per entry, so the arrow keys still move it away). false (default, like the built-in widgets): the focus moves on a press. |
+| `size` | vec2 | `[0.0,0.0]` | Hit area [w, h] in the entity's LOCAL units, y up (screen space: UI units), so it scales and turns with the entity and its parents. [0, 0] (default) = the bounding box (in the entity's own frame) of the visuals of the entity and its active children, not counting InteractableVisual entities that Show/Hide with the state, a slider's knob and fill, and children that are Interactables themselves; an entity with no visuals then has no area and cannot be hit. |
+| `offset` | vec2 | `[0.0,0.0]` | Centre of the explicit area [x, y] from the entity origin, in local units. Ignored when size is [0, 0]. |
+| `space` | enum: auto \\| world \\| screen | `"auto"` | auto (default): screen space when the entity or one of its children draws in screen space or has a UI box, else world space. world: the area is projected through the camera. screen: the area is in screen space (UI units; the anchor and safeArea of the entity's own screen-space Text, Sprite or Shape2D, else the top-left corner of the screen). |
+| `on` | bool | `false` | Toggle: the value. Scripts may write it; no event is sent for a write. Visuals with when on / off follow it. |
+| `value` | float | `0.0` | Slider: the value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write. `knob` and `fill` follow it every frame. |
+| `min` | float | `0.0` | Slider: the smallest value. |
+| `max` | float | `1.0` | Slider: the largest value. |
+| `step` | float | `0.0` | Slider: the keyboard / gamepad increment and the grid the value snaps to (also when dragging). 0 = continuous: keys move (max - min) / 20 per press. Range 0.0..1000000.0. |
+| `axis` | enum: x \\| y | `"x"` | Slider: the track runs along the area's local x (min at the left end, max at the right) or local y (min at the bottom, max at the top). The area is the track: its length along the axis is the travel of the knob. |
+| `knob` | entity |  | Slider: id of the entity moved along the track so that it sits at the value (only its local position along `axis` is set, in the frame of its own parent: make it a child of this entity). Empty = none. |
+| `fill` | entity |  | Slider: id of the entity whose local scale along `axis` becomes the fraction (value - min) / (max - min), and whose position along the axis is the start of the track. Give it a pivot at its start (a Shape2D or Sprite with pivot [0, 0.5]) and the size of the whole track. Empty = none. |
+| `label` | string | `""` | Accessibility label, what ui.state reports as `text` and the read-aloud recipe speaks. Empty = the text of the first Text among the entity and its children. Overwritten by the translation while `key` is set. |
+| `key` | string | `""` | Localization key for `label` (docs/LOCALIZATION.md), like Button.key. Empty = not translated. |
+| `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. |
+| `focused` | bool | `false` | Runtime: has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
+| `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over it and it is the top-most widget there. Read-only. Runtime-only (not saved). |
+| `pressed` | bool | `false` | Runtime: the pointer is held down on it. Read-only. Runtime-only (not saved). |
+| `state` | enum: normal \\| hover \\| pressed \\| focused \\| disabled | `"normal"` | Runtime: the one state the visuals show: disabled (enabled is false), else pressed, else hover, else focused, else normal. Written by the UI every frame. Read-only. Runtime-only (not saved). |
+
+## InteractableVisual
+
+Not released yet (on main after 0.3.0).
+
+Makes this entity follow the state of an Interactable with no script. Show: the entity is active only while `when` holds (a highlight on hover, a check mark when a toggle is on, a pressed sprite). Tint: the colour of its Sprite, Shape2D or Text (the first one it has) is set from the state every frame. Put it on a child of the Interactable or give `target`.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `target` | entity |  | Id of the Interactable to follow. Empty (default) = the nearest ancestor that has an Interactable. |
+| `mode` | enum: show \\| tint | `"show"` | show: the entity is active only while `when` holds. tint: its colour follows the state (the colours below). |
+| `when` | enum: always \\| normal \\| hover \\| pressed \\| focused \\| disabled \\| on \\| off | `"hover"` | Show only. always: always active. normal: neither hovered, pressed, focused nor disabled. hover, pressed, focused: that flag is set (a hovered and focused widget shows both). disabled: enabled is false. on / off: a toggle's `on` is true / false. |
+| `normal` | color | `[1.0,1.0,1.0,1.0]` | Tint: colour in the normal state. |
+| `hover` | color | `[1.0,1.0,1.0,1.0]` | Tint: colour while hovered (and not pressed). |
+| `pressed` | color | `[1.0,1.0,1.0,1.0]` | Tint: colour while pressed. |
+| `focused` | color | `[1.0,1.0,1.0,1.0]` | Tint: colour while focused (and not hovered or pressed). |
+| `disabled` | color | `[0.5,0.5,0.5,0.6]` | Tint: colour while the Interactable is not enabled. |
+
 ## Panel
 
 Since 0.1.6.

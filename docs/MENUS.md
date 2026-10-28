@@ -504,6 +504,97 @@ card.ask({
   and the result stage. `Panel.modal` alone works on any panel (a confirm dialog, the pause menu): set `"modal": true` on the
   root Panel of a screen that must own the input.
 
+## Widgets from your own entities
+
+A shop sign you hit with the mouse, a book whose pages turn, a menu painted on a wall in a 3D-looking scene, a card hand,
+a map marker: these are not rectangles in a Panel. Give any entity the `Interactable` component and it is a widget of the same
+system as Button, Toggle and Slider, whatever it is made of (sprites, shapes, text, children), in world space or on the
+screen. There is no second UI behind it: it takes focus, arrow-key and pad navigation, `Tab`, `ui_submit` and `ui_cancel`,
+hover and press, `Panel.modal` scopes, `game.click`, `ui.widgetAt`, `ui.rectOf` and the `ui.*` commands exactly like a Button.
+
+```json
+{ "id": "start", "components": {
+    "Transform": { "position": [-60, 40] },
+    "Shape2D": { "size": [60, 20] },
+    "Interactable": { "autoFocus": true } },
+  "children": [
+    { "id": "start_glow", "components": {
+        "Shape2D": { "size": [64, 24], "color": [1, 1, 0, 1] },
+        "InteractableVisual": { "mode": "show", "when": "hover" } } } ] }
+```
+
+- **The hit area.** `size` and `offset` give a rectangle in the entity's own space (so it scales and turns with the entity and its
+  parents). With `size` `[0, 0]` the area is the box around the visuals of the entity and its active children (sprites, shapes,
+  text); not counted are a child that is an `InteractableVisual` which shows and hides with the state (a glow that
+  appears on hover must not make the area grow), a slider's `knob` and `fill`, and a child that is an Interactable itself (it
+  is a widget of its own). An entity with no area cannot be hit or clicked: `game.click` says so.
+- **World or screen.** `space: "auto"` is screen space when the entity or a child draws in screen space (a `Text` or `Sprite`
+  with `space: "screen"`), else world space; `"world"` and `"screen"` force it. A world-space area is projected through the
+  camera that draws at the pointer (several cameras with viewports work, each pointer position uses the one drawing there), so a
+  widget on a swaying sign or a page turning in 3D is hit where it is drawn, and follows parents that move, scale or rotate.
+  A screen-space widget wins over a world-space one under the same point, and a modal `Panel` blocks the Interactables
+  outside it like any other widget outside it. An Interactable on an entity that is also a Button, Toggle, Slider,
+  TextField, Panel or other UI-box component is ignored: the built-in widget wins. The hit test is the quad of the
+  area's four projected corners (exact under a perspective camera too); a slider drag measures how far along the projected
+  track the pointer is, which is only approximate under strong perspective.
+- **`kind`.** `button` sends `ui.click {id}` when the pointer is released over it after being pressed on it, or on `ui_submit`
+  while it has the focus. `toggle` flips `on` the same way and sends `ui.change {id, value}` (a boolean; a toggle sends no
+  `click`). `slider` keeps a number `value` between `min` and `max`, snapped to `step`: dragging along the area, or
+  left / right (down / up with `axis: "y"`) while focused, sets it and sends `ui.change {id, value}`. The track is the area along
+  `axis`. `knob` (a child of the Interactable) is moved along the track to the value, and `fill` (a child with its pivot at the
+  start of the track) is scaled along `axis` to the fraction; they are placed in world space, or in screen space when `size`
+  is set. Scripts may write `on` and `value`: no event is sent for a write (`game.setSlider(id, value)` and the
+  `ui.set_slider` command do send it, as a drag would).
+- **States, without code.** `Interactable.state` is the one state the visuals show: `disabled` (`enabled` is false), else
+  `pressed`, else `hover`, else `focused`, else `normal`; `hovered`, `focused` and `pressed` are the flags (read-only, written by the
+  UI). Put `InteractableVisual` on a child of the Interactable (or set `target`): `mode: "show"` makes that entity active only while
+  `when` holds (`hover`, `pressed`, `focused`, `normal`, `disabled`, `on` / `off` for a toggle, `always`); `mode: "tint"` sets the colour
+  of its Sprite, Shape2D or Text from `normal`, `hover`, `pressed`, `focused` and `disabled`. A check mark that shows while a toggle is on
+  is a child with `when: "on"`. `InteractableVisual` on the Interactable's own entity does nothing in `show` mode.
+- **Focus and navigation.** The same rules as the built-in widgets (see SCRIPTING.md, "Focus and navigation"): nothing is
+  focused until an `autoFocus` widget takes it, the arrows and the d-pad move the focus to the nearest widget in that direction
+  among Buttons and Interactables alike (using their areas as seen on the screen), `ui_cancel` sends `ui.cancel`. `Tab` (`ui_next`) and
+  `Shift+Tab` (`ui_previous`) walk the focusable widgets in reading order, wrapping around (new default actions for every widget); like the arrows they need a focus
+  to start from (focus one with `autoFocus` or `ui.focus(entity)`). `focusOnHover: true` moves the focus to the widget when the
+  pointer enters it, once per entry; the default, like a Button, moves it on a press. `enabled: false` makes it a greyed-out
+  widget: never hovered, focused or clicked, skipped by navigation.
+- **Events** (`ui.on`, or `this.on("ui.<type>", ...)`): `click`, `change`, `focus` and `cancel` as for the built-ins, plus
+  `hover` (`value` true when the pointer came over it, false when it left), `blur` (the focus left it), `press` (the pointer went down
+  on it) and `release` (the pointer went up; `value` is true when it was still over the widget, and then `click` follows). `hover`,
+  `blur`, `press` and `release` come from Interactables only; Button, Toggle and Slider do not send them.
+- **Finding it.** `ui.widgetAt(x, y)` returns it, `ui.rectOf(id)` is the box of its area on the screen (design pixels, y down), `ui.focus(id)` focuses it
+  (false when it is disabled), `ui.state` lists it with `kind: "Interactable"`, `interactableKind`, `state`, `world`, `value` (a toggle's or slider's)
+  and `text` (its accessibility label), and `game.click(id)` / `game.mouseMove(id)` / the `game.click` command aim at the centre of its area.
+  `label` is the accessibility label; empty, it is the first `Text` among the entity and its children; `key` and `keyArgs` translate it
+  like a Button's. There are no tooltips on an Interactable yet.
+- **A test plays it like a person.** Nothing in this menu is a Button, and the test only presses, moves and clicks:
+
+```js
+import { test, expect, game } from "factoria:test";
+import { ui } from "factoria";
+import menu from "../scenes/main.scene.json";
+
+test("the world menu works with the pointer and the keyboard", () => {
+  game.loadJson(menu);
+  game.step(1);
+  expect(ui.focused.id).toBe("start");                // autoFocus
+  game.mouseMove("music");                            // the centre of its area, as the camera shows it
+  game.step(1);
+  expect(ui.hovered.id).toBe("music");
+  game.click("music");                                // a toggle: press, release, ui.change
+  expect(game.find("music").get("Interactable").on).toBe(true);
+  expect(game.find("music_tick").active).toBe(true);  // an InteractableVisual child with when: "on"
+  game.tap("ui_down");                                // the arrows walk world widgets like Buttons
+  game.setSlider("volume", 0.5);                      // a slider Interactable: ui.change, and the knob moves
+  const track = ui.rectOf("volume");
+  game.drag("volume", [track.x + track.w, track.y + track.h / 2]);      // dragging to the end of the track
+  expect(game.find("volume").get("Interactable").value).toBe(1);
+});
+```
+
+The engine's own test of this (`engine/runtime/tests/ui_tests.cpp`, "a world-space menu of plain entities") runs a menu of a button with a
+hover glow, a toggle with a tick, a slider with a knob and a disabled card, next to a screen-space Button.
+
 ## Tooltips
 
 A tooltip is a small box with a title and lines that shows beside the pointer after it rests on something. The engine

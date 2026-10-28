@@ -272,7 +272,7 @@ Game-maker docs: [ANIMATION.md](ANIMATION.md).
 
 ### UI
 Menus and settings screens are components (`Panel`, `Button`, `Toggle`, `Slider`, `TextField`, `ScrollList` in
-`scene/components.h`, category "UI"), screen space only. The work is split three ways so nobody depends on a sibling:
+`scene/components.h`, category "UI"), screen space only; `Interactable` is the exception (below). The work is split three ways so nobody depends on a sibling:
 - **Where a widget is** has ONE definition, `fa/scene/ui_rect.h` (`ui_rect`, `ui_clip_rect`, `ui_slider_track`); layout, hit-testing, drawing and
   the editor's picking (`bounds.h`) all call it.
 - **How it behaves** is `fa_ui` (`UiSystem`, `fa/ui/ui.h`): layout of Panel and ScrollList children, focus rules
@@ -280,6 +280,13 @@ Menus and settings screens are components (`Panel`, `Button`, `Toggle`, `Slider`
   drag / wheel, widget values, and the `ui.*` game events (`world.events().game`, which scripts receive through
   `world.on` and `ui.on`). It reads `Input`, writes components and events, never draws. The runtime calls `update`
   every frame before `scripts.update` and `layout` before drawing; `ui.state` is its read-only command.
+- **Any entity as a widget.** The `Interactable` component (`scene/components.h`) makes a composition of sprites, shapes, text and
+  children a widget of the same focus, navigation and event system, with no second system next to it: `fa_ui` keeps one list of
+  items in which a Button and an Interactable differ only in where the rectangle comes from (`ui/src/interactable.cpp`: the bounds of the
+  entity and its children, projected through a camera for a world-space one, or screen-space rectangles). `UiSystem` gets the camera as
+  an injected `UiProjectFn` (`set_world_projection`; the runtime installs the renderer's `world_to_screen`/`camera_at`, because `fa_ui` is below
+  `fa_render`; without it `scene/camera_query.h` does the orthographic maths, which headless runs use). `InteractableVisual` children
+  show, hide or tint by state; hover, blur, press and release events come from Interactables only.
 - **How it looks** is `fa_render` (`render/src/ui2d.cpp`): 9-slice backgrounds, labels, focus ring, drawn into the screen quad
   list. A ScrollList's descendants (widgets and every other screen-space item) carry a clip rectangle that `draw_group` applies as a scissor;
   batches only merge with an equal clip.
