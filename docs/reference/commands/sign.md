@@ -33,7 +33,7 @@ Takes the app `project.export` wrote for macOS (build/export/<game-slug>-macos/<
 
 ## `sign.windows` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Sign the Windows MSIX package (and the exe) with a code-signing certificate, to install it outside the Microsoft Store.
 

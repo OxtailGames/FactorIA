@@ -81,7 +81,7 @@ Runs `butler push <export folder> <user>/<game>:<channel> --userversion <version
 
 ## `publish.microsoft` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Upload the Windows MSIX package to the Microsoft Store (msstore publish).
 

@@ -46,7 +46,7 @@ The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep pl
 
 ## `ui.set_mirror_rtl` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Turn the mirroring of the screen-space UI in a right-to-left language on or off.
 
@@ -58,7 +58,7 @@ The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right to 
 
 ## `ui.set_scale` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Set the interface scale: every screen-space widget and Text gets bigger or smaller.
 
@@ -70,7 +70,7 @@ The same as `ui.scale = value` in a script (docs/TEXT.md, "Interface size"): the
 
 ## `ui.set_slider` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent.
 

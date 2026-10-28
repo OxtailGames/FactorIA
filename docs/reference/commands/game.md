@@ -40,7 +40,7 @@ Example: game.pause {}
 
 ## `game.render_stats`
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.
 
@@ -91,7 +91,7 @@ Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `re
 
 ## `input.record` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Record the input the game receives as an input replay (start / stop).
 

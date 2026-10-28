@@ -110,7 +110,7 @@ Use it when the game is slow and you need to know WHY (perf.measure only says ho
 
 ## `player.run_ios_sim` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Play an input replay on the iOS player in the iOS Simulator (an iPhone or an iPad), turn the screen and take a screenshot.
 
@@ -130,7 +130,7 @@ Needs a Mac with Xcode. `xcrun simctl` can neither tap nor rotate, so the player
 
 ## `project.add_menu_kit` (modifies state)
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales.
 

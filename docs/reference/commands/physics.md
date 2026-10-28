@@ -4,7 +4,7 @@
 
 ## `nav.bake`
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Bake the NavMesh3D walkable grid from the static 3D colliders and return its stats.
 
@@ -16,7 +16,7 @@ A NavMesh3D component marks a box of the level. Baking voxelizes the static coll
 
 ## `nav.find_path`
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Find a walkable path between two 3D points on the baked NavMesh3D.
 
@@ -33,7 +33,7 @@ A* over the walkable grid, then string pulling: the result is few corner points 
 
 ## `nav.find_tile_path`
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Find a path over the cells of a Tilemap (or a plain cost grid) with A*.
 
@@ -53,7 +53,7 @@ Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an ent
 
 ## `nav.flow_field`
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Distance field over the cells of a Tilemap (or a plain cost grid) from one or more goal cells.
 
@@ -70,7 +70,7 @@ The cost of the cheapest route from every cell to the nearest goal, with the sam
 
 ## `nav.info`
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 List the NavMesh3D components with their bounds, agent size, bake state and stats.
 
@@ -96,7 +96,7 @@ Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
 
 ## `physics.raycast_all`
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 Cast a ray against colliders (2D segment or 3D ray) and return EVERY hit, nearest first.
 
