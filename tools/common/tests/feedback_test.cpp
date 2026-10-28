@@ -315,3 +315,121 @@ TEST_CASE("feedback: similar titles of different gaps stay apart, and distinctFr
     for (const auto& err : validate_feedback(doc))  // the entry is not complete, but distinctFrom is a known field
         CHECK_MESSAGE(err.pointer.find("distinctFrom") == std::string::npos, err.message);
 }
+
+TEST_CASE("feedback archive: closed entries move, ids keep increasing, the operation is idempotent") {
+    Json doc = create_empty_feedback("g");
+    Json archive = create_empty_feedback("g");
+    REQUIRE(add_feedback_entry(doc, make("No one-way platforms")).ok());
+    REQUIRE(add_feedback_entry(doc, make("Particles cannot use sprite sheets", "rendering-2d")).ok());
+    REQUIRE(add_feedback_entry(doc, make("No gamepad rumble", "input")).ok());
+    REQUIRE(update_feedback_entry(doc, "FB-0001", "fixed-in-engine", "").ok());
+    REQUIRE(update_feedback_entry(doc, "FB-0003", "wont-fix", "").ok());
+
+    auto r = archive_closed_feedback(doc, archive);
+    CHECK(r.moved == 2);
+    CHECK(r.open == 1);
+    CHECK(r.archived == 2);
+    CHECK(doc["entries"].size() == 1);
+    CHECK(doc["entries"][0]["id"] == "FB-0002");
+    CHECK(archive["entries"].size() == 2);
+
+    auto again = archive_closed_feedback(doc, archive);
+    CHECK(again.moved == 0);
+    CHECK(archive["entries"].size() == 2);
+
+    // A new entry does not reuse an archived id.
+    auto n = add_feedback_entry(doc, make("Audio buses cannot be renamed", "audio"), &archive);
+    REQUIRE(n.ok());
+    CHECK(n->id == "FB-0004");
+}
+
+TEST_CASE("feedback archive: a report matching an archived fixed-in-engine entry reopens it") {
+    Json doc = create_empty_feedback("g");
+    Json archive = create_empty_feedback("g");
+    REQUIRE(add_feedback_entry(doc, make("No one-way platforms")).ok());
+    REQUIRE(update_feedback_entry(doc, "FB-0001", "fixed-in-engine", "").ok());
+    archive_closed_feedback(doc, archive);
+    REQUIRE(doc["entries"].empty());
+
+    auto r = add_feedback_entry(doc, make("No one-way platforms"), &archive);
+    REQUIRE(r.ok());
+    CHECK(r->reopened);
+    CHECK(r->merged);
+    CHECK(r->id == "FB-0001");
+    CHECK(archive["entries"].empty());
+    REQUIRE(doc["entries"].size() == 1);
+    CHECK(doc["entries"][0]["status"] == "open");
+    CHECK(doc["entries"][0]["occurrences"] == 2);
+    CHECK(doc["entries"][0]["notes"].dump().find("regression?") != std::string::npos);
+
+    // A wont-fix entry in the archive does not reopen: the gap is reported as a new entry.
+    Json doc2 = create_empty_feedback("g");
+    Json archive2 = create_empty_feedback("g");
+    REQUIRE(add_feedback_entry(doc2, make("No one-way platforms")).ok());
+    REQUIRE(update_feedback_entry(doc2, "FB-0001", "wont-fix", "").ok());
+    archive_closed_feedback(doc2, archive2);
+    auto r2 = add_feedback_entry(doc2, make("No one-way platforms"), &archive2);
+    REQUIRE(r2.ok());
+    CHECK_FALSE(r2->reopened);
+    CHECK(r2->id == "FB-0002");
+}
+
+TEST_CASE("feedback archive: files, commands, list and collect") {
+    testing::TempDir tmp;
+    testing::write_all(tmp.path / "factoria.json", R"({"format":"factoria.project/1","name":"Arch Game"})");
+    CommandRegistry reg;
+    register_feedback_commands(reg, tmp.str());
+    REQUIRE(reg.has("feedback.archive"));
+    CHECK_FALSE(reg.info("feedback.archive")->readOnly);
+
+    auto report = [&](const std::string& title, const std::string& cat) {
+        return reg.call("feedback.report", {{"category", cat}, {"severity", "major"}, {"title", title},
+                                            {"missing", "Engine lacks " + title}, {"workaround", "Script for " + title}});
+    };
+    REQUIRE(report("No one-way platforms", "physics").ok);
+    REQUIRE(report("No gamepad rumble", "input").ok);
+    REQUIRE(reg.call("feedback.update", {{"id", "FB-0001"}, {"status", "fixed-in-engine"}}).ok);
+
+    const std::string file = tmp.sub("ENGINE_FEEDBACK.json");
+    auto before = collect_feedback({tmp.str()}, CollectOptions{true, 0.7});
+    REQUIRE(before.ok());
+
+    auto a = reg.call("feedback.archive", Json::object());
+    REQUIRE(a.ok);
+    CHECK(a.result["moved"] == 1);
+    CHECK(a.result["open"] == 1);
+    CHECK(a.result["archived"] == 1);
+    CHECK(std::filesystem::exists(feedback_archive_path(file)));
+    CHECK(feedback_archive_path(file).find("ENGINE_FEEDBACK.archive.json") != std::string::npos);
+    CHECK(reg.call("feedback.archive", Json::object()).result["moved"] == 0);
+
+    CHECK(reg.call("feedback.list", Json::object()).result["count"] == 1);
+    auto withArchive = reg.call("feedback.list", {{"includeArchive", true}});
+    REQUIRE(withArchive.ok);
+    CHECK(withArchive.result["archivedCount"] == 1);
+    CHECK(withArchive.result["count"] == 2);
+
+    // collect: the same output with the entry in the archive as before archiving.
+    auto after = collect_feedback({tmp.str()}, CollectOptions{true, 0.7});
+    REQUIRE(after.ok());
+    CHECK(after->json["totalEntries"] == before->json["totalEntries"]);
+    CHECK(after->json["clusters"].size() == before->json["clusters"].size());
+    CHECK(after->markdown() == before->markdown());
+    // Without --include-closed the archived (closed) entry stays out, as it was before archiving.
+    auto openOnly = collect_feedback({tmp.str()});
+    REQUIRE(openOnly.ok());
+    CHECK(openOnly->json["clusters"].size() == 1);
+
+    // Reopening an archived entry through feedback.update moves it back.
+    REQUIRE(reg.call("feedback.update", {{"id", "FB-0001"}, {"status", "open"}}).ok);
+    CHECK(reg.call("feedback.list", Json::object()).result["count"] == 2);
+    CHECK(reg.call("feedback.archive", Json::object()).result["archived"] == 0);
+
+    // Reporting a gap that was fixed and archived reopens it.
+    REQUIRE(reg.call("feedback.update", {{"id", "FB-0002"}, {"status", "fixed-in-engine"}}).ok);
+    REQUIRE(reg.call("feedback.archive", Json::object()).ok);
+    auto again = report("No gamepad rumble", "input");
+    REQUIRE(again.ok);
+    CHECK(again.result["reopened"] == true);
+    CHECK(again.result["id"] == "FB-0002");
+}

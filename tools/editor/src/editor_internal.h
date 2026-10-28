@@ -229,6 +229,8 @@ public:
     void draw_toolbar();
     void draw_status_bar();
     void build_default_layout(unsigned dockId, ImVec2 size);
+    // Back to the welcome screen (no project): the UI and the engine are torn down on the next frame like in open_project.
+    void close_project() { pendingWelcome_ = true; }
     void draw_viewport();
     void draw_console();
     void draw_ai_panel();
@@ -352,6 +354,7 @@ public:
     std::string projectName_;
     std::string scenePath_;
     std::string pendingOpen_;
+    bool pendingWelcome_ = false;  // close_project(): back to the welcome screen on the next frame
     std::string bootError_;
     bool gfxUp_ = false;
     bool uiUp_ = false;
@@ -386,6 +389,11 @@ public:
     std::string iniPath_;
     bool resetLayout_ = false;
     bool layoutBuilt_ = false;
+    // Which panels are open is saved with the layout (a [FactorIAEditor][Panels] section of the same ini file).
+    int panelMask_ = -1;  // the mask last seen; -1 = not yet (the first frame after the ini is read does not count as a change)
+    int panels_mask() const;
+    void set_panels_mask(int mask);
+    void register_layout_settings();
     const char* pendingFocus_ = nullptr;
 
     // viewport (ImGui logical coordinates; sokol event coordinates / dpi match them)
@@ -577,6 +585,9 @@ public:
     std::string feedbackError_;
     std::int64_t feedbackMtime_ = INT64_MIN;
     double feedbackPolled_ = -10;
+    Json feedbackArchive_;                         // the archive file's document (null when there is none)
+    std::int64_t feedbackArchiveMtime_ = INT64_MIN;
+    bool fbShowArchive_ = false;                   // list the archived entries too
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
@@ -725,6 +736,10 @@ public:
     std::atomic<bool> atWatchdogStop_{false};
     std::thread atWatchdog_;
     int atFrameBudget_ = 4000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
+    float atLayoutWidth_ = 0;      // section U: the width of the Hierarchy after the user's change
+    int atReopenIn_ = 0;           // section U: frames on the welcome screen before the project is opened again
+    std::string atReopenDir_;
+    std::string atIniSaved_;       // section U: the layout file the editor really uses, put back at the end
     std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
     void save_screenshot_now(const std::string& path);
     // FA_EDITOR_AUTOTEST_SECTIONS (autotest_sections.h, read by run()): the sections to run, empty for all of them.

@@ -12,6 +12,22 @@ The AI panel's usage is live
   orchestrator's. The plan windows still update once per message (Claude Code reports them once); the tooltip says "As of HH:MM".
 - `limits.maxCostUsd` and `limits.maxTotalTokens` apply to a Claude Code / Codex run as it goes: it is stopped when it crosses them.
 
+Old engine feedback no longer piles up
+
+- Closed entries of `ENGINE_FEEDBACK.json` (fixed-in-engine, wont-fix, duplicate) move to `ENGINE_FEEDBACK.archive.json` next to
+  it when the editor opens the project and with the new command `feedback.archive` (CLI `factoria feedback archive`, MCP
+  `feedback_archive`). Ids stay unique across both files, and a report that matches an archived fixed-in-engine entry reopens it
+  with the note "reported again with engine X: regression?". `feedback list --archive` (`includeArchive`) shows the archive,
+  `feedback collect` still counts it, the Engine Feedback panel has "Show archive" and "Archive closed", and exports leave the
+  archive out.
+
+The editor keeps your layout
+
+- Which panels are open is saved with the layout (`~/.factoria/editor_layout2.ini`): a panel closed with its X, or one opened from
+  the View menu, is the same the next time the editor opens or another project opens; before, only where the panels sit was kept
+  and every closed panel came back. View > Reset layout also reopens the default panels. The editor autotest has a section (U)
+  that floats, moves, widens and closes panels and checks they survive a reopen and a visit to the welcome screen.
+
 The AI agent is never silent
 
 - When the editor's AI (Claude Code) hands a task to the worker, the worker's steps now stream into the chat as it works, and the
