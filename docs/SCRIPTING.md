@@ -221,6 +221,11 @@ forms. Rects (`physics.overlapBox`, `debug.rect`) take `{x, y, w, h}` or
 - JSON data: `import levels from "../data/levels.json";` gives the parsed
   file as the default export (hot reload aware). A JSON syntax error is
   reported against the .json file.
+- A glob of JSON data: `import tables from "../data/dialogue/*.json";` gives an object of the parsed files directly in that
+  folder, keyed by file name (`tables["ch1.json"]`), in sorted order; no match gives `{}`. `*` may stand in the file name only
+  (no `**`, no `*` in a folder, only `.json`); an error names the import. It reads the same folder in an exported game
+  (`game.pak`) and on the web. Editing a matched file reloads the importers; a file added while the game runs shows on the
+  next start.
 - Test files get fresh module instances (see Tests), so module state never leaks
   between test files.
 

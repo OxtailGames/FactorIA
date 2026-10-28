@@ -591,7 +591,18 @@ std::string ScriptSystem::Impl::normalize_module(const std::string& base, const 
         return {};
     }
     std::string path = *norm;
-    if (!fs::exists(path) && fs::extension(path).empty() && fs::exists(path + ".js")) path += ".js";
+    if (path.find('*') != std::string::npos) {
+        // A glob import of JSON data: `import tables from "../data/dialogue/*.json"`. Only the file name may hold `*`.
+        const std::string dir = fs::parent(path), pattern = fs::filename(path);
+        if (dir.find('*') != std::string::npos || pattern.find("**") != std::string::npos ||
+            fs::extension(pattern) != ".json") {
+            if (err)
+                *err = std::format("cannot resolve import \"{}\"{}: a glob import takes `*` in the file name only and names "
+                                   "JSON data, like \"../data/dialogue/*.json\" (no `**`, no `*` in a folder, no other extension)",
+                                   spec, baseIsProject ? " in '" + basePath + "'" : std::string());
+            return {};
+        }
+    } else if (!fs::exists(path) && fs::extension(path).empty() && fs::exists(path + ".js")) path += ".js";
     if (baseIsProject && !syntaxBase) {
         importers[path].insert(basePath);
     }
@@ -604,6 +615,7 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
     std::string name = cname;
     if (name == "factoria" || name == "factoria:test") return make_builtin_module(name);
     std::string file = module_file(name);
+    if (file.find('*') != std::string::npos) return load_glob_module(name, file);
     auto text = fs::read_text(file);
     if (!text) {
         std::string from = firstImporter.count(name) && !firstImporter[name].empty()
@@ -693,6 +705,58 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
     everLoaded.insert(file);
     moduleMtime[file] = fs::modified_time(file);
     return m;
+}
+
+// `import tables from "../data/dialogue/*.json"`: the default export is an object keyed by file name ("ch1.json"), in sorted
+// order, of the parsed files directly in that folder. The module is "imported" by every matched file, so editing one reloads it
+// (a file added later is seen on the next start). In an exported game the folder listing comes from game.pak.
+JSModuleDef* ScriptSystem::Impl::load_glob_module(const std::string& name, const std::string& file) {
+    auto matches = [](std::string_view pat, std::string_view str) {  // `*` = any run of characters (greedy with backtracking)
+        size_t p = 0, s = 0, star = std::string_view::npos, mark = 0;
+        while (s < str.size()) {
+            if (p < pat.size() && pat[p] == '*') { star = p++; mark = s; }
+            else if (p < pat.size() && pat[p] == str[s]) { ++p; ++s; }
+            else if (star != std::string_view::npos) { p = star + 1; s = ++mark; }
+            else return false;
+        }
+        while (p < pat.size() && pat[p] == '*') ++p;
+        return p == pat.size();
+    };
+    const std::string dir = fs::parent(file), pattern = fs::filename(file);
+    std::string src = "export default {";
+    bool first = true;
+    std::vector<std::string> used;
+    for (const std::string& f : fs::list(dir, false, ".json")) {
+        const std::string base = fs::filename(f);
+        if (!matches(pattern, base)) continue;
+        auto text = fs::read_text(f);
+        if (!text) {
+            JS_ThrowReferenceError(ctx, "Cannot load module '%s': %s", f.c_str(), text.error().to_string().c_str());
+            return nullptr;
+        }
+        auto parsed = parse_json(*text, f);
+        if (!parsed.ok()) {
+            brokenData = BrokenData{f, parsed.error()};
+            JS_ThrowSyntaxError(ctx, "%s", parsed.error().to_string().c_str());
+            return nullptr;
+        }
+        src += (first ? "" : ",") + Json(base).dump() + ":" + *text;
+        first = false;
+        used.push_back(f);
+    }
+    src += "};";
+    JSValue jf = JS_Eval(ctx, src.c_str(), src.size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+    if (JS_IsException(jf)) return nullptr;
+    auto* jm = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(jf));
+    JS_FreeValue(ctx, jf);
+    everLoaded.insert(file);
+    moduleMtime[file] = fs::modified_time(file);
+    for (const std::string& f : used) {
+        importers[f].insert(file);
+        everLoaded.insert(f);
+        moduleMtime[f] = fs::modified_time(f);
+    }
+    return jm;
 }
 
 namespace {

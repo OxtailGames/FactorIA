@@ -102,7 +102,9 @@ game; any capitalization), a top-level `steam_appid.txt` (the development app id
 plugin that lives inside the project (its build is shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
 repository. Those are the files no game reads, on every platform and with or without `--release`; the list is also the comment of
 `fa/tooling/export.h`. Only the TOP-LEVEL `README.md` is left out: a `README.md`, `CREDITS.md` or `LICENSE` deeper in the project, or a data
-file of any kind, ships, because a game may load it.
+file of any kind, ships, because a game may load it. That includes the files a glob import
+(`import tables from "../data/dialogue/*.json"`, [SCRIPTING](SCRIPTING.md#imports)) lists: keep them outside `tests/`, `tools/`
+and `export.exclude`, or the exported game finds fewer files than the project does.
 
 **Dot-folders never ship** (`.git`, `.factoria`, `.github`, `.vscode`, a `.cache` of your own): anything whose name starts with a dot is
 left out at every depth, so a game must not keep data it loads in a folder like `.data/`. Rename the folder

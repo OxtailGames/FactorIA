@@ -8355,3 +8355,8 @@ declare module "factoria:test" {
 
 }
 
+/** JSON data: `import levels from "../data/levels.json"` is the parsed file; a glob import (`import tables from "../data/dialogue/*.json"`) is an object of the parsed files keyed by file name, sorted. */
+declare module "*.json" {
+  const data: any;
+  export default data;
+}

@@ -1,22 +1,14 @@
 // @ts-check
 // The story data as the game and the tools read it: every dialogue table, the story registry and the cast, imported once.
-// The engine has no glob import for data/dialogue/*.json (ENGINE_FEEDBACK.json), so a new chapter file is added here by hand.
-import ch1 from "../data/dialogue/ch1.json";
-import ch2 from "../data/dialogue/ch2.json";
-import ch3 from "../data/dialogue/ch3.json";
-import ch4 from "../data/dialogue/ch4.json";
-import ch5 from "../data/dialogue/ch5.json";
+// A new chapter file in data/dialogue/ is picked up by the glob import: nothing to add here.
+import chapters from "../data/dialogue/*.json";
 import story from "../data/story.json";
 import cast from "../data/cast.json";
 
 /** The tables by file path, as the validator names them. */
-export const TABLES = Object.freeze({
-  "data/dialogue/ch1.json": ch1,
-  "data/dialogue/ch2.json": ch2,
-  "data/dialogue/ch3.json": ch3,
-  "data/dialogue/ch4.json": ch4,
-  "data/dialogue/ch5.json": ch5,
-});
+export const TABLES = Object.freeze(
+  Object.fromEntries(Object.entries(chapters).map(([file, table]) => ["data/dialogue/" + file, table])),
+);
 
 /** All the conversations of all the tables in one object: { conversations: { id: conversation } }, the shape the runner takes. */
 export const DIALOGUE = Object.freeze({
