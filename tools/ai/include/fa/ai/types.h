@@ -144,6 +144,12 @@ struct AgentEvent {
     bool isError = false;
     ai::Usage usage;      // cumulative for Type::Usage
     double costUsd = 0;   // cumulative for Type::Usage / Done
+    // Type::Usage from a CLI agent: costUsd is the engine's running estimate (the price table applied to the tokens seen
+    // so far), not yet the CLI's own total. The CLI's total replaces it when the run's result arrives.
+    bool costIsEstimate = false;
+    // Set by a host that forwards the events of several runs (the editor, for ai.run sub-agents): which run this
+    // event belongs to. Empty = the session itself.
+    std::string runId;
     // Type::Usage only. An event may carry just one of these (the others stay empty / 0 = "nothing new"):
     std::vector<LimitWindow> limits;  // plan windows the CLI reported (merge them by name)
     u64 contextTokens = 0;            // tokens in the model's context after its last call (input + cache)

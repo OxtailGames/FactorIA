@@ -1,5 +1,6 @@
 #include "fa/ai/types.h"
 
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -207,7 +208,13 @@ std::string describe_agent_event(const AgentEvent& e) {
         }
         case AgentEvent::Type::TextDelta: return "writing";
         case AgentEvent::Type::ThinkingDelta: return "thinking";
-        case AgentEvent::Type::Usage: return "working";
+        case AgentEvent::Type::Usage: {
+            // The tokens and cost so far ride along: a terminal that tails a sub-agent's progress sees what it spends.
+            if (e.usage.total() == 0) return "working";
+            char cost[32] = "";
+            if (e.costUsd > 0) std::snprintf(cost, sizeof cost, ", $%.2f", e.costUsd);
+            return "working (" + std::to_string((e.usage.total() + 500) / 1000) + "k tokens" + cost + ")";
+        }
         case AgentEvent::Type::Error: return "error: " + shorten(e.text, 100);
         case AgentEvent::Type::Info: return shorten(e.text, 100);
         case AgentEvent::Type::Done: return "finished";

@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "ai_usage.h"
 #include "fa/ai/session.h"
 #include "fa/core/image.h"
 #include "fa/core/json.h"
@@ -83,8 +84,7 @@ struct AiChat {
     u64 contextTokens = 0, contextWindow = 0;
 
     // Not saved:
-    ai::Usage runUsage;           // tokens of the run in progress
-    double runCostUsd = 0;
+    RunUsage run;                 // tokens and cost of the run in progress, per agent (not in usage / costUsd yet)
     std::string input;            // the unsent text
     std::vector<ChatAttachment> pending;  // the unsent pictures
     bool scrollDown = false;

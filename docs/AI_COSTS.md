@@ -148,6 +148,11 @@ Asset providers are not covered by any limit. Cap those at the provider (a spend
   they reset), **Context** (tokens in the window now), **Tokens** (in / out / cache) and **Cost** of the chat, marked `est.`
   ([EDITOR.md](EDITOR.md), [AI_PROVIDERS.md](AI_PROVIDERS.md#usage-display)). For a subscription, the cost is the CLI's own
   figure, and plan percentages are what the provider reports.
+- **While it runs**, Tokens and Cost in the editor grow with every model call, including a delegated worker's, instead of
+  jumping at the end. Until the CLI's own total arrives the cost is the engine's estimate (price table or the provider's
+  `pricing`); the CLI's figure replaces it when the agent finishes. The plan windows (Session, Week) are reported by Claude
+  Code once per message, so they update when the next message starts. The limits of section 4 are checked against these live
+  numbers: a Claude Code or Codex run is stopped when it crosses them (`"stopReason": "budget"`), not after the fact.
 - **On the command line**, `factoria ai run` ends with a line such as `--- done: end_turn, 41 turns, 1830000 tokens, ~$0.55`. With `--json` each event carries `costUsd`.
 - **In the transcripts**, one file per run in `<project>/.factoria/ai/sessions/<time>-<role>.jsonl` (a delegated worker has
   its own, `<time>-worker-1.jsonl`). The built-in agent writes one line per model request with `"kind": "assistant"`, a
