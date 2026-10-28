@@ -428,7 +428,7 @@
         },
         "fonts": {
           "type": "object",
-          "description": "The bold face of each font, keyed by the font as a Text names it: a project path such as \"assets/fonts/Body-Regular.ttf\", \"builtin:pixel\" or \"\" (the built-in font). `[b]` and `Text.bold` use it for the glyphs it has; a font with no entry (or a glyph its bold face lacks) is emboldened by the engine, which looks heavier but never as good as a drawn face. `factoria validate` suggests adding one for a font that markup or bold uses.",
+          "description": "The bold and italic faces of each font, keyed by the font as a Text names it: a project path such as \"assets/fonts/Body-Regular.ttf\", a built-in font (\"builtin:pixel\", \"builtin:serif\", ...) or \"\" (DejaVu Sans). `[b]` and `Text.bold` use the bold face for the glyphs it has; a font with no entry (or a glyph its bold face lacks) is emboldened by the engine, which looks heavier but never as good as a drawn face. `[i]` uses the italic face; a font with none stays upright. builtin:serif, builtin:hand and builtin:display bring faces of their own, so they need no entry. `factoria validate` suggests adding one for a font that markup or bold uses.",
           "additionalProperties": {
             "type": "object",
             "description": "One font.",
@@ -436,6 +436,10 @@
               "bold": {
                 "type": "string",
                 "description": "Project-relative path of the bold font file (.ttf or .otf)."
+              },
+              "italic": {
+                "type": "string",
+                "description": "Project-relative path of the italic font file (.ttf or .otf), drawn for `[i]` text."
               }
             }
           }

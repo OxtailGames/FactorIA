@@ -9,7 +9,8 @@ what it does not do.
 
 The built-in font is DejaVu Sans (`font: ""`): Latin, Greek, Cyrillic, Hebrew and Arabic letters, and common symbols
 such as ★ ☆ ✓ ✗ ♥ ♪ ← → (a star rating needs no extra font; colour emoji such as ⭐ are not in it). `font: "builtin:pixel"`
-is Press Start 2P (Latin only, for a retro look). **Nothing else is built in.** A game that shows Chinese, Japanese,
+is Press Start 2P (Latin only, for a retro look). Four more Latin faces come with the engine, listed under
+[Built-in fonts](#built-in-fonts). **No other font is built in.** A game that shows Chinese, Japanese,
 Korean, Thai, an Indic script or any other script DejaVu Sans lacks must ship a font that has it, as a `.ttf` file in the
 project (`assets/fonts/`):
 
@@ -32,13 +33,47 @@ so the result is a static font. Run it again when a string changes; `factoria va
 Colour emoji are not supported (the engine draws outlines of TrueType fonts only): an emoji draws as nothing, with a
 warning. Draw emoji as sprites.
 
+## Built-in fonts
+
+Select them by name in `Text.font` (and in `localization.fallbackFonts`, `text.fonts` and the widgets' `font`). All are
+SIL Open Font License files from the google/fonts repository, unmodified, with their `OFL.txt` kept in
+`engine/render/assets/fonts/extra/`. The list is also in the `font` field doc of `Text` (`docs.components`) and in the hint
+of the error an unknown `builtin:` name gives.
+
+| `font` | Face | Use | Real faces |
+|---|---|---|---|
+| `""` | DejaVu Sans | default; Latin, Greek, Cyrillic, Hebrew, Arabic, symbols | regular (bold is emboldened by the engine) |
+| `"builtin:pixel"` | Press Start 2P | 8-bit retro look | regular |
+| `"builtin:serif"` | Crimson Text | book text, storybooks | regular, **bold, italic, bold italic** |
+| `"builtin:hand"` | Kalam | handwriting, notes, diaries | regular, **bold** |
+| `"builtin:blackletter"` | UnifrakturMaguntia | titles in blackletter (hard to read in long text) | regular |
+| `"builtin:display"` | IM Fell English | old-print titles and text | regular, **italic** |
+
+Latin coverage of the four extra faces includes the Spanish, French, German and Portuguese accents, `¿ ¡ ß ñ ç` and typographic
+quotes and dashes; none has Greek, Cyrillic, Hebrew or Arabic (Kalam also has Devanagari), so those characters fall back to
+DejaVu Sans, as for any font.
+
+**They cost nothing for games that do not use them.** DejaVu Sans and Press Start 2P are inside every player; the other four
+are files that live in `factoria` and the editor. `factoria export` copies the files of the families a game names into
+`builtin-fonts/` and adds their licenses to `FACTORIA_NOTICES.txt` ([EXPORTING.md](EXPORTING.md#license-notices)); the
+player reads them from there. The export finds a font by its name written out in full in a scene, prefab, script, data file
+or `factoria.json`, so `font: "builtin:" + kind` is not seen: write the whole name somewhere (a comment in a script is enough).
+A player that lacks the file (a folder copied by hand) logs one error and falls back to DejaVu Sans. Files are not subset:
+the OFL asks a modified font to change its name, and each family weighs 0.1 to 0.9 MB only in the games that use it.
+
+**Bold and italic use the real faces.** `Text.bold` and `[b]` draw `builtin:serif`, `builtin:hand` and the other families'
+bold faces where they have one, `[i]` draws the italic face (`builtin:serif`, `builtin:display`), and `[b][i]` together the
+bold italic of `builtin:serif`. A family without the face you ask for keeps its regular glyphs: bold is emboldened by the
+engine as for any font, italic stays upright (the engine never slants letters). A `text.fonts` entry wins over the built-in
+face.
+
 ## The font chain
 
 Each character is drawn by the first font of a chain that has a glyph for it:
 
-1. the Text's own `font` (`""` = DejaVu Sans, or a project path, or `builtin:pixel`);
+1. the Text's own `font` (`""` = DejaVu Sans, or a project path, or a [built-in font](#built-in-fonts));
 2. the fallback fonts, in the order they were registered (`Renderer::set_fallback_fonts`, a list of project paths or
-   `builtin:pixel`; a fallback font is only loaded when some text needs it, and one that cannot be read is skipped with one
+   built-in fonts; a fallback font is only loaded when some text needs it, and one that cannot be read is skipped with one
    logged error);
 3. DejaVu Sans, always last.
 
@@ -183,6 +218,7 @@ one wrapped, aligned, measured text (`maxWidth`, `align`, `autoShrink` and `maxT
 | Tag | Effect |
 |---|---|
 | `[b]...[/b]` | bold |
+| `[i]...[/i]` | italic (the font's italic face; see below) |
 | `[c:name]...[/c]` | a colour: a name of the project's `text.colors`, a built-in colour name (`red`) or `#rgb` / `#rrggbb` / `#rrggbbaa`. Tags nest: `[/c]` goes back to the outer colour. |
 | `[icon:name]` | a picture of the project's `text.icons`, as tall as the line (its width follows the proportions of its region) |
 | `[[` | a literal `[` |
@@ -204,11 +240,17 @@ one wrapped, aligned, measured text (`maxWidth`, `align`, `autoShrink` and `maxT
   pixels of the texture, from its top-left corner.
 - **Bold.** `[b]` and `Text.bold` (also a field of the widgets above) draw with the bold face of the font: the `bold`
   file next to the font in `text.fonts`. The key is the font as the Text names it (`"font": "assets/fonts/Body-Regular.ttf"`,
-  `"builtin:pixel"`, or `""` for the built-in font). A font without a bold face is emboldened by the engine: it thickens the
+  `"builtin:pixel"`, or `""` for DejaVu Sans; `builtin:serif`, `builtin:hand` and the other [built-in fonts](#built-in-fonts)
+  bring bold faces of their own and need no entry). A font without a bold face is emboldened by the engine: it thickens the
   regular glyphs and widens each advance a little (about 4% of the font size, between 0.7 and 6 pixels). That is readable but
   never as good as a drawn bold face, so `factoria validate` warns once per font that markup or `bold` uses without a
   `text.fonts` entry. A glyph the bold face lacks (a CJK character, say) is drawn from the regular font chain, emboldened by
-  the engine. There is no italic: use an italic font file as the Text's `font`.
+  the engine.
+- **Italic.** `[i]...[/i]` draws the italic face of the font: the `italic` file of its `text.fonts` entry
+  (`{"assets/fonts/Body-Regular.ttf": {"bold": "...-Bold.ttf", "italic": "...-Italic.ttf"}}`) or the built-in family's own
+  (`builtin:serif`, `builtin:display`). A font with none stays upright: the engine does not slant. There is no `Text.italic`
+  field: a whole italic Text uses an italic font file as its `font`, or wraps its text in `[i]` with `markup: true`.
+  `[b][i]` together use the family's bold italic face (`builtin:serif`), else its bold face.
 - **Line breaking.** Tags take no room. Wrapping, including between CJK characters, works on the visible characters as for
   plain text; an icon is one unbreakable character that stays with the letters next to it (`9[icon:fish]` moves as one
   word) and may break from a space.
@@ -394,7 +436,7 @@ come from depends on the device, and the game does not change for any of them:
   instance.
 - Horizontal text only: no vertical writing (tategaki) and no text on a path.
 - One font size and one font per Text. Colours, bold and icons can change inside a line (`markup`, above); the font size, the
-  font and italic cannot (use an italic font file as the Text's `font`).
+  font cannot (italic: `[i]`, above).
 - The glyph size is capped between 4 and 400 pixels.
 - All glyphs of all fonts share one atlas (an 8-bit page). It starts at 1024 x 1024 and grows to 2048 and then 4096 when a
   glyph does not fit; at 4096 it clears. Every growth or clear is a log line ("glyph atlas is full ... growing it" / "...

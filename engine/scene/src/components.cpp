@@ -94,7 +94,7 @@ constexpr const char* kMaxTextScaleDoc =
 
 // markup and bold of Text, Button, Toggle, Slider and TouchButton.
 constexpr const char* kMarkupDoc =
-    "true: the text reads tags: [b]bold[/b], [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or "
+    "true: the text reads tags: [b]bold[/b], [i]italic[/i] (the italic face of the font: factoria.json text.fonts \"italic\", or the built-in family's own, e.g. builtin:serif), [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or "
     "#rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, "
     "alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the "
     "engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the "
@@ -102,7 +102,7 @@ constexpr const char* kMarkupDoc =
     "Docs: docs/TEXT.md, \"Rich text\".";
 constexpr const char* kBoldDoc =
     "true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none "
-    "is emboldened by the engine, and `factoria validate` suggests adding one. [b] in markup does the same for a part of the "
+    "is emboldened by the engine, and `factoria validate` suggests adding one. builtin:serif, builtin:hand and builtin:display bring real bold or italic faces of their own. [b] in markup does the same for a part of the "
     "text. false (default): regular weight.";
 
 constexpr const char* kTextDirectionDoc =
@@ -544,7 +544,11 @@ void register_builtin_components(TypeRegistry& r) {
         .field("keyArgs", &Text::keyArgs, kKeyArgsDoc)
         .asset_field("font", &Text::font, "font",
                      "Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, "
-                     "Cyrillic, Hebrew, Arabic); \"builtin:pixel\" is Press Start 2P. Characters the font has no glyph for draw as nothing "
+                     "Cyrillic, Hebrew, Arabic). Other built-in fonts, by name: \"builtin:pixel\" (Press Start 2P, retro), "
+                     "\"builtin:serif\" (Crimson Text, a book serif with real bold, italic and bold italic), \"builtin:hand\" (Kalam, "
+                     "handwriting, with bold), \"builtin:blackletter\" (UnifrakturMaguntia, for titles) and \"builtin:display\" (IM Fell "
+                     "English, old print, with italic); the four after the pixel font have no Greek, Cyrillic, Hebrew or Arabic (those fall back to DejaVu Sans) and an export ships "
+                     "just the ones a project names (docs/TEXT.md, \"Built-in fonts\"). Characters the font has no glyph for draw as nothing "
                      "and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto "
                      "Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, "
                      "localization.languageFonts) to cover every Text of the game (docs/TEXT.md).")

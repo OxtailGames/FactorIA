@@ -9,6 +9,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/i18n.h"
 #include "fa/core/strings.h"
+#include "fa/render/builtin_fonts.h"
 #include "fa/render/fonts.h"
 #include "localization_check.h"
 #include "localization_tables.h"
@@ -51,7 +52,7 @@ std::string list_code_points(const std::vector<std::uint32_t>& cps, std::size_t 
 
 std::string font_name(const std::string& font) {
     if (font.empty()) return "DejaVu Sans (built-in)";
-    if (font == "builtin:pixel") return "Press Start 2P (built-in)";
+    if (const BuiltinFont* b = font.rfind("builtin:", 0) == 0 ? find_builtin_font(font) : nullptr) return b->family + " (built-in)";
     return font;
 }
 
@@ -417,7 +418,7 @@ void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const s
 // Opening every font once: a font that is missing or not a font is an error of its own, at the place that names it.
 void check_fonts(Reporter& out, Coverage& coverage, const std::string& dir, const LocalizationSettings& s, const std::vector<SceneText>& texts) {
     const auto settle = [&](const std::string& font, const std::string& file, const std::string& pointer, bool exists) {
-        if (font.empty() || font == "builtin:pixel" || coverage.get(font)) return;
+        if (font.empty() || coverage.get(font)) return;
         if (!exists) return;  // a Text.font that is missing is reported as a missing asset
         const Error& e = coverage.error(font);
         out.error(file, pointer, e.message, e.hint);

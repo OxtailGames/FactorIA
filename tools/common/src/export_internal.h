@@ -309,5 +309,9 @@ Result<void> convert_shaders(ExportAssets& ea);
 Result<void> convert_textures(ExportAssets& ea);
 // Audio conversion and loudness by the import settings (export_audio.cpp).
 Result<void> convert_audio(ExportAssets& ea);
+// The built-in fonts the project names ("builtin:serif", ...): their files ship as builtin-fonts/<file> (export_fonts.cpp).
+Result<void> stage_builtin_fonts(ExportAssets& ea);
+// The names of those fonts, sorted: found in the project's scenes, prefabs, scripts, data files and factoria.json.
+std::vector<std::string> builtin_fonts_used(const Project& p, const std::vector<std::string>& files);
 
 }  // namespace fa::export_detail

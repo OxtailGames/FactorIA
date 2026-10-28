@@ -8,6 +8,7 @@
 #include <stb_truetype.h>
 
 #include "fa/core/log.h"
+#include "fa/render/builtin_fonts.h"
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 #include "font_internal.h"
@@ -36,7 +37,8 @@ float synthetic_bold_extra(int px) { return std::clamp(float(px) * 0.04f, 0.7f, 
 
 std::string font_label(const std::string& key) {
     if (key == "builtin") return "'' (DejaVu Sans, the default font)";
-    if (key == "builtin:pixel") return "'builtin:pixel' (Press Start 2P, and DejaVu Sans behind it)";
+    if (const BuiltinFont* b = key.rfind("builtin:", 0) == 0 ? find_builtin_font(key) : nullptr)
+        return "'" + key + "' (" + b->family + ", and DejaVu Sans behind it)";
     return "'" + key + "'";
 }
 }  // namespace
@@ -114,20 +116,48 @@ void Fonts::set_fallback_fonts(std::vector<std::string> fonts) {
 void Fonts::set_rich_style(const RichTextStyle& style) {
     if (style == impl_->style) return;
     impl_->style = style;
-    if (auto it = impl_->style.boldFonts.find(""); it != impl_->style.boldFonts.end()) {  // "" names the built-in font
-        impl_->style.boldFonts["builtin"] = it->second;
-        impl_->style.boldFonts.erase(it);
+    for (auto* m : {&impl_->style.boldFonts, &impl_->style.italicFonts}) {
+        if (auto it = m->find(""); it != m->end()) {  // "" names the built-in font
+            (*m)["builtin"] = it->second;
+            m->erase(it);
+        }
     }
     impl_->layouts.clear();
     impl_->warnedRich.clear();
 }
 
-// The bold face the project gives `regular`, or null (the engine emboldens its letters).
-FontFace* Fonts::bold_face(FontFace* regular) {
-    const auto it = impl_->style.boldFonts.find(regular->key);
-    if (it == impl_->style.boldFonts.end() || it->second == regular->key) return nullptr;
-    FontFace* b = load(it->second);
-    return b->ok ? b : nullptr;
+// The face a project or a built-in family gives `regular` for bold and/or italic text, or null (a bold character is then
+// emboldened by the engine; an italic one stays upright). The project's text.fonts entry wins over the built-in family's face.
+// Bold italic asks for the family's own bold italic face; without one it settles for the bold face, then the italic one.
+FontFace* Fonts::variant_face(FontFace* regular, bool bold, bool italic, bool& boldDrawn) {
+    boldDrawn = false;
+    const auto from_map = [&](const std::map<std::string, std::string>& m) -> FontFace* {
+        const auto it = m.find(regular->key);
+        if (it == m.end() || it->second == regular->key) return nullptr;
+        FontFace* f = load(it->second);
+        return f->ok ? f : nullptr;
+    };
+    const auto builtin = [&](bool b, bool i) -> FontFace* {
+        if (regular->key.rfind("builtin:", 0) != 0 || regular->key.find('#') != std::string::npos) return nullptr;
+        const BuiltinFont* family = find_builtin_font(regular->key);
+        if (!family || builtin_variant_file(*family, b, i).empty()) return nullptr;
+        FontFace* f = load(regular->key + (b && i ? "#bolditalic" : b ? "#bold" : "#italic"));
+        return f->ok ? f : nullptr;
+    };
+    if (bold && italic) {
+        if (FontFace* f = builtin(true, true)) { boldDrawn = true; return f; }
+    }
+    if (bold) {
+        FontFace* f = from_map(impl_->style.boldFonts);
+        if (!f) f = builtin(true, false);
+        if (f) { boldDrawn = true; return f; }
+    }
+    if (italic) {
+        FontFace* f = from_map(impl_->style.italicFonts);
+        if (!f) f = builtin(false, true);
+        if (f) return f;
+    }
+    return nullptr;
 }
 
 FontFace* Fonts::load(const std::string& fontIn) {
@@ -263,7 +293,7 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
     if (rich) {
         shaping.attrs = &attrs;
         shaping.syntheticExtra = synthetic_bold_extra(px);
-        shaping.boldFace = [this](FontFace* f) { return bold_face(f); };
+        shaping.variantFace = [this](FontFace* f, bool bold, bool italic, bool& boldDrawn) { return variant_face(f, bold, italic, boldDrawn); };
         for (std::size_t i = 0; i < mk.icons.size(); ++i) {
             float aspect = 1.0f;
             if (const auto it = im.style.icons.find(mk.icons[i]); it != im.style.icons.end()) {
