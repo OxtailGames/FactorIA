@@ -408,7 +408,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 
 Options worth knowing:
 
-- `world.spawn(json, {parent})` makes the new entity a child. `parent` is an Entity or an id string, and `position` is then local to the parent.
+- `world.spawn(json, {parent})` makes the new entity a child. `parent` is an Entity or an id string, and `position` is then local to the parent. An Entity field (`Interactable.knob` / `fill`, `Joint2D.connected`...) that names an id spawned LATER is left empty with a warning and filled when that entity appears; ids inside the same spawn (`children`) resolve at once.
 - `raycast` and `shapeCast` options: `mask` (layer bits), `ignore` (an Entity or id whose colliders are skipped, including its children), `ignoreTriggers` (default true). Colliders that already contain the ray origin (or overlap the cast shape at its start) are skipped too. The commands `physics.raycast` and `physics.shape_cast` take the same three options (`ignore` is an entity id or name there).
 - `input.touches` entries: `id` (the finger), `position` (Vec2, design pixels, top-left origin), `world` (Vec3 in the world through the camera under the finger: the main camera when there is only one) and `pressed` (true only on the first frame of contact). The first finger also drives the mouse (`input.mouse.position`, left button down while it is down), on a phone and in tests (`game.touch`) alike: read the mouse OR the touches for a tap, or make the second reading harmless.
 - `world.find` no longer returns destroyed entities, and their id can be reused right away.
@@ -1511,7 +1511,7 @@ Nothing is sent before the player says yes, so ask first, and say in the privacy
     Shape2D: { size: [300, 200], cornerRadius: 8, color: [1, 0.97, 0.88, 1], layer: 2 } } });
   world.spawn({ name: "Gutter", components: { Transform: { position: [140, 0, 0] },   // darkens towards the spine on the right
     Shape2D: { size: [24, 200], gradient: "linear", color: [0.4, 0.3, 0.2, 0], color2: [0.4, 0.3, 0.2, 0.5], layer: 3 } } });
-  world.spawn({ name: "Vignette", components: { Transform: { position: [0, 0, 0] },    // clear in the middle, dark at the edge of the box
+  world.spawn({ name: "Vignette", components: { Transform: { position: [0, 0, 0] },    // clear in the middle (a transparent `color` is fine: only a shape whose colours are all transparent is skipped), dark at the edge of the box
     Shape2D: { size: [1600, 900], gradient: "radial", color: [0, 0, 0, 0], color2: [0, 0, 0, 0.6], layer: 90 } } });
   // a light pool: a circle, white at the centre fading to nothing, additive
   // Shape2D: { shape: "circle", size: [240, 240], gradient: "radial", color: [1, 0.8, 0.4, 0.8], color2: [1, 0.8, 0.4, 0], blend: "additive" }

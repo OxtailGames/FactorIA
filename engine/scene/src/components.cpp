@@ -518,7 +518,9 @@ void register_builtin_components(TypeRegistry& r) {
                     "`color` at the centre blends to `color2` at the edge of the shape's box (a vignette, a light pool, a glow); outside "
                     "the box's inscribed ellipse it stays color2. The blend is computed per pixel (and dithered), so it is smooth with no "
                     "banding, in one entity. Alpha is blended too (premultiplied, so a "
-                    "transparent color2 fades color out without greying it): make color2 transparent to fade out. Ignored by outlines and by the other shapes.")
+                    "transparent color2 fades color out without greying it): make color2 transparent to fade out. A gradient whose `color` is "
+                    "transparent still draws when `color2` is not (the vignette); the shape is skipped only when every colour it uses is "
+                    "fully transparent. Ignored by outlines and by the other shapes.")
         .field("color2", &Shape2D::color2,
                "gradient only: the colour at the end of the gradient (the right/top end of a linear one, the edge of a radial one). "
                "`color` is the start. Include its alpha: [0, 0, 0, 0] fades `color` to nothing.")
@@ -1394,7 +1396,7 @@ void register_builtin_components(TypeRegistry& r) {
                  "areas on the screen) takes the keyboard / gamepad focus. Mark the first item of each menu.")
           .field("focusOnHover", &Interactable::focusOnHover,
                  "true: the pointer entering the widget moves the focus to it (once per entry, so the arrow keys still move it "
-                 "away). false (default, like the built-in widgets): the focus moves on a press.")
+                 "away). A widget that appears (or turns on) under a resting pointer counts as an entry. false (default, like the built-in widgets): the focus moves on a press.")
           .field("size", &Interactable::size,
                  "Hit area [w, h] in the entity's LOCAL units, y up (screen space: UI units), so it scales and turns with the entity "
                  "and its parents. [0, 0] (default) = the bounding box (in the entity's own frame) of the visuals of the entity and "
@@ -1456,9 +1458,9 @@ void register_builtin_components(TypeRegistry& r) {
                   "Id of the Interactable to follow. Empty (default) = the nearest ancestor that has an Interactable.")
            .enum_field("mode", &InteractableVisual::mode, {"show", "tint"},
                        "show: the entity is active only while `when` holds. tint: its colour follows the state (the colours below).")
-           .enum_field("when", &InteractableVisual::when, {"always", "normal", "hover", "pressed", "focused", "disabled", "on", "off"},
+           .enum_field("when", &InteractableVisual::when, {"always", "normal", "hover", "pressed", "focused", "highlighted", "disabled", "on", "off"},
                        "Show only. always: always active. normal: neither hovered, pressed, focused nor disabled. hover, pressed, "
-                       "focused: that flag is set (a hovered and focused widget shows both). disabled: enabled is false. on / off: "
+                       "focused: that flag is set (a hovered and focused widget shows both). highlighted: hovered OR focused (one look for the pointer and the keyboard / gamepad, so they never disagree). disabled: enabled is false. on / off: "
                        "a toggle's `on` is true / false.")
            .field("normal", &InteractableVisual::normal, "Tint: colour in the normal state.")
            .field("hover", &InteractableVisual::hover, "Tint: colour while hovered (and not pressed).")

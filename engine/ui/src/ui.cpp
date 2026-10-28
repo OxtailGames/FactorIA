@@ -326,7 +326,7 @@ bool UiSystem::submit_text(World& w, const std::string& text) {
 void UiSystem::reset() {
     release_platform_keyboard(nullptr);
     askedField_ = kNullEntity;
-    focus_ = hover_ = press_ = prevHover_ = kNullEntity;
+    focus_ = hover_ = press_ = prevHover_ = hoverFocused_ = kNullEntity;
     warnedKnobs_.clear();
     focusCleared_ = false;
     pointerOn_ = pointerDown_ = pointerPrevDown_ = pointerOverUi_ = wheelConsumed_ = false;
@@ -630,10 +630,15 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         if (prevHover_ && w.alive(prevHover_) && is_custom(w, prevHover_)) emit(w, "ui.hover", prevHover_, Json(false));
         if (hover_ && is_custom(w, hover_)) {
             emit(w, "ui.hover", hover_, Json(true));
-            if (w.get<Interactable>(hover_)->focusOnHover) set_focus(w, hover_);
         }
         prevHover_ = hover_;
+        hoverFocused_ = kNullEntity;  // a new hover is an entry, whether the pointer moved or the widget appeared under it
     }
+    // focusOnHover: once per entry. Not done yet = the entry did not get to focus (the widget could not take the focus yet,
+    // or focusOnHover was switched on while the pointer already rested on it), so it is tried again until it does.
+    if (hover_ && hoverFocused_ != hover_ && is_custom(w, hover_) && w.get<Interactable>(hover_)->focusOnHover &&
+        set_focus(w, hover_))
+        hoverFocused_ = hover_;
 
     if (ptrPressed && hover_) {
         press_ = hover_;
