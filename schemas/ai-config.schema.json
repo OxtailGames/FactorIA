@@ -43,7 +43,8 @@
         "maxTurns": { "type": "integer", "minimum": 1, "default": 40 },
         "maxCostUsd": { "type": "number", "minimum": 0, "description": "0 = unlimited." },
         "maxTotalTokens": { "type": "integer", "minimum": 0, "description": "0 = unlimited." },
-        "stuckAfterSeconds": { "type": "integer", "minimum": 0, "default": 180, "description": "The editor's AI panel warns that the agent may be stuck after this many seconds without any sign of activity (an event from the agent or a sub-agent), and offers Stop and Check activity. 0 = never warn." }
+        "stuckAfterSeconds": { "type": "integer", "minimum": 0, "default": 180, "description": "The editor's AI panel warns that the agent may be stuck after this many seconds without any sign of activity (an event from the agent or a sub-agent), and offers Stop and Check activity. 0 = never warn." },
+        "maxConcurrentRuns": { "type": "integer", "minimum": 1, "default": 3, "description": "How many AI chats the editor lets run at the same time (1 to 8; a value outside that range is brought into it with a warning). Each chat has its own agent, progress, usage and Stop; the plan limits of a provider are shared by all of them." }
       },
       "additionalProperties": false
     }

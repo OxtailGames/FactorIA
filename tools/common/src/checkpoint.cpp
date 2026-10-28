@@ -379,7 +379,8 @@ Result<CheckpointDiff> checkpoint_diff(const std::string& projectDir, const std:
     return diff_maps(m.files, scan.files);
 }
 
-Result<CheckpointRestored> checkpoint_restore(const std::string& projectDir, const std::string& id) {
+Result<CheckpointRestored> checkpoint_restore(const std::string& projectDir, const std::string& id,
+                                              const std::optional<std::vector<std::string>>& only) {
     std::lock_guard<std::mutex> lock(g_mutex);
     Manifest target;
     if (!find_manifest(projectDir, id, target)) return unknown_id(projectDir, id);
@@ -391,6 +392,11 @@ Result<CheckpointRestored> checkpoint_restore(const std::string& projectDir, con
     Scan before = scan_project(projectDir, false);
     if (!before.error.empty()) return Error{"Cannot restore: " + before.error + ".", "Close whatever holds the file open and try again."};
     CheckpointDiff changes = diff_maps(target.files, before.files);
+    if (only) {
+        const std::set<std::string> wanted(only->begin(), only->end());
+        for (std::vector<std::string>* list : {&changes.modified, &changes.added, &changes.deleted})
+            std::erase_if(*list, [&](const std::string& rel) { return !wanted.contains(rel); });
+    }
     std::vector<std::string> toWrite = changes.modified;
     toWrite.insert(toWrite.end(), changes.deleted.begin(), changes.deleted.end());
     for (const std::string& rel : toWrite) {

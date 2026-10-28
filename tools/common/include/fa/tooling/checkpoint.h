@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -50,7 +51,11 @@ struct CheckpointRestored {
 Result<CheckpointCreated> checkpoint_create(const std::string& projectDir, const std::string& label);
 std::vector<CheckpointInfo> checkpoint_list(const std::string& projectDir);  // newest first
 Result<CheckpointDiff> checkpoint_diff(const std::string& projectDir, const std::string& id);
-Result<CheckpointRestored> checkpoint_restore(const std::string& projectDir, const std::string& id);
+// Puts the project back as the checkpoint had it. With `only`, just those files (project-relative, forward slashes) are
+// touched and every other file stays as it is now (the editor reverts one AI run without taking back what another run did
+// at the same time); a name in `only` that does not differ from the checkpoint is ignored.
+Result<CheckpointRestored> checkpoint_restore(const std::string& projectDir, const std::string& id,
+                                              const std::optional<std::vector<std::string>>& only = std::nullopt);
 
 // checkpoint.{create,list,diff,restore}
 void register_checkpoint_commands(CommandRegistry& registry, const std::string& projectDir);

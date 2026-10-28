@@ -77,7 +77,11 @@ struct Limits {
     // The editor warns "may be stuck" when a running agent (the orchestrator or a sub-agent) has produced no event for this
     // many seconds (it offers Stop and "Check activity"). 0 = never warn. Only the editor reads it.
     int stuckAfterSeconds = 180;
+    // How many AI chats the editor lets run at the same time (each chat has its own agent, status and Stop). Values outside
+    // 1..kMaxConcurrentRunsCap are brought into that range with a warning. Only the editor reads it.
+    int maxConcurrentRuns = 3;
 };
+inline constexpr int kMaxConcurrentRunsCap = 8;
 
 inline constexpr const char* kRoleOrchestrator = "orchestrator";
 inline constexpr const char* kRoleWorker = "worker";

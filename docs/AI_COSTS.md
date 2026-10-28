@@ -125,6 +125,7 @@ Put limits in your user-level `ai.json` (`~/.factoria/ai.json`, on Windows `%APP
 | `maxTurns` | model requests per role in one run | 40 |
 | `maxCostUsd` | estimated dollars for the whole run, delegated work included (0 = unlimited) | 0 |
 | `maxTotalTokens` | tokens of all kinds for the whole run, cache reads included (0 = unlimited) | 0 |
+| `maxConcurrentRuns` | how many chats of the editor's AI panel can run at the same time (1 to 8); each run has its own `maxTurns`, `maxCostUsd` and `maxTotalTokens`, so the spending adds up across the runs, and the plan limits (Session, Week) are shared | 3 |
 | `stuckAfterSeconds` | the editor's AI panel warns after this many seconds without any sign of activity from the agent (not a cost limit: it never stops anything, see [EDITOR.md](EDITOR.md)); 0 = never warn | 180 |
 
 On the command line, `factoria ai run "<task>" --max-turns 20 --max-cost 2` overrides the first two for that run. The
