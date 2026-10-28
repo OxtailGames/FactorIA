@@ -588,6 +588,28 @@ TEST_CASE("Shape2D gradient: linear runs colour to colour2 along the angle, radi
     }
 }
 
+TEST_CASE("Shape2D gradient: a transparent start colour still draws the colour2 end (ai-guide vignette recipe)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    black_camera(w);
+    Entity e = shape_at(w, ShapeType::Circle, {0, 0, 0}, {100, 100}, Color{0, 0, 0, 0});
+    Shape2D& s = *w.get<Shape2D>(e);
+    s.color = Color{1, 1, 1, 0};
+    s.gradient = ShapeGradient::Radial;
+    s.color2 = Color{1, 1, 1, 1};  // transparent centre, opaque rim
+    Image img = g.render(w);
+    CHECK(img.pixel(160, 90).r < 0.1f);
+    CHECK(img.pixel(160 + 45, 90).r > 0.7f);
+    s.color2 = Color{1, 1, 1, 0};  // every colour transparent: nothing drawn
+    Image none = g.render(w);
+    CHECK(none.pixel(160 + 45, 90).r < 0.01f);
+    s.gradient = ShapeGradient::None;
+    s.color2 = Color{1, 1, 1, 1};  // no gradient: color2 is unused, still invisible
+    Image flat = g.render(w);
+    CHECK(flat.pixel(160 + 45, 90).r < 0.01f);
+}
+
 TEST_CASE("Shape2D FX: outline of a rounded rectangle, soft circle, additive light pool, golden image") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

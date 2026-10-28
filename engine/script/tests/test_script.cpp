@@ -1967,3 +1967,36 @@ TEST_CASE("camera: split screen cameras, at(), and conversions that take a camer
     CHECK(ev_ok(h, "camera.at([1, 1]) === null"));
     CHECK(ev_err(h, "camera.worldToScreen([0, 0], 'nobody')").find("no entity") != std::string::npos);
 }
+
+TEST_CASE("world.spawn: a slider's knob and fill spawned after it are linked when they appear") {
+    TestHost h("spawn_late_refs");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'vol', components:{Interactable:{kind:'slider', knob:'vol_knob', fill:'vol_fill'}}})");
+    ev_ok(h, "world.spawn({id:'vol_knob', components:{Transform:{}}}, 'vol')");
+    CHECK(h.w.get<Interactable>(h.w.find("vol"))->knob == h.w.find("vol_knob"));
+    CHECK(h.w.get<Interactable>(h.w.find("vol"))->fill.is_null());  // not there yet
+    ev_ok(h, "world.spawn({id:'vol_fill', components:{Transform:{}}}, 'vol')");
+    CHECK(h.w.get<Interactable>(h.w.find("vol"))->fill == h.w.find("vol_fill"));
+    // a child spawned in the same call needs no waiting
+    ev_ok(h, "world.spawn({id:'s2', components:{Interactable:{kind:'slider', knob:'k2'}}, children:[{id:'k2'}]})");
+    CHECK(h.w.get<Interactable>(h.w.find("s2"))->knob == h.w.find("k2"));
+}
+
+TEST_CASE("world.spawn: a reference that never appears is a warning, the spawn works and the field stays empty") {
+    TestHost h("spawn_missing_ref");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'lone', components:{Interactable:{kind:'slider', knob:'nobody'}}})");
+    Entity e = h.w.find("lone");
+    REQUIRE_FALSE(e.is_null());
+    CHECK(h.w.get<Interactable>(e)->knob.is_null());
+    h.step_frames(700);  // the wait is over; nothing crashes
+    CHECK(h.w.get<Interactable>(e)->knob.is_null());
+    ev_ok(h, "world.spawn({id:'nobody'})");  // too late: the engine stopped waiting
+    CHECK(h.w.get<Interactable>(e)->knob.is_null());
+    // a script that sets the field itself wins over the pending reference
+    ev_ok(h, "world.spawn({id:'p', components:{Interactable:{kind:'slider', knob:'later'}}})");
+    ev_ok(h, "world.spawn({id:'mine'})");
+    ev_ok(h, "world.find('p').set('Interactable', {knob:'mine'})");
+    ev_ok(h, "world.spawn({id:'later'})");
+    CHECK(h.w.get<Interactable>(h.w.find("p"))->knob == h.w.find("mine"));
+}

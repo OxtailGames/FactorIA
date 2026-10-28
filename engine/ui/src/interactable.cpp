@@ -243,6 +243,7 @@ bool holds(VisualWhen when, const Interactable& ia) {
         case VisualWhen::Always: return true;
         case VisualWhen::Normal: return ia.enabled && !ia.pressed && !ia.hovered && !ia.focused;
         case VisualWhen::Hover: return ia.hovered;
+        case VisualWhen::Highlighted: return ia.hovered || ia.focused;
         case VisualWhen::Pressed: return ia.pressed;
         case VisualWhen::Focused: return ia.focused;
         case VisualWhen::Disabled: return !ia.enabled;

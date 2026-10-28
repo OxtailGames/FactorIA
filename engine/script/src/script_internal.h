@@ -16,6 +16,7 @@
 #include "fa/core/profiler.h"
 
 #include "fa/platform/accessibility.h"
+#include "fa/scene/serialize.h"
 #include "fa/script/script.h"
 #include "fa/services/platform.h"
 #include "preload.h"
@@ -138,6 +139,11 @@ struct ScriptSystem::Impl {
     std::vector<std::unique_ptr<Behaviour>> behaviours;
     std::unordered_map<std::uint64_t, Behaviour*> byEntity;
     bool inSync = false;
+    // Entity references that world.spawn could not resolve yet (a slider's knob spawned after the slider): retried after
+    // every spawn and every sync, dropped with a warning after kDeferredRefTicks syncs.
+    struct WaitingRef { DeferredRef ref; int ticks = 0; };
+    std::vector<WaitingRef> waitingRefs;
+    void resolve_waiting_refs(bool tick);
 
     // ---- time
     double timeScale = 1.0;
