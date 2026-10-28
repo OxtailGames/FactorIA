@@ -2794,7 +2794,7 @@ Done (branch `m33/lifetime`, `f8e557cd`): `world.entities()` skips an entity des
 
 ### M33.10 Listing data files (S) — LL/FB-0005
 
-Done (merge `5bd8bbf3`, `3010cb32`): the glob import `import tables from "../data/dialogue/*.json"` gives the parsed files as an object keyed by file name, sorted; editing a matched file reloads its importers, the export packs the files and the compiled script reads them from `game.pak`, and `*.json` module typings exist. Differs from the plan: the glob import was chosen over `project.list_files`. A file added while the game runs is seen on the next start. Larkspur's `dialogue_data.js` uses it; its cut-scene data still lists its imports one by one.
+Done (branch `m33/data-glob`, merge `5bd8bbf3`, `3010cb32`): the glob import `import tables from "../data/dialogue/*.json"` gives the parsed files as an object keyed by file name, sorted; editing a matched file reloads its importers, the export packs the files and the compiled script reads them from `game.pak`, and `*.json` module typings exist. Differs from the plan: the glob import was chosen over `project.list_files`. A file added while the game runs is seen on the next start. Larkspur's `dialogue_data.js` uses it; its cut-scene data still lists its imports one by one.
 
 - `import tables from "../data/dialogue/*.json"` (a glob import of JSON data, sorted, as an object keyed by file name)
   or a `project.list_files` command a project tool can call; the export packs what a glob import names.
@@ -2802,7 +2802,7 @@ Done (merge `5bd8bbf3`, `3010cb32`): the glob import `import tables from "../dat
 
 ### M33.11 The menu kit: a text-speed row and save slots (M) — LL/FB-0011, 0501
 
-Done (merge `a8bbc5e5`, `99c1e931`, plus `88c6f538` for Larkspur): `textSpeed` is its own kit part (a "Text speed" row in the Options audio tab, `settings.TEXT_SPEEDS`, `settings.revealedCharacters`) and `addOptionsRow()` adds a row of the game to any Options section; the `slots` part has `scripts/slots.js` (record, counter, cloud merge by counter, damaged slots), `scripts/ui/slot_screen.js` with the naming dialog and the on-screen keyboard, and two prefabs. Differs from the plan: the text speed is a part of its own, not a `textSpeed: true` option of the options part. Larkspur moved to the kit's slots (`saves.js` keeps only the lodge's side) but keeps its own Text speed row in `options.js`, which predates the part. 225 draw calls and 331 entities unchanged.
+Done (branch `m33/menu-kit`, merge `a8bbc5e5`, `99c1e931`, plus `88c6f538` for Larkspur): `textSpeed` is its own kit part (a "Text speed" row in the Options audio tab, `settings.TEXT_SPEEDS`, `settings.revealedCharacters`) and `addOptionsRow()` adds a row of the game to any Options section; the `slots` part has `scripts/slots.js` (record, counter, cloud merge by counter, damaged slots), `scripts/ui/slot_screen.js` with the naming dialog and the on-screen keyboard, and two prefabs. Differs from the plan: the text speed is a part of its own, not a `textSpeed: true` option of the options part. Larkspur moved to the kit's slots (`saves.js` keeps only the lodge's side) but keeps its own Text speed row in `options.js`, which predates the part. 225 draw calls and 331 entities unchanged.
 
 - The options part takes `textSpeed: true` and a documented way to add a game row to a section.
 - A `slots` part of `project.add_menu_kit`: the slot record (name, chapter, play time, picture, counter), the cloud merge
@@ -2842,7 +2842,7 @@ Done (branch `m33/hangul-ime`, `6da44ad9`): the kit keyboard (`scripts/ui/keyboa
 
 ### M33.15 Docs for what is already there (S) — LL/FB-0006, 0007, 0504, 0803 (first half)
 
-Done (merge `2a7d60cb`, `905ee6fa`): a Button's `key` is documented as a translation key; MENUS.md has a picture of screen anchors (Y down) against widget pivots (Y up) and `factoria validate` warns about a screen widget wholly outside the design size; `display.scaleMode: "expand"` for tablets is in MOBILE.md; the timing of `platform.*` is documented and pinned by a test, and `fake.achievements` is documented as listing only the ids touched. Differs from the plan: `platform.*` answers arrive within the call and the promise resolves on the next microtask, one per await of a chain, so the docs were fixed, not the fake. The `expand` camera behaviour was described from the code, not seen on a screen.
+Done (branch `m33/docs-existing`, merge `2a7d60cb`, `905ee6fa`): a Button's `key` is documented as a translation key; MENUS.md has a picture of screen anchors (Y down) against widget pivots (Y up) and `factoria validate` warns about a screen widget wholly outside the design size; `display.scaleMode: "expand"` for tablets is in MOBILE.md; the timing of `platform.*` is documented and pinned by a test, and `fake.achievements` is documented as listing only the ids touched. Differs from the plan: `platform.*` answers arrive within the call and the promise resolves on the next microtask, one per await of a chain, so the docs were fixed, not the fake. The `expand` camera behaviour was described from the code, not seen on a screen.
 
 - A Button's `key` is a localization key, not a hotkey (COMPONENTS.md and the field's doc string).
 - Screen anchors count Y down and widget pivots Y up: one sentence and a picture in the ui doc, and a `validate` warning
