@@ -92,6 +92,18 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
     std::string path = value.get<std::string>();
     if (path.empty()) return;
     if (f.assetType == "mesh" && is_builtin_mesh(path)) return;
+    // A built-in font ("builtin:serif", or one face of it, "builtin:serif#bold") is a file of the engine, not of the project.
+    if (f.assetType == "font" && (path == "builtin" || path.rfind("builtin:", 0) == 0)) {
+        const std::string family = path.substr(0, path.find('#'));
+        if (find_builtin_font(family)) return;
+        std::vector<std::string> names;
+        for (const BuiltinFont& b : builtin_fonts()) names.push_back(b.name);
+        const std::string m = closest_match(family, names);
+        c.error(file, pointer, "Unknown built-in font '" + path + "'.",
+                (m.empty() ? std::string() : "Did you mean '" + m + "'? ") + "The built-in fonts are " + builtin_font_list() +
+                    "; or use a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.");
+        return;
+    }
     if (!stdfs::exists(stdfs::path(c.dir) / path)) {
         // Suggest a similar file in the same folder.
         std::string hint = "Create the file or fix the path (project-relative, forward slashes).";
