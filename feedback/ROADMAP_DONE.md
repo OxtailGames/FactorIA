@@ -2955,3 +2955,28 @@ Done (merge `58278dd0`): up to `limits.maxConcurrentRuns` (default 3) chats run 
 thread, MCP endpoint, Stop, status and live usage (`AiRun`); a review is one more run. When two chats change the same file
 both get a warning, and Revert of one run restores only its files (`checkpoint_restore` with a file list), asking first
 when another chat changed some of them. Editor autotest section W.
+
+## M36. More from Roguestory and the user's look at the AI panel — DONE (the `m36/*` branches)
+
+Planned 2026-10-28 against `f1d0bb5e`, from Roguestory's FB-0007-FB-0010 and what the user asked after using the AI panel.
+
+### M36.1 `scene.save` leaves out entities scripts spawned (M) — Roguestory FB-0007
+
+Done (merge `f743998b`): `world.spawn` and `world.spawnPrefab` mark what they create (`EntityInfo::scriptSpawned`, not
+saved); `scene.save` skips those entities and their children, lists them under `skippedSpawned` with a hint, and writes them
+with `includeSpawned: true`. The editor's Play/Stop snapshot and undo keep them. The duplicate-id warning at load names an
+older save as the likely cause.
+
+### M36.2 Shape2D gradient, late Entity references, focusOnHover (M) — Roguestory FB-0008, FB-0009, FB-0010
+
+Done (merge `082f82fd`): a `Shape2D` is skipped only when every colour it draws with is transparent (the vignette recipe
+draws); `world.spawn` leaves an Entity field naming an id not spawned yet empty with a warning and fills it when that id
+appears (given up after 600 syncs); `focusOnHover` acts once per new hover, also for a widget that appears under a resting
+pointer; `InteractableVisual.when: "highlighted"` (hovered or focused).
+
+### M36.3 AI panel and toolbar (S) — the user
+
+Done (`a856455a`): the roles line is gone (the **Roles...** tooltip lists them), the review buttons, reviewer count and
+focus sit next to **Roles...**, and **Art critique** / **Game review** open a confirmation with **Start**. The live cost
+estimate prices Claude Code's 1-hour cache writes at twice the input (`cache_creation.ephemeral_1h_input_tokens`), as its
+final total does. Select / Move / Rotate / Scale show only while an entity is selected.

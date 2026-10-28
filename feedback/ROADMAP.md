@@ -1180,6 +1180,23 @@ Left open:
   when its run ends; `checkpoint_restore` with a file list is C++ only, not a command.
 - Everything: GitHub is suspended, so no CI ran on M35; Windows, Linux, Android and web were never compiled here.
 
+## M36. More from Roguestory and the user's look at the AI panel (S-M each; FB-0007-FB-0010 and 4 requests) — DONE (the `m36/*` branches)
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M36 (M36.1-M36.3): `scene.save` leaves out what scripts spawned at runtime,
+a `Shape2D` gradient with a transparent `color` draws, `world.spawn` waits for Entity fields that name later children,
+`focusOnHover` on a widget that appears under a resting pointer and `InteractableVisual.when: "highlighted"`; in the editor
+the review buttons next to **Roles...** with a Start confirmation, gizmo buttons only with a selection, and a live cost
+estimate that prices Claude Code's 1-hour cache writes.
+
+Left open:
+- M36.1: `project.validate` does not warn about a scene that already holds entities its scripts spawn (the duplicate-id
+  warning at load does); an entity a script makes through the `scene.spawn` command is saved like an authored one.
+- M36.2: `world.spawnPrefab` stays strict about Entity references to entities that do not exist yet; Roguestory still has
+  its workarounds (`scripts/book.js`, `scripts/ink_ui.js`, `scripts/menu.js`).
+- M36.3: the plan windows still update once per message (Claude Code reports them so); `output_tokens` still lags until a
+  message ends.
+- Everything: GitHub is suspended, so no CI ran on M36; Windows, Linux, Android and web were never compiled here.
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
