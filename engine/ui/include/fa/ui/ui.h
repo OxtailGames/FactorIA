@@ -52,6 +52,9 @@ Entity ui_widget_at(const World& world, Vec2 designSize, Vec2 p, Entity ignore =
 // The modal Panel that scopes the input right now: the active Panel with `modal` and the highest layer (the later entity on a
 // tie), or kNullEntity. ui_widget_at() and the UiSystem treat only it and its descendants as reachable while there is one.
 Entity ui_modal_panel(const World& world);
+// True when `e` is an Interactable widget: the component is there and the entity is not also a Button, Toggle, Slider or TextField
+// (then the built-in widget wins and the Interactable is ignored).
+bool ui_is_interactable(const World& world, Entity e);
 
 
 // A TextField the player focused or left with a gamepad, for the platform's own keyboard (the runtime hands it to a native
@@ -179,6 +182,9 @@ public:
     // ui_widget_at() plus the Interactable widgets: a screen widget (or screen-space Interactable) wins over a world-space one under the
     // same point, which is seen through the camera that draws at `p`. `measure` sizes the visuals of the Interactables.
     Entity widget_at(const World& world, Vec2 designSize, Vec2 p, const VisualMeasure& measure = {}, Entity ignore = kNullEntity) const;
+    // Where the Interactable `e` is on the screen, in design pixels: the box around its hit area, seen through the camera that draws
+    // it. nullopt for an inactive entity, one that is no Interactable, or one with no hit area (no size and no children with bounds).
+    std::optional<Rect> interactable_rect(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {}) const;
 
     Entity focused() const { return focus_; }
     // Gives focus to `e` (kNullEntity clears it, and the focus then stays empty: an open Panel's autoFocus does not take

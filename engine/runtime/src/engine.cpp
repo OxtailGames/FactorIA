@@ -13,6 +13,7 @@
 #include "fa/platform/app.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
+#include "fa/scene/camera_query.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/video.h"
@@ -511,6 +512,16 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     }
     I.ui.set_clipboard(&I.clipboard);  // a TextField's Ctrl+V / Ctrl+C
     I.ui.set_i18n(&I.i18n);            // a tooltip's locale keys
+    // Where a world-space Interactable is on the screen: the renderer's camera for the pointer (perspective and viewports included),
+    // the scene's orthographic cameras when there is no renderer.
+    I.ui.set_world_projection([&I](Vec3 p, const Vec2* pointer) {
+        Renderer* r = I.renderer.get();
+        if (r && r->initialized() && !r->cameras().empty()) {
+            const Entity cam = pointer ? r->camera_at(*pointer) : kNullEntity;
+            return r->world_to_screen(p, cam != kNullEntity && I.world.alive(cam) ? cam : kNullEntity);
+        }
+        return ortho_view(I.world, I.design_size(), kNullEntity, pointer).to_screen(p);
+    });
 
     // World + input.
     I.world.rng().reseed(config.seed);

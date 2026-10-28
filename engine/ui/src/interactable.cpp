@@ -268,6 +268,24 @@ bool same(const Color& a, const Color& b) { return a.r == b.r && a.g == b.g && a
 
 }  // namespace
 
+bool ui_is_interactable(const World& w, Entity e) { return ui_detail::is_custom(w, e); }
+
+std::optional<Rect> UiSystem::interactable_rect(const World& w, Entity e, Vec2 design, const VisualMeasure& measure) const {
+    if (!ui_detail::is_custom(w, e)) return std::nullopt;
+    auto find = [&](const Vec2* pointer) -> std::optional<ui_detail::Item> {
+        for (ui_detail::Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project_, pointer))
+            if (it.e == e) return it;
+        return std::nullopt;
+    };
+    const std::optional<ui_detail::Item> first = find(nullptr);
+    if (!first) return std::nullopt;
+    if (!first->world) return first->rect;
+    // A world widget is seen through the camera that draws at its own centre (several cameras may show different parts).
+    const Vec2 centre{first->rect.x + first->rect.w / 2, first->rect.y + first->rect.h / 2};
+    const std::optional<ui_detail::Item> again = find(&centre);
+    return again ? again->rect : first->rect;
+}
+
 void UiSystem::sync_interactables(World& w, Vec2 design, const VisualMeasure& measure) {
     const bool anyIa = !w.entities_with(&World::type_of<Interactable>()).empty();
     const bool anyVis = !w.entities_with(&World::type_of<InteractableVisual>()).empty();

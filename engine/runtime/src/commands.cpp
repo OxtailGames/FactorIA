@@ -627,7 +627,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"game.click", "Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.",
-           "Give one target: `id` (a UI widget or screen-space Text: its centre is clicked), `position` ([x, y] in design pixels, "
+           "Give one target: `id` (a UI widget, an Interactable or a screen-space Text: its centre is clicked), `position` ([x, y] in design pixels, "
            "top-left origin, +Y down) or `world` ([x, y] or [x, y, z] in world units, projected through the main camera). "
            "It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, "
            "a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more "
@@ -635,11 +635,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList) is an error that says why. "
            "game.input {\"mouse\":{\"position\":[x,y],\"left\":true}} only sets the state for the next frame and leaves the button "
            "held; a click is move + press + frame + release + frame, which this command does in one call. Returns "
-           "{position, button, frames, widget, frame}: `widget` is the id of the topmost UI widget under the click (null over the "
+           "{position, button, frames, widget, frame}: `widget` is the id of the topmost UI widget or Interactable under the click (null over the "
            "world). Examples: game.click {\"id\":\"play\"}, game.click {\"position\":[640,360]}, "
            "game.click {\"world\":[3,-2],\"button\":\"right\"}",
            parse_schema(R"({"type":"object","properties":{
-               "id":{"type":"string","description":"Entity id (or name) of a UI widget or screen-space Text; its centre is clicked."},
+               "id":{"type":"string","description":"Entity id (or name) of a UI widget, an Interactable (also in world space) or a screen-space Text; its centre is clicked."},
                "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"Screen position [x, y] in design pixels (top-left origin, +Y down)."},
                "world":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"description":"World position [x, y] or [x, y, z], projected through the main camera (needs a renderer)."},
                "button":{"type":"string","enum":["left","right","middle"],"default":"left","description":"Mouse button."},
@@ -663,7 +663,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   const std::string id = I.world.id_of(e);
                   I.ui.layout(I.world, design, I.measure(), false);  // a panel opened since the last step has no rectangle yet
                   std::string why;
-                  if (ui_kind(I.world, e) != UiKind::None) {
+                  const bool custom = ui_is_interactable(I.world, e);
+                  if (custom) {
+                      if (!I.world.active_in_hierarchy(e)) why = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
+                      else if (!I.ui.interactable_rect(I.world, e, design, I.measure()))
+                          why = "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from";
+                  } else if (ui_kind(I.world, e) != UiKind::None) {
                       const std::optional<Rect> r = ui_rect(I.world, e, design);
                       const std::optional<Rect> clip = ui_clip_rect(I.world, e, design);
                       if (!I.world.active_in_hierarchy(e)) why = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
@@ -672,7 +677,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                           why = "it is scrolled out of its ScrollList, so it is clipped away: scroll it into view first (ui.focus scrolls to it)";
                   }
                   if (!why.empty()) throw CommandError("invalid_argument", "'" + id + "' cannot be clicked: " + why + ".", "ui.state lists the widgets you can click.");
-                  const std::optional<Rect> box = I.world.active_in_hierarchy(e) ? ui_screen_rect(I.world, e, design, I.measure()) : std::nullopt;
+                  const std::optional<Rect> box = !I.world.active_in_hierarchy(e) ? std::nullopt
+                                                  : custom ? I.ui.interactable_rect(I.world, e, design, I.measure())
+                                                           : ui_screen_rect(I.world, e, design, I.measure());
                   if (!box)
                       throw CommandError("invalid_argument", "'" + id + "' has no screen rectangle.",
                                          "Pass a UI widget or a screen-space Text id, or a position/world target.");
@@ -690,7 +697,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               I.input.on_mouse_move(p);
               I.input.on_mouse_button(button, true);
               engine.step(1);
-              const Entity under = ui_widget_at(I.world, design, p);
+              const Entity under = I.ui.widget_at(I.world, design, p, I.measure());
               if (hold > 1) engine.step(hold - 1);
               I.input.on_mouse_button(button, false);
               engine.step(1);
@@ -809,21 +816,26 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "For tests and tools (game.setSlider(id, value) in a test calls it). The slider takes focus, `value` is clamped to "
            "[min, max] and snapped to `step` exactly as dragging the track does, and the \"ui.change\" event {id, value} is sent "
            "when the number changed (not when it was already there). Writing Slider.value from a script sends no event: that "
-           "is the difference. Needs an active, interactable Slider. Returns {id, value, changed}. Example: ui.set_slider "
+           "is the difference. Needs an active, interactable Slider, or an enabled Interactable of kind \"slider\". Returns {id, value, changed}. Example: ui.set_slider "
            "{\"id\":\"music_volume\",\"value\":0.5}",
            parse_schema(R"({"type":"object","required":["id","value"],"properties":{
-               "id":{"type":"string","description":"Entity id (or name) of the Slider."},
+               "id":{"type":"string","description":"Entity id (or name) of the Slider or of the slider Interactable."},
                "value":{"type":"number","description":"The wanted value; clamped to [min, max] and snapped to step."}}})"),
            false, "ui"},
           [&I](const Json& a) {
               const Entity e = need_entity(I.world, a, "id");
               const std::string id = I.world.id_of(e);
               const Slider* s = I.world.get<Slider>(e);
-              if (!s) throw CommandError("invalid_argument", "'" + id + "' has no Slider component.", "Use the id of a Slider (ui.state lists them).");
-              if (!I.world.active_in_hierarchy(e) || !s->interactable)
-                  throw CommandError("invalid_argument", "Slider '" + id + "' cannot be dragged: it is " + (s->interactable ? "inactive" : "not interactable") + ".",
-                                     "A player cannot drag it either; activate it or set interactable true first.");
-              const float before = s->value;
+              const Interactable* ia = ui_is_interactable(I.world, e) ? I.world.get<Interactable>(e) : nullptr;
+              if (ia && ia->kind != InteractableKind::Slider) ia = nullptr;
+              if (!s && !ia)
+                  throw CommandError("invalid_argument", "'" + id + "' has no Slider component and is no slider Interactable.",
+                                     "Use the id of a Slider or of an Interactable with kind \"slider\" (ui.state lists them).");
+              const bool usable = s ? s->interactable : ia->enabled;
+              if (!I.world.active_in_hierarchy(e) || !usable)
+                  throw CommandError("invalid_argument", "Slider '" + id + "' cannot be dragged: it is " + (usable ? "inactive" : s ? "not interactable" : "disabled") + ".",
+                                     "A player cannot drag it either; activate it or set interactable (enabled for an Interactable) true first.");
+              const float before = s ? s->value : ia->value;
               const float now = I.ui.set_slider(I.world, e, a.at("value").get<float>());
               return Json::object({{"id", id}, {"value", now}, {"changed", now != before}});
           });
