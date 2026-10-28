@@ -8,7 +8,12 @@
 // mode 5 = lit textured quad            (texture * color * (ambient + 2D lights); aux = angle in radians of the picture's
 //                                        right axis in the world, for the normal map)
 // mode 6 = like 5, but the picture is mirrored: its up axis lies to the right of its right axis
-// mode + 16 = (modes 0, 1, 2 only) the same output, shaded by the 2D lights like mode 5 with a flat surface (lit Shape2D)
+// mode 7 = SDF shape: a rectangle with rounded corners or a circle (Shape2D.cornerRadius / softness / gradient). uv = the
+//          position in the shape's box in units of its half size (so [-1,1] covers the box), shape_half = that half size in
+//          local units, shape_rs = (corner radius, softness) in local units, color2 = the gradient's end colour.
+//          aux: -1 flat fill; 0..2pi linear gradient, the angle in radians; 10 radial gradient; <= -2 outline of thickness
+//          -aux - 2 (growing inward). Gradients and soft edges are dithered.
+// mode + 16 = (modes 0, 1, 2, 7 only) the same output, shaded by the 2D lights like mode 5 with a flat surface (lit Shape2D)
 // mode + 8 = same shading, but the output is converted for MULTIPLY blending (dst * out.rgb):
 //            rgb = mix(1, rgb, alpha) so alpha fades the darkening in (blend: src=DST_COLOR, dst=ZERO).
 @module quad
@@ -24,11 +29,17 @@ layout(location=0) in vec3 position;
 layout(location=1) in vec2 texcoord0;
 layout(location=2) in vec4 color0;
 layout(location=3) in vec2 params0;
+layout(location=4) in vec4 color2_0;
+layout(location=5) in vec2 shape_half0;
+layout(location=6) in vec2 shape_rs0;
 
 out vec2 uv;
 out vec4 color;
 out vec2 params;
 out vec2 world_xy;
+out vec4 color2;
+out vec2 shape_half;
+out vec2 shape_rs;
 
 void main() {
     gl_Position = view_proj * vec4(position, 1.0);
@@ -36,6 +47,9 @@ void main() {
     color = color0;
     params = params0;
     world_xy = position.xy;
+    color2 = color2_0;
+    shape_half = shape_half0;
+    shape_rs = shape_rs0;
 }
 @end
 
@@ -67,6 +81,9 @@ in vec2 uv;
 in vec4 color;
 in vec2 params;
 in vec2 world_xy;
+in vec4 color2;
+in vec2 shape_half;
+in vec2 shape_rs;
 out vec4 frag_color;
 
 @include_block light_shadow
@@ -112,6 +129,46 @@ vec3 lit_color(vec4 base, float mode) {
     return base.rgb * total;
 }
 
+// Mode 7: the colour and alpha of one pixel of a rounded rectangle / circle, with its gradient and soft edge.
+vec4 shape_color() {
+    vec2 hs = max(shape_half, vec2(1e-4));
+    vec2 p = uv * hs;
+    float r = clamp(shape_rs.x, 0.0, min(hs.x, hs.y));
+    float soft = shape_rs.y;
+    vec2 q = abs(p) - hs + r;
+    float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;   // signed distance to the outline, < 0 inside
+    float ax = params.y;
+    float ring = ax <= -1.5 ? (-ax - 2.0) : 0.0;
+    if (ring > 0.0) d = abs(d + ring * 0.5) - ring * 0.5;          // an outline growing inward
+    float aa = max(fwidth(d), 1e-4);
+    float w = max(soft, aa);
+    float t = clamp(0.5 - d / w, 0.0, 1.0);
+    float cov = soft > aa ? t * t * (3.0 - 2.0 * t) : t;
+    vec4 c = color;
+    bool graded = ring <= 0.0 && ax > -0.5;
+    if (graded) {
+        float g;
+        if (ax > 7.0) {
+            g = length(uv);
+        } else {
+            vec2 dir = vec2(cos(ax), sin(ax));
+            g = dot(p, dir) / max(abs(dir.x) * hs.x + abs(dir.y) * hs.y, 1e-4) * 0.5 + 0.5;
+        }
+        g = clamp(g, 0.0, 1.0);
+        // Blend premultiplied, so fading to a transparent colour does not darken the middle of the gradient.
+        vec4 pm = mix(vec4(color.rgb * color.a, color.a), vec4(color2.rgb * color2.a, color2.a), g);
+        c = vec4(pm.a > 1e-5 ? pm.rgb / pm.a : color.rgb, pm.a);
+    }
+    c.a *= cov;
+    if (graded || soft > 0.0) {
+        // Interleaved gradient noise, +-0.5/255: breaks the 8-bit steps of a slow gradient or a wide soft edge into fine grain.
+        float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
+        c.rgb += n / 255.0;
+        c.a = clamp(c.a + n / 255.0 * step(0.001, c.a), 0.0, 1.0);
+    }
+    return c;
+}
+
 void main() {
     float mode = params.x;
     bool shade = mode > 15.5;
@@ -120,6 +177,9 @@ void main() {
     if (mul) mode -= 8.0;
     if (mode < 0.5) {
         frag_color = texture(sampler2D(tex, smp), uv) * color;
+        if (shade) frag_color = vec4(lit_color(frag_color, 5.0), frag_color.a);
+    } else if (mode > 6.5) {
+        frag_color = shape_color();
         if (shade) frag_color = vec4(lit_color(frag_color, 5.0), frag_color.a);
     } else if (mode > 4.5) {
         vec4 base = texture(sampler2D(tex, smp), uv) * color;
@@ -157,6 +217,9 @@ in vec2 uv;
 in vec4 color;
 in vec2 params;
 in vec2 world_xy;
+in vec4 color2;
+in vec2 shape_half;
+in vec2 shape_rs;
 out vec4 frag_color;
 
 void main() {

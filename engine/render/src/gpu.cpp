@@ -186,6 +186,9 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool
     d.layout.attrs[ATTR_quad_quad_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_color0].format = SG_VERTEXFORMAT_UBYTE4N;
     d.layout.attrs[ATTR_quad_quad_params0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_quad_quad_color2_0].format = SG_VERTEXFORMAT_UBYTE4N;
+    d.layout.attrs[ATTR_quad_quad_shape_half0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_quad_quad_shape_rs0].format = SG_VERTEXFORMAT_HALF2;
     d.primitive_type = lines ? SG_PRIMITIVETYPE_LINES : SG_PRIMITIVETYPE_TRIANGLES;
     d.index_type = lines ? SG_INDEXTYPE_NONE : SG_INDEXTYPE_UINT16;
     d.depth.pixel_format = kDepthFormat;

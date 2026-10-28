@@ -4,6 +4,7 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+- `Shape2D` gets rounded corners, soft edges and gradients, one entity each instead of stacks of translucent rectangles: `cornerRadius` (rectangle), `softness` (a blurred edge of that width on a rectangle or circle: drop shadows, vignettes, light pools) and `gradient` (`linear` with `gradientAngle`, or `radial`) from `color` to `color2`, dithered so it does not band. Everything defaults to off and plain shapes draw and batch as before (Roguestory FB-0003).
 - Every log line carries the computer's time. The editor Console starts each line with `HH:MM:SS.mmm` (hover it for the date, the frame and the seconds since start); `game.logs` and `game.step`'s `newWarnings` give `wallTime` (ISO 8601 with offset), and the text and JSON stderr formats show it too.
 
 ## 0.3.0
