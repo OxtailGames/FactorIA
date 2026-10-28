@@ -907,9 +907,10 @@
       "suggestion": "An IME hook for the on-screen keyboard (a composition callback per language), or a platform text-input request that opens the system keyboard on pad platforms.",
       "effort": "large",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.14 in feedback/ROADMAP.md."
+        "2026-10-27 triage: work package M33.14 in feedback/ROADMAP.md.",
+        "Fixed in M33.14 (branch m33/hangul-ime): the menu kit's scripts/ui/keyboard.js has an IME hook (IME[language] = { compose(text, ch), decompose(text) }) with Hangul built in: Korean keys are jamo (Shift: the doubled ones), jamo make syllables and Delete takes the last jamo away. tests/slots.test.js of the kit types a Korean slot name with the pad. Larkspur's keyboard.js is the kit's plus the Hebrew layout, and build_fonts.py keeps the jamo and the 2350 KS X 1001 syllables."
       ]
     }
   ]
