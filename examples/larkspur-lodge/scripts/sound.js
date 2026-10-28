@@ -12,17 +12,21 @@
 //     only changes when the chapter does. The title screen's track is startTitleMusic().
 //
 // Fields tests read: `room`, `surface`, `bedLevels` (bed -> level now aimed at), `steps` (footsteps played), `track` (the music path).
-import { Behaviour, audio, world, session } from "factoria";
+import { Behaviour, audio, world } from "factoria";
 import { EVENTS } from "./events.js";
 import * as story from "./story.js";
 import { current as chapter } from "./chapters.js";
 import data from "../data/sound.json";
 import * as mix from "./mix.js";
 
+/** True when the music bus already plays `path` (persist keeps a track running through scene loads). */
+function playing(path) {
+  return audio.activeVoices().some((v) => v.music && v.path === path);
+}
+
 /** Music of the title screen (scripts/main_menu.js calls it). */
 export function startTitleMusic() {
-  if (session.musicTrack === data.music.title) return;
-  session.musicTrack = data.music.title;
+  if (playing(data.music.title)) return;
   audio.music(data.music.title, { persist: true, fade: data.music.fade });
 }
 
@@ -72,8 +76,7 @@ export default class Sound extends Behaviour {
     const path = n > 0 ? chapterTrack(n) : "";
     if (!path) return;
     this.track = path;
-    if (session.musicTrack === path) return; // already running (persist keeps it through the doors between areas)
-    session.musicTrack = path;
+    if (playing(path)) return; // already running (persist keeps it through the doors between areas)
     audio.music(path, { persist: true, fade: data.music.fade });
   }
 

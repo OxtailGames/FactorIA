@@ -30,27 +30,16 @@ function tab(name) {
 const text = (id) => game.find(id).get("Button").text;
 
 describe("every tab fits at 100 % and 200 % text", () => {
-  for (const scale of [1, 2]) {
-    test(`text scale ${scale}: nothing overflows its widget on any tab`, () => {
-      openOptions();
-      ui.textScale = scale;
-      game.step(3);
-      for (const name of TABS) {
-        tab(name);
-        const section = game.find(`${name}_section`);
-        expect(section.active).toBe(true);
-        const walk = (e) => {
-          if (!e.active) return; // the monitor row is off where there is one monitor
-          if (e.id && ui.overflowed(e)) throw new Error(`${e.id} overflows at text scale ${scale}`);
-          e.children.forEach(walk);
-        };
-        walk(section);
-        expect(ui.overflowed(`tab_${name}`)).toBe(false);
-        expect(ui.overflowed("options_back")).toBe(false);
-      }
-      ui.textScale = 1;
-    });
-  }
+  test("no text overflows, overlaps or leaves the screen on any tab, in every language, at 100 % and 200 % text", () => {
+    openOptions();
+    for (const name of TABS) {
+      tab(name);
+      expect(game.find(`${name}_section`).active).toBe(true);
+      const report = game.checkLayout({ textScales: [1, 2], pseudo: false });
+      expect(report.issues.map((i) => `${name}: ${i.kind} ${i.entity}`)).toEqual([]);
+    }
+    expect(ui.textScale).toBe(1); // the check puts the text size back
+  });
 });
 
 describe("reaching the options", () => {

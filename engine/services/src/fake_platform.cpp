@@ -420,6 +420,13 @@ FakeBackend::Outcome FakeBackend::compute(const std::string& method, const Json&
         const double v = args.value("value", 0.0);
         o.result = Json::object({{"id", sid}, {"value", args["value"]}});
         o.commit = [this, sid, v](const Json&) { stats_[sid] = v; };
+    } else if (method == "stats.add") {
+        // On the value stored when the request is served, so two adds made in one frame both count (a real store adds atomically).
+        const std::string sid = id();
+        const auto it = stats_.find(sid);
+        const double v = (it == stats_.end() ? 0.0 : it->second) + args.value("delta", 0.0);
+        o.result = Json::object({{"id", sid}, {"value", number_json(v, args.value("type", std::string()) == "int")}});
+        o.commit = [this, sid, v](const Json&) { stats_[sid] = v; };
     } else if (method == "leaderboards.submit") {
         const std::string lid = board_key(args);
         const long long score = args.value("score", 0LL);

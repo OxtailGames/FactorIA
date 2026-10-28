@@ -598,8 +598,7 @@ describe("chapter select, achievements and stats", () => {
   test("saving counts in the stats; a missing store changes nothing", async () => {
     play();
     saves.write(1, { name: "a" });
-    await settle();
-    saves.write(2, { name: "b" }); // (the fake's stats.add reads then writes: two at once count one)
+    saves.write(2, { name: "b" }); // two adds in one frame: the fake adds on the stored value, both count
     await settle();
     expect(game.platform.state().fake.stats.saves_made).toBe(2); // the autosave does not count
     game.platform.set({ backend: "none" });

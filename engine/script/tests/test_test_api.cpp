@@ -180,3 +180,57 @@ test("scene.load takes effect next frame", () => {
     MESSAGE(rep.summary());
     CHECK(rep.ok());
 }
+
+namespace {
+// A 0.1 s silent 16-bit mono PCM WAV (the audio module only needs it to decode).
+std::string silent_wav() {
+    const std::uint32_t n = 4410;
+    std::string b;
+    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
+    auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
+    b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
+    b += "data"; u32(n * 2);
+    b.append(std::size_t(n) * 2, '\0');
+    return b;
+}
+}  // namespace
+
+TEST_CASE("test api: resetState stops the music (persist included) and the voices") {
+    TestHost h("testapi_reset_audio");
+    h.file("assets/theme.wav", silent_wav());
+    h.file("assets/beep.wav", silent_wav());
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+
+const music = () => audio.activeVoices().filter((v) => v.music);
+
+test("a persistent track and a looping voice run", () => {
+  audio.music("assets/theme.wav", { persist: true, fade: 0 });
+  audio.play("assets/beep.wav", { loop: true });
+  game.step(2);
+  expect(music().length).toBe(1);
+  expect(audio.activeVoices().length).toBe(2);
+});
+test("resetState stops both at once, so the same track starts again and is logged", () => {
+  game.resetState();
+  expect(audio.activeVoices()).toEqual([]);
+  game.clearAudioLog();
+  audio.music("assets/theme.wav", { persist: true, fade: 0 });
+  game.step(2);
+  expect(music().length).toBe(1);
+  expect(game.audioLog()).toContainPlayed("theme.wav");
+});
+test("audio: false leaves the sound alone", () => {
+  game.resetState({ audio: false });
+  expect(music().length).toBe(1);
+  game.resetState({ audio: true });
+  expect(audio.activeVoices()).toEqual([]);
+  expect(() => game.resetState({ audoi: true })).toThrow("did you mean 'audio'");
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
