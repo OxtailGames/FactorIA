@@ -98,6 +98,8 @@ elseif(FA_PLATFORM STREQUAL "ios")
     # (platforms/ios/prebuilt/CMakeLists.txt, docs/EXPORTING.md). Not part of ALL.
     add_library(factoria_player_main STATIC EXCLUDE_FROM_ALL ${player_srcs} ${CMAKE_CURRENT_SOURCE_DIR}/ios_bundle.mm)
     target_link_libraries(factoria_player_main PUBLIC fa_runtime PRIVATE fa_warnings)
+    target_include_directories(factoria_player_main PRIVATE ${CMAKE_BINARY_DIR}/generated)  # fa_build_fingerprint.h
+    add_dependencies(factoria_player_main fa_build_fingerprint)
 
     if(FA_GAME_PROJECT_DIR)
         if(NOT EXISTS "${FA_GAME_PROJECT_DIR}/factoria.json")
@@ -145,6 +147,9 @@ else()
 endif()
 
 target_link_libraries(factoria_player PRIVATE fa_runtime fa_warnings)
+# fa_build_fingerprint.h (engine/core/CMakeLists.txt): the mobile players carry the fingerprint in their own code (main.cpp).
+target_include_directories(factoria_player PRIVATE ${CMAKE_BINARY_DIR}/generated)
+add_dependencies(factoria_player fa_build_fingerprint)
 
 # Every game ships the same player, so it links the whole engine; the linker drops the functions and data nothing reaches
 # (about 1.1 MB, 11% of the macOS player; docs/EXPORTING.md, "Size of the player"). Static initializers and plugin entry

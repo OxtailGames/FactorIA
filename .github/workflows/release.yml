@@ -98,6 +98,8 @@ jobs:
           cp "build/${{ matrix.preset }}/player/libfactoria_player.so" "$out/"
           "$llvm/llvm-strip" --strip-unneeded "$out/libfactoria_player.so"
           "$llvm/llvm-nm" -D --defined-only "$out/libfactoria_player.so" | grep -q ANativeActivity_onCreate
+          # The build fingerprint that `factoria export --platform android` compares with its own (player/main.cpp).
+          grep -aq "FA-BUILD-FINGERPRINT:$(git rev-parse --short=12 HEAD);" "$out/libfactoria_player.so"
           ls -l "$out"
 
       - uses: actions/upload-artifact@v4
@@ -139,6 +141,8 @@ jobs:
           # Only the products: Xcode also leaves one single-architecture copy of each archive per arch under *.build/.
           find "build/${{ matrix.preset }}" -path "*Release-${{ matrix.sdk }}/*" -not -path '*.build/*' -name '*.a' -exec cp {} "$out/" \;
           test -f "$out/libfactoria_player_main.a"
+          # The build fingerprint that `factoria export --platform ios` compares with its own (player/main.cpp).
+          grep -aq "FA-BUILD-FINGERPRINT:$(git rev-parse --short=12 HEAD);" "$out/libfactoria_player_main.a"
           for lib in "$out"/*.a; do
             lipo -info "$lib"
             lipo "$lib" -verify_arch $(tr ';' ' ' <<< "${{ matrix.archs }}") || { echo "::error::$lib lacks a slice of ${{ matrix.archs }}"; exit 1; }

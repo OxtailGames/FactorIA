@@ -469,7 +469,13 @@ std::string fa_player_ios_documents_dir();  // app Documents directory
 void fa_player_ios_request_orientation(const std::string& orientation);
 #endif
 
+#include "fa_build_fingerprint.h"  // generated at build time: FA_BUILD_FINGERPRINT (engine/core/CMakeLists.txt)
+
 namespace {
+
+// The build fingerprint in the player's own code, which `factoria export --platform ios` reads in
+// libfactoria_player_main.a (the engine's copy lives in libfa_core.a). sokol_main touches it, so the Android .so keeps it.
+__attribute__((used)) const char kPlayerFingerprint[] = "FA-BUILD-FINGERPRINT:" FA_BUILD_FINGERPRINT ";";
 
 // Shown when the game cannot start (no project in the app bundle/APK): a red screen plus a log line.
 // (No text rendering is available without the engine, so `adb logcat -s FactorIA` / the Xcode console
@@ -508,6 +514,11 @@ sapp_desc error_desc(const std::string& message) {
 
 // sokol_app.h (compiled as C in fa_platform) calls sokol_main with C linkage.
 extern "C" sapp_desc sokol_main(int, char*[]) {
+    // Keeps the fingerprint marker in the player: `factoria export` reads it to see that this player and factoria come
+    // from the same commit (the linker drops data nothing reaches).
+    const volatile char* marker = kPlayerFingerprint;
+    (void)marker[0];
+    fa::log(fa::LogLevel::Debug, "player", std::string("factoria_player " FA_ENGINE_VERSION " (build ") + fa::build_fingerprint() + ")");
     fa::EngineConfig cfg;
     cfg.hotReload = false;
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
