@@ -1,0 +1,49 @@
+{
+  "path": "assets/audio/music_ch4.wav",
+  "kind": "drone",
+  "chords": [
+    [
+      "D2",
+      "A2",
+      "D3"
+    ],
+    [
+      "D2",
+      "A2",
+      "Eb3"
+    ],
+    [
+      "Bb1",
+      "F2",
+      "Bb2"
+    ],
+    [
+      "A1",
+      "E2",
+      "A2"
+    ]
+  ],
+  "chordSeconds": 6,
+  "sampleRate": 16000,
+  "seed": 5,
+  "peak": 0.55,
+  "bass": 0.7,
+  "brightness": 0.08,
+  "arpeggio": {
+    "every": 1.5,
+    "pattern": [
+      2,
+      null,
+      null,
+      null,
+      1,
+      null,
+      null,
+      null
+    ],
+    "gain": 0.14
+  },
+  "underNote": "D1",
+  "underLevel": 0.5,
+  "overwrite": true
+}

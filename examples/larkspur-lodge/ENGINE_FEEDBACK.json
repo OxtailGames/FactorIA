@@ -560,10 +560,12 @@
       "suggestion": "Say in the assets.generate_voice error which provider keys are needed, and document how to test voice-dependent code without a provider.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP.md."
-      ]
+        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP.md.",
+        "Fixed in M33.13 (branch m33/audio-voice): the no-provider error names ELEVENLABS_API_KEY and OPENAI_API_KEY, and assets.generate_voice {silent: true} writes a silent clip of the line's length (docs/ASSETS.md, Voice without a provider)."
+      ],
+      "engineIssue": "branch m33/audio-voice (M33.13)"
     },
     {
       "id": "FB-0602",
@@ -611,10 +613,12 @@
       "suggestion": "A command that generates simple loops (noise beds, drones) or searches CC0 sound packs, and one that converts WAV to OGG.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP.md."
-      ]
+        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP.md.",
+        "Fixed in M33.13 (branch m33/audio-voice): assets.generate_loop (seeded noise beds and drones) and assets.convert_audio (WAV to Ogg Vorbis, own encoder). assets/src/make_sound.py is gone; the calls are assets/src/sound/*.json. No CC0 pack search: no source offers an API without a key."
+      ],
+      "engineIssue": "branch m33/audio-voice (M33.13)"
     },
     {
       "id": "FB-0702",

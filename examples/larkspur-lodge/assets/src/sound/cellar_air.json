@@ -1,0 +1,14 @@
+{
+  "path": "assets/audio/cellar_air.wav",
+  "kind": "noise",
+  "color": "brown",
+  "cutoff": 250,
+  "hum": [
+    55,
+    110
+  ],
+  "seconds": 12,
+  "seed": 37,
+  "peak": 0.6,
+  "overwrite": true
+}
