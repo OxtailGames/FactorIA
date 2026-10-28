@@ -989,6 +989,7 @@ bool ScriptSystem::init(ScriptHost& host, std::string* error) { return impl_->in
 void ScriptSystem::shutdown() { impl_->shutdown(); }
 
 void ScriptSystem::on_scene_loaded() {
+    if (impl_->host) impl_->host->world().bump_scene_generation();  // every load, also a reload of the same scene
     if (!impl_->initialized) return;
     impl_->drop_all_behaviours();
     impl_->call_method("scene reset", "", impl_->hooks.get(), "resetScene", {});

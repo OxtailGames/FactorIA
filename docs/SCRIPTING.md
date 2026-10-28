@@ -248,6 +248,8 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   They also leave physics immediately: from the call on, a destroyed entity has no collisions, no contact events and no
   `raycast`/`shape_cast`/overlap hits, even though it is only erased at the end of the frame. So it is safe to destroy a
   stack of rigid bodies and spawn a replacement at the same positions in the same frame: the old bodies do not push the new ones.
+  `world.entities()` skips them too; a handle you hold stays `alive` until the end of the frame. So a screen can destroy
+  its root and spawn the rebuilt one with the same ids in the same frame, and `world.find` returns the new widgets.
 - `emit(name, data)` · `on(name, fn)` → unsubscribe function
 - `settings` — SceneSettings view (gravity2D, ambientLight, ...)
 - `time`, `frame`
@@ -976,7 +978,7 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
 - Promises: a rejection nobody handles is logged once as `unhandled promise rejection: ...`, but only if it is still
   unhandled once the pending promise jobs have run (as in Node). `p.then(() => platform.achievements.unlock(id)).catch(() => {})`
   logs nothing when the store rejects.
-- `scene.load(path, props?)` (deferred to frame end) · `scene.reload()` · `scene.current` · `game.sceneProps()` (see "Scene props")
+- `scene.load(path, props?)` (deferred to frame end) · `scene.reload()` · `scene.current` · `scene.generation` (a counter that changes on every load, a reload of the same scene too) · `game.sceneProps()` (see "Scene props")
 - `game.today()` (see "The date") · `game.focused` · `game.on("gamepadConnected" | "gamepadDisconnected", fn)` (see "Pads plugged in and out") · `game.on("suspend" | "resume" | "focus" | "blur", fn)` (app lifecycle,
   see MOBILE.md "Lifecycle"; `pauseOnSuspend` in `factoria.json`, default `true`, pauses the game and the music while the
   app is in the background) · `game.on("quit", fn)`: see "Window close" below
@@ -1121,7 +1123,8 @@ onDestroy() { if (this.pic) this.pic.destroy(); }
 ```
 
 Nothing here awaits an answer, so there is no scene to re-check; if you capture inside a `scene.preload` or `http`
-callback, compare `scene.current` with the scene you started in before you act on it.
+callback, compare `scene.current` with the scene you started in before you act on it. `scene.current` is equal after a
+reload of the same scene: keep `const gen = scene.generation` and compare it instead, it changes on every load.
 
 ### The date: `game.today()` (never `Date`)
 `new Date()` and `Date.now()` read the wall clock, so a run is different every time and a test cannot pin it. Read the

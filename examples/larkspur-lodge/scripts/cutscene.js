@@ -70,8 +70,8 @@ let extraClips = {};
 // ---------------------------------------------------------------------------------------------------------------- state
 /** Drops everything that belongs to a scene that is gone. */
 function dropIfStale() {
-  if (run && (run.scenePath !== scene.current || (run.porter && !run.porter.alive))) drop();
-  if (view && view.scenePath !== scene.current) view = null;
+  if (run && run.generation !== scene.generation) drop();
+  if (view && view.generation !== scene.generation) view = null;
 }
 
 /** Forgets a cut-scene whose scene is gone (the scene changed, or the same scene was loaded again): its entities and listeners died with it. */
@@ -173,7 +173,7 @@ function start(def, skippable) {
   run = {
     id: def.id,
     def,
-    scenePath: scene.current,
+    generation: scene.generation,
     t: 0,
     next: 0,
     steps: def.timeline,

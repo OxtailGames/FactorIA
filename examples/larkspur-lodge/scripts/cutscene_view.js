@@ -23,8 +23,8 @@ export default class CutsceneView extends Behaviour {
   runWhilePaused = true;
 
   onStart() {
-    /** The scene this belongs to: events of another scene are not for it. */
-    this.scenePath = scene.current;
+    /** The scene load this belongs to (scene.generation): events of another load are not for it. */
+    this.generation = scene.generation;
     this.bars = [world.find("cs_bar_top"), world.find("cs_bar_bottom")];
     this.card = world.find("cs_card").get("Text");
     this.skipButton = world.find("cs_skip");
@@ -36,7 +36,7 @@ export default class CutsceneView extends Behaviour {
     this.cardAlpha = 0;
     this.skipVisible = false;
     this.setShown(false);
-    ui.on("click", "cs_skip", () => scene.current === this.scenePath && cutscene.skip());
+    ui.on("click", "cs_skip", () => scene.generation === this.generation && cutscene.skip());
     world.on(EVENTS.deviceChanged, () => this.labelSkip());
     world.on(EVENTS.settingsChanged, () => this.labelSkip());
     cutscene.attach(this);
