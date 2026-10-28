@@ -307,6 +307,36 @@ std::string write_tiny_png(const std::filesystem::path& file) {
 
 }  // namespace
 
+TEST_CASE("claude-code CLI: stopWhen sees the live usage and kills the CLI when the limit is crossed") {
+    TempDir dir;
+    ProviderConfig cfg = default_config().providers["claude-code"];
+    cfg.command = fake_claude_path();
+    cfg.env["FAKE_MODE"] = "spend";
+    CliRunRequest req;
+    req.prompt = "go";
+    req.projectDir = dir.str();
+    double seenCost = 0;
+    u64 seenTokens = 0;
+    bool seenEstimate = false;
+    req.stopWhen = [&](const Usage& u, double cost, bool estimate) {
+        seenCost = cost;
+        seenTokens = u.total();
+        seenEstimate = estimate;
+        return u.total() >= 2000;  // after the first call (1100 tokens) it goes on, after the second (2200) it stops
+    };
+    const auto start = std::chrono::steady_clock::now();
+    auto r = CliAgent(cfg).run(req, [](const AgentEvent&) {}, nullptr);
+    REQUIRE(r);
+    CHECK(r->cancelled);
+    CHECK_FALSE(r->ok);
+    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(20));  // not the fake's 30 s of silence
+    CHECK(seenTokens == 2200);
+    CHECK(seenEstimate);
+    CHECK(seenCost == doctest::Approx(2 * (1000 * 2.0 + 100 * 10.0) / 1e6));
+    CHECK(r->costIsEstimate);
+    CHECK(r->usage.total() == 2200);
+}
+
 TEST_CASE("claude-code CLI: stdin is stream-json with the images; a follow-up resumes; usage events") {
     TempDir dir, scratch;
     const std::string argvFile = (scratch.path / "argv.txt").string();

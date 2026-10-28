@@ -4,6 +4,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+The AI panel's usage is live
+
+- Tokens and cost in the editor's AI panel grow while the agent works, instead of jumping when it finishes: every model call of
+  Claude Code (and each Codex turn) adds its usage, the cost is estimated with the engine's price table until the CLI's own
+  total arrives. A delegated worker's spending shows live too and is no longer lost from the chat's totals or overwritten by the
+  orchestrator's. The plan windows still update once per message (Claude Code reports them once); the tooltip says "As of HH:MM".
+- `limits.maxCostUsd` and `limits.maxTotalTokens` apply to a Claude Code / Codex run as it goes: it is stopped when it crosses them.
+
 The AI agent is never silent
 
 - When the editor's AI (Claude Code) hands a task to the worker, the worker's steps now stream into the chat as it works, and the

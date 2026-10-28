@@ -171,7 +171,10 @@ void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std
                 std::string tip = v.label + ": " + (v.known ? format_percent(v.used) + " of this window used." : "usage not reported.");
                 if (v.wasReset) tip += "\nThe window has reset since the last report (shown as 0% until " + provider + " reports again).";
                 else if (v.resetsAt > 0) tip += "\nResets " + format_date_time(v.resetsAt) + ".";
-                if (limits->updated > 0) tip += "\nLast reported by " + provider + " at " + format_date_time(limits->updated) + ".";
+                if (limits->updated > 0) {
+                    tip += "\nAs of " + format_clock(limits->updated, now) + ": " + provider + " reports the plan windows once per message,\n"
+                           "after its first model call, so they do not move while it works.";
+                }
                 ImGui::SetTooltip("%s", tip.c_str());
             }
         }
@@ -199,8 +202,8 @@ void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std
         }
     }
     ai::Usage u = chat.usage;
-    u += chat.runUsage;
-    const double cost = chat.costUsd + chat.runCostUsd;
+    u += chat.run.usage();  // the run in progress: every agent's running totals, live
+    const double cost = chat.costUsd + chat.run.cost();
     if (cost > 0) {
         char text[64];
         std::snprintf(text, sizeof text, "Cost est. $%.4f", cost);
@@ -209,6 +212,8 @@ void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std
         ImGui::TextUnformatted(text);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Estimated cost of this conversation in USD, from the price the CLI reports or the engine's price table.\n"
+                              "While an agent works it is the engine's running estimate (every agent counts, workers included); the\n"
+                              "CLI's own total replaces it when the agent finishes.\n"
                               "A subscription (Claude Code / Codex sign-in) is not billed per token: the plan windows above matter there.");
         }
     }
@@ -220,7 +225,9 @@ void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(text);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Tokens used by this conversation so far.\nin = new input, out = what the model wrote,\ncache = input read from or written to the prompt cache.");
+            ImGui::SetTooltip("Tokens used by this conversation so far, live while an agent works.\nin = new input, out = what the model wrote,\n"
+                              "cache = input read from or written to the prompt cache.\n"
+                              "Claude Code reports a message's output tokens early, so out can lag until the agent finishes.");
         }
     }
     if (limitsExpected && !anyWindow) {
@@ -375,9 +382,10 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry() {
         aiLastActivityMs_ = now_ms();
         aiActivity_ = info.role + ": starting";
     };
-    ao.onRunEvent = [this](const ai::AiRunInfo&, const ai::AgentEvent& ev) {
+    ao.onRunEvent = [this](const ai::AiRunInfo& info, const ai::AgentEvent& ev) {
         ai::AgentEvent shown = ev;
         shown.depth += 1;
+        shown.runId = info.id;
         ai_note_event(shown);
     };
     ao.onRunProcess = [this](const ai::AiRunInfo& info, long long pid) {
@@ -508,8 +516,7 @@ void Editor::ai_start(const std::string& task) {
     if (chat.title.empty()) chat.title = chat_title_from(task);
     chat.updated = now_epoch();
     chat.scrollDown = true;
-    chat.runUsage = {};
-    chat.runCostUsd = 0;
+    chat.run.clear();
 
     // The entity selected in the viewport is what "this" and "it" mean. The transcript shows only what was typed.
     std::string prompt = task;
@@ -637,6 +644,7 @@ void Editor::ai_end_run(AiChat* c) {
                 it.result = "no result: the run ended before this call returned";
             }
         }
+        c->run.settle_all(c->usage, c->costUsd);  // a run cut short (Stop, a closed project) keeps what it spent
         ai_run_checkpoint_finish(*c);
         chat_.save(*c);  // saved after every run (no timer): the chat survives a crash or a closed editor
         chat_.save_open_list();
@@ -843,8 +851,7 @@ void Editor::ai_drain_events() {
                 }
                 break;
             case T::Usage:
-                c.runUsage = ev.usage;
-                c.runCostUsd = ev.costUsd;
+                c.run.update(ev.runId, ev.usage, ev.costUsd);  // this agent's totals; the others' stay
                 // Context and plan windows describe the chat's own provider; a delegated worker's (depth > 0) are not these.
                 if (ev.depth == 0) {
                     if (ev.contextTokens) c.contextTokens = ev.contextTokens;
@@ -861,9 +868,11 @@ void Editor::ai_drain_events() {
                 break;
             case T::Error:
                 note(ChatItem::Kind::Error, ev.text, ev.depth);
+                // A run that ends in an error still spent what it spent (the parser's own errors carry no usage).
+                if (ev.usage.total() > 0 || ev.costUsd > 0) c.run.update(ev.runId, ev.usage, ev.costUsd);
                 break;
             case T::Done:
-                c.runCostUsd = ev.costUsd;
+                c.run.update(ev.runId, ev.usage, ev.costUsd);
                 break;
         }
     }
@@ -882,10 +891,9 @@ void Editor::ai_drain_events() {
             it.text = "done (" + result->stopReason + ", " + std::to_string(result->turns) + " turn(s))";
         }
         items.push_back(std::move(it));
-        c.usage += result->usage;
-        c.costUsd += result->costUsd;
-        c.runUsage = {};
-        c.runCostUsd = 0;
+        // The orchestrator's final totals replace its live ones and join the chat's; the workers' (whose usage the
+        // orchestrator's result does not hold) join too, unless one still runs: that one settles when it ends.
+        c.run.settle_orchestrator(result->usage, result->costUsd, c.usage, c.costUsd, !detached);
         if (!result->conversation.empty()) c.conversation = result->conversation;  // a failed first run keeps the old one
         c.updated = now_epoch();
         c.scrollDown = true;
@@ -928,6 +936,7 @@ void Editor::ai_drain_events() {
             reports.emplace_back(d.info, d.ok ? d.report : "The worker failed: " + d.error);
         }
         c.scrollDown = true;
+        c.run.settle_all(c.usage, c.costUsd);  // what the orphaned workers spent after the orchestrator's turn
         const bool cont = found && aiDetachedOk_ && !aiCancel_.load() && engine_ && play_ == PlayState::Edit;
         {
             std::lock_guard<std::mutex> lock(aiMu_);
