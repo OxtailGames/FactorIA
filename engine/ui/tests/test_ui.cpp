@@ -2513,15 +2513,15 @@ TEST_CASE("ui mirror: a CameraView's rectangle flips with the layout but its pic
     Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
     t.w.set_rtl(true);
     t.ui.layout(t.w, t.design, {});
-    CHECK(t.rect(view).x == doctest::Approx(320 - 20 - 100));  // the rectangle is on the other side
-    t.in.on_mouse_move({220 + 20, 40});  // 20 px from the view's left edge, which is on screen
+    CHECK(t.rect(view).x == doctest::Approx(320 - 20 - 100));  // the rectangle is on the other side (200 .. 300)
+    t.in.on_mouse_move({200 + 20, 40});  // 20 px from the view's left edge, which is on screen
     t.in.on_mouse_button(MouseButton::Left, true);
     t.frame();
     auto ev = view_events(t);
     REQUIRE(ev.size() == 1);
     CHECK(ev[0]["u"].get<float>() == doctest::Approx(0.2f));  // u still counts from the picture's own left edge
     CHECK(ev[0]["v"].get<float>() == doctest::Approx(0.25f));
-    t.in.on_mouse_move({255, 36});
+    t.in.on_mouse_move({235, 36});
     t.frame();
     ev = view_events(t);
     REQUIRE(ev.size() == 1);
