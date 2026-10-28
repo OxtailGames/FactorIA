@@ -116,6 +116,99 @@ TEST_CASE("claude-code agent: argv template is overridable from the config") {
     CHECK(read_file(argvFile) == "--print\nhi\n--output-format\nstream-json\n");
 }
 
+TEST_CASE("claude-code agent: --disallowedTools carries the tools a role must not have, as one argument") {
+    TempDir dir, scratch;
+    std::string argvFile = (scratch.path / "argv.txt").string();
+    ProviderConfig cfg = claude_cfg();
+    cfg.env["FAKE_ARGV_FILE"] = argvFile;
+    CliRunRequest req{"Review it", "opus", dir.str()};
+    req.disallowedTools = {"Agent", "Task", "Edit", "mcp__factoria__scene_spawn"};
+    req.readOnly = true;
+    auto r = CliAgent(cfg).run(req, nullptr, nullptr);
+    REQUIRE(r);
+    CHECK(r->ok);
+    const std::string argv = read_file(argvFile);
+    CHECK(argv.find("--disallowedTools\nAgent,Task,Edit,mcp__factoria__scene_spawn\n") != std::string::npos);
+    CHECK(argv.find("--allowedTools\nmcp__factoria\n") != std::string::npos);  // the deny list wins over the allow list
+}
+
+TEST_CASE("apply_role_restrictions: Claude Code and Codex are restricted, other CLIs and unrestricted runs are left alone") {
+    CliRunRequest req{"x", "m", "/p"};
+    std::vector<std::string> plain = {"-p", "--model", "m"};
+    auto untouched = plain;
+    apply_role_restrictions(ProviderKind::ClaudeCode, true, req, untouched);
+    CHECK(untouched == plain);  // no disallowed tools, nothing added
+
+    req.disallowedTools = {"Agent", "Task"};
+    auto claude = plain;
+    apply_role_restrictions(ProviderKind::ClaudeCode, true, req, claude);
+    CHECK(claude == std::vector<std::string>{"-p", "--model", "m", "--disallowedTools", "Agent,Task"});
+    auto generic = plain;
+    apply_role_restrictions(ProviderKind::GenericCli, true, req, generic);
+    CHECK(generic == plain);
+
+    // Codex, read-only role, built-in argv: its sandbox and a read-only FactorIA MCP server
+    req.readOnly = true;
+    std::vector<std::string> codex = {"exec", "--json", "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/p\"]", "-"};
+    apply_role_restrictions(ProviderKind::Codex, true, req, codex);
+    CHECK(codex == std::vector<std::string>{"exec", "--json", "-c",
+                                            "mcp_servers.factoria.args=[\"mcp\",\"--read-only\",\"--project\",\"/p\"]",
+                                            "--sandbox", "read-only", "-"});
+    // not read-only, or the user's own argv: untouched
+    CliRunRequest open{"x", "m", "/p"};
+    auto codexOpen = std::vector<std::string>{"exec", "-"};
+    apply_role_restrictions(ProviderKind::Codex, true, open, codexOpen);
+    CHECK(codexOpen == std::vector<std::string>{"exec", "-"});
+    auto custom = std::vector<std::string>{"exec", "-"};
+    apply_role_restrictions(ProviderKind::Codex, false, req, custom);
+    CHECK(custom == std::vector<std::string>{"exec", "-"});
+}
+
+TEST_CASE("AgentSession: a Claude Code orchestrator has Agent and Task switched off, a reviewer cannot edit") {
+    TempDir dir, scratch;
+    std::string argvFile = (scratch.path / "argv.txt").string();
+    AiConfig cfg = default_config();
+    cfg.providers["claude-code"].command = script("fake_claude.sh");
+    cfg.providers["claude-code"].env["FAKE_ARGV_FILE"] = argvFile;
+    for (const char* role : {"orchestrator", "reviewer"}) cfg.roles[role].provider = "claude-code";
+    CommandRegistry registry = make_registry();
+    CommandInfo spawn;
+    spawn.name = "scene.spawn";
+    spawn.summary = "Spawn.";
+    spawn.readOnly = false;
+    registry.add(spawn, [](const Json&) { return Json::object(); });
+    {
+        SessionOptions so;
+        so.projectDir = dir.str();
+        AgentSession s(registry, cfg, so);
+        REQUIRE(s.run("Make a game").ok);
+        const std::string argv = read_file(argvFile);
+        const std::size_t at = argv.find("--disallowedTools\n");
+        REQUIRE(at != std::string::npos);
+        const std::string list = argv.substr(at + 18, argv.find('\n', at + 18) - (at + 18));
+        CHECK(list.find("Agent") != std::string::npos);
+        CHECK(list.find("Task") != std::string::npos);
+        CHECK(list.find("mcp__factoria__ai_review") != std::string::npos);
+        CHECK(list.find("mcp__factoria__ai_run") == std::string::npos);  // the orchestrator delegates with it
+        CHECK(list.find("Edit") == std::string::npos);
+    }
+    std::filesystem::remove(argvFile);
+    {
+        SessionOptions so;
+        so.projectDir = dir.str();
+        so.role = "reviewer";
+        so.allowDelegation = false;
+        AgentSession s(registry, cfg, so);
+        REQUIRE(s.run("Review the game").ok);
+        const std::string argv = read_file(argvFile);
+        const std::size_t at = argv.find("--disallowedTools\n");
+        REQUIRE(at != std::string::npos);
+        const std::string list = argv.substr(at + 18, argv.find('\n', at + 18) - (at + 18));
+        for (const char* t : {"Edit", "Write", "Bash", "mcp__factoria__scene_spawn", "mcp__factoria__ai_run"})
+            CHECK_MESSAGE(list.find(t) != std::string::npos, t);
+    }
+}
+
 TEST_CASE("claude-code agent: not logged in gives an actionable error") {
     TempDir dir;
     ProviderConfig cfg = claude_cfg();

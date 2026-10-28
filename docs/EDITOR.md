@@ -151,14 +151,27 @@ a time: Run is disabled in the other tabs while one works (hover it to see which
 first; click one to reopen it as a tab (the next message resumes it) or Delete it from the list.
 
 - **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
-  the worker role and small mechanical edits to the fast role by itself. **Roles...** at the top of the panel picks the
-  provider, model and effort of each role (the line next to it shows the current ones); Save writes them into `ai.json`
+  the worker role, small mechanical edits to the fast role, the art to the artist role and the sound to the audio role
+  by itself. The `artCritic` and `reviewer` roles never run unless you ask (see **Reviews** below). **Roles...** at the
+  top of the panel picks the provider, model and effort of each of the seven roles (the line next to it shows the current ones); Save writes them into `ai.json`
   and the next message uses them (see `docs/AI_PROVIDERS.md`, Roles). The **Model** column is a dropdown of the models
   the provider really offers, fetched when the project opens; **Refresh models** asks again (new releases show up), and
   **Other...** types a name that is not listed (see `docs/AI_PROVIDERS.md`, Choosing a model). **Roles...** is disabled
   until `ai.json` has been read. Its **Context** column caps how much of the
   conversation a session keeps (full, or 100k to 800k): past it the earlier part is summarized, so each message costs
   less. It works with Claude Code and the Anthropic API.
+- **Reviews:** under the message box, the row **Review:** has an **Art critique** and a **Game review** button (and
+  **Reviews...**, below), and the row under it a **Reviewers** count (1 to 5 reviewers, each with a different point of view,
+  one after another) and an optional focus ("the shop screen"). Pressing
+  one starts read-only agents that look at and play the game (they read `REVIEW.md` first) and give an opinion with a score
+  from 0 to 10 and sub-scores. Each reviewer works in a chat tab of its own, titled "Art critique" or "Game review", where
+  you see what it does. They cost tokens, so nothing starts them but you: the orchestrator cannot. The buttons are disabled
+  while the game runs (the reviewers start it themselves) or another agent works. When a review is ready, the **AI
+  reviews** window opens (also from **Reviews...**) with every saved review of the project, newest first, with its score,
+  persona and game version, and the text of the selected one. **Send to orchestrator** posts that report as your message
+  into the active orchestrator chat (a new one when the active tab is a review's own) so it plans the fixes and delegates
+  them; **Copy** puts the text on the clipboard. Nothing is sent unless you press it. The reviews are files in
+  `.factoria/ai/reviews/` (`docs/AI_PROVIDERS.md`, Reviews).
 - **Pictures:** drop image files (png, jpg, jpeg, gif, webp) on the window, press Ctrl+V in the input with a picture on the
   clipboard, or press **Attach image...**. Pending pictures show above the input (remove one with its x); sent ones show
   in the transcript. Copies live in `.factoria/ai/attachments/`; other file types are refused with a message saying why.
@@ -448,8 +461,8 @@ rebuild the open scene file), C (pick bounds and the selection outline), D (bloo
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
 agent through the MCP endpoint), P (revert an AI run) and Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
-the stuck warning, Check activity, the detached worker and its single continuation) and R (a program updated on disk: the Restart notice,
-its button state and Not now). While you work on one part of the editor, run only the sections that cover it:
+the stuck warning, Check activity, the detached worker and its single continuation) R (a program updated on disk: the Restart notice,
+its button state and Not now) and U (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest

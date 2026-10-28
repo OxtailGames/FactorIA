@@ -32,6 +32,7 @@
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/provider.h"
+#include "fa/ai/review.h"
 #include "fa/ai/session.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -311,6 +312,16 @@ public:
     // Launches the agent thread for `prompt` in the chat aiRunChat_ names (ai_start's second half; also the automatic
     // continuation of an orchestrator whose delegated worker finished after its turn ended).
     void ai_launch(const std::string& prompt, const std::vector<std::string>& imageFiles);
+    bool ai_ensure_mcp();            // the MCP endpoint CLI agents attach; false (with a notice) when it cannot start
+    void ai_reset_run_state();       // cancel flag, delegates, processes and liveness of a fresh run
+    // Reviews (ai_review.cpp): art critiques and game reviews, started ONLY by the user's buttons.
+    void ai_review_request(const std::string& kind, int count, const std::string& focus);
+    void ai_review_next();           // starts the next reviewer of the job
+    void ai_review_tick();           // every frame: takes a finished reviewer's report in, starts the next one
+    void ai_review_abort(const std::string& why);
+    void draw_ai_review_row(bool gameRuns);          // the buttons under the message box
+    void draw_ai_reviews_window();                   // past reviews, scores, the report and "Send to orchestrator"
+    void ai_review_send(const ai::Review& review);   // posts a review to an orchestrator chat as a user message
     // Ends the run of aiRunChat_: its checkpoint item, the saved chat, the run state cleared. `c` is the chat or nullptr.
     void ai_end_run(AiChat* c);
     // Everything about "is it still working": called every frame while a run is on (ai_panel.cpp).
@@ -652,6 +663,24 @@ public:
         CheckpointDiff diff;
     } aiRevert_;
     std::string aiRunProvider_;     // provider of that run (the plan limits belong to it)
+    std::string aiRunRole_;         // role of the run in progress ("" = orchestrator); a review sets artCritic or reviewer
+    std::string aiRunExtra_;        // extra system prompt of that run (a reviewer's persona)
+    // The review job in progress (ai_review.cpp): N reviewers one after another, each in the same chat tab.
+    struct AiReviewJob {
+        bool active = false;
+        std::string kind, role, focus, chatId;
+        int count = 1, next = 0;            // reviewers asked for / index of the one that runs (or runs next)
+        std::size_t itemStart = 0;          // chat items before the current reviewer's run
+        double costBefore = 0;
+        std::string provider, model;
+        std::vector<std::string> savedIds;  // the reviews this job produced
+    } aiReview_;
+    int aiReviewCount_ = 1;                 // the count the buttons use (1..kMaxReviewers)
+    std::string aiReviewFocus_;             // what to look at ("" = everything)
+    bool aiReviewsShown_ = false;           // the "AI reviews" window
+    std::vector<ai::Review> aiReviewList_;  // saved reviews, newest first (reloaded when aiReviewDirty_)
+    bool aiReviewDirty_ = true;
+    std::string aiReviewSelected_;          // id of the review whose report the window shows
     LimitsByProvider aiLimits_;     // plan windows reported since the editor started, shared by every tab
     int aiTabForce_ = 0;            // frames left to force the active tab (a tab opened/closed by code)
     bool aiHistoryOpen_ = false;    // request to open the History popup this frame

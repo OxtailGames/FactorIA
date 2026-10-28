@@ -82,11 +82,29 @@ struct Limits {
 inline constexpr const char* kRoleOrchestrator = "orchestrator";
 inline constexpr const char* kRoleWorker = "worker";
 inline constexpr const char* kRoleFast = "fast";
+inline constexpr const char* kRoleArtist = "artist";        // makes the game's art (images, textures, sprites, models, look)
+inline constexpr const char* kRoleAudio = "audio";          // makes the game's audio (sound effects, music, voice, mixing)
+inline constexpr const char* kRoleArtCritic = "artCritic";  // looks at the game and criticizes its art; read-only
+inline constexpr const char* kRoleReviewer = "reviewer";    // plays the game like a press reviewer and scores it; read-only
+
+// Every role, in the order UIs list them.
+inline constexpr const char* kAllRoles[] = {kRoleOrchestrator, kRoleWorker, kRoleFast,      kRoleArtist,
+                                            kRoleAudio,        kRoleArtCritic, kRoleReviewer};
+inline constexpr const char* kExtraRoles[] = {kRoleArtist, kRoleAudio, kRoleArtCritic, kRoleReviewer};  // not in old ai.json files
+bool is_known_role(std::string_view role);
+// artCritic and reviewer: they look and play and give an opinion, they never change the project (SessionOptions::role
+// enforces it: only read-only tools, no file edits).
+bool is_review_role(std::string_view role);
+// The roles the orchestrator may hand a task to (ai_run / agent_delegate): worker, fast, artist, audio. The critics and
+// the reviewers run only when the USER asks (the editor's review buttons, `factoria ai review`, ai.review).
+bool is_delegable_role(std::string_view role);
+// One line: what the role does (Roles window, docs).
+const char* role_summary(std::string_view role);
 
 struct AiConfig {
     std::string defaultProvider = "anthropic";
     std::map<std::string, ProviderConfig> providers;
-    std::map<std::string, RoleConfig> roles;  // always has the three roles after load
+    std::map<std::string, RoleConfig> roles;  // always has the seven roles after load
     std::map<std::string, AssetRoute> assets; // by media_kind_name; empty unless the file sets "assets"
     Limits limits;
     std::string sourcePath;                   // "" when defaults only
@@ -108,7 +126,10 @@ std::string default_config_path(const EnvLookup& env = system_env());
 
 // Built-in providers and the default Anthropic role mapping.
 AiConfig default_config();
-// Default roles for a provider (Anthropic: opus/sonnet/haiku with xhigh/medium/max).
+// Default roles for a provider (Anthropic: opus/sonnet/haiku with xhigh/medium/max). The four newer roles (artist, audio,
+// artCritic, reviewer) follow the provider the three older ones use (an ai.json that sets only those keeps working, on the
+// same provider): artist, artCritic and reviewer copy the orchestrator's provider and model with effort "high", audio the
+// worker's with effort "medium". Anthropic and Claude Code take the effort from the role; other providers keep the base's.
 std::map<std::string, RoleConfig> default_roles_for(const AiConfig& cfg);
 
 std::string_view config_schema_text();                           // schemas/ai-config.schema.json

@@ -115,6 +115,25 @@ Json make_mcp_config(const std::string& projectDir, const std::string& factoriaC
     return Json::object({{"mcpServers", Json::object({{"factoria", server}})}});
 }
 
+void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv) {
+    if (kind == ProviderKind::ClaudeCode && !req.disallowedTools.empty()) {
+        // One comma-separated argument: the option is variadic and the prompt goes to standard input.
+        std::string list;
+        for (const auto& t : req.disallowedTools) list += (list.empty() ? "" : ",") + t;
+        argv.push_back("--disallowedTools");
+        argv.push_back(std::move(list));
+    }
+    if (kind == ProviderKind::Codex && req.readOnly && builtInArgv) {
+        for (auto& a : argv) {
+            // `factoria mcp --read-only`: the server offers and runs only commands that do not change the project.
+            const std::string from = "[\"mcp\",\"--project\",";
+            if (a.rfind("mcp_servers.factoria.args=", 0) == 0) a = fa::replace_all(std::move(a), from, "[\"mcp\",\"--read-only\",\"--project\",");
+        }
+        auto stdinMarker = std::find(argv.begin(), argv.end(), "-");
+        argv.insert(stdinMarker, {"--sandbox", "read-only"});
+    }
+}
+
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
                                          const std::string& mcpConfigPath, const std::string& factoriaCommand) {
     struct Sub {
@@ -557,6 +576,7 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         effective.prompt = prompt_with_image_paths(req.prompt, req.imagePaths);
         expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand);  // {prompt} carries the paths too
     }
+    apply_role_restrictions(cfg_.kind, cfg_.argv.empty(), req, expanded);
     for (auto& a : expanded) po.argv.push_back(std::move(a));
     po.workingDir = projectDir;
     // A template without {prompt} gets the prompt on standard input (one stream-json line when the CLI asks for that).

@@ -391,7 +391,9 @@ bool excluded_top_level(const std::string& name, const std::string& feedbackFile
     // steam_appid.txt makes a game run as the app it names, whoever starts it (the Steam plugin reads it in development):
     // a shipped game gets its app id from the Steam client.
     static const std::set<std::string> names = {"build", "tests", "tools", "types", "node_modules", "AGENTS.md",
-                                                "CLAUDE.md", "jsconfig.json", "ENGINE_FEEDBACK.json", "steam_appid.txt"};
+                                                "CLAUDE.md", "jsconfig.json", "ENGINE_FEEDBACK.json", "steam_appid.txt",
+                                                "REVIEW.md"};
+    // REVIEW.md is the note the art critics and game reviewers read first (docs/AI_PROVIDERS.md, "Reviews").
     // The project's own README is documentation for whoever works on the game, and no game reads it (any capitalization).
     return names.count(name) > 0 || name == feedbackFile || to_lower(name) == "readme.md";
 }

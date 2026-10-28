@@ -220,6 +220,20 @@ TEST_CASE("mcp: tools/call failures are isError results with code, message and h
     CHECK(badArgs["error"]["code"] == -32602);
 }
 
+TEST_CASE("mcp: a command filter hides commands from tools/list and refuses to call them") {
+    Fixture f;
+    f.server.set_command_filter([](const CommandInfo& i) { return i.readOnly; });
+    f.initialize();
+    std::set<std::string> names;
+    Json listed = f.rpc("tools/list");
+    for (auto& t : listed["result"]["tools"]) names.insert(t["name"].get<std::string>());
+    CHECK(names.count("test_echo_value") == 1);
+    CHECK(names.count("test_change_state") == 0);
+    CHECK(f.call("test_echo_value", {{"value", 1}})["result"]["isError"] == false);
+    Json blocked = f.call("test_change_state")["result"];
+    CHECK(blocked["isError"] == true);
+}
+
 TEST_CASE("mcp: $image results add an image content block") {
     Fixture f;
     Json res = f.call("test_shot")["result"];

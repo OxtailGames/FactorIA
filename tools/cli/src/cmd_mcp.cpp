@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "common.h"
+#include "fa/ai/session.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/mcp/server.h"
@@ -151,6 +152,9 @@ Command make_mcp_command() {
                {"persist-storage", "", "Let scripts' storage.* use the real save file (default: in memory)."},
                {"seed", "N", "World RNG seed (default 1)."},
                kDateFlag,
+               {"read-only", "",
+                "Serve only the commands that look and play (read-only ones plus game_step/input/click, scene_load, ...): "
+                "the art critic and reviewer agents run this way."},
                {"resume-session", "JSON", "Internal: the hand-over from the server that restarted itself after an update.", false, true}};
     c.examples = {"factoria mcp --project games/my-game",
                   "claude mcp add factoria -- factoria mcp --project .",
@@ -192,6 +196,8 @@ Command make_mcp_command() {
         std::error_code ec;
         SimpleMcpHost host(*registry, dir.empty() ? fsys::current_path(ec).string() : dir);
         McpServer server(host);
+        if (ctx.args.has("read-only"))
+            server.set_command_filter([](const CommandInfo& info) { return ai::is_read_only_tool(info); });
         HotReloadPoller poller(session.get(), *registry, server);
 
         // Out of date? The executable replaced on disk, or an older .mcp.json than the client started with (docs/MCP.md).
