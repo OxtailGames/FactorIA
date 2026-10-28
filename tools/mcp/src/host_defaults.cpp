@@ -39,7 +39,7 @@ CONVENTIONS
 - Simulation is deterministic: use the engine rng and dt, never Math.random or wall-clock time.
 - Tool names are command names with dots replaced by underscores (feedback.report -> feedback_report). Project tools from tools/*.js appear as project_<name>.
 
-RULE: REPORT ENGINE GAPS. Whenever the engine lacks a feature, has a bug, gives a misleading error, or you build a workaround or drop something because of an engine limitation, call feedback_report IMMEDIATELY (category, severity, title, missing, workaround, suggestion). It records the gap in the project's ENGINE_FEEDBACK.json, which engine developers use to decide what to build next. Similar reports are merged automatically, so never skip a report for fear of duplicates.
+RULE: REPORT ENGINE GAPS. Whenever the engine lacks a feature, has a bug, gives a misleading error, or you build a workaround or drop something because of an engine limitation, call feedback_report IMMEDIATELY (category, severity, title, missing, workaround, suggestion). It records the gap in the project's ENGINE_FEEDBACK.json (closed entries move to ENGINE_FEEDBACK.archive.json), which engine developers use to decide what to build next. Similar reports are merged automatically, so never skip a report for fear of duplicates.
 
 Resources: factoria://docs/<file> (documentation), factoria://project/factoria.json and factoria://project/ENGINE_FEEDBACK.json. Prompts: make-game, add-feature, fix-bug, report-engine-gap.)";
 }

@@ -136,7 +136,7 @@ struct AgentEvent {
     enum class Type { SessionStart, TextDelta, ThinkingDelta, ToolStart, ToolEnd, Usage, Info, Done, Error };
     Type type = Type::Info;
     int depth = 0;        // 0 = main session, 1 = delegated sub-session
-    std::string role;     // orchestrator|worker|fast|cli
+    std::string role;     // orchestrator|worker|fast|artist|audio|artCritic|reviewer|cli
     std::string text;     // text delta / info / error message / final text
     std::string toolName;
     Json toolInput;

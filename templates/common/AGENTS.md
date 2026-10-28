@@ -42,6 +42,7 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 | `data/*.json` | tuning data, imported with `import levels from "../data/levels.json";` (optional) |
 | `assets/` | textures, audio, fonts, models (add only what you really need) |
 | `types/factoria.d.ts` | script API typings (generated: `factoria validate --fix-types`) |
+| `REVIEW.md` | the note the art critics and game reviewers read first (never exported, see below) |
 | `ENGINE_FEEDBACK.json` | engine gaps you found (below) |
 | `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit. Scratch files: `.factoria/tmp/` |
 
@@ -154,6 +155,14 @@ screenshots, and an input replay of their session (`factoria run --headless --in
   A person debugs the same scripts with breakpoints in VS Code (F5; `factoria setup vscode`). Read `factoria docs read debugging`.
 - Headless runs and tests simulate every frame but draw only for screenshots (fast); `--render-all` draws all.
 
+## Keep the game reviewable
+
+The user can ask for an art critique or a game review: read-only agents play the build and score it. Keep `REVIEW.md`
+(project root, never exported) up to date: how to play (controls, goal), what is finished and what is a placeholder,
+how to reach EVERY scene, level and state in one step (scene paths for `scene_load`, a debug key or project tool, saved
+states in `review/`), replays or tests that play the first minutes, and known issues. Keep screenshots stable (fixed
+seed, no random shake at capture) and debug overlays out of normal play (`factoria docs read ai-guide`, 11.4).
+
 ## Recording engine gaps (IMPORTANT)
 
 FactorIA improves from what game-making AIs report. **Whenever the engine lacked a feature or
@@ -166,6 +175,10 @@ had a bug and you built a workaround or dropped the feature, record it immediate
   `workaround` (what you did, with `workaroundFiles`), `suggestion` (how the engine could fix it).
 - Reporting the same gap again merges into the existing entry (counts occurrences), so do not
   worry about duplicates. Not reporting is the only wrong choice.
+- `ENGINE_FEEDBACK.json` holds the open entries. Closed ones (fixed-in-engine, wont-fix, duplicate) move to
+  `ENGINE_FEEDBACK.archive.json` next to it when the editor opens the project or `factoria feedback archive` runs
+  (command `feedback.archive`). Do not edit the archive by hand. Reporting a gap that an archived fixed-in-engine entry
+  describes reopens that entry as a possible regression, so report it again if it comes back.
 - Examples worth reporting: a component field you expected is missing; an error message did not
   say how to fix the problem; a doc was wrong or absent; a command you wanted does not exist; a
   crash; slow or flaky headless runs; anything you had to emulate in JS.

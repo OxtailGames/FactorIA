@@ -82,6 +82,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`ai.models`](commands/ai.md#aimodels): List the models each AI provider offers (the values for roles.<role>.model).
 - [`ai.providers`](commands/ai.md#aiproviders): List configured AI providers and roles, or diagnose which ones are usable (doctor).
+- [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Not released yet._
+- [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Not released yet._
 - [`ai.run`](commands/ai.md#airun-modifies-state): Run an AI agent on a task in the current project (blocks until it finishes).
 
 ### [api](commands/api.md)
@@ -137,6 +139,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [feedback](commands/feedback.md)
 
+- [`feedback.archive`](commands/feedback.md#feedbackarchive-modifies-state): Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file. _Not released yet._
 - [`feedback.list`](commands/feedback.md#feedbacklist): List the engine-feedback entries recorded for this project.
 - [`feedback.report`](commands/feedback.md#feedbackreport-modifies-state): Record an engine gap (missing feature, bug, confusing doc) and the workaround you used.
 - [`feedback.update`](commands/feedback.md#feedbackupdate-modifies-state): Change the status of a feedback entry or link it to an engine issue.

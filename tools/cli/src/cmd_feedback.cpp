@@ -127,15 +127,17 @@ Command make_feedback_command() {
         in.reporter = rep;
         auto r = add_feedback_entry_to_file(feedback_path(dir), in, project_name(dir));
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
-        ctx.out << (r->merged ? "Merged into " : "Added ") << r->id << " (occurrences: " << r->occurrences << ")\n";
+        ctx.out << (r->reopened ? "Reopened (fixed before, reported again) " : r->merged ? "Merged into " : "Added ") << r->id << " (occurrences: " << r->occurrences << ")\n";
         return 0;
     };
 
     Command list = project_flag_cmd("list", "List entries.");
-    list.usage = "[project] [--status S] [--category C] [--severity V] [--json]";
+    list.usage = "[project] [--status S] [--category C] [--severity V] [--archive] [--json]";
+    list.details = "The file holds what is still open; closed entries live in ENGINE_FEEDBACK.archive.json (see 'feedback archive').";
     list.flags.insert(list.flags.end(), {{"status", "S", "open | fixed-in-engine | wont-fix | duplicate."},
                                          {"category", "C", "Filter by category."},
                                          {"severity", "V", "Filter by severity."},
+                                         {"archive", "", "Also list the archived (closed) entries."},
                                          {"json", "", "Machine-readable output."}});
     list.examples = {"factoria feedback list --status open", "factoria feedback list --json"};
     list.run = [](Context& ctx) {
@@ -144,6 +146,11 @@ Command make_feedback_command() {
         if (!doc.ok()) return report_failure(ctx, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
         FeedbackFilter f{ctx.args.str("status"), ctx.args.str("category"), ctx.args.str("severity")};
         Json entries = list_feedback(*doc, f);
+        if (ctx.args.has("archive"))
+            for (auto e : list_archived_feedback(feedback_path(dir), f)) {
+                e["archived"] = true;
+                entries.push_back(std::move(e));
+            }
         if (ctx.args.has("json")) {
             print_json(ctx.out, entries);
             return 0;
@@ -151,7 +158,7 @@ Command make_feedback_command() {
         if (entries.empty()) ctx.out << "No entries.\n";
         for (const auto& e : entries)
             ctx.out << e.value("id", std::string()) << " [" << e.value("severity", std::string()) << "] " << e.value("category", std::string()) << " x"
-                    << e.value("occurrences", 1) << " (" << e.value("status", std::string()) << ") " << e.value("title", std::string()) << "\n";
+                    << e.value("occurrences", 1) << " (" << e.value("status", std::string()) << (e.value("archived", false) ? ", archived" : "") << ") " << e.value("title", std::string()) << "\n";
         return 0;
     };
 
@@ -173,26 +180,35 @@ Command make_feedback_command() {
         std::string dir = pos.size() > 1 ? absolute_path(pos[0]) : resolve_project_dir(ctx, 99);
         if (!a.has("status") && !a.has("note") && !a.has("engine-issue"))
             throw UsageError("Nothing to update.", "Pass --status, --note and/or --engine-issue.");
-        std::string path = feedback_path(dir);
-        auto doc = load_feedback(path);
-        if (!doc.ok()) return report_failure(ctx, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
-        auto r = update_feedback_entry(*doc, id, a.str("status"), a.str("engine-issue"));
-        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
-        if (a.has("note")) {
-            for (auto& e : (*doc)["entries"]) {
-                if (e.value("id", std::string()) != id) continue;
-                if (!e.contains("notes") || !e["notes"].is_array()) e["notes"] = Json::array();
-                e["notes"].push_back(a.str("note"));
-                r = e;
-            }
-        }
-        auto saved = save_feedback(path, *doc);
-        if (!saved.ok()) return report_failure(ctx, saved.error().message, saved.error().hint);
+        auto r = update_feedback_file(feedback_path(dir), id, a.str("status"), a.str("engine-issue"), a.str("note"));
+        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint.empty() ? "Create it with 'factoria feedback init'." : r.error().hint);
         if (a.has("json")) {
             print_json(ctx.out, *r);
             return 0;
         }
         ctx.out << "Updated " << id << ": status=" << r->value("status", std::string()) << "\n";
+        return 0;
+    };
+
+    Command archive = project_flag_cmd("archive", "Move closed entries (fixed-in-engine, wont-fix, duplicate) to ENGINE_FEEDBACK.archive.json.");
+    archive.usage = "[project] [--json]";
+    archive.details = "ENGINE_FEEDBACK.json then only holds what is still open. Ids stay unique across both files, a new report that\n"
+                      "matches an archived fixed-in-engine entry reopens it, and 'feedback collect' still counts the archive. The editor\n"
+                      "runs this when it opens a project. Nothing closed: nothing changes.";
+    archive.flags.push_back({"json", "", "Machine-readable output."});
+    archive.examples = {"factoria feedback archive", "factoria feedback archive games/my-game --json"};
+    archive.run = [](Context& ctx) {
+        std::string path = feedback_path(resolve_project_dir(ctx, 0));
+        auto r = archive_closed_feedback_file(path);
+        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint.empty() ? "Create it with 'factoria feedback init'." : r.error().hint);
+        if (ctx.args.has("json")) {
+            print_json(ctx.out, Json::object({{"moved", r->moved}, {"ids", r->ids}, {"open", r->open}, {"archived", r->archived},
+                                              {"file", path}, {"archiveFile", feedback_archive_path(path)}}));
+            return 0;
+        }
+        if (r->moved == 0) ctx.out << "Nothing to archive: " << r->open << " open, " << r->archived << " archived.\n";
+        else ctx.out << "Archived " << r->moved << " closed entr" << (r->moved == 1 ? "y" : "ies") << " to " << feedback_archive_path(path) << " ("
+                     << r->open << " left open, " << r->archived << " archived).\n";
         return 0;
     };
 
@@ -225,7 +241,7 @@ Command make_feedback_command() {
     collect.name = "collect";
     collect.summary = "Aggregate many projects' feedback into a ranked roadmap (engine developers).";
     collect.usage = "<dirs-or-files...> [--out report.md|report.json]";
-    collect.details = "Similar titles are grouped and ranked by occurrences x severity weight. Only open entries count unless --include-closed.";
+    collect.details = "Similar titles are grouped and ranked by occurrences x severity weight. Only open entries count unless --include-closed (which also reads the ENGINE_FEEDBACK.archive.json next to each file).";
     collect.maxPositional = -1;
     collect.flags = {{"out", "FILE", "Write the report here (.json => JSON, otherwise Markdown). Default: Markdown on stdout."},
                      {"format", "md|json", "Output format when not writing to a file with a clear extension."},
@@ -256,7 +272,7 @@ Command make_feedback_command() {
         return 0;
     };
 
-    g.subs = {init, add, list, update, validate, collect};
+    g.subs = {init, add, list, update, archive, validate, collect};
     return g;
 }
 

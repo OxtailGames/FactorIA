@@ -73,6 +73,8 @@ public:
     std::thread thread;
     McpHttpServer mcp;           // this run's endpoint for a CLI agent (Claude Code): it serves `proxy`
     std::string provider;        // the orchestrator's provider (the plan limits belong to it)
+    std::string role;            // the role this run plays ("" = orchestrator); a review runs artCritic or reviewer
+    std::string extraSystem;     // extra system prompt of the run (a reviewer's persona)
     std::string checkpointId;    // the project checkpoint taken before the run ("" = none)
     i64 startedAt = 0;           // epoch seconds
     bool sceneEdited = false;    // a scene-editing command ran for this run

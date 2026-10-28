@@ -55,7 +55,7 @@ command between frames. So:
 
 * the viewport shows each edit while the agent works, and each one is a Ctrl+Z step;
 * the agent works in edit mode only, and Play / Step wait until it finishes (see `docs/EDITOR.md`);
-* `ai_run` (delegation) runs the worker or fast role inside the editor too; a CLI sub-agent gets the same endpoint.
+* `ai_run` (delegation) runs the worker, fast, artist or audio role inside the editor too; a CLI sub-agent gets the same endpoint.
 
 The endpoint speaks MCP Streamable HTTP without a server stream or a session (a POST with one JSON-RPC message gets its
 reply as `application/json`, a notification gets 202, GET gets 405). A call that runs longer than 10 s, such as an `ai_run`
@@ -159,6 +159,16 @@ A top-level `"assets"` section assigns asset providers to the kinds of asset
 | `orchestrator` | plans, reviews, delegates with the `agent_delegate` tool | `claude-opus-5-5`, effort `xhigh` |
 | `worker` | implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
 | `fast` | small mechanical edits | `claude-haiku-5-5`, effort `max` |
+| `artist` | makes all the art: sprites, models, textures, palettes, animation, VFX, UI look | `claude-opus-5-5`, effort `high` |
+| `audio` | sound effects, music, buses and mixing | `claude-sonnet-5-5`, effort `medium` |
+| `artCritic` | **read-only**: looks at the game and the art, gives an opinion and a score | `claude-opus-5-5`, effort `high` |
+| `reviewer` | **read-only**: plays the game, gives an opinion and a score | `claude-opus-5-5`, effort `high` |
+
+The role names are the keys of `roles` in `ai.json`. A role that is missing from `ai.json` follows the provider you
+already use instead of falling back to an Anthropic API key: `artist` and `audio` get the provider of `worker`, and
+`artCritic` and `reviewer` the one of `orchestrator`, with the model of the Anthropic default (as a tier: `opus`,
+`sonnet`, `haiku`, for the CLI providers). So a file with only `orchestrator` / `worker` / `fast` on `claude-code` keeps
+all seven roles on Claude Code, and old files keep working. Saving from the Roles window writes only the roles you set.
 
 Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?}`. `effort` is one of
 `low|medium|high|xhigh|max` and is always sent explicitly to Anthropic. For
@@ -185,7 +195,16 @@ Code, Codex) is told to use the `ai_run {role, task}` tool of the FactorIA MCP
 server instead, which runs the `worker` or `fast` role from `ai.json` and returns
 its report. So `orchestrator: claude-code/opus`, `worker: claude-code/sonnet`,
 `fast: claude-code/haiku` works on a Claude subscription alone. `--no-delegate`
-turns delegation off.
+turns delegation off. The delegable roles are `worker`, `fast`, `artist` and `audio`: the orchestrator sends the art to
+`artist` and the sound to `audio` (it can write a brief and judge the result, but the art and the audio are not its own
+work). `artCritic` and `reviewer` are not delegable: they run only when the user asks (see [Reviews](#reviews)), and
+`ai_run` / `agent_delegate` refuse them.
+
+**Only `ai_run` delegates.** Claude Code has sub-agent tools of its own (`Agent`, `Task`) that would run a model
+nobody configured, outside FactorIA's roles, costs and live view. FactorIA starts Claude Code with
+`--disallowedTools Agent,Task` (and `mcp__factoria__ai_review`, so the orchestrator cannot start a review either), and the
+orchestrator's prompt says to use `ai_run`. Codex has no such switch in its
+command line: there the rule is only in the prompt.
 
 `ai_run` blocks: the orchestrator's tool call returns when the sub-agent has finished, which can take many minutes, and the
 orchestrator is told so (it waits for the result and never promises to continue later or polls with Bash). While it runs:
@@ -211,9 +230,9 @@ editor warns after `limits.stuckAfterSeconds` of silence (default 180, 0 = never
 what the agent's process is doing before you decide.
 
 `factoria ai run "task"` and the `ai.run` command use the `orchestrator` role
-unless told otherwise (`role`, `provider`, `model` options). The editor AI panel
-always sends your messages to the orchestrator; its **Roles...** button sets the
-provider, model, effort and context limit of the three roles and saves them in `ai.json` (only
+unless told otherwise (`role`: orchestrator, worker, fast, artist or audio; `provider`, `model` options). The editor AI
+panel always sends your messages to the orchestrator; its **Roles...** button sets the
+provider, model, effort and context limit of the seven roles and saves them in `ai.json` (only
 `roles` is rewritten: providers, limits and a role's `maxTokens` stay). The button is disabled
 until the first provider detection has read `ai.json`.
 
@@ -260,10 +279,55 @@ tool `ai_models`):
 Without `provider` it asks every available provider; one provider's failure is in its own entry (`error`, `hint`)
 and does not fail the call. `resolved` is empty for a full model name.
 
+## Reviews
+
+Two roles do not build anything: they look, play and judge. `artCritic` looks at the art (screenshots of every scene, the
+sprites and models, the UI) and `reviewer` plays the game like a press reviewer. Each writes a report with a **score from
+0 to 10** and sub-scores (for art: direction, consistency, readability, polish; for a game: fun, game feel, design,
+UX, stability, polish, art, audio), what works, what does not, and what to fix first.
+
+**They run only when you ask.** The orchestrator, the worker and the other roles cannot start them (`ai_run` and
+`agent_delegate` refuse these roles, and the orchestrator is told so). Ask from the editor's AI Assistant (the **Art
+critique** and **Game review** buttons, see `docs/EDITOR.md`), from a terminal or from a script:
+
+```bash
+factoria ai review game                      # one reviewer, the all-rounder
+factoria ai review art --count 3 --focus "the main menu"
+factoria ai reviews --kind game --limit 10   # the saved ones, newest first, with their scores
+```
+
+The commands are `ai.review {kind: art|game, count?, focus?, provider?, model?, maxTurns?, maxCostUsd?}` (it blocks until
+all the reviewers are done and returns `{reviews, averageScore, costUsd, errors}`) and `ai.reviews {kind?, limit?,
+includeText?}`. `ai.review` is not read-only: it spends tokens and writes the review files.
+
+* **Several reviewers.** `count` (default 1, at most 5) starts that many one after the other, each with its own persona.
+  The first is always the all-rounder, so one reviewer is comparable from build to build. The art personas are
+  all-rounder, art director, first impression, technical artist, and UI and accessibility designer; the game personas are
+  all-rounder, genre veteran, newcomer, QA tester and design critic. Each works alone and writes its own opinion.
+* **Saved.** Every review is returned and also written to `<project>/.factoria/ai/reviews/<time>-<role>.json`
+  (`-2`, `-3` ... for the further reviewers of one request) with the text, the score, the sub-scores, the persona, the
+  provider and model, the focus, the cost, the engine version and the game version from `factoria.json`, so you can see
+  whether the score goes up between builds. A reviewer that gives no score is saved with `score: null`.
+* **Read-only is enforced, not requested.** The reviewer keeps only the tools that look and play (listing and reading,
+  `game.step`, `game.input`, `game.click`, `game.screenshot`, `scene.load`, UI scale and language checks, ...). With the
+  built-in loop the other tools are not offered to the model. Claude Code runs with `--disallowedTools` for `Edit`, `MultiEdit`,
+  `Write`, `NotebookEdit` and `Bash`, plus every FactorIA MCP tool that changes something, and Codex with `--sandbox read-only` and a
+  `factoria mcp --read-only` server (Codex is the least tested of the three). Loading a scene to look at it does not
+  change the project on disk.
+* **REVIEW.md.** The reviewers read the `REVIEW.md` of the project first: controls, the goal, what is finished and what
+  is a placeholder, and how to reach every scene and state quickly. A game that is easy to test gets a more useful review
+  (`docs/AI_GUIDE.md`, "Keep the game reviewable"). `factoria export` leaves `REVIEW.md` out of the player's build.
+* **Send to the orchestrator.** A review is only an opinion. In the editor you press **Send to orchestrator** on the
+  report to post it into an orchestrator chat as your message (the active chat, or a new one); the orchestrator then
+  plans the fixes and delegates them. Nothing is sent unless you press it.
+
+The models come from the `artCritic` and `reviewer` roles; the cost of a review is counted like any other run
+(`docs/AI_COSTS.md`).
+
 ## How the built-in agent behaves (API providers)
 
 * Tools: every registered command (`scene.spawn` -> `scene_spawn`), plus
-  `agent_delegate {role: worker|fast, task}` for the orchestrator. `ai.*`
+  `agent_delegate {role: worker|fast|artist|audio, task}` for the orchestrator. `ai.*`
   commands are hidden from the model.
 * Safety limits: `limits.maxTurns`, `maxCostUsd`, `maxTotalTokens`, Ctrl+C /
   cancel flag. Transient errors (429, 5xx, 529) are retried with backoff and

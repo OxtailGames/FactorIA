@@ -1028,16 +1028,49 @@ action "list" (default) shows providers and the role mapping from ~/.factoria/ai
 |---|---|---|---|
 | `action` | string ["list","doctor"] | no | list or doctor. Default "list". |
 
+### `ai.review` (modifies state)
+
+Not released yet (on main after 0.3.0).
+
+Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done).
+
+Starts `count` read-only AI reviewers (1 to 5, one after the other, each with a different persona; the first is always the all-rounder, so the score of one reviewer stays comparable over time). They play the current build (REVIEW.md first), never change the project, and write a report with a score from 0 to 10 and sub-scores. Each review is saved in <project>/.factoria/ai/reviews/ and returned: {reviews:[{id, path, persona, score, subScores, summary, text}], averageScore, costUsd, errors}. Only a person asks for reviews: the orchestrator is told not to call this. The roles artCritic and reviewer of ~/.factoria/ai.json choose the models. Example: {"kind":"game","count":3,"focus":"the first five minutes"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `kind` | string ["art","game"] | yes | art: the art critics (role artCritic). game: the game reviewers (role reviewer). |
+| `count` | integer | no | How many critics or reviewers, each with a different persona. Default 1. |
+| `focus` | string | no | Something to pay special attention to (optional), e.g. "the UI" or "the boss fight". |
+| `provider` | string | no | Override the role's provider. |
+| `model` | string | no | Override the role's model. |
+| `maxTurns` | integer | no |  |
+| `maxCostUsd` | number | no | Cost limit of each review. |
+| `stream` | boolean | no |  Default true. |
+
+### `ai.reviews`
+
+Not released yet (on main after 0.3.0).
+
+List the saved reviews of the art critics and the game reviewers, newest first, with their scores.
+
+Reads <project>/.factoria/ai/reviews/. Each entry has id, path, role, persona, time, engineVersion, gameVersion, score (0 to 10, null when none), subScores and summary; `text` (the report) only with includeText. Use it to see how the score changes between builds. Example: {"kind":"game","limit":10}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `kind` | string ["art","game"] | no | Only the art critiques or only the game reviews. Omit for both. |
+| `limit` | integer | no | At most this many (newest first). |
+| `includeText` | boolean | no | Include each report's full text. Default false. |
+
 ### `ai.run` (modifies state)
 
 Run an AI agent on a task in the current project (blocks until it finishes).
 
-Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" or "fast" and a self-contained task; the result's finalText is the sub-agent's report. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
+Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" (code), "fast" (small edits), "artist" (all the art) or "audio" (all the sound) and a self-contained task; the result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user asks for reviews (ai.review). Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `task` | string | yes | What the agent should do. |
-| `role` | string ["orchestrator","worker","fast"] | no |  Default "orchestrator". |
+| `role` | string ["orchestrator","worker","fast","artist","audio"] | no |  Default "orchestrator". |
 | `provider` | string | no | Override the role's provider (e.g. claude-code, codex, openrouter). |
 | `model` | string | no | Override the role's model. |
 | `maxTurns` | integer | no |  |
@@ -1712,24 +1745,33 @@ Returns {running, onDisk, restartDue, state, executable, summary, ...}: `running
 
 ## feedback
 
+### `feedback.archive` (modifies state)
+
+Not released yet (on main after 0.3.0).
+
+Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file.
+
+ENGINE_FEEDBACK.json should only hold what is still open: this moves every entry whose status is not open to ENGINE_FEEDBACK.archive.json next to it (same format). Ids stay unique across both files and keep counting up; a new report that matches an archived fixed-in-engine entry reopens it (feedback.report says reopened). The editor runs this when it opens the project. Safe to repeat: with nothing closed it changes nothing. feedback.list with includeArchive and `factoria feedback collect` still see the archived entries.
+
 ### `feedback.list`
 
 List the engine-feedback entries recorded for this project.
 
-Check this before reporting to see what is already recorded. Filters are optional. Example: {"status":"open","category":"physics"}
+Check this before reporting to see what is already recorded. Filters are optional. The file only holds what is still open (plus entries closed since the last feedback.archive): entries that are fixed, rejected or duplicates live in the archive file next to it; pass includeArchive to list them too (each marked "archived": true). Example: {"status":"open","category":"physics"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `status` | string ["open","fixed-in-engine","wont-fix","duplicate"] | no | Only entries with this status. |
 | `category` | string ["rendering-2d","rendering-3d","physics","audio","input","ui","scripting","scene","assets","animation","tooling","ai-integration","docs","platform","performance","networking","other"] | no | Only this category. |
 | `severity` | string ["blocker","major","minor","nice-to-have"] | no | Only this severity. |
+| `includeArchive` | boolean | no | Also list the archived (closed) entries, marked archived: true. |
 
 ### `feedback.report` (modifies state)
 
 Record an engine gap (missing feature, bug, confusing doc) and the workaround you used.
 
 CALL THIS WHENEVER the engine lacked a feature or had a bug/limitation and you built a workaround or gave up on something, right when it happens (not at the end). Examples: a component field you expected does not exist; an error message did not say how to fix the problem; a documented API behaves differently; you had to emulate a feature in JavaScript; a command you wanted is missing.
-The entry is appended to the project's ENGINE_FEEDBACK.json, which engine developers aggregate to decide what to build next. Reporting a gap similar to an open one merges into it (occurrences + 1), so duplicates are harmless. Write 'title' as a short noun phrase ("No one-way platforms"), 'missing' as what you needed and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the concrete engine change that would remove the workaround.
+The entry is appended to the project's ENGINE_FEEDBACK.json, which engine developers aggregate to decide what to build next. Reporting a gap similar to an open one merges into it (occurrences + 1), so duplicates are harmless. A gap the engine already fixed (archived, see feedback.archive) and that you report again reopens the archived entry as a possible regression. Write 'title' as a short noun phrase ("No one-way platforms"), 'missing' as what you needed and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the concrete engine change that would remove the workaround.
 Example: {"category":"physics","severity":"major","title":"No one-way platforms","missing":"Collider2D has no one-way option so the player cannot jump up through platforms.","workaround":"scripts/one_way.js disables the platform collider while the player moves upward.","workaroundFiles":["scripts/one_way.js"],"suggestion":"Add Collider2D.oneWay (bool)."}
 
 | Argument | Type | Required | Description |
@@ -1748,7 +1790,7 @@ Example: {"category":"physics","severity":"major","title":"No one-way platforms"
 
 Change the status of a feedback entry or link it to an engine issue.
 
-Engine developers use this when a gap is fixed (status fixed-in-engine), rejected (wont-fix) or duplicated. Example: {"id":"FB-0001","status":"fixed-in-engine","engineIssue":"#42"}
+Engine developers use this when a gap is fixed (status fixed-in-engine), rejected (wont-fix) or duplicated; the entry moves to the archive on the next feedback.archive (the editor runs it when it opens the project). An archived entry is found too, and set to open it moves back to the file. Example: {"id":"FB-0001","status":"fixed-in-engine","engineIssue":"#42"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

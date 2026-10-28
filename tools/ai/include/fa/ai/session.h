@@ -68,8 +68,19 @@ using ProviderFactory = std::function<Result<std::shared_ptr<ChatProvider>>(cons
 bool is_agent_tool_excluded(std::string_view commandName);
 // "scene.spawn" -> "scene_spawn" (provider-safe tool names).
 std::string tool_name_for_command(std::string_view commandName);
-// Tool list from the registry, sorted by name (byte-stable for prompt caching).
-std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate);
+// Commands a read-only role (artCritic, reviewer) may use: the ones that only observe (CommandInfo::readOnly) and the ones
+// that play the running game without changing the project (game.step, game.input, game.click, game.screenshot, scene.load,
+// ...; see the list in session.cpp). Everything else changes the project, a file or a setting, or spends money.
+bool is_read_only_tool(const CommandInfo& info);
+// The tool name a CLI agent sees for a command through the MCP server (scene.spawn -> scene_spawn, at most 64 characters).
+std::string mcp_tool_name_for(std::string_view commandName);
+// The tools to switch off for a CLI agent running `role`, as Claude Code names them (`--disallowedTools`): its own
+// sub-agent tools (Agent, Task: their work is invisible to the editor and lost when the run ends), the FactorIA tools that
+// start other agents or reviews (mcp__factoria__ai_run unless `canDelegate`, always mcp__factoria__ai_review), and for the
+// read-only roles also the file-editing tools, Bash and every FactorIA command that is not is_read_only_tool.
+std::vector<std::string> cli_disallowed_tools(const CommandRegistry& registry, std::string_view role, bool canDelegate);
+// Tool list from the registry, sorted by name (byte-stable for prompt caching). `readOnly`: only is_read_only_tool commands.
+std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate, bool readOnly = false);
 
 struct PromptContext {
     std::string projectDir;

@@ -695,6 +695,8 @@
   "commands": {
     "ai.models": "0.1.0",
     "ai.providers": "0.1.0",
+    "ai.review": "unreleased",
+    "ai.reviews": "unreleased",
     "ai.run": "0.1.0",
     "api.commands": "0.1.0",
     "api.components": "0.1.0",
@@ -736,6 +738,7 @@
     "docs.write_reference": "0.2.0",
     "engine.info": "0.1.0",
     "engine.update_status": "unreleased",
+    "feedback.archive": "unreleased",
     "feedback.list": "0.1.0",
     "feedback.report": "0.1.0",
     "feedback.update": "0.1.0",
