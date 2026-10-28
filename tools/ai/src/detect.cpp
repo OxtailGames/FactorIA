@@ -26,7 +26,7 @@ static std::string probe_version(const std::string& exe) {
 }
 
 std::vector<ProviderStatus> detect_providers(const AiConfig& cfg, const DetectOptions& opt) {
-    auto which_fn = opt.which ? opt.which : [](const std::string& n) { return which(n); };
+    auto which_fn = opt.which ? opt.which : [&opt](const std::string& n) { return find_cli(n, opt.env); };
     auto version_fn = opt.version ? opt.version : [](const std::string& e) { return probe_version(e); };
     std::vector<ProviderStatus> out;
     const bool antInstalled = !which_fn("ant").empty();

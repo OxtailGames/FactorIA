@@ -11,6 +11,12 @@
 
 namespace fa::ai {
 
+// Where a CLI agent's executable is: PATH first, then the folders its installers use (~/.local/bin, ~/.claude/local,
+// npm / bun / volta / nvm bins, Homebrew, %APPDATA%\npm). An editor opened from Finder or the Dock gets a short PATH
+// without them, so a CLI that works in a terminal would look missing. `home` is $HOME (%USERPROFILE% on Windows);
+// "" when not found. A command with a slash is a path and is only checked as given.
+std::string find_cli(const std::string& command, const EnvLookup& env = system_env());
+
 struct CliRunRequest {
     std::string prompt;      // full prompt (task + rules), or just the task when resuming a session
     std::string model;       // may be empty (CLI default)
