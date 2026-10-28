@@ -23,6 +23,7 @@
 #include "fa/platform/system_language.h"
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/camera_query.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/localize.h"
@@ -2921,21 +2922,6 @@ NATIVE(moveCharacter) {  // (entity, dx, dy, dz) -> { position, moved, isGrounde
 }
 
 // ---- camera / debug -----------------------------------------------------------------------------------------------
-// The cameras a frame draws, in draw order: every active camera with primary = true by ascending depth (equal depths keep
-// the order of creation), at most 8 as the renderer draws. The first is "the" camera (camera.main).
-std::vector<Entity> rendering_cameras(World& W) {
-    struct Found { Entity e; int depth; };
-    std::vector<Found> found;
-    W.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && W.active_in_hierarchy(e)) found.push_back({e, c.depth});
-    });
-    std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
-    if (found.size() > 8) found.resize(8);
-    std::vector<Entity> out;
-    for (const Found& f : found) out.push_back(f.e);
-    return out;
-}
-
 NATIVE(cameraMain) {
     SETUP;
     const std::vector<Entity> cams = rendering_cameras(W);
@@ -2953,47 +2939,10 @@ Vec2 design_size(Impl* I) {
 }
 
 // Without a renderer (no GPU at all): the same maths as the renderer for an orthographic camera, with the camera's viewport.
-struct FallbackView {
-    Vec3 position{};
-    Vec2 center;   // the centre of the camera's rectangle, in design pixels
-    float scale = 1.0f;   // design pixels per world unit
-    Rect viewport{0, 0, 1, 1};
-};
+using FallbackView = OrthoView;
 
-Rect clamped_viewport(const Camera& c) {
-    Rect v = c.viewport;
-    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h) || v.w <= 0.0f || v.h <= 0.0f) return Rect{0, 0, 1, 1};
-    v.x = std::clamp(v.x, 0.0f, 0.999f);
-    v.y = std::clamp(v.y, 0.0f, 0.999f);
-    v.w = std::min(v.w, 1.0f - v.x);
-    v.h = std::min(v.h, 1.0f - v.y);
-    return v;
-}
-
-// `named` when it is a camera that is drawn; else (a `point` in design pixels given) the last camera whose viewport contains
-// the point; else the first one.
 FallbackView fallback_view(Impl* I, World& W, Entity named, const Vec2* point) {
-    const Vec2 size = design_size(I);
-    const std::vector<Entity> cams = rendering_cameras(W);
-    Entity cam = cams.empty() ? kNullEntity : cams.front();
-    if (!named.is_null() && std::find(cams.begin(), cams.end(), named) != cams.end()) {
-        cam = named;
-    } else if (point && cams.size() > 1) {
-        for (std::size_t i = cams.size(); i-- > 0;) {
-            const Rect v = clamped_viewport(*W.get<Camera>(cams[i]));
-            const float nx = point->x / size.x, ny = point->y / size.y;
-            if (nx >= v.x && nx < v.x + v.w && ny >= v.y && ny < v.y + v.h) { cam = cams[i]; break; }
-        }
-    }
-    FallbackView fv;
-    const Camera* c = cam.is_null() ? nullptr : W.get<Camera>(cam);
-    if (c) fv.viewport = clamped_viewport(*c);
-    const float viewH = size.y * fv.viewport.h;
-    const float ortho = c && c->orthoSize > 0 ? c->orthoSize : viewH * 0.5f;
-    fv.scale = viewH * 0.5f / ortho;
-    fv.position = cam.is_null() ? Vec3{} : W.world_position(cam);
-    fv.center = {(fv.viewport.x + fv.viewport.w * 0.5f) * size.x, (fv.viewport.y + fv.viewport.h * 0.5f) * size.y};
-    return fv;
+    return ortho_view(W, design_size(I), named, point);
 }
 
 // The optional camera argument of the conversions at index `i`.
@@ -3048,14 +2997,7 @@ NATIVE(cameraAt) {
         const Entity e = r->camera_at(sp);
         if (!e.is_null() && W.alive(e)) return ent_val(ctx, e);
     }
-    const Vec2 size = design_size(I);
-    const std::vector<Entity> cams = rendering_cameras(W);
-    for (std::size_t i = cams.size(); i-- > 0;) {
-        const Rect v = clamped_viewport(*W.get<Camera>(cams[i]));
-        const float nx = sp.x / size.x, ny = sp.y / size.y;
-        if (nx >= v.x && nx < v.x + v.w && ny >= v.y && ny < v.y + v.h) return ent_val(ctx, cams[i]);
-    }
-    return ent_val(ctx, cams.empty() ? kNullEntity : cams.front());
+    return ent_val(ctx, camera_containing(W, design_size(I), sp));
 }
 
 Color arg_color(JSContext* ctx, int argc, JSValueConst* argv, int i) {
