@@ -233,7 +233,7 @@ route where none holds is an error.
 **Never edit the generated JSON.** The conversations are written in `assets/src/story/ch1.py` .. `ch5.py`; the flags, chapters,
 endings, cast, places and interface strings are in `assets/src/build_story.py`. `python3 -I assets/src/build_story.py` rewrites
 `data/dialogue/*.json`, `data/story.json`, `data/cast.json` and the `dlg`, `cast`, `chapter`, `ending` and `dialogue` subtrees of
-`locales/en.json`. A new table file must also be imported in `scripts/dialogue_data.js` (the engine cannot list a folder: FB-0005).
+`locales/en.json`. `scripts/dialogue_data.js` reads the folder with a glob import (`../data/dialogue/*.json`), so a new table file needs no other edit.
 
 **Checking it.** `factoria call project.validate_dialogue` (no arguments) lists every problem at once with file, JSON pointer, fix
 and "did you mean": a `next` or `to` that leads nowhere, unreachable nodes, a line with no way out, unknown speakers, flags (not
