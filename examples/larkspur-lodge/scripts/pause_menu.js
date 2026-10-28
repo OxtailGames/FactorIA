@@ -30,7 +30,14 @@ export default class PauseMenu extends Behaviour {
       panel.active = false;
     }
     this.pic = null;
-    this.slots = new SlotScreen(this.menus, { getPic: () => this.pic });
+    this.slots = new SlotScreen(this.menus, {
+      slots: saves.slots,
+      launch: (data) => saves.launch(data),
+      save: (id, { name, pic }) => saves.write(id, { name, pic }),
+      cannotSave: () => saves.cannotSave(),
+      defaultName: () => saves.defaultName(),
+      getPic: () => this.pic,
+    });
     progress.watch();
     ui.on("click", "resume", () => this.resume());
     ui.on("click", "pause_save", () => this.slots.open("save"));

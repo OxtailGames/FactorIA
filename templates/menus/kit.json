@@ -10,10 +10,18 @@
     },
     {
       "name": "options",
-      "description": "The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).",
+      "description": "The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue \"Text speed\" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.",
       "requires": ["core"],
+      "prunes": {"textSpeed": ["text_speed"]},
       "files": ["prefabs/ui/options.prefab.json", "scripts/ui/options.js"],
       "localeKeys": ["options"]
+    },
+    {
+      "name": "textSpeed",
+      "description": "A \"Text speed\" row in the options panel's audio tab (slow, normal, fast, instant), saved as settings.textSpeed in characters per second; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds) (scripts/settings.js). Without this part the options prefab has no such row (all parts by default).",
+      "requires": ["core", "options"],
+      "files": [],
+      "localeKeys": []
     },
     {
       "name": "credits",
@@ -71,6 +79,13 @@
       "requires": [],
       "files": ["prefabs/ui/keyboard.prefab.json", "scripts/ui/keyboard.js"],
       "localeKeys": ["keyboard"]
+    },
+    {
+      "name": "slots",
+      "description": "Save slots (scripts/slots.js, scripts/ui/slot_screen.js, prefabs/ui/slots.prefab.json, prefabs/ui/slot_dialog.prefab.json, tests/slots.test.js): five named slots and an autosave in storage, each a record with a counter, name, chapter, play time, picture and the game's data, the cloud merge by counter, and the save / load screen with a dialog that names a save (the on-screen keyboard opens for a gamepad player). Needs core and keyboard. The game supplies what is saved and how a slot is loaded: docs/MENUS.md, \"Save slots\".",
+      "requires": ["core", "keyboard"],
+      "files": ["scripts/slots.js", "scripts/ui/slot_screen.js", "prefabs/ui/slots.prefab.json", "prefabs/ui/slot_dialog.prefab.json", "tests/slots.test.js"],
+      "localeKeys": ["slots"]
     },
     {
       "name": "dialogue",
