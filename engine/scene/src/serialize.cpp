@@ -138,7 +138,10 @@ void Loader::apply_info_key(Entity e, const std::string& key, const Json& v, con
             for (int n = 2; !world_.find_by_id(unique).is_null(); ++n) unique = want + "_" + std::to_string(n);
             if (!quietIds)
                 warn(ptr, "id '" + want + "' is already used; renamed to '" + unique + "'",
-                     "Entity ids must be unique within a scene. References to '" + want + "' point at the first entity with that id.");
+                     "Entity ids must be unique within a scene. References to '" + want + "' point at the first entity with that id. "
+                     "If the file lists entities that a script also spawns at start, it was probably saved by an older engine "
+                     "that wrote script-spawned entities into the scene: delete those entries from the scene file (the script "
+                     "creates them again on load). Otherwise give the entities different ids.");
             (void)world_.set_id(e, unique);
         } else {
             (void)world_.set_id(e, want);
@@ -571,6 +574,26 @@ Result<void> patch_component(World& world, Entity e, const TypeInfo& type, const
 }
 
 // --------------------------------------------------------------- entities --
+namespace {
+std::size_t subtree_size(const World& world, Entity e) {
+    std::size_t n = 1;
+    for (Entity c : world.children(e)) n += subtree_size(world, c);
+    return n;
+}
+// True when `e` was spawned by a script and so is left out (with its children); records it in opts.skipped.
+bool skip_spawned_subtree(const World& world, Entity e, const EntityJsonOptions& opts) {
+    if (!world.info(e).scriptSpawned) return false;
+    if (opts.skipped) {
+        opts.skipped->count += subtree_size(world, e);
+        if (opts.skipped->labels.size() < 5) {
+            const EntityInfo& inf = world.info(e);
+            opts.skipped->labels.push_back(inf.name.empty() || inf.name == inf.id ? inf.id : inf.id + " (" + inf.name + ")");
+        }
+    }
+    return true;
+}
+}  // namespace
+
 Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts) {
     Json j = Json::object();
     if (!world.alive(e)) return j;
@@ -595,8 +618,11 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
 
     if (opts.includeChildren && !world.children(e).empty()) {
         Json kids = Json::array();
-        for (Entity c : world.children(e)) kids.push_back(entity_to_json(world, c, opts));
-        j["children"] = std::move(kids);
+        for (Entity c : world.children(e)) {
+            if (opts.skipSpawned && skip_spawned_subtree(world, c, opts)) continue;
+            kids.push_back(entity_to_json(world, c, opts));
+        }
+        if (!kids.empty()) j["children"] = std::move(kids);
     }
     return j;
 }
@@ -708,12 +734,18 @@ Json settings_to_json(const World& world) {
 
 }  // namespace
 
-Json save_scene(const World& world) {
+Json save_scene(const World& world, bool skipSpawned, SpawnedSkip* skipped) {
+    EntityJsonOptions eo;
+    eo.skipSpawned = skipSpawned;
+    eo.skipped = skipped;
     Json scene = Json::object();
     scene["format"] = kSceneFormat;
     scene["settings"] = settings_to_json(world);
     Json ents = Json::array();
-    for (Entity e : world.roots()) ents.push_back(entity_to_json(world, e));
+    for (Entity e : world.roots()) {
+        if (skipSpawned && skip_spawned_subtree(world, e, eo)) continue;
+        ents.push_back(entity_to_json(world, e, eo));
+    }
     scene["entities"] = std::move(ents);
     return scene;
 }
@@ -792,8 +824,8 @@ std::vector<std::string> project_scene_files(std::string_view dir) {
     return out;
 }
 
-Result<void> save_scene_file(const World& world, std::string_view path) {
-    return save_scene_json_file(path, save_scene(world));
+Result<void> save_scene_file(const World& world, std::string_view path, bool includeSpawned, SpawnedSkip* skipped) {
+    return save_scene_json_file(path, save_scene(world, !includeSpawned, skipped));
 }
 
 // ---------------------------------------------------------------- prefabs --

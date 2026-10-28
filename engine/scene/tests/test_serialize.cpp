@@ -718,3 +718,11 @@ TEST_CASE("scene: a prefab reference overrides the prefab's children") {
     CHECK(has_message(bad, kErr, "Unknown field 'layr' on Sprite"));
     CHECK(has_message(bad, kErr, "Did you mean 'layer'?"));
 }
+
+TEST_CASE("load_scene: a duplicate id warning explains scenes saved with script-spawned entities") {
+    World w;
+    Json scene = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"a"},{"id":"a"}]})");
+    LoadReport r = load_scene(w, scene, "dup.scene.json");
+    REQUIRE(r.messages.size() == 1);
+    CHECK(r.messages[0].hint.find("script") != std::string::npos);
+}
