@@ -1377,7 +1377,7 @@ one file share storage and the fake store unless you call `resetState`.
 id/name lays the UI out first, so a panel opened in the same frame (`panel.active = true`, then `game.click("close")`) is
 already in place with no `game.step` or `ui.layout()` between. It throws, naming the widget and why, when the widget cannot
 be clicked: it or a parent is inactive, it has no area (size 0), or it is scrolled out of its `ScrollList`. Pass a position
-`{x, y}` to click a spot whatever is there.
+`{x, y}` to click a spot whatever is there. Outside a test, the command `game.click` (MCP `game_click`: `{"id":"close"}`, `{"position":[x,y]}` or `{"world":[x,y]}`) does the same sequence on the running game.
 
 **Keys.** `game.tapKey(key)` presses and releases a key over one frame (press, step, release, step), as `tap` does for an
 action; `keyDown` / `keyUp` hold it. `game.tap(action)` is `tapKey` of the action's first key (or a tap of its first pad

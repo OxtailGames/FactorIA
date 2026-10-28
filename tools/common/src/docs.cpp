@@ -40,6 +40,52 @@ std::vector<std::string> lines_of(const std::string& text) {
     return out;
 }
 
+
+// A heading line of the page ("## 9.23 Art" -> level 2, title "9.23 Art"), found outside code fences.
+struct DocHeading {
+    int level = 0;
+    std::string title;
+    size_t line = 0;  // 1-based
+};
+
+std::vector<DocHeading> headings_of(const std::vector<std::string>& lines) {
+    std::vector<DocHeading> out;
+    bool inFence = false;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        const std::string& l = lines[i];
+        if (l.rfind("```", 0) == 0 || l.rfind("~~~", 0) == 0) { inFence = !inFence; continue; }
+        if (inFence || l.empty() || l[0] != '#') continue;
+        size_t n = 0;
+        while (n < l.size() && l[n] == '#') ++n;
+        if (n > 6 || n >= l.size() || l[n] != ' ') continue;
+        out.push_back({int(n), std::string(trim(l.substr(n))), i + 1});
+    }
+    return out;
+}
+
+// Cuts `s` to at most `n` bytes without splitting a UTF-8 character.
+std::string cut_utf8(const std::string& s, size_t n) {
+    if (s.size() <= n) return s;
+    while (n > 0 && (static_cast<unsigned char>(s[n]) & 0xC0) == 0x80) --n;
+    return s.substr(0, n);
+}
+
+// The table of contents of a page that was cut: headings with their line numbers, as many levels as fit in `budget` bytes.
+std::string contents_text(const std::vector<DocHeading>& heads, size_t budget) {
+    for (int maxLevel = 6; maxLevel >= 1; --maxLevel) {
+        std::string out;
+        for (const DocHeading& h : heads) {
+            if (h.level > maxLevel) continue;
+            out += std::string(size_t(h.level - 1) * 2, ' ') + "- " + h.title + " (line " + std::to_string(h.line) + ")\n";
+        }
+        if (out.size() <= budget || maxLevel == 1) return cut_utf8(out, budget);
+    }
+    return {};
+}
+
+constexpr long kDocReadDefaultBytes = 40000;  // ~10k tokens: an MCP tool result is capped near 25k tokens
+constexpr long kDocReadMaxBytes = 90000;
+
 }  // namespace
 
 std::vector<DocInfo> list_docs() {
@@ -176,26 +222,94 @@ void register_docs_commands(CommandRegistry& registry) {
         CommandInfo info;
         info.name = "docs.read";
         info.category = "docs";
-        info.summary = "Read a documentation page (Markdown).";
-        info.description = "Example: {\"name\":\"scripting\"}. Long pages can be read in slices with startLine/maxLines. "
-                           "Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses).";
+        info.summary = "Read a documentation page (Markdown), a section or a line range; long pages come in parts.";
+        info.description =
+            "Example: {\"name\":\"scripting\"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses "
+            "much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and "
+            "`next`, the exact call that continues. Read one section by heading: {\"name\":\"ai-guide\",\"heading\":\"Platformer character\"} "
+            "(case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with "
+            "startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses). "
+            "To find where something is, docs.search returns sections with their line numbers.";
         info.inputSchema = Json::object({{"type", "object"},
             {"properties", Json::object({{"name", Json::object({{"type", "string"}, {"description", "Doc name (\"scripting\") or path (\"docs/SCRIPTING.md\")."}})},
-                                         {"startLine", Json::object({{"type", "integer"}, {"minimum", 1}, {"default", 1}, {"description", "First line to return (1-based)."}})},
-                                         {"maxLines", Json::object({{"type", "integer"}, {"minimum", 1}, {"default", 2000}, {"description", "Maximum number of lines."}})}})},
+                                         {"heading", Json::object({{"type", "string"}, {"description", "Read only the section with this heading (and its subsections), e.g. \"Pause menu\". See `contents` of a cut read."}})},
+                                         {"startLine", Json::object({{"type", "integer"}, {"minimum", 1}, {"description", "First line to return (1-based, default 1). With `heading`: the line to continue a long section from."}})},
+                                         {"maxLines", Json::object({{"type", "integer"}, {"minimum", 1}, {"default", 2000}, {"description", "Maximum number of lines."}})},
+                                         {"maxBytes", Json::object({{"type", "integer"}, {"minimum", 1000}, {"maximum", kDocReadMaxBytes}, {"default", kDocReadDefaultBytes}, {"description", "Maximum size of `content` in bytes; the read stops at a line boundary."}})}})},
             {"required", Json::array({"name"})}});
         registry.add(info, [](const Json& args) {
-            std::string name = tooling_detail::arg_string(args, "name", true);
+            const std::string name = tooling_detail::arg_string(args, "name", true);
             auto text = read_doc(name);
             if (!text.ok()) throw CommandError("not_found", text.error().message, text.error().hint);
-            auto lines = lines_of(*text);
+            const auto lines = lines_of(*text);
+            const long total = long(lines.size());
+            const std::vector<DocHeading> heads = headings_of(lines);
             long start = std::max<long>(1, tooling_detail::arg_int(args, "startLine", 1));
-            long maxLines = std::max<long>(1, tooling_detail::arg_int(args, "maxLines", 2000));
+            long end = total;  // last line (1-based) the read may reach
+            const std::string wanted = tooling_detail::arg_string(args, "heading", false);
+            std::string sectionTitle;
+            if (!wanted.empty()) {
+                const std::string w = to_lower(std::string(trim(wanted)));
+                std::vector<const DocHeading*> exact, partial;
+                for (const DocHeading& h : heads) {
+                    const std::string t = to_lower(h.title);
+                    if (t == w) exact.push_back(&h);
+                    else if (t.find(w) != std::string::npos) partial.push_back(&h);
+                }
+                const std::vector<const DocHeading*>& found = !exact.empty() ? exact : partial;
+                if (found.empty()) {
+                    std::vector<std::string> titles;
+                    for (const DocHeading& h : heads) titles.push_back(h.title);
+                    throw CommandError("not_found", "Doc '" + name + "' has no heading matching '" + wanted + "'. " + did_you_mean(wanted, titles),
+                                       "Read the page without `heading` to get its contents (headings with line numbers), or docs.search {\"query\":\"...\"}.");
+                }
+                if (found.size() > 1 && exact.empty()) {
+                    std::string list;
+                    for (size_t i = 0; i < found.size() && i < 12; ++i)
+                        list += "\n  - \"" + found[i]->title + "\" (line " + std::to_string(found[i]->line) + ")";
+                    throw CommandError("invalid_argument", "'" + wanted + "' matches " + std::to_string(found.size()) + " headings of '" + name + "':" + list,
+                                       "Repeat the call with the full title of one of them, or with startLine.");
+                }
+                const DocHeading* h = found.front();
+                sectionTitle = h->title;
+                long sectionEnd = total;
+                for (const DocHeading& n : heads)
+                    if (n.line > h->line && n.level <= h->level) { sectionEnd = long(n.line) - 1; break; }
+                if (!args.contains("startLine")) start = long(h->line);
+                end = sectionEnd;
+            }
+            const long maxLines = std::max<long>(1, tooling_detail::arg_int(args, "maxLines", 2000));
+            const long maxBytes = std::clamp<long>(tooling_detail::arg_int(args, "maxBytes", kDocReadDefaultBytes), 1000, kDocReadMaxBytes);
             std::string out;
-            long last = std::min<long>(long(lines.size()), start - 1 + maxLines);
-            for (long i = start - 1; i < last; ++i) out += lines[size_t(i)] + "\n";
-            return Json::object({{"name", name}, {"content", out}, {"startLine", start}, {"endLine", last},
-                                 {"totalLines", lines.size()}, {"truncated", last < long(lines.size())}});
+            long last = start - 1;  // last line included
+            for (long i = start - 1; i < end && i - (start - 1) < maxLines; ++i) {
+                const std::string& l = lines[size_t(i)];
+                if (long(out.size() + l.size() + 1) > maxBytes) {
+                    if (out.empty()) {  // one line longer than the budget: return its start
+                        out = cut_utf8(l, size_t(maxBytes)) + "\n";
+                        last = i + 1;
+                    }
+                    break;
+                }
+                out += l + "\n";
+                last = i + 1;
+            }
+            const bool truncated = last < end;
+            Json r = Json::object({{"name", name}, {"content", out}, {"startLine", start}, {"endLine", last}, {"totalLines", total},
+                                   {"truncated", truncated}});
+            if (!sectionTitle.empty()) r["heading"] = sectionTitle;
+            if (truncated) {
+                {
+                    r["nextStartLine"] = last + 1;
+                    Json call = Json::object({{"name", name}, {"startLine", last + 1}});
+                    if (!sectionTitle.empty()) call["heading"] = sectionTitle;
+                    r["next"] = "docs.read " + call.dump() + " continues from line " + std::to_string(last + 1) + " of " + std::to_string(total) + ".";
+                }
+                r["contents"] = contents_text(heads, 8000);
+                r["readSection"] = "docs.read {\"name\":\"" + name + "\",\"heading\":\"<a heading of `contents`>\"} reads one section; "
+                                   "startLine/maxLines read a range of the lines numbered in `contents`.";
+            }
+            return r;
         });
     }
     {

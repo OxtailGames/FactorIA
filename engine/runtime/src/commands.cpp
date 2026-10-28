@@ -626,6 +626,80 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return I.input.snapshot();
           });
 
+    I.commands.add({"game.click", "Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.",
+           "Give one target: `id` (a UI widget or screen-space Text: its centre is clicked), `position` ([x, y] in design pixels, "
+           "top-left origin, +Y down) or `world` ([x, y] or [x, y, z] in world units, projected through the main camera). "
+           "It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, "
+           "a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more "
+           "frame (input.mouse.released, the ui \"click\" event). The same sequence as game.click in a test, so it runs hold + 1 frames. "
+           "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList) is an error that says why. "
+           "game.input {\"mouse\":{\"position\":[x,y],\"left\":true}} only sets the state for the next frame and leaves the button "
+           "held; a click is move + press + frame + release + frame, which this command does in one call. Returns "
+           "{position, button, frames, widget, frame}: `widget` is the id of the topmost UI widget under the click (null over the "
+           "world). Examples: game.click {\"id\":\"play\"}, game.click {\"position\":[640,360]}, "
+           "game.click {\"world\":[3,-2],\"button\":\"right\"}",
+           parse_schema(R"({"type":"object","properties":{
+               "id":{"type":"string","description":"Entity id (or name) of a UI widget or screen-space Text; its centre is clicked."},
+               "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"Screen position [x, y] in design pixels (top-left origin, +Y down)."},
+               "world":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"description":"World position [x, y] or [x, y, z], projected through the main camera (needs a renderer)."},
+               "button":{"type":"string","enum":["left","right","middle"],"default":"left","description":"Mouse button."},
+               "hold":{"type":"integer","default":1,"minimum":1,"maximum":10000,"description":"Frames the button stays down before the release (1 = a tap)."}}})"),
+           false, "game"},
+          [&engine, &I](const Json& a) {
+              const int targets = int(a.contains("id")) + int(a.contains("position")) + int(a.contains("world"));
+              if (targets != 1)
+                  throw CommandError("invalid_argument", "game.click needs exactly one of id, position or world; got " + std::to_string(targets) + ".",
+                                     "Examples: {\"id\":\"play\"}, {\"position\":[640,360]}, {\"world\":[3,-2]}.");
+              MouseButton button = MouseButton::Left;
+              const std::string bname = a.value("button", std::string("left"));
+              if (bname == "right") button = MouseButton::Right;
+              else if (bname == "middle") button = MouseButton::Middle;
+              else if (bname != "left") throw CommandError("invalid_argument", "Unknown mouse button '" + bname + "'.", "Use left, right or middle.");
+              const int hold = std::max(1, a.value("hold", 1));
+              const Vec2 design = I.design_size();
+              Vec2 p;
+              if (a.contains("id")) {
+                  const Entity e = need_entity(I.world, a, "id");
+                  const std::string id = I.world.id_of(e);
+                  I.ui.layout(I.world, design, I.measure(), false);  // a panel opened since the last step has no rectangle yet
+                  std::string why;
+                  if (ui_kind(I.world, e) != UiKind::None) {
+                      const std::optional<Rect> r = ui_rect(I.world, e, design);
+                      const std::optional<Rect> clip = ui_clip_rect(I.world, e, design);
+                      if (!I.world.active_in_hierarchy(e)) why = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
+                      else if (!r || !(r->w > 0) || !(r->h > 0)) why = "it has no area (its size is 0), so it was never laid out: give it a size, or make it a child of a Panel with a layout";
+                      else if (clip && (!(clip->w > 0) || !(clip->h > 0) || !clip->overlaps(*r)))
+                          why = "it is scrolled out of its ScrollList, so it is clipped away: scroll it into view first (ui.focus scrolls to it)";
+                  }
+                  if (!why.empty()) throw CommandError("invalid_argument", "'" + id + "' cannot be clicked: " + why + ".", "ui.state lists the widgets you can click.");
+                  const std::optional<Rect> box = I.world.active_in_hierarchy(e) ? ui_screen_rect(I.world, e, design, I.measure()) : std::nullopt;
+                  if (!box)
+                      throw CommandError("invalid_argument", "'" + id + "' has no screen rectangle.",
+                                         "Pass a UI widget or a screen-space Text id, or a position/world target.");
+                  p = {box->x + box->w / 2, box->y + box->h / 2};
+              } else if (a.contains("position")) {
+                  std::string perr;
+                  if (!json_to(a["position"], p, &perr)) throw CommandError("invalid_argument", "position: " + perr, "Use [x, y] in design pixels.");
+              } else {
+                  const Json& w = a["world"];
+                  if (!I.renderer || !I.renderer->initialized())
+                      throw CommandError("unavailable", "world needs a renderer to project the point through the camera.",
+                                         "Run with graphics, or click a screen `position` (design pixels) instead.");
+                  p = I.renderer->world_to_screen(Vec3{w[0].get<float>(), w[1].get<float>(), w.size() > 2 ? w[2].get<float>() : 0.0f});
+              }
+              I.input.on_mouse_move(p);
+              I.input.on_mouse_button(button, true);
+              engine.step(1);
+              const Entity under = ui_widget_at(I.world, design, p);
+              if (hold > 1) engine.step(hold - 1);
+              I.input.on_mouse_button(button, false);
+              engine.step(1);
+              Json out = Json::object({{"position", Json::array({p.x, p.y})}, {"button", bname}, {"frames", hold + 1}});
+              out["widget"] = under != kNullEntity && I.world.alive(under) ? Json(I.world.id_of(under)) : Json();
+              out["frame"] = I.frame;
+              return out;
+          });
+
     I.commands.add({"game.screenshot", "Capture the game view as a PNG and show it.",
            "Draws the game view as it is now (design resolution), saves it and returns the path; clients display the "
            "image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. "

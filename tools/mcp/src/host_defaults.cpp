@@ -26,7 +26,7 @@ std::string default_mcp_instructions() {
 R"(FactorIA is an AI-native 2D/3D game engine. You build games by editing JSON (scenes, prefabs, factoria.json) and JavaScript (scripts, tools, tests), and you verify them with the tools below. Everything is text; you can see the game through screenshots.
 
 WORKFLOW (repeat for every change)
-1. Read first: docs_list, then docs_read {"name":"ai-guide"} and docs_search for any component or API you are unsure about. Component names and fields are strict: use docs_components / docs_commands instead of guessing.
+1. Read first: docs_list, then docs_read {"name":"ai-guide"} and docs_search for any component or API you are unsure about. Component names and fields are strict: use docs_components {"name":"Sprite"} / docs_commands {"name":"game.step"} instead of guessing. A long page comes in parts with a contents list: read a section with docs_read {"name":"ai-guide","heading":"..."}.
 2. Edit files (your own file tools, or fs_read / fs_write / fs_edit / fs_search / fs_list if you have none) or use the scene_* tools on the running game.
 3. project_validate after every batch of edits. Errors give file, JSON pointer and a fix hint.
 4. Run and LOOK: game_step {"frames":120} then game_screenshot, and check the returned image really shows what you intended. game_state / game_logs show entity data and script errors.
