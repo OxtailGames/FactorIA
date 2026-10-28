@@ -1333,7 +1333,7 @@ export default class StoreEvents extends Behaviour {
             "fontSize": 18, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "align": "start", "maxWidth": 560, "layer": 302 } } }
         ] },
       { "id": "audio_section",
-        "components": { "Panel": { "size": [712, 392], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
+        "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
         "children": [
           { "id": "master_volume", "components": { "Slider": { "autoSize": true, "label": "Master", "key": "options.volume.master", "size": [560, 44], "layer": 302 } } },
           { "id": "music_volume", "components": { "Slider": { "autoSize": true, "label": "Music", "key": "options.volume.music", "size": [560, 44], "layer": 302 } } },
@@ -1576,9 +1576,12 @@ export default class Options extends Behaviour {
   }
 
   // ------------------------------------------------------------------------------------------------------ text speed
-  /** The "Text speed" button (added with `textSpeed: true`; without it the prefab has no such row and this does nothing). */
+  /** The "Text speed" button (the textSpeed part; without it the prefab has no such row and this does nothing). */
   setupTextSpeed() {
-    if (!world.find("text_speed")) return;
+    const row = world.find("text_speed");
+    if (!row) return;
+    const panel = world.find("audio_section")?.get("Panel"); // the prefab's panel is sized without the row: grow it by one row, as addOptionsRow() does
+    if (panel) panel.size = [panel.size.x, panel.size.y + 44 + panel.spacing];
     ui.on("click", "text_speed", () => {
       const all = settings.TEXT_SPEEDS;
       const at = all.findIndex((x) => x.cps === this.s.textSpeed);

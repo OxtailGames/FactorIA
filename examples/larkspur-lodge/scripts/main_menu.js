@@ -25,7 +25,7 @@ export default class MainMenu extends Behaviour {
     startTitleMusic();
     this.menus = new MenuStack("main_menu");
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
-    this.slots = new SlotScreen(this.menus);
+    this.slots = new SlotScreen(this.menus, { slots: saves.slots, launch: (data) => saves.launch(data) }); // load only
     const panel = world.spawnPrefab("prefabs/ui/chapter_select.prefab.json");
     panel.id = "chapter_select";
     panel.active = false;

@@ -209,9 +209,12 @@ export default class Options extends Behaviour {
   }
 
   // ------------------------------------------------------------------------------------------------------ text speed
-  /** The "Text speed" button (added with `textSpeed: true`; without it the prefab has no such row and this does nothing). */
+  /** The "Text speed" button (the textSpeed part; without it the prefab has no such row and this does nothing). */
   setupTextSpeed() {
-    if (!world.find("text_speed")) return;
+    const row = world.find("text_speed");
+    if (!row) return;
+    const panel = world.find("audio_section")?.get("Panel"); // the prefab's panel is sized without the row: grow it by one row, as addOptionsRow() does
+    if (panel) panel.size = [panel.size.x, panel.size.y + 44 + panel.spacing];
     ui.on("click", "text_speed", () => {
       const all = settings.TEXT_SPEEDS;
       const at = all.findIndex((x) => x.cps === this.s.textSpeed);
