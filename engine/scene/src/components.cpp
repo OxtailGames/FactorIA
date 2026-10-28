@@ -499,7 +499,35 @@ void register_builtin_components(TypeRegistry& r) {
                "World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight "
                "(its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes "
                "for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false "
-               "(default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D.");
+               "(default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D.")
+        .field("cornerRadius", &Shape2D::cornerRadius,
+               "rectangle only: radius of the rounded corners in world units, antialiased (a button, a card, a page). Clamped to half "
+               "the shorter side, so a large value makes a pill. 0 (default) = square corners, drawn as before. Other shapes ignore it.")
+        .range(0, 100000)
+        .field("softness", &Shape2D::softness,
+               "rectangle and circle only: width in world units of a blurred edge, centred on the shape's outline (half of it fades "
+               "in inside the outline, half outside, so the shape's footprint grows by softness / 2 on every side). Turns a shape "
+               "into a soft drop shadow (a dark translucent rounded rectangle, a little offset, softness 12-30), a vignette or a "
+               "light pool (a circle with softness near its diameter and an additive blend). Follows cornerRadius; works with "
+               "filled = false (a blurred ring) and with a gradient. 0 (default) = a crisp, antialiased edge, as before. "
+               "Triangles, diamonds, polygons, stars and lines ignore it (draw a circle or rectangle for a soft shape).")
+        .range(0, 100000)
+        .enum_field("gradient", &Shape2D::gradient, {"none", "linear", "radial"},
+                    "rectangle and circle fill only (filled = true): none (default) = flat `color`. linear = `color` blends to `color2` "
+                    "along the direction gradientAngle, from the box edge to the opposite edge (paper shading, a gutter, a sky). radial = "
+                    "`color` at the centre blends to `color2` at the edge of the shape's box (a vignette, a light pool, a glow); outside "
+                    "the box's inscribed ellipse it stays color2. The blend is computed per pixel (and dithered), so it is smooth with no "
+                    "banding, in one entity. Alpha is blended too (premultiplied, so a "
+                    "transparent color2 fades color out without greying it): make color2 transparent to fade out. Ignored by outlines and by the other shapes.")
+        .field("color2", &Shape2D::color2,
+               "gradient only: the colour at the end of the gradient (the right/top end of a linear one, the edge of a radial one). "
+               "`color` is the start. Include its alpha: [0, 0, 0, 0] fades `color` to nothing.")
+        .field("gradientAngle", &Shape2D::gradientAngle,
+               "linear gradient only: direction in degrees, measured like a rotation (counter-clockwise, y up in world space): 0 = "
+               "`color` on the left to `color2` on the right, 90 = `color` at the bottom to `color2` at the top, 270 = top to bottom. "
+               "The gradient spans the shape's box exactly from corner to corner and turns with the entity. In screen space, where "
+               "y is down, 90 still goes bottom to top on the screen.")
+        ;
 
     r.add<Text>("Text",
                 "Draws a string with a TrueType font (or the built-in font). Works in world and screen space.",

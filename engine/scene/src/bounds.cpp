@@ -98,7 +98,12 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
     if (const Shape2D* s = W.get<Shape2D>(e); s && (includeScreenSpace || s->space == RenderSpace::World)) {
         const float bx0 = -s->pivot.x * s->size.x, by0 = -s->pivot.y * s->size.y;
         switch (s->shape) {
-            case ShapeType::Rectangle:
+            case ShapeType::Rectangle: {  // a soft edge reaches softness / 2 beyond the box
+                const float g = std::max(s->softness, 0.0f) * 0.5f;
+                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea,
+                                   rect_quad(bx0 - g, by0 - g, bx0 + s->size.x + g, by0 + s->size.y + g)));
+                break;
+            }
             case ShapeType::Triangle:
             case ShapeType::Polygon:  // a polygon's or star's vertices lie inside the size box; the box is its footprint
             case ShapeType::Star:
@@ -112,8 +117,9 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
                 break;
             }
             case ShapeType::Circle: {  // size.x is the diameter and the pivot refers to the circle's bounding square
-                const float cy0 = -s->pivot.y * s->size.x;
-                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea, rect_quad(bx0, cy0, bx0 + s->size.x, cy0 + s->size.x)));
+                const float cy0 = -s->pivot.y * s->size.x, g = std::max(s->softness, 0.0f) * 0.5f;
+                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea,
+                                   rect_quad(bx0 - g, cy0 - g, bx0 + s->size.x + g, cy0 + s->size.x + g)));
                 break;
             }
             case ShapeType::Line: {  // from the origin to `size`, as thick as the stroke
