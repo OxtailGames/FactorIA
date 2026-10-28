@@ -73,6 +73,7 @@ struct UiLabel {
 };
 // nullopt for a widget without a label (Panel, ScrollList, TextField, TouchStick, Captions).
 // `textScale` is the player's text size: a Toggle's box follows the font size, so the label's zone depends on it.
+// In a mirrored widget (ui_mirrored) the zone is on the mirrored side: right of a Slider's track, left of a Toggle's box.
 std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r, float textScale = 1.0f);
 
 // The side of a Toggle's check box in a widget `height` pixels high: one line of its label (the font size at the player's
@@ -88,7 +89,8 @@ struct UiButtonContent {
     Rect icon;        // empty (zero size) without an icon
     Vec2 labelPos;    // top-left of the label
 };
-UiButtonContent ui_button_content(const Button& b, const Rect& r, Vec2 labelSize);
+// `mirrored` (ui_mirrored): the icon and the label change sides.
+UiButtonContent ui_button_content(const Button& b, const Rect& r, Vec2 labelSize, bool mirrored = false);
 
 struct UiLabelFit {
     UiLabel label;

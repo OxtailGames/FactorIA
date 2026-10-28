@@ -357,3 +357,41 @@ TEST_CASE("Chart: bars scale to the maximum, a line passes through its points, t
     CHECK(has_colour(int(px2 - 30), int(bottom - 0.2f * 108), blue));  // the second series, flat at 20
     CHECK(near(img.pixel(int(px0 + 20), int(top + 60)), clear, 0.01f));  // away from both lines: nothing
 }
+
+TEST_CASE("mirrored UI: in a right-to-left language the widgets are drawn as the mirror image of the left-to-right screen") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    auto scene = [&](bool rtl, bool mirrorOff) {
+        World w;
+        w.add<Camera>(make(w, "cam"));
+        w.set_language(rtl ? "he" : "en");
+        w.set_rtl(rtl);
+        w.set_ui_mirror_rtl(!mirrorOff);
+        widget<Panel>(w, "p", 10, 10, 120, 30).color = Color{0.8f, 0.2f, 0.2f, 1};
+        Slider& s = widget<Slider>(w, "s", 10, 60, 200, 30);  // no label: the track fills the width
+        s.label = "";
+        s.value = 0.25f;
+        Toggle& t = widget<Toggle>(w, "t", 10, 110, 150, 28);  // no label: the box alone
+        t.label = "";
+        t.value = true;
+        return g.render(w);
+    };
+    const Image ltr = scene(false, false), rtl = scene(true, false), off = scene(true, true);
+    REQUIRE(ltr.width == rtl.width);
+    int mirroredDiff = 0, offDiff = 0;
+    for (int y = 0; y < ltr.height; ++y)
+        for (int x = 0; x < ltr.width; ++x) {
+            const bool valueText = y >= 62 && y < 88 && x > 20 && x < 300;  // the Slider's value readout: text is not reflected
+            if (!valueText && !near(rtl.pixel(x, y), ltr.pixel(ltr.width - 1 - x, y), 0.05f)) ++mirroredDiff;
+            if (!near(off.pixel(x, y), ltr.pixel(x, y), 0.05f)) ++offDiff;
+        }
+    CHECK(mirroredDiff < 12);  // the same picture reflected (the edge pixels of anti-aliased shapes may differ)
+    // the Slider (value 0.25) fills from its left end in English and from its right end in Hebrew
+    CHECK_FALSE(near(ltr.pixel(30, 75), ltr.pixel(150, 75), 0.05f));
+    CHECK(near(rtl.pixel(ltr.width - 1 - 30, 75), ltr.pixel(30, 75), 0.05f));
+    CHECK(near(rtl.pixel(ltr.width - 1 - 150, 75), ltr.pixel(150, 75), 0.05f));
+    CHECK(offDiff == 0);       // ui.mirrorRtl off: nothing moves
+    // and it is not the same picture: the panel is at the right now
+    CHECK(near(rtl.pixel(ltr.width - 1 - 70, 20), Color{0.8f, 0.2f, 0.2f, 1}, 0.05f));
+    CHECK_FALSE(near(rtl.pixel(70, 20), Color{0.8f, 0.2f, 0.2f, 1}, 0.05f));
+}

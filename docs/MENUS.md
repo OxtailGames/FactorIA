@@ -335,8 +335,9 @@ What the command does, file by file; do it by hand when you want to see each fil
 - **Add a language.** Add its tag to `localization.languages`, copy `locales/en.json` to `locales/<tag>.json` and
   translate it (a missing key shows the default language's text and is listed by `factoria call i18n.state`). Put the
   language's own name in `"$name"`: it is what the Language button shows.
-  For a right-to-left language (Arabic, Hebrew, Persian, Urdu) the options panel mirrors itself: its tabs row has
-  `"direction": "auto"` and the panels and the wrapped note use `"align": "start"` (docs/LOCALIZATION.md, section 6).
+  For a right-to-left language (Arabic, Hebrew, Persian, Urdu) the options panel mirrors itself: the engine mirrors the
+  screen-space UI (`ui.mirrorRtl`, on by default), its tabs row has `"direction": "auto"` and the panels and the wrapped
+  note use `"align": "start"`; a widget that must stay put has `"mirror": false` (docs/LOCALIZATION.md, section 6).
 - **Restyle.** `color`, `textColor`, `accentColor`, or a `texture` with `slice` (9-slice) on any widget: AI guide
   section 9.22.
 - **Phones: notch and Back.** A panel or text pinned to a screen edge (a top bar, a corner button, the "Loading..." text)

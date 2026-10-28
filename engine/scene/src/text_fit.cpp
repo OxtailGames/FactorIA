@@ -98,7 +98,7 @@ float ui_toggle_box_side(const Toggle& t, float height, float textScale) {
     return std::max(0.0f, std::min(height - 12.0f, std::ceil(px * 1.2f + 4.0f)));
 }
 
-UiButtonContent ui_button_content(const Button& b, const Rect& r, Vec2 labelSize) {
+UiButtonContent ui_button_content(const Button& b, const Rect& r, Vec2 labelSize, bool mirrored) {
     UiButtonContent out;
     out.labelPos = {r.x + (r.w - labelSize.x) * 0.5f, r.y + (r.h - labelSize.y) * 0.5f};
     if (b.icon.empty()) return out;
@@ -113,6 +113,10 @@ UiButtonContent ui_button_content(const Button& b, const Rect& r, Vec2 labelSize
         const float gap = labelSize.x > 0 ? kUiButtonIconGap : 0.0f, x0 = r.x + (r.w - is.x - gap - labelSize.x) * 0.5f;
         out.icon = {x0, r.y + (r.h - is.y) * 0.5f, is.x, is.y};
         out.labelPos.x = x0 + is.x + gap;
+    }
+    if (mirrored) {
+        out.labelPos.x = 2.0f * r.x + r.w - out.labelPos.x - labelSize.x;
+        if (!out.icon.empty()) out.icon = ui_mirror_in(r, out.icon);
     }
     return out;
 }
@@ -164,6 +168,7 @@ std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r, float t
     } else {
         return std::nullopt;
     }
+    if (ui_mirrored(w, e)) l.zone = ui_mirror_in(r, l.zone);
     l.spec.boxW = l.zone.w;
     l.spec.boxH = l.zone.h;
     return l;

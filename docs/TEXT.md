@@ -106,7 +106,14 @@ right side of the screen) when it should hug the right edge. The first line of a
 usual.
 `align: "start"` and `"end"` are the direction-aware values: start is the left edge in a left-to-right language and the
 right edge in a right-to-left one (`i18n.direction`), so one Text serves English and Arabic. Panels mirror their rows with
-`direction: "auto"` (docs/LOCALIZATION.md, section 6).
+`direction: "auto"`, and in a right-to-left language the engine mirrors the places of the widgets themselves
+(`ui.mirrorRtl`, docs/LOCALIZATION.md, section 6).
+
+**`direction`** (`"auto"`, `"ltr"`, `"rtl"`) sets the base direction of the paragraphs instead of the first strong character.
+`auto` with a localization key (`Text.key`, or a widget's `key`) is the language's direction, so a Hebrew or Arabic line that
+starts with a key name or a number (`Tab או הכפתורים`, `[F] ...`, `3 פריטים`) is a right-to-left paragraph without a U+200F
+mark in the translation; a Text with no key and `auto` is still decided by its first strong character, and one that a script
+fills (`text = i18n.t(...)`) takes `direction = i18n.direction`. `"rtl"` also makes `align: "start"` the right edge.
 
 ## Line breaking
 

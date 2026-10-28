@@ -72,7 +72,15 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than "
                "left + right (or top + bottom) the borders shrink proportionally.")
         .field("tooltip", static_cast<Json T::*>(&UiBox::tooltip), kTooltipDoc)
-        .field("draggable", static_cast<Json T::*>(&UiBox::draggable), kDraggableDoc);
+        .field("draggable", static_cast<Json T::*>(&UiBox::draggable), kDraggableDoc)
+        .field("mirror", static_cast<bool T::*>(&UiBox::mirror),
+               "true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, "
+               "when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about "
+               "the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills "
+               "from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. "
+               "Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays "
+               "where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right "
+               "language or with ui.mirrorRtl off (docs/LOCALIZATION.md, \"Right to left\").");
 }
 
 // maxTextScale of Text and of the UI widgets.
@@ -94,6 +102,14 @@ constexpr const char* kBoldDoc =
     "true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none "
     "is emboldened by the engine, and `factoria validate` suggests adding one. [b] in markup does the same for a part of the "
     "text. false (default): regular weight.";
+
+constexpr const char* kTextDirectionDoc =
+    "Base direction of the paragraphs (Unicode bidi). auto (default): the first strong letter decides, except that a Text with a "
+    "localization key (`key`) takes the language's direction (i18n.direction), so a Hebrew line that starts with a key name or a "
+    "{placeholder} filled with Latin text is still a right-to-left line, with no U+200F mark in the string. ltr / rtl: the "
+    "paragraph runs that way whatever its first letter is. The direction also says which edge `align: start` is (rtl: the right "
+    "one); the glyphs of a line keep their reading order whatever the alignment. Widget labels with a `key` follow the language "
+    "the same way.";
 
 constexpr const char* kWordBreakDoc =
     "Where a wrapped line (maxWidth > 0) may end inside a run of letters with no space. auto (default): Korean keeps its words "
@@ -506,7 +522,7 @@ void register_builtin_components(TypeRegistry& r) {
                     "Horizontal alignment of lines inside the text box. left / right are always the left / right edge, "
                     "even for right-to-left text. start / end follow the current language: start = left and end = right "
                     "in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left "
-                    "languages (i18n.direction); use them for text that must read from its start side.")
+                    "languages (i18n.direction), or when `direction` is rtl; use them for text that must read from its start side.")
         .field("pivot", &Text::pivot, "Anchor of the text box: [0, 1] top-left (default), [0.5, 0.5] center, [1, 0] bottom-right.")
         .field("maxWidth", &Text::maxWidth, "If > 0, lines wrap at this width in world units. 0 = no wrapping. With autoShrink "
                "it is also the width the text must fit (a word longer than the box shrinks the font).").range(0, 100000)
@@ -519,6 +535,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("maxTextScale", &Text::maxTextScale, kMaxTextScaleDoc).range(0, 3)
         .field("markup", &Text::markup, kMarkupDoc)
         .field("bold", &Text::bold, kBoldDoc)
+        .enum_field("direction", &Text::direction, {"auto", "ltr", "rtl"}, kTextDirectionDoc)
         .enum_field("wordBreak", &Text::wordBreak, {"auto", "normal", "keepAll"}, kWordBreakDoc)
         .field("visibleCharacters", &Text::visibleCharacters,
                "Typewriter reveal. -1 (default) draws the whole text. n >= 0 draws only its first n characters, counted in grapheme "
