@@ -1322,9 +1322,6 @@ void Editor::draw_main_menu() {
         if (ImGui::MenuItem("Platform Settings...", nullptr, false, have)) open_platform_settings();
         at_track("menu:platform-settings");
         ImGui::SetItemTooltip("The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team...");
-        if (ImGui::MenuItem("AI Settings...")) open_ai_settings();
-        at_track("menu:ai-settings");
-        ImGui::SetItemTooltip("Which service makes the AI's images, sounds and 3D models (with its key), and the websites it looks at for assets");
         if (ImGui::MenuItem("Set Up This Computer...")) open_setup_window();
         at_track("menu:setup");
         ImGui::SetItemTooltip("Install what an export needs: the Android build tools, the players of other platforms, CMake, Xcode");
@@ -1370,6 +1367,21 @@ void Editor::draw_main_menu() {
         if (ImGui::MenuItem("Reset layout")) resetLayout_ = true;
         ImGui::EndMenu();
     }
+    const bool aiMenuOpen = ImGui::BeginMenu("AI");
+    at_track("menu:ai");
+    if (aiMenuOpen) {
+        if (ImGui::MenuItem("AI Settings...")) open_ai_settings();
+        at_track("menu:ai-settings");
+        ImGui::SetItemTooltip("The roles (which provider and model plays the orchestrator, worker, artist, critics...), which service makes the\n"
+                              "AI's images, sounds and 3D models (with its key), and the websites it looks at for assets");
+        const bool detected = aiDetected_.load();
+        if (ImGui::MenuItem("Roles...", nullptr, false, detected)) open_ai_settings(true);
+        at_track("menu:ai-roles", detected);
+        if (!detected) ImGui::SetItemTooltip("Reading ai.json...");
+        else ImGui::SetItemTooltip("Choose the provider and model of each role (AI Settings, Roles tab). Takes effect with the next message.\n%s",
+                                   ai_roles_summary().c_str());
+        ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("Help")) {
         if (ImGui::MenuItem("AI providers setup")) {
             auto d = read_doc("ai-providers");
@@ -1391,6 +1403,10 @@ void Editor::draw_main_menu() {
         }
         ImGui::EndMenu();
     }
+    // Not a menu: a click on the bar itself, always in reach.
+    if (ImGui::MenuItem("Export Game", nullptr, false, have)) open_export_window();
+    at_track("menu:export", have);
+    ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS (File > Export Game... does the same)");
     ImGui::EndMainMenuBar();
 }
 
@@ -1459,10 +1475,6 @@ void Editor::draw_toolbar() {
     }
     at_track("toolbar:screenshot");
     ImGui::SetItemTooltip("Save the game view as PNG into .factoria/screenshots (a hidden folder:\nthe toast has a Show in %s button, and File > Open Screenshots Folder opens it)", file_manager_name());
-    ImGui::SameLine();
-    if (ImGui::Button("Export")) open_export_window();
-    at_track("toolbar:export");
-    ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS (File > Export Game...)");
     ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();

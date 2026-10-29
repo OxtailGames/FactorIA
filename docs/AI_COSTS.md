@@ -101,7 +101,7 @@ that takes twice the steps in a context twice as large costs four times as much.
 - **Long chats.** A chat that has been going for hours carries everything said so far in every step. Open a new chat tab for
   a new task (AI panel, [EDITOR.md](EDITOR.md)); the project files are the memory, not the chat. The built-in agent does not
   trim its history ([AI_PROVIDERS.md](AI_PROVIDERS.md#conversations-and-resume)).
-- **Compaction.** `maxContextTokens` on a role (at least 100000, **Roles...** in the editor, **Context** column) caps how
+- **Compaction.** `maxContextTokens` on a role (at least 100000, **AI > Roles...** in the editor, **Context** column) caps how
   much conversation a session keeps: past it, the earlier turns become a summary and each step reads less. It works with
   Claude Code and the Anthropic API ([AI_PROVIDERS.md](AI_PROVIDERS.md#roles)).
 - **Screenshots.** A picture is tokens too. FactorIA scales big pictures to 1568 px on the long side, which is what the
@@ -148,9 +148,11 @@ Asset providers are not covered by any limit. Cap those at the provider (a spend
 ## 5. How to see what you spent
 
 - **In the editor**, the usage lines above the AI transcript: **Session (5h)** and **Week** (plan windows, with the time
-  they reset), **Context** (tokens in the window now), **Tokens** (in / out / cache) and **Cost** of the chat, marked `est.`
-  ([EDITOR.md](EDITOR.md), [AI_PROVIDERS.md](AI_PROVIDERS.md#usage-display)). For a subscription, the cost is the CLI's own
-  figure, and plan percentages are what the provider reports.
+  they reset), **Context** (tokens in the window now), **Tokens** (in / out / cache) and **API cost est.** of the chat
+  ([EDITOR.md](EDITOR.md), [AI_PROVIDERS.md](AI_PROVIDERS.md#usage-display)). The plan windows are the provider's and sit above
+  the chat tabs; the rest belongs to the chat. The dollars are what the same tokens would cost on the pay-per-token API:
+  with a subscription (Claude Code / Codex sign-in) none of it is charged on top of the plan, and plan percentages are
+  what the provider reports.
 - **While it runs**, Tokens and Cost in the editor grow with every model call, including a delegated worker's, instead of
   jumping at the end. Until the CLI's own total arrives the cost is the engine's estimate (price table or the provider's
   `pricing`); the CLI's figure replaces it when the agent finishes. The plan windows (Session, Week) are reported by Claude

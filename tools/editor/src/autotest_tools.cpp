@@ -972,7 +972,7 @@ void Editor::at_build_tools_script() {
 
     // ------------------------------------------------- H. Export window: a button per platform, then the export's report
     section("H");
-    // The toolbar's Export opens it. Every platform's row says what an export there writes, or why it cannot run here
+    // Export Game in the menu bar opens it. Every platform's row says what an export there writes, or why it cannot run here
     // (another OS's desktop player is not in this build tree). This machine's platform is exported for real, with the
     // factoria_player of the build tree, on the export's worker thread; the report shows the folder and the next steps.
     const std::string host = normalize_export_platform("");
@@ -985,9 +985,9 @@ void Editor::at_build_tools_script() {
         at_check(windowTitle_ == editor_window_title(FA_ENGINE_VERSION, "Autotest Platformer"),
                  "the window title names the engine version and the project (" + windowTitle_ + ")");
     });
-    click("toolbar:export");
+    click("menu:export");
     step(4, [this, host_status] {
-        at_check(showExport_, "the toolbar's Export button opens the Export window");
+        at_check(showExport_, "the Export Game item of the menu bar opens the Export window");
         at_check(exportStatus_.size() == export_targets().size(), "the Export window checked every platform");
         for (size_t i = 0; i < exportStatus_.size() && i < export_targets().size(); ++i) {
             const ExportTarget& t = export_targets()[i];
@@ -1054,7 +1054,7 @@ void Editor::at_build_tools_script() {
             }
         at_check(save_png(icon, project_file("assets/icon.png")).ok(), "a game icon was written to assets/icon.png");
     });
-    click("toolbar:export");
+    click("menu:export");
     step(4, [this] { at_check(at_visible("export:settings:android"), "the Export window has a Settings... button on the Android row"); });
     // On a smaller screen (the macOS runner's 1024x642) the Android row can be out of view: above it after section H (the
     // window stays scrolled down to the report it showed), below it when this section runs alone. Scroll to it.
@@ -3037,8 +3037,10 @@ void Editor::at_build_tools_script() {
         at_check(at_visible("ai:review:game") && at_visible("ai:review:art"), "the AI Assistant has an Art critique and a Game review button");
         at_check(chat().empty() && !ai_busy(), "nothing runs and nothing is asked until a button is pressed");
     });
-    click("ai:roles");
+    click("menu:ai");
+    click("menu:ai-roles");
     step(3, [this] {
+        at_check(showAiSettings_, "AI > Roles... opens the AI settings window");
         at_check(at_visible("ai:roles:enabled:orchestrator") && !at_enabled("ai:roles:enabled:orchestrator"),
                  "the Roles window shows the orchestrator's Enabled checkbox ticked and disabled");
         at_check(at_visible("ai:roles:enabled:artist") && at_enabled("ai:roles:enabled:artist") &&
@@ -3050,10 +3052,15 @@ void Editor::at_build_tools_script() {
         at_check(!aiRolesEdit_[ai::kRoleArtist].enabled && aiRolesEdit_[ai::kRoleWorker].enabled,
                  "unticking Artist turns off that role only");
     });
-    click("ai:roles:cancel");
+    click("ai:roles:revert");
     step(3, [this] {
-        std::lock_guard<std::mutex> lock(aiMu_);
-        at_check(aiConfig_.role_enabled(ai::kRoleArtist), "Cancel leaves the configuration alone");
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            at_check(aiConfig_.role_enabled(ai::kRoleArtist), "Revert leaves the configuration alone");
+        }
+        at_check(aiRolesEdit_[ai::kRoleArtist].enabled, "...and puts the Enabled checkbox back");
+        showAiSettings_ = false;
+        aiSettings_ = AiSettingsDraft{};
     });
     click("ai:review:game");
     step(3, [this] {
@@ -3298,7 +3305,7 @@ void Editor::at_build_tools_script() {
 
     // ------------------------------------------------------------------------------------------------ X. AI settings window
     section("X");
-    // The AI Assistant's "AI settings..." button opens the window on the user's ai.json (here a scratch file: FACTORIA_AI_CONFIG
+    // AI > AI Settings... opens the window on the user's ai.json (here a scratch file: FACTORIA_AI_CONFIG
     // is set for the section and put back after). What a person types in the fields is set on the draft; Save and Close are
     // real clicks. A site that is not a web address stops Save with a message and leaves the file as it was; a good Save
     // rewrites only assets / assetSources / the provider fields the routes need (roles and limits stay), stores a typed key in
@@ -3345,9 +3352,11 @@ void Editor::at_build_tools_script() {
             atWaitUntil_ = [this] { return !aiDetecting_.load(); };
         });
         step(2, [this] { focus_window("AI Assistant"); });
-        click("ai:settings");
+        click("menu:ai");
+        click("menu:ai-settings");
         step(4, [this, x] {
-            at_check(showAiSettings_, "the AI Assistant's AI settings... button opens the window");
+            at_check(showAiSettings_, "AI > AI Settings... opens the window");
+            aiSettingsTab_ = 2;  // the Assets tab: the rest of this section works there
             at_check(aiSettings_.loaded && aiSettings_.path == x->path, "it works on the AI config file (" + aiSettings_.path + ")");
             at_check(aiSettings_.routes["image"].provider == "fake" && aiSettings_.routes["sound"].provider.empty(),
                      "the image row shows the provider of the file and the sound row none");

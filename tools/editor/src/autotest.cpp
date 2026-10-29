@@ -427,6 +427,7 @@ void Editor::autotest_pre_frame() {
         in.severity = "minor";
         in.title = "Editor autotest sample entry";
         in.missing = "Autotest: nothing is actually missing.";
+        for (int i = 0; i < 60; ++i) in.missing += "\nA long entry, line " + std::to_string(i) + ": the panel must not grow for it.";
         in.workaround = "None needed.";
         (void)add_feedback_entry_to_file(fs::join(projectDir_, engine_->project().feedbackFile), in, projectName_);
         feedbackPolled_ = -10;
@@ -434,8 +435,24 @@ void Editor::autotest_pre_frame() {
         FA_INFO("autotest", "feedbackFile='{}' mtime={} exists={}", engine_->project().feedbackFile,
                 fs::modified_time(engine_->project().feedbackFile), fs::exists(engine_->project().feedbackFile));
         pendingFocus_ = "Engine Feedback";
+        fbSelected_ = "FB-0001";  // its detail is 60 lines long
     } else if (f == 80) {
         atPendingShots_.push_back(out + "editor_feedback.png");
+        // Only the entries table and the detail scroll: the panel and its body area never get a scrollbar of their own.
+        ImGuiWindow* fb = ImGui::FindWindowByName("Engine Feedback");
+        at_check(fb && fb->ScrollMax.y <= 0.0f && !fb->ScrollbarY, "the Engine Feedback panel does not scroll by itself");
+        bool body = false, detailScrolls = false;
+        for (ImGuiWindow* c : ImGui::GetCurrentContext()->Windows) {
+            if (!fb || c->ParentWindow != fb) continue;
+            const std::string n = c->Name;
+            if (n.find("##fbbody") != std::string::npos) body = !c->ScrollbarY && c->ScrollMax.y <= 0.0f;
+        }
+        for (ImGuiWindow* c : ImGui::GetCurrentContext()->Windows) {
+            const std::string n = c->Name;
+            if (n.find("##fbdetail") != std::string::npos) detailScrolls = c->ScrollMax.y > 0.0f;
+        }
+        at_check(body, "its body area has no scrollbar however long an entry is");
+        at_check(detailScrolls, "the long entry's text scrolls in its own detail area");
     } else if (f == 82) {
         pendingFocus_ = "Console";
     } else if (f == 84) {

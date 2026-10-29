@@ -255,9 +255,9 @@ what the agent's process is doing before you decide.
 
 `factoria ai run "task"` and the `ai.run` command use the `orchestrator` role
 unless told otherwise (`role`: orchestrator, worker, fast, artist or audio; `provider`, `model` options). The editor AI
-panel always sends your messages to the orchestrator; its **Roles...** button sets the
+panel always sends your messages to the orchestrator; its **AI > Roles...** menu item (the Roles tab of the AI settings window) sets the
 provider, model, effort and context limit of the seven roles and saves them in `ai.json` (only
-`roles` is rewritten: providers, limits and a role's `maxTokens` stay). The button is disabled
+`roles` is rewritten: providers, limits and a role's `maxTokens` stay). The item is disabled
 until the first provider detection has read `ai.json`.
 
 ### Choosing a model
@@ -402,8 +402,9 @@ The AI panel shows what the provider reports, never a guess:
   use the same plan in between, so old numbers would be wrong. Until the first message of a run the panel shows a dim
   "Plan usage updates after the first message.".
 * **Context**: tokens in the model's context window now (the last request, not the sum of the run), for example `47k / 1M`.
-* **Tokens** (in / out / cache) and **Cost** of the chat. Cost is an estimate (`est.`): the CLI's own number for subscription
-  plans, which are not billed per token. Both are live while an agent works (every assistant message adds its usage once,
+* **Tokens** (in / out / cache) and **API cost est.** of the chat. The cost is an estimate of what the same tokens would cost
+  on the provider's pay-per-token API (the CLI's own number when it reports one); on a subscription plan (Claude Code /
+  Codex sign-in) none of it is billed on top of the plan, and the line says so. Both are live while an agent works (every assistant message adds its usage once,
   sub-agents included; Codex adds each turn); the cost is the engine's price-table estimate until the CLI's final totals
   replace it. The plan windows are not refreshed during a run: Claude Code emits `rate_limit_event` once per message.
 
@@ -510,8 +511,9 @@ of asset is assigned to.
 
 ## The AI settings window
 
-**AI settings...** (next to **Roles...** in the AI Assistant panel, and **File > AI Settings...**) is where the asset side of
-`ai.json` is set up. It has two sections and one **Save** button:
+**AI > AI Settings...** (the AI menu of the menu bar) is where the roles and the asset side of `ai.json` are set up. Its
+**Roles** tab (also **AI > Roles...**) has the role table and its own **Save**; the **Assets** tab has two sections and one
+**Save** button:
 
 * **Asset generation.** One row per kind of asset (Image, Sound, Music, Voice, 3D model): the provider that makes it (only
   providers that can make that kind are listed, and **None (made procedurally)** leaves the kind to the offline commands), the

@@ -15,7 +15,19 @@ Assets
 
 AI panel
 
-- **AI settings...** (next to **Roles...**, and **File > AI Settings...**) is a new window with two sections. **Asset
+- A top-level **AI** menu (File, Edit, View, AI, Help) holds **AI Settings...** (moved out of the File menu; the panel's
+  button is gone) and **Roles...**, which opens the same window on its **Roles** tab. The Roles window is now that
+  tab (same table and Save, plus **Revert**); the current roles are in the tooltip of **AI > Roles...**. The panel's
+  Roles... and AI settings... buttons are gone.
+- What is global sits above the chat tabs of the AI Assistant: the "No AI provider is configured" box, the config
+  error, the review row and the provider's plan windows (Session, Week). Context, tokens and cost stay under the tabs,
+  with the chat.
+- The cost reads **API cost est.** and says it is what the same tokens would cost on the pay-per-token API; with a
+  Claude Code / Codex sign-in the line adds "(not billed on a subscription)": nothing is charged on top of the plan.
+- **Export Game** is an item of the menu bar (the toolbar's Export button is gone; File > Export Game... stays).
+- The Engine Feedback panel keeps its size with a long entry: only the entries table and the text of the selected entry
+  scroll, no second scrollbar and no growing area.
+- **AI Settings...** is a new window with two sections. **Asset
   generation** chooses which provider makes each kind of asset (image, sound, music, voice, 3D model), its model and voice,
   and an API key (stored in your `ai.json`, which is written readable only by you; an environment variable is still
   preferred), with a status per row. Before, the only way was to write the `assets` section of `ai.json` by hand.
@@ -29,7 +41,7 @@ AI panel
 - Each role has an **Enabled** checkbox (`roles.<role>.enabled` in `ai.json`, default on). A role that is off is not used:
   the orchestrator does that work itself and its prompt says so; the Art critic and the Reviewer still run from the
   review buttons, on the orchestrator's model. The orchestrator cannot be turned off.
-- The roles line next to **Roles...** is gone (hover **Roles...** to see the current roles); the review buttons and the
+- The roles line is gone (hover **AI > Roles...** to see the current roles); the review buttons and the
   **Reviewers** count and focus moved up next to it, so the transcript gets two more lines.
 - **Art critique** and **Game review** ask first: a dialog shows what runs, how many reviewers, the role's model and the
   focus, and **Start** runs it. Before, a click started the reviewers (and their token cost) at once.
