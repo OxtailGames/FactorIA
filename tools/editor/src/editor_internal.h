@@ -164,7 +164,11 @@ public:
 
     // ---------------------------------------------------------------- project / scene
     bool open_project(const std::string& dir);      // deferred to the next frame start
-    void save_recent_projects();                    // ~/.factoria/editor_recent.json (not in the autotest)
+    // ~/.factoria/editor_recent.json (recent_projects.h); never read or written in the autotest.
+    std::string recent_projects_file() const;
+    void load_recent_projects();                    // once, when the editor starts: recentProjects_ = the ones that exist
+    void remember_recent_project(const std::string& dir);  // opened: first in the file, merged with what it holds
+    void forget_recent_project(const std::string& dir);    // deleted from disk: out of the file
     bool boot(const std::string& dir);              // immediate (tears down and rebuilds graphics)
     bool has_project() const { return engine_ != nullptr; }
     World& world() { return engine_->world(); }

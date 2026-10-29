@@ -11,6 +11,7 @@
 
 #include "app_icon.h"
 #include "autotest_sections.h"
+#include "recent_projects.h"
 #include "editor_internal.h"
 #include "fa/core/build_info.h"
 #include "fa/core/fs.h"
@@ -229,6 +230,7 @@ int Editor::run() {
     g_editor = this;
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
+    load_recent_projects();  // before any project opens, so opening one never overwrites the history
     atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
     if (autotest_ && !atWelcome_)  // FA_EDITOR_AUTOTEST_SECTIONS=K,M: only those sections (checked before a window opens)
         if (const char* sections = std::getenv("FA_EDITOR_AUTOTEST_SECTIONS"); sections && *sections) {
@@ -429,14 +431,27 @@ void Editor::on_cleanup() {
         if (auto r = start_editor_process(projectDir_); !r) FA_WARN("editor", "restart after the update: {}", r.error().to_string());
 }
 
-void Editor::save_recent_projects() {
+std::string Editor::recent_projects_file() const {
     const std::string h = home_dir();
-    if (autotest_ || h.empty()) return;
-    Json j = Json::array();
-    for (auto& r : recentProjects_) j.push_back(r);
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(h) / ".factoria", ec);
-    (void)save_json_file((std::filesystem::path(h) / ".factoria" / "editor_recent.json").string(), j);
+    return h.empty() ? std::string() : (std::filesystem::path(h) / ".factoria" / "editor_recent.json").string();
+}
+
+void Editor::load_recent_projects() {
+    if (autotest_) return;
+    recentProjects_ = existing_recent_projects(read_recent_projects(recent_projects_file()));
+}
+
+void Editor::remember_recent_project(const std::string& dir) {
+    if (autotest_ || recent_projects_file().empty()) return;
+    recentProjects_ = existing_recent_projects(fa::editor::remember_recent_project(recent_projects_file(), dir));
+}
+
+void Editor::forget_recent_project(const std::string& dir) {
+    if (autotest_ || recent_projects_file().empty()) {
+        std::erase(recentProjects_, normalize_project_path(dir));
+        return;
+    }
+    recentProjects_ = existing_recent_projects(fa::editor::forget_recent_project(recent_projects_file(), dir));
 }
 
 bool Editor::open_project(const std::string& dir) {
@@ -548,10 +563,7 @@ bool Editor::boot(const std::string& dirIn) {
         engine_->set_paused(true);
         install_command_overrides();
         // Remember the project.
-        recentProjects_.erase(std::remove(recentProjects_.begin(), recentProjects_.end(), projectDir_), recentProjects_.end());
-        recentProjects_.insert(recentProjects_.begin(), projectDir_);
-        if (recentProjects_.size() > 8) recentProjects_.resize(8);
-        save_recent_projects();
+        remember_recent_project(projectDir_);
         set_window_title(editor_window_title(FA_ENGINE_VERSION, projectName_));
         FA_INFO("editor", "opened project '{}' ({})", projectName_, projectDir_);
         if (!aiDetected_.load() && !aiDetecting_.load()) ai_refresh_providers();
