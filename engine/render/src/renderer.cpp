@@ -92,6 +92,7 @@ struct Renderer::Impl {
     GpuTimer gpuTimer;
     std::unique_ptr<Assets> assets;
     std::unique_ptr<Fonts> fonts;
+    GradientRamps ramps;     // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
     float textScale = 1.0f;  // Renderer::set_text_scale
     float uiScale = 1.0f;    // Renderer::set_ui_scale
 
@@ -119,6 +120,8 @@ struct Renderer::Impl {
     bool warnedCameras = false;       // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;      // the "more Light2D in view than the budget" warning, once per scene
     bool warnedShadows2d = false;     // the "more shadow casters than the budget" warning, once per scene
+    bool warnedSpriteMesh = false;    // the "too many mesh cells" warning, once per scene
+    bool warnedGradientStops = false; // the "malformed gradientStops" warning, once per scene
     std::string lights2dScene;        // the scene path warnedLights2d and warnedShadows2d belong to
     // The 2D light buffer (light.glsl): the point lights of the frame added up, read by the lit visuals. Made when a frame
     // needs it, at lightScale of the target's size; kept while the size and the format stay.
@@ -764,6 +767,7 @@ void Renderer::shutdown() {
     if (im.initialized) {
         clear_particles();
         im.fonts.reset();
+        im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();
         im.destroy_light_resources();
@@ -839,7 +843,9 @@ void Renderer::clear_asset_cache() {
     impl_->fonts->clear();
     impl_->assets->clear();
 }
-std::uint64_t Renderer::texture_bytes() const { return impl_ && impl_->assets ? impl_->assets->texture_bytes() : 0; }
+std::uint64_t Renderer::texture_bytes() const {
+    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() : 0;
+}
 
 bool Renderer::gpu_timing_supported(std::string* reason) const {
     if (!impl_) {
@@ -1031,10 +1037,13 @@ void Renderer::Impl::render(World& world, float dt) {
 
     lastCams = collect_cameras(world);
     ++shadowCache.tick;  // one per drawn frame, not per camera: every camera of this frame keeps the rows it reads
+    ramps.begin_frame();
     if (world.scene_path() != lights2dScene) {
         lights2dScene = world.scene_path();
         warnedLights2d = false;
         warnedShadows2d = false;
+        warnedSpriteMesh = false;
+        warnedGradientStops = false;
         warnedCameras = false;
     }
 
@@ -1068,7 +1077,10 @@ void Renderer::Impl::render(World& world, float dt) {
         fr.renderScale = renderScale;
         fr.warnedLights2d = &warnedLights2d;
         fr.warnedShadows2d = &warnedShadows2d;
+        fr.warnedSpriteMesh = &warnedSpriteMesh;
+        fr.warnedGradientStops = &warnedGradientStops;
         fr.shadowCache = &shadowCache;
+        fr.ramps = &ramps;
         fr.viewFlipV = gpu.is_gl();
         fr.viewImage = [this](std::uint64_t key, int w, int h) { return view_image(key, w, h); };
     };
@@ -1115,6 +1127,7 @@ void Renderer::Impl::render(World& world, float dt) {
     }
     // After every gather: the glyph atlas may be remade by a sync, which no job of this frame has recorded a draw with yet.
     fonts->sync();
+    ramps.sync();
     stats.glyphAtlasSize = fonts->atlas_size();
     stats.glyphAtlasResets = int(fonts->atlas_epoch());
     // The screen-space job of a split frame is dropped when it has nothing to draw (a pass less).

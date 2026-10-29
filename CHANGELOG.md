@@ -27,6 +27,26 @@ Assets
   deterministic painterly post-process (wobbling edges, pooled pigment, granulation, a pen line, paper tooth) for
   storybook art without filters or hundreds of extra shapes in the SVG.
 
+2D rendering
+
+- `Shape2D.gradientStops` and `gradientEase`: a rectangle or circle gradient (linear or radial) can have up to 8 colour
+  stops, `[[0, "#ff0000"], [0.5, [0, 1, 0, 0.5]], [1, "#0000ff"]]`, and an easing of its position (`linear`, `smoothstep`,
+  `quadIn` ... `circInOut`, the names of the script tween easings), for sky bands, glows that fade softly and shadows without
+  a visible edge. `color` / `color2` / `gradientAngle` work as before (no stops and `linear` = the old two-colour blend).
+  The stops are baked into one row of a shared 256 x 256 ramp texture (up to 256 different gradients at once, the least
+  recently used row is reused), so shapes with stops still batch together, the vertex stays 48 bytes and a gradient costs the
+  same as the two-colour one. A malformed stop is skipped with one warning per scene.
+- New `Tint` component: a colour and opacity multiplied into the entity and everything below it in the hierarchy, to fade or
+  colour a group at once (a day/night wash, a hit flash, a menu fading in). It covers `Sprite`, `Shape2D` (gradient stops
+  too), `Text` (rich-text colours and pictures too), `Tilemap`, `ParticleEmitter` and the screen-space UI widgets drawn by the
+  renderer; not 3D meshes, lights, debug draw or the camera. Nested tints multiply. A scene with no `Tint` does no extra
+  work: the parent walk happens only when at least one exists.
+- `Sprite.skew` (degrees `[x, y]`, about the pivot, clamped to +-80) slants a sprite: an italic, a sign in the wind, a page in
+  perspective. A sprite is deformable with `meshColumns` x `meshRows` (a grid of cells, at most 128 per side and 4096 cells)
+  and `vertexOffsets` (a flat `[dx, dy, ...]` array, top row first, +y up; assign the whole array from a script each frame):
+  a bent page, a flag or cloth is ONE entity and still one draw call. A deformable sprite ignores `slice`; `entity.bounds()`
+  and editor picking follow the skew and the moved vertices.
+
 AI panel
 
 - A top-level **AI** menu (File, Edit, View, AI, Help) holds **AI Settings...** (moved out of the File menu; the panel's

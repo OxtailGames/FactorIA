@@ -76,6 +76,20 @@ Draws a textured (or solid color) quad. Use `region` to pick a frame from a spri
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in texture pixels [left, top, right, bottom], measured inside `region` (or the whole texture). With a border set the four corners are drawn at their texture size (1 texture pixel = 1 world unit), the edges stretch along one axis and the centre along both, so one small frame gives a panel, bar or platform of any `size`. [0, 0, 0, 0] (default) stretches the whole region. Borders that do not fit in `size` shrink together. Works with atlas-packed textures, flipX / flipY and a lit sprite. Screen-space UI panels use the same slicing through Panel.texture and Panel.slice. (since 0.2.0) |
 | `lit` | bool | `false` | World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. How many lights shade a frame: see Light2D. (since 0.2.0) |
 | `normalMap` | asset (texture) | `""` | Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true. (since 0.2.0) |
+| `skew` | vec2 | `[0.0,0.0]` | Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and a screen-space sprite; it also shears the picking box of the editor and the entity's bounds. (not released yet, on main after 0.3.0) |
+| `meshColumns` | int | `0` | Makes the sprite deformable: it is drawn as a grid of meshColumns x meshRows cells (so (meshColumns + 1) x (meshRows + 1) vertices) that textures `region` evenly, and `vertexOffsets` moves the vertices. Needs meshRows > 0 too. 0 (default) = a plain quad. A side above 128 is clamped to 128; a grid of more than 4096 cells (columns x rows) is drawn as a plain quad and a warning is logged once per scene. A bent page, a flag or cloth is ONE entity with e.g. 16 columns x 1 row or 8 x 8. A deformable sprite ignores `slice` (9-slice). It costs one quad per cell, still in the sprite's batch: draw calls do not grow. Range 0.0..128.0. (not released yet, on main after 0.3.0) |
+| `meshRows` | int | `0` | Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad. Range 0.0..128.0. (not released yet, on main after 0.3.0) |
+| `vertexOffsets` | json | `[]` | Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter array leaves the vertices it does not name in place; extra numbers are ignored; a value that is not a number counts as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices. (not released yet, on main after 0.3.0) |
+
+### Tint
+
+Not released yet (on main after 0.3.0).
+
+Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. Put it on the root of a group to fade it out (color [1, 1, 1, 0.5]), turn it red (a damage flash), or darken a whole room, without touching each visual. The tints of an entity and all its ancestors multiply together, so nested groups compose; alpha is multiplied too (a 0.5 inside a 0.5 shows at 0.25), and a visual whose resulting opacity is 0 is not drawn. It multiplies the colours the visual already has (Sprite.color, Shape2D.color and color2 and every gradient stop, Text.color, Tilemap.color, a particle's own colour over its life, Panel.color) and does not affect 3D MeshRenderer, lights, the debug draw or the camera. Entities without a Tint ancestor cost nothing extra: the renderer only walks the parents when at least one Tint exists in the scene.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `color` | color | `[1.0,1.0,1.0,1.0]` | RGBA multiplied into the colour of the visuals of this entity and its descendants. [1, 1, 1, 1] (default) changes nothing. Alpha is a group opacity: [1, 1, 1, 0.5] draws the group at half opacity (each visual is faded on its own, so overlapping visuals of the group still show through one another). Accepts [r,g,b,a], "#rrggbb" or a name. |
 
 ### Parallax
 
@@ -151,6 +165,8 @@ Untextured 2D primitive for prototypes, UI panels and debug visuals.
 | `gradient` | enum: none \\| linear \\| radial | `"none"` | rectangle and circle fill only (filled = true): none (default) = flat `color`. linear = `color` blends to `color2` along the direction gradientAngle, from the box edge to the opposite edge (paper shading, a gutter, a sky). radial = `color` at the centre blends to `color2` at the edge of the shape's box (a vignette, a light pool, a glow); outside the box's inscribed ellipse it stays color2. The blend is computed per pixel (and dithered), so it is smooth with no banding, in one entity. Alpha is blended too (premultiplied, so a transparent color2 fades color out without greying it): make color2 transparent to fade out. A gradient whose `color` is transparent still draws when `color2` is not (the vignette); the shape is skipped only when every colour it uses is fully transparent. Ignored by outlines and by the other shapes. (not released yet, on main after 0.3.0) |
 | `color2` | color | `[1.0,1.0,1.0,1.0]` | gradient only: the colour at the end of the gradient (the right/top end of a linear one, the edge of a radial one). `color` is the start. Include its alpha: [0, 0, 0, 0] fades `color` to nothing. (not released yet, on main after 0.3.0) |
 | `gradientAngle` | float | `0.0` | linear gradient only: direction in degrees, measured like a rotation (counter-clockwise, y up in world space): 0 = `color` on the left to `color2` on the right, 90 = `color` at the bottom to `color2` at the top, 270 = top to bottom. The gradient spans the shape's box exactly from corner to corner and turns with the entity. In screen space, where y is down, 90 still goes bottom to top on the screen. (not released yet, on main after 0.3.0) |
+| `gradientStops` | json | `[]` | gradient only: more than two colours. An array of [position, colour] pairs, position 0..1 along the gradient (0 = where `color` was, 1 = the far end or the edge of a radial one), colours as [r,g,b,a], "#rrggbb" or a name, e.g. [[0, "#000000cc"], [0.6, [0, 0, 0, 0.25]], [1, [0, 0, 0, 0]]] for a soft shadow that dies out slowly. Up to 8 stops (the others are ignored), sorted by position for you; before the first stop and after the last one the gradient keeps that stop's colour. Alpha blends like `color` -> `color2` (premultiplied). With stops, `color` and `color2` are not used for the fill, and the shape is skipped only when every stop is fully transparent. [] (default) = the two-colour gradient `color` -> `color2`. The colours are baked into a 256-step ramp (one row of a shared texture per distinct ramp, at most 256 ramps at once), so the cost is the same as a two-colour gradient, shapes with equal ramps still batch, and a script may change the stops every frame. An entry that is not [number, colour] is skipped with one warning. (not released yet, on main after 0.3.0) |
+| `gradientEase` | enum: linear \\| smoothstep \\| quadIn \\| quadOut \\| quadInOut \\| cubicIn \\| cubicOut \\| cubicInOut \\| quartIn \\| quartOut \\| quartInOut \\| quintIn \\| quintOut \\| quintInOut \\| sineIn \\| sineOut \\| sineInOut \\| expoIn \\| expoOut \\| expoInOut \\| circIn \\| circOut \\| circInOut | `"linear"` | gradient only: the curve the position follows before the colours are looked up, which removes the visible kink where a linear fade meets its end. The names are those of the script tween easings (docs/ANIMATION.md). linear (default) = even steps. A soft shadow or vignette that fades `color` -> a transparent `color2` looks natural with quadOut/cubicOut (fast start, long gentle tail, no edge) or smoothstep (no kink at either end); quadIn/cubicIn hold the start colour longer. It applies to the two-colour gradient and to gradientStops alike (stop positions are on the curve's input side: a stop at 0.5 is where the eased position is 0.5). The shape costs the same as a linear gradient. (not released yet, on main after 0.3.0) |
 
 ### Text
 
@@ -7809,6 +7825,41 @@ declare module "factoria" {
      * @since 0.2.0
      */
     normalMap: string;
+    /**
+     * Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and a screen-space sprite; it also shears the picking box of the editor and the entity's bounds.
+     * @since unreleased
+     */
+    get skew(): Vec2;
+    set skew(value: Vec2Like);
+    /**
+     * Makes the sprite deformable: it is drawn as a grid of meshColumns x meshRows cells (so (meshColumns + 1) x (meshRows + 1) vertices) that textures `region` evenly, and `vertexOffsets` moves the vertices. Needs meshRows > 0 too. 0 (default) = a plain quad. A side above 128 is clamped to 128; a grid of more than 4096 cells (columns x rows) is drawn as a plain quad and a warning is logged once per scene. A bent page, a flag or cloth is ONE entity with e.g. 16 columns x 1 row or 8 x 8. A deformable sprite ignores `slice` (9-slice). It costs one quad per cell, still in the sprite's batch: draw calls do not grow.
+     * @since unreleased
+     */
+    meshColumns: number;
+    /**
+     * Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad.
+     * @since unreleased
+     */
+    meshRows: number;
+    /**
+     * Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter array leaves the vertices it does not name in place; extra numbers are ignored; a value that is not a number counts as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    vertexOffsets: any;
+  }
+  /**
+   * Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. Put it on the root of a group to fade it out (color [1, 1, 1, 0.5]), turn it red (a damage flash), or darken a whole room, without touching each visual. The tints of an entity and all its ancestors multiply together, so nested groups compose; alpha is multiplied too (a 0.5 inside a 0.5 shows at 0.25), and a visual whose resulting opacity is 0 is not drawn. It multiplies the colours the visual already has (Sprite.color, Shape2D.color and color2 and every gradient stop, Text.color, Tilemap.color, a particle's own colour over its life, Panel.color) and does not affect 3D MeshRenderer, lights, the debug draw or the camera. Entities without a Tint ancestor cost nothing extra: the renderer only walks the parents when at least one Tint exists in the scene.
+   * 
+   * Category: 2D
+   * @since unreleased
+   */
+  export interface TintComponent {
+    /**
+     * RGBA multiplied into the colour of the visuals of this entity and its descendants. [1, 1, 1, 1] (default) changes nothing. Alpha is a group opacity: [1, 1, 1, 0.5] draws the group at half opacity (each visual is faded on its own, so overlapping visuals of the group still show through one another). Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since unreleased
+     */
+    get color(): Color;
+    set color(value: ColorLike);
   }
   /**
    * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
@@ -8040,6 +8091,16 @@ declare module "factoria" {
      * @since unreleased
      */
     gradientAngle: number;
+    /**
+     * gradient only: more than two colours. An array of [position, colour] pairs, position 0..1 along the gradient (0 = where `color` was, 1 = the far end or the edge of a radial one), colours as [r,g,b,a], "#rrggbb" or a name, e.g. [[0, "#000000cc"], [0.6, [0, 0, 0, 0.25]], [1, [0, 0, 0, 0]]] for a soft shadow that dies out slowly. Up to 8 stops (the others are ignored), sorted by position for you; before the first stop and after the last one the gradient keeps that stop's colour. Alpha blends like `color` -> `color2` (premultiplied). With stops, `color` and `color2` are not used for the fill, and the shape is skipped only when every stop is fully transparent. [] (default) = the two-colour gradient `color` -> `color2`. The colours are baked into a 256-step ramp (one row of a shared texture per distinct ramp, at most 256 ramps at once), so the cost is the same as a two-colour gradient, shapes with equal ramps still batch, and a script may change the stops every frame. An entry that is not [number, colour] is skipped with one warning. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    gradientStops: any;
+    /**
+     * gradient only: the curve the position follows before the colours are looked up, which removes the visible kink where a linear fade meets its end. The names are those of the script tween easings (docs/ANIMATION.md). linear (default) = even steps. A soft shadow or vignette that fades `color` -> a transparent `color2` looks natural with quadOut/cubicOut (fast start, long gentle tail, no edge) or smoothstep (no kink at either end); quadIn/cubicIn hold the start colour longer. It applies to the two-colour gradient and to gradientStops alike (stop positions are on the curve's input side: a stop at 0.5 is where the eased position is 0.5). The shape costs the same as a linear gradient.
+     * @since unreleased
+     */
+    gradientEase: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut";
   }
   /**
    * Draws a string with a TrueType font (or the built-in font). Works in world and screen space.
@@ -11145,6 +11206,7 @@ declare module "factoria" {
     Transform: TransformComponent;
     Camera: CameraComponent;
     Sprite: SpriteComponent;
+    Tint: TintComponent;
     Parallax: ParallaxComponent;
     Light2D: Light2DComponent;
     SpriteAnimator: SpriteAnimatorComponent;
@@ -11188,11 +11250,12 @@ declare module "factoria" {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia" };
-    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string };
+    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: any };
+    Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
-    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number };
+    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
