@@ -818,9 +818,20 @@ assets.bake_sheet {"path":"assets/fx/boss.png","scene":"scenes/boss.scene.json",
   same pixels on the same GPU; two different GPUs can differ by an edge pixel.
 - **Clips.** `clips` is a list of `{name, call | event, args | data, frames, fps, loop, warmup}`. Each clip starts in a
   fresh world: `call` runs that method of the entity's behaviour (`this.explode(...args)`) after the warm-up, `event` sends
-  a game event the scripts hear with `world.on`, and a clip with neither just plays. Clips follow each other in the sheet and
+  a game event the scripts hear with `world.on`, `clip` plays a clip of the entity's Animator (see "Bake by clip name" below),
+  and a clip with none of them just plays. Clips follow each other in the sheet and
   become the `clips` of its `sheet` entry (`firstFrame`, `lastFrame`, `fps`, `loop`). A method that does not exist is an
   error that names the prefab, suggests the nearest method and lists the behaviour's methods.
+- **Bake by clip name.** A character built in parts (child Sprites, Bone2D bones, IK2D; docs/ANIMATION.md) is baked from the
+  clips of its Animator, with no script: `clips: [{"name":"crawl","clip":"crawl"},{"name":"alert","clip":"alert"}]`. `clip` is a
+  key of `Animator.clips` (a `*.anim.json` clip, or a glTF animation when the entity has a `model`). The clip plays from time 0
+  with no cross-fade and the state machine is switched off, on the fixed clock, so the same clip gives the same frames every
+  time. `frames` is the clip's duration times `fps`, rounded, when you do not give it (a clip that does not loop gets one more, so
+  its last pose is shown; a looping clip ends one step short of its start), and `loop` is the clip's
+  own when you do not give it; `fps` is the clip's `fps` or the command's. `clip` cannot be combined with `call` or `event`.
+  An unknown clip is an error that lists the entity's clips with "did you mean"; an entity with no Animator says what to
+  add. The recipe in the provenance keeps the `clips` as given, so `assets.regenerate` bakes the sheet again when a clip,
+  a part or the prefab changes. Sky Hopper's crawler is made this way (`assets/crawler_sheet.png`).
 - **Framing.** The scale is pixels per world unit (`scale`, default 1). The cell is the box that holds everything drawn in
   ANY frame, plus `margin` pixels (default 2), so a burst that grows is never cut, and the entity's origin is the same
   pixel in every frame: that pixel is the sheet's `pivot` (`[x, y]` from the TOP-LEFT of the frame). Give `pivot` to choose

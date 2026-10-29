@@ -18,7 +18,11 @@ factoria test
 - `levels/level1.json`, `level2.json`: the ASCII map of each hand-made level, the source of truth of its tiles,
   coins, crawlers, player and flag. `levels/generator_base.scene.json`: what a level has besides the map (settings,
   camera, `level` script, HUD).
-- `prefabs/`: `coin`, `enemy` (crawler), `player`, `goal` (flag). A map spawns them.
+- `prefabs/`: `coin`, `enemy` (crawler), `player`, `goal` (flag). A map spawns them. The player is built in parts
+  (child Sprites on a `rig`, Bone2D bones, a SpriteSkin scarf, two IK2D legs) and animated by `anim/hero_*.anim.json`
+  through an Animator state machine; `crawler_rig` is the crawler built in parts, baked into `assets/crawler_sheet.png`
+  by `assets.bake_sheet` (recipe in `assets.json`; `assets.regenerate` redraws it). The part art is `assets/src/svg`
+  (SVG) -> `assets/src/parts` -> `assets/parts_atlas.png`. See docs/ANIMATION.md, "Example: a character built in parts".
 - `scripts/`: `player.js` (run/jump/collect/stomp/lives), `enemy.js` (patrol), `goal.js`, `level.js`,
   `follow_camera.js`, `hud.js`, `menu.js`, `game_state.js` (state shared between scenes).
 - `tools/generate_level.js`: project tool `project.generate_level`.

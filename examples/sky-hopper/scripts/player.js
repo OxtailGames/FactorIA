@@ -1,7 +1,11 @@
 // @ts-check
 // Platformer hero: run, variable-height jump with coyote time + jump buffering,
 // stomp enemies, collect coins (particle burst + sound), lose a life on side contact.
-import { Behaviour, input, audio, scene, world, vec2 } from "factoria";
+//
+// The hero is built in parts (prefabs/player.prefab.json): child Sprites on a rig, an Animator that plays the
+// idle / walk / jump clips of anim/ through a state machine, and two IK2D legs. This script only feeds the animation:
+// the state machine parameters, the mirror when it turns, and the ground under each foot (feet()).
+import { Behaviour, input, audio, scene, world, physics, vec2 } from "factoria";
 import { state } from "scripts/game_state.js";
 
 export default class Player extends Behaviour {
@@ -14,15 +18,69 @@ export default class Player extends Behaviour {
   invulnTime = 1.5;
   /** Falling below this y costs a life (set by scenes/level.js). */
   killY = -200;
+  /** Height of an ankle above the sole, and where the ankle sits (from the hero's centre) with the sole on the floor. */
+  static ankle = 2.5;
+  static ankleRest = -20.5;
 
   onStart() {
     this.body = this.entity.get("RigidBody2D");
-    this.sprite = this.entity.get("Sprite");
+    this.tint = this.entity.get("Tint");  // blinks the whole character while it is invulnerable
+    this.anim = this.entity.animator;
+    this.rig = this.part("rig");
+    // Each leg: `goal` is a marker the clips move (where the foot would go), `target` is what the IK2D of the leg reaches.
+    this.legs = ["f", "b"].map((s) => ({ goal: this.part("gait_" + s), target: this.part("ik_" + s) }));
+    this.footsteps = 0;
+    this.anim.on("footstep", () => { this.footsteps += 1; });
     this.coyote = 0;
     this.buffer = 0;
     this.invuln = 0;
     this.dead = false;
     this.spawn = vec2(this.entity.position.x, this.entity.position.y);
+  }
+
+  /** A descendant of the character by name (the parts have no ids of their own in the scene). */
+  part(name) {
+    const find = (e) => {
+      for (const c of e.children) {
+        if (c.name === name) return c;
+        const d = find(c);
+        if (d) return d;
+      }
+      return null;
+    };
+    const e = find(this.entity);
+    if (!e) throw new Error(`Player has no part named '${name}'; see prefabs/player.prefab.json`);
+    return e;
+  }
+
+  /** Animation inputs and feet, once per fixed step: the Animator and the IK2D solve right after it. */
+  onFixedUpdate(dt) {
+    if (this.dead) return;
+    const grounded = this.entity.isGrounded();
+    const speed = Math.abs(this.body.velocity.x);
+    this.anim.set("speed", speed);
+    this.anim.set("grounded", grounded);
+    this.anim.speed = this.anim.state === "walk" ? Math.min(1.5, Math.max(0.6, speed / 200)) : 1;
+    this.feet(grounded);
+  }
+
+  /**
+   * Puts each IK target on the ground under its marker. The walk clip moves the markers (a stride along x, a lift while
+   * the foot swings); a ray from the hero's centre finds the floor under the marker, so on a step or a ledge the planted
+   * foot rests on the floor instead of floating or sinking. In the air the marker alone decides (the legs tuck).
+   */
+  feet(grounded) {
+    const at = this.entity.position;
+    for (const leg of this.legs) {
+      const m = leg.goal.worldPosition;
+      let y = m.y;
+      if (grounded) {
+        const hit = physics.raycast(vec2(m.x, at.y), vec2(m.x, at.y - 60), { ignore: this.entity });
+        // ankleRest: where the marker sits with the sole on the floor; anything above it is the lift of a step
+        if (hit) y = hit.point.y + Player.ankle + Math.max(0, m.y - (at.y + Player.ankleRest));
+      }
+      leg.target.worldPosition = vec2(m.x, y);
+    }
   }
 
   onUpdate(dt) {
@@ -33,7 +91,7 @@ export default class Player extends Behaviour {
     const target = dir * this.speed;
     const a = this.accel * dt;
     v.x = v.x < target ? Math.min(target, v.x + a) : Math.max(target, v.x - a);
-    if (dir !== 0) this.sprite.flipX = dir < 0;
+    if (dir !== 0) this.rig.transform.scale.x = dir < 0 ? -1 : 1;  // mirrors every part (the IK keeps the knees forward)
 
     const grounded = this.entity.isGrounded();
     this.coyote = grounded ? this.coyoteTime : this.coyote - dt;
@@ -49,8 +107,8 @@ export default class Player extends Behaviour {
 
     if (this.invuln > 0) {
       this.invuln -= dt;
-      this.sprite.color.a = Math.floor(this.invuln * 12) % 2 === 0 ? 0.35 : 1;
-      if (this.invuln <= 0) this.sprite.color.a = 1;
+      this.tint.color.a = Math.floor(this.invuln * 12) % 2 === 0 ? 0.35 : 1;
+      if (this.invuln <= 0) this.tint.color.a = 1;
     }
     if (this.entity.position.y < this.killY) this.hurt(true);
   }

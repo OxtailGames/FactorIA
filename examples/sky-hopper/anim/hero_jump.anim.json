@@ -1,0 +1,200 @@
+{
+  "format": "factoria.anim/1",
+  "doc": "Leaving the ground: legs tuck, arms go up, the scarf streams down. It holds the last pose until the feet touch.",
+  "duration": 0.5,
+  "loop": false,
+  "tracks": [
+    {
+      "path": "rig/gait_f",
+      "component": "Transform",
+      "field": "position.x",
+      "keys": [
+        {
+          "t": 0,
+          "value": 3,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": 8
+        }
+      ]
+    },
+    {
+      "path": "rig/gait_f",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": -20.5,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": -13.5
+        }
+      ]
+    },
+    {
+      "path": "rig/gait_b",
+      "component": "Transform",
+      "field": "position.x",
+      "keys": [
+        {
+          "t": 0,
+          "value": -3,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": -6
+        }
+      ]
+    },
+    {
+      "path": "rig/gait_b",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": -20.5,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": -16.5
+        }
+      ]
+    },
+    {
+      "path": "rig/body",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": 3,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": 4
+        }
+      ]
+    },
+    {
+      "path": "rig/body",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": -6
+        }
+      ]
+    },
+    {
+      "path": "rig/body",
+      "component": "Transform",
+      "field": "scale.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": 1,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": 1.07
+        }
+      ]
+    },
+    {
+      "path": "rig/body/head",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": 6
+        }
+      ]
+    },
+    {
+      "path": "rig/body/arm_f",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": 150
+        }
+      ]
+    },
+    {
+      "path": "rig/body/arm_b",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": 120
+        }
+      ]
+    },
+    {
+      "path": "rig/body/scarf/s1",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": -18
+        }
+      ]
+    },
+    {
+      "path": "rig/body/scarf/s1/s2",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.25,
+          "value": -26
+        }
+      ]
+    }
+  ]
+}

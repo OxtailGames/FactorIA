@@ -40,6 +40,18 @@ Keyframed 2D clips
   Selection overlay draws the bones of the selected entity. docs/ANIMATION.md, section "Bones and IK".
 - A new fixture, `tools/cli/tests/fixtures/skinned-sprites` (50 skinned sprites, 10 with IK, one draw call), has a perf budget.
 
+Baking clips, and a character built in parts
+
+- `assets.bake_sheet` clips take `clip`: `{"name":"walk","clip":"walk"}` plays that clip of the entity's Animator (a
+  `*.anim.json` clip or a glTF animation) from time 0, with no cross-fade and the state machine off, and bakes it. `frames`
+  defaults to the clip's duration times `fps` and `loop` to the clip's own. An unknown clip lists the clips with "did you
+  mean", an entity with no Animator says what to add, and `clip` with `call` or `event` is rejected. The recipe in the
+  provenance regenerates the sheet. docs/ASSETS.md, "Bake by clip name".
+- Sky Hopper's hero is built in parts (child Sprites with pivots at the joints, Bone2D legs with IK2D feet placed by a raycast,
+  a skinned scarf, idle/walk/jump `.anim.json` clips and an Animator state machine) and its crawler is baked from a rig into
+  `assets/crawler_sheet.png`; docs/ANIMATION.md, "Example: a character built in parts (Sky Hopper)". Its perf budget grows from
+  17 to 36 entities (the hero's 19 parts; 6 draw calls as before, the parts share one atlas).
+
 ## 0.6.0
 
 FactorIA 0.6.0 draws animations with code and bakes them into sprite sheets: a JavaScript module or an animated SVG
