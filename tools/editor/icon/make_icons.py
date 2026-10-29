@@ -25,6 +25,7 @@ APPIMAGE_PNG = HERE.parent.parent.parent / "platforms" / "linux" / "factoria.png
 WINDOW_SIZES = [16, 24, 32, 48, 64, 128, 256]
 SMALL_SIZES = {16, 24}       # drawn from the simplified source
 PAD = 96                     # background added around the artwork, so a crop may reach past its edges
+TILE_TOP, TILE_BOTTOM = (34, 50, 104), (12, 18, 48)  # the navy the tile background is lifted to (see lift)
 SS = 4                       # supersampling of the rounded-square mask
 
 
@@ -51,6 +52,17 @@ def content_box(art):
     return art.convert("L").point(lambda v: 255 if v > 40 else 0).getbbox()
 
 
+def lift(img, top, bottom):
+    """Screen-blends a vertical gradient from `top` to `bottom` over `img`: the near-black background turns navy, so the
+    tile reads as a whole tile on a dark Dock or taskbar, while the white and the glows stay as they are."""
+    w, h = img.size
+    grad = Image.new("RGB", (1, h))
+    for y in range(h):
+        t = y / (h - 1)
+        grad.putpixel((0, y), tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)))
+    return ImageChops.screen(img, grad.resize((w, h)))
+
+
 def tile(art, inset, radius, fill):
     """The artwork in a rounded square of 1024 with `inset` px of margin and a thin blue rim, so the dark tile still
     stands out on a dark Dock or taskbar. The drawing is centred and its longer side takes `fill` of the tile."""
@@ -60,11 +72,11 @@ def tile(art, inset, radius, fill):
     cx, cy = (x0 + x1) / 2 + PAD, (y0 + y1) / 2 + PAD
     box = tuple(round(v) for v in (cx - crop / 2, cy - crop / 2, cx + crop / 2, cy + crop / 2))
     canvas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
-    canvas.paste(padded(art).crop(box).resize((side, side), Image.LANCZOS), (inset, inset))
+    canvas.paste(lift(padded(art).crop(box).resize((side, side), Image.LANCZOS), TILE_TOP, TILE_BOTTOM), (inset, inset))
     mask = rounded_mask(1024, inset, radius)
     rim = ImageChops.subtract(mask, rounded_mask(1024, inset + 5, radius - 5))
     rim_layer = Image.new("RGBA", (1024, 1024), (90, 130, 255, 0))
-    rim_layer.putalpha(rim.point(lambda v: v * 70 // 255))
+    rim_layer.putalpha(rim.point(lambda v: v * 110 // 255))
     canvas = Image.alpha_composite(canvas, rim_layer)
     canvas.putalpha(ImageChops.multiply(canvas.getchannel("A"), mask))
     return canvas
@@ -74,7 +86,7 @@ def main():
     art = Image.open(HERE / "src" / "factoria_art.png").convert("RGB")
     small = Image.open(HERE / "src" / "factoria_small.png").convert("RGBA")
     square = tile(art, 16, 200, 0.74)  # Windows and Linux: nearly full bleed, the drawing large for small sizes
-    mac = tile(art, 100, 185, 0.64)    # macOS icon grid: an 824 px tile inside 1024, with room around the drawing
+    mac = tile(art, 100, 185, 0.70)    # macOS icon grid: an 824 px tile inside 1024, with room around the drawing
 
     images = []
     for size in WINDOW_SIZES:
