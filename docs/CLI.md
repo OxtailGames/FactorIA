@@ -80,7 +80,7 @@ Linux: `--format appimage` also builds `<slug>-x86_64.AppImage`, the game as one
 notarizes the exported app ([EXPORTING.md](EXPORTING.md#signing-and-notarizing-for-macos)), and
 `factoria call project.new_ci_workflow` writes a GitHub Actions workflow for the game ([EXPORTING.md](EXPORTING.md#ci-for-your-game)).
 Prints the output folder, the built file, warnings and the next steps. The command `project.export` (`platform`, `format`,
-`out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export button for people; see
+`out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export Game item in the menu bar for people; see
 [EXPORTING.md](EXPORTING.md).
 
 Uploading a build to a store has no flags of its own: the commands `publish.steam`, `publish.itch`, `publish.epic`,

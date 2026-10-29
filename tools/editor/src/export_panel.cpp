@@ -1,4 +1,4 @@
-// The Export window (File > Export Game..., toolbar Export): the output folder, one button per platform with what an
+// The Export window (File > Export Game..., Export Game in the menu bar): the output folder, one button per platform with what an
 // export there would do or why it cannot run, and the last export's report (output folder, warnings, next steps).
 // The logic is export_job.h (fa::plan_export, fa::export_project on a worker thread); this file only draws it.
 #include <algorithm>

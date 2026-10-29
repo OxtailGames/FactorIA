@@ -502,7 +502,7 @@ also plays directly, and streams like any other long sound.
 `assets.import` brings a file made elsewhere into the project and records where it came from. It reads files on this
 machine (an absolute path, or a path relative to the project); to use something from the web, download it first and pass
 the page it came from as `sourceUrl` so the credits keep it. The websites the AI looks at when it needs such a file
-(and whether it may look anywhere else) are the user's choice: **AI settings...** in the editor, `assetSources` in `ai.json`
+(and whether it may look anywhere else) are the user's choice: **AI > AI Settings...** in the editor, `assetSources` in `ai.json`
 ([AI_PROVIDERS.md](AI_PROVIDERS.md), "Asset sources").
 
 ```

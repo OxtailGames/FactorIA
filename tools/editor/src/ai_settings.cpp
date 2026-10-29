@@ -52,7 +52,9 @@ ImVec4 text_color(bool ok) { return ok ? kStatusReady : kStatusWarn; }
 
 }  // namespace
 
-void Editor::open_ai_settings() {
+void Editor::open_ai_settings(bool rolesTab) {
+    if (!showAiSettings_) aiRolesOpen_ = true;  // a window opened now edits the roles as they are in the file
+    if (rolesTab) aiSettingsTab_ = 1;
     showAiSettings_ = true;
     aiSettingsFocus_ = true;
     aiSettings_.loaded = false;
@@ -197,16 +199,46 @@ void Editor::draw_ai_settings_window() {
         return it == d.status.end() ? nullptr : &*it;
     };
 
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Saved in %s, your own file outside any project. Only the asset parts are rewritten: your providers, roles and limits stay.",
-                       d.path.c_str());
-    ImGui::PopStyleColor();
     if (!cfgErr.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
         ImGui::TextWrapped("ai.json could not be read: %s", cfgErr.c_str());
         ImGui::PopStyleColor();
         ImGui::TextWrapped("Fix the file first (or delete it); saving here would not be able to keep what is in it.");
     }
+
+    if (!ImGui::BeginTabBar("##aisettingstabs")) {
+        ImGui::PopTextWrapPos();
+        ImGui::End();
+        return;
+    }
+    const int wantTab = aiSettingsTab_;
+    aiSettingsTab_ = 0;
+    // ------------------------------------------------------------------------------------------------ Roles
+    const bool rolesShown = ImGui::BeginTabItem("Roles", nullptr, wantTab == 1 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    at_track("aiset:tab:roles");
+    ImGui::SetItemTooltip("Which provider and model plays each role (orchestrator, worker, artist, critics...). Takes effect with the next message.");
+    if (rolesShown) {
+        std::vector<ai::ProviderStatus> liveStatus;  // the panel's, refreshed by Re-detect (d.status is a snapshot)
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            liveStatus = aiStatus_;
+        }
+        draw_ai_roles_tab(cfg, liveStatus);
+        ImGui::EndTabItem();
+    }
+    const bool assetsShown = ImGui::BeginTabItem("Assets", nullptr, wantTab == 2 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    at_track("aiset:tab:assets");
+    ImGui::SetItemTooltip("Where the AI's images, sounds and 3D models are made (provider, model, API key) and the websites it looks at for assets.");
+    if (!assetsShown) {
+        ImGui::EndTabBar();
+        ImGui::PopTextWrapPos();
+        ImGui::End();
+        return;
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Saved in %s, your own file outside any project. Only the asset parts are rewritten: your providers, roles and limits stay.",
+                       d.path.c_str());
+    ImGui::PopStyleColor();
 
     const float footerH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f + ImGui::GetTextLineHeightWithSpacing() * 2.0f;
     ImGui::BeginChild("##aisettingsbody", ImVec2(0, -footerH));
@@ -496,6 +528,8 @@ void Editor::draw_ai_settings_window() {
         d = AiSettingsDraft{};
     }
     at_track("aiset:close");
+    ImGui::EndTabItem();
+    ImGui::EndTabBar();
     ImGui::PopTextWrapPos();
     ImGui::End();
 }

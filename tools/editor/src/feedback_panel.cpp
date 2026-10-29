@@ -98,7 +98,9 @@ void Editor::draw_feedback_panel() {
         ImGui::SetItemTooltip("Move the entries that are not open to ENGINE_FEEDBACK.archive.json");
     }
     Json entries = list_feedback(feedbackDoc_, filter);
-    ImGui::BeginChild("##fbbody", ImVec2(0, 0), ImGuiChildFlags_None);
+    // The panel keeps its size whatever an entry says: this area never scrolls or grows. Only the entries table and the
+    // detail of the selected entry (their own children) scroll; the Add entry form sits in a third child at the bottom.
+    ImGui::BeginChild("##fbbody", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     const float tableH = std::min(180.0f, ImGui::GetTextLineHeightWithSpacing() * float(entries.size() + 2) + 8);
     if (ImGui::BeginTable("##fbt", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, std::max(60.0f, tableH)))) {
@@ -123,10 +125,14 @@ void Editor::draw_feedback_panel() {
         }
         ImGui::EndTable();
     }
-    // Detail of the selected entry.
+    // Detail of the selected entry: a child that takes what the Add entry section leaves, and scrolls by itself.
+    const float addH = fbAddOpen_ ? std::clamp(ImGui::GetContentRegionAvail().y * 0.5f, ImGui::GetFrameHeight() * 2.0f,
+                                               ImGui::GetTextLineHeightWithSpacing() * 18.0f)
+                                  : ImGui::GetFrameHeightWithSpacing();
+    ImGui::BeginChild("##fbdetail", ImVec2(0, -(addH + ImGui::GetStyle().ItemSpacing.y)), ImGuiChildFlags_Borders);
+    at_track("feedback:detail");
     for (const auto& en : entries) {
         if (en.value("id", "") != fbSelected_) continue;
-        ImGui::Separator();
         ImGui::PushTextWrapPos(0);
         ImGui::TextColored(ImVec4(0.6f, 0.8f, 1, 1), "%s  [%s]  x%d", en.value("title", "").c_str(), en.value("category", "").c_str(), en.value("occurrences", 1));
         ImGui::PopTextWrapPos();
@@ -153,9 +159,13 @@ void Editor::draw_feedback_panel() {
         ImGui::SetItemTooltip("Change the status of this entry (saved immediately)");
         break;
     }
+    ImGui::EndChild();
 
-    ImGui::Separator();
-    if (ImGui::CollapsingHeader("Add entry")) {
+    ImGui::BeginChild("##fbadd", ImVec2(0, 0), ImGuiChildFlags_None, fbAddOpen_ ? ImGuiWindowFlags_None : ImGuiWindowFlags_NoScrollbar);
+    ImGui::SetNextItemOpen(fbAddOpen_, ImGuiCond_Always);
+    fbAddOpen_ = ImGui::CollapsingHeader("Add entry");
+    at_track("feedback:add");
+    if (fbAddOpen_) {
         const auto& cats = feedback_categories();
         const auto& sevs = feedback_severities();
         ImGui::SetNextItemWidth(w3 * 1.2f);
@@ -198,6 +208,7 @@ void Editor::draw_feedback_panel() {
         ImGui::SameLine();
         ImGui::TextWrapped("%s", fbMessage_.c_str());
     }
+    ImGui::EndChild();
     ImGui::EndChild();
     ImGui::End();
 }
