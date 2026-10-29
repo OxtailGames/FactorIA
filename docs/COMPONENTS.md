@@ -1669,17 +1669,32 @@ List the project's checkpoints, newest first.
 
 Returns {checkpoints: [{id, label, created (epoch seconds), files, bytes}], limit}. Only the newest `limit` checkpoints are kept.
 
+### `checkpoint.read` (modifies state)
+
+Not released yet (on main after 0.3.0).
+
+Read one file as it was at a checkpoint (text inline; a binary as base64 or into a file) without restoring anything.
+
+Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most 262144 bytes. A binary comes back as `base64` when it is at most 262144 bytes. Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. `out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). Errors: an unknown id or a path the checkpoint does not hold fails with a "did you mean". Returns {id, path, size, binary, text | base64 | out}. Example: {"id":"20261022-153012-7","path":"scripts/player.js"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | A checkpoint id from checkpoint.list. |
+| `path` | string | yes | File to read, relative to the project folder, forward slashes: scripts/player.js. |
+| `out` | string | no | Write the file here (project-relative path) instead of returning its content; needed for files over the inline limit. |
+
 ### `checkpoint.restore` (modifies state)
 
 Since 0.2.0.
 
 Put the project's files back as they were at a checkpoint (the user's Revert); ask the user before calling it.
 
-Writes back the files that were modified or deleted since checkpoint `id` and deletes the files added since (anything the user edited by hand in those files is lost). First it saves an automatic checkpoint "Before restoring <label>" and returns its id as safetyCheckpointId: restoring that one takes this restore back. Files are written through a temp file and a rename, so a crash never leaves half a file. This does NOT reload the scene open in the editor (the editor's Revert button does). Returns {modified, added, deleted (what was done), safetyCheckpointId}. Example: {"id":"20261022-153012-7"}.
+Writes back the files that were modified or deleted since checkpoint `id` and deletes the files added since (anything the user edited by hand in those files is lost). First it saves an automatic checkpoint "Before restoring <label>" and returns its id as safetyCheckpointId: restoring that one takes this restore back. Files are written through a temp file and a rename, so a crash never leaves half a file. This does NOT reload the scene open in the editor (the editor's Revert button does). With `paths` only those files are put back as the checkpoint had them (a file the checkpoint holds is written back, a file the checkpoint does not hold is deleted) and every other file of the project stays untouched; the same safety checkpoint is made first. A path that is neither in the checkpoint nor in the project fails with a "did you mean" before anything changes; a listed file that already equals the checkpoint is left alone. Returns {modified, added, deleted (what was done), safetyCheckpointId}. Examples: {"id":"20261022-153012-7"}, {"id":"20261022-153012-7","paths":["scripts/player.js"]}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | A checkpoint id from checkpoint.list. |
+| `paths` | array | no | Restore only these files (project-relative, forward slashes); the rest of the project is not touched. |
 
 ## docs
 
@@ -3724,6 +3739,16 @@ declare module "factoria" {
      * Repeating timer.
      */
     every(seconds: number, fn: () => void): TimerHandle;
+    /**
+     * Like tween(), but owned by this behaviour: when its entity is destroyed (or the scene unloads) the tween is dropped and `await this.tween(...).finished` never resumes, so the code after it does not run and needs no alive check. Example: await this.tween(this.entity.position, { y: 3 }, { duration: 0.5 }).finished; this.entity.color = ...
+     * @since unreleased
+     */
+    tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween;
+    /**
+     * Resolves after `seconds` of scaled game time (like after()); never resolves if this entity is destroyed first or the scene unloads, so `await this.wait(1); this.entity.x = 0` needs no alive check. Example: await this.wait(0.5).
+     * @since unreleased
+     */
+    wait(seconds: number): Promise<void>;
     /**
      * Subscribe to world events for this behaviour; returns unsubscribe.
      */
@@ -7524,7 +7549,7 @@ declare module "factoria" {
   }
 
   /**
-   * A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0, identical in headless runs.
+   * A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0 and while the game is paused (game.pause: it moves only with game.step), identical in headless runs.
    * @since 0.2.0
    */
   export interface Tween {
@@ -7539,7 +7564,7 @@ declare module "factoria" {
      */
     readonly progress: number;
     /**
-     * Resolves true when it completes and false when it is cancelled (also when the scene changes). `await tween(...).finished` in async code.
+     * Resolves true when it completes and false when YOU cancel it (cancel(), cancelTweens). It stays pending forever, so the code awaiting it never resumes, when the tween is dropped: its target entity was destroyed, the Behaviour that started it with this.tween() was destroyed, or the scene was reloaded or unloaded. That makes `await tween(...).finished; entity.position = ...` safe without an alive check (a dropped tween cannot throw "entity was destroyed" into your code). Do not await it in a place that must always continue (Promise.all of several tweens); use onComplete or poll `active` there.
      * @since 0.2.0
      */
     readonly finished: Promise<boolean>;
@@ -7558,6 +7583,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     resume(): this;
+    /**
+     * Jumps to `seconds` after the tween was created (the delay counts; past the end it completes) and applies the values there at once, also while it is paused: scrub an animation to a given time to inspect it. Backwards works while the tween is active. Throws on a tween that is complete or cancelled.
+     * @since unreleased
+     */
+    seek(seconds: number): this;
     /**
      * Adds a completion callback.
      * @since 0.2.0
@@ -7608,6 +7638,33 @@ declare module "factoria" {
    * @since 0.2.0
    */
   export function tween(from: number, to: number, options: TweenOptions & { onUpdate: (value: number, tween: Tween) => void }): Tween;
+
+  /**
+   * Controls every tween at once.
+   * @since 0.2.0
+   */
+  export namespace tween {
+    /**
+     * Freezes every tween, also those started later, until tween.resumeAll(). Values stay where they are, so an agent can set a pose and inspect it without a tween overwriting it. Each tween's own pause()/resume() is independent. A scene load resets it.
+     * @since unreleased
+     */
+    function pauseAll(): void;
+    /**
+     * Undoes tween.pauseAll().
+     * @since unreleased
+     */
+    function resumeAll(): void;
+    /**
+     * true after tween.pauseAll().
+     * @since unreleased
+     */
+    const paused: boolean;
+    /**
+     * Speed of every tween on top of time.scale (default 1, 0 freezes them, 0.5 is slow motion). Must be a number >= 0, anything else throws. A scene load resets it to 1.
+     * @since unreleased
+     */
+    let timeScale: number;
+  }
 
   /**
    * Cancels every running tween, or only those whose target is `target`.

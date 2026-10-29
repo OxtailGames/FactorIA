@@ -108,8 +108,20 @@ Editor
 - The toolbar's **Select / Move / Rotate / Scale** buttons show only while an entity is selected (Q W E R still switch the
   mode at any time).
 
+Animation and scripting
+
+- `await tween(...).finished` is safe after the entity is gone: a tween whose target entity or owning behaviour was
+  destroyed, or whose scene was reloaded or unloaded, is dropped and `finished` never settles (before, it resolved
+  `false` and the code after the `await` threw "entity ... was destroyed" as an unhandled rejection). `cancel()` still
+  resolves `false`. New `this.tween(...)` and `this.wait(seconds)` on Behaviour (dropped with the entity).
+- `tween.pauseAll()`, `tween.resumeAll()`, `tween.paused`, `tween.timeScale` and `Tween.seek(seconds)` to freeze, slow or
+  scrub tweens; tweens already stand still under `game.pause` and move only with `game.step` (now documented and tested).
+
 Tooling
 
+- `checkpoint.read {id, path, out?}` returns one file as it was at a checkpoint (text inline, binary as base64, or any
+  file written to `out`), and `checkpoint.restore` takes `paths: [...]` to restore only those files (unknown paths fail
+  with a "did you mean" before anything changes).
 - `storage.list` and `storage.clear {key | all}` (MCP `storage_list`, `storage_clear`) show and delete the game's save
   keys, in memory and in `.factoria/save/storage/`, so a stale save (a menu that shows "Continue") no longer needs a
   shell `rm`. SCRIPTING.md says what `project.test` does with storage: an empty in-memory one per test file, never the save folder.

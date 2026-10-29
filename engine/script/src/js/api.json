@@ -666,6 +666,14 @@
        "doc": "Repeating timer."
       },
       {
+       "sig": "tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween",
+       "doc": "Like tween(), but owned by this behaviour: when its entity is destroyed (or the scene unloads) the tween is dropped and `await this.tween(...).finished` never resumes, so the code after it does not run and needs no alive check. Example: await this.tween(this.entity.position, { y: 3 }, { duration: 0.5 }).finished; this.entity.color = ..."
+      },
+      {
+       "sig": "wait(seconds: number): Promise<void>",
+       "doc": "Resolves after `seconds` of scaled game time (like after()); never resolves if this entity is destroyed first or the scene unloads, so `await this.wait(1); this.entity.x = 0` needs no alive check. Example: await this.wait(0.5)."
+      },
+      {
        "sig": "on(name: string, fn: (data: any, source: Entity | null) => void): () => void",
        "doc": "Subscribe to world events for this behaviour; returns unsubscribe."
       },
@@ -4223,7 +4231,7 @@
     {
      "kind": "interface",
      "name": "Tween",
-     "doc": "A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0, identical in headless runs.",
+     "doc": "A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0 and while the game is paused (game.pause: it moves only with game.step), identical in headless runs.",
      "members": [
       {
        "sig": "readonly active: boolean",
@@ -4235,7 +4243,7 @@
       },
       {
        "sig": "readonly finished: Promise<boolean>",
-       "doc": "Resolves true when it completes and false when it is cancelled (also when the scene changes). `await tween(...).finished` in async code."
+       "doc": "Resolves true when it completes and false when YOU cancel it (cancel(), cancelTweens). It stays pending forever, so the code awaiting it never resumes, when the tween is dropped: its target entity was destroyed, the Behaviour that started it with this.tween() was destroyed, or the scene was reloaded or unloaded. That makes `await tween(...).finished; entity.position = ...` safe without an alive check (a dropped tween cannot throw \"entity was destroyed\" into your code). Do not await it in a place that must always continue (Promise.all of several tweens); use onComplete or poll `active` there."
       },
       {
        "sig": "cancel(): this",
@@ -4248,6 +4256,10 @@
       {
        "sig": "resume(): this",
        "doc": "Continues after pause()."
+      },
+      {
+       "sig": "seek(seconds: number): this",
+       "doc": "Jumps to `seconds` after the tween was created (the delay counts; past the end it completes) and applies the values there at once, also while it is paused: scrub an animation to a given time to inspect it. Backwards works while the tween is active. Throws on a tween that is complete or cancelled."
       },
       {
        "sig": "onComplete(fn: (tween: Tween) => void): this",
@@ -4294,6 +4306,29 @@
      "kind": "function",
      "sig": "tween(from: number, to: number, options: TweenOptions & { onUpdate: (value: number, tween: Tween) => void }): Tween",
      "doc": "Tweens a plain number from `from` to `to`, calling options.onUpdate(value) every step (for a counter, a health bar value...)."
+    },
+    {
+     "kind": "namespace",
+     "name": "tween",
+     "doc": "Controls every tween at once.",
+     "members": [
+      {
+       "sig": "pauseAll(): void",
+       "doc": "Freezes every tween, also those started later, until tween.resumeAll(). Values stay where they are, so an agent can set a pose and inspect it without a tween overwriting it. Each tween's own pause()/resume() is independent. A scene load resets it."
+      },
+      {
+       "sig": "resumeAll(): void",
+       "doc": "Undoes tween.pauseAll()."
+      },
+      {
+       "sig": "readonly paused: boolean",
+       "doc": "true after tween.pauseAll()."
+      },
+      {
+       "sig": "timeScale: number",
+       "doc": "Speed of every tween on top of time.scale (default 1, 0 freezes them, 0.5 is slow motion). Must be a number >= 0, anything else throws. A scene load resets it to 1."
+      }
+     ]
     },
     {
      "kind": "function",
