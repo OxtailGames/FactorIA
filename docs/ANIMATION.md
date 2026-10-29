@@ -159,7 +159,8 @@ tween(0, 100, { duration: 2, onUpdate: (v) => label.text = String(Math.round(v))
 const t = tween(coin.position, { y: 2 }, { duration: 0.5, yoyo: true, repeat: Infinity, ease: "quadInOut" });
 t.cancel();                                  // values stay where they are; t.pause() / t.resume() also exist
 
-await tween(state, { open: 1 }, { duration: 1 }).finished;         // Promise<boolean>: true done, false cancelled
+await tween(state, { open: 1 }, { duration: 1 }).finished;         // Promise<boolean>: true done, false if YOU cancel it
+await this.tween(this.entity.position, { y: 3 }).finished;         // in a Behaviour: dropped if the entity dies (see below)
 tween(a, { x: 1 }).next(a, { y: 1 }).next(b, { a: 0 });             // a chain; cancelling one cancels the rest
 ```
 
@@ -168,8 +169,23 @@ backwards), `from` (start values instead of the current ones), `onStart`, `onUpd
 
 - Start values are read when the delay ends, not when `tween()` is called.
 - The target's end value is set exactly when the tween ends (even for easings that overshoot).
-- A destroyed target ends its tween quietly. `cancelTweens()` cancels all, `cancelTweens(target)` those of one target;
-  a scene change cancels all (their `finished` resolves `false`).
+- `cancelTweens()` cancels all, `cancelTweens(target)` those of one target, `tween.cancel()` one: their `finished`
+  resolves `false`, because your own code asked for it.
+- A tween is DROPPED, not cancelled, when its target entity is destroyed, when the Behaviour that started it with
+  `this.tween(...)` is destroyed, or when the scene is reloaded or unloaded. A dropped tween ends quietly and its
+  `finished` promise stays pending forever, so the code awaiting it never resumes: `await tween(e.position, {y: 3}).finished;
+  e.position.x = 0;` cannot throw `entity was destroyed` after the entity is gone, and needs no `if (e.alive)`.
+  Nothing is leaked: the pending promise and the suspended function are garbage as soon as the tween is dropped. The
+  price is that a dropped `finished` never settles either: do not `await Promise.all([...finished])` where the code after
+  it must always run; use `onComplete` or check `t.active` there. `this.wait(seconds)` is the same for a timer: a
+  Promise that resolves after `seconds` of game time and never resolves if the entity is destroyed first.
+- Freezing and inspecting: tweens run on the game clock, so `game.pause` freezes them (the engine simulates nothing) and
+  `game.step` moves them by exactly the frames you ask; `time.scale = 0` freezes them too. `tween.pauseAll()` /
+  `tween.resumeAll()` freeze every tween (also ones started later) without touching `time.scale`, so a script or an
+  agent can set a pose and look at it without a tween overwriting it; `tween.timeScale = 0.5` runs all tweens at half
+  speed (on top of `time.scale`; 0 freezes; negative throws). A scene load resets both. `t.seek(seconds)` jumps one
+  tween to a time after its creation (the delay counts), also backwards and also while paused, and applies the values
+  at once; past the end it completes. It throws on a tween that already completed or was cancelled.
 - The easings: `linear` and, for each of `quad cubic quart quint sine expo circ back elastic bounce`, the names ending in
   `In`, `Out` and `InOut` (`"quadOut"`, `"bounceOut"`). `ease.<name>` is the function `(t) => t` if you want to call it
   yourself; `ease` is also what you pass as `ease: myFunction`. `InOut` plays the In curve for the first half and its

@@ -296,7 +296,9 @@ It does not replace git: use git for long-term history.
 Checkpoints live in `.factoria/checkpoints/` (each distinct file content is stored once; the newest 30 checkpoints are kept)
 and use disk space, mostly for big assets. To clear them, delete that folder; the editor never needs it back. They are
 never exported or bundled (folders starting with `.` are skipped), and the template `.gitignore` lists `.factoria/`. The same
-engine is available as the commands `checkpoint.create`, `checkpoint.list`, `checkpoint.diff` and `checkpoint.restore`.
+engine is available as the commands `checkpoint.create`, `checkpoint.list`, `checkpoint.diff`, `checkpoint.read` and `checkpoint.restore`.
+`checkpoint.read {id, path}` returns one file as it was at a checkpoint (text inline; a binary as base64, or any file into `out`)
+without restoring anything, and `checkpoint.restore {id, paths:[...]}` puts back only the listed files, with the same safety checkpoint.
 
 ## Exporting the game
 

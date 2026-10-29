@@ -5,7 +5,7 @@
 //   stat-cache.json            path -> {size, mtime, hash}: an unchanged file is not read again
 // Every file of the project is included (assets too) except the folders the other project walks skip: folders starting
 // with '.', node_modules and a top-level build/. The newest kCheckpointLimit checkpoints are kept; objects no manifest
-// uses are deleted. Commands: checkpoint.create, checkpoint.list, checkpoint.diff, checkpoint.restore.
+// uses are deleted. Commands: checkpoint.create, checkpoint.list, checkpoint.diff, checkpoint.read, checkpoint.restore.
 #pragma once
 
 #include <cstdint>
@@ -51,13 +51,18 @@ struct CheckpointRestored {
 Result<CheckpointCreated> checkpoint_create(const std::string& projectDir, const std::string& label);
 std::vector<CheckpointInfo> checkpoint_list(const std::string& projectDir);  // newest first
 Result<CheckpointDiff> checkpoint_diff(const std::string& projectDir, const std::string& id);
+// The bytes one file had at a checkpoint (`path` project-relative, forward slashes). An unknown id or a path the checkpoint
+// does not hold is an Error with a "did you mean". Changes nothing.
+Result<std::string> checkpoint_read(const std::string& projectDir, const std::string& id, const std::string& path);
+// The paths a checkpoint holds, sorted.
+Result<std::vector<std::string>> checkpoint_files(const std::string& projectDir, const std::string& id);
 // Puts the project back as the checkpoint had it. With `only`, just those files (project-relative, forward slashes) are
 // touched and every other file stays as it is now (the editor reverts one AI run without taking back what another run did
 // at the same time); a name in `only` that does not differ from the checkpoint is ignored.
 Result<CheckpointRestored> checkpoint_restore(const std::string& projectDir, const std::string& id,
                                               const std::optional<std::vector<std::string>>& only = std::nullopt);
 
-// checkpoint.{create,list,diff,restore}
+// checkpoint.{create,list,diff,read,restore}
 void register_checkpoint_commands(CommandRegistry& registry, const std::string& projectDir);
 
 }  // namespace fa
