@@ -1,8 +1,8 @@
 // assets.rasterize_svg: an SVG file or string to a PNG at a given size, offline, with no provider. nanosvg (external/nanosvg)
 // parses the SVG and rasterizes its shapes on the CPU with anti-aliasing, so the same SVG at the same size gives the same
 // pixels on every machine. It reads shapes only: paths, rects, circles, ellipses, lines, polylines, polygons, groups, solid
-// and gradient fills, strokes (dashes, caps, joins), opacity and transforms. No text, filters, masks, clip paths, images,
-// <use> or CSS classes: the command names every unsupported element it finds in the source.
+// and gradient fills, strokes (dashes, caps, joins), opacity and transforms. clip-path, mask and pattern fills are added on top
+// (assets_svg_layers.cpp). No text, filters, images, <use> or CSS classes: the command names every unsupported element it finds.
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -15,6 +15,7 @@
 #include "nanosvgrast.h"
 
 #include "assets_internal.h"
+#include "assets_svg_layers.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/asset_import.h"
@@ -47,11 +48,8 @@ std::vector<std::string> unsupported_features(const std::string& svg) {
         {"<tspan", "tspan", "text is not drawn: convert the letters to <path>, or draw the text in the engine with a Text entity"},
         {"<filter", "filter", "filters (blur, shadows) are not applied: draw a second, softer shape instead"},
         {" filter=", "filter", "filters (blur, shadows) are not applied: draw a second, softer shape instead"},
-        {"<mask", "mask", "masks are ignored: build the shape as a path instead"},
-        {"<clippath", "clipPath", "clip paths are ignored: build the clipped shape as a path instead"},
         {"<image", "image", "embedded images are not drawn"},
         {"<use", "use", "<use> references are not followed: repeat the shapes"},
-        {"<pattern", "pattern", "pattern fills are not drawn"},
         {"<symbol", "symbol", "<symbol> is not drawn"},
         {"<marker", "marker", "markers are not drawn"},
         {"<foreignobject", "foreignObject", "foreignObject is not drawn"},
@@ -172,7 +170,9 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
     out.width = w;
     out.height = h;
     out.rgba.assign(std::size_t(w) * h * 4, 0);
-    nsvgRasterize(rast.get(), image.get(), tx, ty, float(scale), out.rgba.data(), w, h, w * 4);
+    // clip-path, mask and pattern fills are not nanosvg's: a document that uses them is drawn layer by layer
+    if (!render_svg_layers(text, image.get(), out, tx, ty, float(scale), warnings))
+        nsvgRasterize(rast.get(), image.get(), tx, ty, float(scale), out.rgba.data(), w, h, w * 4);
     if (style != "none") apply_image_style(out, style, styleStrength, std::uint32_t(seedArg) ^ std::uint32_t(seedArg >> 32));
     if (background) {
         // composite over the background colour (straight alpha)
@@ -244,9 +244,17 @@ void register_svg_command(CommandRegistry& registry, const std::string& projectD
         "follows the SVG's proportions); leave both out for the size the SVG declares. Supported: path (all commands), rect (with rx, ry), "
         "circle, ellipse, line, polyline, polygon, g, defs, linearGradient and radialGradient fills (stops, gradientTransform, "
         "gradientUnits; write gradient coordinates in percent, x2=\"100%\", or with gradientUnits=\"userSpaceOnUse\" and real coordinates: a bare 0..1 such as x2=\"1\" is read as one pixel), fill, stroke, stroke-width, stroke-linecap, stroke-linejoin, stroke-miterlimit, stroke-dasharray, fill-rule, opacity, "
-        "fill-opacity, stroke-opacity, transform, the style attribute, viewBox and preserveAspectRatio. NOT supported (drawn as nothing, and "
+        "fill-opacity, stroke-opacity, transform, the style attribute, viewBox and preserveAspectRatio. Also supported: <clipPath> "
+        "(clip-path=\"url(#id)\" on a g or on a shape; children path, rect, circle, ellipse, polygon, polyline, line, with their transforms and clip-rule; "
+        "clipPath transform; only clipPathUnits=\"userSpaceOnUse\", the default, with real coordinates in the user space of the element that uses it), "
+        "<mask> (mask=\"url(#id)\"; the luminance of the mask's content times its alpha, white shows, black hides; maskUnits and the mask region are ignored, "
+        "the mask covers the whole picture), and <pattern> fills (fill=\"url(#id)\", also inherited from a g; patternUnits userSpaceOnUse or "
+        "objectBoundingBox (the default), patternContentUnits, patternTransform, so line hatching is a pattern of one stroked line, rotated "
+        "with patternTransform=\"rotate(45)\"; the tile is not clipped to its width and height, no pattern viewBox or href chains; "
+        "a pattern as `stroke` is not drawn). Clipped, masked and pattern shapes are rendered one layer each, so a picture with hundreds of them is slower. "
+        "NOT supported (drawn as nothing, and "
         "named in `warnings`): text and tspan (convert letters to paths, or draw text in the engine with a Text entity), filters (blur, drop "
-        "shadow), masks, clip paths, embedded images, <use>, patterns, markers and CSS classes in <style>. For a texture of a material "
+        "shadow), embedded images, <use>, markers and CSS classes in <style>. For a texture of a material "
         "(wood, paper, stone) use assets.generate_texture instead. Provenance is recorded in assets.json: by default as AI-made "
         "(origin generated, ai true, because the calling agent wrote the SVG, which counts for Steam's AI disclosure); pass ai: false for an SVG "
         "a person drew or licensed, with `author` and `license`. "
@@ -265,7 +273,7 @@ void register_svg_command(CommandRegistry& registry, const std::string& projectD
                {"width", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxSide}, {"description", "Width in pixels. With only the height given, it follows the SVG's proportions. Default: the SVG's own size."}})},
                {"height", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxSide}, {"description", "Height in pixels. With only the width given, it follows the SVG's proportions."}})},
                {"background", Json::object({{"description", "A colour to put the picture over (\"#rrggbb\", \"#rrggbbaa\", a name or [r, g, b]). Default: transparent."}})},
-               {"style", Json::object({{"type", "string"}, {"enum", image_style_names()}, {"description", "Default none. A painterly look added to the pixels after rasterizing (nanosvg has no filters, masks or clip paths, so the effects are applied to the picture, seeded and deterministic, and cost no SVG size). \"watercolor\": edges wobble and soften, pigment pools darker along the borders of every shape, pale and strong blotches, paper granulation. \"ink\": a wobbling pen line (dark brown, thicker and thinner) along every border. \"inkwash\": both, with a little paper tooth: storybook ink and watercolour. \"paper\": only fine paper fibres and mottling, edges untouched. Draw flat fills with a few shapes: the style supplies the texture. The effects scale with the picture's size."}})},
+               {"style", Json::object({{"type", "string"}, {"enum", image_style_names()}, {"description", "Default none. A painterly look added to the pixels after rasterizing (nanosvg has no filters, so the effects are applied to the picture, seeded and deterministic, and cost no SVG size). \"watercolor\": edges wobble and soften, pigment pools darker along the borders of every shape, pale and strong blotches, paper granulation. \"ink\": a wobbling pen line (dark brown, thicker and thinner) along every border. \"inkwash\": both, with a little paper tooth: storybook ink and watercolour. \"paper\": only fine paper fibres and mottling, edges untouched. Draw flat fills with a few shapes: the style supplies the texture. The effects scale with the picture's size."}})},
                {"styleStrength", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "How strong the `style` is: 0 leaves the picture as drawn, 1 (the default) is the full effect, 0.5 is subtle. Ignored without a `style`."}})},
                {"seed", Json::object({{"type", "integer"}, {"description", "Chooses the take of the `style` (where the blotches, wobble and grain fall): the same SVG, size, style and seed always give the same picture; change it for another take. Ignored without a `style`."}})},
                {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the file when it already exists."}})},

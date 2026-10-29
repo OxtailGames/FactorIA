@@ -180,3 +180,88 @@ TEST_CASE("assets.rasterize_svg: styleStrength scales the style; a style that do
     CHECK(ignored["warnings"][0].get<std::string>().find("only matter with a `style`") != std::string::npos);
     CHECK_FALSE(p.exists("assets/art/x.png"));
 }
+
+TEST_CASE("assets.rasterize_svg: clip-path clips a group and a shape, with transforms") {
+    AssetsProject p;
+    // a red square clipped to a circle (on a group), and a blue square clipped to a rect inside a translated group
+    const std::string svg =
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs>"
+        "<clipPath id='c'><circle cx='25' cy='25' r='20'/></clipPath>"
+        "<clipPath id='r'><rect x='0' y='0' width='10' height='100'/></clipPath></defs>"
+        "<g clip-path='url(#c)'><rect width='50' height='50' fill='#ff0000'/></g>"
+        "<g transform='translate(50 0)'><rect x='0' y='50' width='50' height='50' fill='#0000ff' clip-path='url(#r)'/></g></svg>";
+    const Json r = p.ok("assets.rasterize_svg", Json{{"path", "assets/clip.png"}, {"svg", svg}, {"width", 100}});
+    CHECK_FALSE(r.contains("warnings"));
+    const Image img = read_png(p.file("assets/clip.png"));
+    CHECK(get(img, 25, 25) == Rgba{255, 0, 0, 255});  // inside the circle
+    CHECK(get(img, 3, 3).a == 0);                      // the square's corner is outside the circle
+    CHECK(get(img, 48, 48).a == 0);
+    CHECK(get(img, 55, 75) == Rgba{0, 0, 255, 255});   // the clip rect follows the translate: x 50..60
+    CHECK(get(img, 70, 75).a == 0);
+    CHECK(get(img, 5, 75).a == 0);                      // not where the untranslated clip would be
+
+    // a missing id and objectBoundingBox clip units are named, never silent
+    const Json w = p.ok("assets.rasterize_svg",
+                        Json{{"path", "assets/clip2.png"},
+                             {"svg", "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><clipPath id='b' clipPathUnits='objectBoundingBox'><rect width='1' height='1'/></clipPath>"
+                                     "<rect width='10' height='10' clip-path='url(#nope)'/><rect width='5' height='5' clip-path='url(#b)'/></svg>"}});
+    CHECK(has_warning(w, "does not point to a <clipPath>"));
+    CHECK(has_warning(w, "objectBoundingBox"));
+}
+
+TEST_CASE("assets.rasterize_svg: a pattern fill hatches a shape, in user space and in bounding-box units") {
+    AssetsProject p;
+    // horizontal lines every 10 units, 2 thick, in a disc; rows 0..2 of every tile are black
+    const std::string svg =
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs>"
+        "<pattern id='h' patternUnits='userSpaceOnUse' width='10' height='10'><rect width='10' height='2' fill='#000000'/></pattern></defs>"
+        "<circle cx='50' cy='50' r='40' fill='url(#h)'/></svg>";
+    p.ok("assets.rasterize_svg", Json{{"path", "assets/pat.png"}, {"svg", svg}, {"width", 100}});
+    const Image img = read_png(p.file("assets/pat.png"));
+    CHECK(get(img, 50, 51) == Rgba{0, 0, 0, 255});   // y 51 is in the line y 50..52
+    CHECK(get(img, 50, 56).a == 0);                  // between lines
+    CHECK(get(img, 3, 51).a == 0);                   // outside the disc
+    int ink = 0, total = 0;
+    for (int y = 12; y < 88; ++y) {
+        ++total;
+        if (get(img, 50, y).a > 128) ++ink;
+    }
+    CHECK(ink > total / 8);
+    CHECK(ink < total / 3);
+
+    // rotated hatching, objectBoundingBox units (the default), and the stroke of the same shape stays
+    const std::string rot =
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>"
+        "<pattern id='d' width='0.1' height='0.1' patternContentUnits='objectBoundingBox' patternTransform='rotate(45)'><rect width='0.1' height='0.03' fill='#c00000'/></pattern>"
+        "<rect x='10' y='10' width='80' height='80' fill='url(#d)' stroke='#00ff00' stroke-width='4'/></svg>";
+    p.ok("assets.rasterize_svg", Json{{"path", "assets/rot.png"}, {"svg", rot}, {"width", 100}});
+    const Image r = read_png(p.file("assets/rot.png"));
+    CHECK(get(r, 10, 50) == Rgba{0, 255, 0, 255});  // the stroke
+    int red = 0, empty = 0;
+    for (int y = 20; y < 80; ++y)
+        for (int x = 20; x < 80; ++x) {
+            const Rgba c = get(r, x, y);
+            if (c.a > 200 && c.r > 150 && c.g < 50) ++red;
+            else if (c.a == 0) ++empty;
+        }
+    CHECK(red > 200);
+    CHECK(empty > 200);
+    CHECK(get(r, 5, 5).a == 0);  // nothing outside the shape
+}
+
+TEST_CASE("assets.rasterize_svg: a luminance mask fades a shape") {
+    AssetsProject p;
+    const std::string svg =
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs>"
+        "<linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='0%'><stop offset='0' stop-color='#ffffff'/><stop offset='1' stop-color='#000000'/></linearGradient>"
+        "<mask id='m'><rect width='100' height='100' fill='url(#g)'/></mask></defs>"
+        "<rect width='100' height='100' fill='#ff0000' mask='url(#m)'/></svg>";
+    const Json r = p.ok("assets.rasterize_svg", Json{{"path", "assets/mask.png"}, {"svg", svg}, {"width", 100}});
+    CHECK_FALSE(r.contains("warnings"));
+    const Image img = read_png(p.file("assets/mask.png"));
+    CHECK(get(img, 2, 50).a > 240);
+    CHECK(get(img, 50, 50).a > 100);
+    CHECK(get(img, 50, 50).a < 160);
+    CHECK(get(img, 97, 50).a < 20);
+    CHECK(get(img, 50, 50).r == 255);
+}

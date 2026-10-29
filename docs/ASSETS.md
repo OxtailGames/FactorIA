@@ -182,7 +182,7 @@ assets.generate_texture {"path":"assets/textures/page.png","preset":"parchment",
 assets.generate_texture {"path":"assets/textures/floor.png","preset":"stone","tileable":true,"scale":2}
 ```
 
-`preset` is `paper`, `parchment`, `wood`, `planks`, `leather`, `fabric`, `stone`, the noises `value`, `fbm` and `cellular`,
+`preset` is `paper`, `parchment`, `wood`, `planks`, `leather`, `fabric`, `linen`, `stone`, the noises `value`, `fbm` and `cellular`,
 and `gradient`, `radial` and `vignette`. The command description lists what each one is and its default colours. The
 size is `width` x `height` (up to 2048; the height defaults to the width; 512 when neither is given). Options:
 
@@ -192,7 +192,8 @@ size is `width` x `height` (up to 2048; the height defaults to the width; 512 wh
 | `scale` | Size of the features, 0.1 to 10 (1 is the preset's natural size for the picture). |
 | `roughness` | 0 smooth and even to 1 worn and uneven. |
 | `tileable` | The picture repeats with no seam at its edges (the materials and the noises; `gradient`, `radial` and `vignette` ignore it and say so in `warnings`). |
-| `vignette` | Darkens the edge with a ragged border (a worn page); 0.5 by default on `parchment`. Not used when tileable. |
+| `vignette` | How strongly the edge is darkened (a worn page); 0.5 by default on `parchment`, 0 on the others. The border is narrow and irregular (see `vignetteWidth`). Not used when tileable. |
+| `vignetteWidth` | How wide the darkened edge is, as a fraction of the picture's short side (0.005 to 0.5). The default 0.035 is a narrow worn edge whose inner border wanders in and out; 0.1 is a visible frame; 0.17 gives the wide uniform frame that earlier versions drew by default. Ignored (with a warning) when no edge is darkened. |
 | `angle` | The direction of a `gradient` in degrees. |
 | `normalMap`, `normalStrength` | Also write `<name>_n.png`, a tangent-space normal map of the same relief (+Y up, the convention of `Sprite.normalMap` and glTF). |
 | `plankCount`, `plankLength`, `gapWidth`, `gapDarkness` | `planks` only (other presets ignore them and say so in `warnings`). `plankCount`: boards stacked from the top to the bottom of the picture (1 to 64; default follows `scale`, 6 at scale 1). `plankLength`: a board's length as a fraction of the width: `0` makes every board run from side to side with no butt joint (a desk top seen from above), `1` (the default) gives each row one staggered joint, `0.5` two boards per row, `0.25` four. `gapWidth`: the seam between boards as a fraction of a board's width (default 0.015, a fine seam; 0.05 is a wide gap). `gapDarkness`: 0 leaves the seam the colour of the wood, 1 makes it as dark as `accent` allows (default 0.55). |
@@ -221,8 +222,21 @@ assets.rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmln
   `polygon`, `g`, `defs`, `linearGradient` and `radialGradient` fills, `fill`, `stroke`, `stroke-width`,
   `stroke-linecap`, `stroke-linejoin`, `stroke-miterlimit`, `stroke-dasharray`, `fill-rule`, `opacity`, `fill-opacity`,
   `stroke-opacity`, `transform`, the `style` attribute, `viewBox` and `preserveAspectRatio`.
+- **Clip, mask, pattern.** `clip-path="url(#id)"` on a `g` or on a shape, with a `<clipPath>` of `path`, `rect`,
+  `circle`, `ellipse`, `polygon`, `polyline` or `line` children (their `transform`, `clip-rule` and the clipPath's own
+  `transform` count). Only `clipPathUnits="userSpaceOnUse"` (the default): write real coordinates in the user space of
+  the element that uses the clip, so a transform on that element moves the clip with it. `mask="url(#id)"`: the
+  luminance of the mask's content times its alpha (white shows, black hides, a gradient fades); the mask region
+  (`maskUnits`, `x`, `y`, `width`, `height`) is ignored and `maskContentUnits` is always user space. `fill="url(#id)"` on
+  a `<pattern>` (also inherited from a `g`): `patternUnits` and `patternContentUnits` (`userSpaceOnUse` or
+  `objectBoundingBox`, which is the default for `patternUnits`), `x`, `y`, `width`, `height` and `patternTransform`, so
+  line hatching is a pattern of one stroked line, tilted with `patternTransform="rotate(45)"`. The pattern's tile is not
+  clipped to its width and height; a pattern `viewBox` and `href` chains are ignored (warning for the viewBox); a pattern
+  as `stroke` is not drawn (warning). Each clipped, masked or patterned shape is rendered as its own layer (consecutive
+  shapes with the same clip share one), so hundreds of them slow the call down. The `engrave` style of the game that asked
+  for this (hatching the darker side of each shape) is not built in: draw the hatching with a pattern.
 - **Not supported.** `text` and `tspan` (turn letters into paths, or put a `Text` entity in the scene), filters (blur,
-  drop shadow), masks, clip paths, embedded images, `<use>`, patterns, markers and CSS classes in `<style>`. They are
+  drop shadow), embedded images, `<use>`, markers and CSS classes in `<style>`. They are
   drawn as nothing and named in `warnings`. For a hand-painted look do not simulate it with hundreds of shapes: use
   `style`.
 - **Style.** `style` adds a painterly look to the pixels after rasterizing, seeded and deterministic (the same SVG,
