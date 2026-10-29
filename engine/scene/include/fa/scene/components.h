@@ -161,6 +161,41 @@ struct SpriteAnimator {
     std::string playedClip;           // runtime: the clip `time` belongs to (a change of `clip` restarts the animation)
 };
 
+// ----------------------------------------------------------- 2D bones ---
+// A bone of a 2D skeleton: a plain entity of the hierarchy whose Transform poses it. The bone starts at the entity's origin
+// and runs along its local +X axis for `length` units; its children (other bones) hang from the entity like any child
+// (bones2d.h). Clips and scripts move a bone through its Transform (rotation.z, position, scale).
+struct Bone2D {
+    float length = 32.0f;             // how far the bone runs along local +X from the entity's origin (local units, before scale)
+    float minAngle = -180.0f;         // lowest Transform.rotation.z (degrees) IK2D may give the bone
+    float maxAngle = 180.0f;          // highest Transform.rotation.z (degrees) IK2D may give the bone
+};
+
+// Skins a Sprite's 2D mesh to bones (bones2d.h). Put it on the entity that has the Sprite.
+struct SpriteSkin {
+    Json bones = Json::array();       // the bones, in weight order: ids of entities or names (paths) of bones near the sprite
+    Json weights = Json("auto");      // "auto", or per grid vertex [boneIndex, weight, ...] (up to 4 pairs)
+    Json bindPose = Json::array();    // [a, b, c, d, tx, ty] per bone: its matrix in the sprite's local space when it was bound
+    bool outline = false;             // trace the mesh from the texture's opaque pixels instead of using Sprite.meshColumns / meshRows
+    std::int32_t outlineDetail = 16;  // outline: grid cells along the longer side of the sprite
+    bool warned = false;              // runtime, not reflected: a problem was already logged for this component
+};
+
+enum class IKSolver : std::int32_t { TwoBone, Ccd };
+// Which way the joint of a two-bone chain bends: Positive = the lower bone's local rotation.z turns counter-clockwise from
+// the upper bone (a knee or an elbow pointing one way), Negative = clockwise.
+enum class IKBend : std::int32_t { Positive, Negative };
+// Inverse kinematics for a chain of Bone2D entities that ends at this entity (bones2d.h): the chain's tip is moved to
+// `target` by turning the bones, within their angle limits.
+struct IK2D {
+    Entity target = kNullEntity;      // the entity whose position the tip of this bone is brought to
+    std::int32_t chainLength = 2;     // bones in the chain, counting this one and going up through the parents (ccd; twoBone uses 2)
+    IKBend bend = IKBend::Positive;   // twoBone: which way the middle joint bends
+    float weight = 1.0f;              // 0 = keep the animated pose, 1 = the solved pose; in between blends the angles
+    IKSolver solver = IKSolver::TwoBone;
+    bool warned = false;              // runtime, not reflected: a problem was already logged for this component
+};
+
 enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond, Polygon, Star };
 enum class ShapeGradient : std::int32_t { None, Linear, Radial };
 // The curve a Shape2D gradient follows between its stops: the names are those of the script tween easings (docs/ANIMATION.md)

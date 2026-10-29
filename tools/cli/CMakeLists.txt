@@ -158,6 +158,19 @@ if(FA_BUILD_TESTS)
     add_test(NAME fixture_menus_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
     add_test(NAME fixture_menus_test COMMAND factoria test ${fx} WORKING_DIRECTORY ${FA_ROOT})
     set_tests_properties(fixture_menus_test PROPERTIES LABELS "gpu" TIMEOUT 300)
+    # 2D bones, skinned sprites and IK (docs/ANIMATION.md, "Bones and IK"): 50 skinned sprites, 10 of them with IK2D, in one
+    # draw call. Its budget is the perf case of the package: tests/perf/skinned-sprites.perf.json.
+    set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/skinned-sprites)
+    add_test(NAME fixture_skinned_sprites_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
+    add_test(NAME fixture_skinned_sprites_test COMMAND factoria test ${fx} WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(fixture_skinned_sprites_test PROPERTIES LABELS "gpu" TIMEOUT 300)
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/skinned-sprites.args.json
+        "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/skinned-sprites.perf.json\",\"requireBaseline\":${fa_perf_require}}")
+    add_test(NAME fixture_skinned_sprites_perf
+        COMMAND factoria call --no-graphics --project ${fx} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/skinned-sprites.args.json
+        WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(fixture_skinned_sprites_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600)
+    set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/menus)
     # The budget check must fail on a game heavier than its baseline: tests/perf/regression.perf.json holds an impossibly
     # small baseline for the runner id "regression-test" (FACTORIA_PERF_RUNNER), so memory and draw calls are over it.
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/regression.args.json "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/regression.perf.json\"}")

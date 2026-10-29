@@ -515,6 +515,93 @@ void register_builtin_components(TypeRegistry& r) {
         .field("time", &SpriteAnimator::time, "Runtime state: seconds elapsed in the current clip.").runtime_only()
         .field("frame", &SpriteAnimator::frame, "Runtime state: current frame index.").runtime_only();
 
+    r.add<Bone2D>("Bone2D",
+                  "A bone of a 2D skeleton, on a plain entity of the hierarchy (docs/ANIMATION.md, \"Bones and IK\"). The bone starts at "
+                  "the entity's origin and runs `length` units along its local +X axis, so its tip is where a child bone is usually put "
+                  "(position [length, 0]). Bones nest by being children of each other; a clip, a script or IK2D poses a bone through its "
+                  "Transform (rotation.z turns it, position and scale move and stretch it). A SpriteSkin deforms a Sprite's mesh with the "
+                  "bones; the editor draws the bones of the selection, and `debug.bones()` draws them in a game.",
+                  "2D")
+        .field("length", &Bone2D::length,
+               "How far the bone runs along the entity's local +X axis, from its origin to its tip, in local units (the entity's "
+               "Transform.scale stretches it). The tip is where the weights of a SpriteSkin and the IK2D solvers measure to. 32 by default.")
+            .range(0, 100000)
+        .field("minAngle", &Bone2D::minAngle,
+               "The lowest Transform.rotation.z (degrees, in the parent's frame) IK2D may give this bone. Only IK2D keeps a bone "
+               "inside the limits: a clip or a script can pose it anywhere. With maxAngle - minAngle of 360 or more (the default "
+               "-180 .. 180) the bone is free. Example: a knee that only bends one way is minAngle 0, maxAngle 150.")
+            .range(-360, 360)
+        .field("maxAngle", &Bone2D::maxAngle,
+               "The highest Transform.rotation.z (degrees, in the parent's frame) IK2D may give this bone; see minAngle.")
+            .range(-360, 360);
+
+    r.add<SpriteSkin>("SpriteSkin",
+                      "Deforms the Sprite on the same entity with bones (docs/ANIMATION.md, \"Bones and IK\"): each vertex of the sprite's "
+                      "2D mesh follows up to 4 bones, so one picture bends at an elbow or a tail without cutting it in pieces. The mesh is the "
+                      "Sprite's meshColumns x meshRows grid, or with `outline` a grid cut to the texture's opaque pixels. The skin "
+                      "remembers where the bones were when it was bound (`bindPose`: the first time the engine sees it, so pose the "
+                      "bones at rest in the scene; write `bindPose` as [] to bind again at the current pose). A bone that moves from "
+                      "its bind pose drags its vertices with it; at the bind pose the sprite looks exactly as without a skin. It is "
+                      "deformed on the CPU into the sprite's own batch: no extra draw call and no shader. World-space sprites only. "
+                      "Needs Sprite.meshColumns / meshRows or `outline`; Sprite.vertexOffsets still apply (before the bones) and "
+                      "Sprite.skew after them.",
+                      "2D")
+        .field("bones", &SpriteSkin::bones,
+               "The bones that move this sprite: an array of strings, each the id of a Bone2D entity (\"hip\") or the name of one, "
+               "or a path of names (\"skeleton/arm/hand\"). A name or path is looked up under the sprite's entity, then under its "
+               "parent, then under the grandparent and so on, so a character prefab can be instanced many times; an id is "
+               "looked up in the whole scene. The order is the bone index of `weights` and `bindPose`. At most 64 bones. "
+               "A name that finds no Bone2D is logged once, with a \"did you mean\", and that bone is left out. [] = no skin.")
+        .field("weights", &SpriteSkin::weights,
+               "How the vertices follow the bones. \"auto\" (default): each vertex follows the nearest bones (at most 4), "
+               "weighted by 1 / (distance to the bone's segment)^2 from the bind pose, so a vertex on a bone follows it alone and one "
+               "between two joints blends them; it is the same every run. Or an array with one entry per grid vertex, in the "
+               "order of Sprite.vertexOffsets (row by row from the TOP row, left to right; with `outline` the full grid, vertices "
+               "the outline leaves out are skipped): an entry is [bone, weight, bone, weight, ...] with up to 4 pairs, `bone` an "
+               "index into `bones`, weights normalised to 1; a missing or empty entry leaves the vertex where it is.")
+        .field("bindPose", &SpriteSkin::bindPose,
+               "Where each bone was when the skin was bound, relative to the sprite: 6 numbers [a, b, c, d, tx, ty] per bone (the "
+               "bone's 2D matrix in the sprite's local space). The engine writes it the first time it sees the skin; [] binds again, at "
+               "the pose the bones have then. If its length does not match `bones` it is recorded again.")
+        .field("outline", &SpriteSkin::outline,
+               "true: instead of Sprite.meshColumns / meshRows, the mesh is a grid of outlineDetail cells along the sprite's longer "
+               "side, keeping only the cells that hold opaque pixels (alpha above 5%) of the texture's region, so a thin limb or a "
+               "tail costs vertices where it is and transparent corners cost nothing. Needs the texture as an image file in "
+               "the project (png, jpg, tga, bmp): a texture an export packed into an atlas, a `.ktx2` only or a picture made at run time "
+               "draws the full grid instead, with one warning. Hot reload of the texture retraces it.")
+        .field("outlineDetail", &SpriteSkin::outlineDetail,
+               "outline only: how many cells the grid has along the sprite's longer side (the shorter side gets as many as keep the "
+               "cells square). More cells follow the shape closer and deform smoother, at one quad per kept cell. 16 by default.")
+            .range(2, 64);
+
+    r.add<IK2D>("IK2D",
+                "Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the hand, the foot) and name a `target`; "
+                "every fixed step, after the animators have posed the bones and before the frame is drawn, the bones from this one "
+                "up through its parents are turned so the tip of this bone reaches the target entity's position, within each bone's "
+                "minAngle / maxAngle. Feet on the ground, a hand on a lever, a head that looks at something (docs/ANIMATION.md, "
+                "\"Bones and IK\"). The solvers are deterministic. A target out of reach leaves the chain straight, pointing at "
+                "it. With several IK2D they solve in the order their components were added. IK2D rewrites the bones' rotation.z each step: the animator "
+                "(or you) pose the bones before it, it adjusts them.",
+                "2D")
+        .field("target", &IK2D::target,
+               "Id of the entity to reach: the tip of this bone (its origin plus Bone2D.length along its +X) is brought to the "
+               "target's world position. Empty = the component does nothing.")
+        .field("chainLength", &IK2D::chainLength,
+               "ccd: how many bones turn, this one and its parents upward (each must have a Bone2D and be the parent of the one "
+               "before). twoBone ignores it: it always turns this bone and its parent. 2 by default.").range(1, 16)
+        .enum_field("bend", &IK2D::bend, {"positive", "negative"},
+                    "twoBone: which way the middle joint (the elbow, the knee) bends. positive = this bone's rotation.z ends up "
+                    "counter-clockwise (greater) from the one above it, negative = clockwise. A character facing right with a "
+                    "knee in front usually wants one of them; flipping the whole character (a negative Transform.scale.x) is "
+                    "taken into account, so the knee stays in front.")
+        .field("weight", &IK2D::weight,
+               "0 to 1. 1 = the chain takes the solved pose; 0 = the animated pose stays; in between blends each bone's angle "
+               "the short way round. Fade it in while a foot is planted, out in the air.").range(0, 1)
+        .enum_field("solver", &IK2D::solver, {"twoBone", "ccd"},
+                    "twoBone: an exact solution for two bones (a leg, an arm), reaches whenever the target is within the two bones' "
+                    "length and honours `bend`. ccd: Cyclic Coordinate Descent, any chain of chainLength bones (a tail, a tentacle, "
+                    "a spine); it converges in at most 24 sweeps, bends where the limits allow and ignores `bend`.");
+
     r.add<Shape2D>("Shape2D",
                    "Untextured 2D primitive for prototypes, UI panels and debug visuals.",
                    "2D")
