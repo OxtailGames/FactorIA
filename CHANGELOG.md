@@ -4,6 +4,21 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Generated art (assets.rasterize_svg, assets.generate_texture)
+
+- `assets.rasterize_svg` draws `clip-path` (a `<clipPath>` on a group or a shape, user-space units, transforms honoured),
+  `mask` (luminance) and `<pattern>` fills (`patternUnits`, `patternContentUnits`, `patternTransform`: line hatching).
+  Unsupported pieces (clipPath in bounding-box units, a pattern viewBox or stroke, a reference to a missing id) are named
+  in `warnings`; filters, text, images and `<use>` are still not drawn.
+- `assets.generate_texture`: the `fabric` weave is averaged per pixel when its threads are narrower than about 5 px, and
+  its slubs and tones vary per crossing, so fine scales (0.2 to 0.3) no longer show a plaid of large light and dark
+  blocks. Because of that, `fabric` textures regenerate slightly different at every scale (same seed, new pixels). New
+  preset `linen` (also for bookcloth): a finer, even, low-contrast weave.
+- **Changed default:** the darkened edge (`vignette`, 0.5 on `parchment`) is now a narrow, irregular worn border about
+  3.5 percent of the short side wide instead of a wide uniform frame. New option `vignetteWidth` (a fraction of the
+  short side) sets it; `0.17` gives the old width. Projects that regenerate their textures get a different edge;
+  pictures already written do not change.
+
 Screenshots for agents
 
 - `game.screenshot` without `path` is now temporary: the result is marked `$image.temporary: true`, the MCP server and the

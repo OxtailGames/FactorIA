@@ -254,7 +254,7 @@ struct Params {
     int w = 512, h = 512;
     u32 seed = 0;
     Rgb base, accent;
-    double scale = 1, rough = 0.5, vignette = -1, angle = 0;
+    double scale = 1, rough = 0.5, vignette = -1, vignetteWidth = 0.035, angle = 0;
     bool tile = false;
     // planks only
     int plankCount = 0;           // boards across the picture's height; 0 = derived from `scale`
@@ -475,40 +475,71 @@ void draw_leather(Canvas& c, const Params& p, const Grid& g) {
     }
 }
 
-void draw_fabric(Canvas& c, const Params& p, const Grid& g) {
+// How a woven preset differs from another: the number of threads across the short side at scale 1, how uneven the weave, the
+// threads' tones and the slubs are (all 1 for fabric), and how deep the relief is shaded.
+struct Weave {
+    double threads = 52.0, unevenness = 1.0, toneSpread = 1.0, slubs = 1.0, relief = 1.0;
+};
+
+void draw_weave(Canvas& c, const Params& p, const Grid& g, const Weave& wv) {
     const double s = std::min(c.w, c.h);
     // thread counts are even so the over-under pattern repeats at the edge of a tileable image
     auto even = [](double v) { return std::max(2, int(std::lround(v / 2.0)) * 2); };
-    const int tx = even(52.0 / p.scale * c.w / s), ty = even(52.0 / p.scale * c.h / s);
+    const int tx = even(wv.threads / p.scale * c.w / s), ty = even(wv.threads / p.scale * c.h / s);
     const Cells warpCells = g.per_short(5.0 / p.scale), fibreCellsA = {tx * 3, ty / 2 > 0 ? ty / 2 : 1}, fibreCellsB = {tx / 2 > 0 ? tx / 2 : 1, ty * 3};
     const Cells mottleCells = g.per_short(2.5 / p.scale);
     const double amount = 0.3 + 0.7 * p.rough;
+    // A thread a few pixels wide sampled once per pixel beats against the pixel grid (a plaid of big light and dark blocks): the
+    // weave itself is averaged over n x n samples per pixel when a thread is narrower than ~5 pixels.
+    const double pitch = std::min(double(c.w) / tx, double(c.h) / ty);
+    const int n = std::clamp(int(std::ceil(5.0 / std::max(pitch, 0.25))), 1, 4);
     for (int y = 0; y < c.h; ++y) {
         for (int x = 0; x < c.w; ++x) {
             const double u = (x + 0.5) / c.w, v = (y + 0.5) / c.h;
             // the weave is a little uneven: the grid is pushed around by a slow noise
-            const double wx = u * tx + 0.16 * amount * fbm(g, u, v, warpCells, 2, 0.5, 1), wy = v * ty + 0.16 * amount * fbm(g, u, v, warpCells, 2, 0.5, 2);
-            const int i = int(std::floor(wx)), j = int(std::floor(wy));
-            const double fx = wx - i, fy = wy - j;
-            const int ci = wrap_cell(i, tx), cj = wrap_cell(j, ty);
-            const bool vertical = ((ci + cj) & 1) == 0;  // which thread is on top in this crossing
-            const double across = vertical ? fx : fy, along = vertical ? fy : fx;
-            const int threadId = vertical ? ci : cj;
-            const u32 th = hash3(threadId, vertical ? 1 : 2, p.seed + 41u);
-            const double profile = std::pow(std::sin(kPi * across), 0.75);
-            const double taper = 0.60 + 0.40 * std::pow(std::sin(kPi * along), 0.8);
-            const double slub = 0.88 + 0.12 * std::sin(along * 2 * kPi + unit(th) * 6.0);
-            const double hgt = profile * taper * slub;
-            const double fib = vertical ? fbm(g, u, v, fibreCellsA, 2, 0.5, 3) : fbm(g, u, v, fibreCellsB, 2, 0.5, 4);
+            const double warpX = 0.16 * wv.unevenness * amount * fbm(g, u, v, warpCells, 2, 0.5, 1), warpY = 0.16 * wv.unevenness * amount * fbm(g, u, v, warpCells, 2, 0.5, 2);
+            const double fib0 = fbm(g, u, v, fibreCellsA, 2, 0.5, 3), fib1 = fbm(g, u, v, fibreCellsB, 2, 0.5, 4);
             const double mottle = fbm(g, u, v, mottleCells, 3, 0.5, 5);
-            const double tint = 1.0 + (unit(th) - 0.5) * 0.22 * amount + (vertical ? 0.015 : -0.015) + mottle * 0.06 * amount + fib * 0.07;
-            Rgb col = mix(scaled(p.accent, 0.45), scaled(p.base, tint), 0.25 + 0.75 * clamp01(hgt));
-            c.px[c.at(x, y)] = col;
-            c.height[c.at(x, y)] = hgt * 0.9 + fib * 0.04;
+            Rgb sum{0, 0, 0, 0};
+            double hsum = 0;
+            for (int sy = 0; sy < n; ++sy) {
+                for (int sx = 0; sx < n; ++sx) {
+                    const double su = (x + (sx + 0.5) / n) / c.w, sv = (y + (sy + 0.5) / n) / c.h;
+                    const double wx = su * tx + warpX, wy = sv * ty + warpY;
+                    const int i = int(std::floor(wx)), j = int(std::floor(wy));
+                    const double fx = wx - i, fy = wy - j;
+                    const int ci = wrap_cell(i, tx), cj = wrap_cell(j, ty);
+                    const bool vertical = ((ci + cj) & 1) == 0;  // which thread is on top in this crossing
+                    const double across = vertical ? fx : fy, along = vertical ? fy : fx;
+                    const int threadId = vertical ? ci : cj;
+                    const u32 th = hash3(threadId, vertical ? 1 : 2, p.seed + 41u);
+                    const u32 crossing = hash3(ci, cj, p.seed + 43u);  // a different value at every crossing: no period in the slubs
+                    const double profile = std::pow(std::sin(kPi * across), 0.75);
+                    const double taper = 0.60 + 0.40 * std::pow(std::sin(kPi * along), 0.8);
+                    const double slub = 1.0 - 0.12 * wv.slubs * (0.5 + unit(crossing)) * (0.5 - 0.5 * std::sin(along * 2 * kPi + unit(th) * 6.0));
+                    const double hgt = profile * taper * slub;
+                    const double fib = vertical ? fib0 : fib1;
+                    const double tint = 1.0 + (unit(th) - 0.5) * 0.22 * amount * wv.toneSpread + (unit(crossing) - 0.5) * 0.05 * wv.toneSpread + (vertical ? 0.015 : -0.015) * wv.toneSpread +
+                                        mottle * 0.06 * amount * wv.toneSpread + fib * 0.07;
+                    const Rgb col = mix(scaled(p.accent, 0.45), scaled(p.base, tint), 0.25 + 0.75 * clamp01(hgt));
+                    sum.r += col.r;
+                    sum.g += col.g;
+                    sum.b += col.b;
+                    sum.a += col.a;
+                    hsum += hgt;
+                }
+            }
+            const double inv = 1.0 / (n * n);
+            c.px[c.at(x, y)] = {sum.r * inv, sum.g * inv, sum.b * inv, sum.a * inv};
+            c.height[c.at(x, y)] = hsum * inv * 0.9 + (fib0 + fib1) * 0.02;
         }
     }
-    shade_by_height(c, 0.8 + 0.4 * amount);
+    shade_by_height(c, (0.8 + 0.4 * amount) * wv.relief);
 }
+
+void draw_fabric(Canvas& c, const Params& p, const Grid& g) { draw_weave(c, p, g, Weave{}); }
+// Linen / bookcloth: a finer, more even weave with little contrast, for a book cover or a tablecloth.
+void draw_linen(Canvas& c, const Params& p, const Grid& g) { draw_weave(c, p, g, Weave{92.0, 0.45, 0.4, 0.35, 0.55}); }
 
 void draw_stone(Canvas& c, const Params& p, const Grid& g) {
     const Cells blockCells = g.per_short(4.5 / p.scale), warpCells = g.per_short(3.0 / p.scale), grainCells = g.per_short(24.0 / p.scale),
@@ -633,6 +664,8 @@ const Preset kPresets[] = {
     {"leather", "pebbled leather with creases, wear and a soft sheen", "#7a4a2a leather, #2a150a creases", hex(0x7a4a2a), hex(0x2a150a), 0, true, true, draw_leather},
     {"fabric", "woven cloth (plain weave): threads that go over and under, slubs and uneven tone", "#c4b490 thread, #6b5c3e shadows", hex(0xc4b490),
      hex(0x6b5c3e), 0, true, true, draw_fabric},
+    {"linen", "linen or bookcloth: a fine, even, low-contrast weave (finer and quieter than fabric)", "#d9cfb6 thread, #a99d82 shadows", hex(0xd9cfb6),
+     hex(0xa99d82), 0, true, true, draw_linen},
     {"stone", "flagstone: blocks with joints, grain, cracks and speckles", "#9a968e stone, #4a4640 joints and cracks", hex(0x9a968e), hex(0x4a4640), 0, true, true, draw_stone},
     {"value", "value noise (smooth blobs) from `color` to `accent`", "#202020 to #f2f2f2", hex(0x202020), hex(0xf2f2f2), 0, true, false, draw_value},
     {"fbm", "fractal noise (clouds; `roughness` adds octaves) from `color` to `accent`", "#202020 to #f2f2f2", hex(0x202020), hex(0xf2f2f2), 0, true, false, draw_fbm},
@@ -659,18 +692,25 @@ std::vector<std::string> preset_names() {
     return out;
 }
 
-// Darkens the edges with a ragged border, towards a dark version of the accent colour: a burnt page, a worn book.
+// Darkens the edges with a worn border, towards a dark version of the accent colour: a burnt page, a thumbed book. The border
+// is `p.vignetteWidth` of the picture's short side wide, and its inner edge is irregular: a slow noise moves it in and out by
+// about its own width, and a finer one eats into it, so it reads as wear, not as a frame. (It used to be a uniform band
+// about 0.17 wide; vignetteWidth 0.17 gives that width back.)
 void apply_edge_vignette(Canvas& c, const Params& p, const Grid& g, double amount) {
-    const Cells cells = g.per_short(14.0);
+    const double width = std::max(p.vignetteWidth, 1e-4);
+    const Cells slow = g.per_short(7.0), fine = g.per_short(40.0), grit = g.per_px(1.5);
+    const double shortSide = std::min(c.w, c.h);
+    const Rgb dark = scaled(p.accent, 0.5);
     for (int y = 0; y < c.h; ++y) {
         for (int x = 0; x < c.w; ++x) {
             const double u = (x + 0.5) / c.w, v = (y + 0.5) / c.h;
-            const double d = std::min({u, 1 - u, v, 1 - v}) * 2.0 * (double(std::min(c.w, c.h)) / std::max(c.w, c.h) * 0.5 + 0.5);
-            const double ragged = d + 0.06 * fbm(g, u, v, cells, 4, 0.55, 90);
-            const double burn = smoothstep(0.34, 0.0, ragged) * amount;
+            const double d = std::min({u * c.w, (1 - u) * c.w, v * c.h, (1 - v) * c.h}) / shortSide;  // distance to the nearest edge, in short sides
+            const double ragged = d - width * (0.55 * fbm(g, u, v, slow, 3, 0.55, 90) + 0.35 * fbm(g, u, v, fine, 3, 0.55, 91));
+            double burn = smoothstep(width * 1.15, width * 0.0, ragged);
+            burn *= 0.8 + 0.2 * fbm(g, u, v, grit, 2, 0.6, 92);
+            burn = clamp01(burn * (0.4 + amount * 1.2));
             Rgb& px = c.px[c.at(x, y)];
-            const Rgb dark = scaled(p.accent, 0.55);
-            px = mix(px, {dark.r * (px.r + 0.35), dark.g * (px.g + 0.35), dark.b * (px.b + 0.35), px.a}, clamp01(burn));
+            px = mix(px, {dark.r * (px.r + 0.35), dark.g * (px.g + 0.35), dark.b * (px.b + 0.35), px.a}, burn);
         }
     }
 }
@@ -777,7 +817,7 @@ std::string checked_png_path(const std::string& path) {
 Json generate_texture(const std::string& projectDir, const Json& a) {
     if (!a.is_object()) fail("invalid_argument", "assets.generate_texture expects an object.", "See the description of the command for the fields.");
     check_arg_keys(kCommand, a, "",
-                   {"path", "preset", "width", "height", "seed", "color", "accent", "scale", "roughness", "tileable", "vignette", "angle",
+                   {"path", "preset", "width", "height", "seed", "color", "accent", "scale", "roughness", "tileable", "vignette", "vignetteWidth", "angle",
                     "normalMap", "normalStrength", "overwrite", "author", "plankCount", "plankLength", "gapWidth", "gapDarkness"});
     const std::string presetName = to_lower(tooling_detail::arg_string(a, "preset", true));
     const Preset* preset = find_preset(presetName);
@@ -798,6 +838,7 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     p.scale = number_arg(a, "scale", 1.0, 0.1, 10.0, "1 is the preset's natural size; 2 makes every feature twice as big, 0.5 half as big.");
     p.rough = number_arg(a, "roughness", 0.5, 0.0, 1.0, "0 is smooth and even, 1 is rough and uneven; 0.5 is the default.");
     p.vignette = number_arg(a, "vignette", preset->vignette, 0.0, 1.0, "0 is no darkened edge, 1 a strong one.");
+    p.vignetteWidth = number_arg(a, "vignetteWidth", p.vignetteWidth, 0.005, 0.5, "A fraction of the picture's short side: 0.035 (the default) is a narrow worn edge, 0.17 a wide frame.");
     p.angle = number_arg(a, "angle", 0.0, -360.0, 360.0, "Degrees: 0 runs from the top to the bottom, 90 from the left to the right.");
     p.tile = tooling_detail::arg_bool(a, "tileable", false);
     if (a.contains("plankCount") && !a["plankCount"].is_null()) {
@@ -828,6 +869,8 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
         for (const char* key : {"plankCount", "plankLength", "gapWidth", "gapDarkness"})
             if (a.contains(key)) warnings.push_back(std::string(key) + " only changes the planks preset; it was ignored.");
     }
+    if (a.contains("vignetteWidth") && !a["vignetteWidth"].is_null() && (presetName == "vignette" || p.vignette <= 0))
+        warnings.push_back("vignetteWidth only matters when the edge is darkened (a `vignette` above 0 on a preset other than vignette, not tileable); it was ignored.");
     if (p.angle != 0 && presetName != "gradient") warnings.push_back("angle only turns the gradient preset; it was ignored.");
     if (wantNormal && (presetName == "gradient" || presetName == "radial" || presetName == "vignette"))
         warnings.push_back("a gradient has no relief, so its normal map is flat.");
@@ -860,7 +903,10 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     if (a.contains("color")) used["color"] = a["color"];
     if (a.contains("accent")) used["accent"] = a["accent"];
     if (p.tile) used["tileable"] = true;
-    if (p.vignette > 0 && presetName != "vignette") used["vignette"] = p.vignette;
+    if (p.vignette > 0 && presetName != "vignette") {
+        used["vignette"] = p.vignette;
+        used["vignetteWidth"] = p.vignetteWidth;
+    }
     if (presetName == "gradient") used["angle"] = p.angle;
     if (presetName == "planks") {
         if (p.plankCount > 0) used["plankCount"] = p.plankCount;
@@ -931,7 +977,8 @@ void register_texture_command(CommandRegistry& registry, const std::string& proj
                {"scale", Json::object({{"type", "number"}, {"minimum", 0.1}, {"maximum", 10}, {"default", 1}, {"description", "Size of the features: 1 is the preset's natural size relative to the picture, 2 makes them twice as big, 0.5 half as big (more planks, finer weave, smaller pebbles). For radial and vignette it is the radius (1 reaches the corners); for gradient it stretches the ramp."}})},
                {"roughness", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"default", 0.5}, {"description", "0 is smooth and even, 1 is worn and uneven (more stains, deeper creases, a rougher weave). For vignette: the softness of the edge; for cellular: how irregular the cells are."}})},
                {"tileable", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Make the picture repeat with no seam at its edges. The material presets and the noises can; gradient, radial and vignette have an edge by nature and ignore it (with a warning)."}})},
-               {"vignette", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "Darkens the edge with a ragged border (a worn page, a burnt corner) on any preset except gradient and radial; ignored when tileable. Default 0.5 for parchment, 0 for the others. For the vignette preset it is the alpha at the edge (default 0.85)."}})},
+               {"vignette", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "Darkens the edge with a narrow, irregular worn border (a thumbed page, a burnt corner) on any preset except gradient and radial; ignored when tileable. How strong: 0.5 for parchment by default, 0 for the others. How wide: `vignetteWidth`. For the vignette preset it is the alpha at the edge (default 0.85)."}})},
+               {"vignetteWidth", Json::object({{"type", "number"}, {"minimum", 0.005}, {"maximum", 0.5}, {"description", "How wide the darkened edge is (see `vignette`), as a fraction of the picture's short side. Default 0.035: a narrow band whose inner edge is ragged, like wear. 0.1 is a visible frame; 0.17 gives the wide uniform frame that earlier versions drew. Ignored when no edge is darkened."}})},
                {"angle", Json::object({{"type", "number"}, {"minimum", -360}, {"maximum", 360}, {"default", 0}, {"description", "gradient only: direction in degrees. 0 runs from the top to the bottom, 90 from the left to the right."}})},
                {"normalMap", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Also write the tangent-space normal map of the same relief as <path without .png>_n.png (+X right, +Y up the picture, the convention of Sprite.normalMap and glTF), with its own provenance record."}})},
                {"normalStrength", Json::object({{"type", "number"}, {"minimum", 0.1}, {"maximum", 20}, {"default", 3}, {"description", "How deep the relief of the normal map is: 1 subtle, 3 clear, 10 deep."}})},
