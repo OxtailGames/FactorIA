@@ -2,7 +2,10 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.7.1
+
+FactorIA 0.7.1 fixes the editor's recent projects: the list survives updates, reinstalls and starting the editor
+straight on a project.
 
 ### Fixes
 
