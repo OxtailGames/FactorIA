@@ -418,7 +418,7 @@ declare module "factoria" {
     readonly animator: AnimatorAPI;
     /**
      * Named clips of this entity's SpriteAnimator (play, clips, on("clipEnded")). Throws if the entity has no SpriteAnimator; entity.get("SpriteAnimator") answers null instead.
-     * @since unreleased
+     * @since 0.6.0
      */
     readonly spriteAnimator: SpriteAnimatorAPI;
     /**
@@ -3812,72 +3812,72 @@ declare module "factoria" {
 
   /**
    * Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The renderer steps the animation with the frame time, so it runs with a renderer (a headless run has one when a GPU is found). Example: `fx.spriteAnimator.play("pop"); fx.spriteAnimator.on("clipEnded", () => fx.destroy());`.
-   * @since unreleased
+   * @since 0.6.0
    */
   export interface SpriteAnimatorAPI {
     /**
      * Starts the clip `clip` of the texture's sheet from its first frame and plays it. Asking for the clip that already plays (and has not ended) does nothing unless `restart` is true, so it may be called every frame. Throws with the clip names (and a "did you mean") when the sheet has no such clip.
-     * @since unreleased
+     * @since 0.6.0
      */
     play(clip: string, restart?: boolean): void;
     /**
      * Pauses on the current frame.
-     * @since unreleased
+     * @since 0.6.0
      */
     stop(): void;
     /**
      * Continues after stop().
-     * @since unreleased
+     * @since 0.6.0
      */
     resume(): void;
     /**
      * Names of the clips of the sprite texture's sheet. Throws when the texture has no sheet entry.
-     * @since unreleased
+     * @since 0.6.0
      */
     readonly clips: string[];
     /**
      * The sheet entry of one clip (pivot from the TOP-left of the frame, as stored). Throws with the clip names when it does not exist.
-     * @since unreleased
+     * @since 0.6.0
      */
     clipInfo(clip: string): { name: string; firstFrame: number; lastFrame: number; frames: number; fps: number; loop: boolean; pivot?: [number, number] };
     /**
      * Listens to the game event of THIS entity's animator: "clipEnded", sent once when a clip that does not loop (loop false in the sheet or the component) reaches its end. Returns the unsubscribe function. world.on("clipEnded", fn) hears every entity.
-     * @since unreleased
+     * @since 0.6.0
      */
     on(event: "clipEnded", fn: (data: { id: string; clip: string }, source: Entity | null) => void): () => void;
     /**
      * The clip playing now (SpriteAnimator.clip). Assigning another name restarts the animation.
-     * @since unreleased
+     * @since 0.6.0
      */
     clip: string;
     /**
      * Order of the frames.
-     * @since unreleased
+     * @since 0.6.0
      */
     mode: "forward" | "reverse" | "pingpong";
     /**
      * Index in the sheet's grid (row-major from the top-left) of the frame shown.
-     * @since unreleased
+     * @since 0.6.0
      */
     readonly frame: number;
     /**
      * Seconds into the current clip. Assigning seeks (set playing to true to run a finished clip again).
-     * @since unreleased
+     * @since 0.6.0
      */
     time: number;
     /**
      * false pauses, true resumes.
-     * @since unreleased
+     * @since 0.6.0
      */
     playing: boolean;
     /**
      * True after a clip that does not loop reached its end.
-     * @since unreleased
+     * @since 0.6.0
      */
     readonly ended: boolean;
     /**
      * The SpriteAnimator component view (columns, rows, firstFrame, lastFrame, fps, loop, clip, mode, sheetPivot...).
-     * @since unreleased
+     * @since 0.6.0
      */
     readonly component: Components["SpriteAnimator"];
   }
@@ -4837,27 +4837,27 @@ declare module "factoria" {
     playing: boolean;
     /**
      * Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame.
-     * @since unreleased
+     * @since 0.6.0
      */
     clip: string;
     /**
      * Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame.
-     * @since unreleased
+     * @since 0.6.0
      */
     mode: "forward" | "reverse" | "pingpong";
     /**
      * true = the pivot recorded in the sheet entry (or the clip's own pivot) is used as Sprite.pivot while the Sprite's own pivot is the default centre [0.5, 0.5]; a Sprite that sets another pivot keeps it. The sheet stores it from the TOP-left of the frame, Sprite.pivot counts from the bottom-left, so y is flipped. false = never touch the pivot.
-     * @since unreleased
+     * @since 0.6.0
      */
     sheetPivot: boolean;
     /**
      * Runtime state: a non-looping clip reached its end (clipEnded was sent).
-     * @since unreleased
+     * @since 0.6.0
      */
     ended: boolean;
     /**
      * Runtime state: the clip `time` counts in.
-     * @since unreleased
+     * @since 0.6.0
      */
     playedClip: string;
     /**

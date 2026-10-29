@@ -2,9 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.6.0
 
-Assets made with code can be made again, animations are drawn with code, and sprite sheets play by name.
+FactorIA 0.6.0 draws animations with code and bakes them into sprite sheets: a JavaScript module or an animated SVG
+becomes a sheet in one call (`assets.animate_svg`), an entity the engine draws is baked frame by frame
+(`assets.bake_sheet`), every asset a tool made records its recipe so `assets.regenerate` makes it again when its source
+changes, and `SpriteAnimator` plays a sheet's clips by name.
 
 Animations drawn with code
 
