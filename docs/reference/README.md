@@ -16,7 +16,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [SpriteAnimator](components/2d.md#spriteanimator): Flipbook animation over a grid sprite sheet.
 - [Text](components/2d.md#text): Draws a string with a TrueType font (or the built-in font).
 - [Tilemap](components/2d.md#tilemap): A grid of tiles drawn from a tileset texture; tile index -1 is empty.
-- [Tint](components/2d.md#tint): Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. _Not released yet._
+- [Tint](components/2d.md#tint): Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. _Since 0.4.0._
 
 ### [3D](components/3d.md)
 
@@ -64,8 +64,8 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [CameraView](components/ui.md#cameraview): A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws the camera named by `camera` into this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. _Since 0.3.0._
 - [Captions](components/ui.md#captions): The subtitles of the game (docs/TEXT.md, "Captions"): draws the lines that `audio.play(path, { caption })` and `ui.caption(text, seconds)` put on the caption list, the newest `maxLines` of them, at the bottom of this entity's rectangle on a background that hugs the text. _Since 0.2.0._
 - [Chart](components/ui.md#chart): A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines inside this entity's rectangle, scaled to the axis, in one batch by the UI layer, with a baseline rule, the axis maximum and minimum written in the current language's number format, and optional vertical `marks`. _Since 0.3.0._
-- [Interactable](components/ui.md#interactable): Makes this entity, whatever it is made of (sprites, shapes, text, children), a widget that joins the same focus, navigation and events as Button, Toggle and Slider: hover, press, click, focus, the arrow keys / d-pad (spatial navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and the ui.* commands find it by id. _Not released yet._
-- [InteractableVisual](components/ui.md#interactablevisual): Makes this entity follow the state of an Interactable with no script. _Not released yet._
+- [Interactable](components/ui.md#interactable): Makes this entity, whatever it is made of (sprites, shapes, text, children), a widget that joins the same focus, navigation and events as Button, Toggle and Slider: hover, press, click, focus, the arrow keys / d-pad (spatial navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and the ui.* commands find it by id. _Since 0.4.0._
+- [InteractableVisual](components/ui.md#interactablevisual): Makes this entity follow the state of an Interactable with no script. _Since 0.4.0._
 - [Panel](components/ui.md#panel): Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. _Since 0.1.6._
 - [ScrollList](components/ui.md#scrolllist): Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. _Since 0.1.6._
 - [Slider](components/ui.md#slider): Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a label) with a fill and a knob in accentColor, the value in the last 15% (with labelAbove the label is above the track and the track gets the 85%). _Since 0.1.6._
@@ -83,8 +83,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`ai.models`](commands/ai.md#aimodels): List the models each AI provider offers (the values for roles.<role>.model).
 - [`ai.providers`](commands/ai.md#aiproviders): List configured AI providers and roles, or diagnose which ones are usable (doctor).
-- [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Not released yet._
-- [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Not released yet._
+- [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Since 0.4.0._
+- [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Since 0.4.0._
 - [`ai.run`](commands/ai.md#airun-modifies-state): Run an AI agent on a task in the current project (blocks until it finishes).
 
 ### [api](commands/api.md)
@@ -106,13 +106,13 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.generate_music`](commands/assets.md#assetsgenerate_music-modifies-state): Generate a music track with the music asset provider and record where it came from. _Since 0.1.6._
 - [`assets.generate_sound`](commands/assets.md#assetsgenerate_sound-modifies-state): Generate a sound effect with the sound asset provider and record where it came from. _Since 0.1.6._
 - [`assets.generate_sprite_sheet`](commands/assets.md#assetsgenerate_sprite_sheet-modifies-state): Generate a sprite sheet (a grid of animation frames) and record its layout for SpriteAnimator. _Since 0.1.6._
-- [`assets.generate_texture`](commands/assets.md#assetsgenerate_texture-modifies-state): Make a material texture (paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, vignette) offline: a seeded PNG, no provider and no key. _Not released yet._
+- [`assets.generate_texture`](commands/assets.md#assetsgenerate_texture-modifies-state): Make a material texture (paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, vignette) offline: a seeded PNG, no provider and no key. _Since 0.4.0._
 - [`assets.generate_voice`](commands/assets.md#assetsgenerate_voice-modifies-state): Generate spoken audio from text with the voice asset provider and record where it came from. _Since 0.1.6._
 - [`assets.import`](commands/assets.md#assetsimport-modifies-state): Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) into the project's assets/ folder and record where it came from. _Since 0.1.6._
 - [`assets.list`](commands/assets.md#assetslist): List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, other (by file name).
 - [`assets.pack_atlas`](commands/assets.md#assetspack_atlas-modifies-state): Pack a folder of images into one atlas PNG and write the frame table (rect and pivot per frame) that a Sprite's `region` reads. _Since 0.3.0._
 - [`assets.provenance`](commands/assets.md#assetsprovenance): Show where assets came from: the provenance record of one file, or all of them. _Since 0.1.6._
-- [`assets.rasterize_svg`](commands/assets.md#assetsrasterize_svg-modifies-state): Turn an SVG (text or a project file) into a PNG at a given size, offline: art you write as vector shapes, no provider and no key. _Not released yet._
+- [`assets.rasterize_svg`](commands/assets.md#assetsrasterize_svg-modifies-state): Turn an SVG (text or a project file) into a PNG at a given size, offline: art you write as vector shapes, no provider and no key. _Since 0.4.0._
 - [`assets.set_provenance`](commands/assets.md#assetsset_provenance-modifies-state): Record where an asset came from (hand-made, imported, or made with AI elsewhere). _Since 0.1.6._
 - [`assets.slice_sheet`](commands/assets.md#assetsslice_sheet-modifies-state): Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven sheet and repack them. _Since 0.1.6._
 - [`assets.subset_font`](commands/assets.md#assetssubset_font-modifies-state): Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes. _Since 0.3.0._
@@ -136,11 +136,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [engine](commands/engine.md)
 
 - [`engine.info`](commands/engine.md#engineinfo): Show engine version, platform, graphics backend and loop state.
-- [`engine.update_status`](commands/engine.md#engineupdate_status): Tell whether FactorIA was updated on disk while this process runs, and so whether a restart is due. _Not released yet._
+- [`engine.update_status`](commands/engine.md#engineupdate_status): Tell whether FactorIA was updated on disk while this process runs, and so whether a restart is due. _Since 0.4.0._
 
 ### [feedback](commands/feedback.md)
 
-- [`feedback.archive`](commands/feedback.md#feedbackarchive-modifies-state): Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file. _Not released yet._
+- [`feedback.archive`](commands/feedback.md#feedbackarchive-modifies-state): Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file. _Since 0.4.0._
 - [`feedback.list`](commands/feedback.md#feedbacklist): List the engine-feedback entries recorded for this project.
 - [`feedback.report`](commands/feedback.md#feedbackreport-modifies-state): Record an engine gap (missing feature, bug, confusing doc) and the workaround you used.
 - [`feedback.update`](commands/feedback.md#feedbackupdate-modifies-state): Change the status of a feedback entry or link it to an engine issue.
@@ -156,7 +156,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [game](commands/game.md)
 
-- [`game.click`](commands/game.md#gameclick-modifies-state): Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click. _Not released yet._
+- [`game.click`](commands/game.md#gameclick-modifies-state): Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click. _Since 0.4.0._
 - [`game.input`](commands/game.md#gameinput-modifies-state): Inject input: press/release actions or keys, or set an action state, mouse position/buttons, gamepad buttons/sticks, touches.
 - [`game.logs`](commands/game.md#gamelogs): Read recent log lines (engine, scripts, assets...).
 - [`game.pause`](commands/game.md#gamepause-modifies-state): Pause the simulation (frame() stops simulating; game.step still works).
@@ -166,8 +166,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.state`](commands/game.md#gamestate): Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
 - [`game.step`](commands/game.md#gamestep-modifies-state): Advance the simulation by N fixed frames (deterministic) and return a state summary.
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
-- [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Not released yet._
-- [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Not released yet._
+- [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
+- [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
 
 ### [i18n](commands/i18n.md)
 
@@ -214,7 +214,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`checkpoint.create`](commands/project.md#checkpointcreate-modifies-state): Save a checkpoint: a snapshot of every file of the project that checkpoint.restore can put back. _Since 0.2.0._
 - [`checkpoint.diff`](commands/project.md#checkpointdiff): Show which files changed since a checkpoint (modified, added, deleted). _Since 0.2.0._
 - [`checkpoint.list`](commands/project.md#checkpointlist): List the project's checkpoints, newest first. _Since 0.2.0._
-- [`checkpoint.read`](commands/project.md#checkpointread-modifies-state): Read one file as it was at a checkpoint (text inline; a binary as base64 or into a file) without restoring anything. _Not released yet._
+- [`checkpoint.read`](commands/project.md#checkpointread-modifies-state): Read one file as it was at a checkpoint (text inline; a binary as base64 or into a file) without restoring anything. _Since 0.4.0._
 - [`checkpoint.restore`](commands/project.md#checkpointrestore-modifies-state): Put the project's files back as they were at a checkpoint (the user's Revert); ask the user before calling it. _Since 0.2.0._
 - [`perf.baseline`](commands/project.md#perfbaseline-modifies-state): Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json). _Since 0.2.0._
 - [`perf.check`](commands/project.md#perfcheck): Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner. _Since 0.2.0._
@@ -271,8 +271,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`script.eval`](commands/script.md#scripteval-modifies-state): Evaluate JavaScript in the running game context (REPL) and return the value, or call an exported function of a module.
 - [`script.reload`](commands/script.md#scriptreload-modifies-state): Re-import script modules edited on disk and restart the behaviours (the world is kept).
 - [`script.trace`](commands/script.md#scripttrace): Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run. _Since 0.2.0._
-- [`storage.clear`](commands/script.md#storageclear-modifies-state): Delete one storage key (`key`) or all of them (`all`) from the game's memory and from the save folder. _Not released yet._
-- [`storage.list`](commands/script.md#storagelist): List the keys of the game's save storage (storage.set): the ones the running game holds and the key files in the save folder. _Not released yet._
+- [`storage.clear`](commands/script.md#storageclear-modifies-state): Delete one storage key (`key`) or all of them (`all`) from the game's memory and from the save folder. _Since 0.4.0._
+- [`storage.list`](commands/script.md#storagelist): List the keys of the game's save storage (storage.set): the ones the running game holds and the key files in the save folder. _Since 0.4.0._
 
 ### [setup](commands/setup.md)
 

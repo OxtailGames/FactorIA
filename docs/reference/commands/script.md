@@ -50,7 +50,7 @@ The way to find out WHY a script misbehaves without an IDE. Runs the project hea
 
 ## `storage.clear` (modifies state)
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Delete one storage key (`key`) or all of them (`all`) from the game's memory and from the save folder.
 
@@ -63,7 +63,7 @@ Use it to reset a game to a first run without a shell `rm` (fs.delete refuses .f
 
 ## `storage.list`
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 List the keys of the game's save storage (storage.set): the ones the running game holds and the key files in the save folder.
 

@@ -10,7 +10,7 @@ Returns {engineVersion, platform, graphics, headless, frame, paused, fixedHz, co
 
 ## `engine.update_status`
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Tell whether FactorIA was updated on disk while this process runs, and so whether a restart is due.
 

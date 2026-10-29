@@ -36,7 +36,7 @@ Returns {checkpoints: [{id, label, created (epoch seconds), files, bytes}], limi
 
 ## `checkpoint.read` (modifies state)
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Read one file as it was at a checkpoint (text inline; a binary as base64 or into a file) without restoring anything.
 

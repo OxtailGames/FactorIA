@@ -114,6 +114,11 @@ check passes and deletes its branch:
   never merge red. A PR that changes `.github/workflows/release.yml` is the
   exception: its Release run is not part of `CI result`, so merge it by hand once
   that run is green too.
+- Each milestone (M<n>) raises the engine version when it lands, so the user sees which FactorIA they run (window
+  title and the right end of the editor's menu bar): the minor for a milestone (0.4.0 -> 0.5.0), the patch for a batch
+  of fixes only. Bump `VERSION` in CMakeLists.txt, rename `## Unreleased` in CHANGELOG.md to it with a one-paragraph
+  summary, replace every `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings
+  (docs/ARCHITECTURE.md, "Versions").
 - Delete the local branch, remove the task's worktrees (agent worktrees
   included) and its `build/agent-<name>` dirs.
 - Leave the main checkout on `main`, up to date with `origin/main`, clean.

@@ -456,12 +456,12 @@ declare module "factoria" {
     every(seconds: number, fn: () => void): TimerHandle;
     /**
      * Like tween(), but owned by this behaviour: when its entity is destroyed (or the scene unloads) the tween is dropped and `await this.tween(...).finished` never resumes, so the code after it does not run and needs no alive check. Example: await this.tween(this.entity.position, { y: 3 }, { duration: 0.5 }).finished; this.entity.color = ...
-     * @since unreleased
+     * @since 0.4.0
      */
     tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween;
     /**
      * Resolves after `seconds` of scaled game time (like after()); never resolves if this entity is destroyed first or the scene unloads, so `await this.wait(1); this.entity.x = 0` needs no alive check. Example: await this.wait(0.5).
-     * @since unreleased
+     * @since 0.4.0
      */
     wait(seconds: number): Promise<void>;
     /**
@@ -4300,7 +4300,7 @@ declare module "factoria" {
     resume(): this;
     /**
      * Jumps to `seconds` after the tween was created (the delay counts; past the end it completes) and applies the values there at once, also while it is paused: scrub an animation to a given time to inspect it. Backwards works while the tween is active. Throws on a tween that is complete or cancelled.
-     * @since unreleased
+     * @since 0.4.0
      */
     seek(seconds: number): this;
     /**
@@ -4361,22 +4361,22 @@ declare module "factoria" {
   export namespace tween {
     /**
      * Freezes every tween, also those started later, until tween.resumeAll(). Values stay where they are, so an agent can set a pose and inspect it without a tween overwriting it. Each tween's own pause()/resume() is independent. A scene load resets it.
-     * @since unreleased
+     * @since 0.4.0
      */
     function pauseAll(): void;
     /**
      * Undoes tween.pauseAll().
-     * @since unreleased
+     * @since 0.4.0
      */
     function resumeAll(): void;
     /**
      * true after tween.pauseAll().
-     * @since unreleased
+     * @since 0.4.0
      */
     const paused: boolean;
     /**
      * Speed of every tween on top of time.scale (default 1, 0 freezes them, 0.5 is slow motion). Must be a number >= 0, anything else throws. A scene load resets it to 1.
-     * @since unreleased
+     * @since 0.4.0
      */
     let timeScale: number;
   }
@@ -4601,23 +4601,23 @@ declare module "factoria" {
     normalMap: string;
     /**
      * Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and a screen-space sprite; it also shears the picking box of the editor and the entity's bounds.
-     * @since unreleased
+     * @since 0.4.0
      */
     get skew(): Vec2;
     set skew(value: Vec2Like);
     /**
      * Makes the sprite deformable: it is drawn as a grid of meshColumns x meshRows cells (so (meshColumns + 1) x (meshRows + 1) vertices) that textures `region` evenly, and `vertexOffsets` moves the vertices. Needs meshRows > 0 too. 0 (default) = a plain quad. A side above 128 is clamped to 128; a grid of more than 4096 cells (columns x rows) is drawn as a plain quad and a warning is logged once per scene. A bent page, a flag or cloth is ONE entity with e.g. 16 columns x 1 row or 8 x 8. A deformable sprite ignores `slice` (9-slice). It costs one quad per cell, still in the sprite's batch: draw calls do not grow.
-     * @since unreleased
+     * @since 0.4.0
      */
     meshColumns: number;
     /**
      * Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad.
-     * @since unreleased
+     * @since 0.4.0
      */
     meshRows: number;
     /**
      * Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter array leaves the vertices it does not name in place; extra numbers are ignored; a value that is not a number counts as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.4.0
      */
     vertexOffsets: any;
   }
@@ -4625,12 +4625,12 @@ declare module "factoria" {
    * Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. Put it on the root of a group to fade it out (color [1, 1, 1, 0.5]), turn it red (a damage flash), or darken a whole room, without touching each visual. The tints of an entity and all its ancestors multiply together, so nested groups compose; alpha is multiplied too (a 0.5 inside a 0.5 shows at 0.25), and a visual whose resulting opacity is 0 is not drawn. It multiplies the colours the visual already has (Sprite.color, Shape2D.color and color2 and every gradient stop, Text.color, Tilemap.color, a particle's own colour over its life, Panel.color) and does not affect 3D MeshRenderer, lights, the debug draw or the camera. Entities without a Tint ancestor cost nothing extra: the renderer only walks the parents when at least one Tint exists in the scene.
    * 
    * Category: 2D
-   * @since unreleased
+   * @since 0.4.0
    */
   export interface TintComponent {
     /**
      * RGBA multiplied into the colour of the visuals of this entity and its descendants. [1, 1, 1, 1] (default) changes nothing. Alpha is a group opacity: [1, 1, 1, 0.5] draws the group at half opacity (each visual is faded on its own, so overlapping visuals of the group still show through one another). Accepts [r,g,b,a], "#rrggbb" or a name.
-     * @since unreleased
+     * @since 0.4.0
      */
     get color(): Color;
     set color(value: ColorLike);
@@ -4841,38 +4841,38 @@ declare module "factoria" {
     lit: boolean;
     /**
      * rectangle only: radius of the rounded corners in world units, antialiased (a button, a card, a page). Clamped to half the shorter side, so a large value makes a pill. 0 (default) = square corners, drawn as before. Other shapes ignore it.
-     * @since unreleased
+     * @since 0.4.0
      */
     cornerRadius: number;
     /**
      * rectangle and circle only: width in world units of a blurred edge, centred on the shape's outline (half of it fades in inside the outline, half outside, so the shape's footprint grows by softness / 2 on every side). Turns a shape into a soft drop shadow (a dark translucent rounded rectangle, a little offset, softness 12-30), a vignette or a light pool (a circle with softness near its diameter and an additive blend). Follows cornerRadius; works with filled = false (a blurred ring) and with a gradient. 0 (default) = a crisp, antialiased edge, as before. Triangles, diamonds, polygons, stars and lines ignore it (draw a circle or rectangle for a soft shape).
-     * @since unreleased
+     * @since 0.4.0
      */
     softness: number;
     /**
      * rectangle and circle fill only (filled = true): none (default) = flat `color`. linear = `color` blends to `color2` along the direction gradientAngle, from the box edge to the opposite edge (paper shading, a gutter, a sky). radial = `color` at the centre blends to `color2` at the edge of the shape's box (a vignette, a light pool, a glow); outside the box's inscribed ellipse it stays color2. The blend is computed per pixel (and dithered), so it is smooth with no banding, in one entity. Alpha is blended too (premultiplied, so a transparent color2 fades color out without greying it): make color2 transparent to fade out. A gradient whose `color` is transparent still draws when `color2` is not (the vignette); the shape is skipped only when every colour it uses is fully transparent. Ignored by outlines and by the other shapes.
-     * @since unreleased
+     * @since 0.4.0
      */
     gradient: "none" | "linear" | "radial";
     /**
      * gradient only: the colour at the end of the gradient (the right/top end of a linear one, the edge of a radial one). `color` is the start. Include its alpha: [0, 0, 0, 0] fades `color` to nothing.
-     * @since unreleased
+     * @since 0.4.0
      */
     get color2(): Color;
     set color2(value: ColorLike);
     /**
      * linear gradient only: direction in degrees, measured like a rotation (counter-clockwise, y up in world space): 0 = `color` on the left to `color2` on the right, 90 = `color` at the bottom to `color2` at the top, 270 = top to bottom. The gradient spans the shape's box exactly from corner to corner and turns with the entity. In screen space, where y is down, 90 still goes bottom to top on the screen.
-     * @since unreleased
+     * @since 0.4.0
      */
     gradientAngle: number;
     /**
      * gradient only: more than two colours. An array of [position, colour] pairs, position 0..1 along the gradient (0 = where `color` was, 1 = the far end or the edge of a radial one), colours as [r,g,b,a], "#rrggbb" or a name, e.g. [[0, "#000000cc"], [0.6, [0, 0, 0, 0.25]], [1, [0, 0, 0, 0]]] for a soft shadow that dies out slowly. Up to 8 stops (the others are ignored), sorted by position for you; before the first stop and after the last one the gradient keeps that stop's colour. Alpha blends like `color` -> `color2` (premultiplied). With stops, `color` and `color2` are not used for the fill, and the shape is skipped only when every stop is fully transparent. [] (default) = the two-colour gradient `color` -> `color2`. The colours are baked into a 256-step ramp (one row of a shared texture per distinct ramp, at most 256 ramps at once), so the cost is the same as a two-colour gradient, shapes with equal ramps still batch, and a script may change the stops every frame. An entry that is not [number, colour] is skipped with one warning. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.4.0
      */
     gradientStops: any;
     /**
      * gradient only: the curve the position follows before the colours are looked up, which removes the visible kink where a linear fade meets its end. The names are those of the script tween easings (docs/ANIMATION.md). linear (default) = even steps. A soft shadow or vignette that fades `color` -> a transparent `color2` looks natural with quadOut/cubicOut (fast start, long gentle tail, no edge) or smoothstep (no kink at either end); quadIn/cubicIn hold the start colour longer. It applies to the two-colour gradient and to gradientStops alike (stop positions are on the curve's input side: a stop at 0.5 is where the eased position is 0.5). The shape costs the same as a linear gradient.
-     * @since unreleased
+     * @since 0.4.0
      */
     gradientEase: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut";
   }
@@ -6722,121 +6722,121 @@ declare module "factoria" {
    * Makes this entity, whatever it is made of (sprites, shapes, text, children), a widget that joins the same focus, navigation and events as Button, Toggle and Slider: hover, press, click, focus, the arrow keys / d-pad (spatial navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and the ui.* commands find it by id. The hit area is `size` (a rectangle in the entity's local space) or, with size 0, the bounds of the entity and its children; in world space it is projected through the camera that draws there, so it follows parents that move, scale or rotate (a turning page, a swaying sign). An entity with screen-space visuals is a screen-space widget. An entity that is also a Button, Toggle, Slider, TextField, Panel or other UI-box component keeps that role and its Interactable is ignored. Draw the look with ordinary children and InteractableVisual (show, hide or tint per state). Events (ui.on): click (button), change (toggle / slider, value), focus, blur, hover (value true = entered, false = left), press and release (value true = released over it). A world-space widget under a screen-space widget (or outside a modal Panel) is not reached.
    * 
    * Category: UI
-   * @since unreleased
+   * @since 0.4.0
    */
   export interface InteractableComponent {
     /**
      * button: a click or ui_submit sends ui.click {id}. toggle: it flips `on` and sends ui.change {id, value: bool}. slider: dragging along the area or left / right (down / up with axis y) sets `value` and sends ui.change {id, value: number}.
-     * @since unreleased
+     * @since 0.4.0
      */
     kind: "button" | "toggle" | "slider";
     /**
      * false: the Disabled state. It is never hovered, focused, pressed or clicked and sends no events; a focused one loses focus. Visuals with when/disabled show.
-     * @since unreleased
+     * @since 0.4.0
      */
     enabled: boolean;
     /**
      * Same rule as Button.autoFocus: when NOTHING is focused the first widget with autoFocus (reading order of their areas on the screen) takes the keyboard / gamepad focus. Mark the first item of each menu.
-     * @since unreleased
+     * @since 0.4.0
      */
     autoFocus: boolean;
     /**
      * true: the pointer entering the widget moves the focus to it (once per entry, so the arrow keys still move it away). A widget that appears (or turns on) under a resting pointer counts as an entry. false (default, like the built-in widgets): the focus moves on a press.
-     * @since unreleased
+     * @since 0.4.0
      */
     focusOnHover: boolean;
     /**
      * Hit area [w, h] in the entity's LOCAL units, y up (screen space: UI units), so it scales and turns with the entity and its parents. [0, 0] (default) = the bounding box (in the entity's own frame) of the visuals of the entity and its active children, not counting InteractableVisual entities that Show/Hide with the state, a slider's knob and fill, and children that are Interactables themselves; an entity with no visuals then has no area and cannot be hit.
-     * @since unreleased
+     * @since 0.4.0
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Centre of the explicit area [x, y] from the entity origin, in local units. Ignored when size is [0, 0].
-     * @since unreleased
+     * @since 0.4.0
      */
     get offset(): Vec2;
     set offset(value: Vec2Like);
     /**
      * auto (default): screen space when the entity or one of its children draws in screen space or has a UI box, else world space. world: the area is projected through the camera. screen: the area is in screen space (UI units; the anchor and safeArea of the entity's own screen-space Text, Sprite or Shape2D, else the top-left corner of the screen).
-     * @since unreleased
+     * @since 0.4.0
      */
     space: "auto" | "world" | "screen";
     /**
      * Toggle: the value. Scripts may write it; no event is sent for a write. Visuals with when on / off follow it.
-     * @since unreleased
+     * @since 0.4.0
      */
     on: boolean;
     /**
      * Slider: the value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write. `knob` and `fill` follow it every frame.
-     * @since unreleased
+     * @since 0.4.0
      */
     value: number;
     /**
      * Slider: the smallest value.
-     * @since unreleased
+     * @since 0.4.0
      */
     min: number;
     /**
      * Slider: the largest value.
-     * @since unreleased
+     * @since 0.4.0
      */
     max: number;
     /**
      * Slider: the keyboard / gamepad increment and the grid the value snaps to (also when dragging). 0 = continuous: keys move (max - min) / 20 per press.
-     * @since unreleased
+     * @since 0.4.0
      */
     step: number;
     /**
      * Slider: the track runs along the area's local x (min at the left end, max at the right) or local y (min at the bottom, max at the top). The area is the track: its length along the axis is the travel of the knob.
-     * @since unreleased
+     * @since 0.4.0
      */
     axis: "x" | "y";
     /**
      * Slider: id of the entity moved along the track so that it sits at the value (only its local position along `axis` is set, in the frame of its own parent: make it a child of this entity). Empty = none.
-     * @since unreleased
+     * @since 0.4.0
      */
     get knob(): Entity | null;
     set knob(value: EntityLike);
     /**
      * Slider: id of the entity whose local scale along `axis` becomes the fraction (value - min) / (max - min), and whose position along the axis is the start of the track. Give it a pivot at its start (a Shape2D or Sprite with pivot [0, 0.5]) and the size of the whole track. Empty = none.
-     * @since unreleased
+     * @since 0.4.0
      */
     get fill(): Entity | null;
     set fill(value: EntityLike);
     /**
      * Accessibility label, what ui.state reports as `text` and the read-aloud recipe speaks. Empty = the text of the first Text among the entity and its children. Overwritten by the translation while `key` is set.
-     * @since unreleased
+     * @since 0.4.0
      */
     label: string;
     /**
      * Localization key for `label` (docs/LOCALIZATION.md), like Button.key. Empty = not translated.
-     * @since unreleased
+     * @since 0.4.0
      */
     key: string;
     /**
      * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.4.0
      */
     keyArgs: any;
     /**
      * Runtime: has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
-     * @since unreleased
+     * @since 0.4.0
      */
     readonly focused: boolean;
     /**
      * Runtime: the pointer (mouse or first touch) is over it and it is the top-most widget there. Read-only.
-     * @since unreleased
+     * @since 0.4.0
      */
     readonly hovered: boolean;
     /**
      * Runtime: the pointer is held down on it. Read-only.
-     * @since unreleased
+     * @since 0.4.0
      */
     readonly pressed: boolean;
     /**
      * Runtime: the one state the visuals show: disabled (enabled is false), else pressed, else hover, else focused, else normal. Written by the UI every frame. Read-only.
-     * @since unreleased
+     * @since 0.4.0
      */
     readonly state: "normal" | "hover" | "pressed" | "focused" | "disabled";
   }
@@ -6844,52 +6844,52 @@ declare module "factoria" {
    * Makes this entity follow the state of an Interactable with no script. Show: the entity is active only while `when` holds (a highlight on hover, a check mark when a toggle is on, a pressed sprite). Tint: the colour of its Sprite, Shape2D or Text (the first one it has) is set from the state every frame. Put it on a child of the Interactable or give `target`.
    * 
    * Category: UI
-   * @since unreleased
+   * @since 0.4.0
    */
   export interface InteractableVisualComponent {
     /**
      * Id of the Interactable to follow. Empty (default) = the nearest ancestor that has an Interactable.
-     * @since unreleased
+     * @since 0.4.0
      */
     get target(): Entity | null;
     set target(value: EntityLike);
     /**
      * show: the entity is active only while `when` holds. tint: its colour follows the state (the colours below).
-     * @since unreleased
+     * @since 0.4.0
      */
     mode: "show" | "tint";
     /**
      * Show only. always: always active. normal: neither hovered, pressed, focused nor disabled. hover, pressed, focused: that flag is set (a hovered and focused widget shows both). highlighted: hovered OR focused (one look for the pointer and the keyboard / gamepad, so they never disagree). disabled: enabled is false. on / off: a toggle's `on` is true / false.
-     * @since unreleased
+     * @since 0.4.0
      */
     when: "always" | "normal" | "hover" | "pressed" | "focused" | "highlighted" | "disabled" | "on" | "off";
     /**
      * Tint: colour in the normal state.
-     * @since unreleased
+     * @since 0.4.0
      */
     get normal(): Color;
     set normal(value: ColorLike);
     /**
      * Tint: colour while hovered (and not pressed).
-     * @since unreleased
+     * @since 0.4.0
      */
     get hover(): Color;
     set hover(value: ColorLike);
     /**
      * Tint: colour while pressed.
-     * @since unreleased
+     * @since 0.4.0
      */
     get pressed(): Color;
     set pressed(value: ColorLike);
     /**
      * Tint: colour while focused (and not hovered or pressed).
-     * @since unreleased
+     * @since 0.4.0
      */
     get focused(): Color;
     set focused(value: ColorLike);
     /**
      * Tint: colour while the Interactable is not enabled.
-     * @since unreleased
+     * @since 0.4.0
      */
     get disabled(): Color;
     set disabled(value: ColorLike);

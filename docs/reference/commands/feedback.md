@@ -4,7 +4,7 @@
 
 ## `feedback.archive` (modifies state)
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file.
 
