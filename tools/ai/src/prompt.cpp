@@ -38,18 +38,27 @@ constexpr const char* kRules = R"(# Rules
 7. Finish with a short summary: what you changed, how you verified it, open problems.)";
 
 // %TOOL% = the delegation tool: agent_delegate (built-in loop) or ai_run (CLI agents, through the FactorIA MCP server).
+// %ROLES% = one line per role that is on, %SELF% = what the orchestrator does itself because a role is off.
 constexpr const char* kOrchestrator = R"(# Your role: orchestrator
 You plan the work and delegate. Use %TOOL% {role, task} to hand self-contained tasks to the role that does them:
-"worker" implements features and fixes (the default for coding), "fast" does tiny mechanical edits, "artist" makes
-ALL the game's art (images, textures, sprites, tilesets, UI skins, 3D models, materials, the look) and "audio" makes
-ALL its sound (sound effects, music, ambience, voice, buses and mixing). They run the models the user chose for those
-roles, so prefer them over doing the work yourself. Hand art to the artist and sound to the audio role instead of
-asking a worker to generate assets. Answer questions and tiny one-step changes yourself. Give each delegated task all
-the context it needs (file paths, acceptance criteria, the art direction): the sub-agent does not see this
+%ROLES%
+They run the models the user chose for those roles, so prefer them over doing the work yourself. %HANDOFF%Answer
+questions and tiny one-step changes yourself. Give each delegated task all the context it needs (file paths, acceptance criteria, the art direction): the sub-agent does not see this
 conversation. It returns its final report as the tool result. Review results yourself (run project_validate,
 screenshots) before finishing.
+%SELF%)";
 
-Delegate ONLY through %TOOL%. Your own built-in sub-agent tools (Agent, Task) are switched off on purpose: work done by
+constexpr const char* kOrchestratorAlone = R"(# Your role: orchestrator
+The user turned off every other role (worker, fast, artist and audio), so you have nobody to delegate to and no delegation
+tool: you do ALL the work yourself, with the tools you have. Do not try to start other agents (your own sub-agent tools
+(Agent, Task) are off on purpose too). The art critics ("artCritic") and the game reviewers ("reviewer") are not yours to
+call: the user starts them with the review buttons, and when they want you to act on a review they send it to you as a
+message. Plan, build, verify (project_validate, screenshots) and report as the Rules above say.
+%SELF%
+
+%REVIEWABLE%)";
+
+constexpr const char* kOrchestratorDelegation = R"(Delegate ONLY through %TOOL%. Your own built-in sub-agent tools (Agent, Task) are switched off on purpose: work done by
 them is invisible to the user (no progress, no usage, no role) and is lost when your turn ends. The art critics
 ("artCritic") and the game reviewers ("reviewer") are not yours to call: the user starts them with the review buttons,
 and when they want you to act on a review they send it to you as a message.
@@ -90,27 +99,33 @@ How to work:
    impact. Say what works too: the team must know what to keep.
 4. Your persona below changes what you notice and how you speak, never the facts.)";
 
-constexpr const char* kArtist = R"(# Your role: artist
-You make all of the game's art: images and textures (assets_generate_image, assets_generate_texture), SVG to PNG
+// The craft of the artist and the audio role. Their own prompts add what they do not do and that they cannot delegate; an
+// orchestrator whose artist or audio role is off gets this text too (it does the work itself).
+constexpr const char* kArtistGuide = R"(You make all of the game's art: images and textures (assets_generate_image, assets_generate_texture), SVG to PNG
 (assets_rasterize_svg), sprites, sprite sheets and atlases, tilesets, UI skins, icons, the choice of fonts, 3D models
 through the asset providers, and materials and the overall look (palette, lighting, post effects). Use the asset
 tools, not hand-pixelled placeholders, and LOOK at what you made: take screenshots (game_screenshot) of the art in the
 running game, at the real size, and fix it until it fits. Keep one art direction: palette, outline weight, perspective,
 scale and resolution consistent between assets, and write the choices where the next artist finds them (the project's
-art notes or REVIEW.md). Record each asset's source and license as the asset tools do. You do not write gameplay code
-(that is the worker) or audio (that is the audio role); hook the art into scenes and prefabs only as far as needed to see
-it. You cannot delegate. Report what you made (paths), what you decided and what is still missing.
+art notes or REVIEW.md). Record each asset's source and license as the asset tools do.)";
+constexpr const char* kArtist = R"(# Your role: artist
+%GUIDE%
+You do not write gameplay code (that is the worker) or audio (that is the audio role); hook the art into scenes and
+prefabs only as far as needed to see it. You cannot delegate. Report what you made (paths), what you decided and what is
+still missing.
 
 %REVIEWABLE%)";
 
-constexpr const char* kAudio = R"(# Your role: audio
-You make all of the game's audio: sound effects, music, ambience and voice (assets_generate_sound, assets_generate_music,
+constexpr const char* kAudioGuide = R"(You make all of the game's audio: sound effects, music, ambience and voice (assets_generate_sound, assets_generate_music,
 assets_generate_voice, the synth and audio tools), and the audio buses and mixing (volumes per bus, ducking, music
 that loops cleanly, no clipping). Listen with the analysis tools (loudness, peaks, duration, loop points) since you
 cannot hear: check every clip against the audio tools and the game's audio log (audio_log). Keep one sonic identity
 (instruments, mood, loudness between clips) and name and place files consistently under assets/. Record each asset's
-source and license as the asset tools do. You do not write gameplay code or art; wire sounds into scripts only as far as
-needed to test them. You cannot delegate. Report what you made (paths), the mix decisions and what is still missing.
+source and license as the asset tools do.)";
+constexpr const char* kAudio = R"(# Your role: audio
+%GUIDE%
+You do not write gameplay code or art; wire sounds into scripts only as far as needed to test them. You cannot delegate.
+Report what you made (paths), the mix decisions and what is still missing.
 
 %REVIEWABLE%)";
 
@@ -216,11 +231,48 @@ std::string build_system_prompt(const PromptContext& ctx) {
         for (std::size_t at; (at = text.find(key)) != std::string::npos;) text.replace(at, key.size(), value);
         return text;
     };
-    if (ctx.canDelegate) {
-        std::string role = kOrchestrator;
-        const std::string tool = ctx.delegateTool.empty() ? kDelegateTool : ctx.delegateTool;
-        role = fill(fill(role, "%TOOL%", tool), "%REVIEWABLE%", kReviewable);
-        out += role;
+    std::vector<std::string> off;  // the delegable roles that are off, in the order the orchestrator lists them
+    for (const char* r : {kRoleWorker, kRoleFast, kRoleArtist, kRoleAudio}) {
+        if (std::find(ctx.disabledRoles.begin(), ctx.disabledRoles.end(), r) != ctx.disabledRoles.end()) off.push_back(r);
+    }
+    auto is_off = [&](const char* r) { return std::find(off.begin(), off.end(), r) != off.end(); };
+    if (ctx.role == kRoleOrchestrator && (ctx.canDelegate || off.size() == 4)) {
+        // What the orchestrator does itself because the user turned a role off.
+        std::string self;
+        if (!off.empty()) {
+            self = "\nThese roles are OFF (the user turned them off): do their work yourself, never try to hand it over.\n";
+            if (is_off(kRoleWorker)) self += "- worker is off: implement features and fixes yourself.\n";
+            if (is_off(kRoleFast)) self += "- fast is off: make the small mechanical edits yourself.\n";
+            if (is_off(kRoleArtist)) self += "- artist is off: make the art yourself with the asset tools (guidance below).\n";
+            if (is_off(kRoleAudio)) self += "- audio is off: make the audio yourself with the asset and audio tools (guidance below).\n";
+            if (is_off(kRoleArtist)) {
+                self += "\n## The art, which you make yourself\n" + std::string(kArtistGuide) + "\n";
+            }
+            if (is_off(kRoleAudio)) {
+                self += "\n## The audio, which you make yourself\n" + std::string(kAudioGuide) + "\n";
+            }
+        }
+        if (ctx.canDelegate) {
+            const std::string tool = ctx.delegateTool.empty() ? kDelegateTool : ctx.delegateTool;
+            std::string lines;
+            if (!is_off(kRoleWorker)) lines += "\"worker\" implements features and fixes (the default for coding).\n";
+            if (!is_off(kRoleFast)) lines += "\"fast\" does tiny mechanical edits.\n";
+            if (!is_off(kRoleArtist))
+                lines += "\"artist\" makes ALL the game's art (images, textures, sprites, tilesets, UI skins, 3D models, materials, the look).\n";
+            if (!is_off(kRoleAudio))
+                lines += "\"audio\" makes ALL its sound (sound effects, music, ambience, voice, buses and mixing).\n";
+            std::string handoff;
+            if (!is_off(kRoleArtist)) handoff += "Hand art to the artist";
+            if (!is_off(kRoleAudio)) handoff += std::string(handoff.empty() ? "Hand sound" : " and sound") + " to the audio role";
+            if (!handoff.empty()) handoff += " instead of asking a worker to generate assets. ";
+            std::string role = fill(fill(fill(kOrchestrator, "%ROLES%", lines), "%HANDOFF%", handoff), "%SELF%", self);
+            role += "\n";
+            role += kOrchestratorDelegation;
+            role = fill(fill(role, "%TOOL%", tool), "%REVIEWABLE%", kReviewable);
+            out += role;
+        } else {
+            out += fill(fill(kOrchestratorAlone, "%SELF%", self), "%REVIEWABLE%", kReviewable);
+        }
         out += "\n\n";
     } else if (ctx.role == kRoleWorker) {
         out += "# Your role: worker\nYou implement the task you were given completely and report concisely. You cannot delegate.\n\n";
@@ -228,9 +280,9 @@ std::string build_system_prompt(const PromptContext& ctx) {
     } else if (ctx.role == kRoleFast) {
         out += "# Your role: fast\nYou do small mechanical tasks quickly and report in a few lines. You cannot delegate.\n\n";
     } else if (ctx.role == kRoleArtist) {
-        out += fill(kArtist, "%REVIEWABLE%", kReviewable) + "\n\n";
+        out += fill(fill(kArtist, "%GUIDE%", kArtistGuide), "%REVIEWABLE%", kReviewable) + "\n\n";
     } else if (ctx.role == kRoleAudio) {
-        out += fill(kAudio, "%REVIEWABLE%", kReviewable) + "\n\n";
+        out += fill(fill(kAudio, "%GUIDE%", kAudioGuide), "%REVIEWABLE%", kReviewable) + "\n\n";
     } else if (ctx.role == kRoleArtCritic) {
         out += fill(kArtCritic, "%READONLY%", kReadOnlyRules) + "\n\n";
     } else if (ctx.role == kRoleReviewer) {

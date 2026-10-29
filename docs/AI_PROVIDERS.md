@@ -154,15 +154,17 @@ A top-level `"assets"` section assigns asset providers to the kinds of asset
 
 ## Roles
 
-| Role | Job | Default (Anthropic) |
-|---|---|---|
-| `orchestrator` | plans, reviews, delegates with the `agent_delegate` tool | `claude-opus-5-5`, effort `xhigh` |
-| `worker` | implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
-| `fast` | small mechanical edits | `claude-haiku-5-5`, effort `max` |
-| `artist` | makes all the art: sprites, models, textures, palettes, animation, VFX, UI look | `claude-opus-5-5`, effort `high` |
-| `audio` | sound effects, music, buses and mixing | `claude-sonnet-5-5`, effort `medium` |
-| `artCritic` | **read-only**: looks at the game and the art, gives an opinion and a score | `claude-opus-5-5`, effort `high` |
-| `reviewer` | **read-only**: plays the game, gives an opinion and a score | `claude-opus-5-5`, effort `high` |
+The editor shows the roles in three groups with readable names; the `ai.json` keys are the ones in code font.
+
+| Group | Role (name shown) | Job | Default (Anthropic) |
+|---|---|---|---|
+| Orchestration and code | `orchestrator` (Orchestrator) | plans, reviews, delegates with the `agent_delegate` tool | `claude-opus-5-5`, effort `xhigh` |
+| Orchestration and code | `worker` (Worker) | implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
+| Orchestration and code | `fast` (Fast) | small mechanical edits | `claude-haiku-5-5`, effort `max` |
+| Art and audio | `artist` (Artist) | makes all the art: sprites, models, textures, palettes, animation, VFX, UI look | `claude-opus-5-5`, effort `high` |
+| Art and audio | `audio` (Audio) | sound effects, music, buses and mixing | `claude-sonnet-5-5`, effort `medium` |
+| Critics and reviewers | `artCritic` (Art critic) | **read-only**: looks at the game and the art, gives an opinion and a score | `claude-opus-5-5`, effort `high` |
+| Critics and reviewers | `reviewer` (Reviewer) | **read-only**: plays the game, gives an opinion and a score | `claude-opus-5-5`, effort `high` |
 
 The role names are the keys of `roles` in `ai.json`. A role that is missing from `ai.json` follows the provider you
 already use instead of falling back to an Anthropic API key: `artist` and `audio` get the provider of `worker`, and
@@ -170,11 +172,30 @@ already use instead of falling back to an Anthropic API key: `artist` and `audio
 `sonnet`, `haiku`, for the CLI providers). So a file with only `orchestrator` / `worker` / `fast` on `claude-code` keeps
 all seven roles on Claude Code, and old files keep working. Saving from the Roles window writes only the roles you set.
 
-Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?}`. `effort` is one of
+Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?, enabled?}`. `effort` is one of
 `low|medium|high|xhigh|max` and is always sent explicitly to Anthropic. For
 `openai-compatible` providers it is ignored unless `"sendReasoningEffort": true`
 (then mapped to `low|medium|high`). A CLI provider runs its own loop and
 ignores `effort` (set the CLI's own option in `argv` if it has one).
+
+### Turning a role off
+
+`"enabled": false` (default `true`) turns a role off; in the editor's Roles window it is the **Enabled** checkbox of each
+role. For people who do not want sub-agents, or want to spend less. The orchestrator cannot be turned off (it is always
+there, and `"enabled": false` on it is an error); every other role can.
+
+* **`worker`, `fast`, `artist`, `audio` off:** nothing is delegated to that role and the orchestrator does the work
+  itself. Its system prompt lists only the roles that are on and says which ones are off ("artist is off: make the art
+  yourself with the asset tools"); when `artist` or `audio` is off it also gets the guidance that role's own prompt
+  would have given (art direction, listening with the analysis tools, and so on). With all four off the orchestrator
+  has no `agent_delegate` tool (nor `ai_run`, for a CLI orchestrator) and does everything itself. A delegation that asks
+  for a role that is off (`agent_delegate`, `ai.run` / `ai_run`) fails with the error `role_off`, which says what is off
+  and where to turn it on, so the orchestrator then does the task itself; `factoria ai run --role <role>` refuses it the
+  same way.
+* **`artCritic`, `reviewer` off:** the review buttons (and `factoria ai review`) still work, but the review runs on the
+  orchestrator's provider, model, effort and limits instead of the role's own. It keeps the read-only critic prompt and
+  tools. The button tooltip and the confirmation say so.
+* A role that is off keeps its provider and model in the file for when you turn it on again.
 
 `maxContextTokens` (at least 100000) caps how much context a session of that
 role keeps, e.g. `400000` on a 1M model: when it gets there, the earlier turns
@@ -198,7 +219,8 @@ its report. So `orchestrator: claude-code/opus`, `worker: claude-code/sonnet`,
 turns delegation off. The delegable roles are `worker`, `fast`, `artist` and `audio`: the orchestrator sends the art to
 `artist` and the sound to `audio` (it can write a brief and judge the result, but the art and the audio are not its own
 work). `artCritic` and `reviewer` are not delegable: they run only when the user asks (see [Reviews](#reviews)), and
-`ai_run` / `agent_delegate` refuse them.
+`ai_run` / `agent_delegate` refuse them. They also refuse a delegable role that is turned off (see
+[Turning a role off](#turning-a-role-off)).
 
 **Only `ai_run` delegates.** Claude Code has sub-agent tools of its own (`Agent`, `Task`) that would run a model
 nobody configured, outside FactorIA's roles, costs and live view. FactorIA starts Claude Code with
@@ -321,7 +343,8 @@ includeText?}`. `ai.review` is not read-only: it spends tokens and writes the re
   report to post it into an orchestrator chat as your message (the active chat, or a new one); the orchestrator then
   plans the fixes and delegates them. Nothing is sent unless you press it.
 
-The models come from the `artCritic` and `reviewer` roles; the cost of a review is counted like any other run
+The models come from the `artCritic` and `reviewer` roles (or from the orchestrator when you turned the role off, see
+[Turning a role off](#turning-a-role-off)); the cost of a review is counted like any other run
 (`docs/AI_COSTS.md`).
 
 ## How the built-in agent behaves (API providers)

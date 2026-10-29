@@ -59,7 +59,7 @@ Reads <project>/.factoria/ai/reviews/. Each entry has id, path, role, persona, t
 
 Run an AI agent on a task in the current project (blocks until it finishes).
 
-Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" (code), "fast" (small edits), "artist" (all the art) or "audio" (all the sound) and a self-contained task; the result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user asks for reviews (ai.review). Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
+Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" (code), "fast" (small edits), "artist" (all the art) or "audio" (all the sound) and a self-contained task; the result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user asks for reviews (ai.review). A role the user turned off (roles.<role>.enabled false in ai.json) is refused too (error role_off): do that work yourself. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

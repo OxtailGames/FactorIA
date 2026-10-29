@@ -109,7 +109,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             for (const auto& s : status) providers.push_back(s.to_json());
             Json roles = Json::object();
             for (const auto& [name, r] : cfg->roles) {
-                roles[name] = Json::object({{"provider", r.provider}, {"model", r.model}, {"effort", r.effort}});
+                roles[name] = Json::object({{"provider", r.provider}, {"model", r.model}, {"effort", r.effort}, {"enabled", r.enabled}});
                 if (r.maxContextTokens > 0) roles[name]["maxContextTokens"] = r.maxContextTokens;
             }
             Json assets = Json::object();
@@ -191,7 +191,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role \"worker\" (code), "
             "\"fast\" (small edits), \"artist\" (all the art) or \"audio\" (all the sound) and a self-contained task; the "
             "result's finalText is the sub-agent's report. The roles artCritic and reviewer are refused here: only the user "
-            "asks for reviews (ai.review). Example: "
+            "asks for reviews (ai.review). A role the user turned off (roles.<role>.enabled false in ai.json) is refused "
+            "too (error role_off): do that work yourself. Example: "
             "{\"task\":\"Add a pause menu\",\"role\":\"orchestrator\",\"maxCostUsd\":2}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "task":{"type":"string","description":"What the agent should do."},
@@ -217,6 +218,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             if (!is_known_role(so.role)) {
                 throw CommandError("unknown_role", "No role named '" + so.role + "'", fa::did_you_mean(so.role, std::vector<std::string>{"orchestrator", "worker", "fast", "artist", "audio"}));
             }
+            if (!cfg->role_enabled(so.role)) throw CommandError("role_off", role_off_message(so.role), role_off_hint(so.role));
             so.providerOverride = str(args, "provider");
             so.modelOverride = str(args, "model");
             so.maxTurns = static_cast<int>(num(args, "maxTurns"));
@@ -269,7 +271,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             const int count = std::clamp(static_cast<int>(num(args, "count", 1)), 1, kMaxReviewers);
             const std::string focus = str(args, "focus");
             const auto& personas = review_personas(role);
-            const RoleConfig rc = cfg->role(role);
+            const RoleConfig rc = cfg->effective_role(role);
             Json reviews = Json::array(), errors = Json::array();
             double total = 0, scoreSum = 0, cost = 0;
             int scored = 0;
