@@ -475,7 +475,8 @@ Json animate(const std::string& projectDir, const Json& a) {
     if (padding > 0)
         steps.push_back(std::format("The cells have a {} px transparent gutter, recorded as `padding` in the sheet entry of assets.json: the SpriteAnimator steps above slice a plain grid "
                                     "with no gutter, so they are right only for padding 0.", padding));
-    steps.push_back("Look at the sheet in this result. To change the animation, edit " + (isModule ? sourceRel : std::string("the SVG")) + " and call again with overwrite: true.");
+    steps.push_back("Look at the sheet in this result. To change the animation, edit " + (isModule ? sourceRel : std::string("the SVG")) + " and call again with overwrite: true, "
+                    "or run assets.regenerate {\"path\":\"" + rel + "\"} (the recipe is in the provenance; {\"stale\":true} makes again every asset whose source changed).");
     result["nextSteps"] = steps;
     return result;
 }

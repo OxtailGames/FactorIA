@@ -268,6 +268,9 @@ public:
     // Project panel (project_browser_panel.cpp): the project's files; drag them onto Inspector asset fields and the Viewport.
     void draw_project_panel();
     void draw_project_tile(const BrowserFile& f, ImVec2 size);
+    void regenerate_assets(const Json& args);  // assets.regenerate with a toast for the result; the panel rescans afterwards
+    void poll_recipe_sources();                // every frame (project_browser_panel.cpp): a recipe input saved on disk?
+    void draw_recipe_notice();                 // "N assets out of date  [Regenerate] [Not now]"
     void viewport_accept_drop(Renderer& r, Vec2 design);  // a prefab dropped on the Viewport: scene.spawn at the point under the mouse
     void project_files_changed();                          // the editor wrote or deleted a file: the Project panel rescans
     // Hierarchy (hierarchy_panel.cpp) and Inspector (inspector_panel.cpp): hand editing. Every change is a command call

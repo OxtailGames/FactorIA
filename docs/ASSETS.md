@@ -420,6 +420,46 @@ of Google Play and the App Store. The result lists every `written` file with its
 factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern Keep"},"stores":["steam"]}'
 ```
 
+## Recipes: make an asset again
+
+The offline makers (`assets.rasterize_svg`, `assets.draw_icon`, `assets.draw_capsules`, `assets.generate_texture`,
+`assets.synth_sound`, `assets.generate_loop`, `assets.pack_atlas` and `assets.slice_sheet`) write a `recipe` inside the
+asset's `provenance`:
+
+```json
+"assets/art/coin.png": {"provenance": {"origin": "generated", "ai": true, "recipe": {
+  "command": "assets.rasterize_svg",
+  "args": {"path": "assets/art/coin.png", "source": "assets/art/coin.svg", "width": 128, "style": "paper", "seed": 0},
+  "inputs": [{"path": "assets/art/coin.svg", "sha256": "9f2c..."}]}}}
+```
+
+`args` are the arguments that give the same bytes again: paths normalised and relative to the project, the seed written out
+even when you left it at its default, a font named as the engine resolved it. `inputs` are the project files the command
+read, each with the sha256 it had. Files that are only given inline (`svg` text, a built-in font) are inside `args`.
+
+- `assets.regenerate {"path": "assets/art/coin.png"}` runs the recipe again through the command registry with
+  `overwrite: true` and reports per file `pixels changed`, `bytes changed (same pixels)`, `unchanged` or `created`, the
+  size, and for sheets the layout before and after. `{"all": true}` does every asset with a recipe, `{"stale": true}` only
+  those whose `inputs` no longer match (you edited the SVG), and `dryRun: true` lists what would run and changes nothing.
+  There is no list of commands: any `assets.*` command that records a recipe works.
+- An asset that reads another (a sheet sliced from a picture made from an SVG) is made after it, and `stale` looks again at
+  its inputs when its turn comes, so the whole chain follows one edit. Several files made by one call (an icon and its
+  foreground, a texture and its normal map, the capsules of a store) are made once. What a person recorded (license, author,
+  notes) is kept; the recipe and the date are new.
+- Provider-made assets (`assets.generate_image` and the other providers) have no recipe: they would cost money and give a
+  different result. `assets.regenerate` on one is an error that says so.
+- `assets.convert_audio` and the copy `assets.slice_sheet` writes with `out` do not inherit the recipe of their source: they
+  describe another file. A sheet cut in place (no `out`) replaces its own source, so its recipe is removed (the source no
+  longer exists to be read); a sheet cut with `out` from a source that has a provenance record records `assets.slice_sheet` with the source as input (a source with none gives a warning instead). `assets.pack_atlas`
+  records the frames and `pivots.json` as inputs: a frame added to the folder later is not seen as a change, list it in
+  `frames` and run the command again. `assets.set_provenance` keeps an existing recipe.
+- `factoria validate` warns about a stale asset (`assets.json` pointer `/assets/<path>/provenance/recipe`, with the exact
+  `factoria call assets.regenerate '{"path":"..."}'` in the hint) and about an input that no longer exists or cannot be
+  read (restore it, or run the maker again with the new path).
+- In the editor, the Project panel marks a stale made asset with a "stale" badge ("no src" when an input is gone), has a
+  Regenerate button (the selected asset, else every stale one) and a Regenerate item in the right-click menu; when a
+  source of a made asset is saved a banner offers Regenerate or Not now.
+
 ## Provenance and store disclosure
 
 Every generated asset gets a `provenance` record in assets.json:
@@ -818,6 +858,8 @@ with warnings still runs and exports):
 - **Alpha.** A texture drawn by a `Sprite` whose four corners are the same opaque color is probably a background that
   should be transparent: the hint gives the `assets.slice_sheet` call that clears it. A texture that is fully transparent
   draws nothing. A flat one-color image is left alone (a placeholder rectangle).
+- **Recipes.** A made asset whose recipe inputs changed since it was made (stale), and a recipe whose input no longer exists
+  (see "Recipes: make an asset again"); the hint holds the `assets.regenerate` call.
 - **Weight.** One shipped file over 20 MB, with a hint by kind (convert audio to OGG, compress a texture). The total of
   the shipped files against the limit of each store the game targets: Google Play's 500 MB for the base module of an app
   (`android`), and for `ios` 200 MB, above which an iPhone asks the player before downloading over cellular data, and 4 GB,

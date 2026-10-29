@@ -35,7 +35,10 @@ constexpr float kTileW = 84.0f, kThumb = 56.0f;
 
 }  // namespace
 
-void Editor::project_files_changed() { projBrowser_.stale = true; }
+void Editor::project_files_changed() {
+    projBrowser_.stale = true;
+    projBrowser_.recipesDirty = true;
+}
 
 void Editor::draw_project_panel() {
     // A newly shown panel joins the Console's tab bar instead of floating.
@@ -60,6 +63,8 @@ void Editor::draw_project_panel() {
         pb.tree = build_folder_tree(pb.listing);
         pb.stale = false;
         pb.scanned = true;
+        pb.recipesLoaded = true;
+        pb.inputsStamp = recipe_inputs_stamp(projectDir_, pb.listing);
         ++pb.scans;
         const bool known = pb.query.folder.empty() || std::find(pb.listing.folders.begin(), pb.listing.folders.end(), pb.query.folder) !=
                                                           pb.listing.folders.end();
@@ -71,6 +76,20 @@ void Editor::draw_project_panel() {
     if (ImGui::Button("Refresh")) pb.stale = true;
     at_track("proj:refresh");
     ImGui::SetItemTooltip("Read the project's files again (this also happens when the window gains focus and after the editor writes or deletes a file)");
+    ImGui::SameLine();
+    {  // Regenerate: the selected made asset, else every stale one (assets.regenerate)
+        const AssetRecipeStatus* sel = recipe_of_file(pb.listing, pb.selected);
+        const std::vector<std::string> staleList = stale_assets(pb.listing);
+        const bool canSel = sel && sel->missing.empty();
+        ImGui::BeginDisabled(!canSel && staleList.empty());
+        const std::string label = canSel ? "Regenerate" : "Regenerate stale (" + std::to_string(staleList.size()) + ")";
+        if (ImGui::Button(label.c_str())) regenerate_assets(canSel ? Json::object({{"path", pb.selected}}) : Json::object({{"stale", true}}));
+        ImGui::EndDisabled();
+        at_track("proj:regenerate", canSel || !staleList.empty());
+        ImGui::SetItemTooltip("%s", canSel ? "Make the selected asset again from its recipe (assets.regenerate)"
+                                           : staleList.empty() ? "Select a made asset (one with a recipe) to make it again; none is out of date"
+                                                               : "Make every out-of-date asset again (assets.regenerate {stale: true})");
+    }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(100);
     if (ImGui::BeginCombo("##projtype", q.type.c_str())) {
@@ -200,9 +219,18 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
         if (dirty_) pendingScene_ = f.path;  // the "Unsaved changes" dialog asks first
         else open_scene(f.path);
     }
+    const AssetRecipeStatus* recipe = recipe_of_file(pb.listing, f.path);
     if (hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-        ImGui::SetTooltip("%s\n%s, %s%s", f.path.c_str(), f.type.c_str(), size_text(f.size).c_str(),
-                          f.type == "scene" ? "\nDouble-click to open" : f.type == "prefab" ? "\nDrag onto the Viewport to spawn it" : "");
+        std::string made;
+        if (recipe) {
+            made = "\nMade by " + recipe->command;
+            if (!recipe->missing.empty()) made += ": input '" + recipe->missing.front() + "' is missing, so it cannot be made again";
+            else if (recipe->stale()) made += ": out of date ('" + recipe->changed.front() + "' changed). Right-click > Regenerate";
+            else made += ": up to date";
+        }
+        ImGui::SetTooltip("%s\n%s, %s%s%s", f.path.c_str(), f.type.c_str(), size_text(f.size).c_str(),
+                          f.type == "scene" ? "\nDouble-click to open" : f.type == "prefab" ? "\nDrag onto the Viewport to spawn it" : "",
+                          made.c_str());
     }
 
     // The thumbnail (pictures), or a badge with the extension.
@@ -222,6 +250,14 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
         const ImVec2 ts = ImGui::CalcTextSize(badge.c_str());
         dl->AddText(ImVec2(box0.x + (kThumb - ts.x) * 0.5f, box0.y + (kThumb - ts.y) * 0.5f), IM_COL32(255, 255, 255, 235), badge.c_str());
     }
+    if (recipe && (recipe->stale() || !recipe->missing.empty())) {  // the stale badge (orange) / missing input (red) on the corner
+        const bool stale = recipe->stale();
+        const char* txt = stale ? "stale" : "no src";
+        const ImVec2 bs = ImGui::CalcTextSize(txt);
+        const ImVec2 b0(box1.x - bs.x - 4.0f, box0.y), b1(box1.x + 2.0f, box0.y + bs.y + 2.0f);
+        dl->AddRectFilled(b0, b1, stale ? IM_COL32(220, 130, 20, 255) : IM_COL32(190, 50, 50, 255), 3.0f);
+        dl->AddText(ImVec2(b0.x + 2.0f, b0.y + 1.0f), IM_COL32(255, 255, 255, 255), txt);
+    }
     // The name under it, cut to the tile (the tooltip has the whole path).
     const std::string name = file_name_of(f.path);
     const ImVec2 lp(p0.x + 2.0f, box1.y + 3.0f);
@@ -240,6 +276,15 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
         at_track("proj:ctx:reveal");
         if (ImGui::MenuItem("Copy path")) ImGui::SetClipboardText(f.path.c_str());
         at_track("proj:ctx:copy");
+        if (recipe) {
+            ImGui::BeginDisabled(!recipe->missing.empty());
+            if (ImGui::MenuItem("Regenerate")) regenerate_assets(Json::object({{"path", f.path}}));
+            ImGui::EndDisabled();
+            at_track("proj:ctx:regenerate", recipe->missing.empty());
+            if (!recipe->missing.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Input '%s' no longer exists: restore it, or run %s again with the new path.", recipe->missing.front().c_str(),
+                                  recipe->command.c_str());
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("Delete...")) pb.deleteAsk = f.path;
         at_track("proj:ctx:delete");
@@ -279,6 +324,92 @@ void Editor::viewport_accept_drop(Renderer& r, Vec2 design) {
         }
     }
     ImGui::EndDragDropTarget();
+}
+
+// ------------------------------------------------------------------------------------------------ recipes (assets.regenerate)
+// Runs assets.regenerate and says what it did: one toast with the count, or the first failure. The panel rescans afterwards.
+void Editor::regenerate_assets(const Json& args) {
+    std::string err;
+    const CommandResult r = edit_command("proj:regen", "assets.regenerate", args, &err);
+    ProjectBrowser& pb = projBrowser_;
+    pb.stale = true;
+    pb.listing.recipes = asset_recipe_statuses(projectDir_);  // the recipes now hold the new hashes
+    pb.inputsStamp = recipe_inputs_stamp(projectDir_, pb.listing);
+    if (!r.ok) {
+        pb.regenerateError = err;
+        notify("Could not regenerate: " + err, 2);
+        return;
+    }
+    pb.regenerateError.clear();
+    const Json& v = r.result;
+    const std::size_t done = v.contains("regenerated") && v["regenerated"].is_array() ? v["regenerated"].size() : 0;
+    const std::size_t failed = v.contains("failed") && v["failed"].is_array() ? v["failed"].size() : 0;
+    if (failed) {
+        std::string first = v["failed"][0].is_object() && v["failed"][0].contains("error") ? v["failed"][0]["error"].value("message", "") : "";
+        pb.regenerateError = first;
+        notify("Regenerated " + std::to_string(done) + ", " + std::to_string(failed) + " failed: " + first, 2);
+    } else {
+        notify(done == 0 ? "Nothing to regenerate." : "Regenerated " + std::to_string(done) + " asset" + (done == 1 ? "" : "s") + ".");
+    }
+}
+
+// Every second: has a recipe input changed on disk (a source .svg or .anim.js saved)? Then the check is read again and the
+// panel rescans. Cheap: a stat per input; the hashes are read only when the stamp changed.
+void Editor::poll_recipe_sources() {
+    ProjectBrowser& pb = projBrowser_;
+    if (!engine_ || projectDir_.empty()) return;
+    if (pb.project != projectDir_) {
+        pb = ProjectBrowser{};
+        pb.project = projectDir_;
+    }
+    if (time_ - pb.inputsPolled < 1.0) return;
+    pb.inputsPolled = time_;
+    if (pb.inputsStamp.empty() && !pb.recipesLoaded) {
+        pb.listing.recipes = asset_recipe_statuses(projectDir_);
+        pb.inputsStamp = recipe_inputs_stamp(projectDir_, pb.listing);
+        pb.recipesLoaded = true;
+        return;
+    }
+    // The editor or an AI wrote files (pb.stale), or a source was saved from outside (its stamp changed): read the check again.
+    const std::string stamp = recipe_inputs_stamp(projectDir_, pb.listing);
+    if (stamp == pb.inputsStamp && !pb.recipesDirty) return;
+    pb.recipesDirty = false;
+    pb.listing.recipes = asset_recipe_statuses(projectDir_);
+    pb.inputsStamp = recipe_inputs_stamp(projectDir_, pb.listing);
+    pb.stale = true;
+}
+
+void Editor::draw_recipe_notice() {
+    ProjectBrowser& pb = projBrowser_;
+    if (!engine_ || pb.project != projectDir_) return;
+    const std::vector<std::string> list = stale_assets(pb.listing);
+    std::string joined;
+    for (const std::string& p : list) joined += p + ";";
+    if (list.empty() || joined == pb.offeredStale) return;
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float lift = disk_update_due() ? 84.0f : 34.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - lift), ImGuiCond_Always,
+                            ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.96f);
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.86f, 0.51f, 0.08f, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 8));
+    ImGui::Begin("##recipenotice", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDocking);
+    ImGui::PushTextWrapPos(560);
+    ImGui::Text("%zu asset%s out of date: a source they were made from changed (%s%s).", list.size(), list.size() == 1 ? " is" : "s are",
+                list.front().c_str(), list.size() > 1 ? ", ..." : "");
+    ImGui::PopTextWrapPos();
+    at_track("recipe:notice");
+    if (ImGui::Button("Regenerate", ImVec2(110, 0))) regenerate_assets(Json::object({{"stale", true}}));
+    at_track("recipe:regenerate");
+    ImGui::SameLine();
+    if (ImGui::Button("Not now", ImVec2(110, 0))) pb.offeredStale = joined;  // quiet until the list of stale assets changes
+    at_track("recipe:notnow");
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
 }
 
 }  // namespace fa::editor

@@ -386,12 +386,31 @@ Json slice_sheet(const std::string& projectDir, const Json& a) {
     {
         ProjectRootGuard root(projectDir);
         const Json provenance = target == *path ? Json() : assets::entry(*path).value("provenance", Json());
+        // The recipe of a new PNG: slicing `path` again gives it back. Nothing is recorded when no file is made (the grid is only
+        // written to assets.json) or when the PNG replaces the image it was cut from: that source is gone, and slicing the result
+        // again would not give the same pixels.
+        Json recipe;
+        if (target == *path) {
+            if (changed || a.contains("out"))
+                warnings.push_back("'" + *path + "' was replaced by its own sliced version, so no recipe was recorded (the original image is gone). Slice into another file with `out` to keep it regenerable.");
+        } else if (provenance.is_object()) {
+            Json args = recipe_args(a, {{"path", *path}, {"out", target}});
+            if (args.contains("fps")) args.erase("fps");  // only the result's SpriteAnimator fields use it
+            recipe = make_recipe(projectDir, "assets.slice_sheet", std::move(args), {*path});
+        } else {
+            warnings.push_back("'" + *path + "' has no provenance record, so '" + target + "' got none and no recipe. Record where it came from with assets.set_provenance and slice again.");
+        }
+        const bool replaced = target == *path && (changed || a.contains("out"));
         auto r = assets::update_entry(target, [&](Json& e) {
             e["sheet"] = sheet;
+            // The file is now this sliced version: the recipe that made the original no longer gives these bytes.
+            if (replaced && e.contains("provenance") && e["provenance"].is_object()) e["provenance"].erase("recipe");
             if (!provenance.is_null()) {
                 Json copy = provenance;
                 const std::string note = "Sliced from " + *path + " by assets.slice_sheet.";
                 copy["notes"] = copy.contains("notes") ? Json(copy["notes"].get<std::string>() + " " + note) : Json(note);
+                copy.erase("recipe");  // the source's own recipe made the source, not this sheet
+                if (!recipe.is_null()) copy["recipe"] = recipe;
                 e["provenance"] = copy;
             }
         });

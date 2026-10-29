@@ -788,6 +788,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     for (ValidationIssue& w : check_audio_loudness(c.dir)) c.report.warnings.push_back(std::move(w));
     assets_detail::check_shipped_assets(c.dir, c.report.warnings);
     assets_detail::check_model_files(c.dir, c.report.errors);
+    assets_detail::check_recipes(c.dir, c.report.warnings);
 
     std::set<std::string> scripts;
     if (options.checkScenes) {
