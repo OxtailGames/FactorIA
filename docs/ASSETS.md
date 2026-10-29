@@ -176,6 +176,7 @@ not promised to be bit-identical between platforms.
 
 ```
 assets.generate_texture {"path":"assets/textures/desk.png","preset":"planks","width":1280,"height":720,"seed":4}
+assets.generate_texture {"path":"assets/textures/desk_top.png","preset":"planks","plankCount":7,"plankLength":0,"gapWidth":0.01}
 assets.generate_texture {"path":"assets/textures/cover.png","preset":"leather","color":"#5b2a1a","accent":"#1d0d07","normalMap":true}
 assets.generate_texture {"path":"assets/textures/page.png","preset":"parchment","width":640,"height":900,"vignette":0.6}
 assets.generate_texture {"path":"assets/textures/floor.png","preset":"stone","tileable":true,"scale":2}
@@ -194,6 +195,7 @@ size is `width` x `height` (up to 2048; the height defaults to the width; 512 wh
 | `vignette` | Darkens the edge with a ragged border (a worn page); 0.5 by default on `parchment`. Not used when tileable. |
 | `angle` | The direction of a `gradient` in degrees. |
 | `normalMap`, `normalStrength` | Also write `<name>_n.png`, a tangent-space normal map of the same relief (+Y up, the convention of `Sprite.normalMap` and glTF). |
+| `plankCount`, `plankLength`, `gapWidth`, `gapDarkness` | `planks` only (other presets ignore them and say so in `warnings`). `plankCount`: boards stacked from the top to the bottom of the picture (1 to 64; default follows `scale`, 6 at scale 1). `plankLength`: a board's length as a fraction of the width: `0` makes every board run from side to side with no butt joint (a desk top seen from above), `1` (the default) gives each row one staggered joint, `0.5` two boards per row, `0.25` four. `gapWidth`: the seam between boards as a fraction of a board's width (default 0.015, a fine seam; 0.05 is a wide gap). `gapDarkness`: 0 leaves the seam the colour of the wood, 1 makes it as dark as `accent` allows (default 0.55). |
 | `overwrite` | Replace an existing file. |
 
 The result has the `warnings`, the `nextSteps` (the `Sprite` to use, or `tileable` hints) and a preview of the picture:
@@ -221,7 +223,19 @@ assets.rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmln
   `stroke-opacity`, `transform`, the `style` attribute, `viewBox` and `preserveAspectRatio`.
 - **Not supported.** `text` and `tspan` (turn letters into paths, or put a `Text` entity in the scene), filters (blur,
   drop shadow), masks, clip paths, embedded images, `<use>`, patterns, markers and CSS classes in `<style>`. They are
-  drawn as nothing and named in `warnings`.
+  drawn as nothing and named in `warnings`. For a hand-painted look do not simulate it with hundreds of shapes: use
+  `style`.
+- **Style.** `style` adds a painterly look to the pixels after rasterizing, seeded and deterministic (the same SVG,
+  size, `style`, `styleStrength` and `seed` give the same picture; `seed` chooses the take), so the SVG stays small and
+  flat. `watercolor`: wobbling, softened edges, pigment pooled darker along the border of every shape, pale and strong
+  blotches and paper granulation. `ink`: a wobbling dark-brown pen line along every border, thicker and thinner.
+  `inkwash`: both, with a little paper tooth (storybook ink and watercolour). `paper`: only paper fibres and mottling,
+  edges untouched. `styleStrength` (0 to 1, default 1) scales the effect. The effects scale with the picture's size, are
+  applied to the shapes (transparent space stays transparent) and run before `background`; for a paper sheet under the
+  drawing make one with `assets.generate_texture`. Draw flat fills with a few shapes and let the style add the texture.
+  ```
+  assets.rasterize_svg {"path":"assets/art/hill.png","source":"assets/art/hill.svg","width":800,"style":"inkwash","seed":3}
+  ```
 - **Gradients.** Write the coordinates in percent (`x2="100%"`) or with `gradientUnits="userSpaceOnUse"` and real
   coordinates: nanosvg reads a bare `0` to `1` such as `x2="1"` as pixels.
 - **Provenance.** By default the record is origin `generated`, `ai` true, because the agent that calls the command wrote

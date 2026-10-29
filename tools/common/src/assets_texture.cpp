@@ -256,6 +256,11 @@ struct Params {
     Rgb base, accent;
     double scale = 1, rough = 0.5, vignette = -1, angle = 0;
     bool tile = false;
+    // planks only
+    int plankCount = 0;           // boards across the picture's height; 0 = derived from `scale`
+    double plankLength = 1.0;     // board length as a fraction of the picture's width; 0 = full width, no butt joints
+    double gapWidth = 0.015;      // gap between boards as a fraction of a board's width
+    double gapDarkness = 0.55;    // 0 = no darkening in the gaps, 1 = as dark as the accent allows
 };
 
 struct Preset {
@@ -365,10 +370,12 @@ void draw_wood(Canvas& c, const Params& p, const Grid& g) {
 }
 
 void draw_planks(Canvas& c, const Params& p, const Grid& g) {
-    const int rows = std::max(2, int(std::lround(6.0 / p.scale)));
+    const int rows = p.plankCount > 0 ? p.plankCount : std::max(2, int(std::lround(6.0 / p.scale)));
     const double ph = double(c.h) / rows;
-    const double gap = std::max(1.0, ph * 0.035), bevel = std::max(2.0, ph * 0.06);
-    const int segs = std::max(2, int(std::lround(c.w / (ph * 5.5))));
+    const double gap = std::max(1.0, ph * p.gapWidth), bevel = std::max(1.5, ph * 0.04 + gap * 0.5);
+    // plankLength 0: every board runs from side to side and has no butt joint; otherwise `segs` boards fill a row
+    const bool joined = p.plankLength > 0;
+    const int segs = joined ? std::max(1, int(std::lround(1.0 / p.plankLength))) : 1;
     const Cells warpCells = {std::max(1, segs), std::max(1, rows * 3)};
     const Cells streakCells = {std::max(1, segs * 2), std::max(1, int(std::lround(c.h / 2.2)))};
     const double amount = 0.4 + 0.6 * p.rough;
@@ -376,10 +383,11 @@ void draw_planks(Canvas& c, const Params& p, const Grid& g) {
     std::vector<std::vector<double>> joints(rows, std::vector<double>(segs));
     for (int r = 0; r < rows; ++r) {
         const double off = rand01(r, 3, p.seed + 31u) * c.w;
-        for (int k = 0; k < segs; ++k) {
+        for (int k = 0; joined && k < segs; ++k) {
             joints[r][k] = std::fmod(off + (k + (rand01(r, k + 100, p.seed + 32u) - 0.5) * 0.45) * (double(c.w) / segs) + c.w, double(c.w));
         }
         std::sort(joints[r].begin(), joints[r].end());
+        if (!joined) joints[r][0] = 0;
     }
     for (int y = 0; y < c.h; ++y) {
         const int r = std::min(rows - 1, int(y / ph));
@@ -398,7 +406,7 @@ void draw_planks(Canvas& c, const Params& p, const Grid& g) {
             if (dStart < 0) dStart += c.w;
             double dEnd = endp - (x + 0.5);
             if (dEnd <= 0) dEnd += c.w;
-            const double jointEdge = std::min(dStart, dEnd);
+            const double jointEdge = joined ? std::min(dStart, dEnd) : 1e9;
             const double edgeD = std::min(edge, jointEdge);
             const u32 pid = hash3(r, seg, p.seed + 33u);
             const double tone = 0.80 + 0.40 * unit(pid), shift = unit(mix_bits(pid ^ 0x2545f491u)) * 40.0;
@@ -415,8 +423,8 @@ void draw_planks(Canvas& c, const Params& p, const Grid& g) {
             // the gaps between boards are dark, with a rounded edge on each board
             const double inBoard = smoothstep(gap * 0.5, gap * 0.5 + bevel, edgeD);
             const double gapDark = 1.0 - smoothstep(gap * 0.4, gap * 1.4, edgeD);
-            col = mix(col, scaled(p.accent, 0.30), gapDark * 0.92);
-            col = scaled(col, 0.86 + 0.14 * inBoard);
+            col = mix(col, scaled(p.accent, 0.30), gapDark * p.gapDarkness);
+            col = scaled(col, 1.0 - (0.14 * p.gapDarkness + 0.04) * (1.0 - inBoard));
             hgt = hgt * 0.25 + inBoard * 0.75;
             c.px[c.at(x, y)] = col;
             c.height[c.at(x, y)] = hgt;
@@ -770,7 +778,7 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     if (!a.is_object()) fail("invalid_argument", "assets.generate_texture expects an object.", "See the description of the command for the fields.");
     check_arg_keys(kCommand, a, "",
                    {"path", "preset", "width", "height", "seed", "color", "accent", "scale", "roughness", "tileable", "vignette", "angle",
-                    "normalMap", "normalStrength", "overwrite", "author"});
+                    "normalMap", "normalStrength", "overwrite", "author", "plankCount", "plankLength", "gapWidth", "gapDarkness"});
     const std::string presetName = to_lower(tooling_detail::arg_string(a, "preset", true));
     const Preset* preset = find_preset(presetName);
     if (!preset) {
@@ -792,6 +800,15 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     p.vignette = number_arg(a, "vignette", preset->vignette, 0.0, 1.0, "0 is no darkened edge, 1 a strong one.");
     p.angle = number_arg(a, "angle", 0.0, -360.0, 360.0, "Degrees: 0 runs from the top to the bottom, 90 from the left to the right.");
     p.tile = tooling_detail::arg_bool(a, "tileable", false);
+    if (a.contains("plankCount") && !a["plankCount"].is_null()) {
+        const Json& pc = a["plankCount"];
+        if (!pc.is_number_integer() || pc.get<long long>() < 1 || pc.get<long long>() > 64)
+            arg_error(kCommand, "/plankCount", "expected a whole number of boards from 1 to 64.", "It is how many boards are stacked from the top to the bottom of the picture; leave it out to follow `scale`.");
+        p.plankCount = int(pc.get<long long>());
+    }
+    p.plankLength = number_arg(a, "plankLength", p.plankLength, 0.0, 1.0, "A fraction of the picture's width: 0 is boards that run from side to side, 0.5 is two boards per row, 0.25 four.");
+    p.gapWidth = number_arg(a, "gapWidth", p.gapWidth, 0.0, 0.2, "A fraction of a board's width: 0.01 is a fine seam, 0.05 a wide gap.");
+    p.gapDarkness = number_arg(a, "gapDarkness", p.gapDarkness, 0.0, 1.0, "0 leaves the gaps the colour of the wood, 1 makes them as dark as the accent allows.");
     const bool wantNormal = tooling_detail::arg_bool(a, "normalMap", false);
     const double normalStrength = number_arg(a, "normalStrength", 3.0, 0.1, 20.0, "3 is a clear relief; 1 is subtle, 10 is deep.");
     const std::string author = tooling_detail::arg_string(a, "author", false, "factoria");
@@ -806,6 +823,10 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
         p.vignette = 0;
     } else if (p.tile && presetName != "vignette") {
         p.vignette = 0;  // the preset's own edge darkening (parchment) is for single pictures
+    }
+    if (presetName != "planks") {
+        for (const char* key : {"plankCount", "plankLength", "gapWidth", "gapDarkness"})
+            if (a.contains(key)) warnings.push_back(std::string(key) + " only changes the planks preset; it was ignored.");
     }
     if (p.angle != 0 && presetName != "gradient") warnings.push_back("angle only turns the gradient preset; it was ignored.");
     if (wantNormal && (presetName == "gradient" || presetName == "radial" || presetName == "vignette"))
@@ -841,6 +862,12 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
     if (p.tile) used["tileable"] = true;
     if (p.vignette > 0 && presetName != "vignette") used["vignette"] = p.vignette;
     if (presetName == "gradient") used["angle"] = p.angle;
+    if (presetName == "planks") {
+        if (p.plankCount > 0) used["plankCount"] = p.plankCount;
+        used["plankLength"] = p.plankLength;
+        used["gapWidth"] = p.gapWidth;
+        used["gapDarkness"] = p.gapDarkness;
+    }
     const std::string notes = "Procedural texture from assets.generate_texture " + used.dump() + ". Same arguments, same picture.";
     auto provenance_for = [&](const std::string& extra) {
         return Json::object({{"origin", "original"}, {"ai", false}, {"kind", "image"}, {"provider", "factoria assets.generate_texture"}, {"seed", seedArg},
@@ -884,6 +911,7 @@ void register_texture_command(CommandRegistry& registry, const std::string& proj
         "portrait, an icon, an ornament) write an SVG and call assets.rasterize_svg. Records provenance in assets.json (origin original, ai false, "
         "license CC0, the arguments in the notes). Look at the picture in the result and adjust. Presets:" + presets +
         "\nExamples: {\"path\":\"assets/textures/desk.png\",\"preset\":\"planks\",\"width\":1280,\"height\":720,\"seed\":4} / "
+        "{\"path\":\"assets/textures/long_planks.png\",\"preset\":\"planks\",\"plankCount\":7,\"plankLength\":0,\"gapWidth\":0.01} / "
         "{\"path\":\"assets/textures/cover.png\",\"preset\":\"leather\",\"color\":\"#5b2a1a\",\"accent\":\"#1d0d07\",\"normalMap\":true} / "
         "{\"path\":\"assets/textures/page.png\",\"preset\":\"parchment\",\"width\":640,\"height\":900,\"vignette\":0.6} / "
         "{\"path\":\"assets/textures/floor.png\",\"preset\":\"stone\",\"tileable\":true,\"scale\":2}";
@@ -907,6 +935,10 @@ void register_texture_command(CommandRegistry& registry, const std::string& proj
                {"angle", Json::object({{"type", "number"}, {"minimum", -360}, {"maximum", 360}, {"default", 0}, {"description", "gradient only: direction in degrees. 0 runs from the top to the bottom, 90 from the left to the right."}})},
                {"normalMap", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Also write the tangent-space normal map of the same relief as <path without .png>_n.png (+X right, +Y up the picture, the convention of Sprite.normalMap and glTF), with its own provenance record."}})},
                {"normalStrength", Json::object({{"type", "number"}, {"minimum", 0.1}, {"maximum", 20}, {"default", 3}, {"description", "How deep the relief of the normal map is: 1 subtle, 3 clear, 10 deep."}})},
+               {"plankCount", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", 64}, {"description", "planks only: how many boards are stacked from the top to the bottom of the picture (each runs from left to right). Default: follows `scale` (6 at scale 1)."}})},
+               {"plankLength", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "planks only (default 1): the length of a board as a fraction of the picture's width. 0 makes every board run from side to side with no butt joint (a desk top); 1 (the default) gives each row one joint, 0.5 two boards per row, 0.25 four. Joints are staggered row by row."}})},
+               {"gapWidth", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 0.2}, {"description", "planks only (default 0.015): the gap between boards as a fraction of a board's width (at least one pixel). 0.015 is a fine seam, 0.05 a wide gap."}})},
+               {"gapDarkness", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "planks only (default 0.55): how dark the gaps are. 0 leaves them the colour of the wood (only the bevel shows), 1 makes them nearly as dark as `accent` allows."}})},
                {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the file when it already exists."}})},
                {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record. Default: \"factoria\"."}})}})}});
     registry.add(info, [projectDir](const Json& args) { return generate_texture(projectDir, args); });

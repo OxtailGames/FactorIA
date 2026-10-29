@@ -128,3 +128,55 @@ TEST_CASE("assets.rasterize_svg: unsupported features are named, and errors teac
     auto again = p.call("assets.rasterize_svg", Json{{"path", "assets/o.png"}, {"svg", kSvg}, {"width", 16}});
     CHECK(again.error["code"] == "exists");
 }
+
+namespace {
+
+double diff(const Image& a, const Image& b) {
+    double d = 0;
+    for (std::size_t i = 0; i < a.rgba.size(); ++i) d += std::abs(int(a.rgba[i]) - int(b.rgba[i]));
+    return d / a.rgba.size();
+}
+
+}  // namespace
+
+TEST_CASE("assets.rasterize_svg: style paints a watercolour, ink or paper look, seeded") {
+    AssetsProject p;
+    Json base = Json{{"path", "assets/art/plain.png"}, {"svg", kSvg}, {"width", 160}};
+    p.ok("assets.rasterize_svg", base);
+    const Image plain = read_png(p.file("assets/art/plain.png"));
+    for (const char* style : {"watercolor", "ink", "inkwash", "paper"}) {
+        INFO(std::string(style));
+        Json a = Json{{"path", "assets/art/styled.png"}, {"svg", kSvg}, {"width", 160}, {"style", style}, {"seed", 5}, {"overwrite", true}};
+        const Json r = p.ok("assets.rasterize_svg", a);
+        CHECK(r["provenance"]["notes"].get<std::string>().find(std::string("style ") + style) != std::string::npos);
+        const Image styled = read_png(p.file("assets/art/styled.png"));
+        REQUIRE(styled.width == 160);
+        CHECK(diff(plain, styled) > 1.0);                // the picture changed
+        CHECK(get(styled, 120, 70).a == 0);              // empty space stays transparent (nothing is painted outside the shapes)
+        CHECK(get(styled, 25, 25).a == 255);             // the inside of a shape stays solid
+        const std::string first = read_all(p.file("assets/art/styled.png"));
+        p.ok("assets.rasterize_svg", a);
+        CHECK(read_all(p.file("assets/art/styled.png")) == first);  // same seed, same bytes
+        a["seed"] = 6;
+        p.ok("assets.rasterize_svg", a);
+        CHECK(read_all(p.file("assets/art/styled.png")) != first);  // another seed, another take
+    }
+}
+
+TEST_CASE("assets.rasterize_svg: styleStrength scales the style; a style that does not exist teaches") {
+    AssetsProject p;
+    p.ok("assets.rasterize_svg", Json{{"path", "assets/art/plain.png"}, {"svg", kSvg}, {"width", 160}});
+    const Image plain = read_png(p.file("assets/art/plain.png"));
+    p.ok("assets.rasterize_svg", Json{{"path", "assets/art/soft.png"}, {"svg", kSvg}, {"width", 160}, {"style", "paper"}, {"styleStrength", 0.2}});
+    p.ok("assets.rasterize_svg", Json{{"path", "assets/art/full.png"}, {"svg", kSvg}, {"width", 160}, {"style", "paper"}});
+    CHECK(diff(plain, read_png(p.file("assets/art/soft.png"))) < diff(plain, read_png(p.file("assets/art/full.png"))));
+
+    auto typo = p.call("assets.rasterize_svg", Json{{"path", "assets/art/x.png"}, {"svg", kSvg}, {"style", "watercolour"}});
+    REQUIRE_FALSE(typo.ok);
+    CHECK(typo.error["hint"].get<std::string>().find("watercolor") != std::string::npos);
+    CHECK_FALSE(p.call("assets.rasterize_svg", Json{{"path", "assets/art/x.png"}, {"svg", kSvg}, {"style", "paper"}, {"styleStrength", 3}}).ok);
+    const Json ignored = p.ok("assets.rasterize_svg", Json{{"path", "assets/art/y.png"}, {"svg", kSvg}, {"seed", 4}});
+    REQUIRE(ignored.contains("warnings"));
+    CHECK(ignored["warnings"][0].get<std::string>().find("only matter with a `style`") != std::string::npos);
+    CHECK_FALSE(p.exists("assets/art/x.png"));
+}

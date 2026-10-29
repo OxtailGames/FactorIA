@@ -4,6 +4,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Assets
+
+- `assets.generate_texture` `planks`: new options `plankCount`, `plankLength`, `gapWidth` and `gapDarkness`. Boards can run
+  from side to side with no butt joint (`plankLength: 0`), and the defaults are now longer boards (one staggered joint
+  per row) with a fine, softer seam, so a desk top seen from above no longer reads as a brick wall.
+- `assets.rasterize_svg` has a `style` (`watercolor`, `ink`, `inkwash`, `paper`) with `styleStrength` and `seed`: a seeded,
+  deterministic painterly post-process (wobbling edges, pooled pigment, granulation, a pen line, paper tooth) for
+  storybook art without filters or hundreds of extra shapes in the SVG.
+
 AI panel
 
 - **AI settings...** (next to **Roles...**, and **File > AI Settings...**) is a new window with two sections. **Asset
