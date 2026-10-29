@@ -25,7 +25,7 @@ APPIMAGE_PNG = HERE.parent.parent.parent / "platforms" / "linux" / "factoria.png
 WINDOW_SIZES = [16, 24, 32, 48, 64, 128, 256]
 SMALL_SIZES = {16, 24}       # drawn from the simplified source
 PAD = 96                     # background added around the artwork, so a crop may reach past its edges
-TILE_TOP, TILE_BOTTOM = (60, 90, 178), (30, 46, 112)  # the navy the tile background is lifted to (see lift)
+TILE_TOP, TILE_BOTTOM = (34, 50, 104), (12, 18, 48)  # the navy the tile background is lifted to (see lift)
 SS = 4                       # supersampling of the rounded-square mask
 
 
