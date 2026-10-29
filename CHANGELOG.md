@@ -37,6 +37,16 @@ Animations drawn with code
 - The provenance of the sheet is `generated` (`ai` true unless you pass `ai: false`, `author` and `license`) with a
   `recipe`: the command, its arguments, and the module (and what it imported) with its SHA-256, so the sheet can be made
   again byte for byte.
+- `assets.bake_sheet` bakes an entity the engine draws into a sprite sheet: a prefab, or an entity of a scene with its
+  children, plays alone in a private world at the fixed step (Shape2D with gradients and strokes, sprites,
+  SpriteAnimator, Tint, tweens, particles and scripts all run) and a frame is captured every 1/`fps` seconds. The cell is
+  the box of everything drawn in any frame, so a growing burst is never cut, and the entity's origin is the same pixel
+  in every frame (the sheet's `pivot`, which you can choose). `clips` bakes named clips, each started by a behaviour
+  method (`call`) or a game event (`event`); `warmup`, `seed`, `scale`, `frameWidth` / `frameHeight` (fit the animation to a
+  fixed cell), `background` and `padding` are options. The pixels are straight alpha with no dark fringes. It records the
+  `sheet` entry, a `generated` provenance (`ai` taken from the prefab or scene) and the recipe, so `assets.regenerate` can
+  make it again. It needs a GPU; when the process already uses its graphics device (the editor, MCP) it bakes in a child
+  `factoria call`. Bake effects to save draw calls on mobile (docs/ASSETS.md, docs/AI_GUIDE.md).
 
 ## 0.5.0
 

@@ -475,6 +475,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     register_svg_command(registry, projectDir);
     register_animate_svg_command(registry, projectDir);
     register_preview_sheet_command(registry, projectDir);
+    register_bake_sheet_command(registry, projectDir);
     register_audio_commands(registry, projectDir);
     register_subset_font_command(registry, projectDir);
 }

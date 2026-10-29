@@ -47,6 +47,38 @@ Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` 
 | `author` | string | no | Who gets the credit in the provenance record. |
 | `license` | string | no | License of the sheet for the provenance record. Default "CC0-1.0". |
 
+## `assets.bake_sheet` (modifies state)
+
+Not released yet (on main after 0.5.0).
+
+Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D, tweens, particles and scripts play and are captured frame by frame.
+
+Plays a prefab (`prefab`) or an entity of a scene with its children (`scene` + `entity`) alone in a private world and captures it into a PNG sprite sheet at `path` (under assets/, ending in .png), with its `sheet` entry, provenance and recipe in assets.json. Use it to turn something that costs many draw calls on a phone (a glow made of shapes, a particle burst, a tweened badge, a scripted explosion) into ONE sprite, to make an effect once and play it as a SpriteAnimator, or to draw animated art with the engine's own Shape2D (gradients, strokes) instead of SVG. The world is simulated at the project's fixed step with the world RNG seeded from `seed`, so the same prefab, seed and settings bake the same pixels on the same GPU (the pixels of two different GPUs can differ by an edge pixel); a frame is captured every 1/`fps` seconds of simulated time, `frames` frames per clip. SpriteAnimator, Tint, tweens, ParticleEmitter, Shape2D, Sprite and the entity's scripts all run as in the game; nothing else is in the world (no other entities and no lights: a `lit` sprite is drawn as in a world without lights). The entity is placed at the origin of the world, even when the scene puts it elsewhere. Frame 0 is drawn after one step (the entity's start() has run) and after `warmup` seconds. `clips` bakes several named clips from one entity, each in a fresh world: `[{"name":"explode","call":"explode","frames":24,"loop":false}, {"name":"idle","frames":8}]`; `call` runs that method of the entity's behaviour right after the warm-up (`args` are its arguments), `event` sends a game event instead (`data`); a clip with neither just plays. They follow each other in the sheet and become clips of its `sheet` entry (firstFrame, lastFrame, fps, loop). Framing: the pixels are drawn at `scale` pixels per world unit and cropped to everything drawn in ANY frame plus `margin`, so nothing is cut (a particle burst that grows is included) and the entity's origin is the same pixel in every frame: it is the `pivot` recorded in the sheet entry ([x, y] in 0..1 from the top-left of the frame). Give `pivot` to choose where the origin lands (a character's feet: [0.5, 1]); give `frameWidth` and `frameHeight` for a fixed cell: without `scale` the animation is scaled to fit it, with `scale` it must fit or the command fails and says how large the cell must be. The colours are straight alpha with the colour of the edge pixels bled outwards, so a sprite scaled with filtering has no dark halo; additive glows keep their light (their alpha is the brightest channel). `background` puts a colour behind the frames (default transparent). `padding` leaves transparent pixels around each cell (default 1; the sheet entry records it). Needs a GPU (Metal, Direct3D 11 or OpenGL; headless Linux needs Mesa's EGL). A process has one graphics device: when this one already uses it (the editor, an MCP session with graphics) the bake runs in a child `factoria call` process; from a terminal `factoria call assets.bake_sheet` works as is. A script that throws, a `call` that is not a method of the behaviour (with its methods and a suggestion) or a prefab that does not load fail with an error that names the prefab and the script. Provenance: origin generated, `ai` is true when the prefab, the scene or a texture it draws is recorded in assets.json as AI-made (pass `ai` to override, with `author` and `license`); the recipe holds the arguments and the SHA-256 of the prefab or scene, its scripts and textures, so assets.regenerate can make the sheet again and validate can tell when it is stale. Example: {"path":"assets/fx/burst.png","prefab":"prefabs/burst.prefab.json","frames":16,"fps":24,"warmup":0.5,"pivot":[0.5,0.5]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the PNG sheet, project-relative, under assets/ and ending in .png. |
+| `prefab` | string | no | The prefab to bake, project-relative ("prefabs/burst.prefab.json"). Give this, or `scene` + `entity`. |
+| `scene` | string | no | A scene file that holds the entity to bake. Needs `entity`. |
+| `entity` | string | no | The id of the entity of `scene` to bake, with its children. |
+| `frames` | integer | no | Frames per clip (all of them without `clips`). Default 12. |
+| `fps` | number | no | Frames per second of simulated time (at most the project's fixed rate, 60 by default): a frame is captured every 1/fps seconds. Also the sheet's clip speed. Default 12. |
+| `columns` | integer | no | Columns of the grid; 0 or absent = square-ish. |
+| `frameWidth` | integer | no | Pixels of a cell. Absent = as wide as the animation needs. |
+| `frameHeight` | integer | no | Pixels of a cell. Absent = as tall as the animation needs. |
+| `scale` | number | no | Pixels per world unit (1 = the size the entity has in the world, 2 = twice as big). Absent: 1, or the scale that fits frameWidth x frameHeight when both are given. |
+| `pivot` | array | no | [x, y] in 0..1 from the top-left of the frame: where the entity's origin lands in every frame ([0.5, 1] = middle of the bottom edge). Absent: where the animation puts it (the cell is the tight box of everything drawn). |
+| `clips` | array | no | Named clips, each in a fresh world: {name, call?, args?, event?, data?, frames?, fps?, loop?, warmup?}. `call` is a method of the entity's behaviour, `event` a game event (world.on); both start the clip after the warm-up. They follow each other in the sheet. |
+| `warmup` | number | no | Seconds of simulated time to play before the first frame (a particle system that should start full). A clip can set its own. Default 0. |
+| `seed` | integer | no | Seeds the world RNG (scripts' rng, random particles): the same seed gives the same sheet. Default 1. |
+| `background` | any | no | A colour behind the frames ("#rrggbb", "#rrggbbaa", a name or [r, g, b]). Default: transparent. |
+| `padding` | integer | no | Transparent pixels around every cell (twice between two cells), recorded in the sheet entry. Default 1. |
+| `margin` | integer | no | Empty pixels kept around the animation's outline. Default 2. |
+| `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
+| `ai` | boolean | no | Override the AI disclosure. Default: true when the prefab/scene or a texture it draws is recorded as AI-made in assets.json. |
+| `author` | string | no | Who gets the credit in the provenance record. |
+| `license` | string | no | License of the sheet for the provenance record. Default "CC0-1.0". |
+
 ## `assets.convert_audio` (modifies state)
 
 Since 0.3.0.

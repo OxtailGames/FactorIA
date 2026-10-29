@@ -159,6 +159,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `assets_import`, `assets_slice_sheet` | `assets.import`, `assets.slice_sheet` | Bring a file made elsewhere into `assets/` with its provenance, and make a sprite sheet playable by `SpriteAnimator` (section 9.23). |
 | `assets_generate_texture`, `assets_rasterize_svg` | `assets.generate_texture`, `assets.rasterize_svg` | Art with no image provider: a seeded material (paper, parchment, wood, planks, leather, fabric, stone, noises, gradients, vignette; tileable, with a normal map) and an SVG you write turned into a PNG. Section 9.23, "Art without an image provider". |
 | `assets_animate_svg` | `assets.animate_svg` | An animation you write as code (a JS module that returns the SVG of each frame, or one SVG with SMIL) baked into a sprite sheet PNG and its `sheet` entry, offline. Section 9.23, "Animations drawn with code". |
+| `assets_bake_sheet` | `assets.bake_sheet` | Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D with gradients, tweens, particles and scripted clips play and are captured frame by frame. Section 9.23, "Effects drawn by the engine, baked". |
 | `assets_draw_icon`, `assets_draw_capsules` | `assets.draw_icon`, `assets.draw_capsules` | Draw the game icon (1024x1024) and the Android adaptive-icon foreground from shapes and text, and the store page images (capsules, heroes, covers) at each store's sizes from key art and a logo, no image provider needed (docs: assets, exporting). |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
 | `engine_update_status` | `engine.update_status` | Whether FactorIA was replaced on disk after this server started (`restartDue`), the running and on-disk builds and the state of the project's `.mcp.json`. |
@@ -1354,6 +1355,13 @@ assets_rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmln
   `assets_rasterize_svg`. `clip-path`, `mask` and `<pattern>` fills (line hatching) work; no text, filters, `<use>` or CSS classes (they are drawn as
   nothing and named in `warnings`); in gradients write coordinates in percent (`x2="100%"`). Keep the SVG in the project
   (`assets/art/crest.svg`, then `source`) so you can edit it and rasterize again.
+- **Effects and animated art** you build from entities (Shape2D with gradients and strokes, particles, tweens, a scripted
+  explosion) are baked into a sprite sheet with `assets_bake_sheet {"path":"assets/fx/burst.png","prefab":"prefabs/burst.prefab.json","frames":16,"fps":24}`:
+  it plays the prefab alone in a private world and captures frames, and the sheet is one `Sprite` with a `SpriteAnimator`.
+  **Bake effects to save draw calls on mobile**: a glow of five shapes or a burst of particles is many draw calls on every
+  frame, a baked one is one. `clips` bakes named clips (`{"name":"die","call":"die"}` runs the behaviour's `die()`), `pivot`
+  keeps the origin still (feet: `[0.5, 1]`), `frameWidth` / `frameHeight` fix the cell. Its `pivot` is counted from the
+  top-left of the frame and `Sprite.pivot` from the bottom-left: set `Sprite.pivot` to `[x, 1 - y]`. It needs a GPU.
 - **Look at the picture** in the result, change one thing and call again with `overwrite: true`. The icon and the store
   images are `assets_draw_icon` and `assets_draw_capsules`; sounds are `assets_synth_sound`.
 - **Provenance** is recorded: a texture is `original` (not AI); an SVG you wrote counts as AI-made unless you pass
