@@ -2,6 +2,15 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Editor
+
+- On macOS the editor's menus are in the Mac's own menu bar, like any Mac app: the FactorIA menu (About with the version,
+  Settings... Cmd+, , Hide, Quit Cmd+Q), File, Edit, View, AI, Export (Export Game... Cmd+E), Window and Help. Shortcuts are
+  Cmd+S, Cmd+Z and Cmd+Shift+Z, and go to a focused text box instead of the scene. Windows and Linux keep the bar inside the
+  window. `FA_EDITOR_NATIVE_MENU=0` brings the in-window bar back on a Mac.
+
 ## 0.4.0
 
 FactorIA 0.4.0 is about making a game with the AI inside the editor: several chats at once, roles you can turn on and
