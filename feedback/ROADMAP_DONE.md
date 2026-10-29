@@ -3078,3 +3078,105 @@ menu (About with version and build, Settings... Cmd+,, Hide, Quit Cmd+Q through 
 (Export Game... Cmd+E), a Window menu, Redo on Cmd+Shift+Z, and Save/Undo/Redo give their key to a focused text box.
 `FA_EDITOR_NATIVE_MENU=0` brings the in-window bar back. The version became 0.5.0; 0.4.0 (`2f62cefd`) closed M29-M39.
 
+## M41. Animations drawn with code, baked into sprite sheets — DONE (`m41/integrated`, 0.6.0)
+
+Done: the shared contract `a14ad3e6` (`provenance.recipe`, the sheet's `padding` and `pivot`, `make_recipe`), then
+M41.1 animate_svg (merge `bdb46b58`), M41.3 bake_sheet (`0e204977`), M41.2 recipes and `assets.regenerate`
+(`11b8e5a7`) and M41.4 clips by name and `assets.preview_sheet` (`5dd3b22f`). The pivot in the sheet is counted from
+the top-left of the cell; `SpriteAnimator` flips it to the Sprite's bottom-left (`[x, 1 - y]`). Both editor packages
+added an autotest section: recipes are Y, sprite sheets Z.
+
+The plan as it was written:
+
+Asked by the user, from what they did with another AI: draw each frame of an animation with code at a deterministic
+time `t = frame / fps`, on a transparent background, pack the frames into a sprite sheet with its manifest, check it,
+load it in the game and keep the source so the sheet can be made again. Then: "do all three" (the code-drawn sheet,
+the regenerable source and baking engine-drawn entities); the complete version, however long it takes.
+
+What already exists and is reused: `assets.rasterize_svg` (nanosvg on the CPU, deterministic, transparent, `style`,
+`seed`), `style.palette`, the `sheet` entry in assets.json (`columns, rows, frameWidth, frameHeight, frames`, clips
+`name, firstFrame, lastFrame, fps, loop`), `assets.slice_sheet`, `assets.pack_atlas` (pivots), `SpriteAnimator`
+(forward only), Aseprite import, the `game.screenshot` filmstrip, `Engine::capture_region` and the headless GPU.
+
+Shared contract (fixed before the packages start, so they can run in parallel): a made asset's provenance carries
+`recipe: {command, args, inputs: [{path, sha256}]}`: the command that made it, the arguments that make the same bytes
+again (paths project-relative, `seed` explicit) and the project files it read with their hashes. M41.1 and M41.3 write
+it; M41.2 reads it for every command that writes one, and adds it to the existing offline makers.
+
+Version: 0.6.0 when it lands.
+
+### M41.1 Code-drawn animations: assets.animate_svg (L)
+
+- `assets.animate_svg {path, source | svg, frames, fps, loop, columns, frameWidth, frameHeight, params, seed, clips,
+  pivot, palette, style, styleStrength, padding}` writes a PNG sprite sheet plus its `sheet` entry, in one call.
+- `source` is a project JS module (`art/coin_spin.anim.js`) whose default export is `frame({t, frame, frames, fps,
+  progress, params, rng}) => string`, an SVG for that frame. It runs in a sandboxed QuickJS context with no engine
+  bindings, no `Math.random` and no `Date` (both replaced by deterministic ones; `rng` is seeded from `seed` and the
+  frame), and a per-call time and memory limit. Errors point at the module's file and line and name the frame.
+- `svg` is one SVG with SMIL animation (`<animate>`, `<animateTransform>`, `<animateMotion>` on a path, `values`,
+  `keyTimes`, `keySplines`, `calcMode`, `begin`/`dur`/`repeatCount`), sampled at each `t`: the subset AIs write when
+  asked for an animated SVG. Unsupported features are warnings that name the element.
+- Every frame is rasterized with the `rasterize_svg` path (same `style`, `seed`, palette snapping), on a transparent
+  background, into cells of `frameWidth x frameHeight` with `padding` gutters (no bleed between frames when filtered).
+- `clips` makes several named clips from one module (`[{name: "idle", frames: 8, params: {...}}, {name: "hit", ...}]`):
+  each clip's frames follow the previous ones in the sheet and get their own `sheet` clip with `fps` and `loop`.
+- `pivot` ([x, y] 0..1, default [0.5, 0.5]) is recorded in the `sheet` entry (M41.4 reads it).
+- The result returns the sheet as an image (like `game.screenshot`), the layout, and warnings: empty frames, frames
+  whose shapes touch the cell edge (clipped), a loop whose last frame jumps from the first.
+- Provenance origin `generated`, `ai` true by default (`ai: false` + `author`, `license` like rasterize_svg), with the
+  recipe (the module and its hash in `inputs`).
+- Tests: a module and a SMIL SVG each give a byte-identical sheet twice; the layout and clips; a JS error with file,
+  line and frame; the time limit; `Math.random` is deterministic; palette snapping; padding.
+- Docs: ASSETS.md (a section with a worked example), AI_GUIDE.md (when to draw with code, when to bake, when to ask a
+  provider), the command doc strings, api_since.
+
+### M41.2 Recipes: make any made asset again (M)
+
+- `assets.regenerate {path}` re-runs the recorded recipe through the command registry and reports what changed
+  (pixels or bytes, size, layout). `{all: true}` does every asset with a recipe; `{stale: true}` only those whose
+  `inputs` hashes no longer match the files. `dryRun` lists what would run.
+- `factoria validate` warns about a stale asset (its source changed since it was made) and about a recipe whose input
+  is missing, with the regenerate command in the hint.
+- The offline makers that already record their arguments write a full recipe too: `rasterize_svg`, `draw_icon`,
+  `draw_capsules`, `generate_texture`, `synth_sound`, `generate_loop`, `pack_atlas`, `slice_sheet`. Provider-made
+  assets (`generate_image`...) are not regenerable (they would cost money and give a different picture): validate says
+  so only if someone asks to regenerate them.
+- Editor: the Assets panel shows a "Regenerate" button (and a stale badge) on an asset with a recipe; the file watcher
+  offers to regenerate when an `.anim.js` or `.svg` source is saved.
+- Tests: regenerate gives the same bytes; stale detection; a missing input; every listed maker writes a recipe that
+  regenerates its own output byte for byte.
+
+### M41.3 Bake an engine-drawn entity into a sprite sheet: assets.bake_sheet (L)
+
+- `assets.bake_sheet {path, prefab | scene + entity, frames, fps, columns, frameWidth, frameHeight, scale, pivot,
+  clips, warmup, seed, background}` instantiates the prefab (or the scene's entity with its children) alone in a
+  private world, steps it deterministically at the fixed step and captures a frame every `1 / fps` seconds, so
+  Shape2D (gradients, strokes), sprites, SpriteAnimator, Tint, tweens, particles and scripts all bake as they play.
+- The picture is drawn offscreen on the GPU with a transparent clear, and the premultiplied result is converted to
+  straight alpha with no dark fringes; the camera frames the union of the entity's bounds over all frames (plus a
+  margin), so nothing is cut and the pivot stays still between frames.
+- `clips` bakes several named clips, each starting from a script event or a call (`[{name: "explode", call:
+  "explode", frames: 24}]`, the call is a method of the entity's behaviour); `warmup` steps first (a particle system
+  that should start full).
+- Works with the headless GPU on every backend (Metal, D3D11, GL/EGL, and the editor's device); tests on the backend
+  of the machine running them, golden images with tolerance.
+- Writes the same `sheet` entry, provenance (origin `generated`, `ai` from the prefab's provenance) and recipe as M41.1,
+  and returns the sheet as an image.
+- Tests: a Shape2D with a tween bakes the same pixels twice; transparent edges have no dark fringe; the frame covers a
+  particle burst; clips through a behaviour call; a scripted error names the prefab.
+- Docs: ASSETS.md, AI_GUIDE.md (bake effects to save draw calls on mobile), doc strings, api_since.
+
+### M41.4 Sheets the game plays by name, and checking them (M)
+
+- `SpriteAnimator.clip` plays a clip of the sprite texture's `sheet` entry by name (`"run"`): columns, rows, frames,
+  fps and loop come from assets.json, so a scene names only the texture and the clip. The existing numeric fields stay
+  and override. `play(name)` from scripts, a `clipEnded` event, `mode` `forward | reverse | pingpong`.
+- The `sheet` entry's `pivot` sets `Sprite.pivot` when the sprite does not set its own; per-clip `pivot` too.
+- `assets.preview_sheet {path, clip}` returns a labelled grid of the clip's frames (frame numbers, cell edges, the
+  pivot marked, onion skin of the previous frame optional) and checks the sheet: empty frames, shapes cut by the cell
+  edge, the bounding box jumping between frames, a loop seam, a grid that does not match the image.
+- Editor: the inspector of a SpriteAnimator lists the clips of its texture, and the asset preview plays a sheet's clips.
+- An example: one of the 2D examples (neon-swarm or sky-hopper) gets a character or effect made with
+  `assets.animate_svg` from a module kept in the example, played by clip name, with a test that checks it animates.
+- Tests: clip by name, pingpong and reverse, the clipEnded event, pivot from the sheet, preview checks.
+- Docs: COMPONENTS (generated), ASSETS.md, the d.ts typings.

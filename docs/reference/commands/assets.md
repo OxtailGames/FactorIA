@@ -16,7 +16,7 @@ Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak 
 
 ## `assets.animate_svg` (modifies state)
 
-Not released yet (on main after 0.5.0).
+Since 0.6.0.
 
 Draw an animation with code (a JS module that returns the SVG of each frame, or an SVG with SMIL) and bake it into a sprite sheet PNG plus its `sheet` entry, offline: no provider, no key.
 
@@ -49,7 +49,7 @@ Writes a sprite sheet at `path` (under assets/, ending in .png) and its `sheet` 
 
 ## `assets.bake_sheet` (modifies state)
 
-Not released yet (on main after 0.5.0).
+Since 0.6.0.
 
 Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D, tweens, particles and scripts play and are captured frame by frame.
 
@@ -409,7 +409,7 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 
 ## `assets.preview_sheet`
 
-Not released yet (on main after 0.5.0).
+Since 0.6.0.
 
 Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam.
 
@@ -466,7 +466,7 @@ Rasterizes an SVG to a PNG at `path` (under assets/, ending in .png) with no AI 
 
 ## `assets.regenerate` (modifies state)
 
-Not released yet (on main after 0.5.0).
+Since 0.6.0.
 
 Make a made asset again from the recipe its provenance records, and say what changed.
 
