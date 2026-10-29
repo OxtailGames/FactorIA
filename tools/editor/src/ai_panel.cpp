@@ -1362,7 +1362,12 @@ void Editor::draw_ai_panel() {
     ImGui::BeginChild("##chat", ImVec2(0, -footer), ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
     if (chat.items.empty()) {
-        ImGui::TextDisabled("Describe what you want built or changed. The assistant uses the same commands as the console (scene.*, fs.*, game.*...) and edits the open scene. Changes can be undone with Ctrl+Z.");
+        #ifdef __APPLE__
+        constexpr const char* kUndoKey = "Cmd+Z";
+#else
+        constexpr const char* kUndoKey = "Ctrl+Z";
+#endif
+        ImGui::TextDisabled("Describe what you want built or changed. The assistant uses the same commands as the console (scene.*, fs.*, game.*...) and edits the open scene. Changes can be undone with %s.", kUndoKey);
         ImGui::TextDisabled("To show it a picture: drop image files on this window, press Ctrl+V with a picture copied, or use Attach image.");
     }
     int idx = 0;
