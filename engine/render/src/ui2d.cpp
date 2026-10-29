@@ -45,6 +45,7 @@ struct Ctx {
     Frame& f;
     Rect clip;
     float fade = 1.0f;
+    Color tint{1, 1, 1, 1};  // the Tint components of the widget and its ancestors (inherited_tint)
     float capScale = 0.0f;  // the widget's maxTextScale (0 = none): line() draws its labels at most at this text scale
     float k = 1.0f;         // the interface scale: UI units -> screen pixels
     TextDirection dir = TextDirection::Auto;  // base direction of the labels: the language's for a widget with a localization key
@@ -57,8 +58,9 @@ float snap(const Ctx& c, float v) { return std::round(v * c.k) / c.k; }
 // A rectangle of UI units as screen pixels (for the scissor).
 Rect to_pixels(const Ctx& c, const Rect& r) { return Rect{r.x * c.k, r.y * c.k, r.w * c.k, r.h * c.k}; }
 
-std::uint32_t pack(Color c, float fade) {
-    c.a *= fade;
+std::uint32_t pack(Color c, const Ctx& ctx) {
+    c = c * ctx.tint;
+    c.a *= ctx.fade;
     return pack_color(c);
 }
 
@@ -70,7 +72,7 @@ void quad(const Ctx& c, float x0, float y0, float x1, float y1, float u0, float 
 
 void fill(const Ctx& c, int layer, const Rect& r, Color col, const Rect& clip) {
     c.list().begin_item(layer, 0, c.f.assets->white(), SamplerKind::Nearest, BlendMode::Alpha, clip);
-    quad(c, r.x, r.y, r.x + r.w, r.y + r.h, 0, 0, 1, 1, pack(col, c.fade));
+    quad(c, r.x, r.y, r.x + r.w, r.y + r.h, 0, 0, 1, 1, pack(col, c));
     c.list().end_item();
 }
 
@@ -78,7 +80,7 @@ void fill(const Ctx& c, int layer, const Rect& r, Color col, const Rect& clip) {
 void outline(const Ctx& c, int layer, const Rect& r, float t, Color col) {
     t = std::min(t, std::min(r.w, r.h) * 0.5f);
     const float x1 = r.x + r.w, y1 = r.y + r.h;
-    const std::uint32_t k = pack(col, c.fade);
+    const std::uint32_t k = pack(col, c);
     c.list().begin_item(layer, 0, c.f.assets->white(), SamplerKind::Nearest, BlendMode::Alpha, c.clip);
     quad(c, r.x, r.y, x1, r.y + t, 0, 0, 1, 1, k);
     quad(c, r.x, y1 - t, x1, y1, 0, 0, 1, 1, k);
@@ -105,7 +107,7 @@ void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
             // Inside the atlas when the texture is packed (an export's `atlas` import setting).
             const Vec2 lo = tex->uv(us[i] * float(tex->width), vs[j] * float(tex->height));
             const Vec2 hi = tex->uv(us[i + 1] * float(tex->width), vs[j + 1] * float(tex->height));
-            quad(c, xs[i], ys[j], xs[i + 1], ys[j + 1], lo.x, lo.y, hi.x, hi.y, pack(tint, c.fade));
+            quad(c, xs[i], ys[j], xs[i + 1], ys[j + 1], lo.x, lo.y, hi.x, hi.y, pack(tint, c));
         }
     c.list().end_item();
 }
@@ -137,9 +139,10 @@ float label_px(const Ctx& c, const World& world, Entity e, const Rect& r) {
 
 void text(const Ctx& c, const TextLayout& lay, float x, float y, Color col, int layer, const Rect& clip) {
     if (lay.quads.empty() && lay.icons.empty()) return;
+    col = col * c.tint;
     col.a *= c.fade;
     emit_text(c.list(), Mat4::translate({std::round(x * c.k), std::round(y * c.k), 0}) * c.to_screen(), true, lay, col, *c.f.fonts,
-              *c.f.assets, layer, 0, clip);
+              *c.f.assets, layer, 0, clip, -1, c.tint);
     c.f.stats->textGlyphs += int(lay.quads.size());
 }
 
@@ -171,7 +174,7 @@ void icon(const Ctx& c, const Button& b, const Rect& dst, int layer, const Rect&
     const Vec2 hi = tex->uv(whole ? tw : reg.x + reg.w, whole ? th : reg.y + reg.h);
     c.list().begin_item(layer, 0, tex, SamplerKind::Linear, BlendMode::Alpha, clip);
     quad(c, snap(c, dst.x), snap(c, dst.y), snap(c, dst.x + dst.w), snap(c, dst.y + dst.h), lo.x, lo.y, hi.x, hi.y,
-         pack(Color{1, 1, 1, 1}, c.fade));
+         pack(Color{1, 1, 1, 1}, c));
     c.list().end_item();
 }
 
@@ -182,7 +185,7 @@ Color with_alpha(Color k, float a) { return {k.r, k.g, k.b, k.a * a}; }
 void disc(const Ctx& c, int layer, const Rect& r, Color col) {
     if (r.empty()) return;
     c.list().begin_item(layer, 0, c.f.assets->white(), SamplerKind::Nearest, BlendMode::Alpha, c.clip);
-    QuadEmitter{c.list(), c.to_screen(), true, pack(col, c.fade), kModeCircle, 0}.rect(r.x, -(r.y + r.h), r.x + r.w, -r.y, -1, -1, 1, 1);
+    QuadEmitter{c.list(), c.to_screen(), true, pack(col, c), kModeCircle, 0}.rect(r.x, -(r.y + r.h), r.x + r.w, -r.y, -1, -1, 1, 1);
     c.list().end_item();
 }
 
@@ -285,13 +288,13 @@ void draw_video(const Ctx& c, const Video& v, const UiBox& b, const Rect& r) {
     // The decoded picture is opaque, so only the tint can let the background through. background() rounds its edges to
     // whole pixels: the picture must reach those.
     constexpr float kEps = 1e-3f;
-    const bool opaque = v.tint.a * c.fade >= 1.0f;
+    const bool opaque = v.tint.a * c.tint.a * c.fade >= 1.0f;
     const bool hidden = opaque && dst.x <= snap(c, r.x) + kEps && dst.y <= snap(c, r.y) + kEps &&
                         dst.x + dst.w >= snap(c, r.x + r.w) - kEps && dst.y + dst.h >= snap(c, r.y + r.h) - kEps;
     if (!hidden) background(c, b, r, b.color);
     c.list().begin_item(v.layer + 1, 0, tex, SamplerKind::LinearClamp, BlendMode::Alpha, c.clip);
     if (opaque) c.list().set_opaque();  // the same pixels without blending: less work for software rasterizers
-    quad(c, dst.x, dst.y, dst.x + dst.w, dst.y + dst.h, u0, v0, u1, v1, pack(v.tint, c.fade));
+    quad(c, dst.x, dst.y, dst.x + dst.w, dst.y + dst.h, u0, v0, u1, v1, pack(v.tint, c));
     c.list().end_item();
 }
 
@@ -317,7 +320,7 @@ void draw_camera_view(const Ctx& c, const World& world, Entity e, const CameraVi
     if (!tex) return;
     c.list().begin_item(v.layer + 1, 0, tex, SamplerKind::LinearClamp, BlendMode::Alpha, c.clip);
     const float top = c.f.viewFlipV ? 1.0f : 0.0f, bottom = c.f.viewFlipV ? 0.0f : 1.0f;
-    quad(c, x0, y0, x1, y1, 0, top, 1, bottom, pack(v.tint, c.fade));
+    quad(c, x0, y0, x1, y1, 0, top, 1, bottom, pack(v.tint, c));
     c.list().end_item();
 }
 
@@ -350,14 +353,14 @@ void draw_chart(const Ctx& c, const World& world, const Chart& ch, const UiBox& 
                 const int slot = L.first + int(std::lround(m.get<double>()));
                 if (slot < 0 || slot >= L.slots) continue;
                 const float x = snap(c, L.x_of(slot) - (L.line ? 0.0f : L.slot_width() * 0.5f));
-                quad(c, x, L.plot.y, x + std::max(1.0f / c.k, 1.0f), L.plot.y + L.plot.h, 0, 0, 1, 1, pack(ch.markColor, c.fade));
+                quad(c, x, L.plot.y, x + std::max(1.0f / c.k, 1.0f), L.plot.y + L.plot.h, 0, 0, 1, 1, pack(ch.markColor, c));
             }
         if (ch.showBaseline && ch.baseline >= L.lo && ch.baseline <= L.hi) {
             const float y = snap(c, L.y_of(ch.baseline));
-            quad(c, L.plot.x, y, L.plot.x + L.plot.w, y + 1.0f, 0, 0, 1, 1, pack(ch.baselineColor, c.fade));
+            quad(c, L.plot.x, y, L.plot.x + L.plot.w, y + 1.0f, 0, 0, 1, 1, pack(ch.baselineColor, c));
         }
         for (int s = 0; s < L.series; ++s) {
-            const std::uint32_t col = pack(chart_series_color(ch, s), c.fade);
+            const std::uint32_t col = pack(chart_series_color(ch, s), c);
             const std::vector<double>& v = series[s];
             const int off = L.slots - int(v.size());  // each series is right-aligned on its own
             if (L.line) {
@@ -387,6 +390,7 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     Ctx c{f, Rect{}};
     if (!screen_clip(world, e, f, c.clip)) return;
     c.k = ui_scale_clamped(world.ui_scale());
+    c.tint = inherited_tint(world, f, e);
     const Rect r = *ui_layout_rect(world, e, Vec2{float(f.targetW), float(f.targetH)});  // UI units
     const bool mirrored = ui_mirrored(world, e);
     if (kind == UiKind::TouchButton) c.capScale = world.get<TouchButton>(e)->maxTextScale;

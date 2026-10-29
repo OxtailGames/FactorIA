@@ -196,6 +196,13 @@ components` (also `docs/COMPONENTS.md`). Vector/color fields are live views
 (`Tilemap.tiles`, `Script.props`) are plain objects — assign a new value to
 write.
 
+A bent or waving sprite is one `Sprite` with `meshColumns` / `meshRows` and a script that writes the whole `vertexOffsets`
+array each frame (`sprite.vertexOffsets = offsets`; `sprite.vertexOffsets[3] = 2` does not write back, because the property
+returns a copy). `Shape2D.gradientStops` is written the same way (`shape.gradientStops = [[0, "#ff0000"], [1, [0, 0, 1, 1]]]`).
+`Tint.color` is a live colour view: `menu.get("Tint").color.a = progress` fades the menu's whole subtree. See the "Tint, gradient
+stops, skew and bent sprites" recipe in `docs_read {"name":"ai-guide"}`. A script that awaits something before writing to
+such a component (a `texture.load`, a tween) checks that its entity is still alive and the scene the same first.
+
 Vectors, colours and rects are also array-like, live views included: `padding[1]`, `size[0]`, `[...color]`,
 `const [l, t, r, b] = panel.padding`, `for (const c of color)` and `Array.from(color)` give the components in the order
 of the named parts (`x y z w`, `r g b a`, `x y w h`) and the named parts keep working. `Array.isArray` is still false

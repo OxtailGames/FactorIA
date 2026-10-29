@@ -132,6 +132,10 @@ struct Sprite {
     Vec4 slice{0, 0, 0, 0};           // 9-slice borders in texture pixels [left, top, right, bottom] (0 = stretch the whole region)
     bool lit = false;                 // world space only: shaded by Light2D entities and SceneSettings.ambientLight
     std::string normalMap;            // tangent-space normal map with the same layout as `texture` ("" = flat); needs lit
+    Vec2 skew{0, 0};                  // shear in degrees [x, y] about the pivot: x leans the top edge sideways, y tilts the right edge up/down
+    std::int32_t meshColumns = 0;     // > 0 with meshRows > 0: the sprite is a grid of this many cells across (a deformable sprite)
+    std::int32_t meshRows = 0;        // > 0 with meshColumns > 0: grid cells down
+    Json vertexOffsets = Json::array();  // grid sprites: [dx, dy, ...] per grid vertex, row-major from the TOP row, local units (+y up)
 };
 
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
@@ -150,6 +154,17 @@ struct SpriteAnimator {
 
 enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond, Polygon, Star };
 enum class ShapeGradient : std::int32_t { None, Linear, Radial };
+// The curve a Shape2D gradient follows between its stops: the names are those of the script tween easings (docs/ANIMATION.md)
+// without the overshooting ones (the order is the index in the field's names, and gradient_ease_apply depends on it).
+enum class GradientEase : std::int32_t {
+    Linear, Smoothstep,
+    QuadIn, QuadOut, QuadInOut, CubicIn, CubicOut, CubicInOut, QuartIn, QuartOut, QuartInOut, QuintIn, QuintOut, QuintInOut,
+    SineIn, SineOut, SineInOut, ExpoIn, ExpoOut, ExpoInOut, CircIn, CircOut, CircInOut
+};
+// Maps t in [0, 1] through a gradient curve (0 -> 0, 1 -> 1); t is clamped first.
+float gradient_ease_apply(GradientEase ease, float t);
+// The most stops a Shape2D.gradientStops uses; further ones are ignored.
+constexpr int kMaxGradientStops = 8;
 // Untextured primitive for prototypes, UI panels and debug visuals.
 struct Shape2D {
     ShapeType shape = ShapeType::Rectangle;
@@ -172,6 +187,8 @@ struct Shape2D {
     ShapeGradient gradient = ShapeGradient::None;  // rectangle/circle fill: none (flat `color`), linear or radial between color and color2
     Color color2{1, 1, 1, 1};         // gradient: the colour at the end of the gradient (`color` is the start)
     float gradientAngle = 0.0f;       // linear gradient: degrees; 0 = color on the left to color2 on the right, 90 = bottom to top
+    Json gradientStops = Json::array();  // gradient: [[t, color], ...] (t 0..1, up to 8) replacing color -> color2; [] = just those two
+    GradientEase gradientEase = GradientEase::Linear;  // gradient: the curve applied to the position before the colour lookup
 };
 
 struct Text {
@@ -262,6 +279,13 @@ struct Parallax {
     bool repeatY = false;             // Sprite only: same along world y
     Vec2 repeatSize{0, 0};            // distance between repeats; 0 = the sprite's own size on that axis
     Vec2 offset{0, 0};                // runtime: the shift applied to the drawing this frame (written by the renderer)
+};
+
+// Colour multiplied into every 2D visual of this entity and of all its descendants (Sprite, Shape2D, Text, Tilemap, particles
+// and screen-space UI widgets): fade or colour a whole group with one component. The tints of the entity and its ancestors
+// multiply, alpha included.
+struct Tint {
+    Color color{1, 1, 1, 1};          // RGBA multiplied into the colour (and alpha) of the entity's visuals and of its descendants'
 };
 
 // A light for lit 2D visuals (Sprite.lit, Tilemap.lit). Only lit visuals react to it; everything else is drawn as before.

@@ -172,6 +172,7 @@ void gather_particles(World& world, Frame& f) {
             anchor = Vec3{a.x, a.y, 0.0f};
         }
 
+        const Color tint = inherited_tint(world, f, e);
         TextureAsset* tex = em.texture.empty() ? f.assets->white() : f.assets->texture(em.texture);
         QuadList& list = screen ? f.screen : f.world;
         Rect clip;
@@ -185,7 +186,7 @@ void gather_particles(World& world, Frame& f) {
             float t = p.age / p.life;
             float size = lerp(em.startSize, em.endSize, t);
             if (size <= 0.0f) continue;
-            Color c = lerp(em.startColor, em.endColor, t);
+            Color c = lerp(em.startColor, em.endColor, t) * tint;
             if (c.a <= 0.0f) continue;
             Vec3 q = p.pos;
             if (screen) q.y = -q.y;  // flip the +Y up simulation onto the y-down screen
