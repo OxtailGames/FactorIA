@@ -74,9 +74,9 @@ def tile(art, inset, radius, fill):
     canvas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
     canvas.paste(lift(padded(art).crop(box).resize((side, side), Image.LANCZOS), TILE_TOP, TILE_BOTTOM), (inset, inset))
     mask = rounded_mask(1024, inset, radius)
-    rim = ImageChops.subtract(mask, rounded_mask(1024, inset + 7, radius - 7))
-    rim_layer = Image.new("RGBA", (1024, 1024), (130, 170, 255, 0))
-    rim_layer.putalpha(rim.point(lambda v: v * 190 // 255))
+    rim = ImageChops.subtract(mask, rounded_mask(1024, inset + 14, radius - 14)).filter(ImageFilter.GaussianBlur(3))
+    rim_layer = Image.new("RGBA", (1024, 1024), (120, 160, 255, 0))
+    rim_layer.putalpha(ImageChops.multiply(rim, mask).point(lambda v: v * 235 // 255))
     canvas = Image.alpha_composite(canvas, rim_layer)
     canvas.putalpha(ImageChops.multiply(canvas.getchannel("A"), mask))
     return canvas
