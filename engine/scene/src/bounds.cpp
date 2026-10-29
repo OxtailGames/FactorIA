@@ -32,6 +32,44 @@ VisualFootprint make(const char* component, RenderSpace space, std::int32_t laye
 
 }  // namespace
 
+Mat4 sprite_shear_matrix(Vec2 skew) {
+    Mat4 m = Mat4::identity();
+    const float tx = std::tan(radians(std::clamp(std::isfinite(skew.x) ? skew.x : 0.0f, -80.0f, 80.0f)));
+    const float ty = std::tan(radians(std::clamp(std::isfinite(skew.y) ? skew.y : 0.0f, -80.0f, 80.0f)));
+    m.at(1, 0) = tx;  // column 1 (the y axis) gets an x part
+    m.at(0, 1) = ty;  // column 0 (the x axis) gets a y part
+    return m;
+}
+
+Vec2 sprite_shear_point(Vec2 p, Vec2 skew) {
+    if (skew.x == 0.0f && skew.y == 0.0f) return p;
+    const float tx = std::tan(radians(std::clamp(std::isfinite(skew.x) ? skew.x : 0.0f, -80.0f, 80.0f)));
+    const float ty = std::tan(radians(std::clamp(std::isfinite(skew.y) ? skew.y : 0.0f, -80.0f, 80.0f)));
+    return {p.x + p.y * tx, p.y + p.x * ty};
+}
+
+bool sprite_mesh_grid(const Sprite& s, int& columns, int& rows) {
+    columns = std::clamp(s.meshColumns, 0, kMaxSpriteMeshSide);
+    rows = std::clamp(s.meshRows, 0, kMaxSpriteMeshSide);
+    return columns > 0 && rows > 0 && columns * rows <= kMaxSpriteMeshCells;
+}
+
+std::vector<float> sprite_vertex_offsets(const Sprite& s, int columns, int rows) {
+    std::vector<float> out;
+    if (!s.vertexOffsets.is_array() || s.vertexOffsets.empty()) return out;
+    out.assign(std::size_t(columns + 1) * std::size_t(rows + 1) * 2, 0.0f);
+    std::size_t i = 0;
+    for (const Json& v : s.vertexOffsets) {
+        if (i >= out.size()) break;
+        if (v.is_number()) {
+            const float f = float(v.get<double>());
+            out[i] = std::isfinite(f) ? f : 0.0f;
+        }
+        ++i;
+    }
+    return out;
+}
+
 Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth, bool markup) {
     if (markup) {  // the visible characters: tags take no room, an icon is two characters (1.2 em: as tall as the line)
         const MarkupText m = parse_markup(utf8_decode(text));
@@ -90,9 +128,25 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
             }
             size = {size.x > 0 ? size.x : base.x, size.y > 0 ? size.y : base.y};
         }
-        out.push_back(make("Sprite", s->space, s->layer, s->anchor, s->safeArea,
-                           rect_quad(-s->pivot.x * size.x, -s->pivot.y * size.y, (1.0f - s->pivot.x) * size.x,
-                                     (1.0f - s->pivot.y) * size.y)));
+        const float x0 = -s->pivot.x * size.x, y0 = -s->pivot.y * size.y, x1 = (1.0f - s->pivot.x) * size.x, y1 = (1.0f - s->pivot.y) * size.y;
+        std::array<Vec2, 4> box = rect_quad(x0, y0, x1, y1);
+        int cols = 0, rows = 0;
+        const std::vector<float> offsets = sprite_mesh_grid(*s, cols, rows) ? sprite_vertex_offsets(*s, cols, rows) : std::vector<float>();
+        if (!offsets.empty()) {  // a deformed grid: the rectangle around its moved, sheared vertices
+            float lox = 1e30f, loy = 1e30f, hix = -1e30f, hiy = -1e30f;
+            for (int j = 0; j <= rows; ++j)
+                for (int i = 0; i <= cols; ++i) {
+                    const std::size_t k = (std::size_t(j) * std::size_t(cols + 1) + std::size_t(i)) * 2;
+                    const Vec2 p = sprite_shear_point({x0 + (x1 - x0) * float(i) / float(cols) + offsets[k],
+                                                       y1 + (y0 - y1) * float(j) / float(rows) + offsets[k + 1]}, s->skew);
+                    lox = std::min(lox, p.x); hix = std::max(hix, p.x);
+                    loy = std::min(loy, p.y); hiy = std::max(hiy, p.y);
+                }
+            box = rect_quad(lox, loy, hix, hiy);
+        } else if (s->skew.x != 0.0f || s->skew.y != 0.0f) {
+            for (Vec2& c : box) c = sprite_shear_point(c, s->skew);
+        }
+        out.push_back(make("Sprite", s->space, s->layer, s->anchor, s->safeArea, box));
     }
 
     if (const Shape2D* s = W.get<Shape2D>(e); s && (includeScreenSpace || s->space == RenderSpace::World)) {

@@ -4,6 +4,7 @@
 #include <functional>
 
 #include "fa/scene/text_fit.h"
+#include "gradient_ramp.h"
 #include "render_internal.h"
 
 namespace fa::render {
@@ -61,8 +62,18 @@ struct Frame {
     std::vector<std::uint8_t> shadowData;
     int shadowRows = 0;
     std::uint64_t shadowKey = 0;     // identifies the content of shadowData: equal keys, equal bytes (0 = no rows)
+    bool* warnedSpriteMesh = nullptr;     // set once gather_2d warned about a Sprite mesh with too many cells (per scene)
+    bool* warnedGradientStops = nullptr;  // set once gather_2d warned about malformed Shape2D gradientStops (per scene)
     ShadowCache* shadowCache = nullptr;  // the renderer's rows kept across frames; null = none kept
+    GradientRamps* ramps = nullptr;      // Shape2D gradient ramps (gradient_ramp.h); null = gradients with stops draw two-colour
+    // Tint components (scene/components.h): set by gather_2d when the scene has at least one, which makes every visual walk its
+    // parent chain; false = no visual pays for the feature.
+    bool anyTint = false;
 };
+
+// The product of the Tint colours of `e` and its ancestors (white when there are none). Cheap when the scene has no Tint:
+// the walk happens only if f.anyTint.
+Color inherited_tint(const World& world, const Frame& f, Entity e);
 
 // Emits the 4 vertices of an axis-aligned local rectangle (y up) transformed by `m`.
 // flipY: local y is negated first (screen space is y down).
@@ -85,8 +96,9 @@ struct QuadEmitter {
 // one item per texture. `m` places the layout's local units (y up; `screen` flips y as QuadEmitter does).
 // `visible` >= 0 draws only the glyphs and pictures of the first `visible` grapheme clusters (Text.visibleCharacters): the layout
 // is the whole text's, so nothing moves while a line reveals. Returns the number of glyphs drawn (pictures not counted).
+// `tint` (Tint component): `color` already includes it; it is multiplied into the run colours and pictures of a rich text too.
 int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts, Assets& assets, int layer,
-              float secondary, const Rect& clip, int visible = -1);
+              float secondary, const Rect& clip, int visible = -1, Color tint = Color{1, 1, 1, 1});
 
 // advance = true steps SpriteAnimator time by f.dt; false only (re)applies the current frame to
 // Sprite.region (idempotent, used by the draw pass).

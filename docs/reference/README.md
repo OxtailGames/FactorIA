@@ -16,6 +16,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [SpriteAnimator](components/2d.md#spriteanimator): Flipbook animation over a grid sprite sheet.
 - [Text](components/2d.md#text): Draws a string with a TrueType font (or the built-in font).
 - [Tilemap](components/2d.md#tilemap): A grid of tiles drawn from a tileset texture; tile index -1 is empty.
+- [Tint](components/2d.md#tint): Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. _Not released yet._
 
 ### [3D](components/3d.md)
 

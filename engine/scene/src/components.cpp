@@ -1,5 +1,6 @@
 #include "fa/scene/components.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <mutex>
@@ -385,7 +386,50 @@ void register_builtin_components(TypeRegistry& r) {
                      "Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right "
                      "and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). "
                      "It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. "
-                     "Ignored unless `lit` is true.");
+                     "Ignored unless `lit` is true.")
+        .field("skew", &Sprite::skew,
+               "Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top "
+               "edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; "
+               "y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no "
+               "shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and "
+               "a screen-space sprite; it also shears the picking box of the editor and the entity's bounds.")
+        .field("meshColumns", &Sprite::meshColumns,
+               "Makes the sprite deformable: it is drawn as a grid of meshColumns x meshRows cells (so (meshColumns + 1) x "
+               "(meshRows + 1) vertices) that textures `region` evenly, and `vertexOffsets` moves the vertices. Needs meshRows > 0 "
+               "too. 0 (default) = a plain quad. A side above 128 is clamped to 128; a grid of more than 4096 cells "
+               "(columns x rows) is drawn as a plain quad and a warning is logged once per scene. A bent page, a flag or cloth is ONE entity with e.g. 16 columns x 1 row or 8 x 8. A deformable sprite "
+               "ignores `slice` (9-slice). It costs one quad per cell, still in the sprite's batch: draw calls do not "
+               "grow.").range(0, 128)
+        .field("meshRows", &Sprite::meshRows,
+               "Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad.").range(0, 128)
+        .field("vertexOffsets", &Sprite::vertexOffsets,
+               "Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its place, in "
+               "the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat array "
+               "of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and "
+               "going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter array "
+               "leaves the vertices it does not name in place; extra numbers are ignored; a value that is not a number counts "
+               "as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; "
+               "changing one element of the array it returned does not write back). The texture is stretched with the "
+               "vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change "
+               "`size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices.");
+
+    r.add<Tint>("Tint",
+                "Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren "
+                "and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, "
+                "and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, "
+                "Video, CameraView, Chart, Captions) drawn by the renderer. Put it on the root of a group to fade it "
+                "out (color [1, 1, 1, 0.5]), turn it red (a damage flash), or darken a whole room, without touching each visual. "
+                "The tints of an entity and all its ancestors multiply together, so nested groups compose; alpha is "
+                "multiplied too (a 0.5 inside a 0.5 shows at 0.25), and a visual whose resulting opacity is 0 is not drawn. It "
+                "multiplies the colours the visual already has (Sprite.color, Shape2D.color and color2 and every gradient stop, "
+                "Text.color, Tilemap.color, a particle's own colour over its life, Panel.color) and does not "
+                "affect 3D MeshRenderer, lights, the debug draw or the camera. Entities without a Tint ancestor cost nothing extra: "
+                "the renderer only walks the parents when at least one Tint exists in the scene.",
+                "2D")
+        .field("color", &Tint::color,
+               "RGBA multiplied into the colour of the visuals of this entity and its descendants. [1, 1, 1, 1] (default) changes "
+               "nothing. Alpha is a group opacity: [1, 1, 1, 0.5] draws the group at half opacity (each visual is faded on its "
+               "own, so overlapping visuals of the group still show through one another). Accepts [r,g,b,a], \"#rrggbb\" or a name.");
 
     r.add<Parallax>("Parallax",
                     "Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so "
@@ -529,6 +573,29 @@ void register_builtin_components(TypeRegistry& r) {
                "`color` on the left to `color2` on the right, 90 = `color` at the bottom to `color2` at the top, 270 = top to bottom. "
                "The gradient spans the shape's box exactly from corner to corner and turns with the entity. In screen space, where "
                "y is down, 90 still goes bottom to top on the screen.")
+        .field("gradientStops", &Shape2D::gradientStops,
+               "gradient only: more than two colours. An array of [position, colour] pairs, position 0..1 along the gradient "
+               "(0 = where `color` was, 1 = the far end or the edge of a radial one), colours as [r,g,b,a], \"#rrggbb\" or a "
+               "name, e.g. [[0, \"#000000cc\"], [0.6, [0, 0, 0, 0.25]], [1, [0, 0, 0, 0]]] for a soft shadow that dies out slowly. "
+               "Up to 8 stops (the others are ignored), sorted by position for you; before the first stop and after the last "
+               "one the gradient keeps that stop's colour. Alpha blends like `color` -> `color2` (premultiplied). With "
+               "stops, `color` and `color2` are not used for the fill, and the shape is skipped only when every stop is fully "
+               "transparent. [] (default) = the two-colour gradient "
+               "`color` -> `color2`. The colours are baked into a 256-step ramp (one row of a shared texture per distinct ramp, at most "
+               "256 ramps at once), so the cost is the same as a two-colour gradient, shapes with equal ramps still batch, "
+               "and a script may change the stops every frame. An entry that is not [number, colour] is skipped with one "
+               "warning.")
+        .enum_field("gradientEase", &Shape2D::gradientEase,
+                    {"linear", "smoothstep", "quadIn", "quadOut", "quadInOut", "cubicIn", "cubicOut", "cubicInOut", "quartIn",
+                     "quartOut", "quartInOut", "quintIn", "quintOut", "quintInOut", "sineIn", "sineOut", "sineInOut", "expoIn",
+                     "expoOut", "expoInOut", "circIn", "circOut", "circInOut"},
+                    "gradient only: the curve the position follows before the colours are looked up, which removes the visible "
+                    "kink where a linear fade meets its end. The names are those of the script tween easings (docs/ANIMATION.md). "
+                    "linear (default) = even steps. A soft shadow or vignette that fades `color` -> a transparent `color2` "
+                    "looks natural with quadOut/cubicOut (fast start, long gentle tail, no edge) or smoothstep (no kink at either "
+                    "end); quadIn/cubicIn hold the start colour longer. It applies to the two-colour gradient and to "
+                    "gradientStops alike (stop positions are on the curve's input side: a stop at 0.5 is where the eased position "
+                    "is 0.5). The shape costs the same as a linear gradient.")
         ;
 
     r.add<Text>("Text",
@@ -1801,5 +1868,37 @@ std::string camera_viewport_problem(const Rect& v) {
     if (v.x + v.w > 1 + eps || v.y + v.h > 1 + eps)
         return "Camera.viewport " + shown + " reaches past the edge of the screen (x + width and y + height must be at most 1)";
     return {};
+}
+}  // namespace fa
+
+namespace fa {
+float gradient_ease_apply(GradientEase ease, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    // The curve is described by its "In" function; Out is its mirror image, InOut plays In for the first half and Out for the
+    // second (the definitions of the script tween easings, factoria.js).
+    enum class Kind { In, Out, InOut };
+    float (*in)(float) = nullptr;
+    Kind kind = Kind::In;
+    const int v = static_cast<int>(ease);
+    if (ease == GradientEase::Linear) return t;
+    if (ease == GradientEase::Smoothstep) return t * t * (3.0f - 2.0f * t);
+    const int family = (v - static_cast<int>(GradientEase::QuadIn)) / 3;
+    kind = static_cast<Kind>((v - static_cast<int>(GradientEase::QuadIn)) % 3);
+    switch (family) {
+        case 0: in = [](float x) { return x * x; }; break;
+        case 1: in = [](float x) { return x * x * x; }; break;
+        case 2: in = [](float x) { float q = x * x; return q * q; }; break;
+        case 3: in = [](float x) { float q = x * x; return q * q * x; }; break;
+        case 4: in = [](float x) { return 1.0f - std::cos(x * 1.57079632679f); }; break;
+        case 5: in = [](float x) { return x <= 0.0f ? 0.0f : std::pow(2.0f, 10.0f * x - 10.0f); }; break;
+        case 6: in = [](float x) { return 1.0f - std::sqrt(std::max(0.0f, 1.0f - x * x)); }; break;
+        default: return t;
+    }
+    switch (kind) {
+        case Kind::In: return in(t);
+        case Kind::Out: return 1.0f - in(1.0f - t);
+        case Kind::InOut: return t < 0.5f ? in(2.0f * t) * 0.5f : 1.0f - in(2.0f - 2.0f * t) * 0.5f;
+    }
+    return t;
 }
 }  // namespace fa
