@@ -3766,11 +3766,11 @@
     {
      "kind": "interface",
      "name": "AnimatorAPI",
-     "doc": "Plays the clips of a skinned glTF on an entity with an Animator component (entity.animator). The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set(\"speed\", 3)`; `hero.animator.on(\"footstep\", () => audio.play(\"assets/step.wav\"))`.",
+     "doc": "Plays the clips of an entity with an Animator component (entity.animator): the animations of a skinned glTF, or the keyframed 2D clips (`*.anim.json`) listed in the Animator's `clips`. The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set(\"speed\", 3)`; `hero.animator.on(\"footstep\", () => audio.play(\"assets/step.wav\"))`.",
      "members": [
       {
        "sig": "play(clip: string, fadeSeconds?: number): void",
-       "doc": "Starts a clip (a glTF animation name, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist."
+       "doc": "Starts a clip (a glTF animation name or a key of the Animator's `clips`, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist."
       },
       {
        "sig": "stop(): void",
@@ -3790,11 +3790,23 @@
       },
       {
        "sig": "readonly clips: string[]",
-       "doc": "Names of the animation clips of the model."
+       "doc": "Names of the animation clips: those of the model, or the keys of the Animator's `clips` for 2D clip files."
       },
       {
        "sig": "duration(clip: string): number",
-       "doc": "Length of a clip in seconds."
+       "doc": "Length of a clip in seconds (the `duration` of the file for a 2D clip)."
+      },
+      {
+       "sig": "sample(clip: string, time: number): void",
+       "doc": "2D clips only: poses the entity and its children at `time` seconds into `clip` without playing (time is clamped to the clip). The Animator stays paused on that pose; use it for previews, thumbnails and tests. Throws with the clip names when the clip does not exist, or with the file and JSON pointer when a track does not fit the entity."
+      },
+      {
+       "sig": "setLayerWeight(layer: string, weight: number): void",
+       "doc": "2D clips only: sets the weight (0..1) of the layer called `layer` in the Animator's `layers`. At 0 the layer is not playing; it starts from its first pose when the weight rises. Throws with the layer names when there is no such layer."
+      },
+      {
+       "sig": "playLayer(layer: string, clip: string, fadeSeconds?: number): void",
+       "doc": "2D clips only: makes the layer called `layer` play `clip` (a key of `clips`), cross-fading over `fadeSeconds` (default: the component's `fade`). A layer that runs its own `states` cannot be driven this way."
       },
       {
        "sig": "on(event: string, fn: (data: { id: string; clip?: string; time?: number; state?: string }, source: Entity | null) => void): () => void",

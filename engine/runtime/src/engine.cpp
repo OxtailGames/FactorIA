@@ -409,9 +409,12 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             }
             ProfSystemScope prof(ProfSystem::Animation);
             update_animators(world, float(fixedDt * scale));  // skeletal animation + its events, before they are dispatched
-            // IK2D runs right after the animators have posed the bones and before the frame is drawn: the clip gives the pose, the
-            // solver turns the chain to reach its target. (If the animators ever sample in another place, move this call to
-            // right after it: the order "clips, then IK, then drawing" is the contract in docs/ANIMATION.md, "Bones and IK".)
+            // ---- After the Animator, before drawing ------------------------------------------------------------------
+            // The Animator has just written the 2D pose (the fields keyframed clips drive: Transform, Sprite...) and the
+            // 3D palettes. Systems that build on the animated pose run HERE, in this order, and nothing else writes the
+            // pose after them: IK2D turns its chains so the tip reaches the target, and what it moves is what gets drawn.
+            // The renderer (which deforms skinned sprites from the bones), bounds and the next physics step read the
+            // result. The order "clips, then IK, then drawing" is the contract in docs/ANIMATION.md, "Bones and IK".
             update_ik2d(world);
         }
         {

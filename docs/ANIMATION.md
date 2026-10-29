@@ -1,10 +1,11 @@
-# Animation: skeletal clips, state machines and tweens
+# Animation: skeletal and 2D clips, state machines and tweens
 
 Four tools, from "a character walks" to "a menu panel slides in":
 
 | Tool | For | Where it lives |
 |---|---|---|
 | `Animator` component | Play the animation clips of a skinned glTF model, blend between them, react to clip events, switch with a small state machine | scene JSON + `entity.animator` |
+| `Animator` + `*.anim.json` | Keyframed 2D clips that animate any field of an entity and its children (a character built in parts), with layers and masks | [2D clips](#2d-clips-animjson) |
 | `tween()` / `ease` | Move any number, vector or color over time (UI, cameras, pickups, 2D and 3D) | `import { tween, ease } from "factoria"` |
 | `SpriteAnimator` | Frame-by-frame 2D sprite sheets, played by clip name | [Sprite sheets](#sprite-sheets-spriteanimator) |
 | `Bone2D`, `SpriteSkin`, `IK2D` | 2D bones: a sprite bent by the bones it is bound to, and chains that reach for a target | [Bones and IK](#bones-and-ik) |
@@ -106,6 +107,198 @@ Rules, all checked in the fixed step:
 - `fade` is the cross-fade in seconds (default 0.2).
 - `set()` of a name not in `params` is an error that lists the declared ones ("did you mean"). `trigger()` needs no
   declaration.
+
+## 2D clips: `*.anim.json`
+
+An Animator with no glTF `model` plays keyframed clips from files. A clip animates fields of the entity that has the
+Animator and of the entities under it, so a character made of child sprites (body, arm, hand...) moves by rotating and
+moving those parts. The schema is `schemas/anim.schema.json`; the format is `factoria.anim/1`.
+
+```json
+{ "format": "factoria.anim/1",
+  "duration": 0.8,
+  "loop": true,
+  "tracks": [
+    { "path": "body", "component": "Transform", "field": "position.y",
+      "keys": [ { "t": 0, "value": 0 },
+                { "t": 0.4, "value": 6, "interp": "quadOut" },
+                { "t": 0.8, "value": 0, "interp": "quadIn" } ] },
+    { "path": "body/arm_l", "component": "Transform", "field": "rotation.z",
+      "keys": [ { "t": 0, "value": -30 }, { "t": 0.4, "value": 30 }, { "t": 0.8, "value": -30 } ] },
+    { "path": "body/arm_l", "component": "Sprite", "field": "flipX",
+      "keys": [ { "t": 0, "value": false }, { "t": 0.4, "value": true } ] }
+  ],
+  "events": [ { "t": 0.4, "name": "footstep", "data": { "foot": "left" } } ] }
+```
+
+The Animator names the files; the keys of `clips` are the clip names everything else uses (`clip`, `play()`, `states`):
+
+```json
+{ "id": "hero",
+  "components": {
+    "Animator": { "clips": { "walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json" },
+                  "clip": "walk" } },
+  "children": [ { "name": "body", "components": { "Sprite": { "texture": "assets/hero_body.png" } },
+                  "children": [ { "name": "arm_l", "components": { "Sprite": { "texture": "assets/hero_arm.png" } } } ] } ] }
+```
+
+An Animator uses 2D clips when `clips` is a non-empty object, `model` is empty and the entity's MeshRenderer (if any)
+does not point at a `.gltf` or `.glb`. Otherwise `clip` and `events` mean what they meant above (glTF animations).
+
+### The file
+
+- `duration` (required): seconds. No key or event is later than it. `loop` (default true) is the clip's own choice;
+  `doc` is free text.
+- A **track** drives one field. `path` names the entity as the `name` of each entity from the Animator's entity down,
+  joined with `/` (`"body/arm_l"`; `""`, the default, is the entity itself; the first child with each name is used).
+  `component` (default `"Transform"`) and `field` say which reflected field. A field can be given one channel:
+  `rotation.z`, `position.x`, `scale.y`, `color.a` (x y z w, or r g b a for a colour); the other channels are not touched.
+  Two tracks cannot drive the same channel (an error).
+- A **key** is `{t, value, interp}`: `t` in seconds, ascending, one key per time. Before the first key and after the
+  last one the track holds that key's value. `value` has the shape of the field: a number, an array for a vector or colour,
+  a bool, an integer, an enum name, an asset path or a rect.
+- An **event** is `{t, name, data}`. See "Events" below.
+
+What can be animated:
+
+| Field kinds | Between two keys |
+|---|---|
+| Numbers (float), vectors (`position`, `scale`), colours, one channel of those, angles | interpolates |
+| Bool, int, enum, asset path (`Sprite.texture`), rect (`Sprite.region`) | **steps**: keeps the key's value until the next key |
+
+`interp` on a key says how its value reaches the next key (a field that only steps ignores it):
+
+| `interp` | Curve |
+|---|---|
+| `linear` (default) | straight line |
+| `step` | holds the value until the next key |
+| `bezier` | cubic Hermite curve using the `out` tangent of this key and the `in` tangent of the next one. Tangents are slopes in field units per second, a number or an array shaped like the value. A bezier key with no tangent gets a smooth one made from its neighbours (zero at both ends of the track). |
+| an easing name | linear in value, shaped by the curve of `tween()`: `quadIn`, `quadOut`, `quadInOut`, `cubic...`, `quart...`, `quint...`, `sine...`, `expo...`, `circ...`, `back...`, `elastic...`, `bounce...` (`ease` in the scripting API). `back` and `elastic` overshoot. |
+
+Angles are `Transform.rotation` (degrees) and any float named `angle` or ending in `Angle`. They interpolate between keys
+like any number; they differ only when clips are blended (below), where they take the short way round.
+
+### Playing
+
+Everything of the glTF Animator works with these clips:
+
+```js
+const anim = hero.animator;
+anim.play("walk", 0.2);     // cross-fade from the current clip over 0.2 s
+anim.speed = 1.5;           // playback speed
+anim.time = 0.3;            // seeks (no events fire for the jump)
+anim.loop = false;          // stops on the last pose and sends "anim.finished"
+anim.clips;                 // ["walk", "idle"]
+anim.duration("walk");      // 0.8
+anim.sample("walk", 0.4);   // poses the parts at 0.4 s and pauses (below)
+```
+
+- Whether a clip loops: the Animator's `loop` and the clip's own `loop` must both be true; a state of the state machine
+  that writes `loop` decides alone. A clip that does not loop stops on its last pose, the Animator's `playing` becomes
+  false and `anim.finished` is sent with `{ id, clip }`.
+- The state machine (`params`, `states`, `transitions`, `onFinish`, `onEnter`) is the one above; a state's `clip` is a key
+  of `clips`.
+- Playing the clip that already plays does not restart it.
+
+**Cross-fade.** While a fade runs, the fields both clips drive are lerped between the old clip's pose and the new one's.
+Angles take the short way round (a fade from 350 to 10 degrees passes through 360, not through 180). Fields that only
+step (a bool, an enum, a texture) keep the old clip's value until half the fade and switch to the new clip's after it.
+
+**What a clip does not drive.** Every field a clip has driven has a rest value: what it held before the first clip
+touched it. A field the current clip does not drive goes back to its rest value, so switching from `attack` (which moves
+the arm) to `idle` (which does not) leaves the arm where it was authored. `stop()` and clearing `clip` also restore the
+rest pose. A cross-fade to a clip that leaves a channel out lerps to that rest value.
+
+### Layers
+
+`layers` play more clips on top of the main one, each with a weight and, optionally, a mask that limits it to some parts:
+
+```json
+"Animator": {
+  "clips": { "walk": "anim/walk.anim.json", "shoot": "anim/shoot.anim.json", "breathe": "anim/breathe.anim.json" },
+  "clip": "walk",
+  "layers": [
+    { "name": "arms",   "clip": "shoot",   "weight": 0, "mask": ["body/arm_l", "body/arm_r"] },
+    { "name": "breath", "clip": "breathe", "weight": 1, "mode": "additive" } ] }
+```
+
+| Key | Meaning |
+|---|---|
+| `name` | Used by `setLayerWeight` and `playLayer`; also in the `layer` field of its events. Default `layer<index>`. |
+| `clip` or `states` | One clip, or a state machine of its own (`states` and `transitions` like the Animator's, reading the same parameters; `state` picks the first one). `states` wins when both are given. |
+| `weight` | 0 to 1 (default 1). A layer at weight 0 is not playing: it starts from its first pose when the weight rises, and its clip events do not fire. |
+| `mode` | `override` (default): the layer's pose is lerped over the pose below it by `weight`. `additive`: the CHANGE of the clip from its first pose is added, scaled by `weight`: a breathing clip that goes 1.00 to 1.04 adds +0.04 to whatever the walk gives. |
+| `mask` | Paths (as in a track's `path`). Only the tracks of the clip at or under one of them apply. Empty or absent: all of them. |
+| `speed`, `loop` | Playback speed (default 1) and whether the layer's clip loops (default: the clip's own `loop`). |
+
+Layers apply in order, after the main clip. A layer's clip only changes the fields it drives. Fields that only step
+(`flipX`, a texture) switch to the layer's value once its weight is 0.5 or more in an `override` layer, and are ignored by an
+`additive` one (there is no "difference" of a bool).
+
+```js
+hero.animator.setLayerWeight("arms", 1);               // raise a layer (e.g. while the shoot button is down)
+hero.animator.playLayer("arms", "reload", 0.1);        // the layer plays another clip, with a fade
+```
+
+`playLayer` is for layers with a `clip`; a layer with `states` is driven by the parameters. Both throw with the layer
+names when there is no such layer. Setting `layers` from a script (or the editor) rebuilds them: a layer that keeps its
+name and its `clip` keeps playing.
+
+### Events
+
+Events of the clip file are sent as game events when the clip's time passes `t`, once per loop (an event at `duration`
+fires when the clip wraps; one at 0 fires when the clip starts):
+
+```js
+hero.animator.on("footstep", (d) => audio.play("assets/step.wav"));   // d = { id, clip, time, foot: "left" }
+world.on("footstep", (d, source) => {});                               // every animator
+```
+
+`data` is merged into the event next to `id`, `clip` (the name in `clips`) and `time` (the event's `t`); a layer's events
+also carry `layer`. Those three keys are the engine's: a file that uses them in `data` is an error. The component's
+`events` list (`{clip, time, name}`) works for 2D clips too. `anim.finished` carries `{ id, clip }` and `layer` when it comes from a layer.
+
+### The pose is a runtime state
+
+The fields a clip drives hold the pose of the current frame, like the transform of a physics body. **`scene.save`, prefabs
+and the editor's Play/Stop write the rest value of a driven field, not the pose**, so a saved scene does not freeze a
+character in mid-step. Inspecting commands (`entity.get`, the scene description, `entity.toJSON()`) show the pose that is
+on screen. Duplicating an entity in the editor, or `entity.clone()`, copies what the fields hold now, pose included. An
+Animator that is copied starts with no runtime state and binds to its own copy of the tree.
+
+`animator.sample(clip, t)` poses the parts at `t` seconds of `clip` (clamped to the clip) without playing: it pauses the
+Animator on that pose. The clip files are read once and shared by every Animator that names them (cached by path and
+modification time).
+
+### Frame order and where IK goes
+
+The Animator runs in the fixed step, after physics (`update_animators`). The poses it wrote are what is drawn, so
+anything that must correct the pose runs **after the Animator and before drawing**: in `engine.cpp` the point sits right
+after `update_animators`, marked "After the Animator, before drawing". `IK2D` runs there ([Bones and IK](#bones-and-ik)), and skinned sprites are deformed
+from the bones when drawing. Code that reads the
+parts' transforms in `onFixedUpdate` sees the pose of the previous step.
+
+### Hot reload, validation and errors
+
+The Animator checks its clip files and the entities its tracks name every 15 updates (0.25 s at 60 Hz): a file saved with
+new keys plays from the next check, and a part that was added to the tree starts being animated. A file with an error keeps
+the last good version playing and logs the error once. The first update of an Animator logs, once per problem, every clip
+whose tracks do not fit its entity.
+
+Errors name the file, a JSON pointer, what is wrong and how to fix it:
+
+```
+anim/hero_walk.anim.json /tracks/1/path: no entity named 'bdy' under 'hero' (path 'bdy/arm_l')
+    Did you mean 'body'? Valid: body.
+anim/hero_walk.anim.json /tracks/0/field: Animator.clip cannot be animated: a string cannot be interpolated or switched by a clip
+    Animatable fields of Animator: (the fields it lists)
+anim/hero_walk.anim.json /tracks/2/keys/3/t: t is 0.5, not after the previous key (t 0.8): keys must be in ascending order of t
+anim/hero_walk.anim.json /tracks/3/field: Transform.position.x on 'body' is already driven by an earlier track (position)
+```
+
+A file with problems lists the first one and "(and N more problems)". `animator.play(clip)` from a script is strict: a track
+that names a missing entity or component is an error that lists the entities. The state machine, `clip` and the start of
+the game are lenient: they warn once and play the tracks that resolve.
 
 ## Sprite sheets: SpriteAnimator
 
@@ -378,4 +571,7 @@ export default class Hero extends Behaviour {
 
 - More than 64 joints in one skin: that part is drawn in its bind pose (not animated) and a warning names the limit;
   re-export it with fewer joints (rigid parts are split over several skins of 64 joints, so they have no such limit).
-- Morph targets, animation layers/masks and root motion are not supported.
+- Morph targets and root motion are not supported for glTF models. Animation layers and masks exist for 2D clips only
+  (see "2D clips").
+- 2D clips have no timeline or keyframe recording in the editor yet: write the `*.anim.json` by hand or with a script. A
+  clip poses bones the same way it moves any entity, through their Transform (see [Bones and IK](#bones-and-ik)).

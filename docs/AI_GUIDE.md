@@ -327,7 +327,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | Component | Key fields | Typical use |
 |---|---|---|
 | `MeshRenderer` | `mesh` (cube, sphere, plane, cylinder, capsule, cone, quad, or a .glb/.gltf path), `color`, `texture`, `normalMap`, `normalScale`, `metallic`, `roughness`, `emissive`, `unlit`, `castShadows`, `receiveShadows`, `uvScale`, `materialColors` | Visible 3D objects with a PBR material. Primitives need no assets. Unless `unlit`, it needs a light to look right. glTF models bring their own material (section 9.9). |
-| `Animator` | `clip`, `speed`, `loop`, `playing`, `fade`, `events`, and a state machine: `params`, `states`, `transitions` | Plays the clips of a skinned glTF on the entity with the MeshRenderer, blends between them, sends clip events, switches state from parameters. Script: `entity.animator.play("Run", 0.2)`, `.set("speed", 3)`. Section 9.25, [ANIMATION.md](ANIMATION.md). |
+| `Animator` | `clip`, `speed`, `loop`, `playing`, `fade`, `events`, and a state machine: `params`, `states`, `transitions` | Plays the clips of a skinned glTF on the entity with the MeshRenderer, or (with `clips` and no `model`) the keyframed 2D clips `*.anim.json` that move the entity's child parts (`layers` with masks play more clips at once); blends between them, sends clip events, switches state from parameters. Script: `entity.animator.play("Run", 0.2)`, `.set("speed", 3)`. Section 9.25, [ANIMATION.md](ANIMATION.md). |
 | `Light` | `type` (directional, point, spot), `color`, `intensity`, `range`, `spotAngle`, `castShadows` (directional only) | Lighting and shadows. A directional light points along the entity's -Z axis after its rotation. Up to 32 lights are used per frame (section 9.9). |
 
 **Physics**

@@ -831,7 +831,7 @@ NATIVE(isTouching) {  // (entity, x, y, z, tolerance)
 }
 
 // Animator calls of entity.animator: (entity, method, a, b). Methods: play(clip, fade), stop, set(name, value),
-// trigger(name), clips. Returns the clips for "clips", nothing else; failures throw a teaching Error.
+// trigger(name), sample(clip, time), layerWeight(layer, weight), layerPlay(layer, clip, fade), clips. Returns the clips for "clips", nothing else; failures throw a teaching Error.
 NATIVE(animCall) {
     SETUP;
     ENTITY(e, 0);
@@ -845,6 +845,12 @@ NATIVE(animCall) {
         r = animator_set(W, e, arg_str(ctx, argc, argv, 2), I->to_json(argc > 3 ? argv[3] : JS_UNDEFINED));
     } else if (m == "trigger") {
         r = animator_trigger(W, e, arg_str(ctx, argc, argv, 2));
+    } else if (m == "sample") {
+        r = animator_sample(W, e, arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0.0)));
+    } else if (m == "layerWeight") {
+        r = animator_set_layer_weight(W, e, arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 1.0)));
+    } else if (m == "layerPlay") {
+        r = animator_play_layer(W, e, arg_str(ctx, argc, argv, 2), arg_str(ctx, argc, argv, 3), static_cast<float>(arg_num(ctx, argc, argv, 4, 0.2)));
     } else if (m == "clips") {
         auto c = animator_clips(W, e);
         if (!c) return throw_err(ctx, c.error().to_string());
