@@ -141,11 +141,6 @@ Json load_messages_json(const LoadReport& r) {
     return a;
 }
 
-std::string abs_path(const std::string& p) {
-    if (fs::is_absolute(p)) return p;
-    return fs::resolve(p).generic_string();
-}
-
 Json brief_state(Engine::Impl& I, std::uint64_t errorsBefore, std::uint64_t lastSeq) {
     Json j = Json::object();
     j["frame"] = I.frame;
@@ -528,6 +523,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_play_session_commands(engine, I);  // play.sessions, play.report
     register_i18n_commands(engine, I);          // i18n.state, i18n.set_language
     register_ui_check_commands(engine, I);      // ui.check_layout
+    register_shot_commands(engine, I);          // game.screenshot, render.inspect, render.pick
     register_platform_commands(I.commands, I.platform);  // platform.state, platform.respond, ... (fa/services)
 
     // --------------------------------------------------------------------- game
@@ -718,43 +714,6 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               out["widget"] = under != kNullEntity && I.world.alive(under) ? Json(I.world.id_of(under)) : Json();
               out["frame"] = I.frame;
               return out;
-          });
-
-    I.commands.add({"game.screenshot", "Capture the game view as a PNG and show it.",
-           "Draws the game view as it is now (design resolution), saves it and returns the path; clients display the "
-           "image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. "
-           "Default path .factoria/screenshots/frame_<n>.png. `scale` (0.25 to 4, default 1) draws the same frame into an image "
-           "scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, "
-           "so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG. `simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the saved "
-           "PNG to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; "
-           "greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons "
-           "read without their colour. Example: game.screenshot {\"path\":\"shots/start.png\",\"scale\":1.5} or "
-           "game.screenshot {\"path\":\"shots/deut.png\",\"simulate\":\"deuteranopia\"}",
-           parse_schema(R"({"type":"object","properties":{
-               "path":{"type":"string","description":"Output PNG (project-relative or absolute)."},
-               "scale":{"type":"number","default":1,"minimum":0.25,"maximum":4,"description":"Render scale: image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080."},
-               "simulate":{"type":"string","enum":["none","greyscale","protanopia","deuteranopia","tritanopia"],"default":"none","description":"Convert the saved PNG to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged."}}})"),
-           true, "game"},
-          [&engine, &I](const Json& a) {
-              std::string path = a.value("path", ".factoria/screenshots/frame_" + std::to_string(I.frame) + ".png");
-              std::string err;
-              const double scale = a.value("scale", 1.0);
-              if (!(scale >= 0.25 && scale <= 4.0))
-                  throw CommandError("invalid_argument", "scale " + std::to_string(scale) + " is out of range.",
-                                     "scale must be between 0.25 and 4: the image is design size * scale. Example: 1.5 on a 1280x720 game gives 1920x1080.");
-              const std::string simulate = a.value("simulate", std::string("none"));
-              if (auto parsed = parse_color_simulation(simulate); !parsed.ok())
-                  throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
-              if (!engine.screenshot_simulated(path, scale, simulate, &err))
-                  throw CommandError("unavailable", err, "Screenshots need graphics (headless needs Mesa/EGL).");
-              std::string abs = abs_path(path);
-              Json j = Json::object();
-              j["path"] = abs;
-              j["width"] = int(std::lround(I.renderer->target_width() * scale));
-              j["height"] = int(std::lround(I.renderer->target_height() * scale));
-              j["frame"] = I.frame;
-              j["$image"] = Json::object({{"path", abs}, {"mimeType", "image/png"}});
-              return j;
           });
 
     I.commands.add({"game.state", "Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.",

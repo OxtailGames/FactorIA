@@ -178,6 +178,20 @@ public:
     bool capture_frame(Image& out, std::string* error) override;
     // The same picture as screenshot_scaled, as pixels (row 0 = top).
     bool capture_scaled(Image& out, double scale, std::string* error);
+    // The picture now, or the part of it inside `region` ({x, y, w, h} in design pixels; w or h <= 0 = the whole view),
+    // magnified `zoom` times (0.25 .. 32, the result at most 8192 px per side). Up to 4x the frame is drawn again at that
+    // render scale and cropped, so lines, text and shapes stay sharp (HUD and visible area as in a normal screenshot).
+    // Above 4x the 4x picture is enlarged with nearest-neighbour sampling (hard pixel blocks). The region is clamped to the
+    // view; the result is round(w * zoom) x round(h * zoom) of the clamped region.
+    bool capture_region(Image& out, const Rect& region, double zoom, std::string* error);
+    // The checks of capture_region on their own, for the arguments of a command: `region` clamped to a view of
+    // `viewSize` design pixels, and the size in pixels of the result. `error` is empty when the request is valid.
+    struct RegionPlan {
+        std::string error;            // what is wrong and how to fix it; empty = valid
+        double x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // the clamped region in design pixels
+        int width = 0, height = 0;    // the size of the result
+    };
+    static RegionPlan plan_region(Vec2 viewSize, const Rect& region, double zoom);
     // Keeps the render scale at `scale` between captures (a video draws every frame at one scale; without it each
     // capture would recreate the targets). Same limits as screenshot_scaled; false + message when out of range.
     bool hold_render_scale(double scale, std::string* error);

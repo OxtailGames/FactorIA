@@ -162,7 +162,9 @@ HUD pass loads it again, so the HUD is multisampled too. `Camera.colorFilter` is
 draws the finished target into a second image of the same size, and `present()`, `capture()` (screenshots, video) and
 the editor viewport read that image while a filter is on; `none` skips the pass and the image. The colour-blind
 CHECK (`simulate` of `game.screenshot`) is separate: `simulate_color_vision()` in `fa/core/image.h` on the captured
-pixels. Shaders are GLSL annotated for
+pixels. `game.screenshot` (whole view, `region` + `zoom` via `Engine::capture_region`, filmstrip), `render.inspect` and `render.pick` are in
+`runtime/src/shot_commands.cpp`; pixel work (crop, contact sheet, line profile) is `fa/core/image_tools.h`, and which files a screenshot
+may leave behind (temporary ones, pruning) is `fa/core/screenshot_files.h`. Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
 `mesh_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares

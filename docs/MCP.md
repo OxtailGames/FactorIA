@@ -33,7 +33,12 @@ that.)
   other than letters, digits, `_`, `-` become `_`; at most 64 characters). The description is the
   command's summary + details; `readOnlyHint` / `destructiveHint` come from the command's `readOnly`
   flag. Results are pretty JSON text plus `structuredContent` for objects. A result with an
-  `"$image": {"path"|"base64", "mimeType"}` key also carries an image block, so screenshots are visible.
+  `"$image": {"path"|"base64", "mimeType"}` key also carries an image block, so screenshots are visible. When
+  the image has `"temporary": true` (a `game_screenshot` without `path`) the server deletes the file after it has read
+  it: the reply names no path (it says "Attached to this reply as an image; the temporary file was deleted. Pass `path`
+  to keep a screenshot.") and the disk does not fill up over a long session. A client that cannot show images asks for
+  `path`, and then the file stays. The engine also removes old engine-named shots (`frame_*.png` in
+  `.factoria/screenshots/`) when a project opens: those older than 3 days, then the oldest beyond the newest 200.
   Failures are `isError` results: `code: message` and `hint: ...`.
 - **Resources**: `factoria://docs/<file>` (embedded docs, `factoria://docs/components` generated),
   `factoria://project/factoria.json`, `.../ENGINE_FEEDBACK.json`, `.../AGENTS.md`.
