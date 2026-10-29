@@ -189,6 +189,8 @@ struct ScriptSystem::Impl {
     int nextStorageJob = 1;
     void storage_write(const std::string& key, bool compress);      // writes one key's file now
     void storage_remove_file(const std::string& key);
+    Json storage_report();                                           // storage.list: the keys in memory and on disk
+    Json storage_clear_keys(const std::string& key, bool all);       // storage.clear
     void storage_drain();                                            // waits for the setAsync writes still running
 
     // ---- game.accessibility: game.setAccessibility() in tests (windowless runs otherwise give the defaults)

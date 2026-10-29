@@ -1018,8 +1018,13 @@ job.promise.then(() => scene.load("scenes/level2.scene.json"));
   `%XX`, so `"Slot 2"` is `%53lot%202.json` on any disk), each holding `{"key": ..., "value": ...}`: a save rewrites its
   own key only, however many other keys (or big saves) there are. A `storage.json` left by an older version is read at
   the first start, split into key files (keys that already have a file keep it) and renamed `storage.migrated.json`, so
-  nothing is lost if that start is interrupted. Tests always use an empty in-memory storage per test file and never
-  touch the real save; the runtime can run headless with `ScriptSystem::set_storage_mode(StorageMode::Memory)`.
+  nothing is lost if that start is interrupted. Tests always use an empty in-memory storage per test file (it lasts the
+  whole file, `game.resetState` empties it between tests) and never read or write the real save, so a save left by the
+  editor or a play run cannot change a test result and a test cannot leave one behind; `factoria mcp` and `factoria
+  call` keep the game's storage in memory too (`--persist-storage` opts in), while the editor and `factoria run` write
+  the key files. The commands `storage.list` (MCP `storage_list`) and `storage.clear {key | all}` (`storage_clear`)
+  show and delete the keys, in memory and in the save folder (`.factoria/save/storage/`), whatever the mode, so a
+  stale save (a main menu that shows "Continue") is removed without a shell `rm`; the runtime can run headless with `ScriptSystem::set_storage_mode(StorageMode::Memory)`.
   Every file is written atomically (a temporary file, then a rename): a crash during a save leaves the previous file
   intact, and a leftover temporary file is ignored.
 - `storage.set(key, value, {compress: true})` stores the value zlib-compressed (the file is `{"key", "z": "zlib", "n",
@@ -1314,7 +1319,11 @@ export default {
 };
 ```
 
-Tools hot-reload when the file changes; MCP clients are notified.
+Tools hot-reload when the file changes; MCP clients are notified. A tool file created while `factoria mcp` runs (even
+when the project had no `tools/` folder at start) is registered before the next request is handled, so `tools/list`,
+the MCP tool `project_<name>` and `fa.call("project.<name>")` see it at once; `script.eval {module, call}` re-imports
+every loaded module whose file changed on disk before it runs, so the call never uses the code from before the edit.
+(The watcher is off with `factoria mcp --no-hot-reload`; then use `script.reload` or `scene.reload`.)
 
 **Failing a tool.** `throw new ToolError(message, hint, data?)` (from `"factoria"`) reports an *expected* failure
 (for example a check tool that found bad level data): the caller gets code `tool_error`, the message, your `hint`
@@ -1510,7 +1519,9 @@ Tests run inside the current engine (only one renderer can exist per
 process). Between test files the runner reloads the project's start scene,
 reseeds the world RNG with the project seed, clears input overrides, timers and
 behaviours; `game.load` also reseeds. Before each test input overrides, the gamepads (unplugged),
-`input.deadzone` and `ui.scale` (back to the project's value), `ui.textScale` (1), `time.scale` and the audio log are reset. Results are deterministic. Extras: `describe.skip`,
+`input.deadzone` and `ui.scale` (back to the project's value), `ui.textScale` (1), `time.scale`, the audio log and the
+mouse (position back at 0, 0, no wheel; a `game.click` or the last test of the previous file does not decide what the pointer hovers) are reset;
+keys, mouse buttons and touches are released. Results are deterministic. Extras: `describe.skip`,
 `beforeEach(fn)` / `afterEach(fn)` inside `describe`, matchers `toBeUndefined`,
 `toBeNaN`, `toMatch`, `toBeInstanceOf`, `toMatchObject(subset)` (every field of the subset is in the
 received object with an equal value, recursively; the object may have more). Failures print expected/received and

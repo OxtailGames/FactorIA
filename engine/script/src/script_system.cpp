@@ -1237,6 +1237,20 @@ std::vector<std::string> ScriptSystem::refresh_modules(bool force) {
     if (toolsAffected) I.reload_tools();
     return stale;
 }
+std::vector<std::string> ScriptSystem::reload_changed_modules() {
+    Impl& I = *impl_;
+    std::vector<std::string> stale;
+    if (!I.initialized) return stale;
+    for (const std::string& f : I.everLoaded) {
+        auto it = I.moduleMtime.find(f);
+        if (it == I.moduleMtime.end() || it->second != fs::modified_time(f)) stale.push_back(f);
+    }
+    for (const std::string& f : stale) {
+        I.moduleMtime[f] = fs::modified_time(f);  // before the reload: a module that fails to load is not retried until it changes again
+        I.reload_module(f);
+    }
+    return stale;
+}
 void ScriptSystem::reload_module(std::string_view modulePath) {
     if (impl_->initialized) impl_->reload_module(modulePath);
 }
@@ -1254,6 +1268,8 @@ void ScriptSystem::set_storage_mode(StorageMode mode) {
     impl_->storageCorrupt = false;
 }
 StorageMode ScriptSystem::storage_mode() const { return impl_->storageMode; }
+Json ScriptSystem::storage_list() { return impl_->storage_report(); }
+Json ScriptSystem::storage_clear(const std::string& key, bool all) { return impl_->storage_clear_keys(key, all); }
 
 std::vector<std::string> ScriptSystem::check_props(std::string_view modulePath, const Json& props) {
     if (!impl_->initialized) return {"script system is not initialized"};

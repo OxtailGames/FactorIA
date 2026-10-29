@@ -41,7 +41,8 @@ that.)
 - **Notifications**: `notifications/tools/list_changed` when project tools (`tools/*.js`) change;
   `notifications/message` for logs (`logging/setLevel`); `notifications/resources/list_changed` and a log message after the
   server restarted itself because FactorIA was updated (see [After an update](#after-an-update)). Project tools are also
-  hot-reloaded while the client is silent, not only when a request arrives.
+  hot-reloaded while the client is silent, and the files are checked again before every request, so a tool file written a moment
+  ago (in a `tools/` folder that did not exist at start too) is already in the answer to the next `tools/list` or call.
 - **Progress**: a call that takes more than a few seconds (`ai_run`, `project_test`, a long `game_step`) reports progress.
   A client that sends `_meta.progressToken` with `tools/call` gets `notifications/progress` for it: a message saying what the
   command is doing (for `ai_run`: what the sub-agent just did, such as "worker: edit scene.set_component"), at most one every
