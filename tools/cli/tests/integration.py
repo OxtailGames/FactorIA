@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 FACTORIA = os.path.abspath(sys.argv[1])
 STRICT_TESTS = "--strict-tests" in sys.argv or os.environ.get("FA_CLI_STRICT_TESTS") == "1"
@@ -397,6 +398,49 @@ def test_template(tmp, template):
             m.close()
 
 
+def test_session_edits(tmp):
+    print("== MCP: a tool written mid-session, an edited module, storage commands", flush=True)
+    proj = os.path.join(tmp, "game-edits")
+    code, out, err = jrun(["new", proj, "--template", "2d-empty", "--name", "Edits", "--json"])
+    if not check(code == 0, "new for the session-edits check"):
+        return
+    m, names = mcp_session(["mcp", "--project", proj], proj, ["script_eval", "storage_list", "storage_clear"], "mcp (edits)")
+    if not m:
+        return
+    try:
+        check("project_paint_art" not in names, "mcp (edits): no tool yet")
+        os.makedirs(os.path.join(proj, "tools"), exist_ok=True)  # the project had no tools/ folder at start
+        path = os.path.join(proj, "tools", "paint_art.js")
+        body = "export default { name: 'paint_art', summary: 's', run() { return { v: 1 }; } };\nexport function paintAll() { return '%s'; }\n"
+        with open(path, "w") as f:
+            f.write(body % "v1")
+        # no sleep: the very next request must already see the new tool
+        listed = {t["name"] for t in m.send("tools/list", {})["result"]["tools"]}
+        check("project_paint_art" in listed, "mcp (edits): a tool created right before tools/list is listed")
+        res = m.call("project_paint_art", {})
+        check(not res.get("isError"), "mcp (edits): the new tool runs")
+        res = m.call("script_eval", {"module": "tools/paint_art.js", "call": "paintAll"})
+        check("v1" in json.dumps(res), "mcp (edits): script_eval module runs the first version")
+        with open(path, "w") as f:
+            f.write(body % "v2")
+        os.utime(path, (time.time() + 5, time.time() + 5))  # a coarse file clock must not hide the edit
+        res = m.call("script_eval", {"module": "tools/paint_art.js", "call": "paintAll"})
+        check("v2" in json.dumps(res), "mcp (edits): script_eval module re-imports a module edited on disk (%s)" % json.dumps(res)[:120])
+        # a save left in the save folder by the editor shows in storage.list and storage.clear removes it
+        storage = os.path.join(proj, ".factoria", "save", "storage")
+        os.makedirs(storage, exist_ok=True)
+        with open(os.path.join(storage, "run%2Ecurrent.json"), "w") as f:
+            f.write('{"key": "run.current", "value": {"floor": 3}}\n')
+        res = m.call("storage_list", {})
+        check("run.current" in json.dumps(res), "mcp (edits): storage_list shows the stale save (%s)" % json.dumps(res)[:160])
+        res = m.call("storage_clear", {"key": "run.current"})
+        check(not res.get("isError") and not os.path.exists(os.path.join(storage, "run%2Ecurrent.json")), "mcp (edits): storage_clear deletes it")
+        res = m.call("storage_clear", {"key": "run.current"})
+        check(res.get("isError") is True, "mcp (edits): clearing a missing key is an error")
+    finally:
+        m.close()
+
+
 def test_misc(tmp):
     print("== misc commands", flush=True)
     code, out, err = run(["--version"])
@@ -523,6 +567,7 @@ def main():
         for t in TEMPLATES:
             test_template(tmp, t)
         test_misc(tmp)
+        test_session_edits(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

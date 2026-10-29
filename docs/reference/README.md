@@ -267,6 +267,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`script.eval`](commands/script.md#scripteval-modifies-state): Evaluate JavaScript in the running game context (REPL) and return the value, or call an exported function of a module.
 - [`script.reload`](commands/script.md#scriptreload-modifies-state): Re-import script modules edited on disk and restart the behaviours (the world is kept).
 - [`script.trace`](commands/script.md#scripttrace): Debug scripts: run the game headless and record the stack, locals and watch expressions each time chosen lines run. _Since 0.2.0._
+- [`storage.clear`](commands/script.md#storageclear-modifies-state): Delete one storage key (`key`) or all of them (`all`) from the game's memory and from the save folder. _Not released yet._
+- [`storage.list`](commands/script.md#storagelist): List the keys of the game's save storage (storage.set): the ones the running game holds and the key files in the save folder. _Not released yet._
 
 ### [setup](commands/setup.md)
 

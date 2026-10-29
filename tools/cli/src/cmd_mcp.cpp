@@ -35,11 +35,12 @@ public:
         signature_ = tools_signature();
     }
 
-    void poll() {
+    // `now`: look at the files right now (before a request: the client may have just written a tool); otherwise at most every 200 ms.
+    void poll(bool now = false) {
         using clock = std::chrono::steady_clock;
-        auto now = clock::now();
-        if (session_ && now - last_ >= std::chrono::milliseconds(200)) {
-            last_ = now;
+        auto at = clock::now();
+        if (session_ && (now || at - last_ >= std::chrono::milliseconds(200))) {
+            last_ = at;
             scan(true);
         }
         std::string sig = tools_signature();
@@ -221,6 +222,10 @@ Command make_mcp_command() {
         StdioLoopOptions lo;
         lo.poll = [&] {
             poller.poll();
+            monitor.poll();
+        };
+        lo.before_message = [&] {
+            poller.poll(true);
             monitor.poll();
         };
         lo.restart_due = [&] { return monitor.restart_due(); };

@@ -351,6 +351,94 @@ void Impl::load_storage() {
     fs::user_dir_changed();
 }
 
+Json Impl::storage_report() {
+    storage_drain();
+    load_storage();
+    struct Row {
+        bool inMemory = false, onDisk = false, compressed = false;
+        std::int64_t bytes = -1;
+    };
+    std::map<std::string, Row> rows;
+    for (auto it = storage.begin(); it != storage.end(); ++it) {
+        Row& r = rows[it.key()];
+        r.inMemory = true;
+        auto m = storageMeta.find(it.key());
+        if (m != storageMeta.end()) {
+            r.compressed = m->second.compressed;
+            r.bytes = m->second.bytes;
+        }
+    }
+    Json damaged = Json::array();
+    if (!inTestRun) {  // a test run never looks at the real save folder
+        std::error_code ec;
+        std::vector<std::filesystem::path> files;
+        for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
+            if (it->is_regular_file(ec) && it->path().extension() == ".json") files.push_back(it->path());
+        std::sort(files.begin(), files.end());
+        for (const std::filesystem::path& file : files) {
+            bool ok = false;
+            const std::string text = read_whole_file(file, ok);
+            storage_files::Decoded d;
+            std::string problem;
+            if (!ok || !storage_files::decode(text, d, problem)) {
+                damaged.push_back(Json::object({{"file", file.generic_string()}, {"problem", ok ? problem : "cannot be read"}}));
+                continue;
+            }
+            Row& r = rows[d.key];
+            r.onDisk = true;
+            r.compressed = d.compressed;
+            r.bytes = static_cast<std::int64_t>(text.size());
+        }
+    }
+    Json keys = Json::array();
+    for (const auto& [key, r] : rows) {
+        Json row = Json::object({{"key", key}, {"inMemory", r.inMemory}, {"onDisk", r.onDisk}, {"compressed", r.compressed}});
+        if (r.bytes >= 0) row["bytes"] = r.bytes;
+        keys.push_back(std::move(row));
+    }
+    return Json::object({{"mode", storageMode == StorageMode::Persistent ? "persistent" : "memory"},
+                         {"dir", storage_files::dir().generic_string()},
+                         {"keys", keys},
+                         {"damaged", damaged}});
+}
+
+Json Impl::storage_clear_keys(const std::string& key, bool all) {
+    storage_drain();
+    load_storage();
+    std::set<std::string> removed;
+    std::error_code ec;
+    const std::filesystem::path root = storage_files::dir();
+    if (all) {
+        for (auto it = storage.begin(); it != storage.end(); ++it) removed.insert(it.key());
+        storage = Json::object();
+        storageMeta.clear();
+    } else if (storage.erase(key) > 0) {
+        storageMeta.erase(key);
+        removed.insert(key);
+    }
+    if (!inTestRun) {
+        if (all) {
+            std::vector<std::filesystem::path> files;
+            for (std::filesystem::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec))
+                if (it->is_regular_file(ec) && it->path().extension() == ".json") files.push_back(it->path());
+            for (const auto& f : files) {
+                bool ok = false;
+                storage_files::Decoded d;
+                std::string problem;
+                if (storage_files::decode(read_whole_file(f, ok), d, problem) && ok) removed.insert(d.key);
+                std::filesystem::remove(f, ec);
+            }
+        } else {
+            const std::filesystem::path f = root / storage_files::file_name(key);
+            if (std::filesystem::remove(f, ec)) removed.insert(key);
+        }
+        fs::user_dir_changed();
+    }
+    Json list = Json::array();
+    for (const std::string& k : removed) list.push_back(k);
+    return Json::object({{"removed", list}});
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // natives
 // ---------------------------------------------------------------------------------------------------------------------

@@ -24,6 +24,17 @@ Editor
 - The toolbar's **Select / Move / Rotate / Scale** buttons show only while an entity is selected (Q W E R still switch the
   mode at any time).
 
+Tooling
+
+- `storage.list` and `storage.clear {key | all}` (MCP `storage_list`, `storage_clear`) show and delete the game's save
+  keys, in memory and in `.factoria/save/storage/`, so a stale save (a menu that shows "Continue") no longer needs a
+  shell `rm`. SCRIPTING.md says what `project.test` does with storage: an empty in-memory one per test file, never the save folder.
+- A tool file written while `factoria mcp` runs is listed and callable by the very next request (the folders were only
+  looked at every 200 ms, and a request right after the write missed the new tool), and `script.eval {module, call}`
+  re-imports a module edited on disk instead of running the code from before the edit.
+- `project.test` resets the mouse to (0, 0) with no wheel before every test, as it already released keys, buttons and
+  touches: where an earlier `game.click` or test left the pointer no longer decides what the first tests find hovered.
+
 Fixed
 
 - A `Shape2D` gradient whose `color` is fully transparent is drawn when `color2` is not: the ai-guide vignette recipe
