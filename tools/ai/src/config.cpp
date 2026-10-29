@@ -122,6 +122,68 @@ const ProviderConfig* AiConfig::provider(std::string_view name) const {
     return it == providers.end() ? nullptr : &it->second;
 }
 
+const char* role_display_name(std::string_view role) {
+    if (role == kRoleOrchestrator) return "Orchestrator";
+    if (role == kRoleWorker) return "Worker";
+    if (role == kRoleFast) return "Fast";
+    if (role == kRoleArtist) return "Artist";
+    if (role == kRoleAudio) return "Audio";
+    if (role == kRoleArtCritic) return "Art critic";
+    if (role == kRoleReviewer) return "Reviewer";
+    static thread_local std::string unknown;
+    unknown = std::string(role);
+    return unknown.c_str();
+}
+int role_group(std::string_view role) {
+    if (role == kRoleOrchestrator || role == kRoleWorker || role == kRoleFast) return 0;
+    if (role == kRoleArtist || role == kRoleAudio) return 1;
+    if (is_review_role(role)) return 2;
+    return -1;
+}
+const char* role_group_title(int group) {
+    switch (group) {
+        case 0: return "Orchestration and code";
+        case 1: return "Art and audio";
+        case 2: return "Critics and reviewers";
+        default: return "";
+    }
+}
+std::string role_off_message(std::string_view role) {
+    const std::string name = role_display_name(role);
+    if (is_review_role(role)) {
+        return "The " + name + " role is off, so its reviews run on the orchestrator's model";
+    }
+    return "The " + name + " role is off: the orchestrator does that work itself";
+}
+std::string role_off_hint(std::string_view role) {
+    return "Do the work yourself (as the orchestrator) or ask the user to tick \"Enabled\" for " +
+           std::string(role_display_name(role)) + " in the editor's AI panel (Roles...), or set roles." + std::string(role) +
+           ".enabled to true in ~/.factoria/ai.json.";
+}
+
+bool AiConfig::role_enabled(std::string_view name) const {
+    if (name == kRoleOrchestrator) return true;
+    auto it = roles.find(std::string(name));
+    return it == roles.end() || it->second.enabled;
+}
+RoleConfig AiConfig::effective_role(std::string_view name) const {
+    if (is_review_role(name) && !role_enabled(name)) {
+        RoleConfig rc = role(kRoleOrchestrator);
+        rc.enabled = false;
+        return rc;
+    }
+    return role(name);
+}
+std::vector<std::string> AiConfig::disabled_delegable_roles() const {
+    std::vector<std::string> out;
+    for (const char* r : kAllRoles) if (is_delegable_role(r) && !role_enabled(r)) out.push_back(r);
+    return out;
+}
+bool AiConfig::can_delegate_to_anyone() const {
+    for (const char* r : kAllRoles) if (is_delegable_role(r) && role_enabled(r)) return true;
+    return false;
+}
+
 RoleConfig AiConfig::role(std::string_view name) const {
     auto it = roles.find(std::string(name));
     if (it != roles.end()) return it->second;
@@ -505,6 +567,12 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         else if (r.effort.empty() && p->kind == ProviderKind::Anthropic && rd) r.effort = rd->effort;
         if (rj.contains("maxTokens")) r.maxTokens = static_cast<int>(num(rj, "maxTokens"));
         if (rj.contains("maxContextTokens")) r.maxContextTokens = static_cast<u64>(num(rj, "maxContextTokens"));
+        if (rj.contains("enabled")) r.enabled = flag(rj, "enabled", true);
+        if (name == kRoleOrchestrator && !r.enabled) {
+            return make_error(std::string(sourceName) + ": /roles/orchestrator/enabled: the orchestrator cannot be turned off",
+                              "The orchestrator is the agent that talks to you and does the work of every role that is off. "
+                              "Remove \"enabled\" from roles.orchestrator, or turn off worker, fast, artist or audio instead.");
+        }
         cfg.roles[name] = std::move(r);
         return {};
     };
@@ -613,6 +681,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         if (!r.effort.empty()) rj["effort"] = r.effort;
         if (r.maxTokens > 0) rj["maxTokens"] = r.maxTokens;
         if (r.maxContextTokens > 0) rj["maxContextTokens"] = r.maxContextTokens;
+        if (!r.enabled) rj["enabled"] = false;
         roles[name] = rj;
     }
     out["roles"] = roles;
@@ -662,6 +731,8 @@ Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::str
         }
         if (r.maxContextTokens > 0) rj["maxContextTokens"] = r.maxContextTokens;
         else rj.erase("maxContextTokens");
+        if (r.enabled || name == kRoleOrchestrator) rj.erase("enabled");
+        else rj["enabled"] = false;
     }
     return fs::write_text(path, dump_json(j));
 }

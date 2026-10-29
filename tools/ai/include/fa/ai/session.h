@@ -88,6 +88,9 @@ struct PromptContext {
     bool canDelegate = false;
     std::string extra;
     std::string delegateTool;  // the tool the orchestrator delegates with; "" = agent_delegate (CLI agents: ai_run over MCP)
+    // Delegable roles the user turned off (AiConfig::disabled_delegable_roles). The orchestrator's prompt lists only the
+    // others and says it does the work of these itself, with the art/audio guidance the role's own prompt would give.
+    std::vector<std::string> disabledRoles;
 };
 // Stable system prompt: engine guide summary + project context + rules.
 std::string build_system_prompt(const PromptContext& ctx);
