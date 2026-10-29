@@ -14,7 +14,17 @@ Without a project the editor starts on the **Open or create a project** dialog (
 Project...). Type a path or press **Browse...** for the system's folder dialog (Windows, macOS; on Linux it needs
 `zenity` or `kdialog`): browsing to a project folder opens it at once. New projects go to `<Folder>/<Name>`; Folder
 starts at your Documents folder. Recent projects, and projects found in the current folder,
-are listed by name under the path; hover one to see its path (`~/.factoria/editor_recent.json`).
+are listed by name under the path; hover one to see its path.
+
+The recent list (up to 8, most recent first) lives in `~/.factoria/editor_recent.json`, outside the engine's install
+folder, so it survives updates and reinstalls. The editor reads it once when it starts, even when it starts straight on
+a project (`factoria editor <dir>`, the restart after an update). Every time a project opens, the editor re-reads the
+file, puts that project first and writes the merge, so it never drops entries it did not show and two editors open at
+once do not erase each other's history. Paths are compared normalised (absolute, no trailing slash), so one project is
+listed once. A project whose folder has no `factoria.json` any more (deleted, or on a drive that is not mounted) is
+hidden from the dialog and from File > Recent Projects but stays in the file, and shows again when the folder comes back.
+When the list is full, such missing projects are the first to go, so they never push out projects that are still
+there. Otherwise only **Delete...** in the dialog removes a project from the list. The autotest never reads or writes the file.
 
 The window title names the engine version and the open project, `FactorIA 0.1.3 — My Game` (just `FactorIA 0.1.3` on
 the Open or create a project dialog). The version is the one `factoria version` prints; the right end of the menu bar
