@@ -32,6 +32,11 @@ struct CliRunRequest {
     // Tools to switch off, Claude Code names (`--disallowedTools`, appended to the argv of a claude-code provider): its own
     // sub-agent tools so that it delegates only through ai_run, and for the read-only roles the tools that edit.
     std::vector<std::string> disallowedTools;
+    // Claude Code: the hosts of the sites the user listed for assets ("assetSources" in ai.json; asset_source_hosts). Each becomes
+    // an allow rule `WebFetch(domain:<host>)` (and its "www." twin: the rule matches the exact host) so the agent can read
+    // those pages without asking. With webOnlyListed also WebSearch is switched off, so the agent can only fetch from them.
+    std::vector<std::string> webDomains;
+    bool webOnlyListed = false;
     // A read-only role (artCritic, reviewer). Claude Code is covered by disallowedTools. Codex (default argv): its read-only
     // sandbox (`--sandbox read-only`) and the FactorIA MCP server started with `--read-only`, which offers only
     // is_read_only_tool commands.
@@ -65,7 +70,12 @@ struct CliRunResult {
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
                                          const std::string& mcpConfigPath, const std::string& factoriaCommand);
 
-// Adds what `req` restricts to an expanded argv: Claude Code gets `--disallowedTools <comma separated>`; Codex with its
+// The permission rules for the sites in `domains`, as Claude Code names them: `WebFetch(domain:host)` and the same for the host
+// with or without "www." (the rule matches the exact host).
+std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains);
+
+// Adds what `req` restricts to an expanded argv: Claude Code gets `--disallowedTools <comma separated>` (with WebSearch when
+// `webOnlyListed`) and the WebFetch rules of `webDomains` added to its `--allowedTools` list; Codex with its
 // built-in argv and a read-only role gets `--sandbox read-only` and `--read-only` for the FactorIA MCP server it starts.
 // Other CLIs are left alone.
 void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv);

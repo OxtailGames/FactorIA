@@ -209,6 +209,45 @@ TEST_CASE("AgentSession: a Claude Code orchestrator has Agent and Task switched 
     }
 }
 
+TEST_CASE("AgentSession: the asset sites reach Claude Code as WebFetch rules, onlyListed also switches WebSearch off") {
+    TempDir dir, scratch;
+    std::string argvFile = (scratch.path / "argv.txt").string();
+    AiConfig cfg = default_config();
+    cfg.providers["claude-code"].command = script("fake_claude.sh");
+    cfg.providers["claude-code"].env["FAKE_ARGV_FILE"] = argvFile;
+    for (const char* role : {"orchestrator", "worker"}) cfg.roles[role].provider = "claude-code";
+    cfg.assetSources.images = {{"https://opengameart.org/art-search", "CC0 packs"}};
+    CommandRegistry registry = make_registry();
+    const auto run = [&](bool onlyListed) {
+        std::filesystem::remove(argvFile);
+        cfg.assetSources.onlyListed = onlyListed;
+        SessionOptions so;
+        so.projectDir = dir.str();
+        AgentSession s(registry, cfg, so);
+        REQUIRE(s.run("Find a tileset").ok);
+        const std::string argv = read_file(argvFile);
+        const auto value_of = [&](const std::string& flag) {
+            const std::size_t at = argv.find(flag + "\n");
+            REQUIRE(at != std::string::npos);
+            const std::size_t from = at + flag.size() + 1;
+            return argv.substr(from, argv.find('\n', from) - from);
+        };
+        return std::pair{value_of("--allowedTools"), value_of("--disallowedTools")};
+    };
+    const auto [allowed, disallowed] = run(false);
+    CHECK(allowed == "mcp__factoria,WebFetch(domain:opengameart.org),WebFetch(domain:www.opengameart.org)");
+    CHECK(disallowed.find("WebSearch") == std::string::npos);
+    const auto [allowedOnly, disallowedOnly] = run(true);
+    CHECK(allowedOnly == allowed);
+    CHECK(disallowedOnly.find("WebSearch") != std::string::npos);
+    CHECK(disallowedOnly.find("Agent") != std::string::npos);
+    // no site, no change to the arguments
+    cfg.assetSources = {};
+    const auto [plainAllowed, plainDisallowed] = run(false);
+    CHECK(plainAllowed == "mcp__factoria");
+    CHECK(plainDisallowed.find("WebSearch") == std::string::npos);
+}
+
 TEST_CASE("claude-code agent: not logged in gives an actionable error") {
     TempDir dir;
     ProviderConfig cfg = claude_cfg();

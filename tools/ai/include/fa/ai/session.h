@@ -88,7 +88,11 @@ struct PromptContext {
     bool canDelegate = false;
     std::string extra;
     std::string delegateTool;  // the tool the orchestrator delegates with; "" = agent_delegate (CLI agents: ai_run over MCP)
+    AssetSources assetSources; // the sites the user listed for assets (ai.json "assetSources"); roles that look for assets read them
 };
+// The "Asset sources" section of the prompt of the roles that look for assets: the listed sites per category, the rule (prefer
+// them, or use ONLY them when `onlyListed`) and how to record where an asset came from. "" when no site is listed.
+std::string asset_sources_prompt(const AssetSources& sources);
 // Stable system prompt: engine guide summary + project context + rules.
 std::string build_system_prompt(const PromptContext& ctx);
 

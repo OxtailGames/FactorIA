@@ -100,8 +100,9 @@ Result<AssetTarget> resolve_asset_target(const AiConfig& cfg, MediaKind kind, co
     if (route.provider.empty()) {
         const std::string where = cfg.sourcePath.empty() ? default_config_path() : cfg.sourcePath;
         return make_error("No provider is configured for " + name + " generation",
-                          "Generation costs money, so there is no default. Add this to " + where + ": {\"assets\": {\"" + name +
-                              "\": " + example_route(kind) + "}}. To try the pipeline offline and for free, use the fake provider: "
+                          "Generation costs money, so there is no default. The user can choose a provider for " + name +
+                              " in the editor (AI Assistant panel, \"AI settings...\", Asset generation), or you can add this to " + where +
+                              ": {\"assets\": {\"" + name + "\": " + example_route(kind) + "}}. To try the pipeline offline and for free, use the fake provider: "
                               "{\"assets\": {\"" + name + "\": {\"provider\": \"fake\"}}}. Or pass `provider` to the command." +
                               (kind == MediaKind::Voice
                                    ? " Real voices need a key in the environment: ELEVENLABS_API_KEY for elevenlabs, OPENAI_API_KEY for an openai provider "
@@ -138,6 +139,16 @@ Result<AssetResult> generate_asset(const ProviderConfig& provider, const AssetRe
         case ProviderKind::Fake: return fake_asset(request);
         case ProviderKind::AssetCommand: return command_asset(provider, request, cancel);
         default: return make_error("Provider '" + provider.name + "' does not generate assets");
+    }
+}
+
+std::string asset_default_model(const ProviderConfig& provider, MediaKind kind) {
+    switch (provider.kind) {
+        case ProviderKind::OpenAICompatible: return kind == MediaKind::Image ? "gpt-image-1" : kind == MediaKind::Voice ? "gpt-4o-mini-tts" : "";
+        case ProviderKind::ElevenLabs:
+            return kind == MediaKind::Sound ? "eleven_text_to_sound_v2" : kind == MediaKind::Music ? "music_v1" : "eleven_multilingual_v2";
+        case ProviderKind::Meshy: return "latest";
+        default: return {};
     }
 }
 

@@ -6,6 +6,14 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 AI panel
 
+- **AI settings...** (next to **Roles...**, and **File > AI Settings...**) is a new window with two sections. **Asset
+  generation** chooses which provider makes each kind of asset (image, sound, music, voice, 3D model), its model and voice,
+  and an API key (stored in your `ai.json`, which is written readable only by you; an environment variable is still
+  preferred), with a status per row. Before, the only way was to write the `assets` section of `ai.json` by hand.
+  **Asset sources** lists the websites the AI should look at for images, models, audio and fonts, and **Use only these
+  sites** keeps it from searching anywhere else: Claude Code is held to it (WebFetch of other sites denied, WebSearch off),
+  other providers are told it. The new `assetSources` section of `ai.json` holds the lists.
+- The "no provider" error of the asset commands now names the AI settings window as well as `ai.json`.
 - The roles line next to **Roles...** is gone (hover **Roles...** to see the current roles); the review buttons and the
   **Reviewers** count and focus moved up next to it, so the transcript gets two more lines.
 - **Art critique** and **Game review** ask first: a dialog shows what runs, how many reviewers, the role's model and the

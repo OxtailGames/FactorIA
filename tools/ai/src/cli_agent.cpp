@@ -118,13 +118,44 @@ Json make_mcp_config(const std::string& projectDir, const std::string& factoriaC
     return Json::object({{"mcpServers", Json::object({{"factoria", server}})}});
 }
 
+std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains) {
+    std::vector<std::string> rules;
+    const auto add = [&rules](const std::string& host) {
+        const std::string rule = "WebFetch(domain:" + host + ")";
+        if (std::find(rules.begin(), rules.end(), rule) == rules.end()) rules.push_back(rule);
+    };
+    for (const std::string& host : domains) {
+        if (host.empty()) continue;
+        add(host);
+        add(host.rfind("www.", 0) == 0 ? host.substr(4) : "www." + host);
+    }
+    return rules;
+}
+
 void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv) {
-    if (kind == ProviderKind::ClaudeCode && !req.disallowedTools.empty()) {
-        // One comma-separated argument: the option is variadic and the prompt goes to standard input.
-        std::string list;
-        for (const auto& t : req.disallowedTools) list += (list.empty() ? "" : ",") + t;
-        argv.push_back("--disallowedTools");
-        argv.push_back(std::move(list));
+    if (kind == ProviderKind::ClaudeCode) {
+        std::vector<std::string> disallowed = req.disallowedTools;
+        const bool webOnly = req.webOnlyListed && !req.webDomains.empty();
+        if (webOnly) disallowed.push_back("WebSearch");  // a search result is not one of the listed sites
+        if (!disallowed.empty()) {
+            // One comma-separated argument: the option is variadic and the prompt goes to standard input.
+            std::string list;
+            for (const auto& t : disallowed) list += (list.empty() ? "" : ",") + t;
+            argv.push_back("--disallowedTools");
+            argv.push_back(std::move(list));
+        }
+        if (const auto rules = web_fetch_rules(req.webDomains); !rules.empty()) {
+            std::string list;
+            for (const auto& r : rules) list += (list.empty() ? "" : ",") + r;
+            // Into the --allowedTools the argv already has (a second flag might replace the first instead of adding to it).
+            auto at = std::find(argv.begin(), argv.end(), "--allowedTools");
+            if (at != argv.end() && at + 1 != argv.end() && (at + 1)->rfind("--", 0) != 0) {
+                *(at + 1) += "," + list;
+            } else {
+                argv.push_back("--allowedTools");
+                argv.push_back(std::move(list));
+            }
+        }
     }
     if (kind == ProviderKind::Codex && req.readOnly && builtInArgv) {
         for (auto& a : argv) {
