@@ -19,7 +19,7 @@ namespace fa::cli {
 namespace {
 
 const std::vector<std::string>& components() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders", "vscode", "ffmpeg", "webplayer"};
+    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders", "vscode", "ffmpeg", "webplayer", "launcher"};
     return ids;
 }
 
@@ -143,7 +143,7 @@ int run_install(Context& ctx, const std::string& component) {
 Command make_setup_command() {
     Command g;
     g.name = "setup";
-    g.summary = "Check this computer for exporting and install what is missing (Android JDK + SDK, players, CMake, AppImage tools, the shader compiler).";
+    g.summary = "Check this computer for exporting and install what is missing (Android JDK + SDK, players, CMake, AppImage tools, the shader compiler, the app launcher).";
     g.usage = "";
     g.details =
         "'factoria setup' shows what an export needs and whether this computer has it. 'factoria setup <component>' installs it into\n"
@@ -163,7 +163,9 @@ Command make_setup_command() {
         "  vscode   the script debugger for VS Code (and Insiders, VSCodium, Cursor): copies the extension built into factoria to\n"
         "           ~/.vscode/extensions, so F5 in a project debugs its scripts (docs/DEBUGGING.md). Nothing is downloaded.\n"
         "  ffmpeg   the static ffmpeg 6.0 build (github.com/eugeneware/ffmpeg-static, SHA-256 checked) that turns 'factoria run\n"
-        "           --record-video trailer.mp4' into H.264 + AAC, so it works without installing ffmpeg by hand.";
+        "           --record-video trailer.mp4' into H.264 + AAC, so it works without installing ffmpeg by hand.\n"
+        "  launcher macOS: ~/Applications/FactorIA.app, Linux: a .desktop entry - opens this factoria's editor with the FactorIA\n"
+        "           icon, for the Dock, Launchpad or the application menu. Nothing is downloaded.";
     g.maxPositional = 1;
     g.flags = {{"json", "", "Machine-readable output."}};
     g.examples = {"factoria setup", "factoria setup android", "factoria setup android --accept-licenses", "factoria setup players",
@@ -215,6 +217,8 @@ Command make_setup_command() {
                          {{"force", "", "Download it again even when an ffmpeg is found."}}, {"factoria setup ffmpeg"}));
     g.subs.push_back(sub("vscode", "Install the FactorIA debugger extension into VS Code (and Insiders, VSCodium, Cursor).",
                          {{"force", "", "Copy it again even when this version is installed."}}, {"factoria setup vscode"}));
+    g.subs.push_back(sub("launcher", "macOS, Linux: write the app that opens this factoria's editor with the FactorIA icon (Dock, Launchpad, application menu).",
+                         {{"force", "", "Write it again even when it is up to date."}}, {"factoria setup launcher"}));
     return g;
 }
 

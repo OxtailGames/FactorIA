@@ -276,6 +276,7 @@ factoria setup xcode                               # macOS: checks Xcode, opens 
 factoria setup appimage                            # Linux x86_64 (and WSL): appimagetool + the AppImage runtime, for --format appimage
 factoria setup shaders                             # sokol-shdc, the shader compiler of custom materials (the factoria downloads already have it next to factoria)
 factoria setup ffmpeg                              # ffmpeg, so --record-video trailer.mp4 works without installing it by hand
+factoria setup launcher                            # macOS/Linux: an app that opens the editor with the FactorIA icon (Dock, Launchpad, app menu)
 ```
 
 | Component | What it installs | Download | The export that needs it |
@@ -289,6 +290,7 @@ factoria setup ffmpeg                              # ffmpeg, so --record-video t
 | `shaders` | sokol-shdc, the shader compiler of custom materials, at a pinned commit of `github.com/floooh/sokol-tools-bin`: the one file for this computer (Windows, Linux or macOS, x64 or arm64), checked against a SHA-256 compiled into FactorIA. The factoria downloads carry the same file next to `factoria`, so this is for a factoria built from source, or when that copy is gone | about 8-12 MB | compiling `*.material.json` (`factoria validate`, `run`, `export`); see below |
 | `ffmpeg` | ffmpeg 6.0, the static GPL build of `github.com/eugeneware/ffmpeg-static` (release `b6.0`, with libx264 and AAC): the one gzip file for this computer (Windows x64, Linux and macOS x64 or arm64), checked against a SHA-256 compiled into FactorIA and unpacked to `$FACTORIA_HOME/tools/ffmpeg/b6.0/`. Skipped when an ffmpeg is already found | about 19-28 MB | `factoria run --record-video trailer.mp4` ([Recording a replay as a video](#gameplay-video-from-a-replay)) |
 | `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
+| `launcher` | nothing is downloaded: an app that opens this factoria's editor with the FactorIA icon. macOS: `~/Applications/FactorIA.app` (for the Dock, Launchpad and Spotlight; the editor's output goes to `~/Library/Logs/FactorIA/editor.log`), registered with Launch Services so the Dock shows the new icon. Linux: `factoria.desktop` and its 256 px icon under `~/.local/share` (or `$XDG_DATA_HOME`). `partial` when it opens another factoria, was not written by FactorIA, or carries an older version or icon; the editor rewrites, at start, one that opens it but is out of date (after an update or a reinstall). `unsupported` on Windows, where the installer adds the Start menu entry | - | none: it is how a person opens the editor |
 
 Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
 

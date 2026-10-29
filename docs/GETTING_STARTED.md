@@ -49,11 +49,14 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
      it, click **Done**, open System Settings > Privacy & Security, click **Open Anyway** next to the message about
      `factoria`, run it again and confirm **Open Anyway** (macOS 14 and earlier: right-click `factoria` in Finder >
      **Open**). The games `factoria` exports then run without asking; `factoria_player` itself would need the same
-     approval, but you never run it directly.
+     approval, but you never run it directly. To open the editor from the Dock, Launchpad or Spotlight instead of the
+     Terminal, run `./factoria setup launcher` once: it writes `~/Applications/FactorIA.app` with the FactorIA icon
+     (drag it to the Dock); the editor keeps it up to date after updates.
    - **Linux:** run `./factoria editor` in the folder. It needs X11 and OpenGL, which desktop distributions include,
      and glibc 2.31 or newer: Ubuntu 20.04 and newer, Debian 11 and newer, Fedora, Arch... and the Steam Linux
      Runtime "sniper" (the programs are built in it, so the games you export run in Steam too, also on the Steam Deck).
      The AI assistant and AI asset generation also need the `curl` program, which most distributions install.
+     `./factoria setup launcher` adds FactorIA, with its icon, to the application menu.
    - **Linux AppImage:** run `./FactorIA-linux-x64.AppImage`. Without arguments it opens the editor; with arguments it
      is the `factoria` command (`./FactorIA-linux-x64.AppImage new my-game`; `editor my-game` opens that project).
      If it cannot mount itself (no FUSE), run it as `./FactorIA-linux-x64.AppImage --appimage-extract-and-run`. It does

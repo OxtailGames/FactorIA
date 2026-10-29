@@ -20,6 +20,7 @@
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "ui_backend.h"
+#include "fa/tooling/setup.h"
 #include "fa/tooling/shaders.h"
 
 namespace fa::editor {
@@ -220,6 +221,7 @@ Editor::~Editor() {
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();
     if (updateThread_.joinable()) updateThread_.join();
+    if (launcherThread_.joinable()) launcherThread_.join();
 }
 
 int Editor::run() {
@@ -364,6 +366,9 @@ void Editor::on_init() {
         // layout2: a new name, so everyone starts on the AI layout once
         if (!h.empty()) iniPath_ = (std::filesystem::path(h) / ".factoria" / "editor_layout2.ini").string();
         maximize_window();  // the game view and the AI chat use the whole screen
+        launcherThread_ = std::thread([] {  // after an update the Dock/menu launcher still carries the old icon and version
+            if (refresh_launcher()) FA_INFO("editor", "updated the FactorIA app launcher to this version");
+        });
         if (!update_repo().empty()) {  // a downloaded package: offer newer releases (draw_update_popup)
             remove_update_leftovers(executable_dir());
             updateThread_ = std::thread([this] {

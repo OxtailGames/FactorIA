@@ -481,6 +481,7 @@ public:
     std::string updateError_;     // written before Failed
     std::atomic<float> updateProgress_{0};
     std::thread updateThread_;
+    std::thread launcherThread_;  // refresh_launcher at start: an out-of-date Dock/menu launcher of this factoria
     bool restartAfterQuit_ = false;  // on_cleanup starts the updated editor
 
     // The program replaced on disk (tooling/self_update.h, docs/EDITOR.md "Updates"): files copied over the installation without
