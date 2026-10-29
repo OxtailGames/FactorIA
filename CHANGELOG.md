@@ -2,7 +2,9 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.5.0
+
+FactorIA 0.5.0 makes the editor a proper Mac app: its menus are in the Mac's own menu bar.
 
 Editor
 

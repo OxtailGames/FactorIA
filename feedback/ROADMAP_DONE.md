@@ -3068,3 +3068,13 @@ Done (merge `08df5cf0`): `assets.rasterize_svg` supports `clipPath`, `mask` (lum
 (`assets_svg_layers.cpp`); `generate_texture` supersamples `fabric` so it shows no plaid, adds `linen`, and the paper
 vignette is narrow and irregular by default with `vignetteWidth` (0.005-0.5).
 
+## M40. The editor's menus in the macOS menu bar — DONE (`m40/integrated`, 0.5.0)
+
+Done (merge `7f8511bd`): `menu_model.{h,cpp}` describes the main menu (labels, platform-neutral shortcuts, enabled,
+checked, tooltips, autotest names, lazy submenus for Recent Projects and Open Scene); `main_menu.cpp` builds it every
+frame, `menu_imgui.cpp` draws it in the window on Windows and Linux (and in the autotest), and `native_menu_apple.mm`
+mirrors it into `NSApp.mainMenu`, updating items in place and queuing actions for the next frame. On macOS: the FactorIA
+menu (About with version and build, Settings... Cmd+,, Hide, Quit Cmd+Q through `sapp_request_quit`), an Export menu
+(Export Game... Cmd+E), a Window menu, Redo on Cmd+Shift+Z, and Save/Undo/Redo give their key to a focused text box.
+`FA_EDITOR_NATIVE_MENU=0` brings the in-window bar back. The version became 0.5.0; 0.4.0 (`2f62cefd`) closed M29-M39.
+

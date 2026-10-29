@@ -1259,6 +1259,21 @@ Left open:
 - M39.5: `clipPathUnits="objectBoundingBox"` is not supported (user space only).
 - Everything: GitHub is suspended, so no CI ran on M39; Windows, Linux, Android and web were never compiled here.
 
+## M40. The editor's menus in the macOS menu bar (L; 1 package and 1 request) — DONE (`m40/integrated`, 0.5.0)
+
+Asked by the user: "on the Mac the menus should be in the Mac's own top bar, like every Mac app".
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M40: a platform-neutral menu model drawn with ImGui on Windows and Linux and
+mirrored into NSMenu on macOS (FactorIA app menu with About and Settings..., File, Edit, View, AI, Export, Window,
+Help; Cmd shortcuts that a focused text box gets first). From this milestone on every milestone raises the engine
+version (0.4.0 for M29-M39, 0.5.0 for M40).
+
+Left open:
+- The open menus, the About panel and the tooltips were only checked by the NSMenu tests, not by eye (no accessibility
+  permission to drive the menus); real Cmd+Z in a text box only with synthetic events.
+- Native menus stay active while an ImGui modal popup is open.
+- Windows and Linux were not compiled here (GitHub is suspended, no CI).
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
