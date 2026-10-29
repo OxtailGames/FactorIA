@@ -13,6 +13,8 @@
 //   xcode     status and guidance only (macOS): a program cannot install Xcode; install opens its App Store page.
 //   appimage  appimagetool and the AppImage runtime (Linux x86_64 only): what `factoria export --platform linux --format
 //             appimage` builds an AppImage with. Pinned releases, checked against SHA-256 values kept in this file.
+//   launcher  the app that opens the editor with the FactorIA icon (macOS ~/Applications/FactorIA.app, Linux a .desktop
+//             entry): written from the binary, outside factoria_home() like the VS Code extension.
 // Everything lands under factoria_home() (`$FACTORIA_HOME`, else ~/.factoria) and nothing outside it except the
 // machine config (~/.factoria/export.json, fa/tooling/export_settings.h) that learns where the JDK and SDK are. Every
 // download is verified against the checksum its publisher lists; an archive is unpacked next to its destination and
@@ -190,7 +192,7 @@ struct SetupLicense {
 };
 
 struct SetupComponent {
-    std::string id;       // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg"
+    std::string id;       // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
@@ -220,7 +222,7 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 // ---------------------------------------------------------------------------------------------------------------
 
 struct SetupInstallOptions {
-    std::string component;                 // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg"
+    std::string component;                 // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
     bool acceptLicenses = false;           // android: the user agreed to the Android SDK license
     std::vector<std::string> platforms;    // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
     bool force = false;                    // reinstall even when it is found (android, cmake)
@@ -297,6 +299,11 @@ std::string find_sokol_shdc(const SetupContext& context = {});
 const FfmpegBinary* ffmpeg_binary(const SetupContext& context);
 // <home>/tools/ffmpeg/<kSetupFfmpegRelease>/ffmpeg[.exe]: where `setup ffmpeg` puts it (the file may not exist).
 std::string ffmpeg_install_path(const SetupContext& context);
+
+// When the launcher `setup launcher` wrote opens this factoria but is out of date (an update or a reinstall brought a new
+// icon or version), writes it again and returns true. A missing launcher, or one that opens another factoria (a
+// development build runs the editor too), is left alone. The editor calls it at start, off the main thread.
+bool refresh_launcher(const SetupContext& context = {});
 
 // Registers "setup.status" (read-only) and "setup.install" (category "setup"). They need no project, so they are
 // registered with the tooling commands and with the project-less command set; the editor calls the C++ API above.

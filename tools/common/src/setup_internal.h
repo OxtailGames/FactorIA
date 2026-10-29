@@ -11,6 +11,7 @@
 //   setup_shaders.cpp  sokol-shdc, the shader compiler of custom materials (and where it is looked for)
 //   setup_ffmpeg.cpp   ffmpeg, which --record-video turns a recording into an .mp4 with
 //   setup_vscode.cpp   the VS Code extension of the script debugger (copied from the binary, nothing is downloaded)
+//   setup_launcher.cpp the app that opens the editor with the FactorIA icon (macOS ~/Applications, Linux .desktop)
 #pragma once
 
 #include <chrono>
@@ -164,6 +165,9 @@ SetupResult ffmpeg_install_binary(const SetupContext& ctx, const SetupInstallOpt
 
 SetupComponent vscode_status(const SetupContext& ctx);
 SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& options);
+
+SetupComponent launcher_status(const SetupContext& ctx);
+SetupResult launcher_install(const SetupContext& ctx, const SetupInstallOptions& options);
 
 // What the three installers and the status share about Java and the SDK folders.
 bool jdk_usable(const std::string& dir);        // bin/java + bin/javac + Java 17 or newer

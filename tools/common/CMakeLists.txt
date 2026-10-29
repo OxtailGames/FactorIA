@@ -53,6 +53,8 @@ file(GLOB FA_EMBED_VSCODE CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/to
 # Which version added each component, field and command (fa/tooling/api_export.h).
 set(FA_EMBED_ALL ${CMAKE_CURRENT_SOURCE_DIR}/api_since.json ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_PLATFORMS} ${FA_EMBED_LICENSES}
     ${FA_EMBED_SHADER_TEMPLATES} ${FA_EMBED_VSCODE}
+    # The macOS icon of the app `factoria setup launcher` writes (Linux uses platforms/linux/factoria.png, embedded above).
+    ${FA_ROOT}/tools/editor/icon/factoria.icns
     # The script debugger's instrumenter and the parser it runs (fa/tooling/script_instrument.h).
     ${FA_ROOT}/external/acorn/dist/acorn.js ${CMAKE_CURRENT_SOURCE_DIR}/src/js/instrument.js
     ${FA_ROOT}/engine/runtime/include/fa/runtime/fa_plugin.h)

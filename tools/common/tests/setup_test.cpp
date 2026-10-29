@@ -433,7 +433,8 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
     SetupContext c = w.ctx();
 
     SetupStatus all = setup_status(c, {}, false);
-    REQUIRE(all.components.size() == 9);
+    REQUIRE(all.components.size() == 10);
+    CHECK(all.components[9].id == "launcher");
     CHECK(all.components[8].id == "webplayer");
     CHECK(all.components[8].state == "unsupported");  // the test world has no checkout
     CHECK(all.components[6].id == "vscode");
@@ -467,7 +468,7 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
 
     const Json j = all.to_json();
     CHECK(j.at("home").get<std::string>() == w.home);
-    CHECK(j.at("components").size() == 9);
+    CHECK(j.at("components").size() == 10);
     CHECK(j.at("components")[0].at("state").get<std::string>() == "missing");
 }
 
