@@ -805,6 +805,8 @@
     "publish.itch": "0.2.0",
     "publish.microsoft": "0.3.0",
     "publish.steam": "0.2.0",
+    "render.inspect": "unreleased",
+    "render.pick": "unreleased",
     "scene.ascii_edit": "0.2.0",
     "scene.destroy": "0.1.0",
     "scene.format": "0.1.0",

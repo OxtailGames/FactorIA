@@ -70,15 +70,25 @@ Example: game.resume {}
 
 ## `game.screenshot`
 
-Capture the game view as a PNG and show it.
+Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.
 
-Draws the game view as it is now (design resolution), saves it and returns the path; clients display the image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. Default path .factoria/screenshots/frame_<n>.png. `scale` (0.25 to 4, default 1) draws the same frame into an image scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG. `simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the saved PNG to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons read without their colour. Example: game.screenshot {"path":"shots/start.png","scale":1.5} or game.screenshot {"path":"shots/deut.png","simulate":"deuteranopia"}
+Draws the game view as it is now (design resolution) and returns it; clients display the image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect.
+WITHOUT `path` the picture is temporary: the result is {width, height, frame, temporary: true, $image: {path, mimeType, temporary: true}}, the MCP server and the AI assistant attach the image to the message and then DELETE the file, so do not keep or read that path later. (`factoria call` only prints the result and leaves the file; the engine removes engine-named files `.factoria/screenshots/frame_<n>*.png` older than 3 days or beyond the newest 200 when a project opens.) WITH `path` the file is written there and kept, and the result has `path`. Use `path` when your client cannot show images (then open the file yourself) or when you want to compare pictures later.
+`scale` (0.25 to 4, default 1) draws the same frame into an image scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG.
+`region` [x, y, width, height] (design pixels, origin top-left) with `zoom` (0.25 to 32) shows only that part magnified: use it to look at a seam, a join, a gradient end or a one-pixel gap that is invisible in the whole view. Up to zoom 4 the frame is drawn again at that render scale and cropped (lines, text and shapes are sharp, the HUD is included); above 4 the 4x picture is enlarged with nearest-neighbour sampling (hard pixel blocks, nothing blurred). The result is round(width * zoom) x round(height * zoom), at most 8192 px a side; the region is clamped to the view. `zoom` without `region` magnifies the whole view the same way.
+`frames` makes a FILMSTRIP: one PNG with a grid of pictures, each labelled with its frame number ("f130 +4" = game frame 130, 4 frames after the start). The first picture is the game now, then the game is STEPPED `everyFrames` frames (default 1) and captured again until `frames` frames have passed, so frames 48 and everyFrames 4 give 13 tiles and leave the game 48 frames further. At most 64 tiles. `region` and `zoom` apply to every tile (the same region each time); without `zoom` the tiles are sized so the sheet is about 2048 px wide (never enlarged). `columns` sets the grid width (default: nearly square). Use it to see a whole transition or animation at once. A tween or script keeps running while it steps: it shows what the game does, it does not freeze anything. The result adds `tiles` [{frame, offset}], `columns`, `rows`, `tileWidth`, `tileHeight` and `zoom`.
+`simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the picture to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons read without their colour. Needs graphics. Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screenshot {"region":[600,0,80,720],"zoom":8}; game.screenshot {"frames":48,"everyFrames":4,"region":[400,200,480,300]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | no | Output PNG (project-relative or absolute). |
-| `scale` | number | no | Render scale: image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Default 1. |
-| `simulate` | string ["none","greyscale","protanopia","deuteranopia","tritanopia"] | no | Convert the saved PNG to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged. Default "none". |
+| `path` | string | no | Output PNG (project-relative or absolute). Given: the file is kept. Omitted: a temporary picture that the client deletes after reading it. |
+| `scale` | number | no | Render scale of the whole view (default 1): image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Not together with zoom. |
+| `region` | array | no | [x, y, width, height] in design pixels (origin top-left): only this part of the view is captured, magnified by zoom. |
+| `zoom` | number | no | Magnification of the region (or of the whole view): up to 4 a native sharp re-render, above 4 nearest-neighbour enlargement of the 4x picture. Default 1 (a filmstrip without zoom: sized to a sheet about 2048 px wide). |
+| `frames` | integer | no | Filmstrip: the game advances this many frames in total, captured every everyFrames, into one labelled grid PNG. |
+| `everyFrames` | integer | no | Filmstrip: frames between two pictures (default 1). frames / everyFrames + 1 pictures, at most 64. |
+| `columns` | integer | no | Filmstrip: tiles per row (default: the grid closest to square). |
+| `simulate` | string ["none","greyscale","protanopia","deuteranopia","tritanopia"] | no | Convert the picture to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged. Default "none". |
 
 ## `game.state`
 
@@ -117,4 +127,34 @@ Record the input the game receives as an input replay (start / stop).
 |---|---|---|---|
 | `action` | string ["start","stop"] | yes | start: begin recording now. stop: end it and return the replay. |
 | `path` | string | no | stop only: also write the replay to this project-relative file (e.g. replays/run1.json). |
+
+## `render.inspect`
+
+Not released yet (on main after 0.3.0).
+
+Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it.
+
+Draws the picture as it is now and reads the pixels along the segment `from` -> `to` (design pixels, origin top-left): one sample per pixel along the longer axis, as a value 0..255 of the sRGB bytes (`channel`: luminance with Rec. 709 weights, or red, green, blue). It lists every STEP: a change of at least `threshold` (default 8 levels) within `window` samples (default 2), which is how a bright seam, a gap between two sprites or the edge of a gradient band shows in the numbers while the eye misses it. A smooth ramp has no steps; a staircase (Mach bands: two overlapping gradients) has one per riser. The edge of a sprite or a shape is a step too: find what draws it with render.pick at the step's `at`. Result: {from, to, channel, scale, count, samples: [values], min, max, steps: [{index, at: [x, y] (design pixels, the middle of the jump), width, from, to, delta}], stepCount, frame}; at most 200 steps and 4096 samples. `scale` (0.25 to 4, default 1) samples a render at that scale, so at 4 there are four samples per design pixel and a sub-pixel gap shows. Look at the area with game.screenshot {region, zoom} first, then measure it. Needs graphics. Example: render.inspect {"from":[600,360],"to":[680,360],"threshold":6}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `from` | array | yes | Start of the line, [x, y] in design pixels (origin top-left). |
+| `to` | array | yes | End of the line, [x, y] in design pixels. |
+| `threshold` | number | no | Smallest change (0..255) that counts as a step. Default 8. |
+| `window` | integer | no | A step is a change of at least threshold within this many samples. Default 2. |
+| `channel` | string ["luminance","red","green","blue"] | no | What to measure: Rec. 709 luminance or one colour channel of the sRGB bytes. Default "luminance". |
+| `scale` | number | no | Render scale to sample at; higher finds finer gaps. Default 1. |
+
+## `render.pick`
+
+Not released yet (on main after 0.3.0).
+
+Which entities draw a design-space pixel of the picture, topmost first.
+
+Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn box covers `position` (design pixels, origin top-left), topmost first: screen-space UI above the world, then the higher `layer`, then (world Sprites) the lower world y, then the one drawn later (component order Tilemap, Sprite, Shape2D, Text; then creation order). Each hit is {entity, name, component, layer, space: "world"|"screen"}. Use it to find which shape or sprite causes a visible artefact (a seam, a dark band) after game.screenshot {region, zoom} or render.inspect located it. The test is the oriented BOX of the visual (the same footprint as entity.bounds() and the editor's picking): a transparent corner of a sprite, the corners outside a circle and the parts of a gradient that fade out still count; an alpha-0 colour is skipped; inactive entities are skipped. The world point is found through the primary camera; `world` in the result is that point. `widget` is the UI widget a click there would reach (ui_widget_at), or null. Needs graphics (the camera is the renderer's). Example: render.pick {"position":[640,360]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `position` | array | yes | [x, y] in design pixels (origin top-left). |
+| `max` | integer | no | At most this many hits. Default 20. |
 

@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "fa/core/log.h"
+#include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "util.h"
 
@@ -479,6 +480,9 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
                     if (in) {
                         std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
                         data = fa::base64_encode(bytes.data(), bytes.size());
+                        in.close();
+                        // A screenshot without `path` is temporary: its bytes are in the message now, the file can go.
+                        if (!data.empty()) fa::discard_temporary_image(*img, opt_.projectDir);
                     }
                 }
             }

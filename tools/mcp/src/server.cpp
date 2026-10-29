@@ -13,6 +13,7 @@
 #include <sstream>
 #include <thread>
 
+#include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/api_export.h"
 
@@ -345,6 +346,13 @@ Json McpServer::run_tool(const Json& params) {
                 ss << in.rdbuf();
                 std::string bytes = ss.str();
                 b64 = base64_encode(bytes.data(), bytes.size());
+                in.close();
+                // A screenshot without `path` is temporary: now that its bytes are in the reply the file can go.
+                if (!b64.empty() && discard_temporary_image(spec, host_.project_dir())) {
+                    spec.erase("path");
+                    spec["note"] = "Attached to this reply as an image; the temporary file was deleted. Pass `path` to keep a screenshot.";
+                    result["$image"] = spec;
+                }
             } else {
                 note = "image file not found: " + p.string();
             }

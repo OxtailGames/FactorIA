@@ -196,6 +196,26 @@ std::optional<Rect> entity_world_rect(const World& W, Entity e, const VisualMeas
     return Rect{x0, y0, x1 - x0, y1 - y0};
 }
 
+Mat4 footprint_matrix(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize) {
+    Mat4 m = part.space == RenderSpace::Screen ? w.world_matrix(e) : visual_world_matrix(w, e);  // world parts: moved by Parallax
+    if (part.space == RenderSpace::Screen) {
+        const float k = ui_scale_clamped(w.ui_scale());
+        m = Mat4::scale({k, k, 1.0f}) * m;
+        if (part.mirrored) m.at(3, 0) = -m.at(3, 0);  // a mirrored part: its box and anchor are flipped already
+        const Vec2 a = anchor_point(part.anchor, part.safeArea, designSize, w.safe_insets());
+        m.at(3, 0) += a.x;
+        m.at(3, 1) += a.y;
+    }
+    return m;
+}
+
+bool footprint_hit(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize, Vec2 point) {
+    const Mat4 m = footprint_matrix(w, e, part, designSize);
+    // Into the part's local space (y up): rotation and scale of the entity are undone, so the box is the oriented one.
+    const Vec3 p = m.inverse().transform_point({point.x, point.y, 0.0f});
+    return point_in_quad({p.x, part.space == RenderSpace::Screen ? -p.y : p.y}, part.box);
+}
+
 bool point_in_quad(Vec2 p, const std::array<Vec2, 4>& q) {
     // A quad with no area (a zero-size shape) contains nothing.
     float area2 = 0;

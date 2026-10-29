@@ -184,6 +184,7 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene
 void register_play_session_commands(Engine& engine, Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
 void register_i18n_commands(Engine& engine, Engine::Impl& impl);  // localization.cpp: i18n.state, i18n.set_language
 void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_check.cpp: ui.check_layout
+void register_shot_commands(Engine& engine, Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
 Entity need_entity(World& world, const Json& args, const char* key = "id");
