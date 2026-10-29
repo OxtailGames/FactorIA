@@ -361,7 +361,7 @@ Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) in
 Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance (origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. The importer is chosen by the extension:
 - .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf: copied as they are (images are checked to decode).
 - .gltf and .glb: copied with the .bin buffers and images their uris point at, which must sit next to the model or below it (a missing buffer is an error, a missing image a warning). An identical file already there is shared; a DIFFERENT image with the same name is kept and the result warns (kits ship different Textures/colormap.png files: import each kit into its own folder with `path`, or pass overwrite), and a DIFFERENT buffer is an `exists` error. project.validate reports a model whose texture or buffer is missing.
-- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the `sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips; the result says so. The result lists the Sprite and SpriteAnimator settings that play it.
+- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the `sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips (set SpriteAnimator.mode to play them that way); the result says so. The result lists the Sprite and SpriteAnimator settings that play it.
 - .psd: the merged image becomes a PNG (layers are flattened).
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
 - .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
@@ -406,6 +406,27 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 | `table` | string | no | Project-relative .json for the frame table. Default: out with the .json extension. |
 | `maxSize` | integer | no | Largest side of the page in pixels. Default 2048 (what every phone samples); 4096 is fine on desktop. Frames that do not fit are an error. |
 | `padding` | integer | no | Pixels of the frame's own edge repeated around each frame. Default 2. |
+
+## `assets.preview_sheet`
+
+Not released yet (on main after 0.5.0).
+
+Look at a sprite sheet the way the game plays it: a labelled grid of its frames (numbers, cell edges, pivot, optional onion skin) plus checks for empty, cut or jumping frames and a loop seam.
+
+Cuts the frames of the sheet at `path` with the grid of its `sheet` entry in assets.json (columns, rows, frameWidth, frameHeight, padding, frames; or the grid you pass), and returns a picture: every frame in a tile with its number (f<n>), a cyan rectangle for the frame, a grey one for the padding gutter around it and a magenta cross for the pivot (the clip's pivot, else the sheet's, else the centre; [x, y] from the top-left). `clip` shows one clip of the sheet; without it all the clips (or all the frames). `onion: true` draws the previous frame in red and the next in blue under the current one. It also checks the frames and returns `warnings` for: frames that draw nothing, shapes touching the edge of the cell (cut off), a bounding box that jumps by more than 30% of the frame between consecutive frames, a looping clip whose last frame jumps from the first or repeats it, and a grid that does not match the image size. The checks are the same for a sheet from assets.animate_svg, assets.bake_sheet, assets.slice_sheet or an Aseprite import, or one drawn by hand. The picture is a temporary screenshot in .factoria/screenshots. A wrong `clip` fails listing the clips of the sheet with a "did you mean". Example: {"path":"assets/hero.png","clip":"walk","onion":true}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative path of the sprite sheet image. |
+| `clip` | string | no | Show only this clip of the sheet entry (its frames, loop seam and pivot). Default: all the clips, or all the frames. |
+| `onion` | boolean | no | Draw the previous frame in red and the next one in blue under each frame (onion skin). Default false. |
+| `scale` | integer | no | Magnification of each frame (whole numbers, nearest-neighbour). Default: enough for about 160 px per tile. |
+| `tileColumns` | integer | no | Tiles per row of the picture. Default: the sheet's columns for the whole sheet, else the closest to a square. |
+| `columns` | integer | no | The grid when the sheet has no `sheet` entry (or to override it): frames per row. |
+| `rows` | integer | no | The grid when the sheet has no `sheet` entry (or to override it): rows. |
+| `frameWidth` | integer | no | Width of one frame in pixels, when it is not recorded. Default: the image divided by the grid. |
+| `frameHeight` | integer | no | Height of one frame in pixels, when it is not recorded. Default: the image divided by the grid. |
+| `padding` | integer | no | Transparent gutter around each cell, in pixels (cell i starts at padding + column * (frameWidth + 2 * padding)). Default: the sheet entry's, else 0. |
 
 ## `assets.provenance`
 

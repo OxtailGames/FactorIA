@@ -6,6 +6,9 @@
 #include <string>
 
 #include "asset_test_helpers.h"
+#include "fa/core/asset_manifest.h"
+#include "fa/scene/components.h"
+#include "fa/scene/sprite_animator.h"
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/tooling.h"
 
@@ -312,4 +315,41 @@ TEST_CASE("assets.bake_sheet: arguments are checked with errors that teach (no G
     CHECK(message(exists).find("overwrite") != std::string::npos);
     CommandResult noId = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"scene", "prefabs/orb.prefab.json"}, {"entity", "orb"}});
     REQUIRE_FALSE(noId.ok);
+}
+
+TEST_CASE("assets.bake_sheet: a baked sheet is previewed by clip name and plays by clip name in a SpriteAnimator") {
+    BakeProject p;
+    p.put("prefabs/boom.prefab.json", kBoomPrefab);
+    p.put("scripts/boom.js", kBoomScript);
+    const Json clips = Json::array({Json{{"name", "idle"}, {"frames", 4}}, Json{{"name", "explode"}, {"call", "explode"}, {"args", Json::array({50})}, {"frames", 6}, {"loop", false}}});
+    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/boom.png"}, {"prefab", "prefabs/boom.prefab.json"}, {"fps", 10}, {"clips", clips}, {"columns", 5}});
+    if (no_gpu(r)) return;
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+
+    // preview_sheet reads the sheet entry the bake wrote: the clip's frames, the padding and the pivot
+    CommandResult v = p.reg.call("assets.preview_sheet", Json{{"path", "assets/fx/boom.png"}, {"clip", "explode"}});
+    REQUIRE_MESSAGE(v.ok, v.error.dump());
+    CHECK(v.result["shownFrames"] == 6);
+    CHECK(v.result["frames"].size() == 6);
+    CHECK(v.result["frames"][0]["frame"] == 4);
+    CHECK(v.result["pivot"].is_array());
+    CommandResult bad = p.reg.call("assets.preview_sheet", Json{{"path", "assets/fx/boom.png"}, {"clip", "explod"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(message(bad).find("idle, explode") != std::string::npos);
+    CHECK(message(bad).find("explode") != std::string::npos);
+
+    // a SpriteAnimator resolves the clip against the same entry
+    auto sheet = assets::parse_sheet(p.manifest()["assets"]["assets/fx/boom.png"]["sheet"]);
+    REQUIRE(sheet);
+    SpriteAnimator a;
+    a.clip = "explode";
+    const SpriteAnimPlan plan = resolve_sprite_animator(a, "assets/fx/boom.png", sheet);
+    CHECK(plan.error.empty());
+    CHECK(plan.firstFrame == 4);
+    CHECK(plan.lastFrame == 9);
+    CHECK_FALSE(plan.loop);
+    CHECK(plan.padding == r.result["sheet"].value("padding", 0));
+    CHECK(plan.fromSheet);
+    a.clip = "explod";
+    CHECK(resolve_sprite_animator(a, "assets/fx/boom.png", sheet).error.find("explode") != std::string::npos);
 }
