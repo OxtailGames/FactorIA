@@ -473,8 +473,6 @@ bool Editor::boot(const std::string& dirIn) {
     dirty_ = false;
     feedbackMtime_ = INT64_MIN;
     feedbackDoc_ = Json();
-    feedbackArchive_ = Json();
-    feedbackArchiveMtime_ = INT64_MIN;
     layoutBuilt_ = false;
     profView_.reset();
     reset_audio_log(audioLog_);  // a new engine has a new play log that starts at seq 1
@@ -1225,7 +1223,6 @@ void Editor::build_ui() {
             pendingFocus_ = nullptr;
         }
     }
-    if (showDemo_) ImGui::ShowDemoWindow(&showDemo_);
     draw_project_dialog();
     draw_validation_window();
     draw_export_window();
@@ -1358,7 +1355,6 @@ void Editor::draw_main_menu() {
         ImGui::SetItemTooltip("Draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body) and its off-mesh links (yellow lines), the ground nav.findPath walks on");
         ImGui::MenuItem("Selection overlay", nullptr, &showOverlay_);
         if (ImGui::MenuItem("Reset layout")) resetLayout_ = true;
-        ImGui::MenuItem("ImGui demo", nullptr, &showDemo_);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Help")) {
@@ -1516,8 +1512,6 @@ void Editor::draw_status_bar() {
         ImGui::Text("%s", projectName_.c_str());
         ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
         ImGui::Text("%s%s", scenePath_.c_str(), dirty_ ? " *" : "");
-        ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
-        ImGui::Text("frame %llu", (unsigned long long)engine_->frame_index());
         ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
         ImGui::Text("%.0f FPS", fps_);
         ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();

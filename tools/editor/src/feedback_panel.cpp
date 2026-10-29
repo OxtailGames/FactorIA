@@ -52,19 +52,6 @@ void Editor::draw_feedback_panel() {
             }
         }
     }
-    {
-        const std::string archiveRel = feedback_archive_path(engine_->project().feedbackFile);
-        const bool aExists = fs::exists(archiveRel);
-        const std::int64_t amt = aExists ? fs::modified_time(archiveRel) : 0;
-        if (amt != feedbackArchiveMtime_) {
-            feedbackArchiveMtime_ = amt;
-            feedbackArchive_ = Json();
-            if (aExists) {
-                if (auto r = load_feedback(fs::join(projectDir_, archiveRel))) feedbackArchive_ = *r;
-                else feedbackError_ = r.error().to_string();
-            }
-        }
-    }
     ImGui::TextDisabled("%s", engine_->project().feedbackFile.c_str());
     ImGui::SameLine();
     ImGui::TextDisabled("- what the engine lacked, recorded by you and by AIs");
@@ -99,34 +86,18 @@ void Editor::draw_feedback_panel() {
     if (fbCategory_ > 0) filter.category = feedback_categories()[size_t(fbCategory_ - 1)];
     if (fbSeverity_ > 0) filter.severity = feedback_severities()[size_t(fbSeverity_ - 1)];
 
-    const int archivedCount = feedbackArchive_.is_object() ? int(feedbackArchive_["entries"].size()) : 0;
     int closedCount = 0;
     for (const auto& en : feedbackDoc_["entries"]) if (en.value("status", "open") != "open") ++closedCount;
-    ImGui::BeginDisabled(archivedCount == 0);
-    ImGui::Checkbox("Show archive", &fbShowArchive_);
-    ImGui::EndDisabled();
-    ImGui::SetItemTooltip("Closed entries (fixed, wont-fix, duplicate) live in ENGINE_FEEDBACK.archive.json.\n"
-                          "Tick to list them with the open ones; setting an archived entry to open brings it back.");
-    ImGui::SameLine();
-    ImGui::TextDisabled("%d archived", archivedCount);
     if (closedCount > 0) {
-        ImGui::SameLine();
         if (ImGui::SmallButton("Archive closed")) {
             if (auto r = archive_closed_feedback_file(path); !r) notify(r.error().to_string(), 2);
             else notify("Archived " + std::to_string(r->moved) + " closed entries", 0);
             feedbackMtime_ = INT64_MIN;
-            feedbackArchiveMtime_ = INT64_MIN;
             feedbackPolled_ = -10;
         }
         ImGui::SetItemTooltip("Move the entries that are not open to ENGINE_FEEDBACK.archive.json");
     }
     Json entries = list_feedback(feedbackDoc_, filter);
-    if (fbShowArchive_ && archivedCount > 0) {
-        for (auto en : list_feedback(feedbackArchive_, filter)) {
-            en["status"] = en.value("status", "open");
-            entries.push_back(std::move(en));
-        }
-    }
     ImGui::BeginChild("##fbbody", ImVec2(0, 0), ImGuiChildFlags_None);
     const float tableH = std::min(180.0f, ImGui::GetTextLineHeightWithSpacing() * float(entries.size() + 2) + 8);
     if (ImGui::BeginTable("##fbt", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV,
@@ -177,7 +148,6 @@ void Editor::draw_feedback_panel() {
         if (combo_strings("status##detail", &cur, st, false) && st[size_t(cur)] != curStatus) {
             if (auto r = update_feedback_file(path, fbSelected_, st[size_t(cur)], ""); !r) notify(r.error().to_string(), 2);
             feedbackMtime_ = INT64_MIN;  // reload both files next poll
-            feedbackArchiveMtime_ = INT64_MIN;
             feedbackPolled_ = -10;
         }
         ImGui::SetItemTooltip("Change the status of this entry (saved immediately)");

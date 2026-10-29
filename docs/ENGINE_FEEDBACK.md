@@ -68,8 +68,8 @@ file, so an interruption can leave an entry in both files but never loses one. B
 - `feedback.update` also finds archived entries; setting one to `open` moves it back.
 - `feedback.list` shows the open file only; `includeArchive: true` (CLI `feedback list --archive`) adds the archived
   entries, marked `archived: true`, and the result has `archivedCount`.
-- The editor's Engine Feedback panel lists the open file; "Show archive" adds the archived entries and "Archive
-  closed" moves the closed ones right away.
+- The editor's Engine Feedback panel lists the open file; "Archive closed" moves the
+  closed ones right away.
 - `feedback collect` reads the archive next to each file, so its output is the same before and after archiving
   (closed entries still count only with `--include-closed`).
 
