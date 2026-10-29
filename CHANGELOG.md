@@ -4,6 +4,20 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Screenshots for agents
+
+- `game.screenshot` without `path` is now temporary: the result is marked `$image.temporary: true`, the MCP server and the
+  AI assistant (editor, `factoria ai run`) attach the image and delete the file, and the engine removes old engine-named
+  shots (`frame_*.png` in `.factoria/screenshots/`, older than 3 days or beyond the newest 200) when a project opens. A
+  `path` keeps the file. Editor toolbar shots, F9 marks, `factoria run --screenshot*` and `factoria shot` are unchanged.
+- `game.screenshot {region:[x,y,w,h], zoom}` shows part of the view magnified: a native re-render (sharp) up to 4x,
+  nearest-neighbour above, to inspect seams, joins and gradient ends.
+- `game.screenshot {frames, everyFrames, columns, region, zoom}` steps the game and returns one labelled contact sheet
+  (a filmstrip) to judge an animation in one picture.
+- New read-only commands `render.inspect` (brightness profile along a line with the hard steps in it) and `render.pick`
+  (which entities and layers draw a pixel, topmost first; the same box geometry as the editor's click selection).
+- The AI guide and the generated AGENTS.md tell agents to look closely before they trust a whole-view picture.
+
 Assets
 
 - `assets.generate_texture` `planks`: new options `plankCount`, `plankLength`, `gapWidth` and `gapDarkness`. Boards can run

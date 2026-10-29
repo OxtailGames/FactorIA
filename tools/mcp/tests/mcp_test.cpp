@@ -75,6 +75,22 @@ struct Fixture {
                 return Json::object({{"$image", Json::object({{"base64", "iVBORw0KGgo="}, {"mimeType", "image/png"}})}});
             });
         }
+        {
+            // Like game.screenshot without `path`: writes <project>/.factoria/screenshots/<name> and flags it temporary.
+            CommandInfo i;
+            i.name = "test.temp_shot";
+            i.summary = "Returns a temporary image file.";
+            const std::string dir = tmp.path.string();
+            registry.add(i, [dir](const Json& a) {
+                const std::string name = a.value("name", std::string("frame_9.png"));
+                const stdfs::path file = stdfs::path(dir) / ".factoria" / "screenshots" / name;
+                stdfs::create_directories(file.parent_path());
+                std::ofstream(file, std::ios::binary) << std::string("\x89PNG\r\n\x1a\n", 8);
+                Json image = Json::object({{"path", file.generic_string()}, {"mimeType", "image/png"}});
+                if (a.value("temporary", true)) image["temporary"] = true;
+                return Json::object({{"frame", 9}, {"$image", image}});
+            });
+        }
         register_tooling_commands(registry, tmp.path.string());
     }
 
@@ -440,4 +456,29 @@ TEST_CASE("mcp: client config helpers are reachable from fa_mcp") {
     Json cfg = claude_code_mcp_config();
     CHECK(cfg["mcpServers"]["factoria"]["args"] == Json::array({"mcp", "--project", "."}));
     CHECK(codex_mcp_toml().find("[mcp_servers.factoria]") != std::string::npos);
+}
+
+TEST_CASE("mcp: a temporary screenshot is attached and then its file is deleted; other images stay") {
+    Fixture f;
+    const stdfs::path shots = f.tmp.path / ".factoria" / "screenshots";
+    // temporary: the image block is there, the file is gone, and the text no longer names a path to read.
+    Json res = f.call("test_temp_shot")["result"];
+    REQUIRE(res["content"].size() == 2);
+    CHECK(res["content"][1]["type"] == "image");
+    CHECK(res["content"][1]["data"] == "iVBORw0KGgo=");
+    CHECK_FALSE(stdfs::exists(shots / "frame_9.png"));
+    const std::string text = res["content"][0]["text"].get<std::string>();
+    CHECK(text.find("frame_9.png") == std::string::npos);
+    CHECK(text.find("deleted") != std::string::npos);
+    CHECK(res["structuredContent"]["$image"]["temporary"] == true);
+    CHECK_FALSE(res["structuredContent"]["$image"].contains("path"));
+    // a file the user named is not temporary: it stays and its path is still in the reply
+    Json kept = f.call("test_temp_shot", {{"name", "hall.png"}, {"temporary", false}})["result"];
+    REQUIRE(kept["content"].size() == 2);
+    CHECK(stdfs::exists(shots / "hall.png"));
+    CHECK(kept["content"][0]["text"].get<std::string>().find("hall.png") != std::string::npos);
+    // flagged but not named by the engine: never deleted
+    Json odd = f.call("test_temp_shot", {{"name", "hall2.png"}})["result"];
+    REQUIRE(odd["content"].size() == 2);
+    CHECK(stdfs::exists(shots / "hall2.png"));
 }

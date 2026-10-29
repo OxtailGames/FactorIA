@@ -90,6 +90,17 @@ Mat4 visual_world_matrix(const World& w, Entity e);
 // skipped. This is `entity.bounds()`.
 std::optional<Rect> entity_world_rect(const World& w, Entity e, const VisualMeasure& measure = {});
 
+// The matrix that places the local box of `part` (one of visual_footprints(e)) where the renderer draws it: for a world-space
+// part visual_world_matrix(e) (local -> world xy); for a screen-space part the world matrix scaled by the interface scale,
+// mirrored and moved by the anchor point (local with y NEGATED -> design pixels, origin top-left). `designSize` is the
+// design resolution.
+Mat4 footprint_matrix(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize);
+
+// True when `point` lies on `part` of entity `e`: `point` is in world xy for a world-space part and in design pixels for a
+// screen-space part. The test is done in the part's local space, so a rotated or scaled entity is hit by its real
+// (oriented) box. It is the box, not the opaque pixels: a transparent corner of a sprite counts.
+bool footprint_hit(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize, Vec2 point);
+
 // True when `p` lies inside the convex quad (either winding), borders included.
 bool point_in_quad(Vec2 p, const std::array<Vec2, 4>& quad);
 
