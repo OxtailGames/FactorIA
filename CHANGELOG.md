@@ -4,6 +4,8 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Assets made with code can be made again, and animations are drawn with code.
+
 Animations drawn with code
 
 - `assets.animate_svg` (MCP `assets_animate_svg`) bakes an animation you write as code into a sprite sheet PNG and its
@@ -32,6 +34,23 @@ Animations drawn with code
   `sheet` entry, a `generated` provenance (`ai` taken from the prefab or scene) and the recipe, so `assets.regenerate` can
   make it again. It needs a GPU; when the process already uses its graphics device (the editor, MCP) it bakes in a child
   `factoria call`. Bake effects to save draw calls on mobile (docs/ASSETS.md, docs/AI_GUIDE.md).
+
+Assets
+
+- The offline makers (`assets.rasterize_svg`, `assets.draw_icon`, `assets.draw_capsules`, `assets.generate_texture`,
+  `assets.synth_sound`, `assets.generate_loop`, `assets.pack_atlas`, `assets.slice_sheet`) record a recipe in the asset's
+  provenance: the command, the arguments that make the same bytes again (explicit seeds, project-relative paths) and the
+  files it read with their hashes.
+- New `assets.regenerate {path | all | stale, dryRun}` runs the recipe again and says what changed (pixels or bytes, size,
+  sheet layout). `stale` makes again only the assets whose sources were edited. Provider-made assets have no recipe.
+- `factoria validate` warns about a stale asset and about a recipe whose input no longer exists, with the exact
+  `assets.regenerate` command in the hint.
+
+Editor
+
+- The Project panel marks stale made assets with a "stale" badge (red "no src" when a source is gone), has a Regenerate
+  button (the selected asset, else every stale one) and a Regenerate item in the right-click menu. When a source of a made
+  asset is saved a banner offers Regenerate or Not now.
 
 ## 0.5.0
 

@@ -915,9 +915,10 @@ Json generate_texture(const std::string& projectDir, const Json& a) {
         used["gapDarkness"] = p.gapDarkness;
     }
     const std::string notes = "Procedural texture from assets.generate_texture " + used.dump() + ". Same arguments, same picture.";
+    const Json recipe = make_recipe(projectDir, kCommand, recipe_args(a, {{"path", rel}, {"seed", seedArg}}), {});
     auto provenance_for = [&](const std::string& extra) {
         return Json::object({{"origin", "original"}, {"ai", false}, {"kind", "image"}, {"provider", "factoria assets.generate_texture"}, {"seed", seedArg},
-                             {"license", "CC0-1.0"}, {"author", author}, {"notes", notes + extra}, {"date", assets::today()}});
+                             {"license", "CC0-1.0"}, {"author", author}, {"notes", notes + extra}, {"date", assets::today()}, {"recipe", recipe}});
     };
     const Json provenance = provenance_for("");
     write_png_asset(projectDir, rel, image, provenance);

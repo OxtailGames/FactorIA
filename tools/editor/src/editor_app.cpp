@@ -782,6 +782,7 @@ void Editor::on_frame(double dt) {
     atHeartbeat_.fetch_add(1, std::memory_order_relaxed);  // the autotest's watchdog sees the editor alive
     time_ += dt;
     poll_disk_update();
+    poll_recipe_sources();
     if (dt > 0) fps_ = fps_ * 0.9 + (1.0 / dt) * 0.1;
     if (!pendingOpen_.empty() || pendingWelcome_) {
         std::string dir = std::move(pendingOpen_);
@@ -1246,6 +1247,7 @@ void Editor::build_ui() {
     draw_mark_popup();
     draw_update_popup();
     draw_disk_update_notice();
+    draw_recipe_notice();
 
     // Unsaved changes dialogs.
     if (showQuitDialog_) ImGui::OpenPopup("Unsaved changes##quit");

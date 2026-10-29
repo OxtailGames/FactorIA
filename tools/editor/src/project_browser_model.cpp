@@ -42,6 +42,33 @@ ProjectListing scan_project(const std::string& projectDir, std::size_t limit) {
     }
     std::sort(out.files.begin(), out.files.end(), [](const BrowserFile& a, const BrowserFile& b) { return a.path < b.path; });
     std::sort(out.folders.begin(), out.folders.end());
+    out.recipes = asset_recipe_statuses(projectDir);
+    return out;
+}
+
+const AssetRecipeStatus* recipe_of_file(const ProjectListing& listing, std::string_view path) {
+    const auto it = std::lower_bound(listing.recipes.begin(), listing.recipes.end(), path,
+                                     [](const AssetRecipeStatus& r, std::string_view p) { return r.path < p; });
+    return it != listing.recipes.end() && it->path == path ? &*it : nullptr;
+}
+
+std::vector<std::string> stale_assets(const ProjectListing& listing) {
+    std::vector<std::string> out;
+    for (const AssetRecipeStatus& r : listing.recipes)
+        if (r.stale()) out.push_back(r.path);
+    return out;
+}
+
+std::string recipe_inputs_stamp(const std::string& projectDir, const ProjectListing& listing) {
+    std::string out;
+    for (const AssetRecipeStatus& r : listing.recipes)
+        for (const std::string& in : r.inputs) {
+            std::error_code ec;
+            const stdfs::path file = stdfs::path(projectDir) / in;
+            const auto size = stdfs::file_size(file, ec);
+            const auto time = ec ? stdfs::file_time_type::min() : stdfs::last_write_time(file, ec);
+            out += in + ':' + (ec ? std::string("-") : std::to_string(std::uint64_t(size)) + '@' + std::to_string(std::int64_t(time.time_since_epoch().count()))) + ';';
+        }
     return out;
 }
 

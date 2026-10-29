@@ -347,7 +347,7 @@ std::string hex_of(const Color& c) {
     return std::format("#{:02x}{:02x}{:02x}", b(c.r), b(c.g), b(c.b));
 }
 
-void write_png_file(const std::string& projectDir, const std::string& rel, const Image& img) {
+void write_png_file(const std::string& projectDir, const std::string& rel, const Image& img, const Json& recipe) {
     bool opaque = true;
     for (std::size_t i = 3; i < img.rgba.size(); i += 4) opaque = opaque && img.rgba[i] == 255;
     const std::vector<std::uint8_t> png = opaque ? encode_png_rgb(img) : encode_png(img);
@@ -359,7 +359,7 @@ void write_png_file(const std::string& projectDir, const std::string& rel, const
         e.erase("analysis");
         e.erase("sheet");
         Json prov = Json::object({{"origin", "original"}, {"ai", false}, {"kind", "image"}, {"date", assets::today()},
-                                  {"notes", "Drawn from shapes and text by assets.draw_icon."}});
+                                  {"notes", "Drawn from shapes and text by assets.draw_icon."}, {"recipe", recipe}});
         for (const char* key : {"license", "author"})  // what a person recorded for this file stays
             if (e.contains("provenance") && e["provenance"].contains(key)) prov[key] = e["provenance"][key];
         e["provenance"] = prov;
@@ -406,10 +406,22 @@ Json draw_icon(const std::string& projectDir, const Json& a) {
             fg = render(spec, kForegroundSize, {k, off, off}, true);
         }
     }
-    write_png_file(projectDir, iconPath, icon);
+    // The icon and its foreground are one call: both record it, and making either again makes both. A text layer's project font
+    // is read, so it is an input.
+    std::vector<std::string> fonts;
+    for (const Layer& l : spec.layers)
+        if (l.type == "text" && !l.font.empty() && !starts_with(l.font, "builtin:") && std::find(fonts.begin(), fonts.end(), recipe_path(l.font)) == fonts.end())
+            fonts.push_back(recipe_path(l.font));
+    Json setArgs = recipe_args(a, {{"path", iconPath}, {"foreground", noForeground ? Json(false) : Json(fgPath)}});
+    if (Json* layers = setArgs.contains("layers") && setArgs["layers"].is_array() ? &setArgs["layers"] : nullptr)
+        for (Json& layer : *layers)
+            if (layer.is_object() && layer.contains("font") && layer["font"].is_string() && !starts_with(layer["font"].get<std::string>(), "builtin:"))
+                layer["font"] = recipe_path(layer["font"].get<std::string>());
+    const Json recipe = make_recipe(projectDir, "assets.draw_icon", std::move(setArgs), fonts);
+    write_png_file(projectDir, iconPath, icon, recipe);
     Json result = Json::object({{"icon", iconPath}, {"iconSize", Json::array({kIconSize, kIconSize})}});
     if (!noForeground) {
-        write_png_file(projectDir, fgPath, fg);
+        write_png_file(projectDir, fgPath, fg, recipe);
         result["foreground"] = fgPath;
         result["foregroundSize"] = Json::array({kForegroundSize, kForegroundSize});
     }

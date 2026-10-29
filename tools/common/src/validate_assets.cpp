@@ -12,6 +12,7 @@
 #include "export_internal.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/asset_recipes.h"
 #include "fa/tooling/validate.h"
 #include "util.h"
 
@@ -108,6 +109,37 @@ void check_shipped_assets(const std::string& projectDir, std::vector<ValidationI
                                 "convert audio to OGG or QOA, stream music and remove files the game does not use; docs/ASSETS.md."});
 }
 
+void check_recipes(const std::string& projectDir, std::vector<ValidationIssue>& warnings) {
+    auto text = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile);
+    if (!text) return;
+    auto manifest = parse_json(*text, assets::kManifestFile);
+    if (!manifest.ok() || !manifest->is_object() || !manifest->contains("assets") || !(*manifest)["assets"].is_object()) return;
+    for (const auto& [rel, entry] : (*manifest)["assets"].items()) {
+        const Json recipe = recipe_of(entry);
+        if (recipe.is_null()) continue;
+        std::error_code ec;
+        if (!stdfs::exists(stdfs::path(projectDir) / rel, ec)) continue;  // reported as an entry for a missing file
+        const std::string where = (Json::json_pointer("/assets") / rel / "provenance" / "recipe").to_string();
+        const std::string regenerate = "factoria call assets.regenerate '" + Json::object({{"path", rel}}).dump() + "'";
+        const RecipeCheck check = check_recipe(projectDir, recipe);
+        for (const std::string& input : check.missing) {
+            const std::string command = recipe["command"].get<std::string>();
+            warnings.push_back({assets::kManifestFile, where,
+                                "'" + rel + "' was made by " + command + " from '" + input + "', which no longer exists (or is not readable), so it cannot be made again.",
+                                "Restore '" + input + "', or point the recipe at its new place by running " + command + " again with the new path; "
+                                "or remove provenance.recipe from the entry if you will edit '" + rel + "' by hand."});
+        }
+        if (check.stale()) {
+            std::string list;
+            for (const std::string& input : check.changed) list += (list.empty() ? "'" : ", '") + input + "'";
+            warnings.push_back({assets::kManifestFile, where,
+                                "'" + rel + "' is stale: " + list + (check.changed.size() == 1 ? " has" : " have") + " changed since it was made by " +
+                                    recipe["command"].get<std::string>() + ".",
+                                "Make it again with: " + regenerate + " (all stale assets: factoria call assets.regenerate '{\"stale\":true}')."});
+        }
+    }
+}
+
 void check_sprite_textures(const std::string& projectDir, const std::set<std::string>& textures, std::vector<ValidationIssue>& warnings) {
     for (const std::string& rel : textures) {
         const stdfs::path file = stdfs::path(projectDir) / rel;
@@ -138,3 +170,29 @@ void check_sprite_textures(const std::string& projectDir, const std::set<std::st
 }
 
 }  // namespace fa::assets_detail
+
+namespace fa {
+
+std::vector<AssetRecipeStatus> asset_recipe_statuses(const std::string& projectDir) {
+    std::vector<AssetRecipeStatus> out;
+    auto text = tooling_detail::read_file(assets_detail::stdfs::path(projectDir) / assets::kManifestFile);
+    if (!text) return out;
+    auto manifest = parse_json(*text, assets::kManifestFile);
+    if (!manifest.ok() || !manifest->is_object() || !manifest->contains("assets") || !(*manifest)["assets"].is_object()) return out;
+    for (const auto& [rel, entry] : (*manifest)["assets"].items()) {
+        const Json recipe = assets_detail::recipe_of(entry);
+        if (recipe.is_null()) continue;
+        std::error_code ec;
+        if (!assets_detail::stdfs::exists(assets_detail::stdfs::path(projectDir) / rel, ec)) continue;
+        const assets_detail::RecipeCheck check = assets_detail::check_recipe(projectDir, recipe);
+        std::vector<std::string> inputs;
+        if (recipe.contains("inputs") && recipe["inputs"].is_array())
+            for (const Json& in : recipe["inputs"])
+                if (in.is_object() && in.contains("path") && in["path"].is_string()) inputs.push_back(in["path"].get<std::string>());
+        out.push_back({rel, recipe["command"].get<std::string>(), std::move(inputs), check.changed, check.missing});
+    }
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.path < b.path; });
+    return out;
+}
+
+}  // namespace fa

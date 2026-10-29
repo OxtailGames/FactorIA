@@ -8,6 +8,7 @@
 #include <set>
 
 #include "assets_internal.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/asset_capsules.h"
 #include "util.h"
@@ -298,6 +299,27 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
         bad("/keyArt", art.error().message, "Name an image inside the project, e.g. a screenshot: factoria run --headless --screenshot-at 60 --render-scale 1.5 --screenshot-pattern store/keyart.png.");
     if (art->width < 64 || art->height < 64) bad("/keyArt", "the image is only " + std::to_string(art->width) + "x" + std::to_string(art->height) + " px.", "Use key art of at least the size of the biggest asset you need (1920x1080 or more).");
 
+    // The recipe of every capsule: this call, with the defaults it chose made explicit (the name from factoria.json, every store),
+    // and the files it read (the key art, a logo image or a project font).
+    std::vector<std::string> recipeInputs{recipe_path(keyArt)};
+    Json recipeSet = recipe_args(a, {{"keyArt", recipe_path(keyArt)}, {"name", name}, {"stores", Json(stores)}});
+    if (recipeSet.contains("logo") && recipeSet["logo"].is_object()) {
+        Json& l = recipeSet["logo"];
+        if (l.contains("image") && l["image"].is_string()) {
+            l["image"] = recipe_path(l["image"].get<std::string>());
+            recipeInputs.push_back(l["image"].get<std::string>());
+        }
+        if (l.contains("font") && l["font"].is_string() && !starts_with(l["font"].get<std::string>(), "builtin:")) {
+            l["font"] = recipe_path(l["font"].get<std::string>());
+            recipeInputs.push_back(l["font"].get<std::string>());
+        }
+    }
+    const Json recipe = make_recipe(projectDir, "assets.draw_capsules", recipeSet, recipeInputs);
+    // Capsules are made from the game's own screenshot: they are AI-made only if the key art's record says so.
+    const Json keyArtProvenance = assets::entry(recipe_path(keyArt)).value("provenance", Json::object());
+    const bool keyArtAi = keyArtProvenance.is_object() && keyArtProvenance.value("ai", false);
+    require_usable_manifest(projectDir);
+
     Json written = Json::array(), skipped = Json::array(), warnings = Json::array();
     for (const std::string& storeId : stores) {
         std::set<std::string> done;  // sizes already drawn for this store: several assets share a size and a rule
@@ -326,6 +348,14 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
             const std::vector<std::uint8_t> png = opaque ? encode_png_rgb(img) : encode_png(img);
             std::string err;
             if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) fail("failed", err);
+            {
+                auto r = assets::update_entry(rel, [&](Json& e) {
+                    e.erase("analysis");
+                    e["provenance"] = Json::object({{"origin", "original"}, {"ai", keyArtAi}, {"kind", "image"}, {"date", assets::today()},
+                                                    {"notes", "Store page image cut from " + recipe_path(keyArt) + " by assets.draw_capsules."}, {"recipe", recipe}});
+                });
+                if (!r.ok()) fail("failed", "'" + rel + "' was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+            }
             entries.push_back({rel, Json::object({{"store", storeId}, {"assets", Json::array({as.asset})}, {"path", rel},
                                                   {"size", Json::array({w, h})}, {"logo", as.logo != LogoMode::None && as.logo != LogoMode::Only && logo.present}})});
             if (!as.verified) entries.back().second["sizeNote"] = "unverified: the store does not publish this size openly (see docs/EXPORTING.md#store-page-material)";

@@ -173,6 +173,8 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
                                     {"date", assets::today()}});
     if (!author.empty()) provenance["author"] = author;
     if (!sourceRel.empty()) provenance["source"] = sourceRel;
+    provenance["recipe"] = make_recipe(projectDir, kCommand, recipe_args(a, {{"path", rel}, {"source", sourceRel.empty() ? Json() : Json(sourceRel)}, {"seed", seedArg}}),
+                                       sourceRel.empty() ? std::vector<std::string>{} : std::vector<std::string>{sourceRel});
     {
         ProjectRootGuard root(projectDir);
         auto r = assets::update_entry(rel, [&](Json& e) {
