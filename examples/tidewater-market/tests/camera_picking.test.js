@@ -148,6 +148,7 @@ test("the view never leaves the map: dragging, keys and zooming out are all clam
   expect(rig.view.x).toBeCloseTo(b.minX - m + 640 / rig.view.zoom, 3);
   expect(rig.view.y).toBeCloseTo(b.minY - m + 360 / rig.view.zoom, 3);
   // zoomed far out the small map is centred and cannot be pushed off it
+  game.mouseMove([640, 360]); // a test starts with the mouse at 0, 0 (the HUD): the wheel only zooms over the map
   game.wheel(-60);
   game.step(2);
   game.press("pan_right");

@@ -39,6 +39,9 @@ std::unique_ptr<LineReader> make_fd_reader(int fd);
 struct StdioLoopOptions {
     // Called before and after every message and whenever `idle` passes without one: hot reload, update checks.
     std::function<void()> poll;
+    // Called instead of `poll` before a message is handled, when set: the message may need what a file the client wrote
+    // just before it (a new tool) changed, so this check must not wait for a timer.
+    std::function<void()> before_message;
     std::chrono::milliseconds idle{250};
     // Asked when the server is idle (no message being handled, no input held back): true leaves the loop with
     // StdioExit::Restart, right after the answer to the last message was written.

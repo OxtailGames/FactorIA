@@ -828,6 +828,8 @@
     "shader.compile": "0.2.0",
     "sign.macos": "0.2.0",
     "sign.windows": "0.3.0",
+    "storage.clear": "unreleased",
+    "storage.list": "unreleased",
     "tilemap.cell_at": "0.3.0",
     "tilemap.cell_to_world": "0.3.0",
     "tilemap.set_tile": "0.3.0",

@@ -573,6 +573,8 @@ GamepadType Input::gamepad_type(int index) const {
 void Input::reset_options() {
     reset_bindings();
     for (PlayerState& player : players_) player = PlayerState{};  // no devices, no rebinds (the schemes are the project's)
+    mouse_ = mouseDelta_ = {};  // the pointer of a fresh process: where an earlier click or test left it must not decide what is hovered
+    wheel_ = 0.0f;
     mouseVisible_ = true;
     mouseLocked_ = keyboardShown_ = platformKeyboard_ = false;
     backEdge_ = false;
