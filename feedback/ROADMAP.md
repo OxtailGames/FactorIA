@@ -1221,6 +1221,25 @@ Left open:
   cover it).
 - Everything: GitHub is suspended, so no CI ran on M37 or M38; Windows, Linux, Android and web were never compiled here.
 
+## M39. The AI panel's global controls, screenshots that do not fill the disk, Roguestory FB-0016-FB-0026 (S-L each; 5 packages and 6 requests)
+
+Asked by the user after more work on Roguestory in the editor, plus the 11 entries its AI opened.
+
+- M39.1 (M) Editor layout: an **AI** menu in the menu bar with **AI Settings...** (the Roles move into it), **Export Game**
+  in the menu bar instead of the toolbar's Export, the review row and the plan windows above the chat tabs (they are
+  global, not per chat), the cost estimate says it is the API price (a subscription is not billed per token), and the
+  Engine Feedback panel keeps its size with one scrollbar however many lines it has.
+- M39.2 (L) Screenshots for agents: a screenshot without `path` is not kept on disk once the client has it, old
+  `.factoria/screenshots` files are pruned, `game.screenshot {region, zoom}` (FB-0020), a filmstrip / contact sheet of an
+  animation (FB-0025), a luminance profile with seam detection and `render.pick` (FB-0021), `Camera.zoom` in pixel mode.
+- M39.3 (M) Scripts and checkpoints: tweens of destroyed entities and behaviours are cancelled and never resume script
+  code (FB-0024), `tween.pauseAll` / `tween.timeScale` and tweens frozen while the game is paused (FB-0025),
+  `checkpoint.read` and `checkpoint.restore {paths}` (FB-0017).
+- M39.4 (L) 2D rendering: Shape2D gradient stops and easing (FB-0022), a tint inherited by a group of entities (FB-0026),
+  a skewed / deformable 2D sprite for page curls and flags (FB-0019).
+- M39.5 (M) Generated art: `clipPath` and `pattern` in `assets.rasterize_svg` (FB-0016), a fabric preset with no visible
+  period plus a `linen` preset (FB-0018), a narrow, irregular paper vignette with `vignetteWidth` (FB-0023).
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
