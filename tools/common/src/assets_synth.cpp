@@ -206,7 +206,8 @@ Json synth_sound(const std::string& projectDir, const Json& a) {
                                     {"license", "CC0-1.0"},
                                     {"author", "factoria"},
                                     {"notes", "preset " + presetName + ", " + std::format("{:.2f}", seconds) + " s, seed " + std::to_string(seed)},
-                                    {"date", assets::today()}});
+                                    {"date", assets::today()},
+                                    {"recipe", make_recipe(projectDir, "assets.synth_sound", recipe_args(a, {{"path", *norm}, {"preset", presetName}, {"seed", seed}, {"seconds", seconds}}), {})}});
     {
         ProjectRootGuard root(projectDir);
         auto r = assets::update_entry(*norm, [&](Json& e) {

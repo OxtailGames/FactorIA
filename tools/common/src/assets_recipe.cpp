@@ -16,4 +16,46 @@ Json make_recipe(const std::string& projectDir, const std::string& command, Json
     return recipe;
 }
 
+Json recipe_args(const Json& a, std::initializer_list<std::pair<const char*, Json>> set) {
+    Json out = a.is_object() ? a : Json::object();
+    out.erase("overwrite");
+    for (const auto& [key, value] : set) {
+        if (value.is_null()) out.erase(key);
+        else out[key] = value;
+    }
+    return out;
+}
+
+std::string recipe_path(const std::string& rel) {
+    auto norm = fs::normalize_checked(rel);
+    return norm.ok() && !norm->empty() ? *norm : rel;
+}
+
+RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe) {
+    RecipeCheck check;
+    if (!recipe.is_object() || !recipe.contains("inputs") || !recipe["inputs"].is_array()) return check;
+    for (const Json& input : recipe["inputs"]) {
+        if (!input.is_object() || !input.contains("path") || !input["path"].is_string()) continue;
+        const std::string rel = input["path"].get<std::string>();
+        auto norm = fs::normalize_checked(rel);  // a recipe edited by hand must not read outside the project
+        if (!norm.ok() || norm->empty()) {
+            check.missing.push_back(rel);
+            continue;
+        }
+        auto hash = sha256_file_hex(stdfs::path(projectDir) / *norm);
+        if (!hash.ok()) check.missing.push_back(rel);
+        else if (*hash != input.value("sha256", std::string())) check.changed.push_back(rel);
+    }
+    return check;
+}
+
+Json recipe_of(const Json& entry) {
+    if (!entry.is_object() || !entry.contains("provenance") || !entry["provenance"].is_object()) return Json();
+    const Json& prov = entry["provenance"];
+    if (!prov.contains("recipe") || !prov["recipe"].is_object()) return Json();
+    const Json& recipe = prov["recipe"];
+    if (!recipe.contains("command") || !recipe["command"].is_string() || !recipe.contains("args") || !recipe["args"].is_object()) return Json();
+    return recipe;
+}
+
 }  // namespace fa::assets_detail

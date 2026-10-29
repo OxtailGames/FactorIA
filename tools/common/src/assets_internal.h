@@ -110,6 +110,29 @@ void apply_image_style(Image& image, const std::string& style, double strength, 
 // again (the caller makes paths project-relative and `seed` explicit) and the project files it read, `inputs`
 // (project-relative), each with its SHA-256 now. Throws CommandError for an input that cannot be read.
 Json make_recipe(const std::string& projectDir, const std::string& command, Json args, const std::vector<std::string>& inputs);
+// The `args` of a recipe from the arguments the command was called with: a copy of `a` without `overwrite` (assets.regenerate
+// sets it itself) and with `set` applied on top (the normalized project-relative paths and the values the command chose: the
+// seed actually used, the default path from factoria.json). A null value in `set` removes the key.
+Json recipe_args(const Json& a, std::initializer_list<std::pair<const char*, Json>> set);
+// `rel` as the project-relative path a recipe records (forward slashes, no "./"); `rel` itself when it is not a project path.
+std::string recipe_path(const std::string& rel);
+
+// What became of the files a recipe read, now: the paths whose hash differs from the recipe's (`changed`) and the ones that
+// no longer exist or cannot be read (`missing`). An asset is stale when any input changed.
+struct RecipeCheck {
+    std::vector<std::string> changed;
+    std::vector<std::string> missing;
+    bool stale() const { return !changed.empty(); }
+    bool ok() const { return changed.empty() && missing.empty(); }
+};
+RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe);
+// The recipe of an assets.json entry (`provenance.recipe`), or null when it has none or it is malformed (no command).
+Json recipe_of(const Json& entry);
+
+// assets.regenerate (assets_regenerate.cpp): re-runs the recipe of a made asset through the registry, whatever the command.
+void register_regenerate_command(CommandRegistry& registry, const std::string& projectDir);
+// project.validate: the warnings for assets whose recipe inputs changed (stale) or went missing, with the regenerate command.
+void check_recipes(const std::string& projectDir, std::vector<ValidationIssue>& warnings);
 
 // ---- command helpers -------------------------------------------------------------------------------------
 

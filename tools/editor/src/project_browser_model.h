@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "fa/core/math.h"
+#include "fa/tooling/asset_recipes.h"
 
 namespace fa::editor {
 
@@ -25,10 +26,19 @@ struct ProjectListing {
     std::vector<BrowserFile> files;     // sorted by path
     std::vector<std::string> folders;   // every folder walked (empty ones too), sorted
     bool truncated = false;             // more than the limit: the rest was left out
+    std::vector<AssetRecipeStatus> recipes;  // the made assets (assets.json provenance.recipe), sorted by path, with their input check
 };
 
 // Walks `projectDir` (the same skips as list_asset_files: hidden folders, build, node_modules, dist, export).
 ProjectListing scan_project(const std::string& projectDir, std::size_t limit = 20000);
+
+// The recipe state of `path` in the listing, or nullptr when it has no recipe.
+const AssetRecipeStatus* recipe_of_file(const ProjectListing& listing, std::string_view path);
+// The made assets whose inputs changed since they were made (what assets.regenerate {stale:true} would run), sorted.
+std::vector<std::string> stale_assets(const ProjectListing& listing);
+// A fingerprint of the recipe inputs on disk (path, size, modification time): it changes when a source is saved. The editor polls
+// it every second or so and rescans only when it changes.
+std::string recipe_inputs_stamp(const std::string& projectDir, const ProjectListing& listing);
 
 struct FolderNode {
     std::string name;                   // last path part ("Project" for the root)
@@ -75,6 +85,12 @@ struct ProjectBrowser {
     std::string project;                // the project dir the listing is of
     int scans = 0;                      // how many times the disk was walked (tests, and a check that drawing does not rescan)
     bool windowFocused = false;         // the panel had focus last frame
+    bool recipesDirty = false;          // files were written: the recipes' check is read again by the watcher
+    bool recipesLoaded = false;         // listing.recipes holds a first read (the watcher reads it even when the panel is closed)
+    std::string inputsStamp;            // recipe_inputs_stamp at the last scan
+    double inputsPolled = -100;         // editor time of the last stamp check
+    std::string offeredStale;           // the stale list (joined) the banner was dismissed for: quiet until the list changes
+    std::string regenerateError;        // what the last Regenerate said when it failed
 };
 
 }  // namespace fa::editor

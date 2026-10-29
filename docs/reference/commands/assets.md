@@ -378,13 +378,28 @@ Rasterizes an SVG to a PNG at `path` (under assets/, ending in .png) with no AI 
 | `author` | string | no | Who gets the credit in the provenance record. |
 | `license` | string | no | License of the picture for the provenance record. Default "CC0-1.0". |
 
+## `assets.regenerate` (modifies state)
+
+Not released yet (on main after 0.5.0).
+
+Make a made asset again from the recipe its provenance records, and say what changed.
+
+The offline makers (assets.rasterize_svg, assets.draw_icon, assets.draw_capsules, assets.generate_texture, assets.synth_sound, assets.generate_loop, assets.pack_atlas, assets.slice_sheet) record in assets.json `provenance.recipe`: {command, args, inputs: [{path, sha256}]}, the command that made the asset, the arguments that make the same bytes again and the project files it read with their hashes. This command runs that recipe through the command registry (any assets.* command that writes a recipe works, there is no list) with `overwrite: true`, and reports per file what changed: "pixels changed", "bytes changed (same pixels)", "unchanged" or "created", the size and the `sheet` layout before and after. Give `path` for one asset, `all` for every asset with a recipe, or `stale` for those whose `inputs` no longer match the files (an SVG or other source file you edited). Assets that read the output of another (a sheet sliced from a picture made from an SVG) are made after it, and `stale` looks again at their inputs when their turn comes. `dryRun` lists what would run and which inputs changed, and changes nothing. What a person recorded in the provenance (license, author, notes) is kept; the recipe and the date are new. Several files made by one call (an icon and its foreground, a texture and its normal map, the capsules of a store) are made once. Provider-made assets (assets.generate_image...) have no recipe: they would cost money and give a different picture, so asking for one is an error that says so. `factoria validate` warns about a stale asset with this command in its hint. Example: {"stale":true} or {"path":"assets/art/coin.png"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Project-relative path of the asset to make again (it must record a recipe). |
+| `all` | boolean | no | Make every asset with a recipe again. |
+| `stale` | boolean | no | Make again only the assets whose recipe inputs (the files they were made from) changed since. |
+| `dryRun` | boolean | no | List what would run (command, arguments, which inputs changed) and change nothing. |
+
 ## `assets.set_provenance` (modifies state)
 
 Since 0.1.6.
 
 Record where an asset came from (hand-made, imported, or made with AI elsewhere).
 
-Replaces the provenance record of an existing file in assets.json. The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
+Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, is kept). The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
