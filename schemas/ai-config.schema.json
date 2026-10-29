@@ -101,6 +101,11 @@
         "provider": { "type": "string", "description": "Name of an entry in providers (or a built-in)." },
         "model": { "type": "string", "description": "Model id, e.g. claude-sonnet-5-5." },
         "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false turns the role off: the orchestrator does that work itself (worker, fast, artist, audio), or a review runs on the orchestrator's provider and model (artCritic, reviewer). The orchestrator cannot be turned off (an error). The editor's Roles window has an Enabled checkbox for it."
+        },
         "maxTokens": { "type": "integer", "minimum": 1 },
         "maxContextTokens": {
           "type": "integer",

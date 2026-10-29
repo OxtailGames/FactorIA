@@ -180,6 +180,7 @@ Command make_ai_command() {
             throw UsageError("Unknown role '" + role + "'.",
                              "Valid roles: orchestrator, worker, fast, artist, audio (reviews: 'factoria ai review').");
         ai::AiConfig cfg = load_config_or_throw();
+        if (!cfg.role_enabled(role)) throw UsageError(ai::role_off_message(role) + ".", ai::role_off_hint(role));
         std::string provider = a.str("provider");
         if (!provider.empty() && !cfg.provider(provider)) {
             std::vector<std::string> names;

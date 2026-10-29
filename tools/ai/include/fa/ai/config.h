@@ -95,6 +95,10 @@ struct RoleConfig {
     // Most context a session keeps (tokens; 0 = the model's whole window). Past it the earlier turns are summarized:
     // Claude Code compacts (CLAUDE_CODE_AUTO_COMPACT_WINDOW), the Anthropic API compacts on the server.
     u64 maxContextTokens = 0;
+    // false = the user turned the role off (the Roles window's "Enabled" checkbox): the orchestrator does that work itself.
+    // Always true for the orchestrator. For artCritic and reviewer, off means a review runs on the orchestrator's
+    // provider, model and effort (AiConfig::effective_role).
+    bool enabled = true;
 };
 
 struct Limits {
@@ -131,6 +135,16 @@ bool is_review_role(std::string_view role);
 bool is_delegable_role(std::string_view role);
 // One line: what the role does (Roles window, docs).
 const char* role_summary(std::string_view role);
+// What the user reads instead of the ai.json key: "Orchestrator", "Worker", "Fast", "Artist", "Audio", "Art critic",
+// "Reviewer". An unknown name comes back unchanged.
+const char* role_display_name(std::string_view role);
+// The Roles window groups the roles: 0 = orchestrator, worker, fast; 1 = artist, audio; 2 = art critic, reviewer.
+inline constexpr int kRoleGroupCount = 3;
+int role_group(std::string_view role);  // -1 for an unknown role
+const char* role_group_title(int group);  // "Orchestration and code", "Art and audio", "Critics and reviewers"
+// The teaching error for a role that is off (message: what is off and what happens instead; hint: where to turn it on).
+std::string role_off_message(std::string_view role);
+std::string role_off_hint(std::string_view role);
 
 struct AiConfig {
     std::string defaultProvider = "anthropic";
@@ -145,6 +159,15 @@ struct AiConfig {
     const ProviderConfig* provider(std::string_view name) const;
     // Role with defaults filled in. Unknown role names return the worker role.
     RoleConfig role(std::string_view name) const;
+    // False only for a known role the user turned off. The orchestrator and unknown names are always "enabled".
+    bool role_enabled(std::string_view name) const;
+    // The role a run really uses: role(name), except that a review role (artCritic, reviewer) that is off runs on the
+    // orchestrator's provider, model, effort and limits (it keeps its read-only prompt and tools).
+    RoleConfig effective_role(std::string_view name) const;
+    // The delegable roles (worker, fast, artist, audio) that are off, in kAllRoles order.
+    std::vector<std::string> disabled_delegable_roles() const;
+    // True when at least one delegable role is on, so the orchestrator has someone to hand work to.
+    bool can_delegate_to_anyone() const;
 };
 
 std::string providers_that_make(const AiConfig& cfg, MediaKind m);  // the names of the providers that make `m`: "a, b"

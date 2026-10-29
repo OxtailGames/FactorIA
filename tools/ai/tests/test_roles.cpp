@@ -403,3 +403,179 @@ TEST_CASE("ai.review runs the personas, saves each review and ai.reviews lists t
     REQUIRE(prov.ok);
     for (const char* role : kAllRoles) CHECK_MESSAGE(prov.result["roles"].contains(role), role);
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Roles that can be turned off ("enabled" in ai.json, the Enabled checkbox of the Roles window)
+
+TEST_CASE("roles off: display names, groups, enabled round trips through ai.json and save_roles") {
+    CHECK(std::string(role_display_name("artCritic")) == "Art critic");
+    CHECK(std::string(role_display_name("orchestrator")) == "Orchestrator");
+    CHECK(std::string(role_display_name("nope")) == "nope");
+    CHECK(role_group("fast") == 0);
+    CHECK(role_group("audio") == 1);
+    CHECK(role_group("reviewer") == 2);
+    CHECK(role_group("nope") == -1);
+
+    auto cfg = parse_config(Json::parse(R"({"roles":{"artist":{"enabled":false},"reviewer":{"provider":"claude-code","enabled":false}}})"));
+    REQUIRE(cfg);
+    CHECK_FALSE(cfg->role_enabled("artist"));
+    CHECK_FALSE(cfg->role_enabled("reviewer"));
+    CHECK(cfg->role_enabled("worker"));
+    CHECK(cfg->role_enabled("orchestrator"));
+    CHECK(cfg->role("artist").provider == "anthropic");  // "enabled" alone keeps the default provider and model
+    CHECK(cfg->disabled_delegable_roles() == std::vector<std::string>{"artist"});
+    CHECK(cfg->can_delegate_to_anyone());
+    // a review role that is off runs on the orchestrator's model; a role that is on keeps its own
+    CHECK(cfg->effective_role("reviewer").provider == cfg->role("orchestrator").provider);
+    CHECK(cfg->effective_role("reviewer").model == cfg->role("orchestrator").model);
+    CHECK(cfg->effective_role("artCritic").provider == cfg->role("artCritic").provider);
+
+    // config_to_json writes only what differs from true
+    Json out = config_to_json(*cfg);
+    CHECK(out["roles"]["artist"]["enabled"] == false);
+    CHECK_FALSE(out["roles"]["worker"].contains("enabled"));
+
+    TempDir dir;
+    const std::string file = (dir.path / "ai.json").string();
+    std::map<std::string, RoleConfig> roles;
+    roles["artist"] = cfg->role("artist");  // provider and model unchanged, only enabled is false
+    REQUIRE(save_roles(roles, file));
+    CHECK(Json::parse(*fs::read_text(file))["roles"]["artist"]["enabled"] == false);
+    auto again = load_config(file);
+    REQUIRE(again);
+    CHECK_FALSE(again->role_enabled("artist"));
+    roles["artist"].enabled = true;  // ticked again: the key goes away
+    REQUIRE(save_roles(roles, file));
+    CHECK_FALSE(Json::parse(*fs::read_text(file))["roles"]["artist"].contains("enabled"));
+    CHECK(load_config(file)->role_enabled("artist"));
+}
+
+TEST_CASE("roles off: the orchestrator cannot be turned off") {
+    auto cfg = parse_config(Json::parse(R"({"roles":{"orchestrator":{"enabled":false}}})"), "ai.json");
+    REQUIRE_FALSE(cfg);
+    CHECK(cfg.error().message.find("/roles/orchestrator/enabled") != std::string::npos);
+    CHECK(cfg.error().hint.find("worker, fast, artist or audio") != std::string::npos);
+    auto ok = parse_config(Json::parse(R"({"roles":{"orchestrator":{"enabled":true}}})"));
+    CHECK(ok);
+    CHECK_FALSE(validate_config_json(Json::parse(R"({"roles":{"worker":{"enabled":"no"}}})")).empty());
+    // save_roles never writes it for the orchestrator
+    TempDir dir;
+    const std::string file = (dir.path / "ai.json").string();
+    std::map<std::string, RoleConfig> roles;
+    roles["orchestrator"] = RoleConfig{"claude-code", "opus", "", 0, 0, false};
+    REQUIRE(save_roles(roles, file));
+    CHECK_FALSE(Json::parse(*fs::read_text(file))["roles"]["orchestrator"].contains("enabled"));
+}
+
+TEST_CASE("roles off: the orchestrator's prompt lists only the roles that are on and does the rest itself") {
+    TempDir dir;
+    std::ofstream(dir.path / "factoria.json") << R"({"name":"g"})";
+    PromptContext ctx{dir.str(), "orchestrator", true, ""};
+    const std::string all = build_system_prompt(ctx);
+    CHECK(all.find("\"artist\" makes ALL") != std::string::npos);
+    CHECK(all.find("\"audio\" makes ALL") != std::string::npos);
+    CHECK(all.find("\"worker\" implements") != std::string::npos);
+    CHECK(all.find("are OFF") == std::string::npos);
+
+    ctx.disabledRoles = {"artist", "fast"};
+    const std::string some = build_system_prompt(ctx);
+    CHECK(some.find("\"artist\" makes ALL") == std::string::npos);
+    CHECK(some.find("\"fast\" does tiny") == std::string::npos);
+    CHECK(some.find("\"worker\" implements") != std::string::npos);
+    CHECK(some.find("\"audio\" makes ALL") != std::string::npos);
+    CHECK(some.find("artist is off: make the art yourself") != std::string::npos);
+    CHECK(some.find("The art, which you make yourself") != std::string::npos);  // the artist's guidance is given to it
+    CHECK(some.find("assets_generate_image") != std::string::npos);
+    CHECK(some.find("audio is off") == std::string::npos);
+    CHECK(some.find("The audio, which you make yourself") == std::string::npos);
+    CHECK(some.find("agent_delegate") != std::string::npos);
+
+    ctx.disabledRoles = {"worker", "fast", "artist", "audio"};
+    ctx.canDelegate = false;  // nobody left to delegate to: the session offers no delegation tool
+    const std::string alone = build_system_prompt(ctx);
+    CHECK(alone.find("agent_delegate") == std::string::npos);
+    CHECK(alone.find("you do ALL the work yourself") != std::string::npos);
+    CHECK(alone.find("The audio, which you make yourself") != std::string::npos);
+    CHECK(alone.find("REVIEW.md") != std::string::npos);
+
+    // the artist's own prompt still works (the guidance is shared)
+    CHECK(build_system_prompt(PromptContext{dir.str(), "artist", false, ""}).find("# Your role: artist") != std::string::npos);
+}
+
+TEST_CASE("roles off: agent_delegate refuses a role that is off, and with all four off there is no delegation tool") {
+    TempDir dir;
+    CommandRegistry reg = roles_registry();
+    auto run = [&](AiConfig cfg, Json input, std::shared_ptr<FakeProvider>& provider) {
+        provider = std::make_shared<FakeProvider>();
+        ToolCall d;
+        d.id = "d1";
+        d.name = "agent_delegate";
+        d.input = std::move(input);
+        provider->script = {tool_response({d}), text_response("I will do it myself.")};
+        SessionOptions so;
+        so.projectDir = dir.str();
+        AgentSession s(reg, cfg, so);
+        s.set_provider_factory([&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+            return std::static_pointer_cast<ChatProvider>(provider);
+        });
+        return s.run("make the art");
+    };
+    std::shared_ptr<FakeProvider> provider;
+    AiConfig cfg = default_config();
+    cfg.roles["artist"].enabled = false;
+    REQUIRE(run(cfg, Json::object({{"role", "artist"}, {"task", "paint"}}), provider).ok);
+    REQUIRE(provider->requests.size() == 2);  // no sub-session started
+    const auto& res = provider->requests[1].messages.back().toolResults[0];
+    CHECK(res.isError);
+    CHECK(res.content.find("role_off") != std::string::npos);
+    CHECK(res.content.find("Artist role is off") != std::string::npos);
+    CHECK(res.content.find("Enabled") != std::string::npos);  // where to turn it on
+    // the prompt the model got says so too
+    CHECK(provider->requests[0].system.find("artist is off") != std::string::npos);
+
+    for (const char* r : {"worker", "fast", "artist", "audio"}) cfg.roles[r].enabled = false;
+    AiConfig noDelegates = cfg;
+    auto p2 = std::make_shared<FakeProvider>();
+    p2->script = {text_response("done alone")};
+    SessionOptions so;
+    so.projectDir = dir.str();
+    AgentSession s(reg, noDelegates, so);
+    s.set_provider_factory([&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::static_pointer_cast<ChatProvider>(p2);
+    });
+    REQUIRE(s.run("do everything").ok);
+    for (const auto& t : p2->requests[0].tools) CHECK(t.name != "agent_delegate");
+    CHECK(p2->requests[0].system.find("you do ALL the work yourself") != std::string::npos);
+}
+
+TEST_CASE("roles off: ai.run refuses a role that is off; a review whose role is off runs on the orchestrator's model") {
+    TempDir dir;
+    std::ofstream(dir.path / "factoria.json") << R"({"name":"g"})";
+    CommandRegistry reg = roles_registry();
+    AiConfig cfg = default_config();
+    cfg.roles["audio"].enabled = false;
+    cfg.roles["reviewer"].enabled = false;
+    cfg.roles["reviewer"].model = "not-used";
+    AiCommandOptions opt;
+    opt.loadConfig = [&] { return Result<AiConfig>(cfg); };
+    opt.projectDir = [&] { return dir.str(); };
+    register_ai_commands(reg, opt);
+    auto refused = reg.call("ai.run", Json::object({{"task", "x"}, {"role", "audio"}}));
+    REQUIRE_FALSE(refused.ok);
+    CHECK(refused.error["code"] == "role_off");
+    CHECK(refused.error["hint"].get<std::string>().find("Enabled") != std::string::npos);
+    // the session of a review uses the orchestrator's model, with the reviewer's read-only tools
+    auto provider = std::make_shared<FakeProvider>();
+    provider->script = {text_response("fine\n```json\n{\"score\": 6}\n```")};
+    SessionOptions so;
+    so.projectDir = dir.str();
+    so.role = "reviewer";
+    so.allowDelegation = false;
+    AgentSession s(reg, cfg, so);
+    s.set_provider_factory([&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+        return std::static_pointer_cast<ChatProvider>(provider);
+    });
+    REQUIRE(s.run("review").ok);
+    CHECK(provider->requests[0].model == cfg.role("orchestrator").model);
+    CHECK(provider->requests[0].system.find("READ-ONLY") != std::string::npos);
+}

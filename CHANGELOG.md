@@ -14,6 +14,12 @@ AI panel
   sites** keeps it from searching anywhere else: Claude Code is held to it (WebFetch of other sites denied, WebSearch off),
   other providers are told it. The new `assetSources` section of `ai.json` holds the lists.
 - The "no provider" error of the asset commands now names the AI settings window as well as `ai.json`.
+- The roles read with capitals and spaces (Orchestrator, Worker, Fast, Artist, Audio, Art critic, Reviewer) wherever the
+  editor shows them, and the Roles window groups them in three sections: Orchestration and code, Art and audio, Critics
+  and reviewers.
+- Each role has an **Enabled** checkbox (`roles.<role>.enabled` in `ai.json`, default on). A role that is off is not used:
+  the orchestrator does that work itself and its prompt says so; the Art critic and the Reviewer still run from the
+  review buttons, on the orchestrator's model. The orchestrator cannot be turned off.
 - The roles line next to **Roles...** is gone (hover **Roles...** to see the current roles); the review buttons and the
   **Reviewers** count and focus moved up next to it, so the transcript gets two more lines.
 - **Art critique** and **Game review** ask first: a dialog shows what runs, how many reviewers, the role's model and the

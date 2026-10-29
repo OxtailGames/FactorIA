@@ -249,7 +249,7 @@ SessionResult AgentSession::run(const std::string& task, const std::vector<std::
 }
 
 SessionResult AgentSession::run_role(const std::string& role, const std::string& task, int depth) {
-    RoleConfig rc = config_.role(role);
+    RoleConfig rc = config_.effective_role(role);  // a review role that is off runs on the orchestrator's model
     if (depth == 0) {
         if (!opt_.providerOverride.empty()) {
             rc.provider = opt_.providerOverride;
@@ -257,7 +257,7 @@ SessionResult AgentSession::run_role(const std::string& role, const std::string&
                 const ProviderConfig* p = config_.provider(rc.provider);
                 rc.model = p ? p->defaultModel : "";
                 if (p && p->kind == ProviderKind::Anthropic) {
-                    rc.model = config_.role(role).model;
+                    rc.model = config_.effective_role(role).model;
                 }
             }
         }
@@ -280,8 +280,8 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
                                     const std::string& task, int depth) {
     SessionResult res;
     // A CLI orchestrator delegates through the FactorIA MCP server it is attached to: ai.run starts the role from ai.json.
-    const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation;
-    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "ai_run", config_.assetSources};
+    const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation && config_.can_delegate_to_anyone();
+    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "ai_run", config_.assetSources, config_.disabled_delegable_roles()};
     const std::string fullPrompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
     // A follow-up message continues the CLI's session: the system prompt is already part of it, so only the task is sent.
     const bool canResume = depth == 0 && cli_supports_resume(pc);
@@ -429,6 +429,9 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
             return fail("invalid_arguments",
                         "agent_delegate needs role (\"worker\", \"fast\", \"artist\" or \"audio\") and a non-empty task", "");
         }
+        if (!config_.role_enabled(r)) {
+            return fail("role_off", role_off_message(r), role_off_hint(r));
+        }
         AgentEvent info;
         info.type = AgentEvent::Type::Info;
         info.text = "Delegating to " + r + ": " + clip_text(task, 200);
@@ -510,8 +513,8 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         provider = *made;
     }
 
-    const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation;
-    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "", config_.assetSources};
+    const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation && config_.can_delegate_to_anyone();
+    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "", config_.assetSources, config_.disabled_delegable_roles()};
     ChatRequest req;
     req.model = rc.model;
     req.effort = rc.effort;

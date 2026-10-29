@@ -3037,6 +3037,24 @@ void Editor::at_build_tools_script() {
         at_check(at_visible("ai:review:game") && at_visible("ai:review:art"), "the AI Assistant has an Art critique and a Game review button");
         at_check(chat().empty() && !ai_busy(), "nothing runs and nothing is asked until a button is pressed");
     });
+    click("ai:roles");
+    step(3, [this] {
+        at_check(at_visible("ai:roles:enabled:orchestrator") && !at_enabled("ai:roles:enabled:orchestrator"),
+                 "the Roles window shows the orchestrator's Enabled checkbox ticked and disabled");
+        at_check(at_visible("ai:roles:enabled:artist") && at_enabled("ai:roles:enabled:artist") &&
+                     at_visible("ai:roles:enabled:reviewer"),
+                 "...and an Enabled checkbox for the other roles");
+    });
+    click("ai:roles:enabled:artist");
+    step(3, [this] {
+        at_check(!aiRolesEdit_[ai::kRoleArtist].enabled && aiRolesEdit_[ai::kRoleWorker].enabled,
+                 "unticking Artist turns off that role only");
+    });
+    click("ai:roles:cancel");
+    step(3, [this] {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        at_check(aiConfig_.role_enabled(ai::kRoleArtist), "Cancel leaves the configuration alone");
+    });
     click("ai:review:game");
     step(3, [this] {
         at_check(at_visible("ai:review:start") && !aiReview_.active && !ai_busy() && chat().empty(),
