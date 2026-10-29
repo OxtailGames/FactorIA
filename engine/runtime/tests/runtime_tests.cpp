@@ -1655,3 +1655,25 @@ TEST_CASE("render.captureTexture: without graphics it is a flat placeholder of t
     CHECK_FALSE(js("render.textureFromPNG(render.captureTexture({ width: 8, height: 8 }).toPNG()).placeholder").get<bool>());
     e.shutdown();
 }
+
+TEST_CASE("engine: tweens stand still while the game is paused and move only with game.step") {
+    TempProject p("engine_tween_pause");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto eval = [&](const std::string& code) {
+        auto r = e.commands().call("script.eval", Json::object({{"code", code}}));
+        REQUIRE(r.ok);
+        return r.result;
+    };
+    eval("globalThis.o = { x: 0 }; globalThis.t = tween(o, { x: 10 }, { duration: 1 }); 0");
+    e.commands().call("game.pause", Json::object());
+    for (int i = 0; i < 30; ++i) e.frame(1.0 / 60.0);  // a paused engine simulates nothing
+    CHECK(eval("o.x")["value"].get<double>() == 0.0);
+    e.commands().call("game.step", Json::object({{"frames", 30}}));
+    CHECK(eval("o.x")["value"].get<double>() == doctest::Approx(5.0).epsilon(0.05));
+    eval("tween.pauseAll(); 0");
+    e.commands().call("game.step", Json::object({{"frames", 30}}));
+    CHECK(eval("o.x")["value"].get<double>() == doctest::Approx(5.0).epsilon(0.05));
+    e.shutdown();
+}

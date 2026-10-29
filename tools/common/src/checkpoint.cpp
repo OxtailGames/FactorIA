@@ -379,6 +379,37 @@ Result<CheckpointDiff> checkpoint_diff(const std::string& projectDir, const std:
     return diff_maps(m.files, scan.files);
 }
 
+namespace {
+Error unknown_path(const std::string& id, const std::string& path, const FileMap& files) {
+    std::vector<std::string> names;
+    for (const auto& [p, e] : files) names.push_back(p);
+    return {"Checkpoint '" + id + "' holds no file '" + path + "'. " + did_you_mean(path, names),
+            "Paths are relative to the project folder with forward slashes, e.g. scripts/player.js. checkpoint.diff {id} lists what changed since."};
+}
+}  // namespace
+
+Result<std::string> checkpoint_read(const std::string& projectDir, const std::string& id, const std::string& path) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    Manifest m;
+    if (!find_manifest(projectDir, id, m)) return unknown_id(projectDir, id);
+    auto it = m.files.find(path);
+    if (it == m.files.end()) return unknown_path(id, path, m.files);
+    std::string bytes;
+    if (!read_bytes(object_path(store_dir(projectDir), it->second.hash), bytes))
+        return Error{"Checkpoint '" + id + "' is damaged: the saved content of '" + path + "' is missing from .factoria/checkpoints/objects.",
+                     "Read the file from a different checkpoint (checkpoint.list)."};
+    return bytes;
+}
+
+Result<std::vector<std::string>> checkpoint_files(const std::string& projectDir, const std::string& id) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    Manifest m;
+    if (!find_manifest(projectDir, id, m)) return unknown_id(projectDir, id);
+    std::vector<std::string> out;
+    for (const auto& [p, e] : m.files) out.push_back(p);
+    return out;
+}
+
 Result<CheckpointRestored> checkpoint_restore(const std::string& projectDir, const std::string& id,
                                               const std::optional<std::vector<std::string>>& only) {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -448,6 +479,24 @@ Json diff_json(const CheckpointDiff& d) {
     return Json::object({{"modified", d.modified}, {"added", d.added}, {"deleted", d.deleted}});
 }
 
+constexpr std::size_t kReadInlineLimit = 256 * 1024;  // bytes of a file checkpoint.read returns inline
+
+// Text: no NUL byte and valid UTF-8 (a JSON string must hold only that).
+bool is_text(const std::string& b) {
+    std::size_t i = 0;
+    const std::size_t n = b.size();
+    while (i < n) {
+        const unsigned char c = static_cast<unsigned char>(b[i]);
+        if (c == 0) return false;
+        std::size_t len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 0;
+        if (len == 0 || i + len > n) return false;
+        for (std::size_t k = 1; k < len; ++k)
+            if ((static_cast<unsigned char>(b[i + k]) & 0xC0) != 0x80) return false;
+        i += len;
+    }
+    return true;
+}
+
 [[noreturn]] void fail(const Error& e, const char* code = "failed") { throw CommandError(code, e.message, e.hint); }
 
 }  // namespace
@@ -506,6 +555,50 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
     }
     {
         CommandInfo c;
+        c.name = "checkpoint.read";
+        c.category = "project";
+        c.readOnly = false;  // with `out` it writes a file
+        c.summary = "Read one file as it was at a checkpoint (text inline; a binary as base64 or into a file) without restoring anything.";
+        c.description =
+            "Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. "
+            "Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most " + std::to_string(kReadInlineLimit) + " bytes. "
+            "A binary comes back as `base64` when it is at most " + std::to_string(kReadInlineLimit) + " bytes. "
+            "Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. "
+            "`out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). "
+            "Errors: an unknown id or a path the checkpoint does not hold fails with a \"did you mean\". "
+            "Returns {id, path, size, binary, text | base64 | out}. Example: {\"id\":\"20261022-153012-7\",\"path\":\"scripts/player.js\"}.";
+        c.inputSchema = Json::parse(R"({"type":"object","required":["id","path"],"properties":{
+            "id":{"type":"string","description":"A checkpoint id from checkpoint.list."},
+            "path":{"type":"string","description":"File to read, relative to the project folder, forward slashes: scripts/player.js."},
+            "out":{"type":"string","description":"Write the file here (project-relative path) instead of returning its content; needed for files over the inline limit."}}})");
+        registry.add(c, [projectDir](const Json& a) {
+            const std::string id = arg_string(a, "id", true), path = arg_string(a, "path", true), out = arg_string(a, "out", false);
+            if (!out.empty() && (!safe_rel(out) || out.rfind('.', 0) == 0 || out.find("/.") != std::string::npos))
+                throw CommandError("invalid_argument", "`out` '" + out + "' is not a usable project-relative path.",
+                                   "Use a path like exports/old_player.js: relative, forward slashes, no '..', no folder starting with '.'.");
+            auto r = checkpoint_read(projectDir, id, path);
+            if (!r.ok()) fail(r.error(), "not_found");
+            const std::string& bytes = r.value();
+            const bool binary = !is_text(bytes);
+            Json j = Json::object({{"id", id}, {"path", path}, {"size", bytes.size()}, {"binary", binary}});
+            if (!out.empty() || bytes.size() > kReadInlineLimit) {
+                if (out.empty())
+                    throw CommandError("too_large", "'" + path + "' is " + std::to_string(bytes.size()) + " bytes, over the inline limit of " + std::to_string(kReadInlineLimit) + ".",
+                                       "Pass `out` (a project-relative path) and the file is written there.");
+                std::string err;
+                if (!write_atomic(root_dir(projectDir) / out, bytes.data(), bytes.size(), &err))
+                    throw CommandError("failed", "Cannot write '" + out + "': " + err + ".", "Check the path and the permissions.");
+                j["out"] = out;
+            } else if (binary) {
+                j["base64"] = base64_encode(bytes.data(), bytes.size());
+            } else {
+                j["text"] = bytes;
+            }
+            return j;
+        });
+    }
+    {
+        CommandInfo c;
         c.name = "checkpoint.restore";
         c.category = "project";
         c.readOnly = false;
@@ -514,10 +607,38 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
             "Writes back the files that were modified or deleted since checkpoint `id` and deletes the files added since (anything the user edited by hand in those files is lost). "
             "First it saves an automatic checkpoint \"Before restoring <label>\" and returns its id as safetyCheckpointId: restoring that one takes this restore back. "
             "Files are written through a temp file and a rename, so a crash never leaves half a file. This does NOT reload the scene open in the editor (the editor's Revert button does). "
-            "Returns {modified, added, deleted (what was done), safetyCheckpointId}. Example: {\"id\":\"20261022-153012-7\"}.";
-        c.inputSchema = Json::parse(R"({"type":"object","required":["id"],"properties":{"id":{"type":"string","description":"A checkpoint id from checkpoint.list."}}})");
+            "With `paths` only those files are put back as the checkpoint had them (a file the checkpoint holds is written back, a file the checkpoint does not hold is deleted) and every other file of the project stays untouched; the same safety checkpoint is made first. "
+            "A path that is neither in the checkpoint nor in the project fails with a \"did you mean\" before anything changes; a listed file that already equals the checkpoint is left alone. "
+            "Returns {modified, added, deleted (what was done), safetyCheckpointId}. Examples: {\"id\":\"20261022-153012-7\"}, {\"id\":\"20261022-153012-7\",\"paths\":[\"scripts/player.js\"]}.";
+        c.inputSchema = Json::parse(R"({"type":"object","required":["id"],"properties":{
+            "id":{"type":"string","description":"A checkpoint id from checkpoint.list."},
+            "paths":{"type":"array","items":{"type":"string"},"description":"Restore only these files (project-relative, forward slashes); the rest of the project is not touched."}}})");
         registry.add(c, [projectDir](const Json& a) {
-            auto r = checkpoint_restore(projectDir, arg_string(a, "id", true));
+            const std::string id = arg_string(a, "id", true);
+            std::optional<std::vector<std::string>> only;
+            if (a.contains("paths")) {
+                if (!a["paths"].is_array() || a["paths"].empty())
+                    throw CommandError("invalid_argument", "`paths` must be a non-empty array of project-relative file paths.",
+                                       "Leave `paths` out to restore the whole project, or list files: [\"scripts/player.js\"].");
+                auto files = checkpoint_files(projectDir, id);
+                if (!files.ok()) fail(files.error(), "not_found");
+                std::vector<std::string> list;
+                for (const Json& p : a["paths"]) {
+                    if (!p.is_string())
+                        throw CommandError("invalid_argument", "`paths` must hold strings.", "Example: [\"scripts/player.js\"].");
+                    const std::string path = p.get<std::string>();
+                    const bool inCheckpoint = std::binary_search(files.value().begin(), files.value().end(), path);
+                    std::error_code ec;
+                    if (!safe_rel(path) || (!inCheckpoint && !stdfs::is_regular_file(root_dir(projectDir) / path, ec))) {
+                        std::vector<std::string> near = files.value();
+                        throw CommandError("not_found", "Neither checkpoint '" + id + "' nor the project holds a file '" + path + "'. " + did_you_mean(path, near),
+                                           "Paths are relative to the project folder with forward slashes, e.g. scripts/player.js. checkpoint.diff {id} lists what changed.");
+                    }
+                    list.push_back(path);
+                }
+                only = std::move(list);
+            }
+            auto r = checkpoint_restore(projectDir, id, only);
             if (!r.ok()) fail(r.error(), "failed");
             Json j = diff_json(r.value().changes);
             j["safetyCheckpointId"] = r.value().safetyId;

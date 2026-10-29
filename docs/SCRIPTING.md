@@ -745,10 +745,15 @@ The `Camera` component fields are live, for example `camera.main.get("Camera").b
 
 ### tween / ease / animator
 `tween(target, props, options?)` moves numbers, vectors and colors of any object over time and returns a `Tween`
-(`cancel()`, `pause()`, `resume()`, `next(...)`, `finished: Promise<boolean>`, `active`, `progress`); `tween(from, to, { onUpdate })`
+(`cancel()`, `pause()`, `resume()`, `seek(seconds)`, `next(...)`, `finished: Promise<boolean>`, `active`, `progress`); `tween(from, to, { onUpdate })`
 tweens a plain number; `ease` holds the easing functions (`ease.quadOut`; the names also work as strings,
 `ease: "backOut"`); `cancelTweens(target?)`. Options: `duration`, `delay`, `ease`, `repeat`, `yoyo`, `from`, `onStart`,
-`onUpdate`, `onComplete`. Tweens run on the game's clock: they pause with `time.scale = 0` and are deterministic in tests.
+`onUpdate`, `onComplete`. Tweens run on the game's clock: they pause with `time.scale = 0` and with `game.pause` (they move only with
+`game.step` then) and are deterministic in tests. `tween.pauseAll()` / `tween.resumeAll()` / `tween.timeScale` control all of them.
+`finished` resolves `true` on completion and `false` on your own `cancel()`; a tween whose target entity or owning behaviour was
+destroyed, or whose scene was reloaded, is dropped and `finished` never settles, so `await tween(...).finished` followed by
+code that touches the entity is safe with no alive check. In a Behaviour, `this.tween(...)` (same as `tween`, owned by the
+entity) and `this.wait(seconds)` (a Promise) follow the same rule. Details in [ANIMATION.md](ANIMATION.md).
 `entity.animator` controls the `Animator` component (skinned glTF clips, cross-fades, clip events, state machine).
 Both are described with examples in [ANIMATION.md](ANIMATION.md).
 

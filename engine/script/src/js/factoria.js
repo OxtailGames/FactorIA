@@ -646,12 +646,20 @@
   }
   const CHANNELS = ["x", "y", "z", "w", "r", "g", "b", "a"];
 
-  const tweens = { list: [], cancelAll() { for (const t of this.list.slice()) t.cancel(); this.list = []; } };
+  // list: the running tweens. allPaused / timeScale: tween.pauseAll() and tween.timeScale. A tween that is DROPPED (its target
+  // or its owning Behaviour was destroyed, or the scene was reloaded) leaves `finished` pending forever, so the code that awaits
+  // it never resumes; the promise and everything it holds become garbage as soon as nothing else refers to them.
+  const tweens = {
+    list: [], allPaused: false, timeScale: 1,
+    dropAll() { for (const t of this.list.slice()) t.$drop(); this.list = []; },
+    reset() { this.dropAll(); this.allPaused = false; this.timeScale = 1; },
+  };
 
   class Tween {
     constructor(target, props, o) {
       this.target = target; this.props = props; this.o = o;
       this.elapsed = 0; this.started = false; this.paused = false; this.done = false; this.cancelled = false;
+      this.dropped = false; this.owner = null;
       this.parts = []; this.nexts = [];
       this.finished = new Promise((res) => { this.$resolve = res; });
     }
@@ -659,6 +667,22 @@
     get progress() { const d = this.o.duration * (this.o.repeat + 1); return d > 0 ? Math.min(1, Math.max(0, (this.elapsed - this.o.delay) / d)) : (this.done ? 1 : 0); }
     pause() { this.paused = true; return this; }
     resume() { this.paused = false; return this; }
+    // Ends the tween without settling `finished` (see tweens above): used when the target, the owner or the scene is gone.
+    $drop() {
+      if (this.done || this.cancelled) return this;
+      this.cancelled = true; this.dropped = true;
+      const i = tweens.list.indexOf(this); if (i >= 0) tweens.list.splice(i, 1);
+      for (const n of this.nexts) n.$drop();
+      return this;
+    }
+    // Jumps to `seconds` after the tween was created (the delay counts) and applies the values there, paused or not.
+    seek(seconds) {
+      if (!(seconds >= 0)) throw new Error(`tween.seek(seconds) expects a number of seconds >= 0 but got ${inspect(seconds)}`);
+      if (this.done || this.cancelled) throw new Error("tween.seek: this tween is already " + (this.done ? "complete" : "cancelled") + "; seek only works on a tween that is still active. Start the tween again to replay it.");
+      this.elapsed = seconds;
+      this.$tick(0, true);
+      return this;
+    }
     cancel() {
       if (this.done || this.cancelled) return this;
       this.cancelled = true;
@@ -670,7 +694,8 @@
     onComplete(fn) { this.o.onComplete = ((prev) => () => { if (prev) prev(this); fn(this); })(this.o.onComplete); return this; }
     next(target, props, options) {
       const t = makeTween(target, props, options);
-      if (this.cancelled) { t.cancelled = true; t.$resolve(false); return t; }
+      if (this.cancelled) { t.cancelled = true; if (this.dropped) t.dropped = true; else t.$resolve(false); return t; }
+      t.owner = this.owner;
       if (this.done) tweens.list.push(t); else this.nexts.push(t);
       return t;
     }
@@ -711,8 +736,8 @@
       }
       if (this.o.onUpdate) this.o.onUpdate(f, this);
     }
-    $tick(dt) {
-      if (this.paused) return;
+    $tick(dt, force) {
+      if (this.paused && !force) return;
       this.elapsed += dt;
       const o = this.o;
       const local = this.elapsed - o.delay;
@@ -757,17 +782,32 @@
     return t;
   }
   function tickTweens(dt) {
-    if (tweens.list.length === 0) return;
+    if (tweens.list.length === 0 || tweens.allPaused) return;
+    dt *= tweens.timeScale;
+    if (!(dt > 0)) return;
     for (const t of tweens.list.slice()) {
       if (!t.active) continue;
       N.guardBegin("tween", 2.0);
       try { t.$tick(dt); } catch (e) {
-        t.cancel();
-        if (!/destroyed/.test(String(e && e.message))) N.reportError(e, "", "tween update");  // a destroyed target just ends its tween
+        if (/destroyed/.test(String(e && e.message))) t.$drop();  // a destroyed target ends its tween; whoever awaits it is not resumed
+        else { t.cancel(); N.reportError(e, "", "tween update"); }
       }
       N.guardEnd();
     }
   }
+  function dropOwnedTweens(owner) { for (const t of tweens.list.slice()) if (t.owner === owner) t.$drop(); }
+  Object.defineProperties(tween, {
+    pauseAll: { value() { tweens.allPaused = true; } },
+    resumeAll: { value() { tweens.allPaused = false; } },
+    paused: { get() { return tweens.allPaused; } },
+    timeScale: {
+      get() { return tweens.timeScale; },
+      set(v) {
+        if (typeof v !== "number" || !(v >= 0) || !Number.isFinite(v)) throw new Error(`tween.timeScale must be a number >= 0 (1 = normal speed, 0 freezes every tween) but is ${inspect(v)}`);
+        tweens.timeScale = v;
+      },
+    },
+  });
   function cancelTweens(target) {
     for (const t of tweens.list.slice()) if (target === undefined || t.target === target) t.cancel();
   }
@@ -849,6 +889,14 @@
     after(seconds, fn) { return timers.add(this.entity.$h, seconds, fn, false); }
     every(seconds, fn) { return timers.add(this.entity.$h, seconds, fn, true); }
     on(name, fn) { return addListener(name, fn, this.entity.$h); }
+    // Like tween(), but owned by this behaviour: when the entity is destroyed (or the scene unloads) the tween is dropped and
+    // `await this.tween(...).finished` never resumes, so the code after it needs no alive check.
+    tween(target, props, options) { const t = tween(target, props, options); t.owner = this.entity.$h; return t; }
+    // Resolves after `seconds` of scaled game time; never resolves if this entity is destroyed first (or the scene unloads).
+    wait(seconds) {
+      if (!(seconds >= 0)) throw new Error(`this.wait(seconds) expects a number of seconds >= 0 but got ${inspect(seconds)}`);
+      return new Promise((res) => { timers.add(this.entity.$h, seconds, () => res(), false); });
+    }
   }
 
   function isBehaviourClass(c) { return typeof c === "function" && c.prototype instanceof Behaviour; }
@@ -3768,7 +3816,7 @@
       N.testSystemLanguages();
       N.testDevice();
       if (N.renderScaleGet() !== 1) N.renderScaleSet(1);
-      N.setTimeScale(1); pausedScale = null;
+      N.setTimeScale(1); pausedScale = null; tweens.reset();
       N.testAppReset();
       // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).
       try { fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); } catch (e) { /* a real backend: nothing to reset */ }
@@ -3803,13 +3851,13 @@
       results.push({ name: t.name, passed, message, ms: N.nowMs() - start, seq0, seq1: N.logSeq() });
     }
     N.resetInput();
-    N.setTimeScale(1); pausedScale = null;
+    N.setTimeScale(1); pausedScale = null; tweens.reset();
     testCurrentName = "";
     return results;
   }
 
   function resetScene() {
-    voiceEnded.clear(); timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; N.inCursor(4, false); pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
+    voiceEnded.clear(); timers.reset(); tweens.reset(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; N.inCursor(4, false); pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
   }
@@ -3822,7 +3870,7 @@
     serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),
-    entityDestroyed: (h) => { timers.dropOwner(h); entityCache.delete(h); tooltipFns.delete(h); dropFns.delete(h); },
+    entityDestroyed: (h) => { timers.dropOwner(h); dropOwnedTweens(h); entityCache.delete(h); tooltipFns.delete(h); dropFns.delete(h); },
     entity: (h) => entityOf(h),
     emit: emitToListeners,
     testBegin, testRun, testCurrent,

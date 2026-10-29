@@ -455,6 +455,16 @@ declare module "factoria" {
      */
     every(seconds: number, fn: () => void): TimerHandle;
     /**
+     * Like tween(), but owned by this behaviour: when its entity is destroyed (or the scene unloads) the tween is dropped and `await this.tween(...).finished` never resumes, so the code after it does not run and needs no alive check. Example: await this.tween(this.entity.position, { y: 3 }, { duration: 0.5 }).finished; this.entity.color = ...
+     * @since unreleased
+     */
+    tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween;
+    /**
+     * Resolves after `seconds` of scaled game time (like after()); never resolves if this entity is destroyed first or the scene unloads, so `await this.wait(1); this.entity.x = 0` needs no alive check. Example: await this.wait(0.5).
+     * @since unreleased
+     */
+    wait(seconds: number): Promise<void>;
+    /**
      * Subscribe to world events for this behaviour; returns unsubscribe.
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
@@ -4254,7 +4264,7 @@ declare module "factoria" {
   }
 
   /**
-   * A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0, identical in headless runs.
+   * A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0 and while the game is paused (game.pause: it moves only with game.step), identical in headless runs.
    * @since 0.2.0
    */
   export interface Tween {
@@ -4269,7 +4279,7 @@ declare module "factoria" {
      */
     readonly progress: number;
     /**
-     * Resolves true when it completes and false when it is cancelled (also when the scene changes). `await tween(...).finished` in async code.
+     * Resolves true when it completes and false when YOU cancel it (cancel(), cancelTweens). It stays pending forever, so the code awaiting it never resumes, when the tween is dropped: its target entity was destroyed, the Behaviour that started it with this.tween() was destroyed, or the scene was reloaded or unloaded. That makes `await tween(...).finished; entity.position = ...` safe without an alive check (a dropped tween cannot throw "entity was destroyed" into your code). Do not await it in a place that must always continue (Promise.all of several tweens); use onComplete or poll `active` there.
      * @since 0.2.0
      */
     readonly finished: Promise<boolean>;
@@ -4288,6 +4298,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     resume(): this;
+    /**
+     * Jumps to `seconds` after the tween was created (the delay counts; past the end it completes) and applies the values there at once, also while it is paused: scrub an animation to a given time to inspect it. Backwards works while the tween is active. Throws on a tween that is complete or cancelled.
+     * @since unreleased
+     */
+    seek(seconds: number): this;
     /**
      * Adds a completion callback.
      * @since 0.2.0
@@ -4338,6 +4353,33 @@ declare module "factoria" {
    * @since 0.2.0
    */
   export function tween(from: number, to: number, options: TweenOptions & { onUpdate: (value: number, tween: Tween) => void }): Tween;
+
+  /**
+   * Controls every tween at once.
+   * @since 0.2.0
+   */
+  export namespace tween {
+    /**
+     * Freezes every tween, also those started later, until tween.resumeAll(). Values stay where they are, so an agent can set a pose and inspect it without a tween overwriting it. Each tween's own pause()/resume() is independent. A scene load resets it.
+     * @since unreleased
+     */
+    function pauseAll(): void;
+    /**
+     * Undoes tween.pauseAll().
+     * @since unreleased
+     */
+    function resumeAll(): void;
+    /**
+     * true after tween.pauseAll().
+     * @since unreleased
+     */
+    const paused: boolean;
+    /**
+     * Speed of every tween on top of time.scale (default 1, 0 freezes them, 0.5 is slow motion). Must be a number >= 0, anything else throws. A scene load resets it to 1.
+     * @since unreleased
+     */
+    let timeScale: number;
+  }
 
   /**
    * Cancels every running tween, or only those whose target is `target`.
