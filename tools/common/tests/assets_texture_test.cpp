@@ -224,3 +224,81 @@ TEST_CASE("assets.generate_texture: errors teach") {
     CHECK(again.error["code"] == "exists");
     p.ok("assets.generate_texture", Json{{"path", "assets/a.png"}, {"preset", "stone"}, {"width", 16}, {"overwrite", true}});
 }
+
+namespace {
+
+// The darkest column of the middle of the first board, relative to the mean: a butt joint is a dark column.
+double darkest_column_ratio(const Image& img, int rows) {
+    const int y = img.height / (2 * rows);
+    double sum = 0, lowest = 1e9;
+    for (int x = 0; x < img.width; ++x) {
+        const Rgba c = get(img, x, y);
+        const double lum = 0.3 * c.r + 0.59 * c.g + 0.11 * c.b;
+        sum += lum;
+        lowest = std::min(lowest, lum);
+    }
+    return lowest / (sum / img.width);
+}
+
+double mean_luminance_at_row_edge(const Image& img, int y) {
+    double sum = 0;
+    for (int x = 0; x < img.width; ++x) {
+        const Rgba c = get(img, x, y);
+        sum += 0.3 * c.r + 0.59 * c.g + 0.11 * c.b;
+    }
+    return sum / img.width;
+}
+
+}  // namespace
+
+TEST_CASE("assets.generate_texture: planks options set the board length, the gap and how dark it is") {
+    AssetsProject p;
+    Json a = texture_args("assets/p.png", "planks");
+    a["width"] = 512;
+    a["height"] = 504;
+    a["plankCount"] = 7;
+    a["seed"] = 3;
+    a["gapWidth"] = 0.05;
+    a["gapDarkness"] = 1.0;
+    a["overwrite"] = true;
+
+    a["plankLength"] = 0;  // boards from side to side: no butt joint
+    const Json r = p.ok("assets.generate_texture", a);
+    CHECK_FALSE(r.contains("warnings"));
+    CHECK(r["provenance"]["notes"].get<std::string>().find("\"plankLength\":0.0") != std::string::npos);
+    const Image full = read_png(p.file("assets/p.png"));
+    CHECK(darkest_column_ratio(full, 7) > 0.6);
+
+    a["plankLength"] = 0.25;  // four boards per row: joints show as dark columns
+    p.ok("assets.generate_texture", a);
+    const Image shortBoards = read_png(p.file("assets/p.png"));
+    CHECK(darkest_column_ratio(shortBoards, 7) < 0.5);
+
+    // plankCount: the seams between 7 boards sit at multiples of 72 px; the dark gap row is there, not at 6 boards' spacing
+    CHECK(mean_luminance_at_row_edge(full, 72) < mean_luminance_at_row_edge(full, 36));
+
+    // gapDarkness 0 leaves the seam as light as the wood around it, gapDarkness 1 darkens it
+    a["plankLength"] = 0;
+    a["gapDarkness"] = 0.0;
+    p.ok("assets.generate_texture", a);
+    const Image pale = read_png(p.file("assets/p.png"));
+    CHECK(mean_luminance_at_row_edge(pale, 72) > mean_luminance_at_row_edge(full, 72) * 1.3);
+
+    // same arguments, same bytes
+    const std::string first = read_all(p.file("assets/p.png"));
+    p.ok("assets.generate_texture", a);
+    CHECK(read_all(p.file("assets/p.png")) == first);
+}
+
+TEST_CASE("assets.generate_texture: planks options are checked and ignored by other presets") {
+    AssetsProject p;
+    auto bad = p.call("assets.generate_texture", Json{{"path", "assets/a.png"}, {"preset", "planks"}, {"plankCount", 0}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(message(bad).find("/plankCount") != std::string::npos);
+    CHECK_FALSE(p.call("assets.generate_texture", Json{{"path", "assets/a.png"}, {"preset", "planks"}, {"plankLength", 2}}).ok);
+    CHECK_FALSE(p.call("assets.generate_texture", Json{{"path", "assets/a.png"}, {"preset", "planks"}, {"gapDarkness", -1}}).ok);
+    CHECK_FALSE(p.call("assets.generate_texture", Json{{"path", "assets/a.png"}, {"preset", "planks"}, {"plankLenght", 1}}).ok);
+    const Json r = p.ok("assets.generate_texture", Json{{"path", "assets/a.png"}, {"preset", "wood"}, {"width", 16}, {"gapWidth", 0.1}});
+    REQUIRE(r.contains("warnings"));
+    CHECK(r["warnings"][0].get<std::string>().find("gapWidth only changes the planks preset") != std::string::npos);
+}
