@@ -4,6 +4,21 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Sprite sheets played by name, and checked
+
+- `SpriteAnimator.clip` plays a named clip of the sheet of the sprite's texture (grid, `padding`, `fps`, `loop` and range come
+  from the `sheet` entry; a numeric field you set still overrides). `mode` is `forward`, `reverse` or `pingpong`. A clip that
+  does not loop sends the game event `clipEnded` `{id, clip}`. Scripts: `entity.spriteAnimator.play(name)`, `.clips`,
+  `.clipInfo(name)` and `.on("clipEnded", fn)`. A wrong clip name is an error that lists the clips with "did you mean", also
+  in `project.validate`.
+- `padding` of a sheet is skipped by the animator, and the sheet's (or clip's) `pivot` is used when the Sprite has no pivot of
+  its own (counted from the top-left in the sheet, flipped to the Sprite's bottom-left; `sheetPivot: false` opts out). The
+  sheet entry reaches the game at run time and in exports.
+- `assets.preview_sheet` (MCP `assets_preview_sheet`) draws a sheet as a labelled grid (frame numbers, cell edges, pivot,
+  optional onion skin) and checks it: empty frames, ink on the edge of a cell, a jumping drawing, a loop that pops.
+- Editor: the Project panel plays the clips of a selected sheet and the Inspector of a `SpriteAnimator` lists them (one click
+  sets `clip`). Neon Swarm's kill effect is a sheet made with `assets.animate_svg` from `art/shockwave.anim.js`.
+
 Animations drawn with code
 
 - `assets.animate_svg` (MCP `assets_animate_svg`) bakes an animation you write as code into a sprite sheet PNG and its
