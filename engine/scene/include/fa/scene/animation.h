@@ -3,6 +3,14 @@
 // events are dispatched), so animation, clip events and state machine transitions are deterministic and also run in
 // headless runs. The renderer only READS Animator::palette (components.h): one skinning matrix per joint of
 // each skin (palette = skin 0, skinPalettes = all), ready to upload as the joint matrices of a skinned draw.
+//
+// An Animator without a glTF model plays keyframed 2D clips instead (*.anim.json, anim_clip.h): it writes the fields the
+// clips animate (Transform, Sprite, ...) of its entity and its descendants.
+//
+// ORDER IN THE FRAME. update_animators() runs once per fixed step, after physics and before the step's game events are
+// dispatched and before anything is drawn (engine.cpp, "After the Animator"). When it returns the 2D pose of every
+// Animator is in the components, and everything that must see that pose and still change it runs next, in this order:
+// systems that solve on top of the animated pose (the IK of bones, M42.2), then skinning / drawing, which only read.
 #pragma once
 
 #include <string>
@@ -46,7 +54,17 @@ Result<void> animator_stop(World& world, Entity e);
 Result<void> animator_set(World& world, Entity e, std::string_view name, const Json& value);
 // Makes a parameter true for the next update only (a one-shot input such as "jump").
 Result<void> animator_trigger(World& world, Entity e, std::string_view name);
-// Clip names with durations of the model the animator plays: [{"name", "duration"}].
+// Clip names with durations of the model the animator plays: [{"name", "duration"}]. For 2D clips: [{"name", "file",
+// "duration", "loop"}] (a file that does not load has "error" instead of "duration").
 Result<Json> animator_clips(World& world, Entity e);
+
+// 2D clips only (an Animator with `clips` and no glTF model):
+// Poses the entity as clip `clip` is at `time` seconds (clamped to the clip) and leaves the Animator paused there. A
+// later play() or an assignment to `clip` plays on.
+Result<void> animator_sample(World& world, Entity e, std::string_view clip, float time);
+// Sets the weight (0..1) of the layer called `layer`. Weight 0 stops the layer, a rising weight starts it from its first pose.
+Result<void> animator_set_layer_weight(World& world, Entity e, std::string_view layer, float weight);
+// Plays `clip` on the layer (which has a plain `clip`, no `states`), cross-fading over `fadeSeconds`; "" empties the layer.
+Result<void> animator_play_layer(World& world, Entity e, std::string_view layer, std::string_view clip, float fadeSeconds);
 
 }  // namespace fa

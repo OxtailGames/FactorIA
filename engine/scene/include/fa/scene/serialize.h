@@ -118,6 +118,23 @@ bool is_scene_or_prefab_file(std::string_view path);
 std::vector<std::string> project_scene_files(std::string_view dir = {});
 
 // Entities
+
+// The rest value of every field an Animator that plays 2D clips (docs/ANIMATION.md, "2D clips") drives: what the field held
+// before the first clip drove it. The driven fields are a runtime pose, not part of the scene, so the writers of scene
+// and prefab files put these values in place of the posed ones.
+struct PoseRestEntry {
+    Entity entity;
+    const TypeInfo* type = nullptr;
+    const FieldInfo* field = nullptr;
+    Json value;   // the field as JSON (all channels of a vector: the driven ones at rest, the others as they are now)
+};
+struct PoseRest {
+    std::vector<PoseRestEntry> entries;   // sorted by entity (Entity::bits)
+    bool empty() const { return entries.empty(); }
+};
+// Collects it from every Animator of `world`. Empty when no Animator plays 2D clips.
+PoseRest collect_pose_rest(const World& world);
+
 struct EntityJsonOptions {
     bool includeChildren = true;
     bool includeDefaults = false;   // true = every field (useful for AI inspection)
@@ -126,6 +143,8 @@ struct EntityJsonOptions {
     bool skipSpawned = false;
     // When skipSpawned: filled with what was left out (may be null).
     SpawnedSkip* skipped = nullptr;
+    // Write these rest values instead of the posed ones of the fields 2D clips drive (null = write what the fields hold now).
+    const PoseRest* poseRest = nullptr;
 };
 Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts = {});
 // Creates an entity (and children) from entity JSON. Errors go to `report`. References to entities inside the JSON (its

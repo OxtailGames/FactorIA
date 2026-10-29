@@ -2,6 +2,28 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Keyframed 2D clips
+
+- `*.anim.json` (format `factoria.anim/1`, `schemas/anim.schema.json`) is a clip of keyframed tracks: each track drives
+  one field (or one channel such as `rotation.z`, `color.a`) of the entity that plays it or of a child found by names
+  (`"body/arm_l"`). Keys interpolate `linear`, `step`, `bezier` (in/out tangents, smooth when missing) or with any
+  easing of `tween()`; numbers, vectors, colours and angles interpolate, bools, ints, enums, assets and rects step.
+  Clip events (`{t, name, data}`) fire once per loop.
+- The Animator plays these clips when it has no glTF `model`: `clips: {"walk": "anim/hero_walk.anim.json"}`. `play`,
+  `speed`, `loop`, `time`, clip events, `anim.finished` and the state machine work as with glTF clips. A cross-fade lerps
+  the fields, angles take the short way round and fields that only step switch at half the fade. A field the current
+  clip does not drive goes back to where it rested.
+- `layers` play more clips at once: `{name, clip | states, weight, mode: override | additive, mask: [paths], speed, loop}`.
+  `entity.animator.setLayerWeight(layer, w)` and `playLayer(layer, clip, fade)` drive them from scripts, and
+  `entity.animator.sample(clip, t)` poses the parts without playing.
+- The driven fields are a runtime pose: `scene.save`, prefabs and the editor's Play/Stop write the rest value, not the
+  pose. The Animator runs in the fixed step; `engine.cpp` has a marked point right after it where bones and IK (M42.2) run.
+- Clip files are cached by path and modification time and reloaded when they change. Errors name the file and the JSON
+  pointer, and teach: a path gets "did you mean" over the names under the entity; a field that cannot be animated lists the
+  ones that can; keys out of order or past `duration`, a value of the wrong type and two tracks on one channel are caught.
+
 ## 0.6.0
 
 FactorIA 0.6.0 draws animations with code and bakes them into sprite sheets: a JavaScript module or an animated SVG

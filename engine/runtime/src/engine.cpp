@@ -406,6 +406,11 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             }
             ProfSystemScope prof(ProfSystem::Animation);
             update_animators(world, float(fixedDt * scale));  // skeletal animation + its events, before they are dispatched
+            // ---- After the Animator, before drawing ------------------------------------------------------------------
+            // The Animator has just written the 2D pose (the fields keyframed clips drive: Transform, Sprite...) and the
+            // 3D palettes. Systems that build on the animated pose run HERE, in this order, and nothing else writes the
+            // pose after them: bone constraints and IK (M42.2) solve now, so what they move is what gets drawn. The
+            // renderer, bounds and the next physics step read the result.
         }
         {
             // Videos follow the game clock: they stop with time.scale 0, and a play / pause / seek a script made still applies.
