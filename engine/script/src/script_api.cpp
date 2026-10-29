@@ -210,6 +210,19 @@ std::string emit_item(const Json& it, const std::string& indent, bool inModule, 
             out += (i ? ", " : "") + std::string(p.rest ? "..." : "") + p.name + (p.optional ? "?" : "") + ": " + p.type;
         }
         out += "): " + s.returns + ";\n";
+    } else if (kind == "namespace") {
+        // Functions and variables hung on a function of the same name (tween.pauseAll()): merges with its `function`.
+        out += jsdoc(doc, indent) + indent + exp + "namespace " + name + " {\n";
+        for (const Json& m : it.value("members", Json::array())) {
+            Sig s = parse_sig(m.value("sig", ""));
+            std::string text = emit_member(m, indent + "  ", false, false, member_key(keyPrefix, name, m), since);
+            const std::string head = indent + "  " + (s.readonly ? "readonly " : "") + s.name;
+            const size_t at = text.find(head);
+            if (at == std::string::npos) continue;
+            text.replace(at, head.size(), indent + "  " + (s.isMethod ? "function " : s.readonly ? "const " : "let ") + s.name);
+            out += text;
+        }
+        out += indent + "}\n";
     } else if (kind == "interface" || kind == "class") {
         out += jsdoc(doc, indent) + indent + exp + (kind == "class" ? "class " : "interface ") + name;
         if (it.contains("generics")) out += "<" + it["generics"].get<std::string>() + ">";
