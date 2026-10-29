@@ -24,6 +24,21 @@ Keyframed 2D clips
   pointer, and teach: a path gets "did you mean" over the names under the entity; a field that cannot be animated lists the
   ones that can; keys out of order or past `duration`, a value of the wrong type and two tracks on one channel are caught.
 
+Commands for AIs: make clips and check them
+
+- `anim.create_clip`, `anim.set_keys`, `anim.remove_keys`, `anim.move_keys`, `anim.set_interp`, `anim.add_track`,
+  `anim.remove_track`, `anim.add_event`, `anim.move_event`, `anim.set_event`, `anim.remove_event` and `anim.set_clip` make and
+  edit `*.anim.json` clips. Each checks the whole file with the loader's rules before writing, and returns `undo`, a call of
+  `anim.restore` that puts the previous document back (or deletes a new file).
+- `anim.list` describes an Animator's clips, `anim.pose` poses an entity at a time of a clip, `anim.filmstrip` draws a labelled
+  grid of poses (with `onionSkin`) and `anim.check` reports `no_change`, `loop_jump`, `unknown_part`, `leaves_view` and
+  `ik_out_of_reach` findings that say how to fix them.
+- `bones.create`, `skin.bind`, `skin.auto_weights` and `skin.set_weights` (set, add, smooth) make a bone chain, skin a Sprite to it
+  and paint its weights.
+- `factoria validate` checks every `*.anim.json` and the clips each Animator names: a missing file, schema errors and tracks that
+  resolve to no part of that entity.
+- docs/AI_GUIDE.md, section 9.25.2: a character in parts, step by step; the artist role's prompt points to it.
+
 2D bones, skinned sprites and IK
 
 - `Bone2D` (`length`, `minAngle`, `maxAngle`) turns any entity of the hierarchy into a bone: it runs `length` along the
