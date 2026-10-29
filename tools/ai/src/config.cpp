@@ -248,7 +248,7 @@ std::string role_off_message(std::string_view role) {
 }
 std::string role_off_hint(std::string_view role) {
     return "Do the work yourself (as the orchestrator) or ask the user to tick \"Enabled\" for " +
-           std::string(role_display_name(role)) + " in the editor's AI panel (Roles...), or set roles." + std::string(role) +
+           std::string(role_display_name(role)) + " in the editor (AI > Roles...), or set roles." + std::string(role) +
            ".enabled to true in ~/.factoria/ai.json.";
 }
 

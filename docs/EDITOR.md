@@ -58,14 +58,14 @@ Profiler stay closed). Two editors open at once share the file: the last one to 
 
 | Panel | What it does |
 |---|---|
-| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos); shown only while an entity is selected, the Q W E R keys work regardless). Screenshot saves a PNG into the hidden `.factoria/screenshots/` of the project; its toast has a **Show in Finder / Explorer / file manager** button (the toast stays longer and does not vanish while the mouse is over it), and File > Open Screenshots Folder opens the folder (creating it if missing). The F9 mark screenshots of a play session go into the play session's own folder and are read by the AI panel's Attach last play session. |
+| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos); shown only while an entity is selected, the Q W E R keys work regardless). Screenshot saves a PNG into the hidden `.factoria/screenshots/` of the project; its toast has a **Show in Finder / Explorer / file manager** button (the toast stays longer and does not vanish while the mouse is over it), and File > Open Screenshots Folder opens the folder (creating it if missing). The F9 mark screenshots of a play session go into the play session's own folder and are read by the AI panel's Attach last play session. |
 | Hierarchy | The entity tree: select, drag to reparent, right-click for create / duplicate / rename / active / delete, search by name or id. |
 | Inspector | The selected entity's components, one widget per field, Add Component. |
 | Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at; the gizmos move, rotate and scale it ([Gizmos](#gizmos)). Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Project | The project's files: folder tree, filter, search, thumbnails; drag files onto the Inspector and the Viewport ([Project panel](#project-panel)). |
 | Console | The log (each line starts with the computer's local time `HH:MM:SS.mmm`; hover it for the date, the frame and the seconds since start), and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
-| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. Opening the project moves its closed entries to `ENGINE_FEEDBACK.archive.json`; "Archive closed" moves them on demand. |
+| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. The panel keeps its size however long an entry is: only the entries table and the text of the selected entry scroll. Opening the project moves its closed entries to `ENGINE_FEEDBACK.archive.json`; "Archive closed" moves them on demand. |
 | Audio | (View > Audio) the live `audio.log`. |
 | Profiler | (View > Profiler) where the time of a frame goes while the game plays. |
 
@@ -167,20 +167,22 @@ The height is kept with the layout.
 
 - **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
   the worker role, small mechanical edits to the fast role, the art to the artist role and the sound to the audio role
-  by itself. The `artCritic` and `reviewer` roles never run unless you ask (see **Reviews** below). **Roles...** at the
-  top of the panel picks the provider, model and effort of each of the seven roles, listed with readable names in three
+  by itself. The `artCritic` and `reviewer` roles never run unless you ask (see **Reviews** below). **AI > Roles...**
+  (the **Roles** tab of the AI settings window) picks the provider, model and effort of each of the seven roles, listed with readable names in three
   groups (Orchestration and code: Orchestrator, Worker, Fast; Art and audio: Artist, Audio; Critics and reviewers: Art
-  critic, Reviewer; hover **Roles...** to see the current ones). Each role has an **Enabled** checkbox: untick one you do
+  critic, Reviewer; hover **AI > Roles...** to see the current ones). Each role has an **Enabled** checkbox: untick one you do
   not want to use and the orchestrator does that work itself (nothing is delegated to it; for the Art critic and the
   Reviewer, the review buttons still work but run on the orchestrator's model). The orchestrator's box is ticked and cannot
   be changed. Save writes them into `ai.json`
   and the next message uses them (see `docs/AI_PROVIDERS.md`, Roles). The **Model** column is a dropdown of the models
   the provider really offers, fetched when the project opens; **Refresh models** asks again (new releases show up), and
-  **Other...** types a name that is not listed (see `docs/AI_PROVIDERS.md`, Choosing a model). **Roles...** is disabled
-  until `ai.json` has been read. Its **Context** column caps how much of the
+  **Other...** types a name that is not listed (see `docs/AI_PROVIDERS.md`, Choosing a model). **Revert** drops the
+  changes made since the last Save. **AI > Roles...** is disabled until `ai.json` has been read. Its **Context** column caps how much of the
   conversation a session keeps (full, or 100k to 800k): past it the earlier part is summarized, so each message costs
   less. It works with Claude Code and the Anthropic API.
-- **AI settings...** (next to **Roles...**, and **File > AI Settings...**) opens the window for what the AI makes besides
+- **AI > AI Settings...** (the **AI** menu of the menu bar, next to File, Edit, View and Help; there is no button for it in
+  the panel) opens a window with two tabs. **Roles** (the first) is the role table above, and **AI > Roles...** opens
+  the window on it. The **Assets** tab is for what the AI makes besides
   code and where it finds it. **Asset generation** picks, for each kind (Image, Sound, Music, Voice, 3D model), the provider
   that makes it (only providers that can make that kind, or **None**, which leaves it to the procedural commands), the model
   and, for Voice, the voice id, with a status per row (key found, or what is missing); a masked box stores an API key in your
@@ -190,7 +192,7 @@ The height is kept with the layout.
   sites** forbids searching anywhere else (enforced for Claude Code; for other providers it is an instruction). **Save**
   rewrites only those parts of `ai.json` and the next message uses them (see `docs/AI_PROVIDERS.md`, "The AI settings
   window" and "Asset sources").
-- **Reviews:** next to **Roles...**, at the top of the panel, **Review:** has an **Art critique** and a **Game review**
+- **Reviews:** at the top of the panel, above the chat tabs (they are not about one chat), **Review:** has an **Art critique** and a **Game review**
   button (and **Reviews...**, below), then a **Reviewers** count (1 to 5 reviewers, each with a different point of view,
   one after another) and an optional focus ("the shop screen"); a narrow panel moves the count and focus to a line of their
   own. Pressing
@@ -211,8 +213,12 @@ The height is kept with the layout.
   in the transcript. Copies live in `.factoria/ai/attachments/`; other file types are refused with a message saying why.
   A big picture (a 4K screenshot) is scaled down to 1568 px on its long side, what the model looks at anyway, so it costs
   fewer tokens and stays under the API's 5 MB limit.
-- **Usage** (above the transcript): Session (5h) and Week plan limits with the reset time, the model's Context, Tokens
-  and the estimated Cost of the chat. Hover a line for details. Tokens and Cost move while the agent works: every model call
+- **Usage:** the plan limits (Session (5h) and Week, with the reset time) belong to the provider, not to a chat, so they
+  sit at the top of the panel above the chat tabs, with the provider problems ("No AI provider is configured", an unreadable
+  `ai.json`) and the review row. Under the tabs, above the transcript, are the chat's own Context, Tokens and **API cost est.**
+  Hover a line for details. The cost is what the same tokens would cost on the provider's pay-per-token API; with a
+  subscription (Claude Code / Codex sign-in) none of it is charged on top of the plan, and the line says "(not billed on a
+  subscription)": only the plan limits matter there. Tokens and Cost move while the agent works: every model call
   adds its usage (the worker's too, each agent counted on its own and summed) and the cost is the engine's running estimate
   from its price table until the CLI reports its own total, which replaces it when the agent finishes. Claude Code reports
   a message's output tokens early, so "out" can lag until the end. The plan limits are the last ones the provider reported in
@@ -294,7 +300,7 @@ engine is available as the commands `checkpoint.create`, `checkpoint.list`, `che
 
 ## Exporting the game
 
-**Export** in the toolbar (or File > Export Game...) opens the **Export game** window: a button per platform (Windows,
+**Export Game** in the menu bar (next to the Help menu; or File > Export Game...) opens the **Export game** window: a button per platform (Windows,
 macOS, Linux, Android, iOS, Web) that runs the same export as `factoria export` and the `project.export` command. Each
 platform's row says what the export writes, or why it cannot run on this machine (no player built for that OS, no
 mobile players or engine checkout, a missing `id`, an output folder that already holds a folder of that name no

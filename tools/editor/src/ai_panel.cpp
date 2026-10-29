@@ -153,9 +153,17 @@ std::string reset_text(const LimitView& v, i64 now) {
     return "resets " + format_clock(v.resetsAt, now);
 }
 
-// Plan windows, context, tokens and cost of the active chat. Nothing here is a guess: every number comes from what the
-// CLI or the API reported; what has not arrived yet is not drawn.
-void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std::string& provider, bool limitsExpected) {
+// What the cost estimate means, wherever the editor shows it.
+constexpr const char* kApiCostTip =
+    "API cost estimate: what this conversation's tokens would cost on the provider's pay-per-token API (USD, from the price\n"
+    "the CLI reports or the engine's price table). While an agent works it is the engine's running estimate (every agent\n"
+    "counts, workers included); the CLI's own total replaces it when the agent finishes.\n"
+    "With a subscription (Claude Code / Codex sign-in, a ChatGPT plan...) none of this is charged on top of the plan: there\n"
+    "only the plan windows at the top of the panel matter.";
+
+// The provider's plan windows (a subscription's quota). They belong to the provider, not to a chat, so the panel draws
+// them above the chat tabs. Nothing here is a guess: every number comes from what the CLI reported.
+void draw_plan_windows(const ProviderLimits* limits, const std::string& provider, bool limitsExpected) {
     const i64 now = now_epoch();
     Flow flow;  // items wrap: a narrow panel gets one per row, a wide one several
     const float barW = std::min(180.0f, flow.avail);
@@ -187,6 +195,19 @@ void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std
             }
         }
     }
+    if (limitsExpected && !anyWindow) {
+        const char* note = "Plan usage updates after the first message.";
+        flow.place(ImGui::CalcTextSize(note).x);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", note);
+    }
+}
+
+// Context, tokens and cost estimate of one chat (below the tabs). Nothing here is a guess: every number comes from what
+// the CLI or the API reported; what has not arrived yet is not drawn.
+void draw_usage_area(const AiChat& chat, bool subscription) {
+    Flow flow;  // items wrap: a narrow panel gets one per row, a wide one several
+    const float barW = std::min(180.0f, flow.avail);
     if (chat.contextTokens > 0) {
         const bool known = chat.contextWindow > 0;
         const std::string text = "Context " + format_tokens(chat.contextTokens) + (known ? " / " + format_tokens(chat.contextWindow) : "");
@@ -213,17 +234,14 @@ void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std
     u += chat.run.usage();  // the run in progress: every agent's running totals, live
     const double cost = chat.costUsd + chat.run.cost();
     if (cost > 0) {
-        char text[64];
-        std::snprintf(text, sizeof text, "Cost est. $%.4f", cost);
+        char text[96];
+        // A CLI with a sign-in (Claude Code, Codex) runs on a subscription: the dollars are what the same tokens would cost
+        // on the pay-per-token API, none of it is charged on top of the plan.
+        std::snprintf(text, sizeof text, "API cost est. $%.4f%s", cost, subscription ? " (not billed on a subscription)" : "");
         flow.place(ImGui::CalcTextSize(text).x);
         ImGui::AlignTextToFramePadding();  // same height as the bar next to it
         ImGui::TextUnformatted(text);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Estimated cost of this conversation in USD, from the price the CLI reports or the engine's price table.\n"
-                              "While an agent works it is the engine's running estimate (every agent counts, workers included); the\n"
-                              "CLI's own total replaces it when the agent finishes.\n"
-                              "A subscription (Claude Code / Codex sign-in) is not billed per token: the plan windows above matter there.");
-        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kApiCostTip);
     }
     if (u.inputTokens || u.outputTokens || u.cacheReadTokens || u.cacheCreationTokens) {
         char text[160];
@@ -237,12 +255,6 @@ void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std
                               "cache = input read from or written to the prompt cache.\n"
                               "Claude Code reports a message's output tokens early, so out can lag until the agent finishes.");
         }
-    }
-    if (limitsExpected && !anyWindow) {
-        const char* note = "Plan usage updates after the first message.";
-        flow.place(ImGui::CalcTextSize(note).x);
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextDisabled("%s", note);
     }
 }
 
@@ -947,18 +959,17 @@ std::string Editor::ai_editing_note() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-// "AI roles": the provider, model and effort of the seven roles. Save writes them into ai.json
-// (only its "roles"; everything else in the file stays) and reloads it, so the next message uses them.
-void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status) {
+// The Roles tab of the AI settings window: the provider, model and effort of the seven roles. Save writes them into
+// ai.json (only its "roles"; everything else in the file stays) and reloads it, so the next message uses them. The edits
+// start from the loaded roles whenever aiRolesOpen_ is set (the window opening, "Roles..." in the AI menu, Save, Revert).
+void Editor::draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status) {
     if (aiRolesOpen_) {
         aiRolesEdit_.clear();
         aiRolesTyping_.clear();
         for (const char* name : kRoleNames) aiRolesEdit_[name] = cfg.role(name);
-        ImGui::OpenPopup("AI roles");
         aiRolesOpen_ = false;
     }
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    if (!ImGui::BeginPopupModal("AI roles", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    ImGui::BeginChild("##rolesbody", ImVec2(0, 0));
     ImGui::TextUnformatted(kRolesBlurb);
     ImGui::Spacing();
     std::map<std::string, ProviderModels> models;  // a copy: the detection thread replaces them
@@ -1135,13 +1146,36 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
                 aiConfigError_ = loaded ? std::string() : loaded.error().to_string();
             }
             notify("AI roles saved. The next message uses them.");
-            ImGui::CloseCurrentPopup();
+            aiRolesOpen_ = true;  // the edits restart from the file
         }
     }
+    at_track("ai:roles:save");
     ImGui::SameLine();
-    if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
-    at_track("ai:roles:cancel");
-    ImGui::EndPopup();
+    if (ImGui::Button("Revert")) aiRolesOpen_ = true;
+    at_track("ai:roles:revert");
+    ImGui::SetItemTooltip("Throw away the changes made here since the last Save.");
+    ImGui::EndChild();
+}
+
+// The current roles, one per line: the tooltip of Roles... in the AI menu.
+std::string Editor::ai_roles_summary() {
+    ai::AiConfig cfg;
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        cfg = aiConfig_;
+    }
+    std::string roles;
+    for (const char* name : kRoleNames) {
+        const ai::RoleConfig rc = cfg.role(name);
+        roles += "\n" + std::string(ai::role_display_name(name)) + ": ";
+        if (!rc.enabled) {
+            roles += std::string("off (") + (ai::is_review_role(name) ? "uses the Orchestrator's model" : "the Orchestrator does it") + ")";
+            continue;
+        }
+        roles += rc.provider + (rc.model.empty() ? "" : " / " + rc.model) +
+                 (rc.maxContextTokens ? " (" + format_tokens(rc.maxContextTokens) + ")" : "");
+    }
+    return roles;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1165,6 +1199,41 @@ void Editor::draw_ai_panel() {
     for (auto& s : status) anyAvailable = anyAvailable || (s.available && (s.isCli || !s.keySource.empty()));
     bool anyListed = false;
     for (auto& s : status) anyListed = anyListed || s.available;
+
+    // ---- Global, above the tabs: what is not about one chat. The provider problems, the reviews (they are run from here,
+    // apart from the chat; a review opens a tab of its own) and the provider's plan windows.
+    const std::string providerName = cfg.role(ai::kRoleOrchestrator).provider;
+    bool providerIsCli = true;  // a CLI provider (a sign-in, not a key), or one not detected yet
+    for (const auto& s : status) {
+        if (s.name == providerName) providerIsCli = s.isCli;
+    }
+    if (!detected) {
+        ImGui::TextDisabled(aiDetecting_.load() ? "Detecting providers..." : "Provider detection not started.");
+    } else if (!anyAvailable) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.30f, 0.22f, 0.08f, 1));
+        ImGui::BeginChild("##noprov", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6.6f), ImGuiChildFlags_Borders);
+        ImGui::TextColored(ImVec4(1, 0.82f, 0.4f, 1), "No AI provider is configured.");
+        ImGui::TextWrapped("Set an API key (ANTHROPIC_API_KEY, OPENAI_API_KEY...), or install the Claude Code / Codex CLI and sign in.%s", anyListed ? " Local servers (ollama, lmstudio) can be selected in AI > AI Settings > Roles." : "");
+        if (ImGui::SmallButton("Open AI_PROVIDERS.md")) {
+            auto d = read_doc("ai-providers");
+            docsTitle_ = "AI_PROVIDERS.md";
+            docsText_ = d ? *d : d.error().to_string();
+            showDocs_ = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Re-detect")) ai_refresh_providers();
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+    }
+    if (!cfgErr.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.45f, 1), "Config: %s", cfgErr.c_str());
+
+    const bool gameRuns = play_ != PlayState::Edit;  // the assistant edits in edit mode only (see ai_start)
+    draw_ai_review_row(gameRuns);
+    {
+        const auto it = aiLimits_.find(providerName);
+        draw_plan_windows(it == aiLimits_.end() ? nullptr : &it->second, providerName, providerIsCli);
+    }
+    ImGui::Spacing();
 
     // ---- Chat tabs: one conversation each, "+" starts another, History reopens an old one.
     {
@@ -1255,80 +1324,15 @@ void Editor::draw_ai_panel() {
         ImGui::EndPopup();
     }
 
-    draw_ai_roles_popup(cfg, status);
-
-    // The roles. Every message goes to the orchestrator; it hands the work to the worker, fast, artist and audio roles itself.
-    const std::string providerName = cfg.role(ai::kRoleOrchestrator).provider;
-    ImGui::BeginDisabled(!detected);  // before the first detection aiConfig_ is empty: Save would write roles without providers
-    if (ImGui::Button("Roles...")) aiRolesOpen_ = true;
-    at_track("ai:roles", detected);
-    ImGui::EndDisabled();
-    if (!detected && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Reading ai.json...");
-    } else if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
-        std::string roles;  // the current roles live in the tooltip, not on the panel
-        for (const char* name : kRoleNames) {
-            const ai::RoleConfig rc = cfg.role(name);
-            roles += "\n" + std::string(ai::role_display_name(name)) + ": ";
-            if (!rc.enabled) {
-                roles += std::string("off (") + (ai::is_review_role(name) ? "uses the Orchestrator's model" : "the Orchestrator does it") + ")";
-                continue;
-            }
-            roles += rc.provider + (rc.model.empty() ? "" : " / " + rc.model) +
-                     (rc.maxContextTokens ? " (" + format_tokens(rc.maxContextTokens) + ")" : "");
-        }
-        ImGui::SetTooltip("Choose the provider and model of each role. Takes effect with the next message.\n%s", roles.c_str());
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!detected);
-    if (ImGui::Button("AI settings...")) open_ai_settings();
-    ImGui::EndDisabled();
-    at_track("ai:settings", detected);
-    ImGui::SetItemTooltip("Where the AI's images, sounds and 3D models are made (provider, model, API key) and the websites\n"
-                          "it looks at when it searches for assets.");
-    // The reviews share the Roles line: they are run from here, apart from the chat. A review opens a tab of its own, so
-    // this row comes before the reference to the current chat below.
-    const bool gameRuns = play_ != PlayState::Edit;  // the assistant edits in edit mode only (see ai_start)
-    ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
-    draw_ai_review_row(gameRuns);
-
     AiChat& chat = chat_.current();  // (no chat_ change below this line: the reference stays valid)
     AiRun* const run = ai_run_of(chat.id);  // this tab's run (nullptr = none); valid for the frame: nothing below ends a run
     const bool isRunTab = run && run->active();  // includes the wait for a worker that outlived the orchestrator's turn
     const int runsOn = ai_run_count();
     const int maxRuns = cfg.limits.maxConcurrentRuns;
     const bool atCap = !isRunTab && runsOn >= std::clamp(maxRuns, 1, ai::kMaxConcurrentRunsCap);  // every slot is taken by other chats
+
     ImGui::PushID(chat.id.c_str());  // every widget below belongs to the tab: its own scroll position and input text
-
-    if (!detected) {
-        ImGui::TextDisabled(aiDetecting_.load() ? "Detecting providers..." : "Provider detection not started.");
-    } else if (!anyAvailable) {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.30f, 0.22f, 0.08f, 1));
-        ImGui::BeginChild("##noprov", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6.6f), ImGuiChildFlags_Borders);
-        ImGui::TextColored(ImVec4(1, 0.82f, 0.4f, 1), "No AI provider is configured.");
-        ImGui::TextWrapped("Set an API key (ANTHROPIC_API_KEY, OPENAI_API_KEY...), or install the Claude Code / Codex CLI and sign in.%s", anyListed ? " Local servers (ollama, lmstudio) can be selected above." : "");
-        if (ImGui::SmallButton("Open AI_PROVIDERS.md")) {
-            auto d = read_doc("ai-providers");
-            docsTitle_ = "AI_PROVIDERS.md";
-            docsText_ = d ? *d : d.error().to_string();
-            showDocs_ = true;
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Re-detect")) ai_refresh_providers();
-        ImGui::EndChild();
-        ImGui::PopStyleColor();
-    }
-    if (!cfgErr.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.45f, 1), "Config: %s", cfgErr.c_str());
-
-    // Usage: plan windows (only a CLI has them), context, tokens, cost.
-    {
-        bool limitsExpected = true;  // a CLI provider, or one not detected yet
-        for (const auto& s : status) {
-            if (s.name == providerName) limitsExpected = s.isCli;
-        }
-        const auto it = aiLimits_.find(providerName);
-        draw_usage_area(chat, it == aiLimits_.end() ? nullptr : &it->second, providerName, limitsExpected);
-    }
+    draw_usage_area(chat, providerIsCli);
 
     // Pending pictures take room from the transcript.
     const float thumbCell = std::max(kThumb, ImGui::CalcTextSize("Remove").x + ImGui::GetStyle().FramePadding.x * 2);
