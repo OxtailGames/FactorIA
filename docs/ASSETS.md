@@ -8,7 +8,7 @@ call (MCP tool, `factoria call`, editor console):
 2. **Import** files made elsewhere (`assets.import`): Aseprite, PSD, OBJ, FBX...
 3. **Write** them directly (`fs.write`), for files the engine already reads (PNG, JPG, WAV, OGG, MP3, glTF, TTF).
 4. **Make** them offline, with no provider and no key: `assets.generate_texture` (materials), `assets.rasterize_svg`
-   (pictures written as SVG), `assets.synth_sound`, `assets.generate_loop`, `assets.draw_icon`.
+   (pictures written as SVG), `assets.bake_sheet` (an entity the engine draws, baked into a sprite sheet), `assets.synth_sound`, `assets.generate_loop`, `assets.draw_icon`.
 
 Whatever the way, `assets.json` at the project root records where each asset came from (provenance) and how the engine
 and `factoria export` treat it (import settings).
@@ -626,6 +626,60 @@ the game: shorten it or lower its size). An `.mpg` you made yourself is only che
 
 A `Video` plays by itself (`autoplay`), follows the game clock and sends the game event `video.ended` when a video that
 does not loop reaches its end; a studio intro that any button skips is in [MENUS.md](MENUS.md).
+
+### Effects drawn by the engine, baked: assets.bake_sheet
+
+A glow made of three Shape2D with gradients, a burst of particles, a badge that pulses with a tween, an explosion a script
+starts: drawn live they cost draw calls and CPU on every frame, and on a phone that adds up. `assets.bake_sheet` plays one
+entity once, offline, and saves it as a sprite sheet; the game then draws ONE `Sprite` with a `SpriteAnimator`. It is
+also the way to make animated art with the engine's own Shape2D (gradients, strokes, additive blending) instead of SVG.
+
+```
+assets.bake_sheet {"path":"assets/fx/burst.png","prefab":"prefabs/burst.prefab.json","frames":16,"fps":24,"warmup":0.5,"pivot":[0.5,0.5]}
+assets.bake_sheet {"path":"assets/fx/boss.png","scene":"scenes/boss.scene.json","entity":"boss","fps":12,
+  "clips":[{"name":"idle","frames":8},{"name":"die","call":"die","frames":24,"loop":false}]}
+```
+
+- **What is baked.** A prefab (`prefab`), or an entity of a scene with its children (`scene` + `entity`, the entity's id),
+  alone in a private world, placed at the origin of the world whatever the scene says. Shape2D, Sprite, SpriteAnimator,
+  Tint, tweens, ParticleEmitter and the entity's scripts run as in the game; nothing else is in the world (no lights: a `lit` sprite
+  is drawn as in a world without lights). It needs a GPU: it draws offscreen with a transparent clear (Metal, Direct3D 11,
+  OpenGL; a headless Linux needs Mesa's EGL). Without one the error is `no_gpu`.
+- **Time.** The world is stepped at the project's fixed step with the world RNG seeded from `seed` (default 1), and a frame
+  is captured every 1/`fps` seconds of simulated time (`fps` cannot exceed the fixed rate, 60 by default). Frame 0 is
+  drawn after one step, so `onStart` has run, and after `warmup` seconds. The same prefab, seed and settings bake the
+  same pixels on the same GPU; two different GPUs can differ by an edge pixel.
+- **Clips.** `clips` is a list of `{name, call | event, args | data, frames, fps, loop, warmup}`. Each clip starts in a
+  fresh world: `call` runs that method of the entity's behaviour (`this.explode(...args)`) after the warm-up, `event` sends
+  a game event the scripts hear with `world.on`, and a clip with neither just plays. Clips follow each other in the sheet and
+  become the `clips` of its `sheet` entry (`firstFrame`, `lastFrame`, `fps`, `loop`). A method that does not exist is an
+  error that names the prefab, suggests the nearest method and lists the behaviour's methods.
+- **Framing.** The scale is pixels per world unit (`scale`, default 1). The cell is the box that holds everything drawn in
+  ANY frame, plus `margin` pixels (default 2), so a burst that grows is never cut, and the entity's origin is the same
+  pixel in every frame: that pixel is the sheet's `pivot` (`[x, y]` from the TOP-LEFT of the frame). Give `pivot` to choose
+  where the origin lands (a character's feet: `[0.5, 1]`, with room below the feet if the animation goes there). Give
+  `frameWidth` and `frameHeight` for a fixed cell: without `scale` the animation is scaled to fit it; with `scale` it must
+  fit, or the error says how big the cell has to be. `padding` (default 1) is the transparent border around each cell,
+  recorded as `sheet.padding`. The bake draws on a canvas of up to 4096 pixels centred on the origin: an animation that reaches beyond it is cut, and a
+  warning says so (lower `scale`).
+- **Colour.** The colours are straight alpha (not premultiplied) and the edge pixels take the colour of the shape behind
+  them, so a sprite scaled with filtering has no dark halo. An additive glow keeps its light: where it adds colour but no
+  alpha, the brightest channel becomes the alpha. `background` puts a colour behind the frames (a sheet with a background is
+  opaque); leave it out for a transparent sheet.
+- **The result** is the sheet as an image, the layout (`frameWidth`, `frameHeight`, `columns`, `scale`, `pivot`), `warnings`
+  (frames that are all identical: nothing moves; empty frames; a canvas that is too small) and `nextSteps`. `assets.json`
+  gets the `sheet` entry and a provenance of origin `generated` with the prefab or scene as `source`; `ai` is true when that
+  file or a texture it draws is recorded as AI-made (override with `ai`, and set `author` and `license`). The provenance
+  holds the recipe (`provenance.recipe`): the arguments and the SHA-256 of the prefab or scene, its scripts, nested prefabs
+  and textures, so `assets.regenerate` makes the sheet again after you edit the prefab and `factoria validate` says
+  when it is stale.
+- **Use it.** A `Sprite` with the texture and a `SpriteAnimator` with the columns, rows and fps from the result. The sheet's
+  `pivot` counts from the top-left, but `Sprite.pivot` counts from the BOTTOM-LEFT (y up): to keep the baked origin where
+  the entity was, set `Sprite.pivot` to `[x, 1 - y]`.
+- **From the editor or MCP.** A process has one graphics device, so when this one already uses it (the editor, an MCP session
+  with graphics) the bake runs in a child `factoria call` process of the same installation; from a terminal it just runs.
+  `factoria call assets.bake_sheet` and a batch whose commands are all `perf.*` or `assets.bake_sheet` start no graphics of
+  their own.
 
 ### Sprite sheets: assets.slice_sheet
 
