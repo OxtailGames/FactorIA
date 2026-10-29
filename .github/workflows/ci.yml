@@ -738,7 +738,7 @@ jobs:
           "$aapt2" dump xmltree --file AndroidManifest.xml "$apk" | tee /tmp/apk-manifest.txt
           grep -q 'com.google.android.gms.games.APP_ID' /tmp/apk-manifest.txt
           if grep -q 'PlayGamesInitProvider' /tmp/apk-manifest.txt; then echo "the Play Games auto-start provider is still in the manifest"; exit 1; fi
-          "$aapt2" dump resources "$apk" | grep -A1 'game_services_project_id' | grep -q '123456789012'
+          "$aapt2" dump resources "$apk" | grep -A1 'game_services_project_id' | grep '123456789012' >/dev/null
 
       # The AdMob backend: its C bridge for both ABIs, its Java class and the Mobile Ads SDK and UMP in the dex, and the manifest merged
       # with Google's sample app id, the test flag and the audience that the export wrote.
