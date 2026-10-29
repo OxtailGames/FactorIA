@@ -1,5 +1,5 @@
 // Editor application shell: sokol callbacks, project/scene lifecycle, play mode, undo/redo,
-// docking layout, menu, toolbar and status bar.
+// docking layout, toolbar and status bar. The main menu is in main_menu.cpp.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -1164,7 +1164,9 @@ void Editor::build_ui() {
 
     // Keyboard shortcuts (not while typing).
     if (engine_ && !io.WantTextInput) {
-        const bool ctrl = io.KeyCtrl;
+        // With the system menu bar (macOS) Cmd+S, Z and Shift+Z are key equivalents of its Save, Undo and Redo items: the menu takes
+        // the key, and handling it here too would act twice.
+        const bool ctrl = io.KeyCtrl && !nativeMenu_;
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) save_scene_now();
         if (ctrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) undo();
         if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) || (ctrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false))) redo();
@@ -1293,134 +1295,6 @@ void Editor::build_ui() {
     }
 }
 
-void Editor::draw_main_menu() {
-    if (!ImGui::BeginMainMenuBar()) return;
-    const bool have = engine_ != nullptr;
-    const bool editing = have && play_ == PlayState::Edit;
-    const bool fileOpen = ImGui::BeginMenu("File");
-    at_track("menu:file");
-    if (fileOpen) {
-        if (ImGui::MenuItem("New Project...")) showProjectDialog_ = true;
-        if (ImGui::MenuItem("Open Project...")) showProjectDialog_ = true;
-        if (ImGui::BeginMenu("Recent Projects", !recentProjects_.empty())) {
-            for (const auto& r : recentProjects_)
-                if (ImGui::MenuItem(r.c_str())) open_project(r);
-            ImGui::EndMenu();
-        }
-        ImGui::Separator();
-        if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, editing)) save_scene_now();
-        if (ImGui::MenuItem("Reload Scene", nullptr, false, have)) { if (dirty_) showReloadConfirm_ = true; else reload_scene_from_disk(); }
-        if (ImGui::BeginMenu("Open Scene", have)) {
-            for (const auto& f : fs::list("", true))
-                if (f.size() > 11 && f.ends_with(".scene.json") && f[0] != '.')
-                    if (ImGui::MenuItem(f.c_str(), nullptr, f == scenePath_)) { if (dirty_) pendingScene_ = f; else open_scene(f); }
-            ImGui::EndMenu();
-        }
-        ImGui::Separator();
-        if (ImGui::MenuItem("Open Screenshots Folder", nullptr, false, have)) open_screenshots_folder();
-        if (ImGui::MenuItem("Export Game...", nullptr, false, have)) open_export_window();
-        ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS");
-        if (ImGui::MenuItem("Platform Settings...", nullptr, false, have)) open_platform_settings();
-        at_track("menu:platform-settings");
-        ImGui::SetItemTooltip("The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team...");
-        if (ImGui::MenuItem("Set Up This Computer...")) open_setup_window();
-        at_track("menu:setup");
-        ImGui::SetItemTooltip("Install what an export needs: the Android build tools, the players of other platforms, CMake, Xcode");
-        ImGui::Separator();
-        if (ImGui::MenuItem("Quit")) sapp_request_quit();
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Edit")) {
-        if (ImGui::MenuItem("Undo", "Ctrl+Z", false, editing && !undo_.empty())) undo();
-        if (ImGui::MenuItem("Redo", "Ctrl+Y", false, editing && !redo_.empty())) redo();
-        ImGui::Separator();
-        const int lastRun = ai_last_revertable_run();
-        if (ImGui::MenuItem("Revert Last AI Run", nullptr, false, editing && !ai_chat_busy(chat_.current().id) && lastRun >= 0)) ai_revert_request(chat_.current().id, lastRun);
-        at_track("menu:revert-ai");
-        ImGui::SetItemTooltip("Puts the project's files and the open scene back as they were before the last run of the AI Assistant in this chat.");
-        ImGui::EndMenu();
-    }
-    const bool viewOpen = ImGui::BeginMenu("View");
-    at_track("menu:view");
-    if (viewOpen) {
-        ImGui::MenuItem("Viewport", nullptr, &showViewport_);
-        ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy_);
-        at_track("menu:hierarchy");
-        ImGui::MenuItem("Inspector", nullptr, &showInspector_);
-        at_track("menu:inspector");
-        ImGui::MenuItem("Console", nullptr, &showConsole_);
-        ImGui::MenuItem("Project", nullptr, &showProject_);
-        at_track("menu:project");
-        ImGui::SetItemTooltip("The project's files: filter, search, drag onto the Inspector or the Viewport, open scenes");
-        ImGui::MenuItem("AI Assistant", nullptr, &showAi_);
-        ImGui::MenuItem("Engine Feedback", nullptr, &showFeedback_);
-        ImGui::MenuItem("Audio", nullptr, &showAudio_);
-        at_track("menu:audio");
-        ImGui::SetItemTooltip("The live audio.log: every sound played, with its bus, volume, source entity and whether the clip loaded");
-        ImGui::MenuItem("Profiler", nullptr, &showProfiler_);
-        at_track("menu:profiler");
-        ImGui::SetItemTooltip("Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory");
-        ImGui::Separator();
-        ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
-        ImGui::MenuItem("Show navmesh", nullptr, &showNav_);
-        ImGui::SetItemTooltip("Draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body) and its off-mesh links (yellow lines), the ground nav.findPath walks on");
-        ImGui::MenuItem("Selection overlay", nullptr, &showOverlay_);
-        if (ImGui::MenuItem("Reset layout")) resetLayout_ = true;
-        ImGui::EndMenu();
-    }
-    const bool aiMenuOpen = ImGui::BeginMenu("AI");
-    at_track("menu:ai");
-    if (aiMenuOpen) {
-        if (ImGui::MenuItem("AI Settings...")) open_ai_settings();
-        at_track("menu:ai-settings");
-        ImGui::SetItemTooltip("The roles (which provider and model plays the orchestrator, worker, artist, critics...), which service makes the\n"
-                              "AI's images, sounds and 3D models (with its key), and the websites it looks at for assets");
-        const bool detected = aiDetected_.load();
-        if (ImGui::MenuItem("Roles...", nullptr, false, detected)) open_ai_settings(true);
-        at_track("menu:ai-roles", detected);
-        if (!detected) ImGui::SetItemTooltip("Reading ai.json...");
-        else ImGui::SetItemTooltip("Choose the provider and model of each role (AI Settings, Roles tab). Takes effect with the next message.\n%s",
-                                   ai_roles_summary().c_str());
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Help")) {
-        if (ImGui::MenuItem("AI providers setup")) {
-            auto d = read_doc("ai-providers");
-            docsTitle_ = "AI_PROVIDERS.md";
-            docsText_ = d ? *d : d.error().to_string();
-            showDocs_ = true;
-        }
-        if (ImGui::MenuItem("Scripting guide")) {
-            auto d = read_doc("scripting");
-            docsTitle_ = "SCRIPTING.md";
-            docsText_ = d ? *d : d.error().to_string();
-            showDocs_ = true;
-        }
-        if (ImGui::MenuItem("Engine feedback guide")) {
-            auto d = read_doc("engine-feedback");
-            docsTitle_ = "ENGINE_FEEDBACK.md";
-            docsText_ = d ? *d : d.error().to_string();
-            showDocs_ = true;
-        }
-        ImGui::EndMenu();
-    }
-    // Not a menu: a click on the bar itself, always in reach.
-    if (ImGui::MenuItem("Export Game", nullptr, false, have)) open_export_window();
-    at_track("menu:export", have);
-    ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS (File > Export Game... does the same)");
-    // The engine version at the right end of the bar, so it is always clear which FactorIA is running.
-    const std::string version = std::string("FactorIA ") + FA_ENGINE_VERSION;
-    const float versionW = ImGui::CalcTextSize(version.c_str()).x + ImGui::GetStyle().ItemSpacing.x;
-    const bool versionFits = ImGui::GetContentRegionAvail().x > versionW;
-    if (versionFits) {
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - versionW);
-        ImGui::TextDisabled("%s", version.c_str());
-        ImGui::SetItemTooltip("FactorIA %s, build %s", FA_ENGINE_VERSION, build_fingerprint());
-        at_track("menu:version");
-    }
-    ImGui::EndMainMenuBar();
-}
-
 void Editor::draw_toolbar() {
     const bool have = engine_ != nullptr;
     auto colored = [](ImVec4 c) {
@@ -1461,7 +1335,7 @@ void Editor::draw_toolbar() {
     if (ImGui::Button("Save")) save_scene_now();
     at_track("toolbar:save");
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("Save the scene to %s (Ctrl+S)", scenePath_.c_str());
+    ImGui::SetItemTooltip("Save the scene to %s (%s)", scenePath_.c_str(), menu::shortcut_label("Ctrl+S", menu::kApple).c_str());
     ImGui::SameLine();
     if (ImGui::Button("Reload")) { if (dirty_) showReloadConfirm_ = true; else reload_scene_from_disk(); }
     ImGui::SetItemTooltip("Reload the scene from disk");

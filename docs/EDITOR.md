@@ -18,7 +18,32 @@ are listed by name under the path; hover one to see its path (`~/.factoria/edito
 
 The window title names the engine version and the open project, `FactorIA 0.1.3 — My Game` (just `FactorIA 0.1.3` on
 the Open or create a project dialog). The version is the one `factoria version` prints; the right end of the menu bar
-shows it too (`FactorIA 0.4.0`; hover it for the build fingerprint).
+shows it too on Windows and Linux (`FactorIA 0.4.0`; hover it for the build fingerprint), and on macOS **FactorIA > About
+FactorIA** shows it with the build fingerprint.
+
+## The menu bar
+
+On **Windows and Linux** the menus (File, Edit, View, AI, Help) are a bar at the top of the editor window, with a
+clickable **Export Game** item after Help and the engine version at the right end.
+
+On **macOS** they are in the Mac's own menu bar at the top of the screen, like any Mac app, and the window has no bar of
+its own:
+
+- **FactorIA** (the app menu): **About FactorIA** (the engine version and the build fingerprint), **Settings...**
+  (Cmd+, opens AI Settings), Services, **Hide FactorIA** (Cmd+H), Hide Others, Show All and **Quit FactorIA** (Cmd+Q;
+  the unsaved-changes dialog still asks). Quit is not in File on a Mac.
+- **File, Edit, View, AI** and **Help** have the same items as on the other systems. **Export** is a menu of its own
+  (a system menu bar cannot hold a clickable item) with **Export Game...** (Cmd+E). **Window** (Minimize Cmd+M, Zoom) comes
+  before Help. The version text of the in-window bar is not there: About and the window title show it.
+- Shortcuts are the Mac's: Cmd+S saves the scene, Cmd+Z undoes, Cmd+Shift+Z redoes (Ctrl+S, Ctrl+Z and Ctrl+Y on the
+  other systems). They work with the menus closed, and while a text box (the AI message, a name in the Inspector) has the
+  keyboard they go to the box instead, so Cmd+Z undoes your typing and not the scene.
+- A click on a menu item does its work at the start of the next editor frame, never inside the system's menu event.
+  Hovering an item shows the same tooltips as the in-window bar. **Open Scene** and **Recent Projects** are read only
+  when you open them.
+
+`FA_EDITOR_NATIVE_MENU=0` makes the macOS editor draw the in-window bar instead, as on the other systems (the editor
+autotest does this by itself: it clicks the bar with injected mouse events).
 
 ## Updates
 
@@ -181,7 +206,7 @@ The height is kept with the layout.
   changes made since the last Save. **AI > Roles...** is disabled until `ai.json` has been read. Its **Context** column caps how much of the
   conversation a session keeps (full, or 100k to 800k): past it the earlier part is summarized, so each message costs
   less. It works with Claude Code and the Anthropic API.
-- **AI > AI Settings...** (the **AI** menu of the menu bar, next to File, Edit, View and Help; there is no button for it in
+- **AI > AI Settings...** (the **AI** menu of the menu bar, next to File, Edit, View and Help; on macOS also **FactorIA > Settings...**, Cmd+,; there is no button for it in
   the panel) opens a window with two tabs. **Roles** (the first) is the role table above, and **AI > Roles...** opens
   the window on it. The **Assets** tab is for what the AI makes besides
   code and where it finds it. **Asset generation** picks, for each kind (Image, Sound, Music, Voice, 3D model), the provider
@@ -303,7 +328,7 @@ without restoring anything, and `checkpoint.restore {id, paths:[...]}` puts back
 
 ## Exporting the game
 
-**Export Game** in the menu bar (next to the Help menu; or File > Export Game...) opens the **Export game** window: a button per platform (Windows,
+**Export Game** in the menu bar (next to the Help menu; on macOS the **Export** menu, Cmd+E; or File > Export Game...) opens the **Export game** window: a button per platform (Windows,
 macOS, Linux, Android, iOS, Web) that runs the same export as `factoria export` and the `project.export` command. Each
 platform's row says what the export writes, or why it cannot run on this machine (no player built for that OS, no
 mobile players or engine checkout, a missing `id`, an output folder that already holds a folder of that name no
