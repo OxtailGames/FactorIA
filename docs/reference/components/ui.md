@@ -143,7 +143,7 @@ A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines i
 
 ## Interactable
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Makes this entity, whatever it is made of (sprites, shapes, text, children), a widget that joins the same focus, navigation and events as Button, Toggle and Slider: hover, press, click, focus, the arrow keys / d-pad (spatial navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and the ui.* commands find it by id. The hit area is `size` (a rectangle in the entity's local space) or, with size 0, the bounds of the entity and its children; in world space it is projected through the camera that draws there, so it follows parents that move, scale or rotate (a turning page, a swaying sign). An entity with screen-space visuals is a screen-space widget. An entity that is also a Button, Toggle, Slider, TextField, Panel or other UI-box component keeps that role and its Interactable is ignored. Draw the look with ordinary children and InteractableVisual (show, hide or tint per state). Events (ui.on): click (button), change (toggle / slider, value), focus, blur, hover (value true = entered, false = left), press and release (value true = released over it). A world-space widget under a screen-space widget (or outside a modal Panel) is not reached.
 
@@ -174,7 +174,7 @@ Makes this entity, whatever it is made of (sprites, shapes, text, children), a w
 
 ## InteractableVisual
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Makes this entity follow the state of an Interactable with no script. Show: the entity is active only while `when` holds (a highlight on hover, a check mark when a toggle is on, a pressed sprite). Tint: the colour of its Sprite, Shape2D or Text (the first one it has) is set from the state every frame. Put it on a child of the Interactable or give `target`.
 

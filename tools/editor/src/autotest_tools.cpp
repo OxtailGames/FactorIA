@@ -984,6 +984,7 @@ void Editor::at_build_tools_script() {
     step(2, [this] {
         at_check(windowTitle_ == editor_window_title(FA_ENGINE_VERSION, "Autotest Platformer"),
                  "the window title names the engine version and the project (" + windowTitle_ + ")");
+        at_check(at_visible("menu:version"), "the menu bar shows the engine version at its right end");
     });
     click("menu:export");
     step(4, [this, host_status] {

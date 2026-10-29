@@ -2,7 +2,18 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.4.0
+
+FactorIA 0.4.0 is about making a game with the AI inside the editor: several chats at once, roles you can turn on and
+off with their own provider and model, reviews that run only when you ask, an agent that always says what it is doing,
+art without an image provider and settings for it all in one AI menu. Agents see the game better (screenshots of a
+region with zoom, filmstrips of an animation, a luminance profile to find seams) without filling the disk, and the 2D
+renderer gains gradient stops, inherited tints and skewed or deformed sprites. The editor keeps your layout and old
+engine feedback no longer piles up.
+
+Editor version
+
+- The right end of the menu bar shows the engine version (`FactorIA 0.4.0`); hover it for the build fingerprint.
 
 Generated art (assets.rasterize_svg, assets.generate_texture)
 

@@ -24,7 +24,7 @@ action "list" (default) shows providers and the role mapping from ~/.factoria/ai
 
 ## `ai.review` (modifies state)
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done).
 
@@ -43,7 +43,7 @@ Starts `count` read-only AI reviewers (1 to 5, one after the other, each with a 
 
 ## `ai.reviews`
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 List the saved reviews of the art critics and the game reviewers, newest first, with their scores.
 

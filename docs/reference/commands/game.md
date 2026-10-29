@@ -4,7 +4,7 @@
 
 ## `game.click` (modifies state)
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.
 
@@ -130,7 +130,7 @@ Record the input the game receives as an input replay (start / stop).
 
 ## `render.inspect`
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it.
 
@@ -147,7 +147,7 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 
 ## `render.pick`
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Which entities draw a design-space pixel of the picture, topmost first.
 

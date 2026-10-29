@@ -221,7 +221,7 @@ Like assets.generate_image, but the picture is a grid of `frames` animation fram
 
 ## `assets.generate_texture` (modifies state)
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Make a material texture (paper, parchment, wood, planks, leather, fabric, stone, noise, gradient, vignette) offline: a seeded PNG, no provider and no key.
 
@@ -356,7 +356,7 @@ With `path`, the provenance record of that file (null when it has none). Without
 
 ## `assets.rasterize_svg` (modifies state)
 
-Not released yet (on main after 0.3.0).
+Since 0.4.0.
 
 Turn an SVG (text or a project file) into a PNG at a given size, offline: art you write as vector shapes, no provider and no key.
 

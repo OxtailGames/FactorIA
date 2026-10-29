@@ -12,6 +12,7 @@
 #include "app_icon.h"
 #include "autotest_sections.h"
 #include "editor_internal.h"
+#include "fa/core/build_info.h"
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -1407,6 +1408,16 @@ void Editor::draw_main_menu() {
     if (ImGui::MenuItem("Export Game", nullptr, false, have)) open_export_window();
     at_track("menu:export", have);
     ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS (File > Export Game... does the same)");
+    // The engine version at the right end of the bar, so it is always clear which FactorIA is running.
+    const std::string version = std::string("FactorIA ") + FA_ENGINE_VERSION;
+    const float versionW = ImGui::CalcTextSize(version.c_str()).x + ImGui::GetStyle().ItemSpacing.x;
+    const bool versionFits = ImGui::GetContentRegionAvail().x > versionW;
+    if (versionFits) {
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - versionW);
+        ImGui::TextDisabled("%s", version.c_str());
+        ImGui::SetItemTooltip("FactorIA %s, build %s", FA_ENGINE_VERSION, build_fingerprint());
+        at_track("menu:version");
+    }
     ImGui::EndMainMenuBar();
 }
 
