@@ -226,6 +226,10 @@ factoria call scene.format '{"check":true}'     # list scene/prefab files not in
 factoria call scene.format '{"paths":["scenes"]}'   # rewrite those files/folders; '{"all":true}' = the whole project; with none of paths/all/check it writes nothing and fails
 factoria call scene.format '{"check":true,"strict":true}'   # same, but exits non-zero when any file is not canonical (CI)
 factoria call game.screenshot '{"path":"/tmp/s.png"}' --frames-before 60
+factoria call game.screenshot '{"region":[100,60,48,27],"zoom":8,"path":"/tmp/seam.png"}'   # a part of the view, magnified (sharp up to 4x)
+factoria call game.screenshot '{"frames":24,"everyFrames":4,"columns":4,"path":"/tmp/film.png"}'   # a labelled contact sheet of 7 frames
+factoria call render.inspect '{"from":[100,90],"to":[220,90],"threshold":20}'   # where the brightness jumps along a line
+factoria call render.pick '{"position":[160,90]}'   # what draws that pixel, topmost first
 factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30
 factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"time.elapsed"}}]'
 ```
@@ -301,7 +305,8 @@ Providers and roles are configured in `~/.factoria/ai.json` ([AI_PROVIDERS.md](A
 
 `ai run` gives the agent the project's command registry as tools (the `ai.*` commands are hidden from it). Use `-`
 as the task to read stdin, `@file` to read it from a file. The transcript is saved in `<project>/.factoria/ai/sessions/`.
-Command results containing `"$image": {"path"|"base64", "mimeType"}` are sent to the model as images.
+Command results containing `"$image": {"path"|"base64", "mimeType"}` are sent to the model as images. A temporary
+image (`"temporary": true`, a `game.screenshot` without `path`) is deleted once it has been read.
 
 ## Feedback and docs
 

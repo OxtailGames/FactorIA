@@ -6,9 +6,11 @@
 #include "engine_impl.h"
 #include "fa/audio/snapshots.h"
 #include "fa/core/fs.h"
+#include "fa/core/image_tools.h"
 #include "fa/core/log.h"
 #include "fa/core/perf.h"
 #include "fa/core/profiler.h"
+#include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "fa/platform/app.h"
 #include "fa/runtime/platform_backend.h"
@@ -496,6 +498,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     auto proj = load_project(dir);
     if (!proj.ok()) return fail(proj.error().to_string());
     I.project = proj.value();
+    // Screenshots the engine named itself (game.screenshot without a path) pile up over a long session: drop the old ones.
+    if (!dir.empty()) prune_screenshots(stdfs::path(dir));
     I.projectMtime = fs::modified_time(kProjectFileName);
     I.paused = config.editorMode;
     {
@@ -797,6 +801,63 @@ bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
     else if (!I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0)) I.draw(0.0);
     std::string cerr;
     if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
+    return true;
+}
+
+Engine::RegionPlan Engine::plan_region(Vec2 view, const Rect& r, double zoom) {
+    RegionPlan p;
+    constexpr double kMaxSide = 8192;
+    if (!(zoom >= 0.25 && zoom <= 32.0)) {
+        p.error = "zoom " + (std::isfinite(zoom) ? std::to_string(zoom) : std::string("(not a number)")) +
+                  " is out of range. zoom must be between 0.25 and 32. Example: region [600,0,80,720] with zoom 8 gives 640x5760.";
+        return p;
+    }
+    p.x1 = view.x;
+    p.y1 = view.y;
+    if (r.w > 0 && r.h > 0) {
+        p.x0 = std::max(0.0, double(r.x));
+        p.y0 = std::max(0.0, double(r.y));
+        p.x1 = std::min(double(view.x), double(r.x) + r.w);
+        p.y1 = std::min(double(view.y), double(r.y) + r.h);
+        if (!(p.x1 > p.x0 && p.y1 > p.y0)) {
+            p.error = "region [" + std::to_string(int(r.x)) + ", " + std::to_string(int(r.y)) + ", " + std::to_string(int(r.w)) + ", " +
+                      std::to_string(int(r.h)) + "] is outside the game view (" + std::to_string(int(view.x)) + "x" + std::to_string(int(view.y)) +
+                      " design pixels, origin top-left). Use [x, y, width, height] inside it.";
+            return p;
+        }
+    }
+    p.width = std::max(1, int(std::lround((p.x1 - p.x0) * zoom)));
+    p.height = std::max(1, int(std::lround((p.y1 - p.y0) * zoom)));
+    if (p.width > kMaxSide || p.height > kMaxSide)
+        p.error = "The picture would be " + std::to_string(p.width) + "x" + std::to_string(p.height) +
+                  " px, over the 8192 px limit per side. Use a smaller region or zoom.";
+    return p;
+}
+
+bool Engine::capture_region(Image& out, const Rect& region, double zoom, std::string* error) {
+    Impl& I = *impl_;
+    if (!I.renderer) {
+        Image probe;
+        return capture_scaled(probe, 1.0, error);  // the same message as a screenshot
+    }
+    const double vw = I.renderer->target_width(), vh = I.renderer->target_height();
+    const RegionPlan plan = plan_region({float(vw), float(vh)}, region, zoom);
+    if (!plan.error.empty()) {
+        if (error) *error = plan.error;
+        return false;
+    }
+    // Native re-render at the largest render scale that is allowed (and fits 8192 px for the whole frame); beyond it the
+    // rest of the magnification is nearest-neighbour.
+    constexpr double kMaxSide = 8192;
+    double native = std::min({zoom, double(Renderer::kMaxRenderScale), kMaxSide / std::max(vw, vh)});
+    native = std::max(native, double(Renderer::kMinRenderScale));
+    Image full;
+    if (!capture_scaled(full, native, error)) return false;
+    const double sx = double(full.width) / vw, sy = double(full.height) / vh;  // pixels per design pixel actually rendered
+    const int cx = int(std::lround(plan.x0 * sx)), cy = int(std::lround(plan.y0 * sy));
+    const int cw = std::max(1, int(std::lround((plan.x1 - plan.x0) * sx))), ch = std::max(1, int(std::lround((plan.y1 - plan.y0) * sy)));
+    Image part = crop_image(full, cx, cy, cw, ch);
+    out = (part.width == plan.width && part.height == plan.height) ? std::move(part) : resize_nearest(part, plan.width, plan.height);
     return true;
 }
 

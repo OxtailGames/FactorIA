@@ -161,10 +161,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.pause`](commands/game.md#gamepause-modifies-state): Pause the simulation (frame() stops simulating; game.step still works).
 - [`game.render_stats`](commands/game.md#gamerender_stats): What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory. _Since 0.3.0._
 - [`game.resume`](commands/game.md#gameresume-modifies-state): Resume the simulation after game.pause.
-- [`game.screenshot`](commands/game.md#gamescreenshot): Capture the game view as a PNG and show it.
+- [`game.screenshot`](commands/game.md#gamescreenshot): Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.
 - [`game.state`](commands/game.md#gamestate): Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
 - [`game.step`](commands/game.md#gamestep-modifies-state): Advance the simulation by N fixed frames (deterministic) and return a state summary.
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
+- [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Not released yet._
+- [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Not released yet._
 
 ### [i18n](commands/i18n.md)
 

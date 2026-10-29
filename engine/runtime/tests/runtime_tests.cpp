@@ -325,7 +325,8 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     CHECK(px.b > px.r);
     r = c.call("game.screenshot", Json::object());  // default path under .factoria/screenshots
     REQUIRE(r.ok);
-    CHECK(stdfs::exists(r.result["path"].get<std::string>()));
+    CHECK(r.result["$image"]["temporary"] == true);  // a temporary picture: no `path` at the top
+    CHECK(stdfs::exists(r.result["$image"]["path"].get<std::string>()));
 
     // scene save / reload / load
     r = c.call("scene.save", Json{{"path", "scenes/saved.scene.json"}});
