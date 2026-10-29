@@ -687,6 +687,7 @@ public:
     std::vector<ChatHistoryEntry> aiHistory_;
     std::string aiHistoryDelete_;   // History row waiting for the second click on its Delete
     bool aiRolesOpen_ = false;      // request to open the AI roles popup this frame
+    float aiInputH_ = 0;            // the AI message box's height the user dragged it to (0 = 3 lines); kept in the layout file
     std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in that popup
     std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)

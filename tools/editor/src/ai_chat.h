@@ -93,7 +93,8 @@ struct AiChat {
     RunUsage run;                 // tokens and cost of the run in progress, per agent (not in usage / costUsd yet)
     std::string input;            // the unsent text
     std::vector<ChatAttachment> pending;  // the unsent pictures
-    bool scrollDown = false;
+    bool scrollDown = false;      // new output: follow it if the transcript is at the bottom
+    bool forceScroll = false;     // go to the bottom even if scrolled up (the user sent a message or asked for the latest)
 
     bool empty() const { return items.empty(); }
     Json to_json() const;

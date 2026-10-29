@@ -159,6 +159,12 @@ usage, **Stop** and Revert point (see "Several chats at once" below). A tab with
 disabled in a chat that is already running, and in the others once the limit is reached (hover it to see why). **History**
 lists the saved chats, newest first; click one to reopen it as a tab (the next message resumes it) or Delete it from the list.
 
+The transcript follows new output only while it is scrolled to the bottom: scroll up to read and it stays where you are
+while the agent keeps working, with a **Jump to latest** button in its corner that goes back to the bottom (and following
+starts again, as it does when you scroll down yourself or send a message). The message box is three lines high; drag the
+grip just above it to make it taller (it grows upwards) or shorter, and double-click the grip to go back to three lines.
+The height is kept with the layout.
+
 - **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
   the worker role, small mechanical edits to the fast role, the art to the artist role and the sound to the audio role
   by itself. The `artCritic` and `reviewer` roles never run unless you ask (see **Reviews** below). **Roles...** at the
