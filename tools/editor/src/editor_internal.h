@@ -34,6 +34,7 @@
 #include "fa/ai/provider.h"
 #include "fa/ai/review.h"
 #include "fa/ai/session.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -268,6 +269,11 @@ public:
     // Project panel (project_browser_panel.cpp): the project's files; drag them onto Inspector asset fields and the Viewport.
     void draw_project_panel();
     void draw_project_tile(const BrowserFile& f, ImVec2 size);
+    void draw_sheet_preview(const std::string& path, const assets::Sheet& sheet, float height);
+    // Project panel sheet preview: the clip being played ("" = every frame), when it started, and the frame it shows now.
+    std::string sheetPreviewPath_, sheetPreviewChoice_;
+    double sheetPreviewStart_ = 0.0;
+    int sheetPreviewFrame_ = -1;
     void viewport_accept_drop(Renderer& r, Vec2 design);  // a prefab dropped on the Viewport: scene.spawn at the point under the mouse
     void project_files_changed();                          // the editor wrote or deleted a file: the Project panel rescans
     // Hierarchy (hierarchy_panel.cpp) and Inspector (inspector_panel.cpp): hand editing. Every change is a command call
@@ -284,6 +290,7 @@ public:
     void draw_inspector_component(Entity e, const TypeInfo& type);
     // Draws the widget of one reflected field for the JSON `current`; returns true and sets `out` when the user changed it.
     bool draw_field_widget(const std::string& key, const FieldInfo& f, const Json& current, bool disabled, Json& out);
+    void draw_animator_clips(Entity e, const std::string& id, const Json& current);
     void draw_material_params(Entity e, const Json& current);
     void draw_profiler_panel();
     void draw_project_dialog();

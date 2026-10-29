@@ -120,6 +120,7 @@ struct Renderer::Impl {
     bool warnedCameras = false;       // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;      // the "more Light2D in view than the budget" warning, once per scene
     bool warnedShadows2d = false;     // the "more shadow casters than the budget" warning, once per scene
+    std::set<std::string> warnedSpriteClip;  // a SpriteAnimator.clip the sheet does not have, once per entity and scene
     bool warnedSpriteMesh = false;    // the "too many mesh cells" warning, once per scene
     bool warnedGradientStops = false; // the "malformed gradientStops" warning, once per scene
     std::string lights2dScene;        // the scene path warnedLights2d and warnedShadows2d belong to
@@ -944,6 +945,7 @@ void Renderer::update(World& world, float dt) {
     fr.fonts = im.fonts.get();
     fr.textScale = im.textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
+    fr.warnedSpriteClip = &im.warnedSpriteClip;
     update_animators(world, fr, true);
     update_particles(world, dt);
     // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing:
@@ -1043,6 +1045,7 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedLights2d = false;
         warnedShadows2d = false;
         warnedSpriteMesh = false;
+        warnedSpriteClip.clear();
         warnedGradientStops = false;
         warnedCameras = false;
     }
@@ -1078,6 +1081,7 @@ void Renderer::Impl::render(World& world, float dt) {
         fr.warnedLights2d = &warnedLights2d;
         fr.warnedShadows2d = &warnedShadows2d;
         fr.warnedSpriteMesh = &warnedSpriteMesh;
+        fr.warnedSpriteClip = &warnedSpriteClip;
         fr.warnedGradientStops = &warnedGradientStops;
         fr.shadowCache = &shadowCache;
         fr.ramps = &ramps;

@@ -146,3 +146,26 @@ TEST_CASE("validate: a built-in font in a scene is the engine's, not a missing p
     CHECK(typo->message.find("Unknown built-in font 'builtin:serfi'") != std::string::npos);
     CHECK(typo->hint.find("Did you mean 'builtin:serif'?") != std::string::npos);
 }
+
+TEST_CASE("validate: SpriteAnimator.clip must be a clip of the sheet entry of the sprite's texture, with the clips listed") {
+    testing::TempDir tmp;
+    const std::string dir = tmp.sub("game");
+    REQUIRE(create_project(dir, "2d-empty").ok());
+    testing::write_png(stdfs::path(dir) / "assets/hero.png", testing::make_image(32, 16, {255, 0, 0, 255}));
+    testing::write_all(stdfs::path(dir) / "assets.json", R"({"format": "factoria.assets/1", "assets": {"assets/hero.png": {"sheet": {
+      "columns": 2, "rows": 1, "frameWidth": 16, "frameHeight": 16, "frames": 2,
+      "clips": [{"name": "walk", "firstFrame": 0, "lastFrame": 1, "fps": 8, "loop": true}]}}}})");
+    testing::write_all(stdfs::path(dir) / "scenes/clips.scene.json", R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        {"id": "good", "components": {"Sprite": {"texture": "assets/hero.png"}, "SpriteAnimator": {"clip": "walk"}}},
+        {"id": "typo", "components": {"Sprite": {"texture": "assets/hero.png"}, "SpriteAnimator": {"clip": "wlak"}}}
+      ]
+    })");
+    const ValidationReport r = validate_project(dir);
+    CHECK(find_issue(r.errors, "scenes/clips.scene.json", "/entities/0/components/SpriteAnimator/clip") == nullptr);
+    const ValidationIssue* typo = find_issue(r.errors, "scenes/clips.scene.json", "/entities/1/components/SpriteAnimator/clip");
+    REQUIRE(typo != nullptr);
+    CHECK(typo->message.find("Its clips: walk") != std::string::npos);
+    CHECK(typo->message.find("Did you mean") != std::string::npos);
+}

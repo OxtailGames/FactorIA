@@ -10,9 +10,13 @@
 // assets.* commands. Paths are project-relative with forward slashes ("assets/hero.png").
 #pragma once
 
+#include <array>
 #include <functional>
+#include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/json.h"
 #include "fa/core/types.h"
@@ -48,6 +52,34 @@ struct PackedTexture {
     int x = 0, y = 0, w = 0, h = 0;
 };
 PackedTexture packed_texture(std::string_view path);
+
+// The `sheet` entry of an image (a sprite sheet: grid, frames, named clips), parsed. Pivots are [x, y] in 0..1 measured from
+// the TOP-LEFT of a frame (image coordinates, like Sprite.region); Sprite.pivot is measured from the bottom-left.
+struct SheetClip {
+    std::string name;
+    int firstFrame = 0;
+    int lastFrame = 0;
+    float fps = 10.0f;
+    bool loop = true;
+    std::optional<std::array<float, 2>> pivot;  // this clip's own pivot (top-left based), else the sheet's
+};
+struct Sheet {
+    int columns = 1;
+    int rows = 1;
+    int frameWidth = 0;   // 0 = not recorded: the cell is the image divided by the grid
+    int frameHeight = 0;
+    int frames = 0;       // 0 = not recorded: columns * rows
+    int padding = 0;      // transparent gutter around every cell, in pixels
+    std::optional<std::array<float, 2>> pivot;  // top-left based
+    std::vector<SheetClip> clips;
+    const SheetClip* find(std::string_view name) const;
+    std::vector<std::string> clip_names() const;
+};
+// The parsed `sheet` entry of `path`, or null when the image has none (or it is malformed). Cached until assets.json changes;
+// a stat of the file per call, so a caller that asks every frame keeps its own copy for the frame.
+std::shared_ptr<const Sheet> sheet(std::string_view path);
+// Parses one `sheet` object (what the tools write); null when it is not an object with integer columns and rows.
+std::shared_ptr<const Sheet> parse_sheet(const Json& sheetEntry);
 
 // Edits (tools; the manifest must be writable, so desktop only). Loads the file from disk (a missing one starts as
 // {"format": ...}), runs `edit` on the entry of `path` (an object, created when missing; an entry left empty is
