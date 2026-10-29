@@ -170,3 +170,70 @@ TEST_CASE("setup launcher: not needed on Windows") {
     CHECK(r.code == "unsupported");
     CHECK_FALSE(refresh_launcher(w.ctx));
 }
+
+TEST_CASE("editor_restart_command (macOS): through the launcher of this factoria, with the project as an argument") {
+    LauncherWorld w("macos");
+    const std::string project = (w.tmp.path / "My Games" / "it's a game").string();  // spaces and a quote stay one argument
+
+    CHECK(editor_restart_command(w.ctx, project).empty());  // no launcher yet
+    REQUIRE(w.install().ok);
+    CHECK(testing::read_all(w.app() / "Contents/MacOS/FactorIA").find("editor \"$@\"") != std::string::npos);
+
+    const std::vector<std::string> cmd = editor_restart_command(w.ctx, project);
+    REQUIRE(cmd.size() == 5);
+    CHECK(cmd[0] == "/usr/bin/open");
+    CHECK(cmd[1] == "-n");  // the old editor is still alive while it quits
+    CHECK(cmd[2] == w.app().string());
+    CHECK(cmd[3] == "--args");
+    CHECK(cmd[4] == project);
+
+    CHECK(editor_restart_command(w.ctx, "").empty());  // no project: the plain restart
+}
+
+TEST_CASE("editor_restart_command (macOS): an out-of-date, foreign or another factoria's launcher is not used") {
+    LauncherWorld w("macos");
+    REQUIRE(w.install().ok);
+    const std::string project = (w.tmp.path / "game").string();
+    REQUIRE_FALSE(editor_restart_command(w.ctx, project).empty());
+
+    SetupContext updated = w.ctx;
+    updated.engineVersion = "9.9.0";  // not rewritten yet
+    CHECK(editor_restart_command(updated, project).empty());
+    CHECK(refresh_launcher(updated));
+    CHECK_FALSE(editor_restart_command(updated, project).empty());
+
+    // An old launcher (it ignored its arguments) is out of date, so the editor rewrites it before a restart needs it.
+    testing::write_all(w.app() / "Contents/MacOS/FactorIA",
+                       "#!/bin/zsh\nFACTORIA='" + w.exe().string() + "'\nexec \"$FACTORIA\" editor\n");
+    CHECK(editor_restart_command(w.ctx, project).empty());
+
+    // A development build.
+    REQUIRE(w.install(true).ok);
+    testing::write_all(w.tmp.path / "dev" / "factoria", "dev binary");
+    SetupContext dev = w.ctx;
+    dev.executableDir = (w.tmp.path / "dev").string();
+    CHECK(editor_restart_command(dev, project).empty());
+
+    // A hand-made app.
+    testing::write_all(w.app() / "Contents/MacOS/FactorIA", "#!/bin/zsh\nexec something\n");
+    CHECK(editor_restart_command(w.ctx, project).empty());
+}
+
+TEST_CASE("editor_restart_command (Windows): FactorIA-Editor.exe next to factoria.exe; Linux: none, the WM class groups") {
+    LauncherWorld w("windows");
+    const std::string project = (w.tmp.path / "My Games").string();
+    CHECK(editor_restart_command(w.ctx, project).empty());  // no factoria.exe, no launcher
+    testing::write_all(w.tmp.path / "bin" / "factoria.exe", "binary");
+    CHECK(editor_restart_command(w.ctx, project).empty());
+    testing::write_all(w.tmp.path / "bin" / "FactorIA-Editor.exe", "launcher");
+    const std::vector<std::string> cmd = editor_restart_command(w.ctx, project);
+    REQUIRE(cmd.size() == 2);
+    CHECK(stdfs::path(cmd[0]).filename() == "FactorIA-Editor.exe");
+    CHECK(cmd[1] == project);
+    CHECK(editor_restart_command(w.ctx, "").empty());
+
+    LauncherWorld l("linux");
+    REQUIRE(l.install().ok);
+    CHECK(testing::read_all(l.desktop()).find("StartupWMClass=FactorIA\n") != std::string::npos);
+    CHECK(editor_restart_command(l.ctx, project).empty());
+}

@@ -2,6 +2,16 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Fixes:
+
+- Restarting the editor after FactorIA was updated (Restart, or the in-editor updater) no longer adds a second FactorIA
+  icon next to the pinned one. On macOS the editor reopens through `~/Applications/FactorIA.app` (`open -n`) when that
+  launcher is the one of this factoria, and the launcher now passes its arguments on, so the project is reopened; older
+  launchers are rewritten at the next start. On Windows the restart runs `FactorIA-Editor.exe` when it is next to
+  `factoria.exe`. On Linux the `.desktop` entry gets `StartupWMClass=FactorIA`, so the window groups with it.
+
 ## 0.7.1
 
 FactorIA 0.7.1 fixes the editor's recent projects: the list survives updates, reinstalls and starting the editor

@@ -8,7 +8,9 @@
 
 #include "ai_chat.h"  // utf8_path
 #include "fa/ai/process.h"
+#include "fa/core/process.h"
 #include "fa/tooling/export.h"  // executable_dir
+#include "fa/tooling/setup.h"   // editor_restart_command
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -240,6 +242,31 @@ void remove_update_leftovers(const stdfs::path& installDir) {
 }
 
 Result<void> start_editor_process(const std::string& projectDir) {
+    // Through the launcher the user pinned (the Dock or taskbar icon), when it is ours: a bare `factoria` would show a
+    // second FactorIA icon next to it. Any failure falls back to starting the program itself.
+    std::error_code absEc;
+    const stdfs::path absProject = projectDir.empty() ? stdfs::path() : stdfs::absolute(editor::utf8_path(projectDir), absEc);
+    const std::vector<std::string> viaLauncher = editor_restart_command(SetupContext{}, editor::utf8_string(absProject));
+    if (!viaLauncher.empty()) {
+#if defined(_WIN32)
+        std::wstring cmd = L"\"" + editor::utf8_path(viaLauncher[0]).wstring() + L"\" \"" + editor::utf8_path(viaLauncher[1]).wstring() + L"\"";
+        STARTUPINFOW si{};
+        si.cb = sizeof si;
+        PROCESS_INFORMATION pi{};
+        if (CreateProcessW(editor::utf8_path(viaLauncher[0]).c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
+                           nullptr, &si, &pi)) {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            return {};
+        }
+#else
+        ProcessOptions po;
+        po.argv = viaLauncher;
+        po.timeoutSeconds = 20;
+        po.captureStdout = false;
+        if (auto r = run_process(po); r && r->exitCode == 0) return {};
+#endif
+    }
     stdfs::path exe = executable_dir() / (std::string("factoria") + kExe);
     stdfs::path project = editor::utf8_path(projectDir);
 #if defined(_WIN32)

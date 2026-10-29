@@ -115,8 +115,8 @@ VSCodium and Cursor when present) in one step: it copies the extension that is b
 downloaded) to `~/.vscode/extensions/oxtailgames.factoria-<version>/`, records the path of this `factoria` next to it and
 removes older versions; restart VS Code and press F5 in a project ([DEBUGGING.md](DEBUGGING.md)). `launcher` writes an app
 that opens this `factoria`'s editor with the FactorIA icon (nothing is downloaded): `~/Applications/FactorIA.app` on macOS
-(for the Dock, Launchpad and Spotlight; its output goes to `~/Library/Logs/FactorIA/editor.log`), a `factoria.desktop`
-entry and its icon under `~/.local/share` (or `$XDG_DATA_HOME`) on Linux; Windows needs none (the installer adds the Start
+(for the Dock, Launchpad and Spotlight; it passes its arguments to the editor, which the restart after an update uses; its output goes to `~/Library/Logs/FactorIA/editor.log`), a `factoria.desktop`
+entry (with `StartupWMClass=FactorIA`) and its icon under `~/.local/share` (or `$XDG_DATA_HOME`) on Linux; Windows needs none (the installer adds the Start
 menu entry). After an update the editor rewrites, at start, a launcher that opens it but carries the old version or icon;
 a launcher that opens another `factoria` is left alone until `factoria setup launcher` points it at this one. `--force`
 installs again even when something is found.
