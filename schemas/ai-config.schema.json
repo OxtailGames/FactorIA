@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "FactorIA AI config (~/.factoria/ai.json)",
-  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), and the asset providers that generate images, sounds and 3D models. Lives in the user's home, NEVER inside a game project.",
+  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), the asset providers that generate images, sounds and 3D models, and the websites the AI should search for assets. Lives in the user's home, NEVER inside a game project.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -23,6 +23,19 @@
         "music": { "$ref": "#/$defs/assetRoute" },
         "voice": { "$ref": "#/$defs/assetRoute" },
         "model3d": { "$ref": "#/$defs/assetRoute" }
+      },
+      "additionalProperties": false
+    },
+    "assetSources": {
+      "type": "object",
+      "description": "Websites the AI should look at when it searches for assets (images, 3D models, audio, fonts...), instead of searching the whole internet. Each category is a list of sites: a plain domain or address (\"opengameart.org\"), or an object with an optional note. The editor's AI settings window (AI Assistant > AI settings...) edits this section. With no sites the AI searches the internet as it wishes. Example: {\"images\": [{\"url\": \"https://opengameart.org\", \"note\": \"CC0 packs\"}], \"models\": [\"kenney.nl\"], \"onlyListed\": true}.",
+      "properties": {
+        "images": { "$ref": "#/$defs/siteList", "description": "Images and textures." },
+        "models": { "$ref": "#/$defs/siteList", "description": "3D models." },
+        "audio": { "$ref": "#/$defs/siteList", "description": "Sound effects and music." },
+        "fonts": { "$ref": "#/$defs/siteList", "description": "Fonts." },
+        "other": { "$ref": "#/$defs/siteList", "description": "Anything else the AI may need (tilesets, icon packs, shaders...)." },
+        "onlyListed": { "type": "boolean", "default": false, "description": "false: the AI looks at these sites first and may also search the internet. true: the AI uses ONLY these sites for assets (no general web search, no other site). The rule goes into the prompt of every role; Claude Code is also started with WebSearch switched off and WebFetch allowed for these domains only. See docs/AI_PROVIDERS.md, \"Asset sources\"." }
       },
       "additionalProperties": false
     },
@@ -55,6 +68,23 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "siteList": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1, "description": "A domain or a web address: opengameart.org, https://kenney.nl/assets." },
+          {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+              "url": { "type": "string", "minLength": 1, "description": "A domain or a web address: opengameart.org, https://kenney.nl/assets, github.com/KhronosGroup. No spaces." },
+              "note": { "type": "string", "description": "What the site is good for or its license (\"CC0 packs\"); shown to the AI." }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
     "assetRoute": {
       "type": "object",
       "required": ["provider"],
