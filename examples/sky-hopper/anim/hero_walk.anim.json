@@ -1,0 +1,273 @@
+{
+  "format": "factoria.anim/1",
+  "doc": "Two steps in 0.6 s. The gait markers carry the feet: player.js puts each IK target on the ground under its marker.",
+  "duration": 0.6,
+  "loop": true,
+  "tracks": [
+    {
+      "path": "rig/gait_f",
+      "component": "Transform",
+      "field": "position.x",
+      "keys": [
+        {
+          "t": 0,
+          "value": 8,
+          "interp": "linear"
+        },
+        {
+          "t": 0.3,
+          "value": -8,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.6,
+          "value": 8
+        }
+      ]
+    },
+    {
+      "path": "rig/gait_f",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": -20.5
+        },
+        {
+          "t": 0.3,
+          "value": -20.5,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.45,
+          "value": -15.5,
+          "interp": "quadIn"
+        },
+        {
+          "t": 0.6,
+          "value": -20.5
+        }
+      ]
+    },
+    {
+      "path": "rig/gait_b",
+      "component": "Transform",
+      "field": "position.x",
+      "keys": [
+        {
+          "t": 0,
+          "value": -8,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.3,
+          "value": 8,
+          "interp": "linear"
+        },
+        {
+          "t": 0.6,
+          "value": -8
+        }
+      ]
+    },
+    {
+      "path": "rig/gait_b",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": -20.5,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.15,
+          "value": -15.5,
+          "interp": "quadIn"
+        },
+        {
+          "t": 0.3,
+          "value": -20.5
+        },
+        {
+          "t": 0.6,
+          "value": -20.5
+        }
+      ]
+    },
+    {
+      "path": "rig/body",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": 2.6,
+          "interp": "sineOut"
+        },
+        {
+          "t": 0.15,
+          "value": 3.6,
+          "interp": "sineIn"
+        },
+        {
+          "t": 0.3,
+          "value": 2.6,
+          "interp": "sineOut"
+        },
+        {
+          "t": 0.45,
+          "value": 3.6,
+          "interp": "sineIn"
+        },
+        {
+          "t": 0.6,
+          "value": 2.6
+        }
+      ]
+    },
+    {
+      "path": "rig/body",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": -5,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.3,
+          "value": -7,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.6,
+          "value": -5
+        }
+      ]
+    },
+    {
+      "path": "rig/body/head",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 3,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.3,
+          "value": 1,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.6,
+          "value": 3
+        }
+      ]
+    },
+    {
+      "path": "rig/body/arm_f",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": -35,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.3,
+          "value": 35,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.6,
+          "value": -35
+        }
+      ]
+    },
+    {
+      "path": "rig/body/arm_b",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 35,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.3,
+          "value": -35,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.6,
+          "value": 35
+        }
+      ]
+    },
+    {
+      "path": "rig/body/scarf/s1",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 10,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.3,
+          "value": -6,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.6,
+          "value": 10
+        }
+      ]
+    },
+    {
+      "path": "rig/body/scarf/s1/s2",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": -22,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.3,
+          "value": 18,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.6,
+          "value": -22
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "t": 0,
+      "name": "footstep",
+      "data": {
+        "foot": "f"
+      }
+    },
+    {
+      "t": 0.3,
+      "name": "footstep",
+      "data": {
+        "foot": "b"
+      }
+    }
+  ]
+}

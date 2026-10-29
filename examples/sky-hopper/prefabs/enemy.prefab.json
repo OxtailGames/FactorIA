@@ -8,8 +8,8 @@
         "position": [0, 0, 0]
       },
       "Sprite": {
-        "texture": "assets/enemy.png",
-        "size": [36, 28],
+        "texture": "assets/crawler_sheet.png",
+        "size": [40, 30],
         "layer": 2,
         "pixelArt": false
       },
@@ -27,6 +27,9 @@
         "props": {
           "speed": 60
         }
+      },
+      "SpriteAnimator": {
+        "clip": "crawl"
       }
     }
   }

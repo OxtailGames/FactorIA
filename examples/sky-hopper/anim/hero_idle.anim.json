@@ -1,0 +1,134 @@
+{
+  "format": "factoria.anim/1",
+  "doc": "Standing: the chest rises and falls, the scarf sways.",
+  "duration": 1.6,
+  "loop": true,
+  "tracks": [
+    {
+      "path": "rig/body",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": 3,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.8,
+          "value": 2.4,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 1.6,
+          "value": 3
+        }
+      ]
+    },
+    {
+      "path": "rig/body/head",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.8,
+          "value": -3,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 1.6,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "path": "rig/body/arm_f",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.8,
+          "value": 5,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 1.6,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "path": "rig/body/arm_b",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.8,
+          "value": -5,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 1.6,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "path": "rig/body/scarf/s1",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.8,
+          "value": 8,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 1.6,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "path": "rig/body/scarf/s1/s2",
+      "component": "Transform",
+      "field": "rotation.z",
+      "keys": [
+        {
+          "t": 0,
+          "value": 0,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.8,
+          "value": -12,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 1.6,
+          "value": 0
+        }
+      ]
+    }
+  ]
+}

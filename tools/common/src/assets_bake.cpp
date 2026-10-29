@@ -22,6 +22,8 @@
 #include "fa/core/strings.h"
 #include "fa/platform/app.h"
 #include "fa/runtime/engine.h"
+#include "fa/scene/animation.h"
+#include "fa/scene/components.h"
 #include "fa/tooling/asset_import.h"
 #include "fa/tooling/self_update.h"
 #include "headless_run.h"
@@ -47,6 +49,8 @@ const char* const kDefaultTargetId = "bake_target";
 
 struct ClipSpec {
     std::string name;
+    std::string clip;         // a clip of the entity's Animator to play from time 0 (empty = none)
+    bool framesGiven = false; // `frames` was in the arguments (otherwise a clip of the Animator takes it from its duration)
     std::string call;         // a method of the entity's behaviour to call (empty = none)
     Json callArgs = Json::array();
     std::string event;        // a game event to send (empty = none)
@@ -54,6 +58,7 @@ struct ClipSpec {
     int frames = 0;
     double fps = 0;
     bool loop = true;
+    bool loopGiven = false;   // `loop` was in the arguments (otherwise an Animator clip says it)
     std::optional<double> warmup;  // seconds; overrides the command's
 };
 
@@ -161,7 +166,7 @@ Spec parse_spec(const Json& a, double fixedHzHint) {
             const Json& c = list[i];
             const std::string at = "/clips/" + std::to_string(i);
             if (!c.is_object()) bad(at, "expected an object {name, call | event, frames}.", "Example: {\"name\":\"explode\",\"call\":\"explode\",\"frames\":24}");
-            check_arg_keys(kCommand, c, at, {"name", "call", "args", "event", "data", "frames", "fps", "loop", "warmup"});
+            check_arg_keys(kCommand, c, at, {"name", "clip", "call", "args", "event", "data", "frames", "fps", "loop", "warmup"});
             ClipSpec clip;
             if (!c.contains("name") || !c["name"].is_string() || c["name"].get<std::string>().empty())
                 bad(at + "/name", "every clip needs a name.", "The name SpriteAnimator.clip plays it by: \"idle\", \"explode\"...");
@@ -169,6 +174,14 @@ Spec parse_spec(const Json& a, double fixedHzHint) {
             if (!names.insert(clip.name).second) bad(at + "/name", "two clips are called '" + clip.name + "'.", "Clip names are unique in a sheet.");
             if (c.contains("call") && c.contains("event"))
                 bad(at, "give `call` or `event`, not both.", "`call` runs a method of the entity's behaviour; `event` sends a game event the scripts listen to with world.on.");
+            if (c.contains("clip")) {
+                if (c.contains("call") || c.contains("event"))
+                    bad(at, "`clip` cannot go with `call` or `event`: give one way to start the clip.",
+                        "`clip` plays a clip of the entity's Animator from time 0; `call` runs a method of the behaviour and `event` sends a game event. To start an Animator clip from a script use `call` and animator.play() in the method.");
+                if (!c["clip"].is_string() || c["clip"].get<std::string>().empty())
+                    bad(at + "/clip", "expected the name of a clip of the entity's Animator.", "The key in Animator.clips (\"walk\"), or the name of an animation of its glTF model.");
+                clip.clip = c["clip"].get<std::string>();
+            }
             if (c.contains("call")) {
                 if (!c["call"].is_string() || c["call"].get<std::string>().empty())
                     bad(at + "/call", "expected the name of a method of the entity's behaviour.", "Example: \"call\": \"explode\" runs this.explode() of the entity's Script.");
@@ -188,11 +201,13 @@ Spec parse_spec(const Json& a, double fixedHzHint) {
                 if (clip.event.empty()) bad(at + "/data", "`data` goes with `event`.", "Example: {\"event\":\"boss.die\",\"data\":{\"fast\":true}}");
                 clip.eventData = c["data"];
             }
+            clip.framesGiven = c.contains("frames") && !c["frames"].is_null();
             clip.frames = int_arg(c, "frames", s.frames, 1, kMaxFrames, "Frames of this clip.");
             clip.fps = number_arg(c, at, "fps", s.fps, 1, 240, "Frames per second of this clip.");
             if (c.contains("loop")) {
                 if (!c["loop"].is_boolean()) bad(at + "/loop", "expected true or false.", "Whether SpriteAnimator repeats the clip; a one-shot explosion is false.");
                 clip.loop = c["loop"].get<bool>();
+                clip.loopGiven = true;
             }
             if (c.contains("warmup")) clip.warmup = number_arg(c, at, "warmup", 0, 0, 3600, "Seconds played before this clip's first frame.");
             s.clips.push_back(std::move(clip));
@@ -200,7 +215,8 @@ Spec parse_spec(const Json& a, double fixedHzHint) {
     }
     int total = 0;
     if (s.clips.empty()) total = s.frames;
-    for (const ClipSpec& c : s.clips) total += c.frames;
+    for (const ClipSpec& c : s.clips)
+        if (c.clip.empty() || c.framesGiven) total += c.frames;  // an Animator clip without `frames` is counted once its duration is known
     if (total > kMaxFrames)
         fail("invalid_argument", std::format("The sheet would have {} frames; the most is {}.", total, kMaxFrames), "Bake fewer frames, or split the clips over two sheets.");
     return s;
@@ -290,7 +306,8 @@ void collect_inputs(const std::string& projectDir, const Json& node, const std::
         for (auto it = node.begin(); it != node.end(); ++it) {
             if (it->is_string()) {
                 const std::string& key = it.key();
-                if (key == "texture" || key == "prefab" || (key == "path" && parentKey == "Script")) add_file(it->get<std::string>());
+                if (key == "texture" || key == "prefab" || (key == "path" && parentKey == "Script") || parentKey == "clips" || (key == "model" && parentKey == "Animator"))
+                    add_file(it->get<std::string>());
                 if (key == "prefab") {
                     auto loaded = load_json_file((stdfs::path(projectDir) / it->get<std::string>()).generic_string());
                     if (loaded.ok()) collect_inputs(projectDir, *loaded, "", out, depth + 1);
@@ -336,7 +353,13 @@ struct ClipFrames {
     std::vector<Crop> frames;
 };
 
+struct ResolvedClip {   // what a clip of the Animator turned out to be (the arguments, or the clip file, fill the gaps)
+    int frames = 0;
+    bool loop = true;
+};
+
 struct Pass {
+    std::vector<ResolvedClip> resolved;
     int canvas = 0;
     double scale = 1;
     std::vector<ClipFrames> clips;
@@ -403,6 +426,54 @@ struct TempScene {
     }
 };
 
+// Plays the clip `clip.clip` of the baked entity's Animator from its time 0, with no cross-fade, and says how many frames it
+// takes and whether it loops. The Animator's state machine is switched off (it would leave the clip), its layers stay. The first
+// frame shows the pose at time 0; the next ones step the Animator on the fixed clock like any other bake.
+void start_animator_clip(Engine& engine, const Source& src, const Spec& spec, std::size_t ci, const ClipSpec& clip, ResolvedClip& out) {
+    World& world = engine.world();
+    const Entity e = world.find_by_id(src.targetId);
+    Animator* an = e.is_null() ? nullptr : world.get<Animator>(e);
+    if (!an)
+        fail("invalid_argument", std::format("{} plays the Animator clip '{}', and the entity '{}' of '{}' has no Animator.", clip_label(spec, ci), clip.clip, src.targetId, src.file),
+             "Add an Animator to the entity: {\"Animator\": {\"clips\": {\"" + clip.clip + "\": \"anim/" + clip.clip + ".anim.json\"}}} for a character built in parts, or a MeshRenderer with a glTF model that has the animation. "
+             "Or use `call` / `event` to start the clip from a script.");
+    auto listed = animator_clips(world, e);
+    if (!listed.ok()) fail("invalid_argument", std::format("{} cannot read the clips of the Animator of '{}': {}", clip_label(spec, ci), src.targetId, listed.error().message), listed.error().hint);
+    std::vector<std::string> names;
+    const Json* found = nullptr;
+    for (const Json& c : *listed) {
+        const std::string n = c.value("name", std::string());
+        names.push_back(n);
+        if (n == clip.clip) found = &c;
+    }
+    if (!found)
+        fail("invalid_argument", std::format("{} asks for the Animator clip '{}', which the Animator of '{}' does not have.", clip_label(spec, ci), clip.clip, src.targetId),
+             (names.empty() ? std::string("The Animator has no clips; add some to Animator.clips.") : did_you_mean(clip.clip, names) + " Clips of the Animator: " + join(names, ", ") + ".") + " The clip is the key of Animator.clips (or the name of an animation of its model), not a file name.");
+    if (found->contains("error"))
+        fail("invalid_argument", std::format("{} cannot play '{}': {}", clip_label(spec, ci), clip.clip, found->value("error", std::string())), "Fix the clip file (factoria validate checks it), then bake again.");
+
+    const double duration = found->value("duration", 0.0);
+    const bool fileLoop = found->value("loop", true) && an->loop;
+    out.loop = clip.loopGiven ? clip.loop : fileLoop;
+    if (!clip.framesGiven) {
+        // A looping clip ends where it started, so its last frame is one step short of the duration; a clip that stops shows its last pose too.
+        const long n = std::lround(duration * clip.fps) + (fileLoop ? 0 : 1);
+        if (n > kMaxFrames)
+            fail("invalid_argument", std::format("{} lasts {} s, which is {} frames at {} fps; the most is {}.", clip_label(spec, ci), duration, n, clip.fps, kMaxFrames), "Give `frames` or a lower `fps`.");
+        out.frames = int(std::max<long>(1, n));
+    }
+
+    an->states = Json::object();
+    an->transitions = Json::array();
+    an->state.clear();
+    Result<void> r = animator_sample(world, e, clip.clip, 0.0f);  // 2D clips: the pose at time 0 (it pauses the Animator)
+    if (!r.ok()) r = animator_play(world, e, clip.clip, 0.0f);    // glTF
+    if (!r.ok()) fail("invalid_argument", std::format("{} cannot play '{}': {}", clip_label(spec, ci), clip.clip, r.error().message), r.error().hint);
+    an->time = an->rt.lastTime = 0.0f;
+    an->playing = true;
+    update_animators(world, 0.0f);  // writes the pose of time 0 without advancing it
+}
+
 Pass run_pass(const std::string& projectDir, const Spec& spec, const Source& src, double scale, int canvas) {
     Pass pass;
     pass.canvas = canvas;
@@ -436,7 +507,7 @@ Pass run_pass(const std::string& projectDir, const Spec& spec, const Source& src
         ClipSpec fallback;
         fallback.frames = spec.frames;
         fallback.fps = spec.fps;
-        const ClipSpec& clip = spec.clips.empty() ? fallback : spec.clips[ci];
+        ClipSpec clip = spec.clips.empty() ? fallback : spec.clips[ci];  // a copy: an Animator clip fills in its frames
         if (clip.fps > fixedHz + 1e-9)
             fail("invalid_argument", std::format("{} asks for {} frames per second, and the simulation steps {} times per second: some frames would repeat.", clip_label(spec, ci), clip.fps, fixedHz),
                  "Use a fps of at most " + std::to_string(int(fixedHz)) + " (fixedHz in factoria.json is the simulation rate).");
@@ -453,6 +524,8 @@ Pass run_pass(const std::string& projectDir, const Spec& spec, const Source& src
             script_failure("a script failed while the entity started" + std::string(spec.clips.empty() ? "" : " (" + clip_label(spec, ci) + ")"), src.file, e,
                            "Fix the script (script.errors lists the errors of a running game), then bake again.");
 
+        ResolvedClip resolved{clip.frames, clip.loop};
+        if (!clip.clip.empty()) start_animator_clip(engine, src, spec, ci, clip, resolved);
         if (!clip.call.empty() || !clip.event.empty()) {
             auto r = engine.scripts().eval(trigger_code(src, clip));
             if (!r.ok())
@@ -474,6 +547,8 @@ Pass run_pass(const std::string& projectDir, const Spec& spec, const Source& src
 
         ClipFrames frames;
         long stepped = 0;
+        clip.frames = resolved.frames;
+        pass.resolved.push_back(resolved);
         for (int f = 0; f < clip.frames; ++f) {
             const long target = std::lround(f * fixedHz / clip.fps);
             if (target > stepped) engine.step(int(target - stepped));
@@ -785,6 +860,9 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
         }
         total += n;
     }
+    if (total > kMaxFrames)
+        fail("invalid_argument", std::format("The sheet would have {} frames (the Animator clips take their length from their duration); the most is {}.", total, kMaxFrames),
+             "Give `frames` or a lower `fps` to the clips, bake fewer clips, or split them over two sheets.");
     const int columns = spec.columns > 0 ? std::min(spec.columns, total) : std::max(1, int(std::ceil(std::sqrt(double(total)))));
     const int rows = (total + columns - 1) / columns;
     const int pitchX = layout.w + 2 * spec.padding, pitchY = layout.h + 2 * spec.padding;
@@ -843,7 +921,7 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
     if (spec.padding > 0) sheetEntry["padding"] = spec.padding;
     sheetEntry["pivot"] = Json::array({pivot[0], pivot[1]});
     if (sheetEntry.contains("clips"))
-        for (std::size_t i = 0; i < spec.clips.size(); ++i) sheetEntry["clips"][i]["loop"] = spec.clips[i].loop;
+        for (std::size_t i = 0; i < spec.clips.size(); ++i) sheetEntry["clips"][i]["loop"] = pass.resolved[i].loop;
 
     std::set<std::string> inputs;
     inputs.insert(src.file);
@@ -920,7 +998,7 @@ void register_bake_sheet_command(CommandRegistry& registry, const std::string& p
         "The world is simulated at the project's fixed step with the world RNG seeded from `seed`, so the same prefab, seed and settings bake the same pixels on the same GPU (the pixels of two different GPUs can differ by an edge pixel); a frame is captured every 1/`fps` seconds of simulated time, `frames` frames per clip. "
         "SpriteAnimator, Tint, tweens, ParticleEmitter, Shape2D, Sprite and the entity's scripts all run as in the game; nothing else is in the world (no other entities and no lights: a `lit` sprite is drawn as in a world without lights). The entity is placed at the origin of the world, even when the scene puts it elsewhere. "
         "Frame 0 is drawn after one step (the entity's start() has run) and after `warmup` seconds. "
-        "`clips` bakes several named clips from one entity, each in a fresh world: `[{\"name\":\"explode\",\"call\":\"explode\",\"frames\":24,\"loop\":false}, {\"name\":\"idle\",\"frames\":8}]`; `call` runs that method of the entity's behaviour right after the warm-up (`args` are its arguments), `event` sends a game event instead (`data`); a clip with neither just plays. They follow each other in the sheet and become clips of its `sheet` entry (firstFrame, lastFrame, fps, loop). "
+        "`clips` bakes several named clips from one entity, each in a fresh world: `[{\"name\":\"explode\",\"call\":\"explode\",\"frames\":24,\"loop\":false}, {\"name\":\"idle\",\"frames\":8}]`; `call` runs that method of the entity's behaviour right after the warm-up (`args` are its arguments), `event` sends a game event instead (`data`); a clip with `clip` plays that clip of the entity's Animator (a key of Animator.clips, a `.anim.json` clip or a glTF animation) from time 0 with no cross-fade, switching the state machine off, and takes `frames` from the clip's duration times `fps` and `loop` from the clip when they are not given; a clip with none of them just plays. They follow each other in the sheet and become clips of its `sheet` entry (firstFrame, lastFrame, fps, loop). "
         "Framing: the pixels are drawn at `scale` pixels per world unit and cropped to everything drawn in ANY frame plus `margin`, so nothing is cut (a particle burst that grows is included) and the entity's origin is the same pixel in every frame: it is the `pivot` recorded in the sheet entry ([x, y] in 0..1 from the top-left of the frame). Give `pivot` to choose where the origin lands (a character's feet: [0.5, 1]); give `frameWidth` and `frameHeight` for a fixed cell: without `scale` the animation is scaled to fit it, with `scale` it must fit or the command fails and says how large the cell must be. "
         "The colours are straight alpha with the colour of the edge pixels bled outwards, so a sprite scaled with filtering has no dark halo; additive glows keep their light (their alpha is the brightest channel). `background` puts a colour behind the frames (default transparent). `padding` leaves transparent pixels around each cell (default 1; the sheet entry records it). "
         "Needs a GPU (Metal, Direct3D 11 or OpenGL; headless Linux needs Mesa's EGL). A process has one graphics device: when this one already uses it (the editor, an MCP session with graphics) the bake runs in a child `factoria call` process; from a terminal `factoria call assets.bake_sheet` works as is. "
@@ -944,12 +1022,12 @@ void register_bake_sheet_command(CommandRegistry& registry, const std::string& p
                {"frameHeight", Json::object({{"type", "integer"}, {"minimum", 1}, {"description", "Pixels of a cell. Absent = as tall as the animation needs."}})},
                {"scale", Json::object({{"type", "number"}, {"minimum", kMinScale}, {"maximum", kMaxScale}, {"description", "Pixels per world unit (1 = the size the entity has in the world, 2 = twice as big). Absent: 1, or the scale that fits frameWidth x frameHeight when both are given."}})},
                {"pivot", Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}})}, {"minItems", 2}, {"maxItems", 2}, {"description", "[x, y] in 0..1 from the top-left of the frame: where the entity's origin lands in every frame ([0.5, 1] = middle of the bottom edge). Absent: where the animation puts it (the cell is the tight box of everything drawn)."}})},
-               {"clips", Json::object({{"type", "array"}, {"minItems", 1}, {"description", "Named clips, each in a fresh world: {name, call?, args?, event?, data?, frames?, fps?, loop?, warmup?}. `call` is a method of the entity's behaviour, `event` a game event (world.on); both start the clip after the warm-up. They follow each other in the sheet."},
+               {"clips", Json::object({{"type", "array"}, {"minItems", 1}, {"description", "Named clips, each in a fresh world: {name, clip?, call?, args?, event?, data?, frames?, fps?, loop?, warmup?}. `clip` is a clip of the entity's Animator, played from time 0 (frames default to its duration x fps, loop to the clip's); `call` is a method of the entity's behaviour, `event` a game event (world.on); `clip`, `call` and `event` are alternatives, and `call` and `event` start the clip after the warm-up. They follow each other in the sheet."},
                                         {"items", Json::object({{"type", "object"}, {"required", Json::array({"name"})}, {"additionalProperties", false},
-                                                                {"properties", Json::object({{"name", Json::object({{"type", "string"}})}, {"call", Json::object({{"type", "string"}})},
+                                                                {"properties", Json::object({{"name", Json::object({{"type", "string"}})}, {"clip", Json::object({{"type", "string"}})}, {"call", Json::object({{"type", "string"}})},
                                                                                              {"args", Json::object({{"type", "array"}})}, {"event", Json::object({{"type", "string"}})}, {"data", Json::object({})},
                                                                                              {"frames", Json::object({{"type", "integer"}, {"minimum", 1}})}, {"fps", Json::object({{"type", "number"}, {"minimum", 1}})},
-                                                                                             {"loop", Json::object({{"type", "boolean"}, {"default", true}})}, {"warmup", Json::object({{"type", "number"}, {"minimum", 0}})}})}})}})},
+                                                                                             {"loop", Json::object({{"type", "boolean"}, {"description", "Whether SpriteAnimator repeats the clip. Default true; for a `clip` of the Animator, the clip's own loop."}})}, {"warmup", Json::object({{"type", "number"}, {"minimum", 0}})}})}})}})},
                {"warmup", Json::object({{"type", "number"}, {"minimum", 0}, {"default", 0}, {"description", "Seconds of simulated time to play before the first frame (a particle system that should start full). A clip can set its own."}})},
                {"seed", Json::object({{"type", "integer"}, {"default", 1}, {"description", "Seeds the world RNG (scripts' rng, random particles): the same seed gives the same sheet."}})},
                {"background", Json::object({{"description", "A colour behind the frames (\"#rrggbb\", \"#rrggbbaa\", a name or [r, g, b]). Default: transparent."}})},
