@@ -1,7 +1,7 @@
 // `setup launcher`: an app that opens the editor of this factoria, with the FactorIA icon, where the desktop lists apps.
 //
 //   macOS  <HOME>/Applications/FactorIA.app   Contents/Info.plist, Contents/MacOS/FactorIA (a zsh script that runs
-//                                             `<factoria> editor`, its output in ~/Library/Logs/FactorIA/editor.log),
+//                                             `<factoria> editor "$@"`, its output in ~/Library/Logs/FactorIA/editor.log),
 //                                             Contents/Resources/AppIcon.icns (tools/editor/icon/factoria.icns)
 //   Linux  <XDG_DATA_HOME or ~/.local/share>/applications/factoria.desktop and icons/hicolor/256x256/apps/factoria.png
 //   Windows  nothing: the installer adds FactorIA Editor to the Start menu, and FactorIA-Editor.exe of the zip can be pinned.
@@ -94,7 +94,7 @@ LauncherFiles mac_files(const SetupContext& ctx) {
                                    std::string(kTargetLine) + shell_quote(factoria_exe(ctx).string()) + "\n"
                                    "mkdir -p \"$HOME/Library/Logs/FactorIA\"\n"
                                    "cd \"$HOME\"\n"
-                                   "exec \"$FACTORIA\" editor >\"$HOME/Library/Logs/FactorIA/editor.log\" 2>&1\n");
+                                   "exec \"$FACTORIA\" editor \"$@\" >\"$HOME/Library/Logs/FactorIA/editor.log\" 2>&1\n");
     if (auto icon = bundled_read(kMacIcon)) l.files.emplace_back("Contents/Resources/AppIcon.icns", std::move(*icon));
     else l.error = std::string("This build of factoria does not carry the icon (") + kMacIcon + ").";
     return l;
@@ -113,6 +113,7 @@ LauncherFiles linux_files(const SetupContext& ctx) {
                                                           "Exec=" + desktop_quote(exe) + " editor\n"
                                                           "Icon=" + (l.root / iconRel).string() + "\n"
                                                           "Terminal=false\n"
+                                                          "StartupWMClass=FactorIA\n"
                                                           "Categories=Development;Game;\n" +
                                                           std::string(kTargetKey) + exe + "\n");
     if (auto icon = bundled_read(kLinuxIcon)) l.files.emplace_back(iconRel, std::move(*icon));
@@ -243,6 +244,24 @@ SetupResult launcher_install(const SetupContext& ctx, const SetupInstallOptions&
 }  // namespace fa::setup_detail
 
 namespace fa {
+
+std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir) {
+    using namespace setup_detail;
+    if (projectDir.empty()) return {};
+    const std::string os = context.host_os();
+    if (os == "windows") {
+        // FactorIA-Editor.exe next to this factoria.exe: the program the taskbar pin and the Start menu entry run.
+        const stdfs::path launcher = exe_dir(context) / "FactorIA-Editor.exe";
+        if (!is_file(launcher) || !is_file(factoria_exe(context))) return {};
+        return {launcher.string(), projectDir};
+    }
+    if (os != "macos") return {};  // Linux: the window's WM_CLASS (StartupWMClass of the .desktop) already groups the new one
+    if (launcher_status(context).state != "installed") return {};  // missing, foreign, another factoria's or out of date
+    const auto l = files_for_host(context);
+    if (!l) return {};
+    // -n: the editor that is quitting is still running, and `open` would only activate it.
+    return {"/usr/bin/open", "-n", l->root.string(), "--args", projectDir};
+}
 
 bool refresh_launcher(const SetupContext& context) {
     using namespace setup_detail;
