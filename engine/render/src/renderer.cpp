@@ -1,4 +1,5 @@
 #include "fa/render/renderer.h"
+#include "fa/scene/bones2d.h"
 
 #include <algorithm>
 #include <chrono>
@@ -832,6 +833,7 @@ std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->fina
 
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
+    invalidate_sprite_outlines(path);  // a SpriteSkin outline traced from the old picture is stale
 }
 void Renderer::set_shader_compiler(ShaderCompiler compiler) {
     shaderCompiler_ = std::move(compiler);

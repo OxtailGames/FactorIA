@@ -124,6 +124,11 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// Draws the bones (Bone2D) of the entity `root` and everything under it (every bone of the world when `root` is the null entity)
+// into `draw` for one frame: a thin kite from each bone's origin to its tip (scene/bones2d.h, bone_kite), and a small circle at
+// its origin. The editor's bone overlay and `debug.bones()` both call it. Returns the number of bones drawn.
+int debug_draw_bones(DebugDraw& draw, const World& world, Entity root, Color color = Color{0.2f, 0.9f, 1.0f, 1.0f});
+
 class Renderer {
 public:
     Renderer();

@@ -1871,6 +1871,10 @@
       {
        "sig": "sphere(center: Vec3Like, radius: number, color?: ColorLike): void",
        "doc": ""
+      },
+      {
+       "sig": "bones(root?: Entity, color?: ColorLike): void",
+       "doc": "Draws the Bone2D entities of `root` and everything under it for one frame (every bone of the scene when `root` is left out): a thin kite from each bone's origin to its tip and a dot at the origin, in world space, so the skeleton shows while the clip or IK2D poses it. Call it every frame from onUpdate. Example: debug.bones(world.find(\"hip\"), [1, 0.5, 0, 1]);"
       }
      ]
     },

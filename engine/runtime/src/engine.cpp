@@ -17,6 +17,7 @@
 #include "fa/runtime/plugins.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/animation.h"
+#include "fa/scene/bones2d.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/video.h"
 
@@ -250,6 +251,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
         else FA_WARN("scene", "{}", m.to_string());
     }
     physics.sync(world);  // bodies exist (and can be queried) right after the load, before the first step
+    bind_pending_skins(world);  // a SpriteSkin records the pose the scene was authored in, before any clip moves a bone
     ui.reset();
     apply_localization();  // the first frame (and the first onStart) already read the current language
     scripts.on_scene_loaded();
@@ -393,6 +395,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             ProfSystemScope prof(ProfSystem::Physics);
             physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
         }
+        bind_pending_skins(world);  // skins added since the last step bind at the pose they have now, before the animators move bones
         {
             ProfSystemScope prof(ProfSystem::ScriptsFixedUpdate);
             scripts.fixed_update(fdt);
@@ -406,6 +409,10 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             }
             ProfSystemScope prof(ProfSystem::Animation);
             update_animators(world, float(fixedDt * scale));  // skeletal animation + its events, before they are dispatched
+            // IK2D runs right after the animators have posed the bones and before the frame is drawn: the clip gives the pose, the
+            // solver turns the chain to reach its target. (If the animators ever sample in another place, move this call to
+            // right after it: the order "clips, then IK, then drawing" is the contract in docs/ANIMATION.md, "Bones and IK".)
+            update_ik2d(world);
         }
         {
             // Videos follow the game clock: they stop with time.scale 0, and a play / pause / seek a script made still applies.

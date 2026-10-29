@@ -1,0 +1,3218 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0, 0]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Camera": {
+          "projection": "orthographic",
+          "clearColor": [0.08, 0.09, 0.14, 1],
+          "primary": true
+        }
+      }
+    },
+    {
+      "id": "s0",
+      "name": "limb0",
+      "components": {
+        "Transform": {
+          "position": [-560, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.3, 0.6, 0.9, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s0_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s0_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t0",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s0_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t0",
+      "name": "target0",
+      "components": {
+        "Transform": {
+          "position": [-510, 245, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "name": "limb1",
+      "components": {
+        "Transform": {
+          "position": [-440, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.5589999999999999, 0.6, 0.635, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s1_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s1_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s1_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "name": "limb2",
+      "components": {
+        "Transform": {
+          "position": [-320, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.8180000000000001, 0.6, 0.87, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s2_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s2_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s2_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "name": "limb3",
+      "components": {
+        "Transform": {
+          "position": [-200, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.377, 0.6, 0.605, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s3_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s3_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s3_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "name": "limb4",
+      "components": {
+        "Transform": {
+          "position": [-80, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.6359999999999999, 0.6, 0.8400000000000001, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s4_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s4_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s4_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s5",
+      "name": "limb5",
+      "components": {
+        "Transform": {
+          "position": [40, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.895, 0.6, 0.575, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s5_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s5_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t5",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s5_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t5",
+      "name": "target5",
+      "components": {
+        "Transform": {
+          "position": [90, 245, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "name": "limb6",
+      "components": {
+        "Transform": {
+          "position": [160, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.45399999999999996, 0.6, 0.81, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s6_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s6_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s6_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s7",
+      "name": "limb7",
+      "components": {
+        "Transform": {
+          "position": [280, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.713, 0.6, 0.545, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s7_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s7_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s7_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s8",
+      "name": "limb8",
+      "components": {
+        "Transform": {
+          "position": [400, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.972, 0.6, 0.78, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s8_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s8_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s8_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s9",
+      "name": "limb9",
+      "components": {
+        "Transform": {
+          "position": [520, 220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.5309999999999999, 0.6, 0.515, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s9_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s9_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s9_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s10",
+      "name": "limb10",
+      "components": {
+        "Transform": {
+          "position": [-560, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.79, 0.6, 0.75, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s10_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s10_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t10",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s10_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t10",
+      "name": "target10",
+      "components": {
+        "Transform": {
+          "position": [-510, 135, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s11",
+      "name": "limb11",
+      "components": {
+        "Transform": {
+          "position": [-440, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.349, 0.6, 0.48500000000000004, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s11_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s11_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s11_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s12",
+      "name": "limb12",
+      "components": {
+        "Transform": {
+          "position": [-320, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.608, 0.6, 0.72, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s12_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s12_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s12_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s13",
+      "name": "limb13",
+      "components": {
+        "Transform": {
+          "position": [-200, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.867, 0.6, 0.455, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s13_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s13_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s13_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s14",
+      "name": "limb14",
+      "components": {
+        "Transform": {
+          "position": [-80, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.426, 0.6, 0.6900000000000001, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s14_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s14_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s14_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s15",
+      "name": "limb15",
+      "components": {
+        "Transform": {
+          "position": [40, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.685, 0.6, 0.42500000000000004, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s15_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s15_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t15",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s15_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t15",
+      "name": "target15",
+      "components": {
+        "Transform": {
+          "position": [90, 135, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s16",
+      "name": "limb16",
+      "components": {
+        "Transform": {
+          "position": [160, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.944, 0.6, 0.66, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s16_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s16_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s16_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s17",
+      "name": "limb17",
+      "components": {
+        "Transform": {
+          "position": [280, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.5029999999999999, 0.6, 0.895, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s17_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s17_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s17_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s18",
+      "name": "limb18",
+      "components": {
+        "Transform": {
+          "position": [400, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.762, 0.6, 0.63, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s18_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s18_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s18_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s19",
+      "name": "limb19",
+      "components": {
+        "Transform": {
+          "position": [520, 110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.321, 0.6, 0.865, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s19_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s19_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s19_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s20",
+      "name": "limb20",
+      "components": {
+        "Transform": {
+          "position": [-560, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.5800000000000001, 0.6, 0.6000000000000001, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s20_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s20_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t20",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s20_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t20",
+      "name": "target20",
+      "components": {
+        "Transform": {
+          "position": [-510, 25, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s21",
+      "name": "limb21",
+      "components": {
+        "Transform": {
+          "position": [-440, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.839, 0.6, 0.835, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s21_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s21_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s21_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s22",
+      "name": "limb22",
+      "components": {
+        "Transform": {
+          "position": [-320, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.39799999999999996, 0.6, 0.5700000000000001, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s22_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s22_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s22_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s23",
+      "name": "limb23",
+      "components": {
+        "Transform": {
+          "position": [-200, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.657, 0.6, 0.805, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s23_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s23_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s23_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s24",
+      "name": "limb24",
+      "components": {
+        "Transform": {
+          "position": [-80, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.9159999999999999, 0.6, 0.54, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s24_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s24_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s24_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s25",
+      "name": "limb25",
+      "components": {
+        "Transform": {
+          "position": [40, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.475, 0.6, 0.775, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s25_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s25_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t25",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s25_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t25",
+      "name": "target25",
+      "components": {
+        "Transform": {
+          "position": [90, 25, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s26",
+      "name": "limb26",
+      "components": {
+        "Transform": {
+          "position": [160, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.734, 0.6, 0.51, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s26_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s26_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s26_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s27",
+      "name": "limb27",
+      "components": {
+        "Transform": {
+          "position": [280, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.9929999999999999, 0.6, 0.745, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s27_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s27_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s27_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s28",
+      "name": "limb28",
+      "components": {
+        "Transform": {
+          "position": [400, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.552, 0.6, 0.48000000000000004, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s28_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s28_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s28_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s29",
+      "name": "limb29",
+      "components": {
+        "Transform": {
+          "position": [520, 0, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.8109999999999999, 0.6, 0.7150000000000001, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s29_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s29_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s29_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s30",
+      "name": "limb30",
+      "components": {
+        "Transform": {
+          "position": [-560, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.37, 0.6, 0.45, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s30_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s30_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t30",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s30_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t30",
+      "name": "target30",
+      "components": {
+        "Transform": {
+          "position": [-510, -85, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s31",
+      "name": "limb31",
+      "components": {
+        "Transform": {
+          "position": [-440, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.629, 0.6, 0.685, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s31_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s31_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s31_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s32",
+      "name": "limb32",
+      "components": {
+        "Transform": {
+          "position": [-320, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.8879999999999999, 0.6, 0.42000000000000004, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s32_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s32_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s32_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s33",
+      "name": "limb33",
+      "components": {
+        "Transform": {
+          "position": [-200, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.44699999999999995, 0.6, 0.655, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s33_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s33_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s33_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s34",
+      "name": "limb34",
+      "components": {
+        "Transform": {
+          "position": [-80, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.706, 0.6, 0.89, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s34_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s34_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s34_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s35",
+      "name": "limb35",
+      "components": {
+        "Transform": {
+          "position": [40, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.9650000000000001, 0.6, 0.625, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s35_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s35_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t35",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s35_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t35",
+      "name": "target35",
+      "components": {
+        "Transform": {
+          "position": [90, -85, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s36",
+      "name": "limb36",
+      "components": {
+        "Transform": {
+          "position": [160, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.524, 0.6, 0.86, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s36_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s36_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s36_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s37",
+      "name": "limb37",
+      "components": {
+        "Transform": {
+          "position": [280, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.7829999999999999, 0.6, 0.595, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s37_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s37_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s37_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s38",
+      "name": "limb38",
+      "components": {
+        "Transform": {
+          "position": [400, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.34199999999999997, 0.6, 0.8300000000000001, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s38_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s38_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s38_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s39",
+      "name": "limb39",
+      "components": {
+        "Transform": {
+          "position": [520, -110, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.601, 0.6, 0.565, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s39_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s39_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s39_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s40",
+      "name": "limb40",
+      "components": {
+        "Transform": {
+          "position": [-560, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.8600000000000001, 0.6, 0.8, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s40_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s40_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t40",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s40_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t40",
+      "name": "target40",
+      "components": {
+        "Transform": {
+          "position": [-510, -195, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s41",
+      "name": "limb41",
+      "components": {
+        "Transform": {
+          "position": [-440, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.419, 0.6, 0.535, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s41_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s41_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s41_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s42",
+      "name": "limb42",
+      "components": {
+        "Transform": {
+          "position": [-320, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.6779999999999999, 0.6, 0.77, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s42_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s42_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s42_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s43",
+      "name": "limb43",
+      "components": {
+        "Transform": {
+          "position": [-200, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.937, 0.6, 0.505, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s43_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s43_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s43_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s44",
+      "name": "limb44",
+      "components": {
+        "Transform": {
+          "position": [-80, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.496, 0.6, 0.74, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s44_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s44_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s44_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s45",
+      "name": "limb45",
+      "components": {
+        "Transform": {
+          "position": [40, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.755, 0.6, 0.47500000000000003, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s45_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s45_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                },
+                "IK2D": {
+                  "target": "t45",
+                  "bend": "positive",
+                  "solver": "twoBone"
+                }
+              },
+              "children": [
+                {
+                  "id": "s45_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "t45",
+      "name": "target45",
+      "components": {
+        "Transform": {
+          "position": [90, -195, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [6, 6],
+          "color": [1, 1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "s46",
+      "name": "limb46",
+      "components": {
+        "Transform": {
+          "position": [160, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.314, 0.6, 0.71, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s46_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s46_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s46_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s47",
+      "name": "limb47",
+      "components": {
+        "Transform": {
+          "position": [280, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.573, 0.6, 0.445, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s47_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s47_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s47_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s48",
+      "name": "limb48",
+      "components": {
+        "Transform": {
+          "position": [400, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.8319999999999999, 0.6, 0.68, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s48_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s48_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s48_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s49",
+      "name": "limb49",
+      "components": {
+        "Transform": {
+          "position": [520, -220, 0]
+        },
+        "Sprite": {
+          "size": [80, 16],
+          "pivot": [0, 0.5],
+          "color": [0.391, 0.6, 0.41500000000000004, 1],
+          "meshColumns": 8,
+          "meshRows": 2
+        },
+        "SpriteSkin": {
+          "bones": ["b0", "b1"]
+        }
+      },
+      "children": [
+        {
+          "id": "s49_b0",
+          "name": "b0",
+          "components": {
+            "Transform": {
+              "position": [0, 0, 0]
+            },
+            "Bone2D": {
+              "length": 40
+            }
+          },
+          "children": [
+            {
+              "id": "s49_b1",
+              "name": "b1",
+              "components": {
+                "Transform": {
+                  "position": [40, 0, 0]
+                },
+                "Bone2D": {
+                  "length": 40,
+                  "minAngle": -150,
+                  "maxAngle": 150
+                }
+              },
+              "children": [
+                {
+                  "id": "s49_tip",
+                  "name": "tip",
+                  "components": {
+                    "Transform": {
+                      "position": [40, 0, 0]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "driver",
+      "name": "Driver",
+      "components": {
+        "Script": {
+          "path": "scripts/swing.js"
+        }
+      }
+    }
+  ]
+}
