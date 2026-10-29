@@ -67,15 +67,6 @@ void Editor::draw_project_dialog() {
             dlgNewParent_ = !h.empty() && stdfs::is_directory(docs, ec) ? docs.string() : stdfs::current_path(ec).string();
         }
         if (dlgOpenPath_.empty() && !recentProjects_.empty()) dlgOpenPath_ = recentProjects_.front();
-        if (recentProjects_.empty()) {
-            if (std::string h = home_dir(); !h.empty()) {
-                auto j = load_json_file((stdfs::path(h) / ".factoria" / "editor_recent.json").string());
-                if (j && j->is_array())
-                    for (auto& v : *j)
-                        if (v.is_string() && stdfs::exists(stdfs::path(v.get<std::string>()) / kProjectFileName, ec)) recentProjects_.push_back(v.get<std::string>());
-                if (dlgOpenPath_.empty() && !recentProjects_.empty()) dlgOpenPath_ = recentProjects_.front();
-            }
-        }
     }
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
@@ -184,9 +175,8 @@ void Editor::draw_project_dialog() {
         at_track("project:delete-confirm");
         if (confirmed) {
             dlgError_ = delete_project_folder(dlgDelete_);
-            std::erase(recentProjects_, dlgDelete_);
+            forget_recent_project(dlgDelete_);
             std::erase(detectedProjects_, dlgDelete_);
-            save_recent_projects();
             if (dlgOpenPath_ == dlgDelete_) dlgOpenPath_.clear();
             if (dlgError_.empty()) notify("Deleted project " + dlgDelete_, 0);
             dlgDelete_.clear();
