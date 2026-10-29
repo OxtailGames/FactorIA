@@ -2,7 +2,15 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.7.0
+
+FactorIA 0.7.0 animates characters built in parts: a keyframed clip (`*.anim.json`) moves the parts of an entity and the
+Animator plays it by name, with cross-fades, layers, masks, events and the state machine; `Bone2D`, `SpriteSkin` and
+`IK2D` bend a sprite with its bones and make a chain reach for a target; AIs make and check clips with `anim.*`,
+`bones.create` and `skin.*` commands, and `factoria validate` checks every clip; the editor has an Animation panel
+(dopesheet, curves, record mode, onion skin) and bone tools (draw a chain, bind, paint weights, drag IK targets); and
+`assets.bake_sheet` bakes an Animator clip by name into a sprite sheet. Sky Hopper's hero is built in parts with bones,
+clips and IK feet, and its crawler is baked from parts into a sheet.
 
 Keyframed 2D clips
 
@@ -23,6 +31,22 @@ Keyframed 2D clips
 - Clip files are cached by path and modification time and reloaded when they change. Errors name the file and the JSON
   pointer, and teach: a path gets "did you mean" over the names under the entity; a field that cannot be animated lists the
   ones that can; keys out of order or past `duration`, a value of the wrong type and two tracks on one channel are caught.
+
+2D bones, skinned sprites and IK
+
+- `Bone2D` (`length`, `minAngle`, `maxAngle`) turns any entity of the hierarchy into a bone: it runs `length` along the
+  entity's +X axis and is posed through its Transform, so clips, tweens and scripts move it like any other entity.
+- `SpriteSkin` (`bones`, `weights`, `bindPose`, `outline`, `outlineDetail`) bends the 2D mesh of the Sprite on the same entity
+  (`meshColumns` x `meshRows`, or with `outline: true` a grid cut to the opaque pixels of the texture) with up to 4 bones per
+  vertex from a bind pose recorded when the scene loads. `weights: "auto"` weights each vertex by its distance to the bones;
+  an array gives your own. The vertices are deformed on the CPU into the existing 2D vertex stream: no new shader, and skinned
+  sprites batch like mesh sprites. `entity.bounds()`, picking and the selection outline use the deformed mesh.
+- `IK2D` (`target`, `chainLength`, `bend`, `weight`, `solver`: `twoBone` or `ccd`) turns the bones of a chain so the tip of its
+  bone reaches the target, within the bones' angle limits. It runs every fixed step after the animators and before drawing, and is
+  deterministic.
+- `debug.bones(root?, color?)` draws the bones of an entity and its descendants (all bones without `root`); the editor's
+  Selection overlay draws the bones of the selected entity. docs/ANIMATION.md, section "Bones and IK".
+- A new fixture, `tools/cli/tests/fixtures/skinned-sprites` (50 skinned sprites, 10 with IK, one draw call), has a perf budget.
 
 Commands for AIs: make clips and check them
 
@@ -51,22 +75,6 @@ Editor: the timeline and the bone tools
 - View > Bone tools: draw a bone chain by clicking points in the viewport (`bones.create`), bind a sprite to bones (`skin.bind`),
   see the weights of one bone as coloured dots and paint them with a brush (add / set / smooth, `skin.set_weights`, one stroke =
   one Undo step), and drag the targets of IK2D chains. Editor autotest sections B2 and C2; docs/EDITOR.md.
-
-2D bones, skinned sprites and IK
-
-- `Bone2D` (`length`, `minAngle`, `maxAngle`) turns any entity of the hierarchy into a bone: it runs `length` along the
-  entity's +X axis and is posed through its Transform, so clips, tweens and scripts move it like any other entity.
-- `SpriteSkin` (`bones`, `weights`, `bindPose`, `outline`, `outlineDetail`) bends the 2D mesh of the Sprite on the same entity
-  (`meshColumns` x `meshRows`, or with `outline: true` a grid cut to the opaque pixels of the texture) with up to 4 bones per
-  vertex from a bind pose recorded when the scene loads. `weights: "auto"` weights each vertex by its distance to the bones;
-  an array gives your own. The vertices are deformed on the CPU into the existing 2D vertex stream: no new shader, and skinned
-  sprites batch like mesh sprites. `entity.bounds()`, picking and the selection outline use the deformed mesh.
-- `IK2D` (`target`, `chainLength`, `bend`, `weight`, `solver`: `twoBone` or `ccd`) turns the bones of a chain so the tip of its
-  bone reaches the target, within the bones' angle limits. It runs every fixed step after the animators and before drawing, and is
-  deterministic.
-- `debug.bones(root?, color?)` draws the bones of an entity and its descendants (all bones without `root`); the editor's
-  Selection overlay draws the bones of the selected entity. docs/ANIMATION.md, section "Bones and IK".
-- A new fixture, `tools/cli/tests/fixtures/skinned-sprites` (50 skinned sprites, 10 with IK, one draw call), has a perf budget.
 
 Baking clips, and a character built in parts
 

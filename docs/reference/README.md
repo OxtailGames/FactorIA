@@ -8,15 +8,15 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 
 ### [2D](components/2d.md)
 
-- [Bone2D](components/2d.md#bone2d): A bone of a 2D skeleton, on a plain entity of the hierarchy (docs/ANIMATION.md, "Bones and IK"). _Not released yet._
-- [IK2D](components/2d.md#ik2d): Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the hand, the foot) and name a `target`; every fixed step, after the animators have posed the bones and before the frame is drawn, the bones from this one up through its parents are turned so the tip of this bone reaches the target entity's position, within each bone's minAngle / maxAngle. _Not released yet._
+- [Bone2D](components/2d.md#bone2d): A bone of a 2D skeleton, on a plain entity of the hierarchy (docs/ANIMATION.md, "Bones and IK"). _Since 0.7.0._
+- [IK2D](components/2d.md#ik2d): Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the hand, the foot) and name a `target`; every fixed step, after the animators have posed the bones and before the frame is drawn, the bones from this one up through its parents are turned so the tip of this bone reaches the target entity's position, within each bone's minAngle / maxAngle. _Since 0.7.0._
 - [Light2D](components/2d.md#light2d): A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. _Since 0.2.0._
 - [Parallax](components/2d.md#parallax): Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. _Since 0.2.0._
 - [ParticleEmitter](components/2d.md#particleemitter): Emits short-lived particles (smoke, sparks, explosions).
 - [Shape2D](components/2d.md#shape2d): Untextured 2D primitive for prototypes, UI panels and debug visuals.
 - [Sprite](components/2d.md#sprite): Draws a textured (or solid color) quad.
 - [SpriteAnimator](components/2d.md#spriteanimator): Flipbook animation over a grid sprite sheet.
-- [SpriteSkin](components/2d.md#spriteskin): Deforms the Sprite on the same entity with bones (docs/ANIMATION.md, "Bones and IK"): each vertex of the sprite's 2D mesh follows up to 4 bones, so one picture bends at an elbow or a tail without cutting it in pieces. _Not released yet._
+- [SpriteSkin](components/2d.md#spriteskin): Deforms the Sprite on the same entity with bones (docs/ANIMATION.md, "Bones and IK"): each vertex of the sprite's 2D mesh follows up to 4 bones, so one picture bends at an elbow or a tail without cutting it in pieces. _Since 0.7.0._
 - [Text](components/2d.md#text): Draws a string with a TrueType font (or the built-in font).
 - [Tilemap](components/2d.md#tilemap): A grid of tiles drawn from a tileset texture; tile index -1 is empty.
 - [Tint](components/2d.md#tint): Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. _Since 0.4.0._
@@ -92,23 +92,23 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [anim](commands/anim.md)
 
-- [`anim.add_event`](commands/anim.md#animadd_event-modifies-state): Add an event to a clip: a game event sent when the clip passes its time. _Not released yet._
-- [`anim.add_track`](commands/anim.md#animadd_track-modifies-state): Add a track to a clip, with keys or the part's current value as its first key. _Not released yet._
-- [`anim.check`](commands/anim.md#animcheck-modifies-state): Find what is wrong with a clip, and with how it fits its character. _Not released yet._
-- [`anim.create_clip`](commands/anim.md#animcreate_clip-modifies-state): Write a new keyframed 2D clip file (*.anim.json). _Not released yet._
-- [`anim.filmstrip`](commands/anim.md#animfilmstrip): One picture with a grid of a clip's poses, to see the whole motion at once. _Not released yet._
-- [`anim.list`](commands/anim.md#animlist): List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state. _Not released yet._
-- [`anim.move_event`](commands/anim.md#animmove_event-modifies-state): Move an event of a clip to another time. _Not released yet._
-- [`anim.move_keys`](commands/anim.md#animmove_keys-modifies-state): Move and scale a selection of keys in time. _Not released yet._
-- [`anim.pose`](commands/anim.md#animpose-modifies-state): Pose an entity as one of its clips is at a time, and leave it there. _Not released yet._
-- [`anim.remove_event`](commands/anim.md#animremove_event-modifies-state): Remove an event from a clip. _Not released yet._
-- [`anim.remove_keys`](commands/anim.md#animremove_keys-modifies-state): Remove keys of one track of a clip, by time or all of them. _Not released yet._
-- [`anim.remove_track`](commands/anim.md#animremove_track-modifies-state): Remove a whole track (all its keys) from a clip. _Not released yet._
-- [`anim.restore`](commands/anim.md#animrestore-modifies-state): Put a clip file back to a whole document, or delete it: the undo and redo of the anim.* edits. _Not released yet._
-- [`anim.set_clip`](commands/anim.md#animset_clip-modifies-state): Set the duration, loop or description of a clip. _Not released yet._
-- [`anim.set_event`](commands/anim.md#animset_event-modifies-state): Rename an event of a clip or replace its data. _Not released yet._
-- [`anim.set_interp`](commands/anim.md#animset_interp-modifies-state): Set how selected keys reach the next key: interp or easing, and bezier tangents. _Not released yet._
-- [`anim.set_keys`](commands/anim.md#animset_keys-modifies-state): Add or replace keys of one track of a clip, creating the track if it is missing. _Not released yet._
+- [`anim.add_event`](commands/anim.md#animadd_event-modifies-state): Add an event to a clip: a game event sent when the clip passes its time. _Since 0.7.0._
+- [`anim.add_track`](commands/anim.md#animadd_track-modifies-state): Add a track to a clip, with keys or the part's current value as its first key. _Since 0.7.0._
+- [`anim.check`](commands/anim.md#animcheck-modifies-state): Find what is wrong with a clip, and with how it fits its character. _Since 0.7.0._
+- [`anim.create_clip`](commands/anim.md#animcreate_clip-modifies-state): Write a new keyframed 2D clip file (*.anim.json). _Since 0.7.0._
+- [`anim.filmstrip`](commands/anim.md#animfilmstrip): One picture with a grid of a clip's poses, to see the whole motion at once. _Since 0.7.0._
+- [`anim.list`](commands/anim.md#animlist): List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state. _Since 0.7.0._
+- [`anim.move_event`](commands/anim.md#animmove_event-modifies-state): Move an event of a clip to another time. _Since 0.7.0._
+- [`anim.move_keys`](commands/anim.md#animmove_keys-modifies-state): Move and scale a selection of keys in time. _Since 0.7.0._
+- [`anim.pose`](commands/anim.md#animpose-modifies-state): Pose an entity as one of its clips is at a time, and leave it there. _Since 0.7.0._
+- [`anim.remove_event`](commands/anim.md#animremove_event-modifies-state): Remove an event from a clip. _Since 0.7.0._
+- [`anim.remove_keys`](commands/anim.md#animremove_keys-modifies-state): Remove keys of one track of a clip, by time or all of them. _Since 0.7.0._
+- [`anim.remove_track`](commands/anim.md#animremove_track-modifies-state): Remove a whole track (all its keys) from a clip. _Since 0.7.0._
+- [`anim.restore`](commands/anim.md#animrestore-modifies-state): Put a clip file back to a whole document, or delete it: the undo and redo of the anim.* edits. _Since 0.7.0._
+- [`anim.set_clip`](commands/anim.md#animset_clip-modifies-state): Set the duration, loop or description of a clip. _Since 0.7.0._
+- [`anim.set_event`](commands/anim.md#animset_event-modifies-state): Rename an event of a clip or replace its data. _Since 0.7.0._
+- [`anim.set_interp`](commands/anim.md#animset_interp-modifies-state): Set how selected keys reach the next key: interp or easing, and bezier tangents. _Since 0.7.0._
+- [`anim.set_keys`](commands/anim.md#animset_keys-modifies-state): Add or replace keys of one track of a clip, creating the track if it is missing. _Since 0.7.0._
 
 ### [api](commands/api.md)
 
@@ -270,7 +270,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [scene](commands/scene.md)
 
-- [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Not released yet._
+- [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Since 0.7.0._
 - [`prefab.save`](commands/scene.md#prefabsave-modifies-state): Save an entity of the running world, with its children, as a prefab file.
 - [`scene.ascii_edit`](commands/scene.md#sceneascii_edit-modifies-state): Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level. _Since 0.2.0._
 - [`scene.destroy`](commands/scene.md#scenedestroy-modifies-state): Destroy an entity and its children.
@@ -285,9 +285,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`scene.set_component`](commands/scene.md#sceneset_component-modifies-state): Add a component to an entity (if missing) and set the given fields.
 - [`scene.set_parent`](commands/scene.md#sceneset_parent-modifies-state): Move an entity under another entity, or to the top level of the scene. _Since 0.2.0._
 - [`scene.spawn`](commands/scene.md#scenespawn-modifies-state): Create an entity from entity JSON, or instantiate a prefab at a position.
-- [`skin.auto_weights`](commands/scene.md#skinauto_weights-modifies-state): Write the skin's automatic weights out as explicit ones, to paint over with skin.set_weights. _Not released yet._
-- [`skin.bind`](commands/scene.md#skinbind-modifies-state): Skin a Sprite to bones: add the SpriteSkin, name its bones and bind it at the pose they have now. _Not released yet._
-- [`skin.set_weights`](commands/scene.md#skinset_weights-modifies-state): Paint the bone weights of chosen vertices: set, add or smooth. _Not released yet._
+- [`skin.auto_weights`](commands/scene.md#skinauto_weights-modifies-state): Write the skin's automatic weights out as explicit ones, to paint over with skin.set_weights. _Since 0.7.0._
+- [`skin.bind`](commands/scene.md#skinbind-modifies-state): Skin a Sprite to bones: add the SpriteSkin, name its bones and bind it at the pose they have now. _Since 0.7.0._
+- [`skin.set_weights`](commands/scene.md#skinset_weights-modifies-state): Paint the bone weights of chosen vertices: set, add or smooth. _Since 0.7.0._
 - [`tilemap.cell_at`](commands/scene.md#tilemapcell_at): The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds). _Since 0.3.0._
 - [`tilemap.cell_to_world`](commands/scene.md#tilemapcell_to_world): The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds). _Since 0.3.0._
 - [`tilemap.set_tile`](commands/scene.md#tilemapset_tile-modifies-state): Change one tile of a Tilemap in the running scene, in place. _Since 0.3.0._
