@@ -298,12 +298,13 @@ A light source for 3D meshes. A directional light shines along the entity's forw
 
 Since 0.2.0.
 
-Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
+Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `model` | string | `""` | Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on the same entity (usual case: leave it empty). |
-| `clip` | string | `""` | Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported). |
+| `clip` | string | `""` | Name of the clip playing now: a glTF animation, or a key of `clips` (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported), or, for 2D clips, the fields rest where they were before the first clip drove them. |
+| `clips` | json | `{}` | Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as {"walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json"} (docs/ANIMATION.md, "2D clips"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): `clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants (found by EntityInfo name); those fields are a runtime pose that scene.save does not write. (not released yet, on main after 0.6.0) |
 | `speed` | float | `1.0` | Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen. Range 0.0..100.0. |
 | `loop` | bool | `true` | true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event. |
 | `playing` | bool | `true` | Set false to pause, true to play. |
@@ -311,6 +312,7 @@ Plays the skeletal animation clips of a skinned glTF model (the model of the Mes
 | `params` | json | `{}` | State machine parameters and their start values, an object such as {"speed": 0, "grounded": true}. Numbers and booleans. Scripts change them with animator.set(name, value); transitions read them. |
 | `states` | json | `{}` | State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. `onEnter` is the name of a game event sent when the state starts (world.on). Example: {"idle": {"clip": "Idle"}, "run": {"clip": "Run", "onEnter": "started_running"}}. |
 | `transitions` | json | `[]` | State machine transitions, an array checked in order every step; the first that matches fires. Each: {from (a state, or "*"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is conditions joined by "&&": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current non-looping clip ended (alone or together with `when`). |
+| `layers` | json | `[]` | 2D clips only: layers played at the same time as the main clip, an array of {name, clip \| states (with transitions and state, like the Animator's own), weight (0..1, default 1), mode ("override" blends toward the layer's pose, "additive" adds the layer's change from its first pose; default override), mask (paths such as ["body/arm_l"]: the layer drives only the parts under them; empty = all), speed (default 1), loop}. Layers apply in order over the main clip. A layer at weight 0 is not playing; it starts from its first pose when its weight rises. Example: [{"name": "arms", "clip": "shoot", "mask": ["body/arm_l"]}]. (not released yet, on main after 0.6.0) |
 | `events` | json | `[]` | Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. |
 | `state` | string | `""` | State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire. |
 | `time` | float | `0.0` | Runtime state: seconds into the current clip. Assigning it seeks (no events fire). Runtime-only (not saved). |
@@ -7120,12 +7122,12 @@ declare module "factoria" {
   export const i18n: I18nAPI;
 
   /**
-   * Plays the clips of a skinned glTF on an entity with an Animator component (entity.animator). The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set("speed", 3)`; `hero.animator.on("footstep", () => audio.play("assets/step.wav"))`.
+   * Plays the clips of an entity with an Animator component (entity.animator): the animations of a skinned glTF, or the keyframed 2D clips (`*.anim.json`) listed in the Animator's `clips`. The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set("speed", 3)`; `hero.animator.on("footstep", () => audio.play("assets/step.wav"))`.
    * @since 0.2.0
    */
   export interface AnimatorAPI {
     /**
-     * Starts a clip (a glTF animation name, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist.
+     * Starts a clip (a glTF animation name or a key of the Animator's `clips`, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist.
      * @since 0.2.0
      */
     play(clip: string, fadeSeconds?: number): void;
@@ -7150,15 +7152,30 @@ declare module "factoria" {
      */
     trigger(name: string): void;
     /**
-     * Names of the animation clips of the model.
+     * Names of the animation clips: those of the model, or the keys of the Animator's `clips` for 2D clip files.
      * @since 0.2.0
      */
     readonly clips: string[];
     /**
-     * Length of a clip in seconds.
+     * Length of a clip in seconds (the `duration` of the file for a 2D clip).
      * @since 0.2.0
      */
     duration(clip: string): number;
+    /**
+     * 2D clips only: poses the entity and its children at `time` seconds into `clip` without playing (time is clamped to the clip). The Animator stays paused on that pose; use it for previews, thumbnails and tests. Throws with the clip names when the clip does not exist, or with the file and JSON pointer when a track does not fit the entity.
+     * @since unreleased
+     */
+    sample(clip: string, time: number): void;
+    /**
+     * 2D clips only: sets the weight (0..1) of the layer called `layer` in the Animator's `layers`. At 0 the layer is not playing; it starts from its first pose when the weight rises. Throws with the layer names when there is no such layer.
+     * @since unreleased
+     */
+    setLayerWeight(layer: string, weight: number): void;
+    /**
+     * 2D clips only: makes the layer called `layer` play `clip` (a key of `clips`), cross-fading over `fadeSeconds` (default: the component's `fade`). A layer that runs its own `states` cannot be driven this way.
+     * @since unreleased
+     */
+    playLayer(layer: string, clip: string, fadeSeconds?: number): void;
     /**
      * Listens to a game event of THIS entity's animator: a clip event from the Animator's `events`, a state's `onEnter` name, or "anim.finished". Returns the unsubscribe function. world.on(name, fn) hears every entity.
      * @since 0.2.0
@@ -8780,7 +8797,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
+   * Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
    * 
    * Category: 3D
    * @since 0.2.0
@@ -8792,10 +8809,15 @@ declare module "factoria" {
      */
     model: string;
     /**
-     * Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported).
+     * Name of the clip playing now: a glTF animation, or a key of `clips` (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported), or, for 2D clips, the fields rest where they were before the first clip drove them.
      * @since 0.2.0
      */
     clip: string;
+    /**
+     * Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as {"walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json"} (docs/ANIMATION.md, "2D clips"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): `clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants (found by EntityInfo name); those fields are a runtime pose that scene.save does not write. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    clips: any;
     /**
      * Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.
      * @since 0.2.0
@@ -8831,6 +8853,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     transitions: any;
+    /**
+     * 2D clips only: layers played at the same time as the main clip, an array of {name, clip | states (with transitions and state, like the Animator's own), weight (0..1, default 1), mode ("override" blends toward the layer's pose, "additive" adds the layer's change from its first pose; default override), mask (paths such as ["body/arm_l"]: the layer drives only the parts under them; empty = all), speed (default 1), loop}. Layers apply in order over the main clip. A layer at weight 0 is not playing; it starts from its first pose when its weight rises. Example: [{"name": "arms", "clip": "shoot", "mask": ["body/arm_l"]}]. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    layers: any;
     /**
      * Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. Returns a plain-object COPY; assign a new value to write.
      * @since 0.2.0
@@ -11528,7 +11555,7 @@ declare module "factoria" {
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
-    Animator: { model?: string; clip?: string; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; events?: any; state?: string; time?: number; values?: any };
+    Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };

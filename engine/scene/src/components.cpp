@@ -850,18 +850,27 @@ void register_builtin_components(TypeRegistry& r) {
         .field("castShadows", &Light::castShadows, "Cast shadows. Only supported on directional lights for now.");
 
     r.add<Animator>("Animator",
-                    "Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same "
-                    "entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state "
-                    "machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays "
-                    "match. Scripts: entity.animator.play(\"Run\", 0.2), .set(\"speed\", 3), .stop(); events reach "
-                    "world.on(name, ...).",
+                    "Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the "
+                    "same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` "
+                    "(*.anim.json files that animate fields of this entity and its children: position, rotation.z, "
+                    "color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state "
+                    "machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so "
+                    "headless runs and replays match. Scripts: entity.animator.play(\"Run\", 0.2), .set(\"speed\", 3), "
+                    ".stop(); events reach world.on(name, ...).",
                     "3D")
         .field("model", &Animator::model,
                "Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on "
                "the same entity (usual case: leave it empty).")
         .field("clip", &Animator::clip,
-               "Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches "
-               "clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported).")
+               "Name of the clip playing now: a glTF animation, or a key of `clips` (see entity.animator.clips). Assigning it "
+               "at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported), "
+               "or, for 2D clips, the fields rest where they were before the first clip drove them.")
+        .field("clips", &Animator::clips,
+               "Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as "
+               "{\"walk\": \"anim/hero_walk.anim.json\", \"idle\": \"anim/hero_idle.anim.json\"} (docs/ANIMATION.md, "
+               "\"2D clips\"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): "
+               "`clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants "
+               "(found by EntityInfo name); those fields are a runtime pose that scene.save does not write.")
         .field("speed", &Animator::speed, "Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.").range(0, 100)
         .field("loop", &Animator::loop,
                "true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event.")
@@ -880,6 +889,13 @@ void register_builtin_components(TypeRegistry& r) {
                "conditions joined by \"&&\": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). "
                "A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current "
                "non-looping clip ended (alone or together with `when`).")
+        .field("layers", &Animator::layers,
+               "2D clips only: layers played at the same time as the main clip, an array of {name, clip | states (with "
+               "transitions and state, like the Animator's own), weight (0..1, default 1), mode (\"override\" blends toward the "
+               "layer's pose, \"additive\" adds the layer's change from its first pose; default override), mask (paths such as "
+               "[\"body/arm_l\"]: the layer drives only the parts under them; empty = all), speed (default 1), loop}. "
+               "Layers apply in order over the main clip. A layer at weight 0 is not playing; it starts from its first pose "
+               "when its weight rises. Example: [{\"name\": \"arms\", \"clip\": \"shoot\", \"mask\": [\"body/arm_l\"]}].")
         .field("events", &Animator::events,
                "Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event "
                "`name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). "

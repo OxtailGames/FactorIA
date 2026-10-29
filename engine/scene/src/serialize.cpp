@@ -601,6 +601,20 @@ bool skip_spawned_subtree(const World& world, Entity e, const EntityJsonOptions&
     }
     return true;
 }
+
+// Puts the rest value of every posed field of component `t` of `e` in `c` (the component's JSON): a field equal to its
+// default is left out unless `includeDefaults`, like component_to_json does.
+void apply_pose_rest(const PoseRest& pose, Entity e, const TypeInfo& t, bool includeDefaults, Json& c) {
+    const auto first = std::lower_bound(pose.entries.begin(), pose.entries.end(), e.bits(),
+                                        [](const PoseRestEntry& r, std::uint64_t bits) { return r.entity.bits() < bits; });
+    for (auto it = first; it != pose.entries.end() && it->entity == e; ++it) {
+        const PoseRestEntry& r = *it;
+        if (r.type != &t) continue;
+        DefaultObject def(t);
+        if (!includeDefaults && r.value == field_to_json(*r.field, def.get())) c.erase(r.field->name);
+        else c[r.field->name] = r.value;
+    }
+}
 }  // namespace
 
 Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts) {
@@ -620,6 +634,7 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
     for (const TypeInfo* t : world.components_of(e)) {
         if (t->name == "EntityInfo") continue;
         Json c = component_to_json(world, e, *t, opts.includeDefaults, opts.includeRuntime);
+        if (opts.poseRest) apply_pose_rest(*opts.poseRest, e, *t, opts.includeDefaults, c);
         if (t->name == "Transform" && c.empty()) continue;  // default transform is implicit
         comps[t->name] = std::move(c);
     }
@@ -745,9 +760,11 @@ Json settings_to_json(const World& world) {
 }  // namespace
 
 Json save_scene(const World& world, bool skipSpawned, SpawnedSkip* skipped) {
+    const PoseRest pose = collect_pose_rest(world);
     EntityJsonOptions eo;
     eo.skipSpawned = skipSpawned;
     eo.skipped = skipped;
+    if (!pose.empty()) eo.poseRest = &pose;
     Json scene = Json::object();
     scene["format"] = kSceneFormat;
     scene["settings"] = settings_to_json(world);
@@ -857,7 +874,10 @@ Entity instantiate_prefab(World& world, std::string_view prefabPath, Entity pare
 Json make_prefab(const World& world, Entity root) {
     Json p = Json::object();
     p["format"] = kPrefabFormat;
-    p["entity"] = entity_to_json(world, root);
+    const PoseRest pose = collect_pose_rest(world);
+    EntityJsonOptions eo;
+    if (!pose.empty()) eo.poseRest = &pose;
+    p["entity"] = entity_to_json(world, root, eo);
     return p;
 }
 
