@@ -61,7 +61,7 @@ void Editor::ai_review_request(const std::string& kind, int count, const std::st
         cfg = aiConfig_;
         if (cfg.providers.empty()) cfg = ai::default_config();
     }
-    const ai::RoleConfig rc = cfg.role(role);
+    const ai::RoleConfig rc = cfg.effective_role(role);  // off: the Orchestrator's provider and model
     AiChat& chat = chat_.add(static_cast<i64>(std::time(nullptr)));  // its own tab: the orchestrator's chat is not touched
     chat.title = kind == "art" ? "Art critique" : "Game review";
     aiTabForce_ = 2;
@@ -195,6 +195,12 @@ void Editor::ai_review_tick() {
 
 void Editor::draw_ai_review_row(bool gameRuns) {
     const bool busy = ai_run_count() >= ai_max_runs() || aiReview_.active;
+    bool artOff = false, gameOff = false;  // the critic / reviewer role is turned off: the review runs on the Orchestrator's model
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        artOff = !aiConfig_.role_enabled(ai::kRoleArtCritic);
+        gameOff = !aiConfig_.role_enabled(ai::kRoleReviewer);
+    }
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("Review:");
     ImGui::SameLine();
@@ -206,7 +212,8 @@ void Editor::draw_ai_review_row(bool gameRuns) {
     }
     at_track("ai:review:art", !(busy || gameRuns));
     ImGui::SetItemTooltip("Read-only art critics look at the game (screenshots of every scene) and score its art from 0 to 10.\n"
-                          "They cannot change anything. It asks before it starts, and costs tokens.");
+                          "They cannot change anything. It asks before it starts, and costs tokens.%s",
+                          artOff ? "\nThe Art critic role is off: it runs on the Orchestrator's provider and model." : "");
     ImGui::SameLine();
     if (ImGui::Button("Game review")) {
         aiReviewAsk_ = "game";
@@ -214,7 +221,8 @@ void Editor::draw_ai_review_row(bool gameRuns) {
     }
     at_track("ai:review:game", !(busy || gameRuns));
     ImGui::SetItemTooltip("Read-only reviewers play the game and score it from 0 to 10, with the problems they found.\n"
-                          "They cannot change anything. It asks before it starts, and costs tokens.");
+                          "They cannot change anything. It asks before it starts, and costs tokens.%s",
+                          gameOff ? "\nThe Reviewer role is off: it runs on the Orchestrator's provider and model." : "");
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Reviews...")) {
@@ -251,11 +259,12 @@ void Editor::draw_ai_review_row(bool gameRuns) {
         ai::RoleConfig rc;
         {
             std::lock_guard<std::mutex> lock(aiMu_);
-            rc = (aiConfig_.providers.empty() ? ai::default_config() : aiConfig_).role(role);
+            rc = (aiConfig_.providers.empty() ? ai::default_config() : aiConfig_).effective_role(role);
         }
         const int n = std::clamp(aiReviewCount_, 1, ai::kMaxReviewers);
         ImGui::Text("%s: %d reviewer%s, one after another.", art ? "Art critique" : "Game review", n, n == 1 ? "" : "s");
-        ImGui::TextDisabled("Role %s: %s%s", role.c_str(), rc.provider.c_str(), rc.model.empty() ? "" : (" / " + rc.model).c_str());
+        ImGui::TextDisabled("%s%s: %s%s", ai::role_display_name(role), rc.enabled ? "" : " (off, using the Orchestrator's model)",
+                            rc.provider.c_str(), rc.model.empty() ? "" : (" / " + rc.model).c_str());
         ImGui::Text("Focus: %s", aiReviewFocus_.empty() ? "the whole game" : aiReviewFocus_.c_str());
         ImGui::Spacing();
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32);

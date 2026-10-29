@@ -89,6 +89,9 @@ struct PromptContext {
     std::string extra;
     std::string delegateTool;  // the tool the orchestrator delegates with; "" = agent_delegate (CLI agents: ai_run over MCP)
     AssetSources assetSources; // the sites the user listed for assets (ai.json "assetSources"); roles that look for assets read them
+    // Delegable roles the user turned off (AiConfig::disabled_delegable_roles). The orchestrator's prompt lists only the
+    // others and says it does the work of these itself, with the art/audio guidance the role's own prompt would give.
+    std::vector<std::string> disabledRoles;
 };
 // The "Asset sources" section of the prompt of the roles that look for assets: the listed sites per category, the rule (prefer
 // them, or use ONLY them when `onlyListed`) and how to record where an asset came from. "" when no site is listed.

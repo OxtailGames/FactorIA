@@ -168,7 +168,12 @@ The height is kept with the layout.
 - **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
   the worker role, small mechanical edits to the fast role, the art to the artist role and the sound to the audio role
   by itself. The `artCritic` and `reviewer` roles never run unless you ask (see **Reviews** below). **Roles...** at the
-  top of the panel picks the provider, model and effort of each of the seven roles (hover it to see the current ones); Save writes them into `ai.json`
+  top of the panel picks the provider, model and effort of each of the seven roles, listed with readable names in three
+  groups (Orchestration and code: Orchestrator, Worker, Fast; Art and audio: Artist, Audio; Critics and reviewers: Art
+  critic, Reviewer; hover **Roles...** to see the current ones). Each role has an **Enabled** checkbox: untick one you do
+  not want to use and the orchestrator does that work itself (nothing is delegated to it; for the Art critic and the
+  Reviewer, the review buttons still work but run on the orchestrator's model). The orchestrator's box is ticked and cannot
+  be changed. Save writes them into `ai.json`
   and the next message uses them (see `docs/AI_PROVIDERS.md`, Roles). The **Model** column is a dropdown of the models
   the provider really offers, fetched when the project opens; **Refresh models** asks again (new releases show up), and
   **Other...** types a name that is not listed (see `docs/AI_PROVIDERS.md`, Choosing a model). **Roles...** is disabled

@@ -41,9 +41,11 @@ namespace {
 constexpr const auto& kRoleNames = ai::kAllRoles;  // all seven, in the order of the Roles window
 constexpr const char* kEfforts[] = {"", "low", "medium", "high", "xhigh", "max"};  // "" = the role's default
 constexpr u64 kContextLimits[] = {0, 100000, 200000, 300000, 400000, 500000, 600000, 800000};  // 0 = the model's window
-constexpr const char* kRolesBlurb = "Your messages go to the orchestrator. It answers and plans, and hands implementation work to\n"
-                                    "the worker, small mechanical edits to fast, art to the artist and sound to audio by itself.\n"
-                                    "artCritic and reviewer only run when you press Art critique or Game review; they cannot change anything.";
+constexpr const char* kRolesBlurb = "Your messages go to the Orchestrator. It answers and plans, and hands implementation work to\n"
+                                    "the Worker, small mechanical edits to Fast, art to the Artist and sound to Audio by itself.\n"
+                                    "A role you untick is not used: the Orchestrator does that work itself (nobody else is started).\n"
+                                    "The Art critic and the Reviewer only run when you press Art critique or Game review; they cannot\n"
+                                    "change anything. Unticked, their reviews run on the Orchestrator's model.";
 constexpr std::size_t kMaxPendingImages = 10;  // per message (the API providers take 20 and the CLIs read each one)
 constexpr float kThumb = 56.0f;                // pending pictures
 constexpr float kThumbSent = 48.0f;            // pictures in the transcript
@@ -568,7 +570,7 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
     opt.mcpUrl = run.mcp.url();
     AiRun* const r = &run;
     opt.onProcessStart = [r](long long pid, const std::string& role) { r->process_started(pid, role); };
-    run.provider = cfg.role(opt.role).provider;
+    run.provider = cfg.effective_role(opt.role).provider;
     auto proxy = make_proxy_registry(run);
     {
         std::lock_guard<std::mutex> lock(run.mu);
@@ -776,7 +778,7 @@ void Editor::ai_drain_run(AiRun& run) {
         c.scrollDown = true;
         switch (ev.type) {
             case T::SessionStart:
-                note(ChatItem::Kind::Info, "session started (" + ev.role + ")", ev.depth);
+                note(ChatItem::Kind::Info, "session started (" + std::string(ai::role_display_name(ev.role)) + ")", ev.depth);
                 break;
             case T::TextDelta:
                 if (items.empty() || items.back().kind != ChatItem::Kind::Assistant || items.back().depth != ev.depth) {
@@ -887,7 +889,8 @@ void Editor::ai_drain_run(AiRun& run) {
             ChatItem head;
             head.kind = dg.ok ? ChatItem::Kind::Info : ChatItem::Kind::Error;
             head.depth = 1;
-            head.text = dg.ok ? dg.info.role + " agent finished" : dg.info.role + " agent failed: " + dg.error;
+            const std::string who = ai::role_display_name(dg.info.role);
+            head.text = dg.ok ? who + " agent finished" : who + " agent failed: " + dg.error;
             items.push_back(std::move(head));
             std::string streamed;  // the report is usually the worker's last streamed text: do not print it twice
             for (std::size_t k = items.size() > 40 ? items.size() - 40 : 0; k < items.size(); ++k)
@@ -963,20 +966,41 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
         std::lock_guard<std::mutex> lock(aiMu_);
         models = aiModels_;
     }
-    if (ImGui::BeginTable("##roles", 5, ImGuiTableFlags_SizingFixedFit)) {
-        ImGui::TableSetupColumn("Role");
-        ImGui::TableSetupColumn("Provider");
-        ImGui::TableSetupColumn("Model");
-        ImGui::TableSetupColumn("Effort");
-        ImGui::TableSetupColumn("Context");
+    for (int group = 0; group < ai::kRoleGroupCount; ++group) {
+      ImGui::SeparatorText(ai::role_group_title(group));
+      if (ImGui::BeginTable(("##roles" + std::to_string(group)).c_str(), 6, ImGuiTableFlags_SizingFixedFit)) {
+        // Fixed widths so the three tables line up like one.
+        ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, 64);
+        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_WidthFixed, 96);
+        ImGui::TableSetupColumn("Provider", ImGuiTableColumnFlags_WidthFixed, 180);
+        ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthFixed, 270);
+        ImGui::TableSetupColumn("Effort", ImGuiTableColumnFlags_WidthFixed, 90);
+        ImGui::TableSetupColumn("Context", ImGuiTableColumnFlags_WidthFixed, 90);
         ImGui::TableHeadersRow();
         for (const char* name : kRoleNames) {
+            if (ai::role_group(name) != group) continue;
             ai::RoleConfig& r = aiRolesEdit_[name];
             ImGui::PushID(name);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
+            const bool orchestrator = std::string_view(name) == ai::kRoleOrchestrator;
+            {
+                bool on = orchestrator || r.enabled;
+                ImGui::BeginDisabled(orchestrator);  // the orchestrator is always there
+                if (ImGui::Checkbox("##enabled", &on) && !orchestrator) r.enabled = on;
+                at_track(std::string("ai:roles:enabled:") + name, !orchestrator);
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip)) {
+                    if (orchestrator) ImGui::SetTooltip("The Orchestrator is always on: it talks to you and does the work of\nevery role that is turned off.");
+                    else if (ai::is_review_role(name)) ImGui::SetTooltip("Off: the %s button still works, but the review runs on the\nOrchestrator's provider, model and effort (still read-only).", ai::role_display_name(name));
+                    else ImGui::SetTooltip("Off: the Orchestrator does the work of the %s role itself\nand nothing is delegated to it.", ai::role_display_name(name));
+                }
+            }
+            ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(name);
+            ImGui::TextUnformatted(ai::role_display_name(name));
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", ai::role_summary(name));
+            ImGui::BeginDisabled(!orchestrator && !r.enabled);  // an off role keeps its settings but they are not used
             ImGui::TableNextColumn();
             ImGui::SetNextItemWidth(170);
             if (ImGui::BeginCombo("##provider", r.provider.c_str())) {
@@ -986,7 +1010,7 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
                     const ai::ProviderStatus* st = found == status.end() ? nullptr : &*found;
                     const std::string label = pname + (st && !st->available ? "  (not available)" : "");
                     if (ImGui::Selectable(label.c_str(), r.provider == pname) && r.provider != pname) {
-                        r = {pname, "", "", r.maxTokens, r.maxContextTokens};  // another provider: its default model and effort
+                        r = {pname, "", "", r.maxTokens, r.maxContextTokens, r.enabled};  // another provider: its default model and effort
                         aiRolesTyping_.erase(name);
                     }
                     if (st && ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", st->detail.c_str(), st->available ? "" : st->hint.c_str());
@@ -1071,9 +1095,11 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
             ImGui::SetItemTooltip("Most context a session of this role keeps. When it gets there, the earlier part of the\n"
                                   "conversation is replaced by a summary, so each message reads (and costs) less.\n"
                                   "full = the model's whole window. Claude Code and the Anthropic API; other providers ignore it.");
+            ImGui::EndDisabled();
             ImGui::PopID();
         }
         ImGui::EndTable();
+      }
     }
     const std::string path = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
     ImGui::TextDisabled("Saved in %s", path.c_str());
@@ -1096,7 +1122,7 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
         for (const char* extra : ai::kExtraRoles) {
             const ai::RoleConfig was = cfg.role(extra), now = toSave[extra];
             if (was.provider == now.provider && was.model == now.model && was.effort == now.effort &&
-                was.maxContextTokens == now.maxContextTokens)
+                was.maxContextTokens == now.maxContextTokens && was.enabled == now.enabled)
                 toSave.erase(extra);
         }
         if (auto saved = ai::save_roles(toSave, path); !saved) {
@@ -1114,6 +1140,7 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+    at_track("ai:roles:cancel");
     ImGui::EndPopup();
 }
 
@@ -1234,6 +1261,7 @@ void Editor::draw_ai_panel() {
     const std::string providerName = cfg.role(ai::kRoleOrchestrator).provider;
     ImGui::BeginDisabled(!detected);  // before the first detection aiConfig_ is empty: Save would write roles without providers
     if (ImGui::Button("Roles...")) aiRolesOpen_ = true;
+    at_track("ai:roles", detected);
     ImGui::EndDisabled();
     if (!detected && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::SetTooltip("Reading ai.json...");
@@ -1241,7 +1269,12 @@ void Editor::draw_ai_panel() {
         std::string roles;  // the current roles live in the tooltip, not on the panel
         for (const char* name : kRoleNames) {
             const ai::RoleConfig rc = cfg.role(name);
-            roles += "\n" + std::string(name) + ": " + rc.provider + (rc.model.empty() ? "" : " / " + rc.model) +
+            roles += "\n" + std::string(ai::role_display_name(name)) + ": ";
+            if (!rc.enabled) {
+                roles += std::string("off (") + (ai::is_review_role(name) ? "uses the Orchestrator's model" : "the Orchestrator does it") + ")";
+                continue;
+            }
+            roles += rc.provider + (rc.model.empty() ? "" : " / " + rc.model) +
                      (rc.maxContextTokens ? " (" + format_tokens(rc.maxContextTokens) + ")" : "");
         }
         ImGui::SetTooltip("Choose the provider and model of each role. Takes effect with the next message.\n%s", roles.c_str());
@@ -1347,7 +1380,7 @@ void Editor::draw_ai_panel() {
                 }
                 break;
             case ChatItem::Kind::Assistant:
-                ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.6f, 1), "Assistant%s", c.role.empty() ? "" : (" (" + c.role + ")").c_str());
+                ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.6f, 1), "Assistant%s", c.role.empty() ? "" : (" (" + std::string(ai::role_display_name(c.role)) + ")").c_str());
                 message_text("##text", c.text);
                 break;
             case ChatItem::Kind::Thinking:
