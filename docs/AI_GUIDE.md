@@ -1511,6 +1511,43 @@ Animation runs in the fixed step, so headless tests and replays match (`game.ste
 The model is drawn deformed on the GPU (up to 64 joints; more joints = bind pose plus a warning), shadows included.
 Each animated model is its own draw call, so keep crowds of animated characters modest.
 
+### 9.25.2 Building a character in parts, and animating it with commands
+
+A 2D character made of separate parts (head, body, arms, legs) animates better than a flat sheet and you can fix one pose
+without redrawing everything. The recipe, in order:
+
+1. **Parts as child Sprites, pivots at the joints.** One entity per part under the character entity; the pivot of each Sprite is
+   the point it turns around (the shoulder for an arm: `pivot [0.5, 1]` for an arm that hangs down), and the child's
+   `Transform.position` is where that joint sits on its parent. Order the layers with `Sprite.layer` (the far arm and leg
+   behind the body, the near ones in front). Names matter: clips find parts by the names from the character down (`"body/arm_l"`).
+2. **Bones where a limb must bend** (a leg, a tail, a scarf), not for rigid parts: `bones.create {parent, points: [[0,40],[0,20],[0,0]],
+   names: ["thigh","shin"]}`, then `skin.bind {entity: "leg", root: "thigh", mesh: [4, 8]}` skins the leg Sprite to them at the pose
+   they have now. `skin.auto_weights` writes the automatic weights out and `skin.set_weights {vertices: {rect: [x0,y0,x1,y1]},
+   bone: "shin", weight: 1}` paints them (`mode: "smooth"` blends the seams). Keep the grid small.
+3. **IK for feet and hands** that must touch something: an `IK2D` on the last bone with `target` an empty entity, and let the
+   clip move the target instead of the bones (`{"path": "foot_target", "field": "position"}`).
+4. **Clips with commands.** `anim.create_clip` then `anim.set_keys`, one track per part and field; first and last key equal for a
+   loop. Hook it up: `scene.set_component {id: "hero", component: "Animator", fields: {clips: {walk: "anim/hero_walk.anim.json"}}}`.
+5. **Look, then check.** `anim.filmstrip {entity: "hero", clip: "walk", frames: 8, onionSkin: true}` draws the whole motion in one
+   picture; judge the arc of the limbs and any jump between poses. `anim.check {entity: "hero"}` lists what is wrong in words
+   (`loop_jump`, `unknown_part`, `leaves_view`, `ik_out_of_reach`, `no_change`). Fix with `anim.set_keys`, `anim.move_keys`,
+   `anim.set_interp`; every command returns an `undo`. `factoria validate` repeats the file and part checks.
+
+```json
+{"command":"anim.create_clip","args":{"path":"anim/hero_walk.anim.json","duration":0.8,"loop":true}}
+{"command":"anim.set_keys","args":{"path":"anim/hero_walk.anim.json","entity":"hero","track":{"path":"body/arm_l","field":"rotation.z"},
+  "keys":[{"t":0,"value":-30},{"t":0.4,"value":30,"interp":"quadInOut"},{"t":0.8,"value":-30}]}}
+{"command":"anim.set_keys","args":{"path":"anim/hero_walk.anim.json","entity":"hero","track":{"path":"body/arm_r","field":"rotation.z"},
+  "keys":[{"t":0,"value":30},{"t":0.4,"value":-30,"interp":"quadInOut"},{"t":0.8,"value":30}]}}
+{"command":"anim.set_keys","args":{"path":"anim/hero_walk.anim.json","entity":"hero","track":{"path":"body","field":"position.y"},
+  "keys":[{"t":0,"value":0},{"t":0.2,"value":3},{"t":0.4,"value":0},{"t":0.6,"value":3},{"t":0.8,"value":0}]}}
+{"command":"anim.add_event","args":{"path":"anim/hero_walk.anim.json","t":0.4,"name":"footstep"}}
+{"command":"anim.filmstrip","args":{"entity":"hero","clip":"walk","frames":8,"onionSkin":true}}
+{"command":"anim.check","args":{"entity":"hero"}}
+```
+
+Full reference: `docs_read {"name":"animation"}`, sections "2D clips", "Commands for clips" and "Bones and IK".
+
 ### 9.25.1 Analytics with consent and remote config
 
 For a game that must count what players do or tune values without a new build ([ANALYTICS.md](ANALYTICS.md); `docs_read {"name":"analytics"}`).
