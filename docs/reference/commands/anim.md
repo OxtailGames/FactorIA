@@ -4,7 +4,7 @@
 
 ## `anim.add_event` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Add an event to a clip: a game event sent when the clip passes its time.
 
@@ -20,7 +20,7 @@ The event {t, name, data?} reaches world.on(name, fn) and entity.animator.on(nam
 
 ## `anim.add_track` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Add a track to a clip, with keys or the part's current value as its first key.
 
@@ -36,7 +36,7 @@ Add a track to a clip, with keys or the part's current value as its first key.
 
 ## `anim.check` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Find what is wrong with a clip, and with how it fits its character.
 
@@ -51,7 +51,7 @@ Checks clips and returns {checked, findings, ok, samples, notes}. Each finding i
 
 ## `anim.create_clip` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Write a new keyframed 2D clip file (*.anim.json).
 
@@ -69,7 +69,7 @@ Creates the file with `duration` seconds, `loop`, and optionally its `tracks` an
 
 ## `anim.filmstrip`
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 One picture with a grid of a clip's poses, to see the whole motion at once.
 
@@ -88,7 +88,7 @@ Poses the entity as `clip` at `frames` evenly spaced times (a looping clip: 0, d
 
 ## `anim.list`
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state.
 
@@ -102,7 +102,7 @@ With `entity`: its Animator's state (`clip`, `time`, `playing`, `state`, `speed`
 
 ## `anim.move_event` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Move an event of a clip to another time.
 
@@ -117,7 +117,7 @@ Move an event of a clip to another time.
 
 ## `anim.move_keys` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Move and scale a selection of keys in time.
 
@@ -134,7 +134,7 @@ Move and scale a selection of keys in time.
 
 ## `anim.pose` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Pose an entity as one of its clips is at a time, and leave it there.
 
@@ -148,7 +148,7 @@ Pose an entity as one of its clips is at a time, and leave it there.
 
 ## `anim.remove_event` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Remove an event from a clip.
 
@@ -161,7 +161,7 @@ Remove an event from a clip.
 
 ## `anim.remove_keys` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Remove keys of one track of a clip, by time or all of them.
 
@@ -176,7 +176,7 @@ Remove keys of one track of a clip, by time or all of them.
 
 ## `anim.remove_track` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Remove a whole track (all its keys) from a clip.
 
@@ -189,7 +189,7 @@ Remove a whole track (all its keys) from a clip.
 
 ## `anim.restore` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Put a clip file back to a whole document, or delete it: the undo and redo of the anim.* edits.
 
@@ -202,7 +202,7 @@ Every editing command returns `undo` = {command: "anim.restore", args: {path, cl
 
 ## `anim.set_clip` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Set the duration, loop or description of a clip.
 
@@ -217,7 +217,7 @@ Give any of `duration` (seconds), `loop` and `doc`. A duration shorter than the 
 
 ## `anim.set_event` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Rename an event of a clip or replace its data.
 
@@ -232,7 +232,7 @@ Rename an event of a clip or replace its data.
 
 ## `anim.set_interp` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Set how selected keys reach the next key: interp or easing, and bezier tangents.
 
@@ -248,7 +248,7 @@ Set how selected keys reach the next key: interp or easing, and bezier tangents.
 
 ## `anim.set_keys` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Add or replace keys of one track of a clip, creating the track if it is missing.
 

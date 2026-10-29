@@ -4,7 +4,7 @@
 
 ## `bones.create` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Create a chain of Bone2D entities along points, under a parent.
 
@@ -200,7 +200,7 @@ Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, posit
 
 ## `skin.auto_weights` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Write the skin's automatic weights out as explicit ones, to paint over with skin.set_weights.
 
@@ -212,7 +212,7 @@ Computes what SpriteSkin.weights "auto" would give every vertex of the full mesh
 
 ## `skin.bind` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Skin a Sprite to bones: add the SpriteSkin, name its bones and bind it at the pose they have now.
 
@@ -227,7 +227,7 @@ Adds a SpriteSkin to the Sprite entity `entity` if it has none, sets its bones a
 
 ## `skin.set_weights` (modifies state)
 
-Not released yet (on main after 0.6.0).
+Since 0.7.0.
 
 Paint the bone weights of chosen vertices: set, add or smooth.
 
