@@ -186,12 +186,35 @@
         "author": { "type": "string", "description": "Person, studio or AI agent that made or chose the asset." },
         "source": { "type": "string", "description": "Where an imported asset came from: a URL or the original file path." },
         "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Date the asset was generated or imported (YYYY-MM-DD)." },
-        "notes": { "type": "string", "description": "Anything else (post-processing applied, edits made by hand)." }
+        "notes": { "type": "string", "description": "Anything else (post-processing applied, edits made by hand)." },
+        "recipe": {
+          "type": "object",
+          "description": "How to make this asset again, byte for byte: the command that made it, its arguments and the project files it read. Written by the offline makers (assets.rasterize_svg, assets.animate_svg, assets.bake_sheet...); assets.regenerate re-runs it, and `factoria validate` warns when an input changed since (a stale asset). Provider-made assets have none: they cost money and would give a different picture.",
+          "required": ["command", "args"],
+          "additionalProperties": false,
+          "properties": {
+            "command": { "type": "string", "description": "The command that made the asset (\"assets.animate_svg\")." },
+            "args": { "type": "object", "description": "The arguments that make the same bytes again: paths project-relative, `seed` explicit, nothing that names this machine." },
+            "inputs": {
+              "type": "array",
+              "description": "The project files the command read (an .anim.js module, an SVG, a prefab) with their hashes when the asset was made.",
+              "items": {
+                "type": "object",
+                "required": ["path", "sha256"],
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string", "description": "Project-relative path, forward slashes." },
+                  "sha256": { "type": "string", "description": "SHA-256 of the file in lowercase hex." }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "sheet": {
       "type": "object",
-      "description": "Sprite-sheet layout of an image: a grid SpriteAnimator can play (columns, rows) and its named clips. Written by assets.slice_sheet and the Aseprite importer.",
+      "description": "Sprite-sheet layout of an image: a grid SpriteAnimator can play (columns, rows) and its named clips. Written by assets.slice_sheet, assets.animate_svg, assets.bake_sheet and the Aseprite importer.",
       "additionalProperties": false,
       "required": ["columns", "rows"],
       "properties": {
@@ -200,6 +223,8 @@
         "frameWidth": { "type": "integer", "minimum": 1 },
         "frameHeight": { "type": "integer", "minimum": 1 },
         "frames": { "type": "integer", "minimum": 1, "description": "Number of frames used (row-major from the top-left); the last row may be partly empty." },
+        "padding": { "type": "integer", "minimum": 0, "description": "Transparent gutter in pixels around every cell (twice this between two cells): frame i's cell starts at x = padding + column * (frameWidth + 2 * padding), the same for y. Keeps filtered frames from bleeding into each other. 0 when absent." },
+        "pivot": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "Pivot of every frame, [x, y] in 0..1 of the frame from its top-left: the point that stays still. Sets Sprite.pivot when the sprite does not set its own. [0.5, 0.5] when absent." },
         "clips": {
           "type": "array",
           "description": "Named animations for SpriteAnimator (firstFrame, lastFrame, fps).",
@@ -212,7 +237,8 @@
               "firstFrame": { "type": "integer", "minimum": 0 },
               "lastFrame": { "type": "integer", "minimum": 0 },
               "fps": { "type": "number", "minimum": 0 },
-              "loop": { "type": "boolean" }
+              "loop": { "type": "boolean" },
+              "pivot": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "Pivot of this clip's frames; overrides the sheet's `pivot`." }
             }
           }
         }
