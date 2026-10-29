@@ -158,6 +158,8 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
 | `assets_import`, `assets_slice_sheet` | `assets.import`, `assets.slice_sheet` | Bring a file made elsewhere into `assets/` with its provenance, and make a sprite sheet playable by `SpriteAnimator` (section 9.23). |
 | `assets_generate_texture`, `assets_rasterize_svg` | `assets.generate_texture`, `assets.rasterize_svg` | Art with no image provider: a seeded material (paper, parchment, wood, planks, leather, fabric, stone, noises, gradients, vignette; tileable, with a normal map) and an SVG you write turned into a PNG. Section 9.23, "Art without an image provider". |
+| `assets_animate_svg` | `assets.animate_svg` | An animation you write as code (a JS module that returns the SVG of each frame, or one SVG with SMIL) baked into a sprite sheet PNG and its `sheet` entry, offline. Section 9.23, "Animations drawn with code". |
+| `assets_bake_sheet` | `assets.bake_sheet` | Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D with gradients, tweens, particles and scripted clips play and are captured frame by frame. Section 9.23, "Effects drawn by the engine, baked". |
 | `assets_draw_icon`, `assets_draw_capsules` | `assets.draw_icon`, `assets.draw_capsules` | Draw the game icon (1024x1024) and the Android adaptive-icon foreground from shapes and text, and the store page images (capsules, heroes, covers) at each store's sizes from key art and a logo, no image provider needed (docs: assets, exporting). |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
 | `engine_update_status` | `engine.update_status` | Whether FactorIA was replaced on disk after this server started (`restartDue`), the running and on-disk builds and the state of the project's `.mcp.json`. |
@@ -1353,11 +1355,45 @@ assets_rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmln
   `assets_rasterize_svg`. `clip-path`, `mask` and `<pattern>` fills (line hatching) work; no text, filters, `<use>` or CSS classes (they are drawn as
   nothing and named in `warnings`); in gradients write coordinates in percent (`x2="100%"`). Keep the SVG in the project
   (`assets/art/crest.svg`, then `source`) so you can edit it and rasterize again.
+- **Effects and animated art** you build from entities (Shape2D with gradients and strokes, particles, tweens, a scripted
+  explosion) are baked into a sprite sheet with `assets_bake_sheet {"path":"assets/fx/burst.png","prefab":"prefabs/burst.prefab.json","frames":16,"fps":24}`:
+  it plays the prefab alone in a private world and captures frames, and the sheet is one `Sprite` with a `SpriteAnimator`.
+  **Bake effects to save draw calls on mobile**: a glow of five shapes or a burst of particles is many draw calls on every
+  frame, a baked one is one. `clips` bakes named clips (`{"name":"die","call":"die"}` runs the behaviour's `die()`), `pivot`
+  keeps the origin still (feet: `[0.5, 1]`), `frameWidth` / `frameHeight` fix the cell. Its `pivot` is counted from the
+  top-left of the frame and `Sprite.pivot` from the bottom-left: set `Sprite.pivot` to `[x, 1 - y]`. It needs a GPU.
 - **Look at the picture** in the result, change one thing and call again with `overwrite: true`. The icon and the store
   images are `assets_draw_icon` and `assets_draw_capsules`; sounds are `assets_synth_sound`.
 - **Provenance** is recorded: a texture is `original` (not AI); an SVG you wrote counts as AI-made unless you pass
   `ai: false`. These are plain materials and vector shapes: say so to the user, who may want a real provider (or an
   artist) for the final art.
+
+**Animations drawn with code.** Motion that follows rules (a coin that turns, a pulsing orb, a flame, a loader, rain, waves, a
+UI sparkle) is code, not a drawing: `assets_animate_svg` bakes it into a sprite sheet and its `sheet` entry in one call, with
+no provider and no key. Write a module `art/coin_spin.anim.js` whose default export returns the SVG of one frame from
+`{t, frame, frames, fps, progress, params, rng}`, then bake it:
+
+```
+assets_animate_svg {"path":"assets/art/coin_spin.png","source":"art/coin_spin.anim.js","frames":12,"fps":12,"frameWidth":64,"padding":1,"params":{"face":"#f2c94c","back":"#b8902b"}}
+```
+
+- **Pick the way to make the motion.** Rule-based motion that stays inside a picture (spin, bob, pulse, sparkle, flicker,
+  waves, loaders, a UI shimmer): draw it with code (`assets_animate_svg`). It is deterministic, small, editable (change the
+  module and bake again) and free. Something the engine already animates (Shape2D, tweens, particles, scripts, a prefab that
+  moves): bake it from the engine into a sheet instead of redrawing it (`assets_bake_sheet`), or just play it live. Painted
+  frame-by-frame art, characters with a drawn style, anything a rule cannot express: ask an image provider (the cost is
+  one call per sheet: look, then decide); with no provider, tell the user.
+- **Write `progress`-driven frames.** `progress` is `frame / frames` for a looping clip, so the last frame leads into the first;
+  do not use `t` for a loop unless the period divides the clip. `rng()` changes every frame (flicker); `rngFor("key")` is the same
+  on every frame (what must stay put). `Math.random` and `Date` are seeded and fixed, never the real ones.
+- **Look and fix.** The result has the sheet as an image, the layout and warnings (a frame that draws nothing, shapes on the
+  cell edge, a loop that jumps). An error names `art/coin_spin.anim.js:LINE:COL` and the frame; the module sees only the
+  language (no engine API, no DOM, no files), so take data from `params`. `clips` makes `idle` and `run` from one module; `pivot`,
+  `padding`, `palette` (snap to the game's colours) and `style` (the painterly look of `assets_rasterize_svg`) are arguments.
+- **SMIL.** If you already have an animated SVG (`<animate>`, `<animateTransform>`, `<animateMotion>`), give it as `svg` (or as a
+  project `.svg` in `source`): it is sampled at each frame; what cannot be sampled (click events, CSS animations) is a warning.
+- **Provenance** is recorded as AI-made unless you pass `ai: false`, with a `recipe` (the module and its imports, hashed) that
+  makes the same sheet again.
 
 **Importing.** A file made elsewhere (downloaded, from an artist, exported from a tool) comes in with `assets.import`
 (MCP tool `assets_import`). It copies or converts the file into `assets/` and records the provenance in `assets.json`:

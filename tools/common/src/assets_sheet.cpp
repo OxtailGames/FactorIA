@@ -144,14 +144,20 @@ struct Grid {
 
 }  // namespace
 
-Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames, const std::vector<SheetClip>& clips) {
+Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames, const std::vector<SheetClip>& clips,
+                 int padding, std::optional<std::array<double, 2>> pivot) {
     Json sheet = Json::object({{"columns", columns}, {"rows", rows}, {"frameWidth", frameWidth},
                                {"frameHeight", frameHeight}, {"frames", frames}});
+    if (padding > 0) sheet["padding"] = padding;
+    if (pivot) sheet["pivot"] = Json::array({(*pivot)[0], (*pivot)[1]});
     if (!clips.empty()) {
         Json list = Json::array();
-        for (const SheetClip& c : clips)
-            list.push_back(Json::object({{"name", c.name}, {"firstFrame", c.firstFrame}, {"lastFrame", c.lastFrame},
-                                         {"fps", c.fps}, {"loop", true}}));
+        for (const SheetClip& c : clips) {
+            Json clip = Json::object({{"name", c.name}, {"firstFrame", c.firstFrame}, {"lastFrame", c.lastFrame},
+                                      {"fps", c.fps}, {"loop", c.loop}});
+            if (c.pivot) clip["pivot"] = Json::array({(*c.pivot)[0], (*c.pivot)[1]});
+            list.push_back(clip);
+        }
         sheet["clips"] = list;
     }
     return sheet;

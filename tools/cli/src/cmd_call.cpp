@@ -209,9 +209,12 @@ Command make_call_command() {
         }
         SessionOptions so = session_options(ctx);
         // perf.* run their own engine with the GPU inside this process, and a process has one graphics device: the outer
-        // engine must not take it.
+        // engine must not take it. assets.bake_sheet draws in a second engine of its own for the same reason.
         bool allPerf = true;
-        for (const Json& r : requests) allPerf = allPerf && r.value("command", std::string()).rfind("perf.", 0) == 0;
+        for (const Json& r : requests) {
+            const std::string cmd = r.value("command", std::string());
+            allPerf = allPerf && (cmd.rfind("perf.", 0) == 0 || cmd == "assets.bake_sheet");
+        }
         if (allPerf) so.gfx = Gfx::None;
         auto session = open_tool_session(ctx, so.gfx, &so);
         prepare_session(ctx, *session);

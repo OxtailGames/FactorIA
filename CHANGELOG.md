@@ -4,7 +4,36 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
-Assets made with code can be made again.
+Assets made with code can be made again, and animations are drawn with code.
+
+Animations drawn with code
+
+- `assets.animate_svg` (MCP `assets_animate_svg`) bakes an animation you write as code into a sprite sheet PNG and its
+  `sheet` entry of assets.json in one call. `source` is a project JavaScript module (`art/coin_spin.anim.js`) whose default
+  export `frame({t, frame, frames, fps, progress, params, rng})` returns the SVG of each frame; it runs in a sandboxed
+  QuickJS context (the language only: no engine bindings, no DOM, no timers, no files; imports of project files with a
+  relative path), with a seeded `Math.random`, a fixed `Date`, a time limit per frame (`timeLimitMs`) and a memory limit.
+  A mistake names the module, line, column and frame. `svg` (or a `.svg` source) is one SVG with SMIL animation
+  (`<animate>`, `<set>`, `<animateTransform>`, `<animateMotion>` with `values`, `keyTimes`, `keySplines`, `begin` sync-bases,
+  `repeatCount`, `fill="freeze"`...) sampled at every frame; what is not sampled is a warning that names the element.
+- Every frame goes through the same rasterizer as `assets.rasterize_svg` (same `style`, `styleStrength` and `seed`), is
+  snapped to an optional `palette`, and is laid out in `frameWidth` x `frameHeight` cells with a `padding` gutter and a
+  `pivot` recorded in the sheet entry. `clips` makes several named clips from one module, one after another, each with its
+  own `fps`, `loop` and `pivot`. The result returns the sheet as an image, its layout and warnings (frames that draw
+  nothing, shapes on the edge of the cell, a loop whose last frame jumps from the first).
+- The provenance of the sheet is `generated` (`ai` true unless you pass `ai: false`, `author` and `license`) with a
+  `recipe`: the command, its arguments, and the module (and what it imported) with its SHA-256, so the sheet can be made
+  again byte for byte.
+- `assets.bake_sheet` bakes an entity the engine draws into a sprite sheet: a prefab, or an entity of a scene with its
+  children, plays alone in a private world at the fixed step (Shape2D with gradients and strokes, sprites,
+  SpriteAnimator, Tint, tweens, particles and scripts all run) and a frame is captured every 1/`fps` seconds. The cell is
+  the box of everything drawn in any frame, so a growing burst is never cut, and the entity's origin is the same pixel
+  in every frame (the sheet's `pivot`, which you can choose). `clips` bakes named clips, each started by a behaviour
+  method (`call`) or a game event (`event`); `warmup`, `seed`, `scale`, `frameWidth` / `frameHeight` (fit the animation to a
+  fixed cell), `background` and `padding` are options. The pixels are straight alpha with no dark fringes. It records the
+  `sheet` entry, a `generated` provenance (`ai` taken from the prefab or scene) and the recipe, so `assets.regenerate` can
+  make it again. It needs a GPU; when the process already uses its graphics device (the editor, MCP) it bakes in a child
+  `factoria call`. Bake effects to save draw calls on mobile (docs/ASSETS.md, docs/AI_GUIDE.md).
 
 Assets
 
