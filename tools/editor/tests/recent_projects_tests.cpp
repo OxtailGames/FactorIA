@@ -1,4 +1,5 @@
 // The recent projects list (recent_projects.h): load, merge, save and forget on a temp dir.
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -92,6 +93,20 @@ TEST_CASE("recent: the list is capped at 8, most recent first") {
     REQUIRE(list.size() == kRecentProjectsMax);
     CHECK(list.front() == normalize_project_path(opened.back()));
     CHECK(list.back() == normalize_project_path(opened[4]));
+}
+
+TEST_CASE("recent: over the cap, missing folders are dropped before real projects") {
+    TempDir t;
+    const std::string real = t.project("real");
+    remember_recent_project(t.file(), real);
+    for (int i = 0; i < 7; ++i) remember_recent_project(t.file(), t.project("gone" + std::to_string(i), false));
+    REQUIRE(read_recent_projects(t.file()).size() == kRecentProjectsMax);
+    const std::string next = t.project("next");
+    auto list = remember_recent_project(t.file(), next);
+    REQUIRE(list.size() == kRecentProjectsMax);
+    CHECK(list.front() == normalize_project_path(next));
+    CHECK(std::find(list.begin(), list.end(), normalize_project_path(real)) != list.end());
+    CHECK(std::find(list.begin(), list.end(), normalize_project_path(t.project("gone0", false))) == list.end());
 }
 
 TEST_CASE("recent: forgetting a project removes it from the file") {
