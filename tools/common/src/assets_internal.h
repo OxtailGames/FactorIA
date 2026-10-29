@@ -61,16 +61,34 @@ struct SheetClip {
     int firstFrame = 0;
     int lastFrame = 0;
     double fps = 10;
+    bool loop = true;
+    std::optional<std::array<double, 2>> pivot;  // [x, y] in 0..1 of the frame: this clip's own pivot (overrides the sheet's)
 };
 
-// The `sheet` entry of assets.json (schemas/assets.schema.json) for a grid of `frames` frames.
-Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames, const std::vector<SheetClip>& clips);
+// The `sheet` entry of assets.json (schemas/assets.schema.json) for a grid of `frames` frames. `padding` is the transparent
+// gutter around every cell (written only when above 0); `pivot` the pivot of every frame (written only when given).
+Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames, const std::vector<SheetClip>& clips,
+                 int padding = 0, std::optional<std::array<double, 2>> pivot = std::nullopt);
 // How to play `sheet` (a sheet_entry) from the image `texture`: the Sprite and SpriteAnimator settings, one line each.
 std::vector<std::string> sheet_next_steps(const std::string& texture, const Json& sheet, double fps);
 
 // The colour of the four corners of `image` when they are all the same fully opaque colour (to within a few levels,
 // which a JPEG-era solid background has): the sign of a background that should be transparent.
 std::optional<std::array<std::uint8_t, 3>> opaque_corner_color(const Image& image);
+
+// ---- rasterizing SVG text (assets_svg.cpp) ---------------------------------------------------------------
+
+struct SvgRaster {
+    Image image;           // straight-alpha RGBA, transparent where nothing is drawn
+    double svgWidth = 0;   // the size the SVG declares
+    double svgHeight = 0;
+};
+// The picture of the SVG `text` in a `w` x `h` image (the SVG fitted inside, aspect kept, centred; a 0 side follows the
+// SVG's proportions, both 0 is the SVG's own size), then the painterly `style` ("none" or one of image_style_names()) at
+// `styleStrength` with `seed`. The core of assets.rasterize_svg and assets.animate_svg. Warnings (features nanosvg does not
+// draw) are appended to `warnings`. Throws CommandError for text that is not a drawable SVG.
+SvgRaster rasterize_svg_text(const std::string& text, int w, int h, const std::string& style, double styleStrength, std::uint32_t seed,
+                             std::vector<std::string>& warnings);
 
 void register_slice_sheet_command(CommandRegistry& registry, const std::string& projectDir);
 void register_pack_atlas_command(CommandRegistry& registry, const std::string& projectDir);
@@ -79,6 +97,7 @@ void register_draw_capsules_command(CommandRegistry& registry, const std::string
 void register_synth_sound_command(CommandRegistry& registry, const std::string& projectDir);
 void register_texture_command(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_texture
 void register_svg_command(CommandRegistry& registry, const std::string& projectDir);      // assets.rasterize_svg
+void register_animate_svg_command(CommandRegistry& registry, const std::string& projectDir);  // assets.animate_svg
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
 

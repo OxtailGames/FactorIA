@@ -8,7 +8,8 @@ call (MCP tool, `factoria call`, editor console):
 2. **Import** files made elsewhere (`assets.import`): Aseprite, PSD, OBJ, FBX...
 3. **Write** them directly (`fs.write`), for files the engine already reads (PNG, JPG, WAV, OGG, MP3, glTF, TTF).
 4. **Make** them offline, with no provider and no key: `assets.generate_texture` (materials), `assets.rasterize_svg`
-   (pictures written as SVG), `assets.synth_sound`, `assets.generate_loop`, `assets.draw_icon`.
+   (pictures written as SVG), `assets.animate_svg` (animations written as code, baked into a sprite sheet),
+   `assets.synth_sound`, `assets.generate_loop`, `assets.draw_icon`.
 
 Whatever the way, `assets.json` at the project root records where each asset came from (provenance) and how the engine
 and `factoria export` treat it (import settings).
@@ -255,6 +256,108 @@ assets.rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmln
 - **Provenance.** By default the record is origin `generated`, `ai` true, because the agent that calls the command wrote
   the SVG (it counts for the store's AI-content disclosure). For an SVG a person drew or licensed pass `ai: false`, with
   `author` and `license`: the record is then origin `original`. Where the SVG came from is in `source`.
+
+### Animations drawn with code: assets.animate_svg
+
+For motion that follows rules (a coin that turns, a pulsing orb, a flame, a loader, rain, waves) an agent with no image
+provider writes the animation as code and bakes it into a sprite sheet: `assets.animate_svg` draws every frame, lays the
+frames out in a grid and writes the PNG plus its `sheet` entry of `assets.json` in one call, ready for a `Sprite` and a
+`SpriteAnimator`. Two ways to say what each frame looks like:
+
+- **`source`: a JavaScript module** of the project (by convention `art/<name>.anim.js`). Its default export draws one frame
+  and returns the SVG text: `frame({t, frame, frames, fps, progress, params, rng}) => string`.
+- **`svg`: one SVG with SMIL animation** (`<animate>`, `<set>`, `<animateTransform>`, `<animateMotion>`), the kind of
+  animated SVG an AI writes when asked for one. It is sampled at every frame time. A project `.svg` file also works as
+  `source`.
+
+A worked example, a coin turning around its vertical axis. `art/coin_spin.anim.js`:
+
+```js
+// A coin turning around its vertical axis. `progress` runs 0..1 over the clip, so the last frame leads into the first.
+export default function frame({ progress, params, rng }) {
+  const turn = Math.cos(progress * Math.PI * 2);        // 1 = face on, 0 = edge on, -1 = the back
+  const rx = Math.max(3, Math.abs(turn) * 34);          // the coin gets thin when it is edge on
+  const fill = turn >= 0 ? params.face : params.back;
+  const glint = turn > 0.6 ? `<ellipse cx="${50 - rx * 0.45}" cy="36" rx="${rx * 0.18}" ry="9" fill="#fff" opacity="0.55"/>` : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <ellipse cx="50" cy="50" rx="${rx}" ry="38" fill="${fill}" stroke="#7a5a12" stroke-width="4"/>
+    ${glint}
+  </svg>`;
+}
+```
+
+```
+assets.animate_svg {"path":"assets/art/coin_spin.png","source":"art/coin_spin.anim.js","frames":12,"fps":12,"frameWidth":64,"frameHeight":64,"padding":1,"params":{"face":"#f2c94c","back":"#b8902b"}}
+```
+
+The result has the sheet as an image (look at it, edit the module, call again with `overwrite: true`), the `layout`
+(`columns`, `rows`, the cell size, `imageWidth` and `imageHeight`, the clips), the `sheet` entry that was recorded,
+`warnings` and the `nextSteps` to play it. For SMIL: `assets.animate_svg {"path":"assets/art/loader.png","svg":"<svg ...>
+<animateTransform attributeName=\"transform\" type=\"rotate\" from=\"0 50 50\" to=\"360 50 50\" dur=\"1s\"
+repeatCount=\"indefinite\"/> ...</svg>","fps":12,"frameWidth":64}`: without `frames` the sheet takes one pass of the
+animation (`cycleSeconds * fps` frames).
+
+- **Frames.** `frames` frames at `fps`; frame `i` is drawn at `t = i / fps`. `frames` is required with a module; with SMIL
+  it defaults to one pass of the animation. `loop` (default true) is how the clip repeats and how `progress` is read:
+  `progress` is `frame / frames` for a looping clip (it reaches 1 only after the last frame, so the last frame leads into
+  the first) and `frame / (frames - 1)` for `loop: false` (the last frame is the end pose).
+- **What the module receives.** `t` (seconds), `frame` (from 0, inside the clip), `frames` (the clip's length), `fps`,
+  `progress`, `params` (the `params` argument: colours, counts, amplitudes, so one module serves several sheets), `rng`,
+  `seed`, `rngFor`, `clip`, `sheetFrame` (the index in the whole sheet), `width` and `height` (the cell in pixels).
+  `rng()` is a random number in 0..1 seeded from `seed` and the frame (`rng.range(a, b)`, `rng.int(n)`, `rng.pick(list)`,
+  `rng.chance(p)`, `rng.gauss()` too): each frame has its own stream. `rngFor(key)` gives the SAME stream on every frame
+  for one key, for what must stay where it is (the sparkles of a gem: `const r = rngFor("sparkles")`, then draw the same
+  `r()` positions and vary only their brightness with `progress`).
+- **The sandbox.** The module runs in a QuickJS context of its own, thrown away after the call: the language only
+  (`Math`, `JSON`, `Array`, `Map`...), no engine bindings, no DOM, no Node, no timers, no network or files. It may `import`
+  other project files with a relative path (`import { disc } from "./lib/shapes.js"`); the imported files count as inputs of
+  the recipe. `Math.random` is a seeded stream and `Date` is a fixed day moved to the frame's time, so the same module draws
+  the same frames on every run and every machine. Loading the module and each frame have a time limit
+  (`timeLimitMs`, 2000 by default) and the context has a memory limit of 128 MB. `console.log` output comes back in the
+  result's `console`.
+- **Errors teach.** A mistake in the module comes back as `art/coin_spin.anim.js:5:17: ReferenceError: nothing is not
+  defined (while drawing frame 2 of 12, t = 0.1667 s)` followed by the source line and a caret; a frame that returns
+  something that is not an SVG string, a missing default export, an import that leaves the project and an endless loop
+  (named with the limit and the frame) each say what to change.
+- **Rasterizing.** Every frame is rasterized as `assets.rasterize_svg` does it (same renderer, same support and same
+  unsupported list: no text, filters, `<use>` or CSS classes), transparent, fitted inside the `frameWidth` x `frameHeight`
+  cell (default 64 x 64; `frameHeight` defaults to `frameWidth`; at most 1024), aspect kept, centred. `style`,
+  `styleStrength` and `seed` give the painterly look of `rasterize_svg` to every frame; the style's seed is the same for all
+  frames, so the paper texture stays put while the drawing moves. `palette` (a list of `"#rrggbb"`, or the project path of an
+  image whose colours are the palette, at most 256) snaps every pixel to those colours and keeps the alpha.
+- **Layout.** The frames go row by row in a grid of `columns` (default `ceil(sqrt(frames))`). `padding` (pixels, default 0)
+  is a transparent gutter around every cell, so filtered sprites do not pick up their neighbour: cell `i` starts at
+  `x = padding + column * (frameWidth + 2 * padding)`, the same for y, and the PNG is `columns * (frameWidth + 2 * padding)`
+  wide. The sheet may be up to 8192 px a side (a warning over 4096, which some phones cannot sample). The sheet entry records
+  `padding` and `pivot` (`[x, y]` in 0..1 from the top-left, default the centre) beside `columns`, `rows`, `frameWidth`,
+  `frameHeight` and `frames`.
+- **Clips.** `clips: [{"name":"idle","frames":4,"fps":6},{"name":"run","frames":8,"fps":12,"loop":true,"pivot":[0.5,1]}]`
+  makes several animations from one module, laid out one after another in one sheet. Give `frames` per clip, not at the top
+  level. The module receives `clip` (the name) and `frame` counted from 0 inside that clip (a clip's own `params` are merged over
+  the top-level ones), so it draws `idle` or `run`. Each clip becomes a clip of the sheet entry (`firstFrame`, `lastFrame`,
+  `fps`, `loop`, `pivot`). Without `clips` the entry has one clip named like the file, which keeps `fps` and `loop`. Clips need a
+  module: one SMIL SVG has one timeline.
+- **SMIL.** Sampled: `<animate>`, `<set>`, `<animateTransform>` (`translate`, `scale`, `rotate`, `skewX`, `skewY`) and
+  `<animateMotion>` (`path`, `<mpath>`, `values`/`from`/`to`/`by`, `rotate="auto"`), with `begin` (offsets, several values,
+  `id.begin` and `id.end` sync-bases with an offset), `end`, `dur`, `repeatCount`, `repeatDur`, `fill="freeze"`, `values`,
+  `keyTimes`, `keySplines`, `calcMode` (`linear`, `discrete`, `paced`, `spline`), `from`/`to`/`by`, `additive` and
+  `accumulate`. Numbers, lengths, colours (in RGB) and any value that is the same text around numbers (path data of the same
+  structure, `points`, `viewBox`) are interpolated; any other value changes at its key time. Not sampled, each a warning that
+  names the element: event begins (`click`...), CSS animations, `<style>` rules and `restart`/`min`/`max`.
+- **Warnings.** Frames that draw nothing (the shapes sit outside the viewBox, or the module returned an empty drawing), shapes
+  touching the edge of the cell (they may be cut off: draw smaller, enlarge the frame, or add `padding`), a loop whose last
+  frame jumps from the first (a pop when it repeats) or repeats it (a stop for one frame), SMIL that is not sampled, features
+  `rasterize_svg` does not draw. A frame that draws nothing is a warning, not an error: a blink may be empty on purpose.
+- **Provenance.** By default the record is origin `generated`, `ai` true (the agent wrote the code, which counts for the
+  store's AI-content disclosure); pass `ai: false`, `author` and `license` for art a person drew, and the record is origin
+  `original`. It carries a `recipe`: the command, the arguments that make the same bytes again (paths project-relative,
+  `seed` explicit) and the module with every file it imported, each with its SHA-256. Calling the command with the recipe's
+  `args` (and `overwrite: true`) makes the identical sheet; the same module, arguments and seed always give the same bytes.
+
+Playing the sheet: the result's `nextSteps` give the `Sprite` and `SpriteAnimator` settings (`columns`, `rows`, `firstFrame`,
+`lastFrame`, `fps`) of the whole sheet and of each clip. `padding` and `pivot` are recorded in the sheet entry of
+`assets.json`; a `SpriteAnimator` set by hand with `columns` and `rows` slices a plain grid with no gutter, so those
+settings are exact only for `padding` 0.
 
 ### The game icon without a provider: assets.draw_icon
 
