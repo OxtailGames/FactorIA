@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "editor_internal.h"
+#include "fa/scene/bones2d.h"
 #include "fa/scene/tilemap.h"
 #include "ui_backend.h"
 
@@ -288,6 +289,28 @@ void Editor::draw_viewport() {
             ImVec2 o = outline_pt(org, b.screenSpace, z);
             dl->AddCircleFilled(o, 4.0f, IM_COL32(255, 80, 60, 255));
             dl->AddCircle(o, 4.5f, IM_COL32(0, 0, 0, 200));
+        }
+    }
+    // Bones (Bone2D) of the selection: the selected entity's own bone and the ones below it, and the bones of its SpriteSkin. A thin
+    // kite from each bone's origin to its tip, the selected bone in yellow (full bone tools come with the bone editor).
+    if (showOverlay_ && !sel.is_null() && primary_is_ortho()) {  // the 2D view; a 3D camera does not show bones
+        std::vector<Entity> bones;
+        std::function<void(Entity)> collect = [&](Entity e) {
+            if (w.has<Bone2D>(e) && std::find(bones.begin(), bones.end(), e) == bones.end()) bones.push_back(e);
+            for (Entity c : w.children(e)) collect(c);
+        };
+        collect(sel);
+        if (const SpriteSkin* skin = w.get<SpriteSkin>(sel))
+            for (Entity b : skin_resolve_bones(w, sel, *skin).entities)
+                if (!b.is_null() && std::find(bones.begin(), bones.end(), b) == bones.end()) bones.push_back(b);
+        const float z = w.world_position(sel).z;
+        for (Entity b : bones) {
+            const ImU32 col = b == sel ? IM_COL32(255, 205, 60, 255) : IM_COL32(60, 220, 255, 220);
+            const std::array<Vec2, 4> kite = bone_kite(bone_world_segment(w, b));
+            ImVec2 p[4];
+            for (int i = 0; i < 4; ++i) p[i] = outline_pt(kite[size_t(i)], false, z);
+            dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 1.5f);
+            dl->AddCircleFilled(p[0], 3.5f, col);
         }
     }
     gizmo_draw(dl);

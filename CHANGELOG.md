@@ -2,6 +2,24 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+2D bones, skinned sprites and IK
+
+- `Bone2D` (`length`, `minAngle`, `maxAngle`) turns any entity of the hierarchy into a bone: it runs `length` along the
+  entity's +X axis and is posed through its Transform, so clips, tweens and scripts move it like any other entity.
+- `SpriteSkin` (`bones`, `weights`, `bindPose`, `outline`, `outlineDetail`) bends the 2D mesh of the Sprite on the same entity
+  (`meshColumns` x `meshRows`, or with `outline: true` a grid cut to the opaque pixels of the texture) with up to 4 bones per
+  vertex from a bind pose recorded when the scene loads. `weights: "auto"` weights each vertex by its distance to the bones;
+  an array gives your own. The vertices are deformed on the CPU into the existing 2D vertex stream: no new shader, and skinned
+  sprites batch like mesh sprites. `entity.bounds()`, picking and the selection outline use the deformed mesh.
+- `IK2D` (`target`, `chainLength`, `bend`, `weight`, `solver`: `twoBone` or `ccd`) turns the bones of a chain so the tip of its
+  bone reaches the target, within the bones' angle limits. It runs every fixed step after the animators and before drawing, and is
+  deterministic.
+- `debug.bones(root?, color?)` draws the bones of an entity and its descendants (all bones without `root`); the editor's
+  Selection overlay draws the bones of the selected entity. docs/ANIMATION.md, section "Bones and IK".
+- A new fixture, `tools/cli/tests/fixtures/skinned-sprites` (50 skinned sprites, 10 with IK, one draw call), has a perf budget.
+
 ## 0.6.0
 
 FactorIA 0.6.0 draws animations with code and bakes them into sprite sheets: a JavaScript module or an animated SVG

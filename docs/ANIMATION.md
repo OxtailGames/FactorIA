@@ -1,12 +1,13 @@
 # Animation: skeletal clips, state machines and tweens
 
-Three tools, from "a character walks" to "a menu panel slides in":
+Four tools, from "a character walks" to "a menu panel slides in":
 
 | Tool | For | Where it lives |
 |---|---|---|
 | `Animator` component | Play the animation clips of a skinned glTF model, blend between them, react to clip events, switch with a small state machine | scene JSON + `entity.animator` |
 | `tween()` / `ease` | Move any number, vector or color over time (UI, cameras, pickups, 2D and 3D) | `import { tween, ease } from "factoria"` |
 | `SpriteAnimator` | Frame-by-frame 2D sprite sheets, played by clip name | [Sprite sheets](#sprite-sheets-spriteanimator) |
+| `Bone2D`, `SpriteSkin`, `IK2D` | 2D bones: a sprite bent by the bones it is bound to, and chains that reach for a target | [Bones and IK](#bones-and-ik) |
 
 The tools run on the game clock: the fixed step and `time.scale` (a paused game pauses them), never the wall clock, so
 a headless run, a replay and the test runner see exactly what a player sees.
@@ -187,6 +188,125 @@ the first fixed step there is no palette yet and the model shows in its bind pos
 - **Culling bounds:** the bounds of an animated model are the box of its bind pose carried by every joint of the palette,
   joined. It is recomputed every frame, never too small, and a little generous when a joint moves far from its vertices.
   The same box decides the camera and the shadow-light culling.
+
+## Bones and IK
+
+A 2D skeleton is plain entities with a `Bone2D` component, a sprite that follows them (`SpriteSkin`) and, where a limb must
+reach a point, an `IK2D`. It is all `fa_scene` code: no GPU, the same numbers in a headless run, a replay and a window.
+
+```json
+{ "id": "arm", "components": {
+    "Transform": { "position": [0, 0, 0] },
+    "Sprite": { "texture": "assets/arm.png", "size": [100, 24], "pivot": [0, 0.5], "meshColumns": 10, "meshRows": 2 },
+    "SpriteSkin": { "bones": ["upper", "lower"] } },
+  "children": [
+    { "id": "arm_upper", "name": "upper", "components": { "Bone2D": { "length": 50 } }, "children": [
+      { "id": "arm_lower", "name": "lower", "components": {
+          "Transform": { "position": [50, 0, 0] },
+          "Bone2D": { "length": 50, "minAngle": 0, "maxAngle": 150 },
+          "IK2D": { "target": "hand_goal", "bend": "positive" } } } ] } ] }
+```
+
+### Bone2D
+
+A bone is an entity of the hierarchy with a `Bone2D`. It starts at the entity's origin and runs `length` world units along
+the entity's local +X axis, so the bone of a child normally sits at `position: [parent.length, 0]`. A bone is posed by its
+`Transform`: write `Transform.rotation.z` (degrees) from a script, a tween or an `onFixedUpdate`; a child bone follows its
+parent as every child does. Nothing is drawn for a bone unless you ask (`debug.bones()`, the editor overlay).
+
+`minAngle` and `maxAngle` are the range `Transform.rotation.z` may take. **Only `IK2D` enforces them**: a script that
+writes the rotation directly is not clamped. A range of 360 degrees or more is free (the default, -180 to 180, is free).
+
+### SpriteSkin
+
+`SpriteSkin` bends the picture of the `Sprite` on the same entity. It deforms the sprite's 2D mesh, which is the
+`meshColumns` x `meshRows` grid of the sprite (`Sprite` doc: mesh) or, with `outline: true`, a grid cut to the opaque pixels
+of the texture. A skin on a sprite with neither says so (one warning) and the sprite is drawn as a plain quad.
+
+- `bones` lists up to 64 bones, in the order the `weights` use. An entry is a name, a path of names (`"hip/knee"`, direct
+  children one after the other) or an entity id. Names are looked up under the sprite's entity first, then under each of
+  its parents (so a prefab instance finds its own skeleton, wherever the sprite sits in it), then ids anywhere. A name that
+  matches no `Bone2D` is left out of the skin and one warning says which and suggests the nearest names.
+- **Bind pose.** The skin remembers where the bones were relative to the sprite when it was bound (`bindPose`: six numbers
+  per bone, the bone's matrix in the sprite's local space; written by the engine, you do not edit it). A bone that has
+  moved from there drags its vertices by the difference, so a skeleton that is moved as a whole with the sprite deforms
+  nothing, and bones at the bind pose draw the sprite exactly as it is. The engine binds a skin when the scene loads, at
+  the start of every fixed step (before anything moves a bone) and before drawing, whenever it has bones and no valid
+  `bindPose`: pose the skeleton the way the picture was drawn, in the scene file. A skin whose bones are not all found
+  yet stays unbound, draws undeformed, and is tried again each step. Set `bindPose` to `[]` to bind again at the current pose.
+- **Weights.** `weights: "auto"` (the default) gives each vertex to its nearest bones: the weight of a bone is
+  `1 / (d^2 + 0.25)` with `d` the distance from the vertex to the bone's segment at the bind pose, the 4 heaviest bones are
+  kept, those under 2% of the total are dropped and the rest are normalised; equal weights go to the lower bone index.
+  It is a pure function of the bind pose, so it is the same everywhere. For your own weights give an array with one entry
+  per vertex of the grid, in the order of `Sprite.vertexOffsets` (row 0 is the top edge, left to right): each entry is
+  `[bone, weight, bone, weight, ...]` with `bone` an index into `bones` and up to 4 pairs, normalised on use; a vertex
+  with no valid pair follows no bone. For an `outline` skin the array is indexed by the full grid (columns x rows below).
+- **Outline.** `outline: true` replaces the `meshColumns` grid: a grid with `outlineDetail` cells along the longer side of the
+  sprite (2 to 64) is laid over the picture and a cell is kept when one of its pixels (plus one pixel around, so the filtered
+  edge is not cut) has alpha above 5%. Transparent margins cost no fill. The traced grid is cached per texture file and
+  region and forgotten when the texture is reloaded. It reads the image file itself: a texture that exists only as a
+  packed atlas or as a `.ktx2` twin, or a runtime texture, cannot be traced, so the full grid is drawn and one warning
+  says why. A sprite without a texture (a colour quad) is opaque everywhere.
+- **Drawing.** The vertices are deformed on the CPU into the same 2D vertex stream a mesh sprite uses: no new shader, a skinned
+  sprite batches with its neighbours like any mesh sprite (a hundred of them are one draw call with the same texture and
+  blend), and `Sprite.vertexOffsets` (applied before the bones), `skew`, `flipX`, `tint`, lights and `layer` work as they do on a
+  mesh sprite. For each vertex the order is: grid place, `vertexOffsets`, bones, `skew`, the entity's matrix. Only
+  world-space sprites are skinned; a screen-space sprite with a `SpriteSkin` is drawn undeformed.
+- `entity.bounds()`, the editor's picking and the selection outline use the deformed mesh.
+
+### IK2D
+
+`IK2D` goes on the **last bone of the chain** (the entity needs a `Bone2D`) and turns the bones above it so the tip of that
+bone (its origin plus `length` along its X axis) reaches `target`, the entity whose position it follows.
+
+| Field | Meaning |
+|---|---|
+| `target` | Entity to reach, by id; its world position (x, y) is the goal. |
+| `solver` | `twoBone` (default): exact, for a limb of exactly two bones (this bone and its parent, which needs a `Bone2D`); `ccd`: iterative, for `chainLength` bones up the parents (1 to 16, all with a `Bone2D`). |
+| `chainLength` | Bones turned by `ccd`, counting this one. |
+| `bend` | `twoBone` only: which way the joint folds. `positive`: this bone ends up turned counter-clockwise from its parent (its `rotation.z` greater), `negative`: clockwise. Under a mirrored parent the result is the mirror image, so a flipped character keeps its knees. |
+| `weight` | 0 to 1: how much of the solution replaces the pose the bones had before the solver ran (0 leaves it alone, 1 is the full solution, a blend turns each bone the short way). |
+
+The solver runs once per fixed step, **after the animators have posed the bones and before the frame is drawn**, in the
+order the `IK2D` components were added (when two chains share a bone the later one has the last word). It writes
+`Transform.rotation.z` of the chain's bones, so whatever a clip or a script set on those bones in the same step is
+replaced by the solution (use `weight` to keep part of it); the other bones keep their pose. It does not run while
+`time.scale` is 0.
+
+- **Out of reach** the chain stretches straight toward the target and stops there; `twoBone` also stops at the nearest the two
+  bones can fold (the difference of their lengths) when the target is too close.
+- **Angle limits** (`minAngle`, `maxAngle` of each bone) are kept: when a limit forbids the way to the target the tip falls short
+  instead of breaking the joint. `ccd` repeats (at most 24 sweeps, until the tip is within 0.01 of the target) and keeps
+  the limits on every turn.
+- A broken `IK2D` (no `Bone2D` on its entity, no target, a parent without a `Bone2D` for `twoBone`, a `chainLength` longer than
+  the bones above it) changes nothing and logs one warning for that component that says how to fix it.
+- The solvers use `fa::det` trigonometry and the skin only `+ - * /`, so the same scene gives the same bits on every
+  platform and in a replay.
+
+### Scripts, debugging and cost
+
+```js
+import { Behaviour, debug, input, world } from "factoria";
+export default class Reach extends Behaviour {
+  onUpdate() {
+    world.find("hand_goal").position = [input.mouse.world.x, input.mouse.world.y]; // the IK2D follows it at the next fixed step
+    debug.bones(this.entity);                               // draws every Bone2D of this entity and below, for one frame
+  }
+}
+```
+
+`debug.bones(root?, color?)` draws a thin kite from the origin to the tip of every `Bone2D` of `root` and its descendants (all
+the bones of the scene without `root`). In the editor, **Selection overlay** draws the bones of the selected entity and
+those its `SpriteSkin` names. `Bone2D`, `SpriteSkin` and `IK2D` are components like any other: `entity.get("Bone2D").length`,
+`entity.add("IK2D", { target: goal })`, `entity.transform.rotation = [0, 0, 30]`.
+
+A skinned vertex costs one weighted sum of at most 4 matrices, so skins are cheap: the `skinned-sprites` fixture
+(`tools/cli/tests/fixtures/skinned-sprites`: 50 skinned 8 x 2 sprites, 10 with `IK2D`, bones swung by a script every frame) is
+one draw call, and its `drawCalls` and `entities` are checked by `tools/cli/tests/perf/skinned-sprites.perf.json`. Keep grids
+small (8 x 8 is plenty for a limb; an outline of 16 to 24 cells for a body).
+
+Not there yet: a bone editor in the viewport (bones are moved with the Transform gizmos and the Inspector) and weight painting,
+3D bones (use the `Animator` with a glTF skin), and skinning of screen-space sprites.
 
 ## Tweens
 
