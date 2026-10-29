@@ -2,6 +2,21 @@
 
 # Commands: scene
 
+## `bones.create` (modifies state)
+
+Not released yet (on main after 0.6.0).
+
+Create a chain of Bone2D entities along points, under a parent.
+
+`points` are [x, y] positions in the PARENT's local space (at least 2); N points make N-1 bones. Bone 1 is a child of `parent`, placed at the first point and turned to face the second; every later bone is a child of the one before, placed at its tip, with the rotation that turns it toward the next point. Each Bone2D.length is the distance between its two points. `names` (N-1) names them, default prefix_1, prefix_2... (`prefix` default "bone"); two bones may not share a name under one parent, since clip paths and skins find them by name. Pose bones through Transform.rotation.z (clips, IK2D). Result: {parent, bones: [{id, name, length}]}. Example: bones.create {"parent":"hero","points":[[0,40],[0,20],[0,0]],"names":["thigh","shin"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `parent` | string | yes | Entity the first bone is a child of (id or name). |
+| `points` | array | yes | Joint positions [x, y] in the parent's local space, from the root of the chain to its tip. |
+| `names` | array | no | One name per bone (points - 1). |
+| `prefix` | string | no | Name prefix when `names` is not given. Default "bone". |
+
 ## `prefab.save` (modifies state)
 
 Save an entity of the running world, with its children, as a prefab file.
@@ -182,6 +197,49 @@ Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, posit
 | `id` | string | no |  |
 | `tags` | array | no |  |
 | `components` | object | no | Component name -> field object. |
+
+## `skin.auto_weights` (modifies state)
+
+Not released yet (on main after 0.6.0).
+
+Write the skin's automatic weights out as explicit ones, to paint over with skin.set_weights.
+
+Computes what SpriteSkin.weights "auto" would give every vertex of the full mesh grid (each vertex follows its nearest bones, up to 4) and stores it in SpriteSkin.weights as [boneIndex, weight, ...] per vertex, row-major from the top row (vertex = row * (columns + 1) + column). The picture does not change. The skin must be bound (skin.bind). Result: {entity, vertices, columns, rows, bones}. Example: skin.auto_weights {"entity":"leg"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The skinned Sprite entity (id or name). |
+
+## `skin.bind` (modifies state)
+
+Not released yet (on main after 0.6.0).
+
+Skin a Sprite to bones: add the SpriteSkin, name its bones and bind it at the pose they have now.
+
+Adds a SpriteSkin to the Sprite entity `entity` if it has none, sets its bones and records the bind pose (skin_bind): the sprite looks the same until a bone moves from where it is now. Name the bones with `bones` (ids or names, the order is the weight order) or give `root`, a bone: it and every Bone2D below it, depth first. `mesh` [columns, rows] sets Sprite.meshColumns / meshRows (a skin needs a mesh grid, or SpriteSkin.outline). The weights stay as they are ("auto" by default; skin.auto_weights writes them out to paint). Result: {entity, bones: [ids], mesh: [columns, rows] | null, note?}. Example: skin.bind {"entity":"leg","root":"thigh","mesh":[4,8]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The Sprite entity to skin (id or name). |
+| `bones` | array | no | Bone ids or names, in weight order. |
+| `root` | string | no | A bone: use it and all the Bone2D entities below it. |
+| `mesh` | array | no | [columns, rows] of the Sprite's mesh grid. |
+
+## `skin.set_weights` (modifies state)
+
+Not released yet (on main after 0.6.0).
+
+Paint the bone weights of chosen vertices: set, add or smooth.
+
+`vertices` are grid vertex numbers (row * (columns + 1) + column, row 0 on top), "all", or {"rect": [x0, y0, x1, y1]} (every vertex inside that rectangle of the sprite's local space, +Y up). `bone` is a bone index in SpriteSkin.bones or its name. Modes: `set` gives the bone `weight` (0..1) and scales the vertex's other bones to fill the rest; `add` adds `weight` (negative removes) to the bone's weight; `smooth` moves every weight `weight` (default 0.5, 0..1) of the way toward the average of the vertex's grid neighbours (`bone` is not needed). Afterwards each vertex keeps its 4 heaviest bones, weights under 0.001 dropped, summing to 1. Automatic weights are written out first when the skin still says "auto". Result: {entity, changed, mode}. Example: skin.set_weights {"entity":"leg","vertices":{"rect":[-8,0,8,12]},"bone":"thigh","weight":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The skinned Sprite entity (id or name). |
+| `vertices` | any | yes | Array of vertex numbers, "all", or {"rect": [x0, y0, x1, y1]} in the sprite's local space. |
+| `bone` | any | no | Bone index in SpriteSkin.bones, or the bone's name or id. Not needed for smooth. |
+| `weight` | number | no | set: the new weight 0..1. add: the amount to add (may be negative). smooth: how far toward the neighbours' average, 0..1 (default 0.5). |
+| `mode` | string ["set","add","smooth"] | no | How the weight is applied. Default "set". |
 
 ## `tilemap.cell_at`
 

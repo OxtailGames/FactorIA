@@ -90,6 +90,26 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Since 0.4.0._
 - [`ai.run`](commands/ai.md#airun-modifies-state): Run an AI agent on a task in the current project (blocks until it finishes).
 
+### [anim](commands/anim.md)
+
+- [`anim.add_event`](commands/anim.md#animadd_event-modifies-state): Add an event to a clip: a game event sent when the clip passes its time. _Not released yet._
+- [`anim.add_track`](commands/anim.md#animadd_track-modifies-state): Add a track to a clip, with keys or the part's current value as its first key. _Not released yet._
+- [`anim.check`](commands/anim.md#animcheck-modifies-state): Find what is wrong with a clip, and with how it fits its character. _Not released yet._
+- [`anim.create_clip`](commands/anim.md#animcreate_clip-modifies-state): Write a new keyframed 2D clip file (*.anim.json). _Not released yet._
+- [`anim.filmstrip`](commands/anim.md#animfilmstrip): One picture with a grid of a clip's poses, to see the whole motion at once. _Not released yet._
+- [`anim.list`](commands/anim.md#animlist): List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state. _Not released yet._
+- [`anim.move_event`](commands/anim.md#animmove_event-modifies-state): Move an event of a clip to another time. _Not released yet._
+- [`anim.move_keys`](commands/anim.md#animmove_keys-modifies-state): Move and scale a selection of keys in time. _Not released yet._
+- [`anim.pose`](commands/anim.md#animpose-modifies-state): Pose an entity as one of its clips is at a time, and leave it there. _Not released yet._
+- [`anim.remove_event`](commands/anim.md#animremove_event-modifies-state): Remove an event from a clip. _Not released yet._
+- [`anim.remove_keys`](commands/anim.md#animremove_keys-modifies-state): Remove keys of one track of a clip, by time or all of them. _Not released yet._
+- [`anim.remove_track`](commands/anim.md#animremove_track-modifies-state): Remove a whole track (all its keys) from a clip. _Not released yet._
+- [`anim.restore`](commands/anim.md#animrestore-modifies-state): Put a clip file back to a whole document, or delete it: the undo and redo of the anim.* edits. _Not released yet._
+- [`anim.set_clip`](commands/anim.md#animset_clip-modifies-state): Set the duration, loop or description of a clip. _Not released yet._
+- [`anim.set_event`](commands/anim.md#animset_event-modifies-state): Rename an event of a clip or replace its data. _Not released yet._
+- [`anim.set_interp`](commands/anim.md#animset_interp-modifies-state): Set how selected keys reach the next key: interp or easing, and bezier tangents. _Not released yet._
+- [`anim.set_keys`](commands/anim.md#animset_keys-modifies-state): Add or replace keys of one track of a clip, creating the track if it is missing. _Not released yet._
+
 ### [api](commands/api.md)
 
 - [`api.commands`](commands/api.md#apicommands): Describe every registered command (name, summary, schema).
@@ -250,6 +270,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [scene](commands/scene.md)
 
+- [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Not released yet._
 - [`prefab.save`](commands/scene.md#prefabsave-modifies-state): Save an entity of the running world, with its children, as a prefab file.
 - [`scene.ascii_edit`](commands/scene.md#sceneascii_edit-modifies-state): Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level. _Since 0.2.0._
 - [`scene.destroy`](commands/scene.md#scenedestroy-modifies-state): Destroy an entity and its children.
@@ -264,6 +285,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`scene.set_component`](commands/scene.md#sceneset_component-modifies-state): Add a component to an entity (if missing) and set the given fields.
 - [`scene.set_parent`](commands/scene.md#sceneset_parent-modifies-state): Move an entity under another entity, or to the top level of the scene. _Since 0.2.0._
 - [`scene.spawn`](commands/scene.md#scenespawn-modifies-state): Create an entity from entity JSON, or instantiate a prefab at a position.
+- [`skin.auto_weights`](commands/scene.md#skinauto_weights-modifies-state): Write the skin's automatic weights out as explicit ones, to paint over with skin.set_weights. _Not released yet._
+- [`skin.bind`](commands/scene.md#skinbind-modifies-state): Skin a Sprite to bones: add the SpriteSkin, name its bones and bind it at the pose they have now. _Not released yet._
+- [`skin.set_weights`](commands/scene.md#skinset_weights-modifies-state): Paint the bone weights of chosen vertices: set, add or smooth. _Not released yet._
 - [`tilemap.cell_at`](commands/scene.md#tilemapcell_at): The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds). _Since 0.3.0._
 - [`tilemap.cell_to_world`](commands/scene.md#tilemapcell_to_world): The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds). _Since 0.3.0._
 - [`tilemap.set_tile`](commands/scene.md#tilemapset_tile-modifies-state): Change one tile of a Tilemap in the running scene, in place. _Since 0.3.0._

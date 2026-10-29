@@ -107,7 +107,9 @@ through the asset providers, and materials and the overall look (palette, lighti
 tools, not hand-pixelled placeholders, and LOOK at what you made: take screenshots (game_screenshot) of the art in the
 running game, at the real size, and fix it until it fits. Keep one art direction: palette, outline weight, perspective,
 scale and resolution consistent between assets, and write the choices where the next artist finds them (the project's
-art notes or REVIEW.md). Record each asset's source and license as the asset tools do.)";
+art notes or REVIEW.md). Record each asset's source and license as the asset tools do.
+A character that moves is built in parts (child Sprites with pivots at the joints, bones where a limb bends, IK for feet) and
+animated with the anim.* commands, then judged with anim_filmstrip and anim_check: docs_read {"name":"ai-guide","heading":"9.25.2"}.)";
 constexpr const char* kArtist = R"(# Your role: artist
 %GUIDE%
 You do not write gameplay code (that is the worker) or audio (that is the audio role); hook the art into scenes and

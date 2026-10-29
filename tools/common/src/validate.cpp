@@ -39,6 +39,7 @@
 #include "fa/tooling/shaders.h"
 #include "fa/ui/ui.h"
 #include "assets_internal.h"
+#include "validate_anim.h"
 #include "localization_check.h"
 #include "fa/audio/snapshots.h"
 #include "util.h"
@@ -815,6 +816,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         // Every scene and prefab of the project, wherever it lives (scenes/, prefabs/, levels/...): the same files
         // scene.format formats (hidden folders, node_modules and a top-level build/ are skipped).
         std::vector<std::string> sceneFiles, prefabFiles, handFormatted;
+        std::set<std::string> namedClips;  // the clip files Animators name (checked with the project's *.anim.json)
         for (const std::string& rel : project_scene_files())
             (ends_with(to_lower(rel), ".scene.json") ? sceneFiles : prefabFiles).push_back(rel);
         for (const auto& rel : sceneFiles) {
@@ -836,6 +838,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             auto parsed = parse_json(*text, rel);
             if (!parsed.ok()) continue;  // load_scene_file already reported it
             const Json& j = parsed.value();
+            validate_detail::check_animator_clips(rel, world, j, namedClips, c.report);
             if (j.is_object() && j.contains("settings"))
                 check_component_assets(c, rel, "/settings", "SceneSettings", j["settings"]);
             if (j.is_object() && j.contains("entities") && j["entities"].is_array()) {
@@ -849,10 +852,17 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             if (!parsed.ok()) { c.error(rel, "", parsed.error().message, "Fix the JSON syntax."); continue; }
             collect_if_not_canonical(handFormatted, rel);
             check_prefab_loads(c, rel);
+            {
+                World prefabWorld;
+                LoadReport ignored;
+                instantiate_prefab(prefabWorld, rel, kNullEntity, ignored);
+                validate_detail::check_animator_clips(rel, prefabWorld, parsed.value(), namedClips, c.report);
+            }
             if (parsed.value().is_object() && parsed.value().contains("entity"))
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
         }
         note_hand_formatted(c.report, handFormatted);
+        validate_detail::check_clip_files(namedClips, c.report);
         assets_detail::check_sprite_textures(c.dir, c.spriteTextures, c.report.warnings);
         if (sceneFiles.empty())
             c.warn("scenes", "", "No scenes found (scenes/*.scene.json).", "Create scenes/main.scene.json.");
