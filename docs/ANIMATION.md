@@ -302,7 +302,7 @@ the game are lenient: they warn once and play the tracks that resolve.
 
 ### Commands for clips
 
-An AI (or a timeline editor) makes and fixes clips with commands, never by editing JSON by hand. Each one checks the whole file
+An AI (or the editor's Animation panel, [EDITOR.md](EDITOR.md) "Animation panel") makes and fixes clips with commands, never by editing JSON by hand. Each one checks the whole file
 with the loader's own rules before it writes, so nothing invalid reaches the disk, and every one that writes returns `undo`:
 `{command: "anim.restore", args: {path, clip}}`. Calling `anim.restore` puts the whole previous document back (or deletes the file
 when `clip` is null, the undo of `anim.create_clip`) and returns the `undo` that goes forward again.
@@ -531,8 +531,11 @@ A skinned vertex costs one weighted sum of at most 4 matrices, so skins are chea
 one draw call, and its `drawCalls` and `entities` are checked by `tools/cli/tests/perf/skinned-sprites.perf.json`. Keep grids
 small (8 x 8 is plenty for a limb; an outline of 16 to 24 cells for a body).
 
-Not there yet: a bone editor in the viewport (bones are moved with the Transform gizmos and the Inspector) and weight painting,
-3D bones (use the `Animator` with a glTF skin), and skinning of screen-space sprites.
+The editor's View > Bone tools draws a bone chain with clicks, binds a sprite, paints weights with a brush and drags IK targets
+([EDITOR.md](EDITOR.md), "Bone tools"); each step is the command described above (`bones.create`, `skin.bind`,
+`skin.set_weights`), so an AI does the same without the window.
+
+Not there yet: 3D bones (use the `Animator` with a glTF skin) and skinning of screen-space sprites.
 
 ## Tweens
 
@@ -663,5 +666,5 @@ onFixedUpdate(dt) {
   re-export it with fewer joints (rigid parts are split over several skins of 64 joints, so they have no such limit).
 - Morph targets and root motion are not supported for glTF models. Animation layers and masks exist for 2D clips only
   (see "2D clips").
-- 2D clips have no timeline or keyframe recording in the editor yet: write the `*.anim.json` by hand or with a script. A
-  clip poses bones the same way it moves any entity, through their Transform (see [Bones and IK](#bones-and-ik)).
+- A clip poses bones the same way it moves any entity, through their Transform (see [Bones and IK](#bones-and-ik)). The
+  editor's Animation panel edits one clip at a time: `Animator.layers` and the state machine are set in the Inspector.

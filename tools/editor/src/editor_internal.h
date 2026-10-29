@@ -44,6 +44,7 @@
 #include "fa/mcp/http_server.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/play_session.h"
+#include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
@@ -52,6 +53,7 @@
 #include "ai_chat.h"
 #include "ai_runs.h"
 #include "ai_usage.h"
+#include "anim_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
 #include "gizmo_model.h"
@@ -266,6 +268,50 @@ public:
     bool ai_settings_dirty(const ai::AiConfig& cfg) const;
     void draw_feedback_panel();
     void draw_audio_panel();
+    // Animation panel (anim_panel.cpp; View > Animation): the clips of the selected entity's Animator as a dopesheet and a curve
+    // view, a time ruler to scrub, event markers, record mode and the onion skin. Every edit of a clip is an anim.* command through
+    // anim_edit(), so the Console and the AI see the same calls; a clip file is not part of the scene, so its undo steps are
+    // entries of the same stack (`{"$clip": {path, clip}}`: the arguments of anim.restore) and undo() / redo() run them.
+    void draw_animation_panel();
+    void draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, const std::string& path);
+    void draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clip, const std::string& path);
+    void draw_anim_curves(const std::shared_ptr<const ClipAsset>& clip, const std::string& path, ImVec2 origin, ImVec2 size);
+    void anim_key_menu(const std::shared_ptr<const ClipAsset>& clip, const std::string& path);
+    void anim_event_popups(const std::string& path);
+    void anim_refresh_owner();
+    Entity anim_owner();
+    std::string anim_clip_path();                                  // the file of the clip being edited ("" = none)
+    bool anim_edit(const std::string& key, const std::vector<ModelCall>& calls, std::string* error = nullptr);
+    bool anim_new_clip(const std::string& name, double duration, bool loop, std::string* error = nullptr);
+    void anim_select_clip(const std::string& name);
+    void anim_pose();                                              // poses the animated entity at the playhead (edit mode)
+    void anim_unpose();                                            // puts the rest values back (before a save, a scene edit, Play)
+    void anim_set_playhead(double t, bool pose = true);
+    void anim_apply_clip_undo(const Json& entry, bool forward);    // an undo / redo step of a clip file
+    bool anim_record_edit(const std::string& key, const Json& args, CommandResult& out, std::string* error);
+    void anim_cancel_step();                                       // Esc during a recorded gizmo drag: the key it wrote goes away
+    void anim_update_onion(Renderer& r);
+    void anim_draw_onion(ImDrawList* dl, Renderer& r);
+    void anim_draw_record_frame(ImDrawList* dl, ImVec2 imgMin, ImVec2 size);
+    double anim_x_to_time(float x) const { return anim_.viewStart + double(x - anim_.timeX0) / double(anim_.pps); }
+    float anim_time_to_x(double t) const { return anim_.timeX0 + float((t - anim_.viewStart) * double(anim_.pps)); }
+    bool anim_recording() const { return anim_.recording && showAnimation_; }
+    AnimUi anim_;
+    bool lastEditRecorded_ = false;  // the last edit_command wrote a clip key instead of a field
+    // Bone tools (bone_tools.cpp; View > Bone tools): draw a bone chain by clicking, bind a sprite to bones, the weight colours of
+    // the selected bone and a brush to paint them, IK targets as handles. They call bones.create, skin.bind, skin.auto_weights,
+    // skin.set_weights and scene.set_component through edit_command.
+    void draw_bone_tools_panel();
+    bool bone_tools_active() const { return showBoneTools_ && bone_.tool != BoneTool::Off; }
+    bool bone_tools_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);   // true when the click was taken
+    void bone_tools_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 size);
+    void bone_finish_chain();
+    void bone_cancel_chain();
+    bool bone_bind(std::string* error = nullptr);
+    bool bone_paint_at(Vec2 localPoint, bool firstOfStroke);
+    Entity bone_skin_entity();
+    SkinBox sprite_local_box(Entity e);  // the rectangle a Sprite covers in its own space, as the renderer lays it out
+    BoneUi bone_;
     // Project panel (project_browser_panel.cpp): the project's files; drag them onto Inspector asset fields and the Viewport.
     void draw_project_panel();
     void draw_project_tile(const BrowserFile& f, ImVec2 size);
@@ -483,7 +529,7 @@ public:
         Vec3 pivot{};
         Vec3 local[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
         Mat4 parentWorld;
-        bool hasParent = false, wrote = false;
+        bool hasParent = false, wrote = false, recorded = false;  // recorded: the edits went to a clip key (record mode)
         Vec3 planeStart{};             // free move: where the mouse was on the drag plane
         AngleTracker angle;
         float sign = 1;
@@ -496,6 +542,7 @@ public:
     // panel visibility
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false, showProject_ = true;
+    bool showAnimation_ = false, showBoneTools_ = false;
     ProjectBrowser projBrowser_;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;

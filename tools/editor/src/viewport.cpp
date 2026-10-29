@@ -198,7 +198,15 @@ void Editor::draw_viewport() {
     // viewport_gizmo.cpp); a click anywhere else selects what is under the cursor: the selection is how the user points at
     // something for the AI.
     if (play_ != PlayState::Playing) {
-        const bool onHandle = gizmo_frame(*r, imgMin, sz, hovered);
+        bool onHandle = false;
+        if (bone_tools_active()) {  // a bone tool owns the clicks: no gizmo handles meanwhile
+            gizmo_end_drag(false);
+            gizmoShapes_.clear();
+            gizmoHover_ = {};
+            onHandle = bone_tools_frame(*r, imgMin, sz, hovered);
+        } else {
+            onHandle = gizmo_frame(*r, imgMin, sz, hovered);
+        }
         if (hovered && !onHandle && !gizmoDrag_.active && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) select(pick_at(design_of(io.MousePos)));
         if (hovered && gizmoHover_) ImGui::SetItemTooltip("Drag to %s (hold Ctrl to snap, Esc cancels)", gizmo_mode_name(gizmoMode_));
         else if (hovered) ImGui::SetItemTooltip("Click: select (point at something for the AI)\nQ / W / E / R: select only, move, rotate, scale the selection");
@@ -210,6 +218,8 @@ void Editor::draw_viewport() {
 
     // ---- overlays
     dl->PushClipRect(imgMin, ImVec2(imgMin.x + sz.x, imgMin.y + sz.y), true);
+    anim_update_onion(*r);
+    anim_draw_onion(dl, *r);
     if (showColliders_) {
         w.each<Collider2D>([&](Entity e, Collider2D& c) {
             if (!w.active_in_hierarchy(e)) return;
@@ -292,7 +302,8 @@ void Editor::draw_viewport() {
         }
     }
     // Bones (Bone2D) of the selection: the selected entity's own bone and the ones below it, and the bones of its SpriteSkin. A thin
-    // kite from each bone's origin to its tip, the selected bone in yellow (full bone tools come with the bone editor).
+    // kite from each bone's origin to its tip, the selected bone in yellow (View > Bone tools draws and edits them).
+    bone_.bonesDrawn = 0;
     if (showOverlay_ && !sel.is_null() && primary_is_ortho()) {  // the 2D view; a 3D camera does not show bones
         std::vector<Entity> bones;
         std::function<void(Entity)> collect = [&](Entity e) {
@@ -311,9 +322,12 @@ void Editor::draw_viewport() {
             for (int i = 0; i < 4; ++i) p[i] = outline_pt(kite[size_t(i)], false, z);
             dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 1.5f);
             dl->AddCircleFilled(p[0], 3.5f, col);
+            ++bone_.bonesDrawn;
         }
     }
+    bone_tools_draw(dl, *r, imgMin, sz);
     gizmo_draw(dl);
+    anim_draw_record_frame(dl, imgMin, sz);
     dl->PopClipRect();
 
     ImGui::End();

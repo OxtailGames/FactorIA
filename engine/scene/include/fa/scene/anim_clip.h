@@ -83,6 +83,11 @@ const std::vector<std::string>& clip_ease_names();
 // Easing curve `index` of clip_ease_names() at t (0..1 in, 0..1 out; back / elastic overshoot): the curves of factoria.js.
 float clip_ease(int index, float t);
 
+// True when a clip track can drive `field`: a bool, int, float, vector, colour, rect, enum or asset field that is saved to the
+// scene and is not read-only. The one rule behind the track checks of parse_anim_clip, and what the editor's timeline offers
+// when it adds a track or records a change.
+bool clip_field_animatable(const FieldInfo& field);
+
 // Reads a clip from JSON. `file` is only used in messages. On failure the Error names the file and the JSON pointer of the
 // first problem ("anim/walk.anim.json /tracks/1/keys/2/t: ...") and says how many more there are; `issues` (may be null)
 // receives every problem, so a tool can list them all. The check of the track paths needs an entity: see
