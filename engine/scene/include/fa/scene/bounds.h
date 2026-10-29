@@ -5,7 +5,8 @@
 //   * Tilemap  tilemap_size() x tileSize; the entity origin is the map's TOP-LEFT corner, local x right, local y DOWN. An
 //              isometric map: the box around all its diamonds (tilemap_local_bounds), from the TOP corner of the map.
 //   * Sprite   `size` (0 = the region, else the texture, else 32 x 32; a SpriteAnimator divides the texture into its
-//              frames), placed by `pivot` (0,0 = bottom-left).
+//              frames), placed by `pivot` (0,0 = bottom-left). `skew` shears the box into a parallelogram; a deformable
+//              sprite (meshColumns / meshRows) with vertexOffsets is the bounding box of its moved, sheared vertices.
 //   * Shape2D  the size box placed by `pivot`. A Circle is its bounding square of side size.x; a Line is the stroked
 //              segment from the origin to `size`; a Diamond has its tips on the middles of the size box;
 //              a Polygon or Star is measured by its size box too.
@@ -47,6 +48,21 @@ Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth, b
 // The same for a Text entity's component: screen-space text at the player's text size `textScale`, the maxTextScale cap and
 // autoShrink applied (text_fit.h), so a headless run measures like a rendered one.
 Vec2 approx_text_size(const Text& text, float textScale);
+
+// Sprite.skew, meshColumns / meshRows and vertexOffsets: shared by the renderer (render/scene2d.cpp) and the footprint below, so
+// the picking outline follows the drawn picture.
+constexpr int kMaxSpriteMeshSide = 128;    // columns and rows of a deformable sprite
+constexpr int kMaxSpriteMeshCells = 4096;  // columns * rows
+// The shear of Sprite.skew (degrees [x, y], each clamped to -80..80) as a local-space matrix about the origin (the pivot):
+// x' = x + y * tan(skew.x), y' = y + x * tan(skew.y). The identity for [0, 0].
+Mat4 sprite_shear_matrix(Vec2 skewDegrees);
+Vec2 sprite_shear_point(Vec2 p, Vec2 skewDegrees);
+// The grid of a deformable sprite: true with columns and rows (1..128 each) when meshColumns and meshRows are both above 0 and
+// the grid has at most 4096 cells. False = a plain quad (the renderer logs one warning for a grid that is too big).
+bool sprite_mesh_grid(const Sprite& s, int& columns, int& rows);
+// vertexOffsets as (columns + 1) * (rows + 1) * 2 floats [dx, dy, ...], row-major from the top row; missing entries are 0. Empty
+// when the sprite has no offsets (not an array, or empty).
+std::vector<float> sprite_vertex_offsets(const Sprite& s, int columns, int rows);
 
 // One drawn thing of an entity.
 struct VisualFootprint {

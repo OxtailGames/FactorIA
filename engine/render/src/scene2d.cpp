@@ -14,6 +14,14 @@ namespace fa::render {
 
 bool entity_active(const World& w, Entity e) { return w.active_in_hierarchy(e); }
 
+Color inherited_tint(const World& world, const Frame& f, Entity e) {
+    if (!f.anyTint) return Color{1, 1, 1, 1};
+    Color out{1, 1, 1, 1};
+    for (Entity x = e; x != kNullEntity; x = world.parent(x))
+        if (const Tint* t = world.get<Tint>(x)) out = out * t->color;
+    return out;
+}
+
 float matrix_scale_x(const Mat4& m) {
     return std::sqrt(m.at(0, 0) * m.at(0, 0) + m.at(0, 1) * m.at(0, 1) + m.at(0, 2) * m.at(0, 2));
 }
@@ -40,7 +48,10 @@ void line_quad(const QuadEmitter& em, Vec2 a, Vec2 b, float t) {
 // Rounded rectangle / circle drawn by the SDF shader path (mode kModeShape): corner radius, soft edge, gradient. `cx, cy` is
 // the centre and `hw, hh` the half size in local units. The quad is padded by half the softness: the soft edge fades from
 // inside the outline to that far outside it. Vertex fields: see Vertex2D and the header of shaders/quad.glsl.
-void sdf_shape(QuadEmitter& em, const Shape2D& s, float cx, float cy, float hw, float hh, float radius, float t) {
+// `color2` is the packed gradient end colour; `rampRow` >= 0 reads the gradient from that row of the ramp texture instead
+// (gradient_ramp.h: the item's texture is the ramp texture, color2 holds the row).
+void sdf_shape(QuadEmitter& em, const Shape2D& s, float cx, float cy, float hw, float hh, float radius, float t,
+               std::uint32_t color2, int rampRow) {
     const float soft = std::max(0.0f, s.softness);
     const float pad = soft * 0.5f;
     hw = std::max(hw, 1e-3f);
@@ -57,7 +68,11 @@ void sdf_shape(QuadEmitter& em, const Shape2D& s, float cx, float cy, float hw, 
     } else {
         em.aux = -1.0f;
     }
-    const std::uint32_t c2 = pack_color(s.color2);
+    std::uint32_t c2 = color2;
+    if (rampRow >= 0 && em.aux > -0.5f) {
+        em.aux += 20.0f;  // the shader reads the gradient from the ramp texture, row = color2.r
+        c2 = std::uint32_t(rampRow);
+    }
     const std::uint16_t rb = float_to_half_bits(radius), sb = float_to_half_bits(soft);
     const float ux = (hw + pad) / hw, uy = (hh + pad) / hh;
     // rect() gives its (x0, y1) corner the uv (u0, v0): v0 is the uv of the top edge, so uv.y grows upwards like local y.
@@ -294,6 +309,7 @@ void gather_2d(World& world, Frame& f) {
     Assets& assets = *f.assets;
     auto pick = [&](RenderSpace sp) -> QuadList& { return sp == RenderSpace::Screen ? f.screen : f.world; };
 
+    f.anyTint = !world.entities_with(&World::type_of<Tint>()).empty();
     if (f.wantWorld) {
         update_parallax(world, f.cam.position.xy());
         gather_lights(world, f);
@@ -303,6 +319,8 @@ void gather_2d(World& world, Frame& f) {
     world.each<Sprite>([&](Entity e, Sprite& s) {
         if (!entity_active(world, e) || s.color.a <= 0.0f) return;
         if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
+        const Color spriteColor = s.color * inherited_tint(world, f, e);
+        if (spriteColor.a <= 0.0f) return;
         TextureAsset* tex = assets.texture(s.texture);
         Rect r = s.region;
         if (r.w <= 0 || r.h <= 0) r = Rect{0, 0, float(tex->width), float(tex->height)};
@@ -324,11 +342,50 @@ void gather_2d(World& world, Frame& f) {
         const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
         const float pivotX = mirrored ? 1.0f - s.pivot.x : s.pivot.x;
         const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -s.pivot.y * size.y, by1 = (1 - s.pivot.y) * size.y;
+        // A deformable sprite (meshColumns x meshRows cells, vertexOffsets) and the shear (skew). Both leave the pivot where it is.
+        int meshCols = 0, meshRows = 0;
+        std::vector<float> meshOffsets;
+        if (sprite_mesh_grid(s, meshCols, meshRows)) {
+            meshOffsets = sprite_vertex_offsets(s, meshCols, meshRows);
+        } else if (s.meshColumns > 0 && s.meshRows > 0 && f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
+            *f.warnedSpriteMesh = true;
+            FA_WARN("render", "Sprite meshColumns {} x meshRows {} on '{}' is more than {} cells (at most {} columns, {} rows): it is "
+                    "drawn as a plain quad. Use fewer cells; 16 x 1 bends a page, 8 x 8 a flag.",
+                    s.meshColumns, s.meshRows, world.info(e).name, kMaxSpriteMeshCells, kMaxSpriteMeshSide, kMaxSpriteMeshSide);
+        }
+        const bool skewed = s.skew.x != 0.0f || s.skew.y != 0.0f;
+        const Mat4 shear = skewed ? sprite_shear_matrix(s.skew) : Mat4::identity();
 
         // One copy of the sprite drawn with matrix `mm`.
-        auto draw = [&](const Mat4& mm) {
-            QuadEmitter em{list, mm, screen, pack_color(s.color), kModeTextured, 0};
+        auto draw = [&](const Mat4& placed) {
+            const Mat4 mm = skewed ? placed * shear : placed;
+            QuadEmitter em{list, mm, screen, pack_color(spriteColor), kModeTextured, 0};
             if (lit) set_light_frame(em, mm, {s.flipX ? -1.0f : 1.0f, 0.0f}, {0.0f, s.flipY ? -1.0f : 1.0f});
+            if (meshCols > 0) {
+                // A grid of cells: vertex (c, r) lies c / meshCols across and r / meshRows down the sprite box (row 0 = the top
+                // edge), moved by its offset; each cell is a quad that shows the matching part of the region.
+                const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
+                float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
+                if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
+                if (s.flipX) std::swap(u0, u1);
+                if (s.flipY) std::swap(v0, v1);
+                const std::size_t stride = std::size_t(meshCols) + 1;
+                auto vert = [&](int c, int rw) {
+                    const float fx = float(c) / float(meshCols), fy = float(rw) / float(meshRows);
+                    float x = bx0 + (bx1 - bx0) * fx, y = by1 + (by0 - by1) * fy;
+                    if (!meshOffsets.empty()) {
+                        const std::size_t k = (std::size_t(rw) * stride + std::size_t(c)) * 2;
+                        x += meshOffsets[k];
+                        y += meshOffsets[k + 1];
+                    }
+                    const Vec3 p = em.xf(x, y);
+                    return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fx, v0 + (v1 - v0) * fy, em.color, em.mode, em.aux};
+                };
+                for (int rw = 0; rw < meshRows; ++rw)
+                    for (int c = 0; c < meshCols; ++c)
+                        list.quad(vert(c, rw), vert(c, rw + 1), vert(c + 1, rw + 1), vert(c + 1, rw));
+                return;
+            }
             if (nine) {
                 // 9-slice: the borders keep their texture size (1 pixel = 1 unit), the rest stretches. Geometry is laid out
                 // unflipped from the top row down, then mirrored about the sprite box for flipX / flipY.
@@ -398,8 +455,33 @@ void gather_2d(World& world, Frame& f) {
         // Invisible only when every colour the shape draws with is transparent: a gradient fill also uses color2 (the
         // documented vignette starts at alpha 0 and ends opaque).
         const bool usesColor2 = s.filled && s.gradient != ShapeGradient::None;
-        if (!entity_active(world, e) || (s.color.a <= 0.0f && !(usesColor2 && s.color2.a > 0.0f))) return;
+        if (!entity_active(world, e)) return;
         if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
+        const Color tint = inherited_tint(world, f, e);
+        Color color1 = s.color * tint, color2 = s.color2 * tint;
+        // A gradient with stops or an easing is read from a row of the ramp texture (gradient_ramp.h); only the shapes the SDF
+        // path draws (rectangle, circle) have a gradient.
+        GradientSpec spec;
+        int rampRow = -1;
+        const bool rampShape = usesColor2 && (s.shape == ShapeType::Rectangle || s.shape == ShapeType::Circle);
+        if (rampShape) {
+            std::string problem;
+            if (gradient_spec(s, tint, spec, &problem)) {
+                if (!problem.empty() && f.warnedGradientStops && !*f.warnedGradientStops) {
+                    *f.warnedGradientStops = true;
+                    FA_WARN("render", "{} (entity '{}'; reported once per scene)", problem, world.info(e).name);
+                }
+                if (f.ramps) rampRow = f.ramps->acquire(spec);
+                if (rampRow < 0) {  // no ramp room (all rows used by this frame's shapes): the first and last stop, blended linearly
+                    color1 = spec.color[0];
+                    color2 = spec.color[std::size_t(spec.count - 1)];
+                }
+            }
+        }
+        bool visible = color1.a > 0.0f || (usesColor2 && color2.a > 0.0f);
+        if (rampRow >= 0)
+            for (int i = 0; i < spec.count; ++i) visible = visible || spec.color[std::size_t(i)].a > 0.0f;
+        if (!visible) return;
         bool screen = s.space == RenderSpace::Screen;
         Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
@@ -407,9 +489,10 @@ void gather_2d(World& world, Frame& f) {
         if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, screen && ui_mirrored(world, e));
         if (screen && ui_mirrored(world, e)) m = m * Mat4::scale({-1.0f, 1.0f, 1.0f});  // every shape is symmetric about its box, but a line
         QuadList& list = pick(s.space);
-        list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
+        if (rampRow >= 0) list.begin_item(s.layer, secondary_key(f, m, false), f.ramps->texture(), SamplerKind::LinearClamp, s.blend, clip);
+        else list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
         if (s.lit && !screen) list.set_lit(nullptr);
-        QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
+        QuadEmitter em{list, m, screen, pack_color(color1), kModeTextured, 0};
         // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
         float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
         float by0 = -s.pivot.y * s.size.y, by1 = by0 + s.size.y;
@@ -420,7 +503,7 @@ void gather_2d(World& world, Frame& f) {
         switch (s.shape) {
             case ShapeType::Rectangle:
                 if (fx || s.cornerRadius > 0.0f) {
-                    sdf_shape(em, s, bx0 + hw, by0 + hh, hw, hh, std::min(s.cornerRadius, std::min(hw, hh)), t);
+                    sdf_shape(em, s, bx0 + hw, by0 + hh, hw, hh, std::min(s.cornerRadius, std::min(hw, hh)), t, pack_color(color2), rampRow);
                 } else if (s.filled) {
                     em.rect(bx0, by0, bx1, by1, 0, 0, 1, 1);
                 } else {
@@ -435,7 +518,7 @@ void gather_2d(World& world, Frame& f) {
                 float r = hw;  // diameter = size.x; the pivot refers to the circle's bounding square
                 float cx = bx0 + r, cy = -s.pivot.y * s.size.x + r;
                 if (fx) {
-                    sdf_shape(em, s, cx, cy, r, r, r, t);
+                    sdf_shape(em, s, cx, cy, r, r, r, t, pack_color(color2), rampRow);
                     break;
                 }
                 em.mode = float(s.filled ? kModeCircle : kModeRing);
@@ -489,6 +572,8 @@ void gather_2d(World& world, Frame& f) {
         // place from the component each frame: nothing is copied out of the Json.
         const TilemapSize grid = tilemap_size(tm);
         if (grid.empty()) return;
+        const Color tmColor = tm.color * inherited_tint(world, f, e);
+        if (f.anyTint && tmColor.a <= 0.0f) return;  // a Tint that hides the map
         const int w = grid.width, h = grid.height;
         TextureAsset* tex = assets.texture(tm.tileset);
         float tw = tm.tileSize.x, th = tm.tileSize.y;
@@ -498,7 +583,7 @@ void gather_2d(World& world, Frame& f) {
         QuadList& list = f.world;
         list.begin_item(tm.layer, secondary_key(f, m, false), tex, SamplerKind::Nearest);
         if (tm.lit) list.set_lit(tm.normalMap.empty() ? nullptr : assets.texture(tm.normalMap));
-        QuadEmitter em{list, m, false, pack_color(tm.color), kModeTextured, 0};
+        QuadEmitter em{list, m, false, pack_color(tmColor), kModeTextured, 0};
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
         bool cull = !f.cam.perspective;
         Rect view = f.cam.visible;
@@ -574,6 +659,8 @@ void gather_2d(World& world, Frame& f) {
     // ---- text ----
     world.each<Text>([&](Entity e, Text& t) {
         if (!entity_active(world, e) || t.text.empty() || t.color.a <= 0.0f || t.fontSize <= 0.0f) return;
+        const Color textTint = inherited_tint(world, f, e);
+        if (textTint.a <= 0.0f) return;
         if (t.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         bool screen = t.space == RenderSpace::Screen;
         Mat4 m = draw_matrix(world, e, screen);
@@ -617,8 +704,8 @@ void gather_2d(World& world, Frame& f) {
             m.at(3, 0) = std::round((m.at(3, 0) - ox) * k) / k + ox;
             m.at(3, 1) = std::round((m.at(3, 1) - oy) * k) / k + oy;
         }
-        f.stats->textGlyphs += emit_text(pick(t.space), m, screen, lay, t.color, *f.fonts, assets, t.layer, secondary_key(f, m, false), clip,
-                                         t.visibleCharacters);
+        f.stats->textGlyphs += emit_text(pick(t.space), m, screen, lay, t.color * textTint, *f.fonts, assets, t.layer,
+                                         secondary_key(f, m, false), clip, t.visibleCharacters, textTint);
     });
 }
 

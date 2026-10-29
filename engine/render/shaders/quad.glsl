@@ -13,6 +13,9 @@
 //          local units, shape_rs = (corner radius, softness) in local units, color2 = the gradient's end colour.
 //          aux: -1 flat fill; 0..2pi linear gradient, the angle in radians; 10 radial gradient; <= -2 outline of thickness
 //          -aux - 2 (growing inward). Gradients and soft edges are dithered.
+//          aux + 20 (aux >= 0 only): the gradient is read from a ramp texture (the item's texture, one row per gradient; see
+//          engine/render/src/gradient_ramp.h) instead of blended from color to color2: color2.r * 255 is the row, the position
+//          along the gradient is the u coordinate. This is how Shape2D gradientStops / gradientEase are drawn.
 // mode + 16 = (modes 0, 1, 2, 7 only) the same output, shaded by the 2D lights like mode 5 with a flat surface (lit Shape2D)
 // mode + 8 = same shading, but the output is converted for MULTIPLY blending (dst * out.rgb):
 //            rgb = mix(1, rgb, alpha) so alpha fades the darkening in (blend: src=DST_COLOR, dst=ZERO).
@@ -138,6 +141,8 @@ vec4 shape_color() {
     vec2 q = abs(p) - hs + r;
     float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;   // signed distance to the outline, < 0 inside
     float ax = params.y;
+    bool ramp = ax > 15.0;
+    if (ramp) ax -= 20.0;
     float ring = ax <= -1.5 ? (-ax - 2.0) : 0.0;
     if (ring > 0.0) d = abs(d + ring * 0.5) - ring * 0.5;          // an outline growing inward
     float aa = max(fwidth(d), 1e-4);
@@ -156,8 +161,13 @@ vec4 shape_color() {
         }
         g = clamp(g, 0.0, 1.0);
         // Blend premultiplied, so fading to a transparent colour does not darken the middle of the gradient.
-        vec4 pm = mix(vec4(color.rgb * color.a, color.a), vec4(color2.rgb * color2.a, color2.a), g);
-        c = vec4(pm.a > 1e-5 ? pm.rgb / pm.a : color.rgb, pm.a);
+        if (ramp) {
+            // Straight-alpha texels (the filtering blends them; the stops are baked premultiplied), level 0 only.
+            c = textureLod(sampler2D(tex, smp), vec2((0.5 + g * 255.0) / 256.0, (floor(color2.r * 255.0 + 0.5) + 0.5) / 256.0), 0.0);
+        } else {
+            vec4 pm = mix(vec4(color.rgb * color.a, color.a), vec4(color2.rgb * color2.a, color2.a), g);
+            c = vec4(pm.a > 1e-5 ? pm.rgb / pm.a : color.rgb, pm.a);
+        }
     }
     c.a *= cov;
     if (graded || soft > 0.0) {
