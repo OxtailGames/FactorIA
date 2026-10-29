@@ -2,6 +2,15 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Fixes
+
+- The editor no longer forgets its recent projects. Starting straight on a project (`factoria editor <dir>`, the
+  restart after an update) used to overwrite `~/.factoria/editor_recent.json` with that one project, and File > Recent
+  Projects was empty. The list is now read when the editor starts, merged with the file on every save, compared by
+  normalised path, and entries whose folder is missing are hidden but kept.
+
 ## 0.7.0
 
 FactorIA 0.7.0 animates characters built in parts: a keyframed clip (`*.anim.json`) moves the parts of an entity and the
