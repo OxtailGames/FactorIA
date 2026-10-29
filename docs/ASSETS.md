@@ -354,10 +354,33 @@ animation (`cycleSeconds * fps` frames).
   `seed` explicit) and the module with every file it imported, each with its SHA-256. Calling the command with the recipe's
   `args` (and `overwrite: true`) makes the identical sheet; the same module, arguments and seed always give the same bytes.
 
-Playing the sheet: the result's `nextSteps` give the `Sprite` and `SpriteAnimator` settings (`columns`, `rows`, `firstFrame`,
-`lastFrame`, `fps`) of the whole sheet and of each clip. `padding` and `pivot` are recorded in the sheet entry of
-`assets.json`; a `SpriteAnimator` set by hand with `columns` and `rows` slices a plain grid with no gutter, so those
-settings are exact only for `padding` 0.
+Playing the sheet: the result's `nextSteps` give the `Sprite` and `SpriteAnimator` settings for the whole sheet and for
+each clip, and the call that checks it (`assets.preview_sheet`). The best way to play a clip is by name:
+`SpriteAnimator {"clip": "run"}` on an entity whose `Sprite.texture` is the sheet, or `entity.spriteAnimator.play("run")`
+from a script. The sheet's grid (`columns`, `rows`), `padding`, the clip's `fps`, `loop` and range all come from the
+`sheet` entry; the numeric fields (`columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`) still work, and when you
+set one on the component it overrides the clip's value. A wrong clip name is an error that lists the clips of the sheet and
+suggests the closest one (`project.validate` finds it in a scene or prefab too). `padding` is skipped by the animator by
+itself whenever its `columns` and `rows` are the sheet's, so a sheet with a gutter needs no extra setting.
+`pivot` of the sheet and of a clip is `[x, y]` in 0..1 counted from the TOP-left of the frame (as in the PNG); `Sprite.pivot`
+counts from the BOTTOM-left, so the animator uses `[x, 1 - y]`. It does so only when the `Sprite` has no pivot of its own
+(`Sprite.pivot` still `[0.5, 0.5]`) and `SpriteAnimator.sheetPivot` is true; a sprite that sets another pivot keeps it. The
+sheet's pivot is applied when the sprite is drawn and measured, it is not written into `Sprite.pivot`.
+
+### Checking a sheet: assets.preview_sheet
+
+`assets.preview_sheet {"path":"assets/art/coin_spin.png"}` draws the sheet as a labelled grid (a temporary picture, returned as
+`$image`, that an AI can look at): the frame numbers (`f0`, `f1`...), the frame rectangle (cyan) and the cell edge (grey,
+which differs from the frame when there is `padding`), and the pivot (a magenta cross). `clip` shows only that clip's frames
+(an unknown name is an error with the clip list and the closest name); `onion: true` overlays the previous frame in red and the
+next in blue at 40% so you can see how far things move between frames. The grid is the `sheet` entry of the texture, or the
+arguments `columns`, `rows`, `frameWidth`, `frameHeight` and `padding` when the sheet has none (without either the error
+`no_grid` says what to pass). `scale` and `tileColumns` set the size and the layout of the picture. It reads the sheet and writes
+only the temporary picture, and its `warnings` are the checks: the grid does not match the image, more frames than the grid
+holds, a clip outside the sheet, an empty frame, ink touching the edge of the cell, the drawing jumping between frames (the
+centre of its ink moves by more than 30% of the frame) and a looping clip whose last frame jumps from the first or repeats it.
+The result also has `frames` (for each shown frame: `empty` and the `bbox` of its ink in frame pixels) and `nextSteps`.
+The Project panel plays the same clips (see [EDITOR.md](EDITOR.md)).
 
 ### The game icon without a provider: assets.draw_icon
 
@@ -675,7 +698,7 @@ To play a clip, use the next steps of the result:
 Leave the Sprite's `region` and `size` empty: SpriteAnimator sets the region, and the frame size is the sprite size.
 
 What is not carried over, with a warning each time: tags that play in reverse or ping-pong (the clip plays forward,
-because `SpriteAnimator` only plays forward), layers with a blend mode other than normal (drawn as normal) and tilemap
+because the sheet keeps no direction; set `SpriteAnimator.mode` to `reverse` or `pingpong`), layers with a blend mode other than normal (drawn as normal) and tilemap
 layers. Slices and user data are ignored. A damaged file is an error that names what is wrong ("frame 3 is cut short").
 
 ### PSD
