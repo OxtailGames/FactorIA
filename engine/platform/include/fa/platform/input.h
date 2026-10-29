@@ -224,7 +224,8 @@ public:
     // per real plug: the disconnect release_all() does when the window loses the focus is not one, and the pad coming
     // back after it is not a new connection. The script host calls this once a frame.
     std::vector<GamepadEvent> take_gamepad_events();
-    // Test isolation (and nothing else): bindings back to the project's, cursor visible and unlocked, on-screen keyboard
+    // Test isolation (and nothing else): bindings back to the project's, the mouse back at (0, 0) with no delta or wheel
+    // (as in a fresh process), cursor visible and unlocked, on-screen keyboard
     // hidden, last device the keyboard, every pad generic, no pending Back press, no recorded vibration.
     void reset_options();
     // Focus lost or a test reset: releases everything (keys, mouse, touches, pad buttons and axes) and disconnects every

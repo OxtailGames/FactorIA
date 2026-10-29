@@ -82,7 +82,8 @@ StdioExit run_stdio_loop(McpServer& server, LineReader& reader, std::ostream& ou
         }
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.find_first_not_of(" \t") == std::string::npos) continue;
-        poll();
+        if (options.before_message) options.before_message();
+        else poll();
         if (auto response = server.handle_message(line)) write(*response);
         poll();
         if (restart_due()) {

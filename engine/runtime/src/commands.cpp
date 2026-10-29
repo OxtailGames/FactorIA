@@ -1129,7 +1129,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "With `module` (a project path such as scripts/game/rules.js) and `call` (the name of an exported function, \"default\" "
            "for the default export) it imports the module and returns what the function returns, passing `args` (a JSON array) "
            "as its arguments; it needs no scene, so a pure module (no engine state) can be run on its own. An async function is "
-           "awaited if it settles without time passing. Example: script.eval {\"module\":\"scripts/game/rules.js\","
+           "awaited if it settles without time passing. Before the import, every loaded module whose file changed on disk is re-imported "
+           "(like script.reload), so an edit shows at once. Example: script.eval {\"module\":\"scripts/game/rules.js\","
            "\"call\":\"price\",\"args\":[\"wood\",3]}",
            parse_schema(R"({"type":"object","properties":{
                "code":{"type":"string","description":"JavaScript source. Required unless `module` is given."},
@@ -1154,6 +1155,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   if (!fs::exists(path))
                       throw CommandError("not_found", "script.eval module '" + module + "' does not exist",
                                          did_you_mean(path, fs::list("", true, ".js")));
+                  I.scripts.reload_changed_modules();  // a module edited since its import runs with its new code (no scene.reload needed)
                   Json args = a.contains("args") ? a["args"] : Json::array();
                   if (!args.is_array())
                       throw CommandError("invalid_args", "script.eval `args` must be a JSON array of arguments", "Example: \"args\":[\"wood\", 3]");
@@ -1173,6 +1175,49 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               auto r = I.scripts.eval(code);
               if (!r.ok()) throw CommandError("script_error", r.error().message, r.error().hint);
               return Json::object({{"value", r.value()}});
+          });
+
+    I.commands.add({"storage.list", "List the keys of the game's save storage (storage.set): the ones the running game holds and the key files in the save folder.",
+           "Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, `compressed` and `bytes`, the "
+           "storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and `factoria run` write to. "
+           "`factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), but this command "
+           "still lists the key files on disk, so a stale save left by the editor or a play run (a \"Continue\" button that "
+           "should not be there) is visible. `project.test` runs every test file on its own fresh in-memory storage and never "
+           "reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key files that do not "
+           "parse. Example: storage.list {}",
+           parse_schema(R"({"type":"object","properties":{}})"), true, "script"},
+          [&I](const Json&) { return I.scripts.storage_list(); });
+
+    I.commands.add({"storage.clear", "Delete one storage key (`key`) or all of them (`all`) from the game's memory and from the save folder.",
+           "Use it to reset a game to a first run without a shell `rm` (fs.delete refuses .factoria/). `key` is the key as the game "
+           "wrote it (\"run.current\", see storage.list); `all: true` removes every key and every key file, including damaged ones. "
+           "Give exactly one of them. The key files in the save folder go whatever the storage mode is. Returns the removed keys. "
+           "A scene that already read the key keeps its own copy: scene.reload afterwards. During project.test it only clears the "
+           "test's in-memory storage. Example: storage.clear {\"key\":\"run.current\"}",
+           parse_schema(R"({"type":"object","properties":{
+               "key":{"type":"string","description":"The storage key to remove (see storage.list)."},
+               "all":{"type":"boolean","default":false,"description":"Remove every key instead of one."}}})"),
+           false, "script"},
+          [&I](const Json& a) {
+              const bool all = a.value("all", false);
+              const bool hasKey = a.contains("key") && a["key"].is_string() && !a["key"].get<std::string>().empty();
+              if (all == hasKey)
+                  throw CommandError("invalid_args", "storage.clear needs exactly one of `key` or `all`",
+                                     "Example: {\"key\":\"run.current\"} or {\"all\":true}. storage.list shows the keys.");
+              if (hasKey) {
+                  const std::string key = a["key"].get<std::string>();
+                  std::vector<std::string> names;
+                  bool found = false;
+                  const Json listing = I.scripts.storage_list();  // a named value: a range-for over a temporary's member would dangle
+                  for (const Json& k : listing["keys"]) {
+                      names.push_back(k["key"].get<std::string>());
+                      found = found || names.back() == key;
+                  }
+                  if (!found)
+                      throw CommandError("not_found", "storage has no key '" + key + "'", did_you_mean(key, names));
+                  return I.scripts.storage_clear(key, false);
+              }
+              return I.scripts.storage_clear("", true);
           });
 
     I.commands.add({"script.reload", "Re-import script modules edited on disk and restart the behaviours (the world is kept).",

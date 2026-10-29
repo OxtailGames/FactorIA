@@ -365,6 +365,10 @@ public:
     // importing them, for re-import on next use; reloads tools if affected; clears script errors. Behaviours are NOT
     // touched (the caller recreates them, e.g. on_scene_loaded). Returns the stale files.
     std::vector<std::string> refresh_modules(bool force = false);
+    // Hot reload of every loaded module whose file changed on disk since it was imported (by modification time), as
+    // reload_module does for each: the modules that import it are re-imported, behaviours recreated, tools registered
+    // again. Returns the changed files. script.eval {module} calls it so an edited module never runs with its old code.
+    std::vector<std::string> reload_changed_modules();
     void reload_module(std::string_view modulePath);  // hot reload: re-import + recreate affected behaviours
     // (Re)loads every tools/*.js of the project and registers them as "project.<name>" commands (also done by init()).
     void reload_tools();
@@ -374,6 +378,12 @@ public:
     // was loaded in memory; Memory never writes to disk).
     void set_storage_mode(StorageMode mode);
     StorageMode storage_mode() const;
+    // storage.list: {mode, dir, keys: [{key, inMemory, onDisk, compressed, bytes?}], damaged: [{file, problem}]}. The keys the
+    // running game holds plus the key files in the save folder (what the editor or a play run left), whatever the mode.
+    // A test run only sees its own in-memory storage.
+    Json storage_list();
+    // storage.clear: removes one key (`key`) or every key (`all`) from memory and from the save folder. Returns {removed: [keys]}.
+    Json storage_clear(const std::string& key, bool all);
     // Validates Script.props against a behaviour module WITHOUT side effects on the scene: constructs a throw-away
     // instance and returns one message per prop that is not an own field of it (with "did you mean"). Returns an
     // error entry too when the module cannot be loaded. Empty = all good. Used by `factoria validate`.
