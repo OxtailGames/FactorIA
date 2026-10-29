@@ -108,7 +108,7 @@ void Editor::ai_review_next() {
     aiReview_.itemStart = chat->items.size();
     aiReview_.costBefore = chat->costUsd;
     chat->updated = static_cast<i64>(std::time(nullptr));
-    chat->scrollDown = true;
+    chat->forceScroll = true;
     chat->run.clear();
 
     AiRun& run = *owned;

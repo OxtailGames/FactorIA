@@ -1107,11 +1107,15 @@ void Editor::register_layout_settings() {
         return std::strcmp(name, "Panels") == 0 ? reinterpret_cast<void*>(1) : nullptr;
     };
     h.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, void*, const char* line) {
+        Editor* ed = static_cast<Editor*>(handler->UserData);
         int mask = 0;
-        if (std::sscanf(line, "Open=%d", &mask) == 1) static_cast<Editor*>(handler->UserData)->set_panels_mask(mask);
+        float h = 0;
+        if (std::sscanf(line, "Open=%d", &mask) == 1) ed->set_panels_mask(mask);
+        else if (std::sscanf(line, "AiInputHeight=%f", &h) == 1) ed->aiInputH_ = std::max(0.0f, h);
     };
     h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* out) {
-        out->appendf("[%s][Panels]\nOpen=%d\n\n", handler->TypeName, static_cast<Editor*>(handler->UserData)->panels_mask());
+        const Editor* ed = static_cast<const Editor*>(handler->UserData);
+        out->appendf("[%s][Panels]\nOpen=%d\nAiInputHeight=%.0f\n\n", handler->TypeName, ed->panels_mask(), ed->aiInputH_);
     };
     ImGui::AddSettingsHandler(&h);
 }

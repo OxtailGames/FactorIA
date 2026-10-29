@@ -526,7 +526,7 @@ void Editor::ai_start(const std::string& task) {
     chat.items.push_back(std::move(user));
     if (chat.title.empty()) chat.title = chat_title_from(task);
     chat.updated = now_epoch();
-    chat.scrollDown = true;
+    chat.forceScroll = true;
     chat.run.clear();
 
     // The entity selected in the viewport is what "this" and "it" mean. The transcript shows only what was typed.
@@ -1301,7 +1301,11 @@ void Editor::draw_ai_panel() {
     }
 
     // Transcript.
-    const float inputH = ImGui::GetTextLineHeight() * 3.4f + 8;
+    // The message box: 3 lines, or the height the user dragged it to with the grip above it (it grows upwards).
+    const float defaultInputH = ImGui::GetTextLineHeight() * 3.4f + 8;
+    const float maxInputH = std::max(defaultInputH, ImGui::GetContentRegionAvail().y * 0.7f);
+    const float inputH = std::clamp(aiInputH_ > 0 ? aiInputH_ : defaultInputH, ImGui::GetTextLineHeight() * 1.4f + 8, maxInputH);
+    constexpr float kGripH = 6.0f;
     const float noticeH = playNotice_.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing();
     // The run's status lines (below the transcript): the pulse, "worker still running", the stuck warning.
     const bool showDetached = isRunTab && run->detached.load();
@@ -1309,7 +1313,8 @@ void Editor::draw_ai_panel() {
                            static_cast<double>(now_ms() - run->lastActivityMs.load()) / 1000.0 >= cfg.limits.stuckAfterSeconds &&
                            now_seconds() >= run->snoozeUntil;
     const float statusH = !isRunTab ? 0.0f : ImGui::GetFrameHeightWithSpacing() * (1.0f + (showDetached ? 2.0f : 0.0f) + (showStuck ? 2.0f : 0.0f));
-    const float footer = stripH + noticeH + statusH + inputH + ImGui::GetFrameHeightWithSpacing() * 1.4f;  // the buttons row
+    const float footer = stripH + noticeH + statusH + kGripH + ImGui::GetStyle().ItemSpacing.y + inputH +
+                         ImGui::GetFrameHeightWithSpacing() * 1.4f;  // the buttons row
     ImGui::BeginChild("##chat", ImVec2(0, -footer), ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
     if (chat.items.empty()) {
@@ -1380,9 +1385,24 @@ void Editor::draw_ai_panel() {
         ImGui::PopID();
     }
     ImGui::PopTextWrapPos();
-    if (chat.scrollDown) {
-        ImGui::SetScrollHereY(1.0f);
-        chat.scrollDown = false;
+    // New output is followed only while the transcript is at the bottom: scrolling up to read stops the following, and
+    // going back to the bottom (scrolling or "Jump to latest") starts it again.
+    const bool atBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f;
+    const bool scrollNow = chat.forceScroll || (chat.scrollDown && atBottom);
+    if (scrollNow) ImGui::SetScrollHereY(1.0f);
+    chat.scrollDown = chat.forceScroll = false;
+    if (!atBottom && !scrollNow) {
+        const char* label = "Jump to latest";
+        const ImVec2 size(ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2, ImGui::GetFrameHeight());
+        const float pad = ImGui::GetStyle().WindowPadding.x;
+        ImGui::SetCursorPos(ImVec2(ImGui::GetScrollX() + ImGui::GetWindowWidth() - size.x - pad - ImGui::GetStyle().ScrollbarSize,
+                                   ImGui::GetScrollY() + ImGui::GetWindowHeight() - size.y - pad));
+        // A child window of its own, so it is drawn over the transcript and gets the clicks there.
+        ImGui::BeginChild("##jump", size, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
+        if (ImGui::Button(label, size)) chat.forceScroll = true;
+        at_track("ai:jump");
+        ImGui::SetItemTooltip("Scroll to the newest output and keep following it");
+        ImGui::EndChild();
     }
     ImGui::EndChild();
 
@@ -1439,6 +1459,26 @@ void Editor::draw_ai_panel() {
                                   "processes and the project's recent file changes, and says whether it is still working.\n"
                                   "The warning stays quiet for another period afterwards.");
         }
+    }
+
+    // The grip above the message box: drag it up for a taller box, double-click for the default height.
+    ImGui::InvisibleButton("##ai_input_grip", ImVec2(-FLT_MIN, kGripH));
+    at_track("ai:input:grip");
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        const float y = (a.y + b.y) * 0.5f, w = 40.0f, cx = (a.x + b.x) * 0.5f;
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(cx - w * 0.5f, y), ImVec2(cx + w * 0.5f, y), ImGui::GetColorU32(ImGuiCol_SeparatorHovered), 2.0f);
+    }
+    ImGui::SetItemTooltip("Drag to make the message box taller or shorter (double-click: back to 3 lines)");
+    if (ImGui::IsItemActive() && ImGui::GetIO().MouseDelta.y != 0) {
+        if (atBottom) chat.forceScroll = true;  // a transcript at the bottom stays there while the box grows
+        aiInputH_ = std::clamp(inputH - ImGui::GetIO().MouseDelta.y, ImGui::GetTextLineHeight() * 1.4f + 8, maxInputH);
+        ImGui::MarkIniSettingsDirty();
+    }
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        aiInputH_ = 0;
+        ImGui::MarkIniSettingsDirty();
     }
 
     // Input.

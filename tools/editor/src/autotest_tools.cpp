@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -873,6 +874,77 @@ void Editor::at_build_tools_script() {
         const char* clip = ImGui::GetClipboardText();
         at_check(clip && std::string(clip) == "Copy this reply.", "an assistant message can be selected and copied (right-click > Select all, Copy)");
         chat_.current().items.pop_back();
+    });
+
+    // New output is followed only at the bottom: scrolled up to read, the transcript stays put and "Jump to latest" goes back.
+    auto transcript = [] {
+        for (ImGuiWindow* w : GImGui->Windows)
+            if (std::strstr(w->Name, "AI Assistant/##chat_") && !std::strstr(w->Name, "##jump") && w->Active) return w;
+        return static_cast<ImGuiWindow*>(nullptr);
+    };
+    auto items0 = std::make_shared<std::size_t>();
+    step(2, [this, items0] {
+        *items0 = chat_.current().items.size();
+        for (int i = 0; i < 80; ++i) {
+            ChatItem it;
+            it.kind = ChatItem::Kind::Info;
+            it.text = "line " + std::to_string(i);
+            chat_.current().items.push_back(it);
+        }
+        chat_.current().forceScroll = true;
+    });
+    step(3, [this, transcript] {
+        ImGuiWindow* w = transcript();
+        at_check(w && w->ScrollMax.y > 0 && w->Scroll.y >= w->ScrollMax.y - 4, "the AI transcript scrolls to the bottom");
+        if (w) ImGui::SetScrollY(w, 0);  // the user scrolls up to read
+    });
+    step(3, [this] {
+        ChatItem it;
+        it.kind = ChatItem::Kind::Info;
+        it.text = "new output while reading";
+        chat_.current().items.push_back(it);
+        chat_.current().scrollDown = true;
+    });
+    step(3, [this, transcript] {
+        ImGuiWindow* w = transcript();
+        at_check(w && w->Scroll.y < 1, "new output does not move a transcript the user scrolled up");
+    });
+    snap("editor_ai_jump_latest.png");
+    click("ai:jump");
+    step(3, [this, transcript] {
+        ImGuiWindow* w = transcript();
+        at_check(w && w->Scroll.y >= w->ScrollMax.y - 4, "Jump to latest goes back to the bottom");
+    });
+    step(2, [this] {
+        ChatItem it;
+        it.kind = ChatItem::Kind::Info;
+        it.text = "followed again";
+        chat_.current().items.push_back(it);
+        chat_.current().scrollDown = true;
+    });
+    step(3, [this, transcript] {
+        ImGuiWindow* w = transcript();
+        at_check(w && w->Scroll.y >= w->ScrollMax.y - 4, "at the bottom again, new output is followed");
+    });
+    // The grip above the message box makes it taller.
+    auto grip = std::make_shared<Vec2>();
+    step(2, [this, grip] {
+        aiInputH_ = 0;
+        *grip = at_widget("ai:input:grip");
+        inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, *grip);
+    });
+    step(2, [this, grip] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, *grip); });
+    step(2, [this, grip] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{grip->x, grip->y - 40}); });
+    step(2, [this, grip] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{grip->x, grip->y - 80}); });
+    step(2, [this, grip] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, Vec2{grip->x, grip->y - 80}); });
+    snap("editor_ai_input_tall.png");
+    step(2, [this, items0, transcript] {
+        const float def = ImGui::GetTextLineHeight() * 3.4f + 8;
+        at_check(aiInputH_ > def + 40, "dragging the grip up makes the AI message box taller (" + std::to_string(aiInputH_) + ")");
+        ImGuiWindow* w = transcript();
+        at_check(w && w->Scroll.y >= w->ScrollMax.y - 4, "a transcript at the bottom stays at the bottom while the box grows");
+        aiInputH_ = 0;
+        chat_.current().items.resize(*items0);
         focus_window("###Viewport");
     });
 
