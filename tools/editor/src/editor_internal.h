@@ -247,6 +247,14 @@ public:
     void draw_console();
     void draw_ai_panel();
     void draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status);
+    // AI settings window (ai_settings.cpp; the AI Assistant's "AI settings..." button and File > AI Settings...): where each kind of
+    // asset is made (provider, model, voice, API key) and which websites the AI looks at for assets. Save goes through
+    // ai::save_asset_settings: only "assets", "assetSources" and the provider fields these need change in the user's ai.json.
+    void open_ai_settings();
+    void draw_ai_settings_window();
+    void ai_settings_load(const ai::AiConfig& cfg);
+    Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
+    bool ai_settings_dirty(const ai::AiConfig& cfg) const;
     void draw_feedback_panel();
     void draw_audio_panel();
     // Project panel (project_browser_panel.cpp): the project's files; drag them onto Inspector asset fields and the Viewport.
@@ -689,6 +697,19 @@ public:
     bool aiRolesOpen_ = false;      // request to open the AI roles popup this frame
     std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in that popup
     std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
+    bool showAiSettings_ = false, aiSettingsFocus_ = false;
+    struct AiSettingsDraft {                       // the AI settings window's working copy (dropped when it closes: a typed key must not linger)
+        bool loaded = false;
+        std::string path;                          // the ai.json it saves into
+        std::map<std::string, ai::AssetRoute> routes;  // by media kind name; provider "" = none (made procedurally)
+        ai::AssetSources sources;
+        std::map<std::string, std::string> keys;   // API keys typed this session, by provider (never shown, never logged)
+        std::set<std::string> removeKey;           // providers whose stored key Save deletes
+        std::map<std::string, std::string> command, args;  // asset-command providers: the program and its arguments line
+        std::array<std::string, 5> newUrl, newNote;       // the "add a site" row of each category
+        std::string siteError, saveError;
+        std::vector<ai::ProviderStatus> status;    // key / program checks, taken when the window loaded the file
+    } aiSettings_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
 
     // autotest

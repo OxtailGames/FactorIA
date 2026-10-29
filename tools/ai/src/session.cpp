@@ -281,7 +281,7 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     SessionResult res;
     // A CLI orchestrator delegates through the FactorIA MCP server it is attached to: ai.run starts the role from ai.json.
     const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation;
-    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "ai_run"};
+    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "ai_run", config_.assetSources};
     const std::string fullPrompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
     // A follow-up message continues the CLI's session: the system prompt is already part of it, so only the task is sent.
     const bool canResume = depth == 0 && cli_supports_resume(pc);
@@ -301,6 +301,8 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     // artCritic and reviewer, the tools that edit, are switched off (cli_disallowed_tools).
     req.disallowedTools = cli_disallowed_tools(registry_, role, canDelegate);
     req.readOnly = is_review_role(role);
+    req.webDomains = asset_source_hosts(config_.assetSources);  // Claude Code: WebFetch for these sites, only these with onlyListed
+    req.webOnlyListed = config_.assetSources.onlyListed;
     if (opt_.onProcessStart) req.onStart = [this, role](long long pid) { opt_.onProcessStart(pid, role); };
 
     AgentEvent start;
@@ -509,7 +511,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     }
 
     const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation;
-    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem};
+    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "", config_.assetSources};
     ChatRequest req;
     req.model = rc.model;
     req.effort = rc.effort;

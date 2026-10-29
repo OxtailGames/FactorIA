@@ -3206,6 +3206,165 @@ void Editor::at_build_tools_script() {
         });
     }
 
+    // ------------------------------------------------------------------------------------------------ X. AI settings window
+    section("X");
+    // The AI Assistant's "AI settings..." button opens the window on the user's ai.json (here a scratch file: FACTORIA_AI_CONFIG
+    // is set for the section and put back after). What a person types in the fields is set on the draft; Save and Close are
+    // real clicks. A site that is not a web address stops Save with a message and leaves the file as it was; a good Save
+    // rewrites only assets / assetSources / the provider fields the routes need (roles and limits stay), stores a typed key in
+    // a file only the user can read and forgets it, and a stored key can be removed again.
+    {
+        struct XState {
+            std::string path, previousEnv;
+            bool hadEnv = false;
+            std::vector<ai::ProviderStatus> savedStatus;
+            std::string before;
+        };
+        auto x = std::make_shared<XState>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load() && !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            x->path = atOutDir_ + "/ai_settings_scratch.json";
+            const char* current = std::getenv("FACTORIA_AI_CONFIG");
+            x->hadEnv = current != nullptr;
+            x->previousEnv = current ? current : "";
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                x->savedStatus = aiStatus_;
+            }
+            write_file(x->path, R"({
+  "limits": { "maxConcurrentRuns": 3 },
+  "roles": { "worker": { "provider": "anthropic", "model": "sonnet" } },
+  "assets": { "image": { "provider": "fake" } }
+})");
+            set_env("FACTORIA_AI_CONFIG", x->path);
+            ai_refresh_providers();  // the panel and the window now read the scratch file
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { focus_window("AI Assistant"); });
+        click("ai:settings");
+        step(4, [this, x] {
+            at_check(showAiSettings_, "the AI Assistant's AI settings... button opens the window");
+            at_check(aiSettings_.loaded && aiSettings_.path == x->path, "it works on the AI config file (" + aiSettings_.path + ")");
+            at_check(aiSettings_.routes["image"].provider == "fake" && aiSettings_.routes["sound"].provider.empty(),
+                     "the image row shows the provider of the file and the sound row none");
+            at_check(!aiSettings_.sources.onlyListed && aiSettings_.sources.empty(), "no site yet: 'Use only these sites' is off");
+            at_check(std::ranges::any_of(aiSettings_.status, [](const ai::ProviderStatus& s) { return s.name == "elevenlabs"; }),
+                     "it knows the status of the providers (keys and programs found on this computer)");
+            x->before = read_file(x->path);
+        });
+        // A site that is not a web address, a key and a program typed.
+        step(2, [this] {
+            AiSettingsDraft& d = aiSettings_;
+            d.routes["sound"] = {"elevenlabs", "", ""};
+            d.routes["music"] = {"elevenlabs", "", ""};
+            d.routes["voice"] = {"elevenlabs", "", "21m00Tcm4TlvDq8ikWAM"};
+            d.routes["model3d"] = {"asset-command", "", ""};
+            d.command["asset-command"] = "python";
+            d.args["asset-command"] = "/tools/gen3d.py --prompt {prompt} --out \"{output}\"";
+            d.keys["elevenlabs"] = "xi-autotest-secret-key-123";
+            d.sources.onlyListed = true;
+            d.sources.images.push_back({"https://opengameart.org/art-search", "CC0 packs"});
+            d.sources.models.push_back({"kenney.nl", ""});
+            d.sources.fonts.push_back({"not a site", ""});
+        });
+        snap("editor_ai_settings.png");
+        click("aiset:save");
+        step(4, [this, x] {
+            at_check(aiSettings_.saveError.find("not a web address") != std::string::npos,
+                     "a site that is not a web address stops Save and says so (" + aiSettings_.saveError + ")");
+            at_check(read_file(x->path) == x->before, "...and the file is left as it was");
+            at_check(showAiSettings_ && !aiSettings_.keys.empty(), "...with the window and the typed values still there");
+            aiSettings_.sources.fonts.clear();
+        });
+        click("aiset:save");
+        step(6, [this, x] {
+            const std::string text = read_file(x->path);
+            Json j = Json::parse(text, nullptr, false);
+            at_check(!j.is_discarded() && j.is_object(), "Save wrote a JSON object");
+            if (!j.is_object()) return;
+            at_check(aiSettings_.saveError.empty(), "Save reported no error (" + aiSettings_.saveError + ")");
+            at_check(j["limits"]["maxConcurrentRuns"] == 3 && j["roles"]["worker"]["model"] == "sonnet",
+                     "the roles and limits of the file stayed");
+            at_check(j["assets"]["image"]["provider"] == "fake" && j["assets"]["sound"]["provider"] == "elevenlabs" &&
+                         j["assets"]["voice"]["voice"] == "21m00Tcm4TlvDq8ikWAM" && j["assets"]["model3d"]["provider"] == "asset-command",
+                     "the asset routes are in the file");
+            at_check(j["assetSources"]["onlyListed"] == true && j["assetSources"]["images"][0]["url"] == "https://opengameart.org/art-search" &&
+                         j["assetSources"]["images"][0]["note"] == "CC0 packs" && j["assetSources"]["models"][0]["url"] == "kenney.nl",
+                     "the sites and 'Use only these sites' are in the file");
+            at_check(j["providers"]["elevenlabs"]["apiKey"] == "xi-autotest-secret-key-123", "the typed key is stored under its provider");
+            at_check(j["providers"]["asset-command"]["type"] == "asset-command" && j["providers"]["asset-command"]["command"] == "python" &&
+                         j["providers"]["asset-command"]["argv"].size() == 5 && j["providers"]["asset-command"]["argv"][4] == "{output}",
+                     "the program of the asset-command provider is stored with its arguments split");
+#ifndef _WIN32
+            std::error_code ec;
+            const auto perms = stdfs::status(x->path, ec).permissions();
+            at_check((perms & (stdfs::perms::group_all | stdfs::perms::others_all)) == stdfs::perms::none,
+                     "the file with a key in it is readable only by its owner");
+#endif
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                at_check(aiConfig_.assetSources.onlyListed && aiConfig_.assets.count("voice") && aiConfig_.assets.at("music").provider == "elevenlabs",
+                         "the editor's config was reloaded with the new settings");
+            }
+            at_check(std::ranges::all_of(aiSettings_.keys, [](const auto& kv) { return kv.second.empty(); }), "the typed key is forgotten after Save");
+            at_check(std::ranges::none_of(atLog_, [](const std::string& line) { return line.find("xi-autotest-secret-key-123") != std::string::npos; }),
+                     "the key is in no line of the autotest log");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        snap("editor_ai_settings_saved.png");
+        // Remove the stored key, and a kind back to None.
+        step(2, [this] {
+            aiSettings_.removeKey.insert("elevenlabs");
+            aiSettings_.routes["music"] = {};
+        });
+        click("aiset:save");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && (!j.contains("providers") || !j["providers"].contains("elevenlabs")),
+                     "Remove stored key takes the key out of the file");
+            at_check(j.is_object() && j.contains("assets") && !j["assets"].contains("music") && j["assets"].contains("sound") &&
+                         j.contains("assetSources") && j["assetSources"].contains("images"), "a kind set to None leaves the file");
+            at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet", "the roles stayed again");
+        });
+        click("aiset:close");
+        step(4, [this] {
+            at_check(!showAiSettings_, "Close closes the window");
+            at_check(aiSettings_.keys.empty() && !aiSettings_.loaded, "...and drops what was typed in it");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            set_env("FACTORIA_AI_CONFIG", x->hadEnv ? x->previousEnv : std::string());
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) {
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+            aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;
     step(2, [this] {

@@ -1,13 +1,16 @@
 #include "fa/ai/config.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 #ifndef _WIN32
 #include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 #include "fa/core/fs.h"
@@ -61,6 +64,94 @@ std::string providers_that_make(const AiConfig& cfg, MediaKind m) {
         if (provider_makes(p.kind, m)) names.push_back(name);
     }
     return fa::join(names, ", ");
+}
+
+const char* site_category_key(SiteCategory c) {
+    switch (c) {
+        case SiteCategory::Images: return "images";
+        case SiteCategory::Models: return "models";
+        case SiteCategory::Audio: return "audio";
+        case SiteCategory::Fonts: return "fonts";
+        case SiteCategory::Other: return "other";
+    }
+    return "?";
+}
+
+const char* site_category_title(SiteCategory c) {
+    switch (c) {
+        case SiteCategory::Images: return "Images and textures";
+        case SiteCategory::Models: return "3D models";
+        case SiteCategory::Audio: return "Audio (sounds and music)";
+        case SiteCategory::Fonts: return "Fonts";
+        case SiteCategory::Other: return "Other";
+    }
+    return "?";
+}
+
+std::vector<AssetSite>& AssetSources::list(SiteCategory c) {
+    switch (c) {
+        case SiteCategory::Images: return images;
+        case SiteCategory::Models: return models;
+        case SiteCategory::Audio: return audio;
+        case SiteCategory::Fonts: return fonts;
+        default: return other;
+    }
+}
+
+const std::vector<AssetSite>& AssetSources::list(SiteCategory c) const { return const_cast<AssetSources*>(this)->list(c); }
+
+bool AssetSources::empty() const {
+    return images.empty() && models.empty() && audio.empty() && fonts.empty() && other.empty();
+}
+
+std::string asset_site_host(std::string_view in) {
+    std::string s(fa::trim(in));
+    if (s.empty()) return {};
+    for (char c : s) {
+        if (std::isspace(static_cast<unsigned char>(c)) || std::iscntrl(static_cast<unsigned char>(c))) return {};
+    }
+    if (const auto scheme = s.find("://"); scheme != std::string::npos) {
+        for (std::size_t i = 0; i < scheme; ++i) {
+            const char c = s[i];
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '+' && c != '-' && c != '.') return {};
+        }
+        if (scheme == 0) return {};
+        s.erase(0, scheme + 3);
+    }
+    s = s.substr(0, s.find_first_of("/?#"));
+    if (const auto at = s.rfind('@'); at != std::string::npos) s.erase(0, at + 1);
+    if (const auto colon = s.rfind(':'); colon != std::string::npos) {
+        const std::string port = s.substr(colon + 1);
+        if (!port.empty() && !std::all_of(port.begin(), port.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) return {};
+        s.erase(colon);
+    }
+    while (!s.empty() && s.back() == '.') s.pop_back();
+    s = util::lower(std::move(s));
+    if (s.empty()) return {};
+    // Labels of letters, digits, '-' and '_' separated by single dots; a name needs a dot (or is "localhost").
+    std::size_t labelStart = 0;
+    for (std::size_t i = 0; i <= s.size(); ++i) {
+        if (i < s.size() && s[i] != '.') {
+            const char c = s[i];
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') return {};
+            continue;
+        }
+        if (i == labelStart || s[labelStart] == '-' || s[i - 1] == '-') return {};
+        labelStart = i + 1;
+    }
+    if (s.find('.') == std::string::npos && s != "localhost") return {};
+    return s;
+}
+
+std::vector<std::string> asset_source_hosts(const AssetSources& sources) {
+    std::vector<std::string> out;
+    for (SiteCategory c : kSiteCategories) {
+        for (const AssetSite& site : sources.list(c)) {
+            const std::string host = asset_site_host(site.url);
+            if (!host.empty() && std::find(out.begin(), out.end(), host) == out.end()) out.push_back(host);
+        }
+    }
+    return out;
 }
 
 namespace {
@@ -471,6 +562,28 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         }
     }
 
+    if (const Json* sources = child(j, "assetSources")) {
+        cfg.assetSources.onlyListed = flag(*sources, "onlyListed");
+        for (SiteCategory c : kSiteCategories) {
+            const Json* list = child(*sources, site_category_key(c));
+            if (!list || !list->is_array()) continue;
+            std::size_t index = 0;
+            for (const Json& entry : *list) {
+                AssetSite site;
+                site.url = entry.is_string() ? entry.get<std::string>() : str(entry, "url");
+                site.note = entry.is_object() ? str(entry, "note") : std::string();
+                if (asset_site_host(site.url).empty()) {
+                    return make_error(std::string(sourceName) + ": /assetSources/" + site_category_key(c) + "/" + std::to_string(index) +
+                                          (entry.is_string() ? "" : "/url") + ": '" + site.url + "' is not a web address",
+                                      "Write a domain such as opengameart.org, or an address such as https://kenney.nl/assets "
+                                      "(no spaces; put a comment in \"note\").");
+                }
+                cfg.assetSources.list(c).push_back(std::move(site));
+                ++index;
+            }
+        }
+    }
+
     // Roles: defaults first, then overrides. The three original roles come first: artist, audio, artCritic and reviewer that
     // the file does not set follow what it says about them (same provider, model of the matching tier).
     cfg.roles = default_roles_for(cfg);
@@ -567,6 +680,23 @@ Result<AiConfig> load_config(std::string_view pathIn, const EnvLookup& env) {
     return cfg;
 }
 
+// The "assetSources" object ({} when there is nothing to say: no site and onlyListed off).
+static Json asset_sources_to_json(const AssetSources& sources) {
+    Json out = Json::object();
+    for (SiteCategory c : kSiteCategories) {
+        if (sources.list(c).empty()) continue;
+        Json list = Json::array();
+        for (const AssetSite& site : sources.list(c)) {
+            Json e = Json::object({{"url", site.url}});
+            if (!site.note.empty()) e["note"] = site.note;
+            list.push_back(std::move(e));
+        }
+        out[site_category_key(c)] = std::move(list);
+    }
+    if (sources.onlyListed) out["onlyListed"] = true;
+    return out;
+}
+
 Json config_to_json(const AiConfig& cfg, bool redactKeys) {
     Json out = Json::object();
     out["defaultProvider"] = cfg.defaultProvider;
@@ -605,6 +735,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         }
         out["assets"] = assets;
     }
+    if (Json sources = asset_sources_to_json(cfg.assetSources); !sources.empty()) out["assetSources"] = std::move(sources);
     Json roles = Json::object();
     for (const auto& [name, r] : cfg.roles) {
         Json rj = Json::object();
@@ -664,6 +795,144 @@ Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::str
         else rj.erase("maxContextTokens");
     }
     return fs::write_text(path, dump_json(j));
+}
+
+namespace {
+
+// Writes text where only the owner can read it, from the first byte: a temporary file made private BEFORE the key goes in,
+// then renamed over the target (fs::write_text makes its temporary file with the default permissions).
+Result<void> write_private(std::string_view path, const std::string& text) {
+#ifdef _WIN32
+    return fs::write_text(path, text);
+#else
+    fsys::path target(path);
+    std::error_code ec;
+    if (target.has_parent_path()) fsys::create_directories(target.parent_path(), ec);
+    fsys::path tmp = target;
+    tmp += ".fa-tmp" + std::to_string(static_cast<long long>(::getpid()));
+    {
+        std::ofstream create(tmp, std::ios::binary | std::ios::trunc);
+        if (!create) return make_error("Cannot write AI config '" + std::string(path) + "'", "Check the directory exists and is writable.");
+    }
+    fsys::permissions(tmp, fsys::perms::owner_read | fsys::perms::owner_write, fsys::perm_options::replace, ec);
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        out << text;
+        if (!out) {
+            out.close();
+            fsys::remove(tmp, ec);
+            return make_error("Cannot write AI config '" + std::string(path) + "'", "Is the disk full?");
+        }
+    }
+    fsys::rename(tmp, target, ec);
+    if (ec) {
+        fsys::remove(tmp, ec);
+        return make_error("Cannot replace AI config '" + std::string(path) + "'", "Check the file is writable.");
+    }
+    return {};
+#endif
+}
+
+}  // namespace
+
+std::vector<std::string> split_args(std::string_view line) {
+    std::vector<std::string> out;
+    std::string cur;
+    bool inWord = false, quoted = false;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        const char c = line[i];
+        if (quoted) {
+            if (c == '\\' && i + 1 < line.size() && (line[i + 1] == '"' || line[i + 1] == '\\')) cur += line[++i];
+            else if (c == '"') quoted = false;
+            else cur += c;
+        } else if (c == '"') {
+            quoted = inWord = true;
+        } else if (std::isspace(static_cast<unsigned char>(c))) {
+            if (inWord) out.push_back(std::exchange(cur, {}));
+            inWord = false;
+        } else {
+            cur += c;
+            inWord = true;
+        }
+    }
+    if (inWord) out.push_back(std::move(cur));
+    return out;
+}
+
+std::string join_args(const std::vector<std::string>& args) {
+    std::string out;
+    for (const std::string& a : args) {
+        if (!out.empty()) out += ' ';
+        const bool plain = !a.empty() && a.find_first_of(" \t\"\\") == std::string::npos;
+        if (plain) {
+            out += a;
+            continue;
+        }
+        out += '"';
+        for (char c : a) {
+            if (c == '"' || c == '\\') out += '\\';
+            out += c;
+        }
+        out += '"';
+    }
+    return out;
+}
+
+Result<void> save_asset_settings(const AssetSettings& settings, std::string_view path) {
+    Json j = Json::object();
+    std::error_code ec;
+    if (fsys::exists(fsys::path(path), ec)) {
+        auto text = fs::read_text(path);
+        if (!text) return text.error();
+        auto parsed = fa::parse_json(*text, path);
+        if (!parsed) return parsed.error();
+        if (!parsed->is_object()) {
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object",
+                              "Fix or delete the file, then save the asset settings again.");
+        }
+        j = std::move(*parsed);
+    }
+    // "assets": exactly the routes given.
+    if (settings.routes.empty()) {
+        j.erase("assets");
+    } else {
+        Json assets = Json::object();
+        for (MediaKind k : kMediaKinds) {
+            const auto it = settings.routes.find(media_kind_name(k));
+            if (it == settings.routes.end() || it->second.provider.empty()) continue;
+            Json rj = Json::object({{"provider", it->second.provider}});
+            if (!it->second.model.empty()) rj["model"] = it->second.model;
+            if (!it->second.voice.empty()) rj["voice"] = it->second.voice;
+            assets[media_kind_name(k)] = std::move(rj);
+        }
+        if (assets.empty()) j.erase("assets");
+        else j["assets"] = std::move(assets);
+    }
+    if (Json sources = asset_sources_to_json(settings.sources); sources.empty()) j.erase("assetSources");
+    else j["assetSources"] = std::move(sources);
+    // The providers the routes use: only the fields the caller names.
+    for (const auto& [name, edit] : settings.providers) {
+        if (!j.contains("providers") || !j["providers"].is_object()) j["providers"] = Json::object();
+        Json& provs = j["providers"];
+        Json& pj = provs[name];
+        if (!pj.is_object()) pj = Json::object();
+        if (!edit.type.empty() && !pj.contains("type")) pj["type"] = edit.type;
+        if (edit.apiKey) {
+            if (edit.apiKey->empty()) pj.erase("apiKey");
+            else pj["apiKey"] = *edit.apiKey;
+        }
+        if (edit.command) {
+            if (edit.command->empty()) pj.erase("command");
+            else pj["command"] = *edit.command;
+        }
+        if (edit.argv) {
+            if (edit.argv->empty()) pj.erase("argv");
+            else pj["argv"] = *edit.argv;
+        }
+        if (pj.empty()) provs.erase(name);
+        if (provs.empty()) j.erase("providers");
+    }
+    return write_private(path, dump_json(j));
 }
 
 ResolvedKey resolve_api_key(const ProviderConfig& p, const EnvLookup& env) {

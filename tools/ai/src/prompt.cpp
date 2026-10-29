@@ -207,6 +207,34 @@ std::string feedback_summary(const fsys::path& root) {
 
 }  // namespace
 
+std::string asset_sources_prompt(const AssetSources& sources) {
+    if (sources.empty()) return {};
+    std::string out = "# Asset sources\n"
+                      "The user listed the websites where assets for this game should come from: images and textures, 3D models, "
+                      "audio, fonts and the rest. They are the user's choice of safe, license-clear places, so ";
+    out += sources.onlyListed ? "use them instead of searching the internet at large." : "look there before anywhere else.";
+    out += "\n";
+    for (SiteCategory c : kSiteCategories) {
+        if (sources.list(c).empty()) continue;
+        out += std::string("\n") + site_category_title(c) + ":\n";
+        for (const AssetSite& site : sources.list(c)) out += "- " + site.url + (site.note.empty() ? "" : " (" + site.note + ")") + "\n";
+    }
+    out += "\n";
+    if (sources.onlyListed) {
+        out += "RULE: look for and fetch assets ONLY on these sites. Do not run a general web search and do not fetch from any other "
+               "site, even when a link or a search result points there. If these sites do not have what the game needs, say so in "
+               "your report (or make the asset with the generate and procedural asset tools) instead of looking elsewhere.\n";
+    } else {
+        out += "RULE: prefer these sites. Look there first for each kind of asset; only when none of them has what the game needs, "
+               "search the rest of the internet.\n";
+    }
+    out += "If you have no way to browse the web, tell the user which of these sites to download from; never invent a URL.\n"
+           "Whatever you take from a site: check its license allows use in a game that is sold (CC0 or CC-BY are safe; if the license "
+           "is unclear, do not use it), download the file, bring it in with assets_import and pass sourceUrl (the page it came from), "
+           "license and author, so assets.json keeps its source and license for the credits.";
+    return out;
+}
+
 std::string build_system_prompt(const PromptContext& ctx) {
     std::string out = kGuide;
     out += "\n\n";
@@ -235,6 +263,9 @@ std::string build_system_prompt(const PromptContext& ctx) {
         out += fill(kArtCritic, "%READONLY%", kReadOnlyRules) + "\n\n";
     } else if (ctx.role == kRoleReviewer) {
         out += fill(kReviewer, "%READONLY%", kReadOnlyRules) + "\n\n";
+    }
+    if (!is_review_role(ctx.role)) {  // the critics and the reviewers look and play, they do not bring assets in
+        if (const std::string section = asset_sources_prompt(ctx.assetSources); !section.empty()) out += section + "\n\n";
     }
     out += "# Project context\n";
     if (ctx.projectDir.empty()) {
