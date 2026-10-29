@@ -96,6 +96,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [assets](commands/assets.md)
 
 - [`assets.analyze_audio`](commands/assets.md#assetsanalyze_audio-modifies-state): Measure the loudness of a sound (or of every sound) and keep the result in assets.json. _Since 0.1.6._
+- [`assets.bake_sheet`](commands/assets.md#assetsbake_sheet-modifies-state): Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D, tweens, particles and scripts play and are captured frame by frame. _Not released yet._
 - [`assets.convert_audio`](commands/assets.md#assetsconvert_audio-modifies-state): Convert a WAV in the project to Ogg Vorbis (smaller, streams well) and record where it came from. _Since 0.3.0._
 - [`assets.disclosure`](commands/assets.md#assetsdisclosure): Write the AI-generated content disclosure for store forms (Steam) from the provenance records. _Since 0.1.6._
 - [`assets.draw_capsules`](commands/assets.md#assetsdraw_capsules-modifies-state): Make the store page images (capsules, heroes, covers, screenshots) at each store's sizes from one piece of key art and a logo. _Since 0.2.0._
