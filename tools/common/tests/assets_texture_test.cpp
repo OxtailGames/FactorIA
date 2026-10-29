@@ -32,7 +32,7 @@ double line_diff(const Image& img, int ax, int ay, int bx, int by, bool column) 
 
 TEST_CASE("assets.generate_texture: every preset writes a PNG of the asked size with provenance") {
     AssetsProject p;
-    const char* presets[] = {"paper", "parchment", "wood", "planks", "leather", "fabric", "stone", "value", "fbm", "cellular", "gradient", "radial", "vignette"};
+    const char* presets[] = {"paper", "parchment", "wood", "planks", "leather", "fabric", "linen", "stone", "value", "fbm", "cellular", "gradient", "radial", "vignette"};
     for (const char* name : presets) {
         INFO(std::string(name));
         const std::string path = std::string("assets/t/") + name + ".png";
@@ -301,4 +301,110 @@ TEST_CASE("assets.generate_texture: planks options are checked and ignored by ot
     const Json r = p.ok("assets.generate_texture", Json{{"path", "assets/a.png"}, {"preset", "wood"}, {"width", 16}, {"gapWidth", 0.1}});
     REQUIRE(r.contains("warnings"));
     CHECK(r["warnings"][0].get<std::string>().find("gapWidth only changes the planks preset") != std::string::npos);
+}
+
+namespace {
+
+constexpr double kPiTest = 3.14159265358979323846;
+
+double luma(const Rgba& c) { return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; }
+
+// How much the strongest period (16..128 px) stands out in the mean of every column (or row) of the picture, against the median
+// period: a plaid (threads beating against the pixel grid) is one sharp peak, 40 to 170 before the weave was supersampled;
+// a random weave stays under ~10.
+double strongest_period(const Image& img, bool columns) {
+    const int n = columns ? img.width : img.height, m = columns ? img.height : img.width;
+    std::vector<double> prof(n, 0.0);
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < m; ++j) prof[i] += luma(columns ? get(img, i, j) : get(img, j, i));
+        prof[i] /= m;
+    }
+    // the thread pitch itself (up to ~10 px) is the weave, not a defect: average it out, then look for slower periods
+    std::vector<double> smooth(n, 0.0);
+    for (int i = 0; i < n; ++i) {
+        int cnt = 0;
+        for (int k = -6; k <= 6; ++k)
+            if (i + k >= 0 && i + k < n) smooth[i] += prof[i + k], ++cnt;
+        smooth[i] /= cnt;
+    }
+    prof = smooth;
+    double mean = 0;
+    for (double v : prof) mean += v / n;
+    // the power at every period from 16 to 128 px: a plaid is one sharp peak, a random texture a flat spread
+    std::vector<double> power;
+    for (int period = 16; period <= 128; period += 2) {
+        double re = 0, im = 0;
+        for (int i = 0; i < n; ++i) {
+            re += (prof[i] - mean) * std::cos(2 * kPiTest * i / period);
+            im += (prof[i] - mean) * std::sin(2 * kPiTest * i / period);
+        }
+        power.push_back(re * re + im * im);
+    }
+    std::vector<double> sorted = power;
+    std::sort(sorted.begin(), sorted.end());
+    return sorted.back() / std::max(1e-9, sorted[sorted.size() / 2]);
+}
+
+}  // namespace
+
+TEST_CASE("assets.generate_texture: fine fabric and linen have no visible period, and linen is quieter than fabric") {
+    AssetsProject p;
+    double spreadFabric = 0, spreadLinen = 0;
+    for (const char* preset : {"fabric", "linen"}) {
+        for (double scale : {0.2, 0.3, 1.0}) {
+            INFO(preset, " scale ", scale);
+            const std::string path = std::string("assets/t/") + preset + std::to_string(int(scale * 10)) + ".png";
+            p.ok("assets.generate_texture", Json{{"path", path}, {"preset", preset}, {"width", 256}, {"height", 256}, {"scale", scale}, {"seed", 3}});
+            const Image img = read_png(p.file(path));
+            CHECK(strongest_period(img, true) < 12.0);
+            CHECK(strongest_period(img, false) < 12.0);
+            if (scale == 1.0) {
+                double lo = 255, hi = 0;
+                for (int y = 0; y < 256; ++y)
+                    for (int x = 0; x < 256; ++x) {
+                        lo = std::min(lo, luma(get(img, x, y)));
+                        hi = std::max(hi, luma(get(img, x, y)));
+                    }
+                (std::string(preset) == "fabric" ? spreadFabric : spreadLinen) = hi - lo;
+            }
+        }
+    }
+    CHECK(spreadLinen < spreadFabric);  // low contrast
+}
+
+TEST_CASE("assets.generate_texture: the default vignette is a narrow ragged edge; vignetteWidth widens it") {
+    AssetsProject p;
+    auto darkness_at = [&](const Image& img, int depth) {  // mean darkening of the pixels `depth` px from the left edge, against the middle
+        double edge = 0, mid = 0;
+        for (int y = 40; y < img.height - 40; ++y) {
+            edge += luma(get(img, depth, y));
+            mid += luma(get(img, img.width / 2, y));
+        }
+        return (mid - edge) / (img.height - 80);
+    };
+    Json a = Json{{"path", "assets/page_default.png"}, {"preset", "parchment"}, {"width", 400}, {"height", 400}, {"seed", 4}};
+    const Json r = p.ok("assets.generate_texture", a);
+    CHECK(r["provenance"]["notes"].get<std::string>().find("\"vignetteWidth\":0.035") != std::string::npos);
+    CHECK_FALSE(r.contains("warnings"));
+    a["path"] = "assets/page_wide.png";
+    a["vignetteWidth"] = 0.17;
+    p.ok("assets.generate_texture", a);
+    const Image narrow = read_png(p.file("assets/page_default.png")), wide = read_png(p.file("assets/page_wide.png"));
+    CHECK(darkness_at(narrow, 2) > 25);          // dark at the very edge
+    CHECK(darkness_at(narrow, 60) < 25);         // back to the paper well before 15 percent
+    CHECK(darkness_at(wide, 40) > darkness_at(narrow, 40) + 15);  // 10 percent in: the wide frame is still dark
+    // irregular: the depth where the edge ends varies along the border
+    int shallow = 400, deep = 0;
+    for (int y = 40; y < 360; y += 4) {
+        int d = 0;
+        while (d < 100 && std::abs(luma(get(narrow, d, y)) - luma(get(narrow, 100, y))) > 22) ++d;
+        shallow = std::min(shallow, d);
+        deep = std::max(deep, d);
+    }
+    CHECK(deep > shallow + 4);
+
+    // no vignette, no width to apply
+    const Json w = p.ok("assets.generate_texture", Json{{"path", "assets/paper_w.png"}, {"preset", "paper"}, {"width", 64}, {"height", 64}, {"vignetteWidth", 0.1}});
+    CHECK(has_warning(w, "vignetteWidth only matters"));
+    CHECK_FALSE(p.call("assets.generate_texture", Json{{"path", "assets/x.png"}, {"preset", "parchment"}, {"vignetteWidth", 0.9}}).ok);
 }
