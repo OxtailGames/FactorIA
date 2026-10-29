@@ -1625,6 +1625,11 @@
     text(pos, str, c) { const p = vecArr(pos, 2, "debug.text(pos, str) `pos`"); N.debugDraw(3, p[0], p[1], String(str), colorArg(c)); },
     box(center, size, c) { const p = vecArr(center, 3, "debug.box(center, size) `center`"), q = vecArr(size, 3, "debug.box(center, size) `size`", 1); N.debugDraw(4, p[0], p[1], p[2], q[0], q[1], q[2], colorArg(c)); },
     sphere(center, r, c) { const p = vecArr(center, 3, "debug.sphere(center, r) `center`"); N.debugDraw(5, p[0], p[1], p[2], r, colorArg(c)); },
+    // bones(root?, color?): the Bone2D entities of `root` and everything under it (every bone of the scene without `root`).
+    bones(root, c) {
+      if (root !== undefined && root !== null && typeof root !== "object") throw new Error("debug.bones(root, color): `root` must be an entity (or omitted to draw every bone), not " + typeof root + ". Example: debug.bones(world.find(\"hip\"));");
+      N.debugDraw(6, root === undefined || root === null ? null : root.$h, colorArg(c));
+    },
   };
 
   // scene.preload / assets.preload: a handle for a job the engine advances a little every frame (script_system.cpp

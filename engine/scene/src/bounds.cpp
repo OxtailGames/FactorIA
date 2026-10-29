@@ -1,4 +1,5 @@
 #include "fa/scene/bounds.h"
+#include "fa/scene/bones2d.h"
 #include "fa/scene/sprite_animator.h"
 
 #include <algorithm>
@@ -139,7 +140,17 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
         std::array<Vec2, 4> box = rect_quad(x0, y0, x1, y1);
         int cols = 0, rows = 0;
         const std::vector<float> offsets = sprite_mesh_grid(*s, cols, rows) ? sprite_vertex_offsets(*s, cols, rows) : std::vector<float>();
-        if (!offsets.empty()) {  // a deformed grid: the rectangle around its moved, sheared vertices
+        SkinMesh skinMesh;
+        const bool skinned = W.has<SpriteSkin>(e) && build_skin_mesh(W, e, *s, SkinBox{x0, y0, x1, y1}, skinMesh, nullptr) && !skinMesh.position.empty();
+        if (skinned) {  // a skinned sprite: the rectangle around its bone-driven, sheared vertices
+            float lox = 1e30f, loy = 1e30f, hix = -1e30f, hiy = -1e30f;
+            for (const Vec2& v : skinMesh.position) {
+                const Vec2 p = sprite_shear_point(v, s->skew);
+                lox = std::min(lox, p.x); hix = std::max(hix, p.x);
+                loy = std::min(loy, p.y); hiy = std::max(hiy, p.y);
+            }
+            box = rect_quad(lox, loy, hix, hiy);
+        } else if (!offsets.empty()) {  // a deformed grid: the rectangle around its moved, sheared vertices
             float lox = 1e30f, loy = 1e30f, hix = -1e30f, hiy = -1e30f;
             for (int j = 0; j <= rows; ++j)
                 for (int i = 0; i <= cols; ++i) {

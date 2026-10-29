@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "fa/core/log.h"
+#include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/tilemap.h"
@@ -313,6 +314,10 @@ void gather_2d(World& world, Frame& f) {
         gather_lights(world, f);
     }
 
+    // A SpriteSkin that has not recorded its bind pose yet does it now, at the pose the bones have (the engine already did it at
+    // the start of the step; this covers a scene drawn without stepping, e.g. a screenshot of a freshly loaded scene).
+    if (!world.entities_with(&World::type_of<SpriteSkin>()).empty()) bind_pending_skins(world);
+
     // ---- sprites ----
     world.each<Sprite>([&](Entity e, Sprite& s) {
         if (!entity_active(world, e) || s.color.a <= 0.0f) return;
@@ -353,6 +358,22 @@ void gather_2d(World& world, Frame& f) {
                     "drawn as a plain quad. Use fewer cells; 16 x 1 bends a page, 8 x 8 a flag.",
                     s.meshColumns, s.meshRows, world.info(e).name, kMaxSpriteMeshCells, kMaxSpriteMeshSide, kMaxSpriteMeshSide);
         }
+        // A skinned sprite (SpriteSkin): the mesh is built from the bones on the CPU into the same vertex stream, so it batches like
+        // a mesh sprite. World space only; a screen-space sprite with a SpriteSkin draws as the plain mesh/quad.
+        SkinMesh skinMesh;
+        bool skinned = false;
+        if (!screen && world.has<SpriteSkin>(e)) {
+            std::string problem;
+            skinned = build_skin_mesh(world, e, s, SkinBox{bx0, by0, bx1, by1}, skinMesh, &problem);
+            if (!problem.empty()) {
+                SpriteSkin* skin = world.get<SpriteSkin>(e);
+                if (skin && !skin->warned) {
+                    skin->warned = true;
+                    FA_WARN("render", "{} (reported once)", problem);
+                }
+            }
+            if (skinned) meshCols = 0;  // the skin replaces the plain mesh
+        }
         const bool skewed = s.skew.x != 0.0f || s.skew.y != 0.0f;
         const Mat4 shear = skewed ? sprite_shear_matrix(s.skew) : Mat4::identity();
 
@@ -361,6 +382,21 @@ void gather_2d(World& world, Frame& f) {
             const Mat4 mm = skewed ? placed * shear : placed;
             QuadEmitter em{list, mm, screen, pack_color(spriteColor), kModeTextured, 0};
             if (lit) set_light_frame(em, mm, {s.flipX ? -1.0f : 1.0f, 0.0f}, {0.0f, s.flipY ? -1.0f : 1.0f});
+            if (skinned) {
+                // The cells of the deformed skin mesh: each vertex shows the fraction of the region it was cut from.
+                const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
+                float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
+                if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
+                if (s.flipX) std::swap(u0, u1);
+                if (s.flipY) std::swap(v0, v1);
+                auto vert = [&](std::uint32_t i) {
+                    const Vec2 pos = skinMesh.position[i], fr = skinMesh.uv[i];
+                    const Vec3 p = em.xf(pos.x, pos.y);
+                    return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fr.x, v0 + (v1 - v0) * fr.y, em.color, em.mode, em.aux};
+                };
+                for (const auto& q : skinMesh.quads) list.quad(vert(q[0]), vert(q[1]), vert(q[2]), vert(q[3]));
+                return;
+            }
             if (meshCols > 0) {
                 // A grid of cells: vertex (c, r) lies c / meshCols across and r / meshRows down the sprite box (row 0 = the top
                 // edge), moved by its offset; each cell is a quad that shows the matching part of the region.

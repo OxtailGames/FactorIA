@@ -1,0 +1,24 @@
+{
+  "format": "factoria.project/1",
+  "name": "skinned-sprites",
+  "id": "com.factoria.fixtures.skinned_sprites",
+  "version": "0.1.0",
+  "mainScene": "scenes/main.scene.json",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "scaleMode": "fit",
+    "fullscreen": false,
+    "vsync": true
+  },
+  "physics": {
+    "fixedHz": 60,
+    "pixelsPerMeter": 100
+  },
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "feedbackFile": "ENGINE_FEEDBACK.json"
+}

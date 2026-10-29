@@ -3153,6 +3153,15 @@ NATIVE(debugDraw) {  // (kind, ...)
         case 3: d.text({n(1), n(2)}, arg_str(ctx, argc, argv, 3), arg_color(ctx, argc, argv, 4), argc > 5 ? n(5) : 16.0f); break;
         case 4: d.box({n(1), n(2), n(3)}, {n(4), n(5), n(6)}, arg_color(ctx, argc, argv, 7)); break;
         case 5: d.sphere({n(1), n(2), n(3)}, n(4), arg_color(ctx, argc, argv, 5)); break;
+        case 6: {  // bones(root | null, color): the Bone2D kites of a subtree, or of the whole scene
+            Entity root = kNullEntity;
+            if (argc > 1 && !JS_IsNull(argv[1]) && !JS_IsUndefined(argv[1])) {
+                ENTITY(e, 1);
+                root = e;
+            }
+            debug_draw_bones(d, W, root, arg_color(ctx, argc, argv, 2));
+            break;
+        }
         default: break;
     }
     return JS_UNDEFINED;
