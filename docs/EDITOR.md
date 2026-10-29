@@ -94,6 +94,8 @@ Profiler stay closed). Two editors open at once share the file: the last one to 
 | Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. The panel keeps its size however long an entry is: only the entries table and the text of the selected entry scroll. Opening the project moves its closed entries to `ENGINE_FEEDBACK.archive.json`; "Archive closed" moves them on demand. |
 | Audio | (View > Audio) the live `audio.log`. |
 | Profiler | (View > Profiler) where the time of a frame goes while the game plays. |
+| Animation | (View > Animation, a tab next to Console) the clips of the selected entity's Animator as a dopesheet or curves, with record mode ([Animation panel](#animation-panel)). |
+| Bone tools | (View > Bone tools, a tab next to Inspector) draw a bone chain, bind a sprite, paint weights, drag IK targets ([Bone tools](#bone-tools)). |
 
 Play snapshots the scene and runs the game; Stop restores the snapshot, so edits made while playing are temporary. For that
 reason the AI works in edit mode only: while the game runs (Play or Pause) its Run button is disabled ("game running: Stop it
@@ -101,7 +103,7 @@ to send"), and while it is working Play and Step are disabled until it finishes 
 still runs commands during play, to inspect or poke the running game. Ctrl+Z / Ctrl+Y
 (toolbar and Edit menu too) undo and redo scene edits: the ones made by the AI and by commands typed in the Console. Undo does
 not touch files; to take back a whole AI run, scripts included, use Revert ([Revert an AI run](#revert-an-ai-run)). View >
-Show navmesh draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body, Collider3D.navWalkable) and its off-mesh links (NavLink3D: a yellow line, with an arrowhead when one-way) (docs/NAVIGATION.md). Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport. With a 2D camera, Selection overlay also draws the bones of the selection (docs/ANIMATION.md, "Bones and IK"): a thin kite from the origin to the tip of every `Bone2D` on the selected entity and below it, and of the bones a selected sprite's `SpriteSkin` names; the selected bone itself is yellow, the rest cyan. It only shows them; moving them is done with the Transform gizmos or the Inspector, and a bone editor (weights, bind) comes later.
+Show navmesh draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body, Collider3D.navWalkable) and its off-mesh links (NavLink3D: a yellow line, with an arrowhead when one-way) (docs/NAVIGATION.md). Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport. With a 2D camera, Selection overlay also draws the bones of the selection (docs/ANIMATION.md, "Bones and IK"): a thin kite from the origin to the tip of every `Bone2D` on the selected entity and below it, and of the bones a selected sprite's `SpriteSkin` names; the selected bone itself is yellow, the rest cyan. The overlay only shows them; moving them is done with the Transform gizmos or the Inspector, and drawing, binding and weight painting are in View > Bone tools ([Bone tools](#bone-tools)).
 
 **Materials and textures reload live.** The editor watches `materials/`, `shaders/` and `assets/` for the files the renderer
 rebuilds in place: a `*.material.json`, a shader snippet (`*.surface.glsl`, which reloads every material that uses it), a
@@ -512,6 +514,69 @@ badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its p
 - **Right-click** a file: **Show in Finder** (Explorer, file manager), **Copy path**, **Delete...** (asks first, then `fs.delete`;
   it is not an Undo step, the file is gone from disk).
 
+## Animation panel
+
+View > Animation (a tab next to Console; the View menu reopens it) edits the 2D clips of an entity's `Animator`
+(`*.anim.json`, [ANIMATION.md](ANIMATION.md), "2D clips"). Select the entity that has the Animator, or any part below it: the
+panel edits the nearest `Animator` up the tree and keeps it while you select other parts of the same character. An entity with
+no Animator offers **Add an Animator to it**. The panel works in edit mode only; while the game runs it says so.
+
+- **Clips.** The menu lists `Animator.clips`. **New clip** asks for a name, a length and a loop flag, writes
+  `anim/<name>.anim.json` (`anim.create_clip`) and lists it in `Animator.clips` (a scene edit): two undo steps. The second line
+  shows the file, its length (`anim.set_clip`), its loop flag and **Add event**.
+- **Time.** The ruler shows seconds and, zoomed in, the frames of the **fps** the panel offers (12, 24, 30, 60; clips are in
+  seconds, the fps only sets the grid). With **Snap** on, scrubbing, dragging and recording land on whole frames. Ctrl+wheel
+  zooms, Shift+wheel or the middle button pans, **Fit** shows the whole clip. Click or drag the ruler to **scrub**: the entity is
+  posed at the playhead in the viewport. A pose is a preview only: saving the scene, Undo snapshots and Play write the rest
+  values, never the pose. Left / Right step one frame, Home goes to 0, Space plays. **Play** previews the clip in the viewport
+  (loop and speed are the panel's own; nothing runs in the engine, so scripts and physics do not).
+- **Dopesheet.** One row per part, with a row per animated field below it; a part's row folds. Click a key to select it, Shift-click
+  adds or removes it, drag on empty space for a box. Drag selected keys to move them (the ghost shows where they land; one
+  `anim.move_keys` and one undo step when you let go); Alt-drag scales their spacing around the first one. Esc during a drag
+  drops it. Delete removes the selected keys (or the selected event). Ctrl+C / Ctrl+V copy keys and paste them at the playhead,
+  keeping their spacing. Right-click a key: **Linear**, **Step**, **Bezier**, **Easing** (every `tween()` curve), Copy, Paste,
+  Delete (`anim.set_interp` and friends).
+- **Curves.** The **Curves** check shows the selected tracks as curves instead of the dopesheet: drag a key point to change its
+  value and time, and the tangent handles of a `bezier` key to shape the curve.
+- **Events.** Markers on the lane under the ruler. **Add event** (at the playhead) or a right click on empty lane (at that
+  time) asks for a name; click selects a marker, drag moves it (`anim.move_event`), double click or right click renames it
+  or deletes it, Delete removes the selected one.
+- **Onion skin.** With **Onion** on, the viewport draws the sprites of the animated entity in the poses before (red) and after
+  (green) the playhead, faded; the numbers set how many poses on each side and how many frames apart.
+- **Record mode.** **REC** turns it on: the viewport gets a red frame and a `REC` label, and the button and the status line of
+  the panel say so. While it is on, moving, rotating or scaling a part with the gizmo, or changing an animatable field in the
+  Inspector (a number, vector, colour, bool, enum or asset that the scene saves), writes a key at the playhead (`anim.set_keys`)
+  instead of changing the rest value; the part keeps its rest value in the scene. A track the clip lacks starts with the old
+  value at 0 s, so the part stays as it was until the new key. A field a clip cannot drive, and a change to a part that is not
+  below the Animator, are ordinary edits. One gizmo drag is one undo step; Esc during the drag takes the key back out. Outside
+  record mode, editing a field the current clip drives changes the rest value, and the pose (which wins while the panel poses
+  the entity) hides it: turn record mode on to key it, or move the playhead off the clip's keys.
+- **Undo.** Every edit is a command (`anim.*`), so it is on the Console and visible to an AI, and it is in the same Undo /
+  Redo list as scene edits (Ctrl+Z). A clip file is not part of the scene: editing it does not mark the scene as changed, and
+  the file on disk is already written. Save is for the scene.
+
+## Bone tools
+
+View > Bone tools (a tab next to Inspector) is for the 2D view: with a perspective main camera it says so. Pick one tool; while it
+is on the viewport clicks belong to it and the gizmo handles are off (click the tool again to leave it). Every edit is one command
+with one Undo step.
+
+- **Draw chain.** Select the entity the bones hang from (a character's root, or the last bone of a chain to extend it), then click
+  the joints in the viewport from the root to the tip. A rubber band shows the next bone. **Finish chain** (or Enter) makes the
+  bones with `bones.create`, named `<prefix>_1`, `<prefix>_2`...; Esc or **Cancel** drops the points. The first bone is selected
+  afterwards.
+- **Bind a sprite to bones.** Select the sprite, pick the root bone (the sprite follows it and every bone below it; **Use the
+  selected bone** copies the selection) and the mesh columns and rows, then **Bind sprite to bones** (`skin.bind`). The picture does
+  not change: the bind pose is recorded.
+- **Weights.** With a skinned sprite selected, the mesh vertices show as dots coloured by the weight of one bone (blue none, red
+  all); selecting a bone of the skin in the Hierarchy picks it, or use the menu. Drag over the sprite to paint with the brush:
+  **Add** raises the bone's weight by the strength, **Set** gives it exactly that weight, **Smooth** blends the vertices toward
+  their neighbours; radius is in the sprite's units. A drag is one undo step (`skin.set_weights`). A skin still on automatic
+  weights is turned into explicit ones by the first stroke, or by **Start from automatic weights**.
+- **IK targets.** A diamond marks the target of every `IK2D` that has one; drag it to move the target entity (`Transform.position`,
+  one undo step) and the chain solves at once. The solved bone rotations stay in the scene: they are the bones' own
+  `Transform.rotation`, so Undo takes them back and a clip that drives those bones overrides them again when it plays.
+
 ## The program icon
 
 The editor's window icon (Windows, Linux) and its macOS Dock icon are the PNGs in `tools/editor/icon/`, embedded in the
@@ -581,7 +646,7 @@ wrapping, right-click menu), G (delete a project), H (Export window), I (Platfor
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
 agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
-its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key, Z (sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets `SpriteAnimator.clip`) and W (two AI chats at once against a scripted model: both finish with their own answers, the
+its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), B2 (the Animation panel: New clip, keys written in record mode by a gizmo drag, a key moved and its Undo, an easing from the context menu, an event, scrubbing that poses without changing the scene, the onion skin), C2 (the bone tools: a chain drawn by clicks, a sprite bound, weights painted as one undo step, an IK handle dragged, the overlay following the selected bone), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key, Z (sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets `SpriteAnimator.clip`) and W (two AI chats at once against a scripted model: both finish with their own answers, the
 same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash

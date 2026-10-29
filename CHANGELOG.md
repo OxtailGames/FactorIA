@@ -39,6 +39,19 @@ Commands for AIs: make clips and check them
   resolve to no part of that entity.
 - docs/AI_GUIDE.md, section 9.25.2: a character in parts, step by step; the artist role's prompt points to it.
 
+Editor: the timeline and the bone tools
+
+- View > Animation edits the 2D clips of the selected entity's Animator: a clip list with New clip, a dopesheet and a curve view
+  (bezier tangent handles), a time ruler with scrubbing that poses the entity without touching the scene file, play / loop /
+  speed, event markers, snapping to an fps the panel offers, and key editing (select, box, drag, scale, copy / paste at the
+  playhead, delete, linear / step / bezier / easing from a context menu). Every edit is an `anim.*` command and one Undo step.
+- Record mode (REC): moving, rotating or scaling a part with the gizmo, or changing an animatable Inspector field, writes a key at
+  the playhead (`anim.set_keys`) instead of the rest value; the viewport gets a red frame. The onion skin draws faded poses before
+  and after the playhead.
+- View > Bone tools: draw a bone chain by clicking points in the viewport (`bones.create`), bind a sprite to bones (`skin.bind`),
+  see the weights of one bone as coloured dots and paint them with a brush (add / set / smooth, `skin.set_weights`, one stroke =
+  one Undo step), and drag the targets of IK2D chains. Editor autotest sections B2 and C2; docs/EDITOR.md.
+
 2D bones, skinned sprites and IK
 
 - `Bone2D` (`length`, `minAngle`, `maxAngle`) turns any entity of the hierarchy into a bone: it runs `length` along the
