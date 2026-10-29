@@ -25,7 +25,7 @@ APPIMAGE_PNG = HERE.parent.parent.parent / "platforms" / "linux" / "factoria.png
 WINDOW_SIZES = [16, 24, 32, 48, 64, 128, 256]
 SMALL_SIZES = {16, 24}       # drawn from the simplified source
 PAD = 96                     # background added around the artwork, so a crop may reach past its edges
-TILE_TOP, TILE_BOTTOM = (34, 50, 104), (12, 18, 48)  # the navy the tile background is lifted to (see lift)
+TILE_TOP, TILE_BOTTOM = (60, 90, 178), (30, 46, 112)  # the navy the tile background is lifted to (see lift)
 SS = 4                       # supersampling of the rounded-square mask
 
 
@@ -74,9 +74,9 @@ def tile(art, inset, radius, fill):
     canvas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
     canvas.paste(lift(padded(art).crop(box).resize((side, side), Image.LANCZOS), TILE_TOP, TILE_BOTTOM), (inset, inset))
     mask = rounded_mask(1024, inset, radius)
-    rim = ImageChops.subtract(mask, rounded_mask(1024, inset + 5, radius - 5))
-    rim_layer = Image.new("RGBA", (1024, 1024), (90, 130, 255, 0))
-    rim_layer.putalpha(rim.point(lambda v: v * 110 // 255))
+    rim = ImageChops.subtract(mask, rounded_mask(1024, inset + 7, radius - 7))
+    rim_layer = Image.new("RGBA", (1024, 1024), (130, 170, 255, 0))
+    rim_layer.putalpha(rim.point(lambda v: v * 190 // 255))
     canvas = Image.alpha_composite(canvas, rim_layer)
     canvas.putalpha(ImageChops.multiply(canvas.getchannel("A"), mask))
     return canvas
@@ -86,7 +86,7 @@ def main():
     art = Image.open(HERE / "src" / "factoria_art.png").convert("RGB")
     small = Image.open(HERE / "src" / "factoria_small.png").convert("RGBA")
     square = tile(art, 16, 200, 0.74)  # Windows and Linux: nearly full bleed, the drawing large for small sizes
-    mac = tile(art, 100, 185, 0.70)    # macOS icon grid: an 824 px tile inside 1024, with room around the drawing
+    mac = tile(art, 100, 185, 0.74)    # macOS icon grid: an 824 px tile inside 1024, the drawing as large as the other apps' drawings
 
     images = []
     for size in WINDOW_SIZES:
