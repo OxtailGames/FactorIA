@@ -1369,6 +1369,93 @@ Version: 0.6.0 when it lands.
 - Tests: clip by name, pingpong and reverse, the clipEnded event, pivot from the sheet, preview checks.
 - Docs: COMPONENTS (generated), ASSETS.md, the d.ts typings.
 
+## M42. 2D animation in parts: keyframed clips, 2D bones and a timeline (L; 5 packages and 1 request)
+
+Asked by the user: build a character or an object in parts and animate each part on its own, not only with sprite
+sheets. What exists: the `Animator` plays glTF clips (3D, rigid parts too), `tween()` animates any field from code, and
+`Sprite.skew` and the 2D mesh (`meshColumns`, `meshRows`, `vertexOffsets`, M39.4) bend a sprite. What is missing: a
+clip saved as an asset with keys and curves, a component that plays it by name, 2D bones with skinned sprites and IK,
+and any animation panel in the editor (it has none). A part-built character can then ship as a sprite sheet with
+`assets.bake_sheet` (M41.3).
+
+Shared contract (M42.1 writes it first, the other packages build on it): a clip is a file `*.anim.json` (format
+`factoria.anim/1`, schemas/anim.schema.json) with `duration`, `loop`, `tracks` and `events`. A track is `{path,
+component, field, keys}`: `path` names a descendant of the entity that plays the clip by its EntityInfo names
+(`"body/arm_l/hand"`, `""` for the entity itself), `field` is a reflected field (`position`, `rotation.z`, `color.a`,
+`Sprite.region`). A key is `{t, value, interp}`; `interp` is `linear`, `step`, `bezier` (with `in`/`out` tangents) or an
+easing name of `tween()`. Numbers, vectors, colours and angles interpolate; bools, ints, enums and assets only step (a
+sprite swap: `Sprite.texture`, `Sprite.region`). An event is `{t, name, data}`.
+
+Version: 0.7.0 when it lands.
+
+### M42.1 Keyframed clips, played by the Animator (L)
+
+- The schema, a loader in fa_scene (no GPU) cached per path and modification time, and hot reload when a clip changes.
+- The `Animator` plays `.anim.json` clips when it has no glTF `model`: `clips: {"walk": "anim/hero_walk.anim.json"}`.
+  Everything it does today works the same with them: `play(name, fade)`, `speed`, `loop`, `time`, clip events,
+  `anim.finished`, the state machine. A cross-fade blends the field values (lerp; angles the short way round; stepped
+  fields switch at half the fade).
+- Layers: `layers: [{name, clip | states, weight, mode: override | additive, mask: ["body/arm_l"]}]`, so the arms
+  shoot while the legs walk (a mask keeps a layer to the parts under those paths).
+- Sampled at the fixed step with the other animators; the fields a clip drives are a runtime pose and `scene.save`
+  does not write them (like `SpriteAnimator` and `Sprite.region`). `animator.sample(clip, t)` poses without playing.
+- Errors name the file and the JSON pointer: a track path that names no descendant ("did you mean" over the names
+  under the entity), a field that cannot be animated, a key value of the wrong type, keys out of order or past
+  `duration`.
+- Tests: every `interp`, bezier tangents, events once per loop, cross-fade, layers with a mask and additive, the state
+  machine with file clips, determinism, hot reload.
+- Docs: ANIMATION.md (a section "2D clips"), COMPONENTS (generated), the d.ts typings, api_since.
+
+### M42.2 2D bones, skinned sprites and IK (L)
+
+- `Bone2D {length, minAngle, maxAngle}` on plain entities of the hierarchy, so clips animate bones through their
+  Transform; bones are drawn by the editor and by `debug.draw`.
+- `SpriteSkin {bones, weights}` deforms a Sprite's 2D mesh (the `meshColumns`/`meshRows` grid of M39.4, or `outline:
+  true`, a mesh traced from the texture's opaque pixels) with up to 4 bones per vertex from a bind pose recorded when it
+  is bound. `weights: "auto"` weighs by the distance to each bone segment (deterministic); explicit weights per vertex.
+- `IK2D {target, chainLength, bend, weight, solver: twoBone | ccd}` runs after the Animator and before drawing, within
+  the bones' angle limits: feet on the ground, a hand that reaches a lever.
+- Deformed on the CPU into the existing 2D vertex stream (no new shader); a skinned sprite batches like a mesh sprite.
+- Tests: auto weights, the deformation of a rotated bone, the bind pose, IK reaching, out of reach and bending either
+  way, angle limits, determinism, a perf case with 50 skinned sprites.
+- Docs: ANIMATION.md ("Bones and IK"), COMPONENTS (generated), typings, api_since.
+
+### M42.3 Commands for AIs: make clips and check them (M)
+
+- `anim.create_clip`, `anim.set_keys`, `anim.remove_keys`, `anim.list {entity}`, `anim.pose {entity, clip, t}` (puts a
+  pose in the paused game to look at), `anim.filmstrip {entity, clip, frames, onionSkin}` (a grid of the clip, like
+  the `game.screenshot` filmstrip) and `anim.check` (tracks that change nothing, a loop whose last pose jumps from the
+  first, a part that leaves the camera, an IK target out of reach).
+- `bones.create` (a chain from points), `skin.bind`, `skin.auto_weights`.
+- `factoria validate` checks every `.anim.json` and every clip an Animator names.
+- AI_GUIDE.md: how to build a character in parts (child Sprites with their pivots at the joints, layer order, bones,
+  clips, IK for the feet), with a worked example; the artist role's instructions point at it.
+- Tests: each command, undo through the command system, the errors.
+
+### M42.4 Editor: the timeline and the bone tools (L)
+
+- An Animation panel for the selected Animator: its clips, a dopesheet with one row per part and field, a curve view,
+  scrub, play, loop and speed, and a record mode: moving or rotating a part with the gizmo, or changing a field in the
+  inspector, writes a key at the playhead. Copy and paste keys, move and scale a selection of keys, an easing per key,
+  event markers, onion skin in the viewport.
+- Bone tools in the viewport: draw a bone chain, bind a sprite, view and paint weights, IK targets as handles.
+- Every edit is a command (undo and redo, AIs see it) and is saved to the `.anim.json`.
+- An editor autotest section for the panel (docs/EDITOR.md); EDITOR.md documents it.
+
+### M42.5 Bake, and an example (M)
+
+- `assets.bake_sheet` (M41.3) bakes Animator clips by name (`clips: [{name: "walk", clip: "walk", frames: 12}]`), so a
+  character built in parts ships as a sprite sheet where draw calls count (mobile).
+- An example: the 2D example M41.4 does not use gets a character built in parts with bones, idle / walk / jump clips, a
+  state machine and IK feet, with tests that check it animates and stays deterministic; its perf JSON updated.
+- Docs: the worked example in ANIMATION.md.
+
+Order: M42.1 and M42.2 at once (M42.2 only needs the hierarchy and the Sprite mesh); M42.3 after M42.1; M42.4 after
+M42.1 and M42.2; M42.5 last.
+
+Not in M42: importing Spine or DragonBones projects (Spine's runtime license, another data model); morph targets and
+root motion stay in ANIMATION.md, "Not there yet".
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,

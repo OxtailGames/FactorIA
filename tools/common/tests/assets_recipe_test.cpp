@@ -291,3 +291,67 @@ TEST_CASE("recipes: project.validate warns about stale assets and missing inputs
     CHECK(m->message.find("assets/art/coin.svg") != std::string::npos);
     CHECK_FALSE(m->hint.empty());
 }
+
+TEST_CASE("recipes: assets.animate_svg regenerates its own sheet byte for byte, goes stale with its module, and validate says so") {
+    TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const std::string dir = tmp.sub("game");
+    CommandRegistry registry;
+    register_asset_commands(registry, dir);
+    const std::filesystem::path root(dir);
+    const char* module =
+        "export default function frame({progress}) {\n"
+        "  const w = Math.abs(Math.cos(progress * Math.PI * 2)) * 30 + 6;\n"
+        "  return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><ellipse cx='50' cy='50' rx='${w}' ry='30' fill='#e8c66a'/></svg>`;\n"
+        "}\n";
+    write_all(root / "art/coin.anim.js", module);
+    const CommandResult made = registry.call("assets.animate_svg", {{"path", "assets/art/coin.png"}, {"source", "art/coin.anim.js"}, {"frames", 4},
+                                                                      {"fps", 8}, {"frameWidth", 32}, {"frameHeight", 32}});
+    REQUIRE_MESSAGE(made.ok, made.error.dump());
+    CHECK(made.result["nextSteps"].dump().find("assets.regenerate") != std::string::npos);
+    const std::string original = read_all(root / "assets/art/coin.png");
+    write_all(root / "assets/art/coin.png", "spoiled");
+    const CommandResult r = registry.call("assets.regenerate", {{"path", "assets/art/coin.png"}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(read_all(root / "assets/art/coin.png") == original);
+
+    CHECK(issue_with(validate_project(dir).warnings, "stale") == nullptr);
+    write_all(root / "art/coin.anim.js", std::string(module) + "// edited\n");  // the module is saved
+    const ValidationReport report = validate_project(dir);
+    const ValidationIssue* s = issue_with(report.warnings, "'assets/art/coin.png' is stale");
+    REQUIRE(s != nullptr);
+    CHECK(s->hint.find("assets.regenerate") != std::string::npos);
+    CHECK(registry.call("assets.regenerate", {{"stale", true}}).result["count"] == 1);
+    CHECK(issue_with(validate_project(dir).warnings, "stale") == nullptr);
+}
+
+TEST_CASE("recipes: assets.bake_sheet regenerates through the registry, and goes stale with its prefab (skipped without a GPU)") {
+    TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const std::string dir = tmp.sub("game");
+    CommandRegistry registry;
+    register_asset_commands(registry, dir);
+    const std::filesystem::path root(dir);
+    const char* prefab = R"({"format":"factoria.prefab/1","entity":{"id":"orb","components":{
+      "Transform":{},"Shape2D":{"shape":"circle","size":[20,20],"color":[1,0.5,0,1]}}}})";
+    write_all(root / "prefabs/orb.prefab.json", prefab);
+    const CommandResult made = registry.call("assets.bake_sheet", {{"path", "assets/fx/orb.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"frames", 2}, {"fps", 4}});
+    if (!made.ok && made.error.value("code", std::string()) == "no_gpu") {
+        MESSAGE("skipped: no graphics device on this machine");
+        return;
+    }
+    REQUIRE_MESSAGE(made.ok, made.error.dump());
+    const std::string original = read_all(root / "assets/fx/orb.png");
+    write_all(root / "assets/fx/orb.png", "spoiled");
+    const CommandResult r = registry.call("assets.regenerate", {{"path", "assets/fx/orb.png"}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(read_all(root / "assets/fx/orb.png") == original);
+
+    write_all(root / "prefabs/orb.prefab.json", std::string(R"({"format":"factoria.prefab/1","entity":{"id":"orb","components":{
+      "Transform":{},"Shape2D":{"shape":"circle","size":[30,30],"color":[0,1,0,1]}}}})"));
+    const ValidationReport report = validate_project(dir);
+    const ValidationIssue* s = issue_with(report.warnings, "'assets/fx/orb.png' is stale");
+    REQUIRE(s != nullptr);
+    CHECK(registry.call("assets.regenerate", {{"stale", true}}).result["count"] == 1);
+    CHECK(read_all(root / "assets/fx/orb.png") != original);
+}
