@@ -1346,12 +1346,12 @@ assets_rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmln
 ```
 
 - **Surfaces** (backgrounds, desks, covers, pages, floors, walls) are `assets_generate_texture`: `preset` is `paper`,
-  `parchment`, `wood`, `planks`, `leather`, `fabric`, `stone`, `value`, `fbm`, `cellular`, `gradient`, `radial` or
+  `parchment`, `wood`, `planks`, `leather`, `fabric`, `linen`, `stone`, `value`, `fbm`, `cellular`, `gradient`, `radial` or
   `vignette`. `color` and `accent` recolour, `scale` and `roughness` tune, `tileable: true` makes it repeat with no seam,
   `normalMap: true` also writes `<name>_n.png` for lit sprites. Another `seed` is another take.
 - **Subjects** (a crest, a silhouette, an ornament, a map symbol) are shapes you write as SVG for
-  `assets_rasterize_svg`. No text, filters, masks, clip paths, `<use>` or CSS classes (they are drawn as nothing and
-  named in `warnings`); in gradients write coordinates in percent (`x2="100%"`). Keep the SVG in the project
+  `assets_rasterize_svg`. `clip-path`, `mask` and `<pattern>` fills (line hatching) work; no text, filters, `<use>` or CSS classes (they are drawn as
+  nothing and named in `warnings`); in gradients write coordinates in percent (`x2="100%"`). Keep the SVG in the project
   (`assets/art/crest.svg`, then `source`) so you can edit it and rasterize again.
 - **Look at the picture** in the result, change one thing and call again with `overwrite: true`. The icon and the store
   images are `assets_draw_icon` and `assets_draw_capsules`; sounds are `assets_synth_sound`.
