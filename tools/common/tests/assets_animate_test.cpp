@@ -385,6 +385,9 @@ TEST_CASE("assets.animate_svg: padding puts a transparent gutter around every ce
     CHECK(sheet["padding"] == 2);
     CHECK(sheet["pivot"] == Json::array({0.5, 0.0}));
     CHECK(sheet["frameWidth"] == 8);
+    CHECK(has_text(r["nextSteps"], "skips it by itself"));  // the SpriteAnimator reads the gutter from the sheet entry
+    CHECK_FALSE(has_text(r["nextSteps"], "no gutter"));
+    CHECK(has_text(r["nextSteps"], "assets.preview_sheet"));
 }
 
 TEST_CASE("assets.animate_svg: the style is the one of rasterize_svg, applied to every frame") {

@@ -138,8 +138,12 @@ struct Sprite {
     Json vertexOffsets = Json::array();  // grid sprites: [dx, dy, ...] per grid vertex, row-major from the TOP row, local units (+y up)
 };
 
+// How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
+enum class SpriteAnimMode : std::int32_t { Forward, Reverse, PingPong };
+
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
-// it overwrites Sprite.region every frame.
+// it overwrites Sprite.region every frame. `clip` takes the grid and the clip from the sheet entry of the texture in
+// assets.json (docs/ASSETS.md); the numeric fields below stay and override it when they differ from their defaults.
 struct SpriteAnimator {
     std::int32_t columns = 1;         // sheet grid columns
     std::int32_t rows = 1;            // sheet grid rows
@@ -150,6 +154,11 @@ struct SpriteAnimator {
     bool playing = true;
     float time = 0.0f;                // runtime: elapsed time in the current clip (seconds)
     std::int32_t frame = 0;           // runtime: current frame index
+    std::string clip;                 // name of a clip of the texture's sheet entry; "" = the numeric fields alone
+    SpriteAnimMode mode = SpriteAnimMode::Forward;
+    bool sheetPivot = true;           // the sheet's / clip's pivot sets the pivot of a Sprite whose own pivot is the default centre
+    bool ended = false;               // runtime: a non-looping clip reached its end and sent clipEnded
+    std::string playedClip;           // runtime: the clip `time` belongs to (a change of `clip` restarts the animation)
 };
 
 enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond, Polygon, Star };

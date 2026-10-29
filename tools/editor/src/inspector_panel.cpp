@@ -174,6 +174,7 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                     }
                 }
                 if (auto it = inspErrors_.find(key); it != inspErrors_.end()) error_text(it->second);
+                if (type.name == "SpriteAnimator" && f.name == "clip") draw_animator_clips(e, id, value);
                 if (type.name == "MeshRenderer" && f.name == "material" && value.is_string()) {
                     if (assetReportAt_ + 0.5 < time_ || assetReport_.is_null()) {
                         assetReportAt_ = time_;
@@ -382,6 +383,38 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
     ImGui::EndDisabled();
     ImGui::PopID();
     return changed;
+}
+
+// Under SpriteAnimator.clip: the clips the texture of the entity's Sprite has in its `sheet` entry (assets.json), one click each,
+// or why there are none. The clip name is set through scene.set_component like any field.
+void Editor::draw_animator_clips(Entity e, const std::string& id, const Json& current) {
+    const Sprite* sprite = world().get<Sprite>(e);
+    if (!sprite || sprite->texture.empty()) {
+        ImGui::TextDisabled("Give the entity a Sprite with a texture to pick one of its clips.");
+        return;
+    }
+    const auto sheet = assets::sheet(sprite->texture);
+    if (!sheet || sheet->clips.empty()) {
+        ImGui::TextDisabled("'%s' has no clips in assets.json (assets.animate_svg, assets.bake_sheet and assets.slice_sheet record them).",
+                            sprite->texture.c_str());
+        return;
+    }
+    const std::string now = current.is_string() ? current.get<std::string>() : std::string();
+    ImGui::TextDisabled("Clips (click to play):");
+    tooltip("The clips of " + sprite->texture + " (its `sheet` entry in assets.json)");
+    for (const assets::SheetClip& c : sheet->clips) {
+        const float w = ImGui::CalcTextSize(c.name.c_str()).x + ImGui::GetStyle().FramePadding.x * 2 + ImGui::GetStyle().ItemSpacing.x;
+        if (&c != &sheet->clips.front() && ImGui::GetContentRegionAvail().x > w) ImGui::SameLine();
+        if (ImGui::SmallButton((c.name + "###clip:" + c.name).c_str()) && c.name != now) {
+            std::string err;
+            CommandResult r = edit_command("insp:" + id + ":SpriteAnimator.clip", "scene.set_component",
+                                           field_edit_args(id, "SpriteAnimator", "clip", c.name), &err);
+            if (r.ok) inspErrors_.erase("SpriteAnimator.clip");
+            else inspErrors_["SpriteAnimator.clip"] = err;
+        }
+        at_track("insp:SpriteAnimator.clip:" + c.name);
+        tooltip(std::format("Frames {} to {} at {} fps{}", c.firstFrame, c.lastFrame, c.fps, c.loop ? ", loops" : ", plays once"));
+    }
 }
 
 void Editor::draw_material_params(Entity e, const Json& cur) {

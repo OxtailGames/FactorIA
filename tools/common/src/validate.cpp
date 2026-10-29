@@ -23,6 +23,7 @@
 #include "fa/runtime/project.h"
 #include "fa/scene/mesh_geometry.h"
 #include "fa/scene/rich_text.h"
+#include "fa/scene/sprite_animator.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
@@ -330,6 +331,23 @@ void check_start_overlaps(Ctx& c, const std::string& file, World& world) {
 
 void check_rich_text_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields);
 
+// SpriteAnimator.clip must be a clip of the `sheet` entry of the texture of the Sprite on the same entity. An entity that
+// gets its Sprite from a prefab is not checked here (the prefab file is). The VFS root is the project.
+void check_animator_clip(Ctx& c, const std::string& file, const std::string& pointer, const Json& components) {
+    const auto anim = components.find("SpriteAnimator");
+    const auto sprite = components.find("Sprite");
+    if (anim == components.end() || sprite == components.end() || !anim->is_object() || !sprite->is_object()) return;
+    if (!anim->contains("clip") || !(*anim)["clip"].is_string() || (*anim)["clip"].get<std::string>().empty()) return;
+    if (!sprite->contains("texture") || !(*sprite)["texture"].is_string() || (*sprite)["texture"].get<std::string>().empty()) return;
+    const std::string texture = (*sprite)["texture"].get<std::string>(), clip = (*anim)["clip"].get<std::string>();
+    const auto sheet = assets::sheet(texture);
+    if (sheet && sheet->find(clip)) return;
+    if (!stdfs::exists(stdfs::path(c.dir) / texture)) return;  // reported as a missing asset
+    c.error(file, pointer + "/components/SpriteAnimator/clip", sprite_clip_error(texture, clip, sheet),
+            sheet ? "Use one of the clips of the sheet, or empty the field to play the numeric firstFrame/lastFrame."
+                  : "Record the sheet with assets.slice_sheet, assets.animate_svg or assets.bake_sheet, or drop `clip` and set columns, rows, firstFrame, lastFrame and fps.");
+}
+
 void check_entity_assets(Ctx& c, const std::string& file, const std::string& pointer, const Json& entity,
                          std::set<std::string>& scripts) {
     if (!entity.is_object()) return;
@@ -339,6 +357,7 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
             c.error(file, pointer + "/prefab", "Prefab '" + pf + "' does not exist.", "Create it under prefabs/ or fix the path.");
     }
     if (entity.contains("components") && entity["components"].is_object()) {
+        check_animator_clip(c, file, pointer, entity["components"]);
         for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) {
             check_component_assets(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
             check_atlas_use(c, file, pointer + "/components/" + it.key(), it.key(), it.value());

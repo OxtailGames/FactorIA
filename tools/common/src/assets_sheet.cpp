@@ -170,13 +170,19 @@ std::vector<std::string> sheet_next_steps(const std::string& texture, const Json
                     "frame size is the sprite size).", texture),
         std::format("Play all of it: a SpriteAnimator with {{\"columns\": {}, \"rows\": {}, \"firstFrame\": 0, \"lastFrame\": {}, "
                     "\"fps\": {}}}.", sheet.value("columns", 1), sheet.value("rows", 1), frames - 1, fps)};
-    if (sheet.contains("clips")) {
-        std::string clips;
-        for (const Json& c : sheet["clips"])
-            clips += std::format("{}{} = firstFrame {}, lastFrame {}, fps {}", clips.empty() ? "" : "; ", c.value("name", ""),
-                                 c.value("firstFrame", 0), c.value("lastFrame", 0), c.value("fps", 10.0));
-        steps.push_back("Play one clip by setting these SpriteAnimator fields (the `sheet` entry of assets.json keeps them): " + clips + ".");
+    if (sheet.contains("clips") && !sheet["clips"].empty()) {
+        std::string names, numeric;
+        for (const Json& c : sheet["clips"]) {
+            names += std::format("{}\"{}\"", names.empty() ? "" : ", ", c.value("name", ""));
+            numeric += std::format("{}{} = firstFrame {}, lastFrame {}, fps {}", numeric.empty() ? "" : "; ", c.value("name", ""),
+                                   c.value("firstFrame", 0), c.value("lastFrame", 0), c.value("fps", 10.0));
+        }
+        steps.push_back(std::format("Play one clip by name: a SpriteAnimator with \"clip\": one of {} (it takes the grid, frames, fps, loop and pivot from the `sheet` entry of assets.json), "
+                                    "and entity.spriteAnimator.play(name) from a script switches clip. The same as numbers: {}.", names, numeric));
     }
+    if (sheet.value("padding", 0) > 0)
+        steps.push_back(std::format("The cells have a {} px transparent gutter (`padding` in the sheet entry): a SpriteAnimator on this texture skips it by itself.", sheet.value("padding", 0)));
+    steps.push_back(std::format("Look at it before wiring it: assets.preview_sheet {{\"path\": \"{}\"}} draws the frames with their numbers, cell edges and pivot, and warns about empty or cut frames.", texture));
     return steps;
 }
 

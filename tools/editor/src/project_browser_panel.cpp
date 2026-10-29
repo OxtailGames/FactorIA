@@ -13,7 +13,9 @@
 #include "editor_internal.h"
 #include "imgui_internal.h"
 #include "fa/runtime/project.h"
+#include "fa/core/asset_manifest.h"
 #include "project_browser_model.h"
+#include "sheet_preview_model.h"
 #include "ui_backend.h"
 
 namespace fa::editor {
@@ -126,7 +128,14 @@ void Editor::draw_project_panel() {
     ImGui::EndChild();
     ImGui::SameLine();
 
-    ImGui::BeginChild("##projfiles", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    // A selected picture that has a `sheet` entry gets a preview strip under the files: its clips, played.
+    std::shared_ptr<const assets::Sheet> previewSheet;
+    if (!pb.selected.empty() && asset_type_of(pb.selected) == "texture") previewSheet = assets::sheet(pb.selected);
+    const float previewH = previewSheet ? std::clamp(ImGui::GetContentRegionAvail().y * 0.55f, 96.0f, 150.0f) : 0.0f;
+    if (!previewSheet) sheetPreviewFrame_ = -1;
+
+    ImGui::BeginGroup();  // the files and the preview strip are the right-hand column, under the toolbar like the tree
+    ImGui::BeginChild("##projfiles", ImVec2(0, -previewH), ImGuiChildFlags_Borders);
     if (shown.empty()) {
         ImGui::TextDisabled(pb.listing.files.empty() ? "The project has no files yet." : "No file matches the filter.");
     } else {
@@ -148,6 +157,8 @@ void Editor::draw_project_panel() {
         }
     }
     ImGui::EndChild();
+    if (previewSheet) draw_sheet_preview(pb.selected, *previewSheet, previewH);
+    ImGui::EndGroup();
 
     // ---- delete confirmation (the right-click menu asks for it)
     if (!pb.deleteAsk.empty() && !ImGui::IsPopupOpen("Delete file?")) ImGui::OpenPopup("Delete file?");
@@ -177,6 +188,65 @@ void Editor::draw_project_panel() {
         ImGui::EndPopup();
     }
     ImGui::End();
+}
+
+// The strip under the Project panel for a selected sprite sheet: a menu of its clips ("(all frames)" first), the clip played the way
+// a SpriteAnimator plays it (same fps, loop and pivot, the padding gutter skipped), the frame number and the pivot mark.
+void Editor::draw_sheet_preview(const std::string& path, const assets::Sheet& sheet, float height) {
+    if (path != sheetPreviewPath_) {  // another sheet: start with its first clip
+        sheetPreviewPath_ = path;
+        const std::vector<std::string> choices = sheet_preview_choices(sheet);
+        sheetPreviewChoice_ = choices.size() > 1 ? choices[1] : std::string(kAllFrames);
+        sheetPreviewStart_ = time_;
+    }
+    ImGui::BeginChild("##sheetpreview", ImVec2(0, height), ImGuiChildFlags_Borders);
+    const TextureEntry* tex = texture_for(path);
+    const float side = height - ImGui::GetStyle().WindowPadding.y * 2 - 4.0f;
+    if (!tex || tex->w <= 0 || tex->h <= 0) {
+        ImGui::TextDisabled("Cannot show %s.", path.c_str());
+        ImGui::EndChild();
+        return;
+    }
+    // The frame, on a dark square, scaled to fit.
+    const SheetPreviewFrame fr = sheet_preview_frame(sheet, sheetPreviewChoice_, time_ - sheetPreviewStart_, tex->w, tex->h);
+    sheetPreviewFrame_ = fr.frame;
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const float s = std::min(side / std::max(1.0f, fr.rect.w), side / std::max(1.0f, fr.rect.h));
+    const ImVec2 sz(fr.rect.w * s, fr.rect.h * s);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, ImVec2(p0.x + side, p0.y + side), IM_COL32(40, 40, 46, 255), 3.0f);
+    const ImVec2 a(p0.x + (side - sz.x) * 0.5f, p0.y + (side - sz.y) * 0.5f);
+    dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(tex->view, true))), a, ImVec2(a.x + sz.x, a.y + sz.y),
+                 ImVec2(fr.rect.x / float(tex->w), fr.rect.y / float(tex->h)),
+                 ImVec2((fr.rect.x + fr.rect.w) / float(tex->w), (fr.rect.y + fr.rect.h) / float(tex->h)));
+    dl->AddRect(a, ImVec2(a.x + sz.x, a.y + sz.y), IM_COL32(0, 220, 255, 140));
+    const ImVec2 pv(a.x + fr.pivot.x * sz.x, a.y + fr.pivot.y * sz.y);
+    dl->AddLine(ImVec2(pv.x - 5, pv.y), ImVec2(pv.x + 5, pv.y), IM_COL32(255, 60, 200, 255));
+    dl->AddLine(ImVec2(pv.x, pv.y - 5), ImVec2(pv.x, pv.y + 5), IM_COL32(255, 60, 200, 255));
+    ImGui::Dummy(ImVec2(side, side));
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::TextUnformatted(path.c_str());
+    ImGui::SetNextItemWidth(160);
+    if (ImGui::BeginCombo("##sheetclip", sheetPreviewChoice_.c_str())) {
+        for (const std::string& c : sheet_preview_choices(sheet)) {
+            if (ImGui::Selectable(c.c_str(), c == sheetPreviewChoice_)) {
+                sheetPreviewChoice_ = c;
+                sheetPreviewStart_ = time_;
+            }
+            at_track("sheet:choice:" + c);
+        }
+        ImGui::EndCombo();
+    }
+    at_track("sheet:clip");
+    ImGui::SetItemTooltip("The clip to play. The preview runs the way a SpriteAnimator with this clip would: its fps, loop and pivot.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Restart")) sheetPreviewStart_ = time_;
+    at_track("sheet:restart");
+    ImGui::Text("frame %d (step %d of %d)%s", fr.frame, fr.step + 1, fr.steps, fr.ended ? ", ended" : "");
+    ImGui::TextDisabled("%dx%d grid, frame %.0fx%.0f px, pivot [%.2f, %.2f] from the top-left", sheet.columns, sheet.rows, fr.rect.w, fr.rect.h, fr.pivot.x, fr.pivot.y);
+    ImGui::EndGroup();
+    ImGui::EndChild();
 }
 
 void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {

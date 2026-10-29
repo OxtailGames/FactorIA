@@ -5,6 +5,7 @@
 #include <ctime>
 #include <format>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "fa/core/fs.h"
@@ -20,6 +21,7 @@ struct Cache {
     std::string root;           // project root the cached manifest belongs to
     std::int64_t modified = -2; // modified_time of the file when read (-1 = missing, -2 = never read)
     Json doc;
+    std::unordered_map<std::string, std::shared_ptr<const Sheet>> sheets;  // parsed sheet entries of this read of the file
     std::string warnedFor;      // "root|mtime" of the last warning, so a broken file warns once
 };
 
@@ -43,6 +45,7 @@ Result<Json> parse_manifest(std::string_view text) {
 void invalidate() {
     std::lock_guard lock(cache().mutex);
     cache().modified = -2;
+    cache().sheets.clear();
 }
 
 Json sorted_object(const Json& o) {
@@ -141,16 +144,17 @@ const char* kind_name(AssetKind kind) {
     return "other";
 }
 
-Json manifest() {
-    Cache& c = cache();
-    std::lock_guard lock(c.mutex);
+namespace {
+// Re-reads the file when it changed (c.mutex held by the caller).
+void refresh_locked(Cache& c) {
     const std::string root = fs::project_root().generic_string();
     const std::int64_t modified = fs::exists(kManifestFile) ? fs::modified_time(kManifestFile) : -1;
-    if (c.root == root && c.modified == modified && c.modified != -2) return c.doc;
+    if (c.root == root && c.modified == modified && c.modified != -2) return;
     c.root = root;
     c.modified = modified;
+    c.sheets.clear();
     c.doc = empty_manifest();
-    if (modified == -1) return c.doc;
+    if (modified == -1) return;
     auto text = fs::read_text(kManifestFile);
     auto parsed = text ? parse_manifest(*text) : Result<Json>(make_error(text.error().message));
     if (parsed) {
@@ -162,6 +166,13 @@ Json manifest() {
             FA_WARN("assets", "{} is ignored: {} Run `factoria validate` to see the problem.", kManifestFile, parsed.error().message);
         }
     }
+}
+}  // namespace
+
+Json manifest() {
+    Cache& c = cache();
+    std::lock_guard lock(c.mutex);
+    refresh_locked(c);
     return c.doc;
 }
 
@@ -171,6 +182,70 @@ Json entry(std::string_view path) {
     if (assets == m.end() || !assets->is_object()) return Json::object();
     auto e = assets->find(key_of(path));
     return e != assets->end() && e->is_object() ? *e : Json::object();
+}
+
+const SheetClip* Sheet::find(std::string_view name) const {
+    for (const SheetClip& c : clips)
+        if (c.name == name) return &c;
+    return nullptr;
+}
+
+std::vector<std::string> Sheet::clip_names() const {
+    std::vector<std::string> out;
+    for (const SheetClip& c : clips) out.push_back(c.name);
+    return out;
+}
+
+namespace {
+std::optional<std::array<float, 2>> read_pivot(const Json& j) {
+    auto it = j.find("pivot");
+    if (it == j.end() || !it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number()) return std::nullopt;
+    return std::array<float, 2>{(*it)[0].get<float>(), (*it)[1].get<float>()};
+}
+int read_int(const Json& j, const char* key, int fallback) {
+    auto it = j.find(key);
+    return it != j.end() && it->is_number() ? it->get<int>() : fallback;
+}
+}  // namespace
+
+std::shared_ptr<const Sheet> parse_sheet(const Json& e) {
+    if (!e.is_object() || !e.contains("columns") || !e.contains("rows")) return nullptr;
+    auto s = std::make_shared<Sheet>();
+    s->columns = std::max(1, read_int(e, "columns", 1));
+    s->rows = std::max(1, read_int(e, "rows", 1));
+    s->frameWidth = std::max(0, read_int(e, "frameWidth", 0));
+    s->frameHeight = std::max(0, read_int(e, "frameHeight", 0));
+    s->frames = std::max(0, read_int(e, "frames", 0));
+    s->padding = std::max(0, read_int(e, "padding", 0));
+    s->pivot = read_pivot(e);
+    if (auto cl = e.find("clips"); cl != e.end() && cl->is_array()) {
+        for (const Json& c : *cl) {
+            if (!c.is_object() || !c.contains("name") || !c["name"].is_string()) continue;
+            SheetClip sc;
+            sc.name = c["name"].get<std::string>();
+            sc.firstFrame = std::max(0, read_int(c, "firstFrame", 0));
+            sc.lastFrame = std::max(sc.firstFrame, read_int(c, "lastFrame", sc.firstFrame));
+            if (auto f = c.find("fps"); f != c.end() && f->is_number()) sc.fps = f->get<float>();
+            if (auto l = c.find("loop"); l != c.end() && l->is_boolean()) sc.loop = l->get<bool>();
+            sc.pivot = read_pivot(c);
+            s->clips.push_back(std::move(sc));
+        }
+    }
+    return s;
+}
+
+std::shared_ptr<const Sheet> sheet(std::string_view path) {
+    Cache& c = cache();
+    const std::string key = key_of(path);
+    std::lock_guard lock(c.mutex);
+    refresh_locked(c);
+    if (auto it = c.sheets.find(key); it != c.sheets.end()) return it->second;
+    std::shared_ptr<const Sheet> parsed;
+    if (auto assets = c.doc.find("assets"); assets != c.doc.end() && assets->is_object())
+        if (auto e = assets->find(key); e != assets->end() && e->is_object())
+            if (auto s = e->find("sheet"); s != e->end()) parsed = parse_sheet(*s);
+    c.sheets[key] = parsed;
+    return parsed;
 }
 
 PackedTexture packed_texture(std::string_view path) {
