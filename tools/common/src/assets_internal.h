@@ -104,6 +104,13 @@ const std::vector<std::string>& image_style_names();
 // an ink line, paper tooth. `strength` is 0..1. Deterministic: the same pixels, style, strength and seed give the same result.
 void apply_image_style(Image& image, const std::string& style, double strength, std::uint32_t seed);
 
+// ---- recipes (assets_recipe.cpp) -------------------------------------------------------------------------
+
+// The `provenance.recipe` of a made asset (schemas/assets.schema.json): `command`, the `args` that make the same bytes
+// again (the caller makes paths project-relative and `seed` explicit) and the project files it read, `inputs`
+// (project-relative), each with its SHA-256 now. Throws CommandError for an input that cannot be read.
+Json make_recipe(const std::string& projectDir, const std::string& command, Json args, const std::vector<std::string>& inputs);
+
 // ---- command helpers -------------------------------------------------------------------------------------
 
 [[noreturn]] void fail(const char* code, const std::string& message, const std::string& hint = {});
