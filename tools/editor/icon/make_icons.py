@@ -15,14 +15,14 @@ Run it after changing a source:  python3 tools/editor/icon/make_icons.py
 """
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 HERE = Path(__file__).resolve().parent
 ICO = HERE.parent.parent / "cli" / "windows" / "factoria.ico"
 APPIMAGE_PNG = HERE.parent.parent.parent / "platforms" / "linux" / "factoria.png"
 WINDOW_SIZES = [16, 24, 32, 48, 64, 128, 256]
 SMALL_SIZES = {16, 24}       # drawn from the simplified source
-ART_CROP = (119, 69, 919, 869)  # the square of the artwork around the factory, the brain and the smoke
+PAD = 96                     # background added around the artwork, so a crop may reach past its edges
 SS = 4                       # supersampling of the rounded-square mask
 
 
@@ -33,12 +33,32 @@ def rounded_mask(size, inset, radius):
     return m.resize((size, size), Image.LANCZOS)
 
 
-def tile(art, inset, radius):
+def padded(art):
+    """The artwork with PAD px more of its dark background on every side: a blurred stretch of it behind, the artwork
+    on top with feathered edges, so there is no seam."""
+    w, h = art.size
+    out = art.resize((w + 2 * PAD, h + 2 * PAD), Image.LANCZOS).filter(ImageFilter.GaussianBlur(24))
+    feather = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(feather).rectangle([PAD // 2, PAD // 2, w - PAD // 2, h - PAD // 2], fill=255)
+    out.paste(art, (PAD, PAD), feather.filter(ImageFilter.GaussianBlur(PAD // 4)))
+    return out
+
+
+def content_box(art):
+    """The bounding box of the drawing (the factory, the brain and the smoke) on the dark background."""
+    return art.convert("L").point(lambda v: 255 if v > 40 else 0).getbbox()
+
+
+def tile(art, inset, radius, fill):
     """The artwork in a rounded square of 1024 with `inset` px of margin and a thin blue rim, so the dark tile still
-    stands out on a dark Dock or taskbar."""
+    stands out on a dark Dock or taskbar. The drawing is centred and its longer side takes `fill` of the tile."""
     side = 1024 - 2 * inset
+    x0, y0, x1, y1 = content_box(art)
+    crop = max(x1 - x0, y1 - y0) / fill
+    cx, cy = (x0 + x1) / 2 + PAD, (y0 + y1) / 2 + PAD
+    box = tuple(round(v) for v in (cx - crop / 2, cy - crop / 2, cx + crop / 2, cy + crop / 2))
     canvas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
-    canvas.paste(art.crop(ART_CROP).resize((side, side), Image.LANCZOS), (inset, inset))
+    canvas.paste(padded(art).crop(box).resize((side, side), Image.LANCZOS), (inset, inset))
     mask = rounded_mask(1024, inset, radius)
     rim = ImageChops.subtract(mask, rounded_mask(1024, inset + 5, radius - 5))
     rim_layer = Image.new("RGBA", (1024, 1024), (90, 130, 255, 0))
@@ -51,8 +71,8 @@ def tile(art, inset, radius):
 def main():
     art = Image.open(HERE / "src" / "factoria_art.png").convert("RGB")
     small = Image.open(HERE / "src" / "factoria_small.png").convert("RGBA")
-    square = tile(art, 16, 200)   # Windows and Linux: nearly full bleed
-    mac = tile(art, 100, 185)     # macOS icon grid: an 824 px tile inside 1024
+    square = tile(art, 16, 200, 0.74)  # Windows and Linux: nearly full bleed, the drawing large for small sizes
+    mac = tile(art, 100, 185, 0.64)    # macOS icon grid: an 824 px tile inside 1024, with room around the drawing
 
     images = []
     for size in WINDOW_SIZES:
