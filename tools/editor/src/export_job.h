@@ -1,4 +1,4 @@
-// The Export window's logic (File > Export Game..., toolbar Export): the platforms it offers, the fa::ExportOptions a
+// The Export window's logic (File > Export Game..., Export Game in the menu bar): the platforms it offers, the fa::ExportOptions a
 // button builds, what each platform's row says before an export, and the export itself on a worker thread.
 //
 // Everything here is plain logic over fa/tooling/export.h: no ImGui, no Editor, no window. export_panel.cpp only draws

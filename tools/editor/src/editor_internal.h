@@ -246,11 +246,12 @@ public:
     void draw_viewport();
     void draw_console();
     void draw_ai_panel();
-    void draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status);
-    // AI settings window (ai_settings.cpp; the AI Assistant's "AI settings..." button and File > AI Settings...): where each kind of
-    // asset is made (provider, model, voice, API key) and which websites the AI looks at for assets. Save goes through
+    void draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status);
+    std::string ai_roles_summary();  // the current roles, one per line (tooltip of the AI menu's Roles...)
+    // AI settings window (ai_settings.cpp; AI > AI Settings... and AI > Roles...): a Roles tab (the provider and model of each role),
+    // and an Assets tab: where each kind of asset is made (provider, model, voice, API key) and which websites the AI looks at. Save goes through
     // ai::save_asset_settings: only "assets", "assetSources" and the provider fields these need change in the user's ai.json.
-    void open_ai_settings();
+    void open_ai_settings(bool rolesTab = false);  // rolesTab: show the Roles tab (else the tab the window had)
     void draw_ai_settings_window();
     void ai_settings_load(const ai::AiConfig& cfg);
     Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
@@ -633,6 +634,7 @@ public:
     double feedbackPolled_ = -10;
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;
+    bool fbAddOpen_ = false;        // the Add entry section is open (the layout reserves its room)
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
     std::string fbNewTitle_, fbNewMissing_, fbNewWorkaround_, fbNewSuggestion_, fbMessage_;
 
@@ -695,11 +697,12 @@ public:
     bool aiHistoryOpen_ = false;    // request to open the History popup this frame
     std::vector<ChatHistoryEntry> aiHistory_;
     std::string aiHistoryDelete_;   // History row waiting for the second click on its Delete
-    bool aiRolesOpen_ = false;      // request to open the AI roles popup this frame
+    bool aiRolesOpen_ = false;      // request to restart the role edits from the loaded config this frame
     float aiInputH_ = 0;            // the AI message box's height the user dragged it to (0 = 3 lines); kept in the layout file
-    std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in that popup
+    std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in the Roles tab
     std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
     bool showAiSettings_ = false, aiSettingsFocus_ = false;
+    int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets
     struct AiSettingsDraft {                       // the AI settings window's working copy (dropped when it closes: a typed key must not linger)
         bool loaded = false;
         std::string path;                          // the ai.json it saves into

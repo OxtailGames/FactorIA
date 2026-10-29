@@ -101,7 +101,7 @@ Result<AssetTarget> resolve_asset_target(const AiConfig& cfg, MediaKind kind, co
         const std::string where = cfg.sourcePath.empty() ? default_config_path() : cfg.sourcePath;
         return make_error("No provider is configured for " + name + " generation",
                           "Generation costs money, so there is no default. The user can choose a provider for " + name +
-                              " in the editor (AI Assistant panel, \"AI settings...\", Asset generation), or you can add this to " + where +
+                              " in the editor's AI settings (menu AI > AI Settings..., Assets tab), or you can add this to " + where +
                               ": {\"assets\": {\"" + name + "\": " + example_route(kind) + "}}. To try the pipeline offline and for free, use the fake provider: "
                               "{\"assets\": {\"" + name + "\": {\"provider\": \"fake\"}}}. Or pass `provider` to the command." +
                               (kind == MediaKind::Voice
