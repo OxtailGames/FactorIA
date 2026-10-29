@@ -102,6 +102,10 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "The live audio.log: every sound played, with its bus, volume, source entity and whether the clip loaded"));
     view.push_back(with(toggle("Profiler", showProfiler_), "menu:profiler",
                         "Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory"));
+    view.push_back(with(toggle("Animation", showAnimation_), "menu:animation",
+                        "The clips of the selected entity's Animator: dopesheet and curves, scrubbing, record mode, event markers and the onion skin"));
+    view.push_back(with(toggle("Bone tools", showBoneTools_), "menu:bonetools",
+                        "Draw a bone chain by clicking in the viewport, bind a sprite to bones, paint weights and drag IK targets"));
     view.push_back(menu::separator());
     view.push_back(toggle("Show colliders", showColliders_));
     view.push_back(with(toggle("Show navmesh", showNav_), "",

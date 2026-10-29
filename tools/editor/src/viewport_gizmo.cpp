@@ -102,6 +102,11 @@ void Editor::gizmo_end_drag(bool cancel) {
     if (!d.active) return;
     d.active = false;
     if (!cancel || !d.wrote || !engine_) return;
+    if (d.recorded) {  // record mode: the drag wrote a clip key, not the Transform. Take the key back out
+        anim_cancel_step();
+        redo_ = std::move(d.redoBefore);
+        return;
+    }
     // Esc: put the start value back and leave nothing behind, neither an undo step nor a dirty scene.
     const char* field = d.mode == GizmoMode::Move ? "position" : d.mode == GizmoMode::Rotate ? "rotation" : "scale";
     const Vec3 v = d.mode == GizmoMode::Move ? d.start.position : d.mode == GizmoMode::Rotate ? d.start.rotation : d.start.scale;
@@ -259,6 +264,7 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
                 } else {
                     d.last = value;
                     d.wrote = true;
+                    d.recorded = lastEditRecorded_;
                 }
             }
         }

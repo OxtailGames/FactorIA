@@ -867,6 +867,8 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
 
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
+    // A clip file changed (the Console, the AI or the panel): the pose on screen is out of date.
+    if (name.rfind("anim.", 0) == 0 && command_edits_scene(name, args) == false && name != "anim.check" && name != "anim.filmstrip") anim_.dirtyPose = true;
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
         for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "scene.save", "scene.format", "scene.import_ascii",
@@ -1038,6 +1040,13 @@ void Editor::begin_edit(const std::string& key) {
 
 void Editor::undo() {
     if (play_ != PlayState::Edit || undo_.empty() || !engine_) return;
+    if (undo_.back().is_object() && undo_.back().contains("$clip")) {  // a step of a clip file (anim_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        anim_apply_clip_undo(entry, false);
+        return;
+    }
     redo_.push_back(save_scene(world()));
     Json s = std::move(undo_.back());
     undo_.pop_back();
@@ -1048,6 +1057,13 @@ void Editor::undo() {
 
 void Editor::redo() {
     if (play_ != PlayState::Edit || redo_.empty() || !engine_) return;
+    if (redo_.back().is_object() && redo_.back().contains("$clip")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        anim_apply_clip_undo(entry, true);
+        return;
+    }
     undo_.push_back(save_scene(world()));
     Json s = std::move(redo_.back());
     redo_.pop_back();
@@ -1090,8 +1106,8 @@ void Editor::open_screenshots_folder() {
 // Layout and top-level UI
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
-    const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_, showProject_,
-                          showAi_,       showFeedback_,  showAudio_,     showProfiler_};
+    const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,  showProject_,  showAi_,
+                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1099,8 +1115,8 @@ int Editor::panels_mask() const {
 }
 
 void Editor::set_panels_mask(int mask) {
-    bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_, &showProject_,
-                     &showAi_,       &showFeedback_,  &showAudio_,     &showProfiler_};
+    bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,  &showAi_,
+                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1209,7 +1225,7 @@ void Editor::build_ui() {
         if (resetLayout_ || oldLayout || ImGui::DockBuilderGetNode(dockId) == nullptr)
             build_default_layout(dockId, ImGui::GetContentRegionAvail());
         layoutBuilt_ = true;
-        if (resetLayout_) set_panels_mask(0x7F);  // the default panels: Audio and Profiler stay closed
+        if (resetLayout_) set_panels_mask(0x7F);  // the default panels: Audio, Profiler, Animation and Bone tools stay closed
         resetLayout_ = false;
     }
     {  // a panel opened or closed (its X, the Window menu): the ini file is written soon, with the layout
@@ -1232,6 +1248,10 @@ void Editor::build_ui() {
         if (showFeedback_) draw_feedback_panel();
         if (showAudio_) draw_audio_panel();
         if (showProfiler_) draw_profiler_panel();
+        if (showAnimation_) draw_animation_panel();
+        else if (anim_.posed) anim_unpose();  // the panel was closed: the entity goes back to its rest values
+        if (showBoneTools_) draw_bone_tools_panel();
+        else if (bone_.tool != BoneTool::Off) bone_cancel_chain(), bone_.tool = BoneTool::Off;
         if (pendingFocus_) {
             ImGui::SetWindowFocus(pendingFocus_);
             pendingFocus_ = nullptr;
