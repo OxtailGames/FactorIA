@@ -718,6 +718,7 @@
     "assets.generate_image": "0.1.6",
     "assets.generate_loop": "0.3.0",
     "assets.generate_model": "0.1.6",
+    "assets.bake_sheet": "unreleased",
     "assets.generate_music": "0.1.6",
     "assets.generate_sound": "0.1.6",
     "assets.generate_sprite_sheet": "0.1.6",
