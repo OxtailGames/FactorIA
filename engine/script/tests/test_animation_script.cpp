@@ -169,3 +169,33 @@ TEST_CASE("entity.animator: play, parameters, events and a state machine from sc
     ev(h, "globalThis.cube = world.spawn({ id: 'cube', components: { MeshRenderer: {} } })");
     CHECK(ev_err(h, "cube.animator").find("Animator") != std::string::npos);
 }
+
+TEST_CASE("entity.animator: keyframed 2D clips, sample, layers and their errors from scripts") {
+    TestHost h("anim_2d_js");
+    h.file("anim/swing.anim.json", R"({"format":"factoria.anim/1","duration":1,"loop":true,
+        "tracks":[{"path":"body","component":"Transform","field":"rotation.z","keys":[{"t":0,"value":0},{"t":1,"value":90}]}]})");
+    h.file("anim/point.anim.json", R"({"format":"factoria.anim/1","duration":1,"loop":true,
+        "tracks":[{"path":"body","component":"Transform","field":"position.x","keys":[{"t":0,"value":8}]}]})");
+    REQUIRE(h.start());
+    ev(h, R"(globalThis.e = world.spawn({ id: 'hero', name: 'hero', components: { Animator: {
+            clips: { swing: 'anim/swing.anim.json', point: 'anim/point.anim.json' },
+            layers: [{ name: 'p', clip: 'point', weight: 0 }] } } });
+        globalThis.body = world.spawn({ id: 'body', name: 'body' }, { parent: e });)");
+    CHECK(ev(h, "e.animator.clips").dump() == R"(["swing","point"])");
+    CHECK(num(h, "e.animator.duration('swing')") == 1.0);
+    ev(h, "e.animator.sample('swing', 0.5)");
+    CHECK(num(h, "body.get('Transform').rotation.z") == doctest::Approx(45.0));
+    CHECK_FALSE(ev(h, "e.animator.playing").get<bool>());
+    ev(h, "e.animator.play('swing', 0)");
+    h.step_frames(30);
+    CHECK(num(h, "body.get('Transform').rotation.z") == doctest::Approx(45.0).epsilon(0.05));
+    CHECK(num(h, "body.position.x") == 0.0);
+    ev(h, "e.animator.setLayerWeight('p', 1)");
+    h.step_frames(2);
+    CHECK(num(h, "body.position.x") == 8.0);
+    CHECK(ev_err(h, "e.animator.setLayerWeight('q', 1)").find("p") != std::string::npos);
+    CHECK(ev_err(h, "e.animator.sample('swin', 0)").find("swing") != std::string::npos);
+    CHECK(ev_err(h, "e.animator.playLayer('p', 'pointt')").find("point") != std::string::npos);
+    ev(h, "e.animator.playLayer('p', 'swing', 0)");
+    CHECK(h.scripts.errors().empty());
+}

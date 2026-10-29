@@ -147,7 +147,7 @@ field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 | `send(method, ...args)` | calls `behaviour[method](...args)` if it exists |
 | `isGrounded(tolerance?)` | 2D or 3D physics: standing on something (contact normal up) |
 | `isTouching(direction, tolerance?)` | solid contact against the body on that side: `isTouching([1, 0])` = wall on the right, `[0, 1]` = ceiling (2D or 3D by body type) |
-| `animator` | skeletal animation of this entity's `Animator` component: `play(clip, fade?)`, `stop()`, `set(name, value)`, `get`, `trigger`, `clips`, `duration(clip)`, `on(event, fn)`, `state`, `speed`, `time` (throws without an Animator; see [ANIMATION.md](ANIMATION.md)) |
+| `animator` | skeletal animation of a glTF, or keyframed 2D clips (`*.anim.json`), of this entity's `Animator` component: `play(clip, fade?)`, `stop()`, `set(name, value)`, `get`, `trigger`, `clips`, `duration(clip)`, `on(event, fn)`, `state`, `speed`, `time`, and for 2D clips `sample(clip, t)`, `setLayerWeight(layer, w)`, `playLayer(layer, clip, fade?)` (throws without an Animator; see [ANIMATION.md](ANIMATION.md)) |
 | `tilemap` | this entity's `Tilemap`: `getTile(col, row)` (-1 = empty or outside), `setTile(col, row, id)`, `cellAt(point)`, `cellToWorld(col, row)`, `width`, `height` (throws without a Tilemap; see "entity.tilemap") |
 | `emitBurst(n)` | immediately spawn `n` particles from this entity's `ParticleEmitter` (no-op + warning without a renderer) |
 | `toJSON()` | entity JSON (as in scene files) |

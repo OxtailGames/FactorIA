@@ -744,6 +744,24 @@ struct Light {
 };
 
 struct SkeletonAsset;  // skeleton.h
+struct ClipRuntime;    // what the Animator keeps while it plays *.anim.json clips (src/clip_animator.h)
+
+// Owner of the ClipRuntime of an Animator. A copy starts EMPTY (the bindings belong to the entity tree they were made
+// for; the copy binds to its own); a move keeps the contents.
+class ClipRuntimeBox {
+public:
+    ClipRuntimeBox();
+    ~ClipRuntimeBox();
+    ClipRuntimeBox(const ClipRuntimeBox& other);
+    ClipRuntimeBox& operator=(const ClipRuntimeBox& other);
+    ClipRuntimeBox(ClipRuntimeBox&&) noexcept;
+    ClipRuntimeBox& operator=(ClipRuntimeBox&&) noexcept;
+    ClipRuntime* get() const { return p_.get(); }
+    ClipRuntime& ensure();  // creates it on first use
+
+private:
+    std::unique_ptr<ClipRuntime> p_;
+};
 
 // What the animation system (animation.h) keeps per Animator at run time. Never serialized; copying an Animator copies it.
 struct AnimatorRuntime {
@@ -761,12 +779,15 @@ struct AnimatorRuntime {
     bool fromLoop = true;
     float fadeElapsed = 0.0f, fadeDuration = 0.0f;
     std::vector<std::string> triggers;  // trigger() calls, true for one update
+    ClipRuntimeBox clip;             // *.anim.json clips: bindings, driven fields, layers (empty while the Animator plays a glTF)
 };
 
 // Skeletal animation of a skinned glTF model, played by the animation system every fixed step (headless runs too).
 struct Animator {
     std::string model;                // glTF to animate; "" = the `mesh` of the MeshRenderer on the same entity
-    std::string clip;                 // clip playing now (glTF animation name); "" = bind pose
+    std::string clip;                 // clip playing now (glTF animation name, or a key of `clips`); "" = bind pose
+    Json clips = Json::object();      // keyframed 2D clips: {"walk": "anim/hero_walk.anim.json"}; used when there is no glTF `model`
+    Json layers = Json::array();      // 2D clips: [{"name": "arms", "clip": "shoot", "weight": 1, "mode": "override", "mask": ["body/arm_l"]}]
     float speed = 1.0f;               // playback speed multiplier (1 = authored speed, 0 = frozen)
     bool loop = true;
     bool playing = true;

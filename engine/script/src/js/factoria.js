@@ -522,13 +522,16 @@
   }
 
   // ===================================================================================================== animator
-  // entity.animator: skeletal animation of a skinned glTF. The Animator component (scene JSON) holds the state; the
+  // entity.animator: skeletal animation of a skinned glTF or keyframed 2D clips (*.anim.json). The Animator component (scene JSON) holds the state; the
   // engine advances it in the fixed step. Everything here is a thin wrapper over that component.
   class AnimatorApi {
     constructor(h) { this.$h = h; }
     get component() { return viewOf(this.$h, typeOf("Animator")); }
     play(clip, fadeSeconds = this.component.fade) { N.animCall(this.$h, "play", String(clip), fadeSeconds); }
     stop() { N.animCall(this.$h, "stop"); }
+    sample(clip, time) { N.animCall(this.$h, "sample", String(clip), time); }
+    setLayerWeight(layer, weight) { N.animCall(this.$h, "layerWeight", String(layer), weight); }
+    playLayer(layer, clip, fadeSeconds = this.component.fade) { N.animCall(this.$h, "layerPlay", String(layer), String(clip), fadeSeconds); }
     set(name, value) { N.animCall(this.$h, "set", String(name), value); }
     get(name) {
       const c = this.component, v = c.values;
