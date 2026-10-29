@@ -96,6 +96,14 @@ void check_model_files(const std::string& projectDir, std::vector<ValidationIssu
 // The textures Sprites draw (project-relative): fully transparent images, and backgrounds that should be transparent.
 void check_sprite_textures(const std::string& projectDir, const std::set<std::string>& textures, std::vector<ValidationIssue>& warnings);
 
+// ---- painterly styles (assets_style.cpp) -----------------------------------------------------------------
+
+// The values of `style` of assets.rasterize_svg: "none", "watercolor", "ink", "inkwash", "paper".
+const std::vector<std::string>& image_style_names();
+// Paints the look of `style` onto a rasterized picture (straight-alpha RGBA): wobbling edges, pooled pigment, granulation,
+// an ink line, paper tooth. `strength` is 0..1. Deterministic: the same pixels, style, strength and seed give the same result.
+void apply_image_style(Image& image, const std::string& style, double strength, std::uint32_t seed);
+
 // ---- command helpers -------------------------------------------------------------------------------------
 
 [[noreturn]] void fail(const char* code, const std::string& message, const std::string& hint = {});

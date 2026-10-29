@@ -85,7 +85,7 @@ int side_arg(const Json& a, const char* key) {
 
 Json rasterize_svg(const std::string& projectDir, const Json& a) {
     if (!a.is_object()) fail("invalid_argument", "assets.rasterize_svg expects an object.", "See the description of the command for the fields.");
-    check_arg_keys(kCommand, a, "", {"path", "svg", "source", "width", "height", "background", "overwrite", "ai", "author", "license"});
+    check_arg_keys(kCommand, a, "", {"path", "svg", "source", "width", "height", "background", "overwrite", "ai", "author", "license", "style", "styleStrength", "seed"});
     const std::string rel = checked_png_path(tooling_detail::arg_string(a, "path", true));
     const bool hasSvg = a.contains("svg"), hasSource = a.contains("source");
     if (hasSvg == hasSource)
@@ -143,6 +143,24 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
     std::optional<Color> background;
     if (a.contains("background") && !a["background"].is_null()) background = colour_arg(kCommand, a["background"], "/background");
 
+    std::string style = "none";
+    if (a.contains("style") && !a["style"].is_null()) {
+        if (!a["style"].is_string()) arg_error(kCommand, "/style", "expected a string.", "One of: " + join(image_style_names(), ", ") + ".");
+        style = to_lower(a["style"].get<std::string>());
+        const auto& names = image_style_names();
+        if (std::find(names.begin(), names.end(), style) == names.end())
+            arg_error(kCommand, "/style", "unknown style '" + a["style"].get<std::string>() + "'.", did_you_mean(style, names) + " Styles: " + join(names, ", ") + ".");
+    }
+    double styleStrength = 1.0;
+    if (a.contains("styleStrength") && !a["styleStrength"].is_null()) {
+        if (!a["styleStrength"].is_number() || !(a["styleStrength"].get<double>() >= 0.0 && a["styleStrength"].get<double>() <= 1.0))
+            arg_error(kCommand, "/styleStrength", "expected a number from 0 to 1.", "0 leaves the picture as drawn, 1 is the full effect (the default); 0.5 is subtle.");
+        styleStrength = a["styleStrength"].get<double>();
+    }
+    const long long seedArg = tooling_detail::arg_int(a, "seed", 0);
+    if (style == "none" && (a.contains("styleStrength") || a.contains("seed")))
+        warnings.push_back("styleStrength and seed only matter with a `style`; they were ignored.");
+
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
     const stdfs::path file = project_file(projectDir, rel);
     std::error_code ec;
@@ -155,6 +173,7 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
     out.height = h;
     out.rgba.assign(std::size_t(w) * h * 4, 0);
     nsvgRasterize(rast.get(), image.get(), tx, ty, float(scale), out.rgba.data(), w, h, w * 4);
+    if (style != "none") apply_image_style(out, style, styleStrength, std::uint32_t(seedArg) ^ std::uint32_t(seedArg >> 32));
     if (background) {
         // composite over the background colour (straight alpha)
         const double br = background->r * 255.0, bg = background->g * 255.0, bb = background->b * 255.0, ba = background->a;
@@ -188,7 +207,8 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
                                     {"kind", "image"},
                                     {"provider", "factoria assets.rasterize_svg"},
                                     {"license", license},
-                                    {"notes", std::format("Rasterized from SVG {} at {}x{}.", sourceRel.empty() ? "text given to the command" : "'" + sourceRel + "'", w, h)},
+                                    {"notes", std::format("Rasterized from SVG {} at {}x{}{}.", sourceRel.empty() ? "text given to the command" : "'" + sourceRel + "'", w, h,
+                                                         style == "none" ? std::string() : std::format(" with style {} (strength {}, seed {})", style, styleStrength, seedArg))},
                                     {"date", assets::today()}});
     if (!author.empty()) provenance["author"] = author;
     if (!sourceRel.empty()) provenance["source"] = sourceRel;
@@ -245,6 +265,9 @@ void register_svg_command(CommandRegistry& registry, const std::string& projectD
                {"width", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxSide}, {"description", "Width in pixels. With only the height given, it follows the SVG's proportions. Default: the SVG's own size."}})},
                {"height", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxSide}, {"description", "Height in pixels. With only the width given, it follows the SVG's proportions."}})},
                {"background", Json::object({{"description", "A colour to put the picture over (\"#rrggbb\", \"#rrggbbaa\", a name or [r, g, b]). Default: transparent."}})},
+               {"style", Json::object({{"type", "string"}, {"enum", image_style_names()}, {"description", "Default none. A painterly look added to the pixels after rasterizing (nanosvg has no filters, masks or clip paths, so the effects are applied to the picture, seeded and deterministic, and cost no SVG size). \"watercolor\": edges wobble and soften, pigment pools darker along the borders of every shape, pale and strong blotches, paper granulation. \"ink\": a wobbling pen line (dark brown, thicker and thinner) along every border. \"inkwash\": both, with a little paper tooth: storybook ink and watercolour. \"paper\": only fine paper fibres and mottling, edges untouched. Draw flat fills with a few shapes: the style supplies the texture. The effects scale with the picture's size."}})},
+               {"styleStrength", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}, {"description", "How strong the `style` is: 0 leaves the picture as drawn, 1 (the default) is the full effect, 0.5 is subtle. Ignored without a `style`."}})},
+               {"seed", Json::object({{"type", "integer"}, {"description", "Chooses the take of the `style` (where the blotches, wobble and grain fall): the same SVG, size, style and seed always give the same picture; change it for another take. Ignored without a `style`."}})},
                {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the file when it already exists."}})},
                {"ai", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Whether the SVG was written by an AI (the default, since the caller is an agent). Set false for an SVG a person drew or a licensed one; it then counts as original work in the AI disclosure."}})},
                {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record."}})},
