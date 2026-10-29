@@ -102,42 +102,6 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
         if (!data) fail("not_found", "Cannot read '" + sourceRel + "'.", "Check the path; it is relative to the project folder.");
         text = std::move(*data);
     }
-    if (text.find("<svg") == std::string::npos)
-        fail("invalid_svg", "The text has no <svg> element.", "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" width=\"100\" height=\"100\"> and put the shapes inside.");
-
-    std::vector<std::string> warnings = unsupported_features(text);
-    std::vector<char> buffer(text.begin(), text.end());  // nsvgParse edits the buffer in place
-    buffer.push_back('\0');
-    std::unique_ptr<NSVGimage, SvgDeleter> image(nsvgParse(buffer.data(), "px", 96.0f));
-    if (!image || image->width <= 0 || image->height <= 0)
-        fail("invalid_svg", "The SVG could not be read, or declares no size.",
-             "Give the <svg> element a viewBox (viewBox=\"0 0 100 100\") or width and height, and write well-formed XML.");
-    if (!image->shapes)
-        fail("no_shapes", "The SVG has no shape this rasterizer can draw.",
-             "Draw with <path>, <rect>, <circle>, <ellipse>, <line>, <polyline> or <polygon>." +
-                 (warnings.empty() ? std::string() : " Found, but not supported: " + join(warnings, " ")));
-
-    const double svgW = image->width, svgH = image->height;
-    int w = side_arg(a, "width"), h = side_arg(a, "height");
-    if (w == 0 && h == 0) {
-        w = std::max(1, int(std::lround(svgW)));
-        h = std::max(1, int(std::lround(svgH)));
-        if (w > kMaxSide || h > kMaxSide) {
-            const double k = double(kMaxSide) / std::max(w, h);
-            w = std::max(1, int(std::lround(w * k)));
-            h = std::max(1, int(std::lround(h * k)));
-            warnings.push_back(std::format("The SVG declares {}x{} px; it was scaled down to {}x{}. Pass width and height to choose.", int(svgW), int(svgH), w, h));
-        }
-    } else if (h == 0) {
-        h = std::max(1, int(std::lround(w * svgH / svgW)));
-    } else if (w == 0) {
-        w = std::max(1, int(std::lround(h * svgW / svgH)));
-    }
-    if (w > kMaxSide || h > kMaxSide) fail("invalid_argument", std::format("{}x{} is larger than {} px on a side.", w, h, kMaxSide), "Ask for a smaller picture.");
-    // fit inside w x h keeping the aspect ratio, centred
-    const double scale = std::min(w / svgW, h / svgH);
-    const float tx = float((w - svgW * scale) * 0.5), ty = float((h - svgH * scale) * 0.5);
-
     std::optional<Color> background;
     if (a.contains("background") && !a["background"].is_null()) background = colour_arg(kCommand, a["background"], "/background");
 
@@ -156,6 +120,7 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
         styleStrength = a["styleStrength"].get<double>();
     }
     const long long seedArg = tooling_detail::arg_int(a, "seed", 0);
+    std::vector<std::string> warnings;
     if (style == "none" && (a.contains("styleStrength") || a.contains("seed")))
         warnings.push_back("styleStrength and seed only matter with a `style`; they were ignored.");
 
@@ -165,15 +130,11 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
     if (!overwrite && stdfs::exists(file, ec)) fail("exists", "'" + rel + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
     require_usable_manifest(projectDir);
 
-    std::unique_ptr<NSVGrasterizer, RastDeleter> rast(nsvgCreateRasterizer());
-    Image out;
-    out.width = w;
-    out.height = h;
-    out.rgba.assign(std::size_t(w) * h * 4, 0);
-    // clip-path, mask and pattern fills are not nanosvg's: a document that uses them is drawn layer by layer
-    if (!render_svg_layers(text, image.get(), out, tx, ty, float(scale), warnings))
-        nsvgRasterize(rast.get(), image.get(), tx, ty, float(scale), out.rgba.data(), w, h, w * 4);
-    if (style != "none") apply_image_style(out, style, styleStrength, std::uint32_t(seedArg) ^ std::uint32_t(seedArg >> 32));
+    SvgRaster raster = rasterize_svg_text(text, side_arg(a, "width"), side_arg(a, "height"), style, styleStrength,
+                                          std::uint32_t(seedArg) ^ std::uint32_t(seedArg >> 32), warnings);
+    Image& out = raster.image;
+    const int w = out.width, h = out.height;
+    const double svgW = raster.svgWidth, svgH = raster.svgHeight;
     if (background) {
         // composite over the background colour (straight alpha)
         const double br = background->r * 255.0, bg = background->g * 255.0, bb = background->b * 255.0, ba = background->a;
@@ -230,6 +191,59 @@ Json rasterize_svg(const std::string& projectDir, const Json& a) {
 }
 
 }  // namespace
+
+SvgRaster rasterize_svg_text(const std::string& text, int w, int h, const std::string& style, double styleStrength, std::uint32_t seed,
+                             std::vector<std::string>& warnings) {
+    if (text.find("<svg") == std::string::npos)
+        fail("invalid_svg", "The text has no <svg> element.", "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" width=\"100\" height=\"100\"> and put the shapes inside.");
+
+    const std::vector<std::string> unsupported = unsupported_features(text);
+    warnings.insert(warnings.begin(), unsupported.begin(), unsupported.end());
+    std::vector<char> buffer(text.begin(), text.end());  // nsvgParse edits the buffer in place
+    buffer.push_back('\0');
+    std::unique_ptr<NSVGimage, SvgDeleter> image(nsvgParse(buffer.data(), "px", 96.0f));
+    if (!image || image->width <= 0 || image->height <= 0)
+        fail("invalid_svg", "The SVG could not be read, or declares no size.",
+             "Give the <svg> element a viewBox (viewBox=\"0 0 100 100\") or width and height, and write well-formed XML.");
+    if (!image->shapes)
+        fail("no_shapes", "The SVG has no shape this rasterizer can draw.",
+             "Draw with <path>, <rect>, <circle>, <ellipse>, <line>, <polyline> or <polygon>." +
+                 (unsupported.empty() ? std::string() : " Found, but not supported: " + join(unsupported, " ")));
+
+    const double svgW = image->width, svgH = image->height;
+    if (w == 0 && h == 0) {
+        w = std::max(1, int(std::lround(svgW)));
+        h = std::max(1, int(std::lround(svgH)));
+        if (w > kMaxSide || h > kMaxSide) {
+            const double k = double(kMaxSide) / std::max(w, h);
+            w = std::max(1, int(std::lround(w * k)));
+            h = std::max(1, int(std::lround(h * k)));
+            warnings.push_back(std::format("The SVG declares {}x{} px; it was scaled down to {}x{}. Pass width and height to choose.", int(svgW), int(svgH), w, h));
+        }
+    } else if (h == 0) {
+        h = std::max(1, int(std::lround(w * svgH / svgW)));
+    } else if (w == 0) {
+        w = std::max(1, int(std::lround(h * svgW / svgH)));
+    }
+    if (w > kMaxSide || h > kMaxSide) fail("invalid_argument", std::format("{}x{} is larger than {} px on a side.", w, h, kMaxSide), "Ask for a smaller picture.");
+    // fit inside w x h keeping the aspect ratio, centred
+    const double scale = std::min(w / svgW, h / svgH);
+    const float tx = float((w - svgW * scale) * 0.5), ty = float((h - svgH * scale) * 0.5);
+
+    std::unique_ptr<NSVGrasterizer, RastDeleter> rast(nsvgCreateRasterizer());
+    SvgRaster result;
+    result.svgWidth = svgW;
+    result.svgHeight = svgH;
+    Image& out = result.image;
+    out.width = w;
+    out.height = h;
+    out.rgba.assign(std::size_t(w) * h * 4, 0);
+    // clip-path, mask and pattern fills are not nanosvg's: a document that uses them is drawn layer by layer
+    if (!render_svg_layers(text, image.get(), out, tx, ty, float(scale), warnings))
+        nsvgRasterize(rast.get(), image.get(), tx, ty, float(scale), out.rgba.data(), w, h, w * 4);
+    if (style != "none") apply_image_style(out, style, styleStrength, seed);
+    return result;
+}
 
 void register_svg_command(CommandRegistry& registry, const std::string& projectDir) {
     CommandInfo info;

@@ -710,6 +710,7 @@
     "api.components": "0.1.0",
     "api.scripting": "0.1.0",
     "assets.analyze_audio": "0.1.6",
+    "assets.animate_svg": "unreleased",
     "assets.convert_audio": "0.3.0",
     "assets.disclosure": "0.1.6",
     "assets.draw_capsules": "0.2.0",

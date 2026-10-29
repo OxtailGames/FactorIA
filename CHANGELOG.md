@@ -2,6 +2,27 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Animations drawn with code
+
+- `assets.animate_svg` (MCP `assets_animate_svg`) bakes an animation you write as code into a sprite sheet PNG and its
+  `sheet` entry of assets.json in one call. `source` is a project JavaScript module (`art/coin_spin.anim.js`) whose default
+  export `frame({t, frame, frames, fps, progress, params, rng})` returns the SVG of each frame; it runs in a sandboxed
+  QuickJS context (the language only: no engine bindings, no DOM, no timers, no files; imports of project files with a
+  relative path), with a seeded `Math.random`, a fixed `Date`, a time limit per frame (`timeLimitMs`) and a memory limit.
+  A mistake names the module, line, column and frame. `svg` (or a `.svg` source) is one SVG with SMIL animation
+  (`<animate>`, `<set>`, `<animateTransform>`, `<animateMotion>` with `values`, `keyTimes`, `keySplines`, `begin` sync-bases,
+  `repeatCount`, `fill="freeze"`...) sampled at every frame; what is not sampled is a warning that names the element.
+- Every frame goes through the same rasterizer as `assets.rasterize_svg` (same `style`, `styleStrength` and `seed`), is
+  snapped to an optional `palette`, and is laid out in `frameWidth` x `frameHeight` cells with a `padding` gutter and a
+  `pivot` recorded in the sheet entry. `clips` makes several named clips from one module, one after another, each with its
+  own `fps`, `loop` and `pivot`. The result returns the sheet as an image, its layout and warnings (frames that draw
+  nothing, shapes on the edge of the cell, a loop whose last frame jumps from the first).
+- The provenance of the sheet is `generated` (`ai` true unless you pass `ai: false`, `author` and `license`) with a
+  `recipe`: the command, its arguments, and the module (and what it imported) with its SHA-256, so the sheet can be made
+  again byte for byte.
+
 ## 0.5.0
 
 FactorIA 0.5.0 makes the editor a proper Mac app: its menus are in the Mac's own menu bar.
