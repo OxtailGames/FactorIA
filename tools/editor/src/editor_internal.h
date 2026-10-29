@@ -57,6 +57,8 @@
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "inspector_model.h"
+#include "menu_model.h"
+#include "native_menu.h"
 #include "platform_settings.h"
 #include "project_browser_model.h"
 #include "setup_job.h"
@@ -237,7 +239,12 @@ public:
 
     // ---------------------------------------------------------------- panels
     void build_ui();
+    // The main menu (main_menu.cpp): build_main_menu makes the tree from the editor's state (`native`: for the system menu bar of
+    // macOS: no Quit in File, an Export menu instead of the bar's click item, no version text), draw_main_menu shows it.
+    menu::MainMenu build_main_menu(bool native);
     void draw_main_menu();
+    std::unique_ptr<NativeMenu> nativeMenu_;  // the macOS system menu bar; null = the ImGui bar draws the menu
+    bool nativeMenuChecked_ = false;          // nativeMenu_ is made on the first frame
     void draw_toolbar();
     void draw_status_bar();
     void build_default_layout(unsigned dockId, ImVec2 size);
