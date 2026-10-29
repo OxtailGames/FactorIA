@@ -437,7 +437,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the "
         "`sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from "
         "the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. "
-        "Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips; the result says so. "
+        "Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips (set SpriteAnimator.mode to play them that way); the result says so. "
         "The result lists the Sprite and SpriteAnimator settings that play it.\n"
         "- .psd: the merged image becomes a PNG (layers are flattened).\n"
         "- .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are "
@@ -474,6 +474,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     register_texture_command(registry, projectDir);
     register_svg_command(registry, projectDir);
     register_animate_svg_command(registry, projectDir);
+    register_preview_sheet_command(registry, projectDir);
     register_bake_sheet_command(registry, projectDir);
     register_audio_commands(registry, projectDir);
     register_subset_font_command(registry, projectDir);

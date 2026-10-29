@@ -87,3 +87,30 @@ TEST_CASE("asset manifest: today() is a YYYY-MM-DD date") {
     CHECK(d[4] == '-');
     CHECK(d[7] == '-');
 }
+
+TEST_CASE("asset manifest: sheet() parses the sheet entry and follows edits of the file") {
+    TempProject p;
+    CHECK(assets::sheet("assets/coin.png") == nullptr);
+    REQUIRE(assets::update_entry("assets/coin.png", [](Json& e) {
+        e["sheet"] = Json::parse(R"({"columns":4,"rows":2,"frameWidth":16,"frameHeight":16,"frames":7,"padding":2,"pivot":[0.5,1],
+            "clips":[{"name":"spin","firstFrame":0,"lastFrame":3,"fps":8,"loop":true},
+                     {"name":"pop","firstFrame":4,"lastFrame":6,"fps":12,"loop":false,"pivot":[0.25,0.75]}]})");
+    }).ok());
+    auto s = assets::sheet("./assets/coin.png");
+    REQUIRE(s);
+    CHECK(s->columns == 4);
+    CHECK(s->rows == 2);
+    CHECK(s->padding == 2);
+    REQUIRE(s->pivot);
+    CHECK((*s->pivot)[1] == doctest::Approx(1.0f));
+    REQUIRE(s->clips.size() == 2);
+    CHECK(s->find("pop")->loop == false);
+    CHECK(s->find("pop")->fps == doctest::Approx(12.0f));
+    REQUIRE(s->find("pop")->pivot);
+    CHECK(s->find("spin")->pivot == std::nullopt);
+    CHECK(s->find("nope") == nullptr);
+    CHECK(s->clip_names() == std::vector<std::string>{"spin", "pop"});
+    REQUIRE(assets::update_entry("assets/coin.png", [](Json& e) { e["sheet"]["columns"] = 8; }).ok());
+    CHECK(assets::sheet("assets/coin.png")->columns == 8);  // the cache follows the file
+    CHECK(assets::parse_sheet(Json::object({{"columns", 2}})) == nullptr);
+}

@@ -6,9 +6,9 @@ Three tools, from "a character walks" to "a menu panel slides in":
 |---|---|---|
 | `Animator` component | Play the animation clips of a skinned glTF model, blend between them, react to clip events, switch with a small state machine | scene JSON + `entity.animator` |
 | `tween()` / `ease` | Move any number, vector or color over time (UI, cameras, pickups, 2D and 3D) | `import { tween, ease } from "factoria"` |
-| `SpriteAnimator` | Frame-by-frame 2D sprite sheets | see [ASSETS.md](ASSETS.md) |
+| `SpriteAnimator` | Frame-by-frame 2D sprite sheets, played by clip name | [Sprite sheets](#sprite-sheets-spriteanimator) |
 
-Both new tools run on the game clock: the fixed step and `time.scale` (a paused game pauses them), never the wall clock, so
+The tools run on the game clock: the fixed step and `time.scale` (a paused game pauses them), never the wall clock, so
 a headless run, a replay and the test runner see exactly what a player sees.
 
 ## The Animator component
@@ -105,6 +105,49 @@ Rules, all checked in the fixed step:
 - `fade` is the cross-fade in seconds (default 0.2).
 - `set()` of a name not in `params` is an error that lists the declared ones ("did you mean"). `trigger()` needs no
   declaration.
+
+## Sprite sheets: SpriteAnimator
+
+`SpriteAnimator` plays the frames of a sprite sheet on the `Sprite` of the same entity (it sets the sprite's `region` every
+frame). A sheet that `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` or an Aseprite import made has a `sheet`
+entry in `assets.json` with its grid, `padding`, `pivot` and named clips (`firstFrame`, `lastFrame`, `fps`, `loop`); the
+game plays a clip by its name:
+
+```json
+{ "Sprite": { "texture": "assets/art/hero.png" },
+  "SpriteAnimator": { "clip": "run" } }
+```
+
+- `clip` is a clip name of the sheet of `Sprite.texture`. A wrong name is an error that lists the clips and suggests the
+  closest (`project.validate` reports it for scenes and prefabs). Empty plays the numeric range below.
+- `columns`, `rows`, `firstFrame`, `lastFrame`, `fps` and `loop` are still there. With a `clip`, a value you set overrides the
+  one of the clip (`fps` 24 over a clip's 12); one you leave at its default is taken from the clip. `loop` is the exception:
+  only `loop: false` overrides (a looping clip then plays once); `loop: true` cannot make a clip baked as non-looping
+  repeat, bake it with `loop: true`.
+- `mode` is `forward` (default), `reverse` or `pingpong` (forward then back, without repeating the end frames; one that does not loop stops back on its first frame).
+- The sheet's `padding` is skipped by itself; the sheet's `pivot` (and the clip's) is used when the Sprite has no pivot of its
+  own. The sheet counts the pivot from the TOP-left, `Sprite.pivot` from the bottom-left (y flipped); see
+  [ASSETS.md](ASSETS.md). `sheetPivot: false` ignores it.
+- A clip that does not loop stops on its last frame and sends the game event `clipEnded` with `{id, clip}` once. `ended` is
+  true meanwhile (runtime, not saved).
+
+From a script:
+
+```js
+const fx = world.spawn({ name: "Boom", components: {
+  Transform: { position: [x, y, 0] },
+  Sprite: { texture: "assets/art/shockwave.png" },
+  SpriteAnimator: { clip: "boom" } } });
+fx.spriteAnimator.on("clipEnded", () => fx.destroy());   // the handler only gets this entity's event
+fx.spriteAnimator.play("pop");        // switch clip by name; play("pop", true) restarts it; throws on a wrong name
+fx.spriteAnimator.clips;              // ["pop", "boom"]
+fx.spriteAnimator.clipInfo("pop");    // {name, firstFrame, lastFrame, fps, loop, pivot}
+```
+
+The renderer steps the animators with the game clock, so the animation advances in a headless run, a replay and
+`factoria test` as it does for a player (a run with no graphics at all does not draw, and does not step them).
+`assets.preview_sheet` shows the clips and checks them before you wire them in; the editor's Project panel plays them.
+`examples/neon-swarm` makes its kill effect this way.
 
 ## Where it runs and what the renderer reads
 

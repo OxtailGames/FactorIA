@@ -417,6 +417,11 @@ declare module "factoria" {
      */
     readonly animator: AnimatorAPI;
     /**
+     * Named clips of this entity's SpriteAnimator (play, clips, on("clipEnded")). Throws if the entity has no SpriteAnimator; entity.get("SpriteAnimator") answers null instead.
+     * @since unreleased
+     */
+    readonly spriteAnimator: SpriteAnimatorAPI;
+    /**
      * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height) and the cell <-> world conversion for both projections (cellAt, cellToWorld). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
      * @since 0.3.0
      */
@@ -3806,6 +3811,78 @@ declare module "factoria" {
   }
 
   /**
+   * Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The renderer steps the animation with the frame time, so it runs with a renderer (a headless run has one when a GPU is found). Example: `fx.spriteAnimator.play("pop"); fx.spriteAnimator.on("clipEnded", () => fx.destroy());`.
+   * @since unreleased
+   */
+  export interface SpriteAnimatorAPI {
+    /**
+     * Starts the clip `clip` of the texture's sheet from its first frame and plays it. Asking for the clip that already plays (and has not ended) does nothing unless `restart` is true, so it may be called every frame. Throws with the clip names (and a "did you mean") when the sheet has no such clip.
+     * @since unreleased
+     */
+    play(clip: string, restart?: boolean): void;
+    /**
+     * Pauses on the current frame.
+     * @since unreleased
+     */
+    stop(): void;
+    /**
+     * Continues after stop().
+     * @since unreleased
+     */
+    resume(): void;
+    /**
+     * Names of the clips of the sprite texture's sheet. Throws when the texture has no sheet entry.
+     * @since unreleased
+     */
+    readonly clips: string[];
+    /**
+     * The sheet entry of one clip (pivot from the TOP-left of the frame, as stored). Throws with the clip names when it does not exist.
+     * @since unreleased
+     */
+    clipInfo(clip: string): { name: string; firstFrame: number; lastFrame: number; frames: number; fps: number; loop: boolean; pivot?: [number, number] };
+    /**
+     * Listens to the game event of THIS entity's animator: "clipEnded", sent once when a clip that does not loop (loop false in the sheet or the component) reaches its end. Returns the unsubscribe function. world.on("clipEnded", fn) hears every entity.
+     * @since unreleased
+     */
+    on(event: "clipEnded", fn: (data: { id: string; clip: string }, source: Entity | null) => void): () => void;
+    /**
+     * The clip playing now (SpriteAnimator.clip). Assigning another name restarts the animation.
+     * @since unreleased
+     */
+    clip: string;
+    /**
+     * Order of the frames.
+     * @since unreleased
+     */
+    mode: "forward" | "reverse" | "pingpong";
+    /**
+     * Index in the sheet's grid (row-major from the top-left) of the frame shown.
+     * @since unreleased
+     */
+    readonly frame: number;
+    /**
+     * Seconds into the current clip. Assigning seeks (set playing to true to run a finished clip again).
+     * @since unreleased
+     */
+    time: number;
+    /**
+     * false pauses, true resumes.
+     * @since unreleased
+     */
+    playing: boolean;
+    /**
+     * True after a clip that does not loop reached its end.
+     * @since unreleased
+     */
+    readonly ended: boolean;
+    /**
+     * The SpriteAnimator component view (columns, rows, firstFrame, lastFrame, fps, loop, clip, mode, sheetPivot...).
+     * @since unreleased
+     */
+    readonly component: Components["SpriteAnimator"];
+  }
+
+  /**
    * Reads and writes single tiles of a Tilemap (entity.tilemap) and converts between cells and world points (cellAt, cellToWorld) for square and isometric maps. A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
    * @since 0.3.0
    */
@@ -4725,13 +4802,13 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left.
+   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.
    * 
    * Category: 2D
    */
   export interface SpriteAnimatorComponent {
     /**
-     * Number of columns in the sprite sheet grid.
+     * Number of columns in the sprite sheet grid. With `clip`, set it (not 1) only to override the sheet entry.
      */
     columns: number;
     /**
@@ -4751,13 +4828,38 @@ declare module "factoria" {
      */
     fps: number;
     /**
-     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame.
+     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.
      */
     loop: boolean;
     /**
      * Set false to pause, true to play.
      */
     playing: boolean;
+    /**
+     * Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame.
+     * @since unreleased
+     */
+    clip: string;
+    /**
+     * Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame.
+     * @since unreleased
+     */
+    mode: "forward" | "reverse" | "pingpong";
+    /**
+     * true = the pivot recorded in the sheet entry (or the clip's own pivot) is used as Sprite.pivot while the Sprite's own pivot is the default centre [0.5, 0.5]; a Sprite that sets another pivot keeps it. The sheet stores it from the TOP-left of the frame, Sprite.pivot counts from the bottom-left, so y is flipped. false = never touch the pivot.
+     * @since unreleased
+     */
+    sheetPivot: boolean;
+    /**
+     * Runtime state: a non-looping clip reached its end (clipEnded was sent).
+     * @since unreleased
+     */
+    ended: boolean;
+    /**
+     * Runtime state: the clip `time` counts in.
+     * @since unreleased
+     */
+    playedClip: string;
     /**
      * Runtime state: seconds elapsed in the current clip.
      */
@@ -8028,7 +8130,7 @@ declare module "factoria" {
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };

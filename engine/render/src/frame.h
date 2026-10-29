@@ -2,7 +2,13 @@
 #pragma once
 
 #include <functional>
+#include <memory>
+#include <set>
+#include <string>
+#include <unordered_map>
 
+#include "fa/core/asset_manifest.h"
+#include "fa/scene/sprite_animator.h"
 #include "fa/scene/text_fit.h"
 #include "gradient_ramp.h"
 #include "render_internal.h"
@@ -37,6 +43,7 @@ struct Frame {
     bool wantWorld = true, wantScreen = true;
     int targetW = 0, targetH = 0;
     float dt = 0;
+    std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>> sheets;  // this frame's lookups of the sheet entries (SpriteAnimator)
     QuadList world, screen, debugWorld, debugScreen;
     std::vector<Vertex2D> debugLines;  // GL line list (perspective cameras)
     RenderStats* stats = nullptr;
@@ -62,6 +69,7 @@ struct Frame {
     std::vector<std::uint8_t> shadowData;
     int shadowRows = 0;
     std::uint64_t shadowKey = 0;     // identifies the content of shadowData: equal keys, equal bytes (0 = no rows)
+    std::set<std::string>* warnedSpriteClip = nullptr;  // "entity|clip" pairs already warned about (per scene)
     bool* warnedSpriteMesh = nullptr;     // set once gather_2d warned about a Sprite mesh with too many cells (per scene)
     bool* warnedGradientStops = nullptr;  // set once gather_2d warned about malformed Shape2D gradientStops (per scene)
     ShadowCache* shadowCache = nullptr;  // the renderer's rows kept across frames; null = none kept
