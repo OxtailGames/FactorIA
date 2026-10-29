@@ -43,6 +43,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"U", "Editor layout kept: changed panels come back after reopening and after the welcome screen; Reset layout"},
     {"V", "AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator"},
     {"W", "Several AI chats at once: both finish, same-file warning, the cap, Revert of one run, Stop of one run"},
+    {"X", "AI settings window: asset providers, a key, asset sites; a bad site stops Save; Remove stored key"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

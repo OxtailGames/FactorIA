@@ -52,6 +52,9 @@ Result<AssetTarget> resolve_asset_target(const AiConfig& cfg, MediaKind kind, co
                                          const std::string& modelOverride = {}, const std::string& voiceOverride = {},
                                          const EnvLookup& env = system_env());
 
+// The model a provider uses for `kind` when none is set ("gpt-image-1", "eleven_text_to_sound_v2"...); "" when it has none to name.
+std::string asset_default_model(const ProviderConfig& provider, MediaKind kind);
+
 // A plain-text answer to "why can I not make a `kind` asset, and what would let me": the providers that can make it (with
 // whether their key is set in `env`), the ones that cannot and why, the keys that would enable a real provider, and the
 // offline tools that need no provider (assets.generate_texture and assets.rasterize_svg for images). The names it prints

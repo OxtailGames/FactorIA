@@ -1246,6 +1246,13 @@ void Editor::draw_ai_panel() {
         }
         ImGui::SetTooltip("Choose the provider and model of each role. Takes effect with the next message.\n%s", roles.c_str());
     }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!detected);
+    if (ImGui::Button("AI settings...")) open_ai_settings();
+    ImGui::EndDisabled();
+    at_track("ai:settings", detected);
+    ImGui::SetItemTooltip("Where the AI's images, sounds and 3D models are made (provider, model, API key) and the websites\n"
+                          "it looks at when it searches for assets.");
     // The reviews share the Roles line: they are run from here, apart from the chat. A review opens a tab of its own, so
     // this row comes before the reference to the current chat below.
     const bool gameRuns = play_ != PlayState::Edit;  // the assistant edits in edit mode only (see ai_start)

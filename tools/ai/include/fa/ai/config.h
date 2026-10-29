@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,6 +61,32 @@ struct AssetRoute {
     std::string voice;  // voice: the provider's voice name or id
 };
 
+// Websites the AI should look at when it searches for assets (the "assetSources" section of ai.json; the editor's AI settings
+// window edits it). Empty lists mean "no preference": the AI searches the internet as it wishes.
+struct AssetSite {
+    std::string url;   // a web address or just a domain: "https://opengameart.org", "kenney.nl", "github.com/KhronosGroup"
+    std::string note;  // optional: what the site is good for, or its license ("CC0 packs")
+};
+enum class SiteCategory { Images, Models, Audio, Fonts, Other };
+inline constexpr SiteCategory kSiteCategories[] = {SiteCategory::Images, SiteCategory::Models, SiteCategory::Audio,
+                                                   SiteCategory::Fonts, SiteCategory::Other};
+const char* site_category_key(SiteCategory c);    // "images", "models", "audio", "fonts", "other": the keys of "assetSources"
+const char* site_category_title(SiteCategory c);  // "Images and textures", "3D models", "Audio (sounds and music)", "Fonts", "Other"
+
+struct AssetSources {
+    std::vector<AssetSite> images, models, audio, fonts, other;
+    // false: the AI looks at these sites first and may also search the internet. true: ONLY these sites.
+    bool onlyListed = false;
+    std::vector<AssetSite>& list(SiteCategory c);
+    const std::vector<AssetSite>& list(SiteCategory c) const;
+    bool empty() const;  // no site in any category (onlyListed alone does nothing)
+};
+// "https://OpenGameArt.org/content/x?a=1" -> "opengameart.org". Accepts a web address or a bare domain (with or without a path,
+// a port, a "www."); "" when the text is not a usable address (spaces, no dot and not localhost, empty labels).
+std::string asset_site_host(std::string_view urlOrDomain);
+// The distinct hosts of every site, in the order they are listed.
+std::vector<std::string> asset_source_hosts(const AssetSources& sources);
+
 struct RoleConfig {
     std::string provider;
     std::string model;
@@ -110,6 +137,7 @@ struct AiConfig {
     std::map<std::string, ProviderConfig> providers;
     std::map<std::string, RoleConfig> roles;  // always has the seven roles after load
     std::map<std::string, AssetRoute> assets; // by media_kind_name; empty unless the file sets "assets"
+    AssetSources assetSources;                // the sites to look at for assets; empty unless the file sets "assetSources"
     Limits limits;
     std::string sourcePath;                   // "" when defaults only
     std::vector<std::string> warnings;
@@ -147,6 +175,28 @@ Result<void> save_config(const AiConfig& cfg, std::string_view path);  // writes
 // limits, a role's maxTokens. An empty model or effort (or maxContextTokens 0) removes that key, so the role's default
 // applies. A file that is not a JSON object is left alone (error).
 Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::string_view path);
+
+// What the editor's AI settings window changes in the file: the asset routes, the asset sites and a few fields of the providers
+// those routes use. A field left out (nullopt) stays as it is in the file.
+struct AssetProviderEdit {
+    std::optional<std::string> apiKey;                 // "" removes the key from the file; set: written (the file is made private)
+    std::optional<std::string> command;                // asset-command: the program
+    std::optional<std::vector<std::string>> argv;      // asset-command: its arguments ({prompt} {output}...)
+    std::string type;                                  // for a provider the file does not have yet ("asset-command")
+};
+struct AssetSettings {
+    std::map<std::string, AssetRoute> routes;          // the whole "assets" section: a kind that is not here is removed
+    AssetSources sources;                              // the whole "assetSources" section
+    std::map<std::string, AssetProviderEdit> providers;
+};
+// Writes "assets" and "assetSources" (and the listed fields of providers) into the config file at `path` (created when missing)
+// and keeps everything else in it, the way save_roles does. A provider entry that ends up empty is removed. On Linux and macOS
+// the file is written with owner-only permissions (it may hold keys). A file that is not a JSON object is left alone (error).
+Result<void> save_asset_settings(const AssetSettings& settings, std::string_view path);
+// The arguments of an asset-command provider as one line of text and back (the editor's field): words are separated by spaces,
+// a word with spaces is in double quotes ("my file.png"), \" is a quote inside them. split_args(join_args(v)) == v.
+std::vector<std::string> split_args(std::string_view line);
+std::string join_args(const std::vector<std::string>& args);
 Json config_to_json(const AiConfig& cfg, bool redactKeys = true);
 
 struct ResolvedKey {

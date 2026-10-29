@@ -150,7 +150,9 @@ Built-in providers exist without being listed: `anthropic`, `openai`,
 `openrouter`, `gemini`, `groq`, `deepseek`, `ollama`, `lmstudio`, `claude-code`,
 `codex`, and the asset providers `elevenlabs`, `meshy` and `fake`. Listing one overrides only the fields you give.
 A top-level `"assets"` section assigns asset providers to the kinds of asset
-(see [Asset providers](#asset-providers)); roles cannot use asset-only providers.
+(see [Asset providers](#asset-providers)); roles cannot use asset-only providers. A top-level `"assetSources"` section lists
+the websites the AI should look at when it searches for assets (see [Asset sources](#asset-sources)). The editor's **AI
+settings** window edits both ([below](#the-ai-settings-window)), so neither has to be written by hand.
 
 ## Roles
 
@@ -387,7 +389,8 @@ The AI panel shows what the provider reports, never a guess:
 The `assets.generate_*` commands ([ASSETS.md](ASSETS.md)) make images, sprite sheets, sounds, music, voices and 3D models
 through **asset providers**. They are configured here, in `ai.json`, next to the LLM providers, but they are not roles:
 the `assets` section maps each kind of asset (`image`, `sound`, `music`, `voice`, `model3d`) to the provider, and
-optionally the model and voice, that makes it.
+optionally the model and voice, that makes it. In the editor, the [AI settings window](#the-ai-settings-window) does this
+without editing the file.
 
 ```json
 {
@@ -482,6 +485,74 @@ provider's pricing page.
 `factoria ai doctor` lists the asset providers (`[makes image, voice]`, whether a key was found) and which provider each kind
 of asset is assigned to.
 
+## The AI settings window
+
+**AI settings...** (next to **Roles...** in the AI Assistant panel, and **File > AI Settings...**) is where the asset side of
+`ai.json` is set up. It has two sections and one **Save** button:
+
+* **Asset generation.** One row per kind of asset (Image, Sound, Music, Voice, 3D model): the provider that makes it (only
+  providers that can make that kind are listed, and **None (made procedurally)** leaves the kind to the offline commands), the
+  model (the hint is the provider's default), for Voice the voice id, and a status: the key was found (and where), or what is
+  missing, the same checks as `factoria ai doctor`. `fake` and `asset-command` can be chosen too; for `asset-command` the window
+  asks for the program and its arguments line (`{prompt}`, `{output}` and the other placeholders, see
+  [Asset providers](#asset-providers)). Under **API keys** each provider in use has a masked box: a key pasted there is stored
+  as that provider's `apiKey`. An environment variable is still the better place for a key, and the window says which one the
+  provider reads; **Remove stored key** takes a stored one out again.
+* **Asset sources.** The websites the AI looks at for assets, per category, and **Use only these sites**
+  ([next section](#asset-sources)).
+
+Save rewrites only `assets`, `assetSources` and the provider fields these need (`apiKey`; `type`, `command` and `argv` of an
+`asset-command` provider). Providers, roles, limits and every other key of the file stay as they are, and a file that is not valid
+JSON is left alone (the window says so instead of overwriting it). Then it reloads the file: the next asset the AI makes and the
+next message use the new settings; nothing else needs a restart. The window always edits the user's `ai.json` (the one in
+`FACTORIA_AI_CONFIG`, if set), never a file of the game project.
+
+## Asset sources
+
+`assetSources` tells the AI where to get assets that it does not generate: websites for images and textures, 3D models, audio,
+fonts and the rest. Without it the AI searches the internet as it wishes.
+
+```json
+{
+  "assetSources": {
+    "images": [{ "url": "https://opengameart.org", "note": "CC0 packs" }, "kenney.nl"],
+    "models": ["https://kenney.nl/assets/category:3D"],
+    "audio":  [{ "url": "freesound.org", "note": "CC0 only" }],
+    "fonts":  ["fonts.google.com"],
+    "other":  [],
+    "onlyListed": true
+  }
+}
+```
+
+Each entry is a web address or just a domain (a string, or `{ "url", "note" }`; the note tells the AI what the site is good
+for or its license). `onlyListed` is `false` by default:
+
+* **Off** (the checkbox is clear): the listed sites come first; the AI may search the internet too when none of them has
+  what the game needs, as before.
+* **On** (**Use only these sites**): the AI searches and fetches assets only on the listed sites.
+
+An empty list (or no section) changes nothing. A site that is not a web address is an error that names its JSON pointer
+(`/assetSources/images/0/url`) and what to write instead.
+
+**What the AI is told.** The orchestrator, worker, fast, artist and audio roles get an "Asset sources" section in their system
+prompt: the sites per category with their notes and the rule above. Whatever the AI takes from a site, it is told to check the
+license, bring the file in with `assets.import` and pass `sourceUrl`, `license` and `author`, so `assets.json` keeps them
+([ASSETS.md](ASSETS.md)). The reviewers do not get the section: they do not bring assets in.
+
+**What is enforced.** Telling the model is not a guarantee. Where the provider lets FactorIA restrict the tools, it does:
+
+| Provider | `onlyListed` off | `onlyListed` on |
+|---|---|---|
+| Claude Code | WebFetch of the listed sites is allowed up front (the host and its `www.` twin) | the same, and **WebSearch is disallowed**; Claude Code in `-p` mode denies any WebFetch outside the allow list, so only the listed sites can be fetched |
+| Codex, generic CLI agents | the prompt rule | the prompt rule only: FactorIA cannot restrict their web access |
+| API providers (the built-in agent) | the prompt rule | the prompt rule; the built-in agent has no web tool, so it cannot browse at all and tells you which site to download from |
+
+Limits of the enforcement, so it is not trusted for more than it does: it covers Claude Code's WebFetch and WebSearch tools,
+not `curl` or a script run through Bash, and a domain rule matches that exact host (`kenney.nl` and `www.kenney.nl` are covered,
+a subdomain such as `cdn.kenney.nl` has to be listed as its own entry). A WebFetch allowed globally in the user's own Claude Code
+settings still works. Use the prompt rule as the user's wish and the allow list as a safety net.
+
 ## Costs
 
 Estimated from reported token usage (input, output, cache read/write):
@@ -505,7 +576,12 @@ What a whole game cost, what drives it and how to see it: [AI_COSTS.md](AI_COSTS
   warns (`ai.run`, `factoria ai doctor`) when a project file contains something
   that looks like a key (`sk-...`, `sk-ant-...`, `AIza...`, `gsk_...`).
 * Prefer `apiKeyEnv` over `apiKey`; if the file holds a key, `chmod 600` it
-  (FactorIA warns when it is world-readable).
+  (FactorIA warns when it is world-readable). A key pasted into the editor's
+  [AI settings window](#the-ai-settings-window) is stored as `apiKey` in this same
+  user-level file, which the window writes readable only by you (Linux and macOS: the
+  file is created private before the key goes in), and the box never shows a stored key
+  again. The key is not written to a game project, a log, a notification or a command
+  result, and is forgotten from the window once saved or closed.
 * Keys are sent only to the provider's `baseUrl`, in headers (never in URLs or
   logs). With the `curl` fallback they go through a private temp file, not the
   command line.

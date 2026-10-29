@@ -1236,6 +1236,7 @@ void Editor::build_ui() {
     draw_validation_window();
     draw_export_window();
     draw_platform_settings_window();
+    draw_ai_settings_window();
     draw_setup_window();
     draw_docs_window();
     draw_toasts();
@@ -1321,6 +1322,9 @@ void Editor::draw_main_menu() {
         if (ImGui::MenuItem("Platform Settings...", nullptr, false, have)) open_platform_settings();
         at_track("menu:platform-settings");
         ImGui::SetItemTooltip("The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team...");
+        if (ImGui::MenuItem("AI Settings...")) open_ai_settings();
+        at_track("menu:ai-settings");
+        ImGui::SetItemTooltip("Which service makes the AI's images, sounds and 3D models (with its key), and the websites it looks at for assets");
         if (ImGui::MenuItem("Set Up This Computer...")) open_setup_window();
         at_track("menu:setup");
         ImGui::SetItemTooltip("Install what an export needs: the Android build tools, the players of other platforms, CMake, Xcode");

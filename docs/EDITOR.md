@@ -175,6 +175,16 @@ The height is kept with the layout.
   until `ai.json` has been read. Its **Context** column caps how much of the
   conversation a session keeps (full, or 100k to 800k): past it the earlier part is summarized, so each message costs
   less. It works with Claude Code and the Anthropic API.
+- **AI settings...** (next to **Roles...**, and **File > AI Settings...**) opens the window for what the AI makes besides
+  code and where it finds it. **Asset generation** picks, for each kind (Image, Sound, Music, Voice, 3D model), the provider
+  that makes it (only providers that can make that kind, or **None**, which leaves it to the procedural commands), the model
+  and, for Voice, the voice id, with a status per row (key found, or what is missing); a masked box stores an API key in your
+  `ai.json` (your own file outside any project; an environment variable is safer and the window names it), and
+  `asset-command` takes a program and its arguments. **Asset sources** lists the websites the AI should look at for images
+  and textures, 3D models, audio, fonts and other assets (a domain or an address, and an optional note), and **Use only these
+  sites** forbids searching anywhere else (enforced for Claude Code; for other providers it is an instruction). **Save**
+  rewrites only those parts of `ai.json` and the next message uses them (see `docs/AI_PROVIDERS.md`, "The AI settings
+  window" and "Asset sources").
 - **Reviews:** next to **Roles...**, at the top of the panel, **Review:** has an **Art critique** and a **Game review**
   button (and **Reviews...**, below), then a **Reviewers** count (1 to 5 reviewers, each with a different point of view,
   one after another) and an optional focus ("the shop screen"); a narrow panel moves the count and focus to a line of their
@@ -528,7 +538,7 @@ wrapping, right-click menu), G (delete a project), H (Export window), I (Platfor
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
 agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
-its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator) and W (two AI chats at once against a scripted model: both finish with their own answers, the
+its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key) and W (two AI chats at once against a scripted model: both finish with their own answers, the
 same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
