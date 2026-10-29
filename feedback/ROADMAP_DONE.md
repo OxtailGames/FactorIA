@@ -3026,3 +3026,45 @@ Done (merge `beb3bf1d`): `planks` takes `plankCount`, `plankLength` (0 = boards 
 Done (`77ef9380`): `factoria setup launcher` writes `~/Applications/FactorIA.app` on macOS (registered with Launch
 Services, the bundled `AppIcon.icns`) or a `.desktop` entry and icon on Linux; its status is partial when out of date,
 hand-made or opening another `factoria`, and the editor refreshes an out-of-date launcher that opens itself at startup.
+
+## M39. The AI panel's global controls, screenshots that do not fill the disk, Roguestory FB-0016-FB-0026 — DONE (`m39/integrated`)
+
+Planned 2026-10-29 against `m38/integrated`, from what the user asked after more work on Roguestory in the editor and
+Roguestory's FB-0016-FB-0026.
+
+### M39.1 Editor layout (M) — the user
+
+Done (merge `b2c34b47`): the menu bar is File, Edit, View, **AI** (AI Settings..., Roles...), Help and **Export Game**
+(the toolbar's Export is gone). The AI Settings window has a Roles tab (first) and an Assets tab and remembers the last
+one; Cancel is Revert. The no-provider box, the config error, the review row and the plan windows are above the chat tabs.
+The cost reads "API cost est. $X" with a tooltip that API prices do not apply to a subscription, plus "(not billed on a
+subscription)" when the orchestrator runs on a CLI. The Engine Feedback panel no longer grows: only its list scrolls.
+
+### M39.2 Screenshots for agents (L) — the user, Roguestory FB-0020, FB-0021, FB-0025
+
+Done (merge `22af33df`): `game.screenshot` without `path` returns `temporary: true` and the MCP server and the AI session
+delete the file once the image is sent; `Engine::init` prunes `frame_*.png` older than 3 days and beyond 200.
+`game.screenshot` takes `region` and `zoom` (0.25-32; re-rendered up to 4, nearest-neighbour above) and `frames` /
+`everyFrames` / `columns` for a filmstrip (up to 64 tiles). `render.inspect` gives a luminance profile along a line with
+its hard steps; `render.pick` names the entities under a point. Footprint picking moved to `engine/scene/src/bounds.cpp`
+and the editor reuses it.
+
+### M39.3 Scripts and checkpoints (M) — Roguestory FB-0017, FB-0024, FB-0025
+
+Done (merge `b282a7ce`): a tween whose entity or behaviour is destroyed, or that a scene reload drops, never settles its
+`finished` promise, so no script code runs after its owner is gone (an explicit cancel still resolves `false`).
+`tween.pauseAll` / `resumeAll` / `paused` / `timeScale`, `Tween.seek`, `Behaviour.tween` and `Behaviour.wait`.
+`checkpoint.read {id, path, out?}` and `checkpoint.restore {paths}`. The typings generator knows `kind: "namespace"`.
+
+### M39.4 2D rendering (L) — Roguestory FB-0019, FB-0022, FB-0026
+
+Done (merge `57a10717`): `Shape2D.gradientStops` (up to 8) and `gradientEase` (23 curves), baked into a gradient ramp
+texture read by `quad.glsl`; a `Tint` component that children inherit; `Sprite.skew` (up to 80 degrees) and
+`meshColumns` / `meshRows` / `vertexOffsets` for page curls and flags (up to 128 per side).
+
+### M39.5 Generated art (M) — Roguestory FB-0016, FB-0018, FB-0023
+
+Done (merge `08df5cf0`): `assets.rasterize_svg` supports `clipPath`, `mask` (luminance) and `pattern` fills
+(`assets_svg_layers.cpp`); `generate_texture` supersamples `fabric` so it shows no plaid, adds `linen`, and the paper
+vignette is narrow and irregular by default with `vignetteWidth` (0.005-0.5).
+

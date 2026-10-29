@@ -1221,7 +1221,7 @@ Left open:
   cover it).
 - Everything: GitHub is suspended, so no CI ran on M37 or M38; Windows, Linux, Android and web were never compiled here.
 
-## M39. The AI panel's global controls, screenshots that do not fill the disk, Roguestory FB-0016-FB-0026 (S-L each; 5 packages and 6 requests)
+## M39. The AI panel's global controls, screenshots that do not fill the disk, Roguestory FB-0016-FB-0026 (S-L each; 5 packages and 6 requests) — DONE (`m39/integrated`)
 
 Asked by the user after more work on Roguestory in the editor, plus the 11 entries its AI opened.
 
@@ -1239,6 +1239,25 @@ Asked by the user after more work on Roguestory in the editor, plus the 11 entri
   a skewed / deformable 2D sprite for page curls and flags (FB-0019).
 - M39.5 (M) Generated art: `clipPath` and `pattern` in `assets.rasterize_svg` (FB-0016), a fabric preset with no visible
   period plus a `linen` preset (FB-0018), a narrow, irregular paper vignette with `vignetteWidth` (FB-0023).
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M39 (M39.1-M39.5): the **AI** menu (AI Settings with the Roles tab, Roles...)
+and **Export Game** in the menu bar, the provider box, review row and plan windows above the chat tabs, "API cost est."
+with a subscription note, one scrollbar in the Engine Feedback panel; temporary screenshots that are deleted once the
+client has the image, pruning of `.factoria/screenshots`, `game.screenshot {region, zoom, frames}`, `render.inspect` and
+`render.pick`; dropped tweens that never resume script code, `tween.pauseAll` / `timeScale`, `Tween.seek`,
+`Behaviour.tween` / `wait`, `checkpoint.read` / `checkpoint.restore {paths}`; Shape2D gradient stops and easing, the
+`Tint` component, `Sprite.skew` and the deformable sprite mesh; `clipPath`, `mask` and `pattern` in
+`assets.rasterize_svg`, a fabric with no visible period, `linen`, and a narrow irregular vignette with `vignetteWidth`.
+`Camera.zoom` was not added: `camera.setZoom` already works in pixel mode.
+
+Left open:
+- M39.2: `render.pick` tests each entity's box (its footprint), not its pixels, so a transparent corner of a sprite still
+  picks it; a filmstrip advances the running game by the frames it captures; screenshots taken through `factoria call`
+  (no MCP or AI client to hand the image to) stay until the next prune.
+- M39.3: a `Promise.all` over tweens of which one is dropped never settles (dropped tweens never resolve, on purpose).
+- M39.4: the gradient ramp and the sprite mesh were only run on Metal; D3D11 and GL were never run.
+- M39.5: `clipPathUnits="objectBoundingBox"` is not supported (user space only).
+- Everything: GitHub is suspended, so no CI ran on M39; Windows, Linux, Android and web were never compiled here.
 
 ## Out of scope: Roblox
 
