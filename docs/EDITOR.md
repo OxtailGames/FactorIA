@@ -22,8 +22,9 @@ a project (`factoria editor <dir>`, the restart after an update). Every time a p
 file, puts that project first and writes the merge, so it never drops entries it did not show and two editors open at
 once do not erase each other's history. Paths are compared normalised (absolute, no trailing slash), so one project is
 listed once. A project whose folder has no `factoria.json` any more (deleted, or on a drive that is not mounted) is
-hidden from the dialog and from File > Recent Projects but stays in the file, and shows again when the folder comes back;
-only **Delete...** in the dialog removes a project from the list. The autotest never reads or writes the file.
+hidden from the dialog and from File > Recent Projects but stays in the file, and shows again when the folder comes back.
+When the list is full, such missing projects are the first to go, so they never push out projects that are still
+there. Otherwise only **Delete...** in the dialog removes a project from the list. The autotest never reads or writes the file.
 
 The window title names the engine version and the open project, `FactorIA 0.1.3 — My Game` (just `FactorIA 0.1.3` on
 the Open or create a project dialog). The version is the one `factoria version` prints; the right end of the menu bar

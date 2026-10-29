@@ -63,6 +63,10 @@ std::vector<std::string> remember_recent_project(const std::string& file, const 
     std::vector<std::string> out;
     push_unique(out, project);
     for (const auto& r : read_recent_projects(file)) push_unique(out, r);
+    // Over the cap, missing folders go first (oldest first), so deleted worktrees never push out real projects.
+    std::error_code ec;
+    for (std::size_t i = out.size(); out.size() > kRecentProjectsMax && i-- > 1;)
+        if (!stdfs::exists(stdfs::path(out[i]) / "factoria.json", ec)) out.erase(out.begin() + std::ptrdiff_t(i));
     if (out.size() > kRecentProjectsMax) out.resize(kRecentProjectsMax);
     write_list(file, out);
     return out;
