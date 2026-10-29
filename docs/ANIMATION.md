@@ -300,6 +300,39 @@ A file with problems lists the first one and "(and N more problems)". `animator.
 that names a missing entity or component is an error that lists the entities. The state machine, `clip` and the start of
 the game are lenient: they warn once and play the tracks that resolve.
 
+### Commands for clips
+
+An AI (or a timeline editor) makes and fixes clips with commands, never by editing JSON by hand. Each one checks the whole file
+with the loader's own rules before it writes, so nothing invalid reaches the disk, and every one that writes returns `undo`:
+`{command: "anim.restore", args: {path, clip}}`. Calling `anim.restore` puts the whole previous document back (or deletes the file
+when `clip` is null, the undo of `anim.create_clip`) and returns the `undo` that goes forward again.
+
+| Command | What it does |
+|---|---|
+| `anim.create_clip {path, duration, loop?, doc?, tracks?, events?, overwrite?}` | Writes a new clip file; refuses to replace one unless `overwrite`. |
+| `anim.set_keys {path, track, keys, entity?, extendDuration?}` | Adds or replaces keys of a track (`track` is `{path, component?, field}`), creating the track. With `entity`, the part and component must exist on it. |
+| `anim.remove_keys {path, track, times \| all}` | Removes keys; a track left without keys disappears. |
+| `anim.move_keys {path, keys: [{track, t}], offset?, scale?, pivot?}` | Moves and scales selected keys in time; refused if one would land on another key or outside the clip. |
+| `anim.set_interp {path, keys, interp, in?, out?}` | `linear`, `step`, `bezier` (tangents) or a tween easing, for the selected keys. |
+| `anim.add_track` / `anim.remove_track` | Adds a track (with keys, or the part's current value as its first key) or removes one; `track` is an index or `{path, component, field}`. |
+| `anim.add_event` / `anim.move_event` / `anim.set_event` / `anim.remove_event` | Events `{t, name, data?}`; `event` is an index or `{t, name?}`. |
+| `anim.set_clip {path, duration?, loop?, doc?}` | Duration (refused when shorter than the last key or event), loop, description. |
+| `anim.list {entity \| path, full?}` | The Animator's clips with their tracks (the `index` the commands take), events and problems; `full` adds the whole file. |
+| `anim.pose {entity, clip, t}` | Poses the entity (parts, bones, skins, IK) as the clip is at `t` and leaves it there; the Animator pauses. |
+| `anim.filmstrip {entity, clip, frames?, onionSkin?, region?, zoom?, path?}` | One labelled picture with a grid of poses (the game is not stepped, the entity is put back). `onionSkin` draws faint neighbours under each pose. Needs graphics. |
+| `anim.check {entity \| path, clip?, samples?}` | Findings `{kind, severity, clip, track?, part?, message, hint}`: `no_change`, `loop_jump`, `unknown_part`, `leaves_view`, `ik_out_of_reach`, `invalid_clip`. |
+| `bones.create {parent, points, names?}` | A chain of `Bone2D` entities along joint positions. |
+| `skin.bind {entity, root \| bones, mesh?}`, `skin.auto_weights`, `skin.set_weights {entity, vertices, bone, weight, mode}` | Skin a Sprite to bones, write the automatic weights out, and paint them (`set`, `add`, `smooth`). |
+
+`anim.check` with only `path` looks at the file (`no_change`, `loop_jump`); with `entity` it also poses the clip `samples` times
+(the entity is put back afterwards) to find a part that is in the camera's view in some poses and completely outside it in
+others, and an `IK2D` target the bones cannot reach in some poses. A clip with a track that names no part is reported once as
+`unknown_part` and the posed checks are skipped for it until it is fixed. `leaves_view` needs an orthographic primary Camera.
+
+`factoria validate` checks every `*.anim.json` of the project (hidden folders, `node_modules` and a top-level `build/` skipped),
+and every clip an `Animator` of a scene or prefab names: a missing file (with "did you mean" over the project's clips), and
+tracks that resolve to no part of that Animator's entity or to a part without the component.
+
 ## Sprite sheets: SpriteAnimator
 
 `SpriteAnimator` plays the frames of a sprite sheet on the `Sprite` of the same entity (it sets the sprite's `region` every

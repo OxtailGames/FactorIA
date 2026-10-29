@@ -860,6 +860,7 @@ void Editor::restore_scene(const Json& snapshot) {
 
 bool Editor::command_edits_scene(const std::string& name, const Json& args) const {
     if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit" || name == "fs.delete") return false;  // files only
+    if (name.rfind("anim.", 0) == 0 && name != "anim.pose" && name != "anim.check" && name != "anim.filmstrip") return false;  // clip files only
     if (name == "scene.import_ascii" && args.is_object() && args.contains("path")) return false;  // file mode: the world is not touched
     return true;
 }
