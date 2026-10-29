@@ -2980,3 +2980,49 @@ Done (`a856455a`): the roles line is gone (the **Roles...** tooltip lists them),
 focus sit next to **Roles...**, and **Art critique** / **Game review** open a confirmation with **Start**. The live cost
 estimate prices Claude Code's 1-hour cache writes at twice the input (`cache_creation.ephemeral_1h_input_tokens`), as its
 final total does. Select / Move / Rotate / Scale show only while an entity is selected.
+
+## M37. The FactorIA program icon — DONE (`m37/app-icon`)
+
+Done (`b866d960`, `cb39698f`, then the icon commits on `m38/integrated`): the icon (a white factory with an AI brain,
+sources in `tools/editor/icon/src`, regenerated with `make_icons.py`) shows in the editor's title bar and taskbar
+(Windows, Linux), the macOS Dock (`AppDesc::dockIcon`) and on `factoria.exe` / `FactorIA-Editor.exe`. The macOS tile has
+the size of the system's app icons (824 of 1024) with the drawing at 66% of it and no rim. The program is called FactorIA
+in the Dock and Cmd+Tab.
+
+## M38. Roles you can turn off, AI settings, Roguestory FB-0011-FB-0015 — DONE (`m38/integrated`)
+
+Planned 2026-10-29 against `m37/app-icon`, from what the user asked after using the AI panel and Roguestory's
+FB-0011-FB-0015.
+
+### M38.1 Roles in groups, readable names, Enabled (M) — the user
+
+Done (merge `ffb42865`): `role_display_name()` everywhere the editor names a role; the Roles window has three sections
+(Orchestration and code, Art and audio, Critics and reviewers) and an **Enabled** column (`roles.<role>.enabled` in
+`ai.json`, only `false` is written; the orchestrator cannot be turned off). The orchestrator's prompt lists only the roles
+that are on and does the work of the others itself (with the artist's or audio guide); with every delegable role off it
+gets no delegation tool. `agent_delegate`, `ai.run` and `factoria ai run --role` refuse a role that is off with `role_off`.
+The Art critic and the Reviewer still run from their buttons when off, on the orchestrator's model.
+
+### M38.2 AI settings window (M) — the user
+
+Done (merge `390d7e0e`): **AI settings...** (next to **Roles...**, and File > AI Settings...) chooses the provider, model,
+voice and API key of each asset kind, and lists the websites to look for images, models, audio and fonts (`assetSources`
+in `ai.json`) with **Use only these sites**, which holds Claude Code to them and is told to other providers.
+
+### M38.3 Storage, mid-session tools, input between tests (M) — Roguestory FB-0011, FB-0012, FB-0015
+
+Done (merge `6ece65fd`): `storage.list` / `storage.clear` (memory and the save folder; `project.test` sees only its own
+in-memory storage); `factoria mcp` checks `scripts/` and `tools/` before every request and `script.eval {module}`
+re-imports changed modules; `Input::reset_options()` puts the mouse at (0, 0) with no delta or wheel before every test.
+
+### M38.4 Planks options and painterly SVG styles (M) — Roguestory FB-0013, FB-0014
+
+Done (merge `beb3bf1d`): `planks` takes `plankCount`, `plankLength` (0 = boards from side to side), `gapWidth` and
+`gapDarkness`, with longer boards and a finer seam by default; `assets.rasterize_svg` takes `style` (`watercolor`, `ink`,
+`inkwash`, `paper`), `styleStrength` and `seed`, a seeded post-process in `assets_style.cpp`.
+
+### Launcher — the user
+
+Done (`77ef9380`): `factoria setup launcher` writes `~/Applications/FactorIA.app` on macOS (registered with Launch
+Services, the bundled `AppIcon.icns`) or a `.desktop` entry and icon on Linux; its status is partial when out of date,
+hand-made or opening another `factoria`, and the editor refreshes an out-of-date launcher that opens itself at startup.

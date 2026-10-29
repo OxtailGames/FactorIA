@@ -1197,6 +1197,30 @@ Left open:
   message ends.
 - Everything: GitHub is suspended, so no CI ran on M36; Windows, Linux, Android and web were never compiled here.
 
+## M37. The FactorIA program icon (S; the user) — DONE (`m37/app-icon`)
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M37: a factory with an AI brain on a navy tile, in the editor's window
+(Windows, Linux), the macOS Dock and the executables; the program is called FactorIA wherever the system names it.
+
+Left open:
+- The Windows resource (`.rc`, `factoria.ico`) was never compiled here.
+
+## M38. Roles you can turn off, AI settings, Roguestory FB-0011-FB-0015 (S-M each; 4 packages and 2 requests) — DONE (`m38/integrated`)
+
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M38 (M38.1-M38.4 and the launcher): the Roles window in three groups with an
+**Enabled** checkbox per role (the orchestrator always on), the **AI settings...** window (asset providers, asset sites and
+"use only these sites"), `storage.list` / `storage.clear`, tools and edited modules picked up mid-session, the mouse reset
+before every test, `planks` options and a painterly `style` for `assets.rasterize_svg`, and `factoria setup launcher`.
+
+Left open:
+- M38.1: the Roles window was only checked by the editor autotest, not by eye; a CLI orchestrator (Claude Code, Codex)
+  with roles turned off is covered only with the fake provider.
+- M38.4: `style` is a pixel post-process, so it does not follow the SVG's shapes (an ink line appears on every colour
+  border, also between two fills that should read as one shape).
+- Launcher: on Linux the `.desktop` entry was only tested with a fake HOME; Windows has none (the installer's shortcuts
+  cover it).
+- Everything: GitHub is suspended, so no CI ran on M37 or M38; Windows, Linux, Android and web were never compiled here.
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
