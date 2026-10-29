@@ -239,7 +239,7 @@ Paints a procedural texture at `path` (under assets/, ending in .png) with no AI
 - gradient: a linear gradient from `color` to `accent` along `angle` (the alphas of the colours are blended too) (default colours #f4ead5 to #8c6a42).
 - radial: a radial gradient: `color` in the middle to `accent` at the corners (`scale` is the radius, 1 = the corners) (default colours #f4ead5 to #5a3d22).
 - vignette: a transparent middle fading to `color` at the edges (an overlay for a scene: put it over a Sprite); `vignette` is its strongest alpha (default colours #000000).
-Examples: {"path":"assets/textures/desk.png","preset":"planks","width":1280,"height":720,"seed":4} / {"path":"assets/textures/cover.png","preset":"leather","color":"#5b2a1a","accent":"#1d0d07","normalMap":true} / {"path":"assets/textures/page.png","preset":"parchment","width":640,"height":900,"vignette":0.6} / {"path":"assets/textures/floor.png","preset":"stone","tileable":true,"scale":2}
+Examples: {"path":"assets/textures/desk.png","preset":"planks","width":1280,"height":720,"seed":4} / {"path":"assets/textures/long_planks.png","preset":"planks","plankCount":7,"plankLength":0,"gapWidth":0.01} / {"path":"assets/textures/cover.png","preset":"leather","color":"#5b2a1a","accent":"#1d0d07","normalMap":true} / {"path":"assets/textures/page.png","preset":"parchment","width":640,"height":900,"vignette":0.6} / {"path":"assets/textures/floor.png","preset":"stone","tileable":true,"scale":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -257,6 +257,10 @@ Examples: {"path":"assets/textures/desk.png","preset":"planks","width":1280,"hei
 | `angle` | number | no | gradient only: direction in degrees. 0 runs from the top to the bottom, 90 from the left to the right. Default 0. |
 | `normalMap` | boolean | no | Also write the tangent-space normal map of the same relief as <path without .png>_n.png (+X right, +Y up the picture, the convention of Sprite.normalMap and glTF), with its own provenance record. Default false. |
 | `normalStrength` | number | no | How deep the relief of the normal map is: 1 subtle, 3 clear, 10 deep. Default 3. |
+| `plankCount` | integer | no | planks only: how many boards are stacked from the top to the bottom of the picture (each runs from left to right). Default: follows `scale` (6 at scale 1). |
+| `plankLength` | number | no | planks only (default 1): the length of a board as a fraction of the picture's width. 0 makes every board run from side to side with no butt joint (a desk top); 1 (the default) gives each row one joint, 0.5 two boards per row, 0.25 four. Joints are staggered row by row. |
+| `gapWidth` | number | no | planks only (default 0.015): the gap between boards as a fraction of a board's width (at least one pixel). 0.015 is a fine seam, 0.05 a wide gap. |
+| `gapDarkness` | number | no | planks only (default 0.55): how dark the gaps are. 0 leaves them the colour of the wood (only the bevel shows), 1 makes them nearly as dark as `accent` allows. |
 | `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
 | `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
 
@@ -364,6 +368,9 @@ Rasterizes an SVG to a PNG at `path` (under assets/, ending in .png) with no AI 
 | `width` | integer | no | Width in pixels. With only the height given, it follows the SVG's proportions. Default: the SVG's own size. |
 | `height` | integer | no | Height in pixels. With only the width given, it follows the SVG's proportions. |
 | `background` | any | no | A colour to put the picture over ("#rrggbb", "#rrggbbaa", a name or [r, g, b]). Default: transparent. |
+| `style` | string ["none","watercolor","ink","inkwash","paper"] | no | Default none. A painterly look added to the pixels after rasterizing (nanosvg has no filters, masks or clip paths, so the effects are applied to the picture, seeded and deterministic, and cost no SVG size). "watercolor": edges wobble and soften, pigment pools darker along the borders of every shape, pale and strong blotches, paper granulation. "ink": a wobbling pen line (dark brown, thicker and thinner) along every border. "inkwash": both, with a little paper tooth: storybook ink and watercolour. "paper": only fine paper fibres and mottling, edges untouched. Draw flat fills with a few shapes: the style supplies the texture. The effects scale with the picture's size. |
+| `styleStrength` | number | no | How strong the `style` is: 0 leaves the picture as drawn, 1 (the default) is the full effect, 0.5 is subtle. Ignored without a `style`. |
+| `seed` | integer | no | Chooses the take of the `style` (where the blotches, wobble and grain fall): the same SVG, size, style and seed always give the same picture; change it for another take. Ignored without a `style`. |
 | `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
 | `ai` | boolean | no | Whether the SVG was written by an AI (the default, since the caller is an agent). Set false for an SVG a person drew or a licensed one; it then counts as original work in the AI disclosure. Default true. |
 | `author` | string | no | Who gets the credit in the provenance record. |
