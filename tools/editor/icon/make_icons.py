@@ -8,6 +8,8 @@
 Writes, next to this script:
   factoria_<size>.png     16..256: the window icon (Windows, Linux), embedded in the editor
   factoria_dock.png       512: the macOS Dock icon, with the margin of Apple's icon grid, embedded in the editor
+  factoria.icns           the same tile from 16 to 1024, for a macOS .app bundle (Contents/Resources/AppIcon.icns),
+                          which is what the Dock and Finder show while the editor is not running
 and tools/cli/windows/factoria.ico (the same sizes) for factoria.exe and FactorIA-Editor.exe, and
 platforms/linux/factoria.png (256) for the Linux AppImage.
 
@@ -82,10 +84,11 @@ def main():
         if size == 256:
             img.save(APPIMAGE_PNG, optimize=True)
     mac.resize((512, 512), Image.LANCZOS).save(HERE / "factoria_dock.png", optimize=True)
+    mac.save(HERE / "factoria.icns")
 
     ICO.parent.mkdir(parents=True, exist_ok=True)
     images[-1].save(ICO, sizes=[(s, s) for s in WINDOW_SIZES], append_images=images[:-1])
-    print("wrote", len(WINDOW_SIZES), "window sizes, factoria_dock.png,", ICO, "and", APPIMAGE_PNG)
+    print("wrote", len(WINDOW_SIZES), "window sizes, factoria_dock.png, factoria.icns,", ICO, "and", APPIMAGE_PNG)
 
 
 if __name__ == "__main__":
