@@ -504,6 +504,10 @@ void Editor::at_build_tools_script() {
             showExport_ = showPlatformSettings_ = platformCloseAsk_ = keystoreOpen_ = false;
             showSetup_ = setupLicenseOpen_ = showProjectDialog_ = showAudio_ = showProfiler_ = false;
             showProject_ = showHierarchy_ = showInspector_ = true;
+            if (showAnimation_ || anim_.posed) anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
+            anim_ = AnimUi{};
+            bone_ = BoneUi{};
+            showAnimation_ = showBoneTools_ = false;
             projBrowser_.query = BrowserQuery{};
             exportLast_.reset();
             exportChecked_ = -100;
@@ -3667,6 +3671,471 @@ void Editor::at_build_tools_script() {
             stdfs::remove(project_file("assets.json"), ec);
             stdfs::remove(project_file("assets/autotest_sheet.png"), ec);
             projBrowser_.stale = true;
+        });
+    }
+
+
+    section("B2");
+    // The Animation panel (docs/EDITOR.md, "Animation panel"): a puppet with an Animator and a Sprite part. New clip makes the
+    // clip; in record mode a gizmo drag on the part writes keys at the playhead instead of the rest position; a key is dragged
+    // (one undo step) and its easing changed from the context menu; an event is added; a click on the ruler poses the entity
+    // without touching the scene; the onion skin draws faded poses.
+    {
+        struct Bs {
+            size_t undo = 0;
+            Vec2 grab{}, cur{};
+            float firstX = 0, secondX = 0;
+        };
+        auto b = std::make_shared<Bs>();
+        auto click_widget = [this, &step](const std::string& name, int button = 0) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name, button] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), button); });
+            step(4, [this, name, button] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), button); });
+        };
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto clip_now = [this]() -> std::shared_ptr<const ClipAsset> {
+            const std::string path = anim_clip_path();
+            if (path.empty()) return nullptr;
+            auto loaded = load_anim_clip(path);
+            return loaded.ok() ? *loaded : nullptr;
+        };
+        auto position_track = [clip_now]() -> int {
+            const auto clip = clip_now();
+            if (!clip) return -1;
+            for (std::size_t i = 0; i < clip->tracks.size(); ++i)
+                if (clip->tracks[i].component == "Transform" && clip->tracks[i].field == "position") return int(i);
+            return -1;
+        };
+        auto key_at = [clip_now, position_track](double t) -> const ClipKey* {
+            const auto clip = clip_now();
+            const int ti = position_track();
+            if (!clip || ti < 0) return nullptr;
+            for (const ClipKey& k : clip->tracks[std::size_t(ti)].keys)
+                if (std::fabs(double(k.t) - t) < 0.0006) return &k;
+            return nullptr;
+        };
+        auto body_x = [this] { return world().get<Transform>(world().find_by_id("puppet_body"))->position.x; };
+        // One gizmo drag by (dx, dy) panel pixels on the X arrow, with the mouse over the viewport.
+        auto drag_arrow = [this, &step, &wait_until, b](float dx) {
+            step(2, [this, b] {
+                b->grab = b->cur = at_widget("gizmo:move:x");
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, b->grab);
+            });
+            step(2, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, b->grab); });
+            wait_until([this] { return gizmoDrag_.active; });
+            step(2, [this, b, dx] {
+                b->cur = Vec2{b->grab.x + dx, b->grab.y};
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, b->cur);
+            });
+            wait_until([this] { return gizmoDrag_.wrote; });
+            step(3, [] {});
+            step(2, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, b->cur); });
+            wait_until([this] { return !gizmoDrag_.active; });
+            step(4, [] {});
+        };
+
+        step(2, [this, project_file, b] {
+            stop();
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            std::error_code ec;
+            stdfs::remove(project_file("anim/clip.anim.json"), ec);
+            std::string err;
+            CommandResult r = edit_command("at:puppet", "scene.spawn",
+                                           Json::object({{"id", "puppet"}, {"name", "Puppet"},
+                                                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({300, 120, 0})}})},
+                                                                                      {"Animator", Json::object()}})}}),
+                                           &err);
+            at_check(r.ok, "a Puppet with an Animator was spawned: " + err);
+            r = edit_command("at:puppetbody", "scene.spawn",
+                             Json::object({{"id", "puppet_body"}, {"name", "Body"}, {"parent", "puppet"},
+                                           {"components", Json::object({{"Transform", Json::object()},
+                                                                        {"Sprite", Json::object({{"size", Json::array({60, 60})},
+                                                                                                 {"color", Json::array({0.9, 0.5, 0.2, 1})}})}})}}),
+                             &err);
+            at_check(r.ok, "...with a Sprite part called Body: " + err);
+            select_id("puppet_body");
+            showAnimation_ = true;
+            gizmoMode_ = GizmoMode::Move;
+            focus_window("Animation");
+            b->undo = undo_depth();
+        });
+        wait_until([this] { return at_visible("anim:newclip"); });
+        step(2, [this] {
+            at_check(anim_owner() == world().find_by_id("puppet"), "selecting the Body part makes its parent's Animator the one the panel edits");
+            at_check(!at_visible("anim:play"), "...and with no clip yet there is no transport");
+        });
+        click_widget("anim:newclip");
+        wait_until([this] { return at_visible("anim:newclip:create"); });
+        click_widget("anim:newclip:create");
+        step(6, [this, b] {
+            const Animator* a = world().get<Animator>(world().find_by_id("puppet"));
+            at_check(a && a->clips.is_object() && a->clips.contains("clip"), "New clip lists the clip in Animator.clips");
+            at_check(stdfs::exists(projectDir_ + "/anim/clip.anim.json"), "...and writes anim/clip.anim.json");
+            at_check(anim_.clipName == "clip", "...and the panel opens it");
+            at_check(at_visible("anim:record") && at_visible("anim:play"), "...so the transport and Record are there");
+            at_check(undo_depth() == b->undo + 2, "...as two undo steps: the clip file, then the Animator.clips entry");
+            dirty_ = false;  // from here on the checks ask whether record mode, scrubbing and clip edits touch the scene
+        });
+        click_widget("anim:clips");
+        step(3, [this] { at_check(at_visible("anim:clip:clip"), "the clip list names the new clip"); });
+        click_widget("anim:clip:clip");
+        snap("editor_animation_panel.png");
+
+        // ---- record mode: a gizmo drag writes a key
+        click_widget("anim:record");
+        step(3, [this] {
+            at_check(anim_.recording, "Record turns record mode on");
+            select_id("puppet_body");
+            anim_set_playhead(0.2);
+            focus_window("Animation");
+        });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); });
+        wait_until([this] { return at_visible("gizmo:move:x"); });
+        step(2, [this, b, body_x] {
+            b->undo = undo_depth();
+            b->firstX = body_x();
+        });
+        drag_arrow(40);
+        step(4, [this, b, key_at, position_track, body_x, clip_now] {
+            const int ti = position_track();
+            at_check(ti >= 0, "a Transform.position track was made for the Body part in record mode");
+            const ClipKey* k = key_at(0.2);
+            at_check(k != nullptr, "...with a key at the playhead (0.2 s)");
+            if (k) at_check(k->value[0] > b->firstX + 10.0f, "...holding the position the drag reached, not the rest position");
+            if (k) b->secondX = k->value[0];
+            at_check(anim_.recordedKeys >= 1, "the panel counts the keys record mode wrote");
+            at_check(!dirty_, "record mode leaves the scene file unchanged (no unsaved changes)");
+            at_check(undo_depth() == b->undo + 1, "the drag is ONE undo step");
+            const auto clip = clip_now();
+            at_check(clip && clip->tracks.size() >= 1, "the clip file has the track");
+            at_check(std::fabs(body_x() - b->secondX) < 0.01f, "the entity shows the recorded pose");
+        });
+        snap("editor_animation_record.png");
+        // a second key at 0.6 s
+        step(2, [this] { anim_set_playhead(0.6); });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); });
+        wait_until([this] { return at_visible("gizmo:move:x"); });
+        drag_arrow(40);
+        step(4, [this, key_at, clip_now, position_track, b] {
+            const ClipKey* k = key_at(0.6);
+            at_check(k != nullptr, "a second drag at 0.6 s writes a second key");
+            if (k) at_check(k->value[0] > b->secondX + 10.0f, "...further along");
+            const auto clip = clip_now();
+            const int ti = position_track();
+            at_check(clip && ti >= 0 && clip->tracks[std::size_t(ti)].keys.size() == 3,
+                     "the track has the rest key at 0 s (the part stays as it was until the first key) and the two recorded ones (" + [&] {
+                         std::string out;
+                         if (clip && ti >= 0)
+                             for (const ClipKey& k : clip->tracks[std::size_t(ti)].keys) out += std::to_string(k.t) + ":" + std::to_string(k.value[0]) + " ";
+                         return out;
+                     }() + ")");
+            if (k) b->firstX = k->value[0];
+            anim_.recording = false;
+        });
+
+        // ---- scrubbing poses the entity, the scene is not changed
+        click_widget("anim:ruler");
+        step(5, [this, b, body_x] {
+            at_check(std::fabs(anim_.playhead - 0.5) < 0.05, "a click on the ruler puts the playhead there");
+            const float expected = b->secondX + (b->firstX - b->secondX) * float((anim_.playhead - 0.2) / 0.4);
+            at_check(std::fabs(body_x() - expected) < 0.5f, "...and poses the Body between the two keys");
+            at_check(!dirty_, "scrubbing leaves the scene file unchanged");
+            anim_unpose();
+            at_check(std::fabs(body_x()) < 0.001f, "...the rest value is what the scene holds (unposed: Body at 0)");
+            anim_.dirtyPose = true;
+        });
+
+        // ---- move a key, undo it
+        step(3, [this, b, position_track] {
+            b->undo = undo_depth();
+            at_check(at_visible("anim:key:" + std::to_string(position_track()) + ":600"), "the dopesheet shows the key at 600 ms");
+        });
+        step(2, [this, b, position_track] {
+            b->grab = b->cur = at_widget("anim:key:" + std::to_string(position_track()) + ":600");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, b->grab);
+        });
+        step(2, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, b->grab); });
+        step(3, [this, b] {
+            b->cur = Vec2{b->grab.x + float(anim_time_to_x(0.8) - anim_time_to_x(0.6)), b->grab.y};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, b->cur);
+        });
+        step(3, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{b->cur.x + 0.5f, b->cur.y}); });
+        step(2, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, b->cur); });
+        step(5, [this, b, key_at] {
+            at_check(key_at(0.6) == nullptr && key_at(0.8) != nullptr, "dragging the key moves it from 0.6 s to 0.8 s");
+            at_check(undo_depth() == b->undo + 1, "...as ONE undo step");
+            undo();
+            at_check(key_at(0.6) != nullptr && key_at(0.8) == nullptr, "Undo puts the key back at 0.6 s");
+            redo();
+            at_check(key_at(0.8) != nullptr, "Redo moves it again");
+            undo();
+            at_check(!dirty_, "clip edits never mark the scene dirty");
+        });
+
+        // ---- easing from the context menu
+        step(3, [this, position_track] {
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("anim:key:" + std::to_string(position_track()) + ":200"));
+        });
+        step(2, [this, b, position_track] {
+            b->grab = at_widget("anim:key:" + std::to_string(position_track()) + ":200");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, b->grab, 1);
+        });
+        step(3, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, b->grab, 1); });
+        wait_until([this] { return at_visible("anim:menu:easing"); });
+        click_widget("anim:menu:easing");
+        wait_until([this] { return at_visible("anim:menu:ease:quadOut"); });
+        step(2, [this, b] { b->undo = undo_depth(); });
+        click_widget("anim:menu:ease:quadOut");
+        step(5, [this, b, key_at] {
+            const ClipKey* k = key_at(0.2);
+            at_check(k && k->interp == ClipInterp::Ease && k->ease >= 0 && clip_ease_names()[std::size_t(k->ease)] == "quadOut",
+                     "the context menu sets the easing of the key to quadOut");
+            at_check(undo_depth() == b->undo + 1, "...as one undo step");
+        });
+
+        // ---- an event
+        click_widget("anim:addevent");
+        wait_until([this] { return at_visible("anim:event:ok"); });
+        click_widget("anim:event:ok");
+        step(5, [this, clip_now] {
+            const auto clip = clip_now();
+            at_check(clip && clip->events.size() == 1 && clip->events[0].name == "event", "Add event writes a marker named 'event' into the clip");
+            at_check(at_visible("anim:event:0"), "...and the ruler shows it");
+        });
+
+        // ---- onion skin
+        click_widget("anim:onion");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return anim_.onionDrawn > 0; };
+        });
+        step(3, [this] { at_check(anim_.onion && anim_.onionDrawn >= 2, "the onion skin draws the poses before and after the playhead (" + std::to_string(anim_.onionDrawn) + " ghosts)"); });
+        snap("editor_animation_onion.png");
+        click_widget("anim:onion");
+        step(4, [this, project_file] {
+            at_check(!anim_.onion && anim_.onionDrawn == 0, "turning Onion off draws no ghosts");
+            anim_unpose();
+            at_check(!dirty_ && undo_depth() > 0, "the whole session left the scene unchanged and the steps are on the undo stack");
+            showAnimation_ = false;
+            select_id("");
+            std::error_code ec;
+            stdfs::remove(project_file("anim/clip.anim.json"), ec);
+        });
+    }
+
+    section("C2");
+    // The bone tools (docs/EDITOR.md, "Bone tools"): draw a chain with clicks, bind a sprite to it, paint weights with the brush
+    // (one stroke = one undo step), drag an IK target, and the weight overlay follows the selected bone.
+    {
+        struct Cs {
+            size_t undo = 0;
+            Vec2 grab{}, cur{};
+            Json weights;
+            float targetX = 0, targetY = 0, rotBefore = 0;
+        };
+        auto c = std::make_shared<Cs>();
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        // The panel position of a world point (the fixture camera sits at the origin).
+        auto panel_of = [this](float x, float y) {
+            const Vec2 d = engine_->renderer()->world_to_screen(Vec3{x, y, 0});
+            return Vec2{vpImageMin_.x + d.x / float(engine_->renderer()->target_width()) * vpImageSize_.x,
+                        vpImageMin_.y + d.y / float(engine_->renderer()->target_height()) * vpImageSize_.y};
+        };
+        auto vp_click = [this, &step](std::function<Vec2()> where) {
+            step(2, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, where()); });
+            step(2, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, where()); });
+            step(4, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, where()); });
+        };
+        auto bone_named = [this](const char* name) {
+            for (Entity e : world().entities_with(TypeRegistry::global().of<Bone2D>()))
+                if (world().info(e).name == name) return e;
+            return kNullEntity;
+        };
+
+        step(2, [this, project_file, c] {
+            stop();
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            std::string err;
+            CommandResult r = edit_command("at:rig", "scene.spawn",
+                                           Json::object({{"id", "rig"}, {"name", "Rig"},
+                                                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({-300, 50, 0})}})}})}}),
+                                           &err);
+            at_check(r.ok, "a Rig entity was spawned: " + err);
+            r = edit_command("at:limb", "scene.spawn",
+                             Json::object({{"id", "limb"}, {"name", "Limb"},
+                                           {"components", Json::object({{"Transform", Json::object({{"position", Json::array({200, 100, 0})}})},
+                                                                        {"Sprite", Json::object({{"size", Json::array({40, 120})},
+                                                                                                 {"color", Json::array({0.3, 0.7, 0.9, 1})}})}})}}),
+                             &err);
+            at_check(r.ok, "...and a Limb sprite: " + err);
+            r = edit_command("at:iktarget", "scene.spawn",
+                             Json::object({{"id", "ik_target"}, {"name", "Target"},
+                                           {"components", Json::object({{"Transform", Json::object({{"position", Json::array({-200, -20, 0})}})},
+                                                                        {"Shape2D", Json::object({{"size", Json::array({10, 10})}})}})}}),
+                             &err);
+            at_check(r.ok, "...and an IK target: " + err);
+            select_id("rig");
+            showBoneTools_ = true;
+            focus_window("Bone tools");
+            c->undo = undo_depth();
+        });
+        wait_until([this] { return at_visible("bone:tool:chain"); });
+        click_widget("bone:tool:chain");
+        step(3, [this] { at_check(bone_.tool == BoneTool::Chain, "Draw chain turns the tool on"); });
+
+        // ---- draw a chain: three clicks, two bones
+        vp_click([panel_of] { return panel_of(-300, 150); });
+        vp_click([panel_of] { return panel_of(-300, 50); });
+        vp_click([panel_of] { return panel_of(-300, -50); });
+        step(3, [this, c] {
+            at_check(bone_.chain.size() == 3, "three clicks in the viewport put three points on the chain");
+            at_check(undo_depth() == c->undo, "...and nothing is made until the chain is finished");
+            at_check(at_visible("bone:chain:finish") && at_enabled("bone:chain:finish"), "Finish chain is on");
+        });
+        snap("editor_bone_chain.png");
+        click_widget("bone:chain:finish");
+        step(5, [this, c, bone_named] {
+            const Entity b1 = bone_named("bone_1"), b2 = bone_named("bone_2");
+            at_check(!b1.is_null() && !b2.is_null(), "Finish chain makes bone_1 and bone_2");
+            at_check(!b1.is_null() && world().parent(b1) == world().find_by_id("rig"), "...the first hangs from the Rig");
+            at_check(!b2.is_null() && world().parent(b2) == b1, "...the second from the first");
+            at_check(undo_depth() == c->undo + 1, "the chain is ONE undo step");
+            undo();
+            at_check(bone_named("bone_1").is_null(), "Undo removes the bones");
+            redo();
+            at_check(!bone_named("bone_1").is_null(), "Redo brings them back");
+            at_check(bone_.chain.empty(), "the chain on screen is cleared");
+        });
+
+        // ---- bind the sprite
+        step(2, [this, bone_named, c] {
+            select_id("limb");
+            bone_.bindRoot = world().id_of(bone_named("bone_1"));
+            bone_.meshColumns = 2;
+            bone_.meshRows = 4;
+            c->undo = undo_depth();
+        });
+        click_widget("bone:bind");
+        step(5, [this, c] {
+            const SpriteSkin* skin = world().get<SpriteSkin>(world().find_by_id("limb"));
+            at_check(skin != nullptr, "Bind sprite to bones adds a SpriteSkin to the Limb");
+            at_check(skin && skin->bones.is_array() && skin->bones.size() == 2, "...with the two bones");
+            const Sprite* sp = world().get<Sprite>(world().find_by_id("limb"));
+            at_check(sp && sp->meshColumns == 2 && sp->meshRows == 4, "...and the 2 x 4 mesh");
+            at_check(undo_depth() == c->undo + 1, "...as one undo step");
+        });
+
+        // ---- weights: the overlay, then a brush stroke
+        click_widget("bone:tool:weights");
+        step(2, [this] { select_id("limb"); });
+        step(5, [this] {
+            at_check(bone_.tool == BoneTool::Weights && bone_.weightDots == 15, "the weights tool draws a dot on each of the 15 mesh vertices (" + std::to_string(bone_.weightDots) + ")");
+        });
+        click_widget("bone:mode:set");
+        step(3, [this, c] {
+            at_check(bone_.mode == 1, "the Set brush mode is on");
+            bone_.strength = 1.0f;
+            bone_.radius = 40.0f;
+            bone_.boneIndex = 0;
+            c->undo = undo_depth();
+            c->weights = world().get<SpriteSkin>(world().find_by_id("limb"))->weights;
+            focus_window("###Viewport");
+        });
+        step(2, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, panel_of(180, 160)); });
+        step(2, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, panel_of(180, 160)); });
+        step(3, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, panel_of(180, 130)); });
+        step(3, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, panel_of(180, 100)); });
+        step(2, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, panel_of(180, 100)); });
+        step(5, [this, c] {
+            const SpriteSkin* skin = world().get<SpriteSkin>(world().find_by_id("limb"));
+            at_check(skin && skin->weights.is_array() && skin->weights.size() == 15, "painting writes explicit weights for the 15 vertices");
+            bool full = false;
+            if (skin && skin->weights.is_array() && !skin->weights.empty() && skin->weights[0].is_array() && skin->weights[0].size() >= 2)
+                full = skin->weights[0][0].get<int>() == 0 && skin->weights[0][1].get<float>() > 0.99f;
+            at_check(full, "...the top-left vertex is fully bone_1's");
+            at_check(bone_.strokes >= 2, "...with more than one dab along the drag (" + std::to_string(bone_.strokes) + ")");
+            at_check(undo_depth() == c->undo + 1, "the whole stroke is ONE undo step");
+            undo();
+            const SpriteSkin* after = world().get<SpriteSkin>(world().find_by_id("limb"));
+            at_check(after && after->weights == c->weights, "Undo puts the weights back");
+            redo();
+        });
+        snap("editor_bone_weights.png");
+
+        // ---- the overlay follows the selected bone
+        step(2, [this, bone_named] { select(bone_named("bone_2")); });
+        step(4, [this] {
+            at_check(bone_.boneIndex == 1, "selecting bone_2 in the Hierarchy picks it as the bone shown");
+            at_check(bone_.weightDots == 15, "...the overlay is still on the Limb");
+            at_check(bone_.bonesDrawn == 1, "...and the viewport outlines the selected bone (" + std::to_string(bone_.bonesDrawn) + ")");
+        });
+
+        // ---- IK: a handle at the target
+        step(2, [this, bone_named, c] {
+            std::string err;
+            const Entity b2 = bone_named("bone_2");
+            const CommandResult r = edit_command("at:ik", "scene.set_component",
+                                                 Json::object({{"id", world().id_of(b2)}, {"component", "IK2D"},
+                                                               {"fields", Json::object({{"target", "ik_target"}, {"chainLength", 2}})}}), &err);
+            at_check(r.ok, "an IK2D on bone_2 targets the Target: " + err);
+            select_id("rig");
+        });
+        click_widget("bone:tool:ik");
+        step(4, [this, c, bone_named] {
+            at_check(bone_.tool == BoneTool::Ik && bone_.ikHandles == 1, "the IK tool draws one handle for the one IK chain");
+            c->undo = undo_depth();
+            const Transform* t = world().get<Transform>(world().find_by_id("ik_target"));
+            c->targetX = t->position.x;
+            c->targetY = t->position.y;
+            c->rotBefore = world().get<Transform>(bone_named("bone_1"))->rotation.z;
+            focus_window("###Viewport");
+        });
+        step(2, [this, c] {
+            c->grab = c->cur = at_widget("bone:ik:Target");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, c->grab);
+        });
+        step(2, [this, c] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, c->grab); });
+        step(3, [this, c] {
+            c->cur = Vec2{c->grab.x + 40.0f, c->grab.y - 30.0f};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, c->cur);
+        });
+        step(3, [this, c] {
+            c->cur = Vec2{c->grab.x + 60.0f, c->grab.y - 50.0f};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, c->cur);
+        });
+        step(2, [this, c] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, c->cur); });
+        step(5, [this, c, bone_named] {
+            const Transform* t = world().get<Transform>(world().find_by_id("ik_target"));
+            at_check(t && t->position.x > c->targetX + 20.0f && t->position.y > c->targetY + 20.0f, "dragging the handle moves the IK target");
+            at_check(undo_depth() == c->undo + 1, "...as ONE undo step");
+            at_check(std::fabs(world().get<Transform>(bone_named("bone_1"))->rotation.z - c->rotBefore) > 0.01f, "...and the bones turned to follow it");
+            undo();
+            const Transform* back = world().get<Transform>(world().find_by_id("ik_target"));
+            at_check(back && std::fabs(back->position.x - c->targetX) < 0.01f, "Undo puts the target back");
+            at_check(std::fabs(world().get<Transform>(bone_named("bone_1"))->rotation.z - c->rotBefore) < 0.01f, "...and the bones with it");
+        });
+        snap("editor_bone_ik.png");
+        step(2, [this] {
+            bone_.tool = BoneTool::Off;
+            showBoneTools_ = false;
+            select_id("");
         });
     }
 

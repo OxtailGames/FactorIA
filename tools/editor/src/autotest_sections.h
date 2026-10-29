@@ -46,6 +46,8 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"X", "AI settings window: asset providers, a key, asset sites; a bad site stops Save; Remove stored key"},
     {"Y", "Recipes: stale badge, the banner when a source is saved, Regenerate (toolbar and banner), a missing source"},
     {"Z", "Sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets SpriteAnimator.clip"},
+    {"B2", "Animation panel: new clip, keys recorded by a gizmo drag, a key moved and undone, easing, an event, scrubbing, onion skin"},
+    {"C2", "Bone tools: a chain drawn by clicks, a sprite bound, weights painted (one undo step), an IK handle dragged, the overlay of the selected bone"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

@@ -115,6 +115,12 @@ bool animatable(FieldKind k) {
         default: return false;
     }
 }
+}  // namespace
+
+bool clip_field_animatable(const FieldInfo& f) { return animatable(f.kind) && f.serialized && !f.readOnly; }
+
+namespace {
+
 std::vector<std::string> animatable_fields(const TypeInfo& t) {
     std::vector<std::string> out;
     for (const FieldInfo& f : t.fields)
