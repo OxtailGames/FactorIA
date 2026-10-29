@@ -533,6 +533,68 @@
         "Fixed in 303db3e: assets.textureSize(path) returns { width, height }, the same cached size entity.bounds() uses (32 x 32 for a missing file)."
       ],
       "engineIssue": "303db3e"
+    },
+    {
+      "id": "FB-0024",
+      "date": "2026-10-29",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scene",
+      "severity": "minor",
+      "title": "A scene that was generated keeps a copy of the prefab it was made from",
+      "missing": "scenes/generated.scene.json (written by project.generate_level) held the player's components inline, so changing prefabs/player.prefab.json did not reach it and the player there had no Animator.",
+      "workaround": "Regenerated the scene with the README arguments (width 90, seed 7, difficulty 3).",
+      "workaroundFiles": [
+        "scenes/generated.scene.json"
+      ],
+      "suggestion": "Have the generator (or scene.import_ascii) write `prefab` references only, and let validate warn about a committed scene whose entity repeats the components of its prefab.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0025",
+      "date": "2026-10-29",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "animation",
+      "severity": "minor",
+      "title": "IK2D targets need a script to stand on uneven ground",
+      "missing": "The walk clip moves a marker per foot, but putting the IK target on the floor under it (a ray) takes script code in every game: IK2D has no 'snap target to ground' option.",
+      "workaround": "scripts/player.js feet() casts a ray under each marker every fixed step and moves the IK target entity.",
+      "workaroundFiles": [
+        "scripts/player.js"
+      ],
+      "suggestion": "An optional IK2D.ground mask (project the target onto the first collider below it, within a reach) would make planted feet a data setting.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0026",
+      "date": "2026-10-29",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "animation",
+      "severity": "minor",
+      "title": "Clips address a bone by its full path from the Animator entity",
+      "missing": "A track path 'rig/body/scarf/s2' fails when s2 is a child of s1 ('s2' exists at 'rig/body/scarf/s1/s2'); a nested chain needs every level spelled out in every clip.",
+      "workaround": "Spelled the full path in the three hero clips.",
+      "workaroundFiles": [
+        "anim/hero_idle.anim.json",
+        "anim/hero_walk.anim.json",
+        "anim/hero_jump.anim.json"
+      ],
+      "suggestion": "Nothing to change in the engine, the error already names the right path; a `factoria validate` check of clip paths against the prefab would find it before running.",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

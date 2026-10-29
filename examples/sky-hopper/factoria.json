@@ -50,5 +50,10 @@
     "ios",
     "android"
   ],
-  "feedbackFile": "ENGINE_FEEDBACK.json"
+  "feedbackFile": "ENGINE_FEEDBACK.json",
+  "export": {
+    "exclude": [
+      "assets/src/**"
+    ]
+  }
 }

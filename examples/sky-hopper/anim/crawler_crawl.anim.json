@@ -1,0 +1,173 @@
+{
+  "format": "factoria.anim/1",
+  "doc": "A slow shuffle: two steps, the body squashes on each.",
+  "duration": 0.5,
+  "loop": true,
+  "tracks": [
+    {
+      "path": "foot_f",
+      "component": "Transform",
+      "field": "position.x",
+      "keys": [
+        {
+          "t": 0,
+          "value": 12,
+          "interp": "linear"
+        },
+        {
+          "t": 0.25,
+          "value": 4,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.5,
+          "value": 12
+        }
+      ]
+    },
+    {
+      "path": "foot_f",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": -11
+        },
+        {
+          "t": 0.25,
+          "value": -11,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.375,
+          "value": -8,
+          "interp": "quadIn"
+        },
+        {
+          "t": 0.5,
+          "value": -11
+        }
+      ]
+    },
+    {
+      "path": "foot_b",
+      "component": "Transform",
+      "field": "position.x",
+      "keys": [
+        {
+          "t": 0,
+          "value": -12,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.25,
+          "value": -4,
+          "interp": "linear"
+        },
+        {
+          "t": 0.5,
+          "value": -12
+        }
+      ]
+    },
+    {
+      "path": "foot_b",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": -11,
+          "interp": "quadOut"
+        },
+        {
+          "t": 0.125,
+          "value": -8,
+          "interp": "quadIn"
+        },
+        {
+          "t": 0.25,
+          "value": -11
+        },
+        {
+          "t": 0.5,
+          "value": -11
+        }
+      ]
+    },
+    {
+      "path": "body",
+      "component": "Transform",
+      "field": "scale.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": 1,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.125,
+          "value": 0.92,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.25,
+          "value": 1,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.375,
+          "value": 0.92,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.5,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "path": "body/eye_f",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": 11,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.25,
+          "value": 12,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.5,
+          "value": 11
+        }
+      ]
+    },
+    {
+      "path": "body/eye_b",
+      "component": "Transform",
+      "field": "position.y",
+      "keys": [
+        {
+          "t": 0,
+          "value": 12,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.25,
+          "value": 11,
+          "interp": "sineInOut"
+        },
+        {
+          "t": 0.5,
+          "value": 12
+        }
+      ]
+    }
+  ]
+}
