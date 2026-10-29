@@ -18,7 +18,7 @@ are listed by name under the path; hover one to see its path (`~/.factoria/edito
 
 The window title names the engine version and the open project, `FactorIA 0.1.3 — My Game` (just `FactorIA 0.1.3` on
 the Open or create a project dialog). The version is the one `factoria version` prints; the right end of the menu bar
-shows it too on Windows and Linux (`FactorIA 0.4.0`; hover it for the build fingerprint), and on macOS **FactorIA > About
+shows it too on Windows and Linux (`FactorIA 0.5.0`; hover it for the build fingerprint), and on macOS **FactorIA > About
 FactorIA** shows it with the build fingerprint.
 
 ## The menu bar
