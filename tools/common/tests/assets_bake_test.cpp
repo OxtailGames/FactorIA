@@ -11,6 +11,7 @@
 #include "fa/scene/sprite_animator.h"
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/tooling.h"
+#include "fa_test_paths.h"
 
 using namespace fa;
 using namespace fa::testing;
@@ -352,4 +353,138 @@ TEST_CASE("assets.bake_sheet: a baked sheet is previewed by clip name and plays 
     CHECK(plan.fromSheet);
     a.clip = "explod";
     CHECK(resolve_sprite_animator(a, "assets/fx/boom.png", sheet).error.find("explode") != std::string::npos);
+}
+
+namespace {
+
+// A character in two parts: a body that stays and an arm that swings (the clip moves it along x). The Animator also names a
+// clip that does not loop, and carries a state machine that would leave "swing" if the bake did not switch it off.
+const char* kWalkerPrefab = R"({"format":"factoria.prefab/1","entity":{"id":"walker","components":{
+  "Transform":{},"Shape2D":{"shape":"rectangle","size":[10,20],"color":[1,1,1,1]},
+  "Animator":{"clips":{"swing":"anim/swing.anim.json","once":"anim/once.anim.json","idle":"anim/swing.anim.json"},
+    "states":{"idle":{"clip":"idle"}}}},
+  "children":[{"name":"arm","components":{"Transform":{"position":[0,0,0]},"Shape2D":{"shape":"rectangle","size":[8,8],"color":[1,0,0,1]}}}]}})";
+
+const char* kSwingClip = R"({"format":"factoria.anim/1","duration":0.5,"loop":true,"tracks":[
+  {"path":"arm","component":"Transform","field":"position.x","keys":[{"t":0,"value":0},{"t":0.25,"value":30},{"t":0.5,"value":0}]}]})";
+const char* kOnceClip = R"({"format":"factoria.anim/1","duration":0.4,"loop":false,"tracks":[
+  {"path":"arm","component":"Transform","field":"position.y","keys":[{"t":0,"value":0},{"t":0.4,"value":20}]}]})";
+
+}  // namespace
+
+TEST_CASE("assets.bake_sheet: a clip of the Animator is baked by name, from time 0, and regenerates from the recipe") {
+    BakeProject p;
+    p.put("prefabs/walker.prefab.json", kWalkerPrefab);
+    p.put("anim/swing.anim.json", kSwingClip);
+    p.put("anim/once.anim.json", kOnceClip);
+    const Json clips = Json::array({Json{{"name", "swing"}, {"clip", "swing"}}, Json{{"name", "once"}, {"clip", "once"}, {"fps", 20}}});
+    const Json args = Json{{"path", "assets/walker.png"}, {"prefab", "prefabs/walker.prefab.json"}, {"fps", 10}, {"clips", clips}, {"padding", 0}, {"columns", 4}};
+    CommandResult r = p.reg.call("assets.bake_sheet", args);
+    if (no_gpu(r)) return;
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    // frames come from the duration: a looping 0.5 s clip at 10 fps is 5 frames, a 0.4 s clip that stops at 20 fps is 8 + 1
+    const Json& sheet = r.result["sheet"];
+    REQUIRE(sheet["clips"].size() == 2);
+    CHECK(sheet["clips"][0]["firstFrame"] == 0);
+    CHECK(sheet["clips"][0]["lastFrame"] == 4);
+    CHECK(sheet["clips"][0]["loop"] == true);
+    CHECK(sheet["clips"][1]["firstFrame"] == 5);
+    CHECK(sheet["clips"][1]["lastFrame"] == 13);
+    CHECK(sheet["clips"][1]["loop"] == false);  // from the clip file
+    CHECK(sheet["clips"][1]["fps"] == 20);
+    CHECK_FALSE(has_warning(r.result, "identical"));
+
+    // frame 0 is the pose at time 0 (the arm over the body, at x = 0), at 0.2 s the arm is 24 units to the right
+    const Image img = read_png(p.file("assets/walker.png"));
+    const int fw = r.result["frameWidth"].get<int>(), fh = r.result["frameHeight"].get<int>();
+    auto red_x = [&](int frame) {  // mean x of the red pixels of a frame
+        long sum = 0, n = 0;
+        for (int y = 0; y < fh; ++y)
+            for (int x = 0; x < fw; ++x) {
+                const auto px = get(img, (frame % 4) * fw + x, (frame / 4) * fh + y);
+                if (px.a > 200 && px.r > 200 && px.g < 60) {
+                    sum += x;
+                    ++n;
+                }
+            }
+        return n ? double(sum) / double(n) : -1.0;
+    };
+    const double x0 = red_x(0), x2 = red_x(2), x4 = red_x(4);
+    REQUIRE(x0 >= 0);
+    CHECK(x2 - x0 == doctest::Approx(24.0).epsilon(0.1));  // frame 2 is t = 0.2 s: 30 units in 0.25 s
+    CHECK(x4 < x2);
+
+    // the same inputs, the same bytes
+    const std::string first = read_all(p.file("assets/walker.png"));
+    Json again = args;
+    again["overwrite"] = true;
+    CommandResult b = p.reg.call("assets.bake_sheet", again);
+    REQUIRE_MESSAGE(b.ok, b.error.dump());
+    CHECK(read_all(p.file("assets/walker.png")) == first);
+
+    // the recipe keeps the clip entries and the clip files, so assets.regenerate makes the sheet again and notices a changed clip
+    const Json recipe = p.manifest()["assets"]["assets/walker.png"]["provenance"]["recipe"];
+    CHECK(recipe["args"]["clips"][0]["clip"] == "swing");
+    bool hasClipFile = false;
+    for (const Json& in : recipe["inputs"]) hasClipFile = hasClipFile || in["path"] == "anim/swing.anim.json";
+    CHECK(hasClipFile);
+    write_all(p.file("assets/walker.png"), "spoiled");
+    CommandResult regen = p.reg.call("assets.regenerate", Json{{"path", "assets/walker.png"}});
+    REQUIRE_MESSAGE(regen.ok, regen.error.dump());
+    CHECK(read_all(p.file("assets/walker.png")) == first);
+}
+
+TEST_CASE("assets.bake_sheet: the clip entries teach (unknown clip, no Animator, clip with call)") {
+    BakeProject p;
+    p.put("prefabs/walker.prefab.json", kWalkerPrefab);
+    p.put("prefabs/orb.prefab.json", kCirclePrefab);
+    p.put("scripts/pulse.js", kPulseScript);
+    p.put("anim/swing.anim.json", kSwingClip);
+    p.put("anim/once.anim.json", kOnceClip);
+
+    // rejected before anything is drawn
+    CommandResult both = p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"}, {"prefab", "prefabs/walker.prefab.json"},
+                                                              {"clips", Json::array({Json{{"name", "x"}, {"clip", "swing"}, {"call", "go"}}})}});
+    REQUIRE_FALSE(both.ok);
+    CHECK(message(both).find("call") != std::string::npos);
+    CHECK(message(both).find("clip") != std::string::npos);
+    CommandResult notString = p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"}, {"prefab", "prefabs/walker.prefab.json"}, {"clips", Json::array({Json{{"name", "x"}, {"clip", 3}}})}});
+    REQUIRE_FALSE(notString.ok);
+
+    CommandResult typo = p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"}, {"prefab", "prefabs/walker.prefab.json"}, {"clips", Json::array({Json{{"name", "x"}, {"clip", "swin"}}})}});
+    if (no_gpu(typo)) return;
+    REQUIRE_FALSE(typo.ok);
+    CHECK(message(typo).find("swin") != std::string::npos);
+    CHECK(message(typo).find("Did you mean 'swing'") != std::string::npos);
+    CHECK(message(typo).find("swing, once, idle") != std::string::npos);
+
+    CommandResult none = p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"clips", Json::array({Json{{"name", "x"}, {"clip", "swing"}}})}});
+    REQUIRE_FALSE(none.ok);
+    CHECK(message(none).find("no Animator") != std::string::npos);
+    CHECK(message(none).find("Add an Animator") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(p.file("assets/a.png")));
+}
+
+TEST_CASE("assets.bake_sheet: a clip of a glTF Animator is baked by name too") {
+    BakeProject p;
+    p.put("assets/models/rig.gltf", read_all(stdfs::path(FA_REPO_ROOT) / "engine/render/tests/data/skinned_two_bone.gltf"));
+    p.put("prefabs/rig.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"rig","components":{
+      "Transform":{"scale":[60,60,60]},"MeshRenderer":{"mesh":"assets/models/rig.gltf","color":[1,0.6,0.2,1]},
+      "Animator":{"clip":"Slide"}}}})");
+    const Json clips = Json::array({Json{{"name", "bend"}, {"clip", "Bend"}}, Json{{"name", "slide"}, {"clip", "Slide"}, {"frames", 3}, {"loop", false}}});
+    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/rig.png"}, {"prefab", "prefabs/rig.prefab.json"}, {"fps", 8}, {"clips", clips}});
+    if (no_gpu(r)) return;
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json& sheet = r.result["sheet"];
+    REQUIRE(sheet["clips"].size() == 2);
+    CHECK(sheet["clips"][0]["lastFrame"] == 7);  // Bend lasts 1 s: 8 frames at 8 fps
+    CHECK(sheet["clips"][0]["loop"] == true);
+    CHECK(sheet["clips"][1]["firstFrame"] == 8);
+    CHECK(sheet["clips"][1]["lastFrame"] == 10);
+    CHECK(sheet["clips"][1]["loop"] == false);
+    CHECK_FALSE(has_warning(r.result, "'bend'"));  // the tip rotates, so the frames differ
+
+    CommandResult typo = p.reg.call("assets.bake_sheet", Json{{"path", "assets/rig2.png"}, {"prefab", "prefabs/rig.prefab.json"}, {"clips", Json::array({Json{{"name", "x"}, {"clip", "Bent"}}})}});
+    REQUIRE_FALSE(typo.ok);
+    CHECK(message(typo).find("Did you mean 'Bend'") != std::string::npos);
 }

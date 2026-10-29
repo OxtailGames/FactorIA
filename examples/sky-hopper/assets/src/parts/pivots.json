@@ -1,0 +1,12 @@
+{
+  "hero/head": [0.5, 0.0],
+  "hero/body": [0.5, 0.5],
+  "hero/arm": [0.5, 1.0],
+  "hero/thigh": [0.14, 0.5],
+  "hero/shin": [0.15, 0.5],
+  "hero/foot": [0.19, 0.5],
+  "hero/scarf": [0.0, 0.5],
+  "crawler/body": [0.5, 0.0],
+  "crawler/eye": [0.5, 0.5],
+  "crawler/foot": [0.5, 0.5]
+}

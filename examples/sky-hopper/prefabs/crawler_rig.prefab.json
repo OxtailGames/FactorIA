@@ -1,0 +1,102 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "CrawlerRig",
+    "components": {
+      "Transform": {
+        "position": [0, 0, 0]
+      },
+      "Animator": {
+        "clips": {
+          "crawl": "anim/crawler_crawl.anim.json",
+          "alert": "anim/crawler_alert.anim.json"
+        },
+        "clip": "crawl"
+      }
+    },
+    "children": [
+      {
+        "name": "body",
+        "components": {
+          "Transform": {
+            "position": [0, -9, 0]
+          },
+          "Sprite": {
+            "texture": "assets/parts_atlas.png",
+            "region": [2, 2, 72, 44],
+            "size": [36, 22],
+            "pivot": [0.5, 0.0],
+            "layer": 2,
+            "pixelArt": false
+          }
+        },
+        "children": [
+          {
+            "name": "eye_f",
+            "components": {
+              "Transform": {
+                "position": [8, 11, 0]
+              },
+              "Sprite": {
+                "texture": "assets/parts_atlas.png",
+                "region": [2, 70, 16, 16],
+                "size": [8, 8],
+                "pivot": [0.5, 0.5],
+                "layer": 3,
+                "pixelArt": false
+              }
+            }
+          },
+          {
+            "name": "eye_b",
+            "components": {
+              "Transform": {
+                "position": [-2, 11, 0]
+              },
+              "Sprite": {
+                "texture": "assets/parts_atlas.png",
+                "region": [2, 70, 16, 16],
+                "size": [8, 8],
+                "pivot": [0.5, 0.5],
+                "layer": 3,
+                "pixelArt": false
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "foot_f",
+        "components": {
+          "Transform": {
+            "position": [8, -11, 0]
+          },
+          "Sprite": {
+            "texture": "assets/parts_atlas.png",
+            "region": [2, 90, 20, 12],
+            "size": [10, 6],
+            "pivot": [0.5, 0.5],
+            "layer": 1,
+            "pixelArt": false
+          }
+        }
+      },
+      {
+        "name": "foot_b",
+        "components": {
+          "Transform": {
+            "position": [-8, -11, 0]
+          },
+          "Sprite": {
+            "texture": "assets/parts_atlas.png",
+            "region": [2, 90, 20, 12],
+            "size": [10, 6],
+            "pivot": [0.5, 0.5],
+            "layer": 1,
+            "pixelArt": false
+          }
+        }
+      }
+    ]
+  }
+}
