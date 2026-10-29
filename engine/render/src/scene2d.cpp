@@ -278,30 +278,28 @@ void gather_lights(World& world, Frame& f) {
 
 }  // namespace
 
+namespace {
+// The plan of an animator for this frame: the sheet entry of its texture is looked up once per texture per frame.
+SpriteAnimPlan animator_plan(Frame& f, const SpriteAnimator& a, const std::string& texture) {
+    if (texture.empty()) return resolve_sprite_animator(a, texture, nullptr);
+    auto it = f.sheets.find(texture);
+    if (it == f.sheets.end()) it = f.sheets.emplace(texture, assets::sheet(texture)).first;
+    return resolve_sprite_animator(a, texture, it->second);
+}
+}  // namespace
+
 void update_animators(World& world, Frame& f, bool advance) {
     const float dt = advance ? f.dt : 0.0f;
     world.each<SpriteAnimator, Sprite>([&](Entity e, SpriteAnimator& a, Sprite& s) {
         if (!entity_active(world, e)) return;
-        int count = std::max(1, a.lastFrame - a.firstFrame + 1);
-        if (a.playing && dt > 0) {
-            a.time += dt;
-            int n = int(std::floor(a.time * std::max(0.0f, a.fps)));
-            if (a.loop) {
-                a.frame = a.firstFrame + (n % count);
-            } else if (n >= count) {
-                a.frame = a.lastFrame;
-                a.playing = false;
-            } else {
-                a.frame = a.firstFrame + n;
-            }
-        } else if (a.frame < a.firstFrame || a.frame > a.lastFrame) {
-            a.frame = a.firstFrame;
-        }
+        const SpriteAnimPlan plan = animator_plan(f, a, s.texture);
+        if (!plan.error.empty() && f.warnedSpriteClip && f.warnedSpriteClip->insert(world.id_of(e) + "|" + a.clip).second)
+            FA_WARN("render", "entity '{}': {}", world.id_of(e), plan.error);
+        // The draw pass (advance false) only re-applies the frame; the clip events belong to the step that reached the end.
+        const bool ended = sprite_animator_step(a, plan, dt);
+        if (ended && advance) world.events().game.push_back(GameEvent{"clipEnded", Json::object({{"id", world.id_of(e)}, {"clip", a.clip}}), e});
         TextureAsset* tex = f.assets->texture(s.texture);
-        int cols = std::max(1, a.columns), rows = std::max(1, a.rows);
-        float fw = float(tex->width) / float(cols), fh = float(tex->height) / float(rows);
-        int fr = std::max(0, a.frame);
-        s.region = Rect{float(fr % cols) * fw, float((fr / cols) % rows) * fh, fw, fh};
+        s.region = sprite_frame_rect(plan, a.frame, tex->width, tex->height);
     });
 }
 
@@ -340,8 +338,10 @@ void gather_2d(World& world, Frame& f) {
         const bool lit = s.lit && !screen;
         if (lit) list.set_lit(s.normalMap.empty() ? nullptr : assets.texture(s.normalMap));
         const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
-        const float pivotX = mirrored ? 1.0f - s.pivot.x : s.pivot.x;
-        const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -s.pivot.y * size.y, by1 = (1 - s.pivot.y) * size.y;
+        Vec2 spritePivot = s.pivot;
+        if (const SpriteAnimator* anim = world.get<SpriteAnimator>(e)) spritePivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
+        const float pivotX = mirrored ? 1.0f - spritePivot.x : spritePivot.x;
+        const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -spritePivot.y * size.y, by1 = (1 - spritePivot.y) * size.y;
         // A deformable sprite (meshColumns x meshRows cells, vertexOffsets) and the shear (skew). Both leave the pivot where it is.
         int meshCols = 0, meshRows = 0;
         std::vector<float> meshOffsets;

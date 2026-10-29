@@ -1,4 +1,5 @@
 #include "fa/scene/bounds.h"
+#include "fa/scene/sprite_animator.h"
 
 #include <algorithm>
 #include <cmath>
@@ -114,6 +115,10 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
     }
 
     if (const Sprite* s = W.get<Sprite>(e); s && (includeScreenSpace || s->space == RenderSpace::World)) {
+        const SpriteAnimator* animator = W.get<SpriteAnimator>(e);
+        SpriteAnimPlan plan;
+        if (animator) plan = sprite_animator_plan(*animator, s->texture);
+        const Vec2 pivot = animator ? sprite_effective_pivot(*s, *animator, plan) : s->pivot;
         Vec2 size = s->size;
         if (size.x <= 0 || size.y <= 0) {  // 0 = the region, else the whole texture; 32 for a plain colour quad
             Vec2 base{32.0f, 32.0f};
@@ -122,13 +127,15 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
                     base = {s->region.w, s->region.h};
                 } else {
                     if (measure.textureSize) base = measure.textureSize(s->texture);
-                    if (const SpriteAnimator* a = W.get<SpriteAnimator>(e))  // the renderer sets the region to one frame of the sheet
-                        base = {base.x / static_cast<float>(std::max(1, a->columns)), base.y / static_cast<float>(std::max(1, a->rows))};
+                    if (animator) {  // the renderer sets the region to one frame of the sheet
+                        const Rect cell = sprite_frame_rect(plan, 0, int(base.x), int(base.y));
+                        base = {cell.w, cell.h};
+                    }
                 }
             }
             size = {size.x > 0 ? size.x : base.x, size.y > 0 ? size.y : base.y};
         }
-        const float x0 = -s->pivot.x * size.x, y0 = -s->pivot.y * size.y, x1 = (1.0f - s->pivot.x) * size.x, y1 = (1.0f - s->pivot.y) * size.y;
+        const float x0 = -pivot.x * size.x, y0 = -pivot.y * size.y, x1 = (1.0f - pivot.x) * size.x, y1 = (1.0f - pivot.y) * size.y;
         std::array<Vec2, 4> box = rect_quad(x0, y0, x1, y1);
         int cols = 0, rows = 0;
         const std::vector<float> offsets = sprite_mesh_grid(*s, cols, rows) ? sprite_vertex_offsets(*s, cols, rows) : std::vector<float>();

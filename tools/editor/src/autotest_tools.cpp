@@ -3570,6 +3570,106 @@ void Editor::at_build_tools_script() {
         });
     }
 
+    // ----------------------------------------------------------------------------------------------- Z. Sprite sheets
+    section("Z");
+    // Sprite sheets: the Project panel previews the sheet that is selected (its clips, played the way a SpriteAnimator plays
+    // them, with a menu to change clip), and the Inspector of a SpriteAnimator lists the clips of its Sprite's texture, one click
+    // sets `clip` (one undo step).
+    {
+        struct YState {
+            size_t undo = 0;
+        };
+        auto y = std::make_shared<YState>();
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        step(2, [this, project_file, y] {
+            stop();
+            select_id("");
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            Image img;
+            img.width = 24;
+            img.height = 8;
+            img.rgba.assign(size_t(24) * 8 * 4, 255);
+            for (int x = 0; x < 24; ++x)
+                for (int yy = 0; yy < 8; ++yy) {
+                    std::uint8_t* px = &img.rgba[(size_t(yy) * 24 + x) * 4];
+                    px[0] = std::uint8_t(x / 8 == 0 ? 255 : 40);
+                    px[1] = std::uint8_t(x / 8 == 1 ? 255 : 40);
+                    px[2] = std::uint8_t(x / 8 == 2 ? 255 : 40);
+                }
+            at_check(save_png(img, project_file("assets/autotest_sheet.png")).ok(), "a sprite sheet was written for the sheet test");
+            write_file(project_file("assets.json"),
+                       R"({"format": "factoria.assets/1", "assets": {"assets/autotest_sheet.png": {"sheet": {"columns": 3, "rows": 1,
+                          "frameWidth": 8, "frameHeight": 8, "frames": 3, "clips": [
+                          {"name": "run", "firstFrame": 0, "lastFrame": 1, "fps": 4, "loop": true},
+                          {"name": "idle", "firstFrame": 2, "lastFrame": 2, "fps": 1, "loop": true}]}}}})");
+            std::string err;
+            CommandResult r = edit_command("at:sheethero", "scene.spawn",
+                                           Json::object({{"id", "sheethero"}, {"name", "Sheet Hero"},
+                                                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({300, 250, 0})}})},
+                                                                                      {"Sprite", Json::object({{"texture", "assets/autotest_sheet.png"}})},
+                                                                                      {"SpriteAnimator", Json::object()}})}}),
+                                           &err);
+            at_check(r.ok, "an entity with a Sprite and a SpriteAnimator was spawned: " + err);
+            projBrowser_.stale = true;
+            projBrowser_.query.search = "autotest_sheet";
+            projBrowser_.selected = "assets/autotest_sheet.png";
+            sheetPreviewPath_.clear();
+            showProject_ = true;
+            focus_window("Project");
+            y->undo = undo_depth();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("sheet:clip") && sheetPreviewFrame_ >= 0; };
+        });
+        step(30, [this] {
+            at_check(sheetPreviewChoice_ == "run", "the preview starts with the first clip of the sheet");
+            at_check(sheetPreviewFrame_ == 0 || sheetPreviewFrame_ == 1, "...and shows one of its frames (0 or 1)");
+        });
+        snap("editor_sheet_preview.png");
+        click_widget("sheet:clip");
+        step(3, [] {});
+        click_widget("sheet:choice:idle");
+        step(6, [this] {
+            at_check(sheetPreviewChoice_ == "idle", "choosing a clip in the menu plays that clip");
+            at_check(sheetPreviewFrame_ == 2, "...the idle clip is the third frame of the sheet");
+        });
+        step(2, [this] {
+            focus_window("Project");
+            select_id("sheethero");
+            inspScrollTo_ = "SpriteAnimator.clip";
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("insp:SpriteAnimator.clip:run") && at_visible("insp:SpriteAnimator.clip:idle"); };
+        });
+        step(2, [this, y] {
+            at_check(true, "the Inspector lists the clips of the Sprite's texture under SpriteAnimator.clip");
+            y->undo = undo_depth();
+        });
+        click_widget("insp:SpriteAnimator.clip:idle");
+        step(5, [this, y] {
+            const SpriteAnimator* a = world().get<SpriteAnimator>(world().find_by_id("sheethero"));
+            at_check(a && a->clip == "idle", "clicking a clip sets SpriteAnimator.clip");
+            at_check(undo_depth() == y->undo + 1, "...as one undo step");
+        });
+        snap("editor_sheet_inspector.png");
+        step(2, [this, project_file] {
+            select_id("");
+            projBrowser_.selected.clear();
+            projBrowser_.query.search.clear();
+            std::error_code ec;
+            stdfs::remove(project_file("assets.json"), ec);
+            stdfs::remove(project_file("assets/autotest_sheet.png"), ec);
+            projBrowser_.stale = true;
+        });
+    }
+
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;
     step(2, [this] {

@@ -236,3 +236,49 @@ describe("neon look", () => {
     }
   });
 });
+
+describe("shockwave (a sheet made with assets.animate_svg, played by clip name)", () => {
+  test("a kill spawns a shockwave that plays the clip 'pop' frame by frame and removes itself when it ends", () => {
+    loadGame();
+    mgr().timer = 999;
+    const target = world.spawnPrefab("prefabs/chaser.prefab.json", { position: vec3(300, 0, 0) });
+    game.step(1);
+    target.behaviour.hurt(99);
+    game.step(1);
+    const fx = world.find("Shockwave");
+    expect(fx).not.toBeNull();
+    const clips = fx.spriteAnimator.clips;
+    expect(clips).toEqual(["pop", "boom"]);
+    expect(fx.get("SpriteAnimator").clip).toBe("pop");
+    const seen = new Set();
+    for (let i = 0; i < 12; i++) {
+      game.step(1);
+      if (fx.alive) seen.add(fx.get("SpriteAnimator").frame);
+    }
+    expect(seen.size).toBeGreaterThan(3); // it animates: the frame changes (pop is frames 0..7)
+    game.step(30); // pop is 8 frames at 24 fps = a third of a second
+    expect(fx.alive).toBe(false); // clipEnded destroyed it
+  });
+
+  test("play() switches clip by name; a wrong name is an error that lists the clips", () => {
+    loadGame();
+    mgr().timer = 999;
+    const fx = world.spawn({
+      name: "Probe",
+      components: { Transform: { position: [0, 0, 0] }, Sprite: { texture: "assets/art/shockwave.png" }, SpriteAnimator: {} },
+    });
+    game.step(1);
+    fx.spriteAnimator.play("boom");
+    game.step(1);
+    expect(fx.get("SpriteAnimator").clip).toBe("boom");
+    let message = "";
+    try {
+      fx.spriteAnimator.play("bom");
+    } catch (e) {
+      message = String(e.message || e);
+    }
+    expect(message).toContain("pop, boom");
+    expect(message).toContain("boom"); // the did-you-mean
+    fx.destroy();
+  });
+});

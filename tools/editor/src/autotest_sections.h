@@ -45,6 +45,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"W", "Several AI chats at once: both finish, same-file warning, the cap, Revert of one run, Stop of one run"},
     {"X", "AI settings window: asset providers, a key, asset sites; a bad site stops Save; Remove stored key"},
     {"Y", "Recipes: stale badge, the banner when a source is saved, Regenerate (toolbar and banner), a missing source"},
+    {"Z", "Sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets SpriteAnimator.clip"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

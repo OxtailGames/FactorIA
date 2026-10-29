@@ -98,6 +98,7 @@ void register_synth_sound_command(CommandRegistry& registry, const std::string& 
 void register_texture_command(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_texture
 void register_svg_command(CommandRegistry& registry, const std::string& projectDir);      // assets.rasterize_svg
 void register_animate_svg_command(CommandRegistry& registry, const std::string& projectDir);  // assets.animate_svg
+void register_preview_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_sheet
 void register_bake_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.bake_sheet
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);

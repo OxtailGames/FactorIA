@@ -485,15 +485,33 @@ void register_builtin_components(TypeRegistry& r) {
 
     r.add<SpriteAnimator>("SpriteAnimator",
                           "Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it "
-                          "overwrites Sprite.region every frame. Frames are numbered row-major from the top-left.",
+                          "overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a "
+                          "named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; "
+                          "`assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then "
+                          "names only the texture and the clip. The numeric fields override the clip when they differ from their default "
+                          "(columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). "
+                          "A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.",
                           "2D")
-        .field("columns", &SpriteAnimator::columns, "Number of columns in the sprite sheet grid.").range(1, 4096)
+        .field("columns", &SpriteAnimator::columns, "Number of columns in the sprite sheet grid. With `clip`, set it (not 1) only to override the sheet entry.").range(1, 4096)
         .field("rows", &SpriteAnimator::rows, "Number of rows in the sprite sheet grid.").range(1, 4096)
         .field("firstFrame", &SpriteAnimator::firstFrame, "First frame of the clip (inclusive, row-major index).")
         .field("lastFrame", &SpriteAnimator::lastFrame, "Last frame of the clip (inclusive, row-major index).")
         .field("fps", &SpriteAnimator::fps, "Playback speed in frames per second.").range(0, 1000)
-        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame.")
+        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.")
         .field("playing", &SpriteAnimator::playing, "Set false to pause, true to play.")
+        .field("clip", &SpriteAnimator::clip,
+               "Name of a clip of the Sprite texture's `sheet` entry in assets.json (\"run\"); \"\" = none, the numeric fields alone. "
+               "Changing it restarts the animation. A name the sheet does not have is an error that lists the clips (\"did you mean\"): "
+               "`factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame.")
+        .enum_field("mode", &SpriteAnimator::mode, {"forward", "reverse", "pingpong"},
+                    "Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without "
+                    "repeating the end frames). A pingpong clip that does not loop stops back on the first frame.")
+        .field("sheetPivot", &SpriteAnimator::sheetPivot,
+               "true = the pivot recorded in the sheet entry (or the clip's own pivot) is used as Sprite.pivot while the Sprite's own pivot "
+               "is the default centre [0.5, 0.5]; a Sprite that sets another pivot keeps it. The sheet stores it from the TOP-left of the "
+               "frame, Sprite.pivot counts from the bottom-left, so y is flipped. false = never touch the pivot.")
+        .field("ended", &SpriteAnimator::ended, "Runtime state: a non-looping clip reached its end (clipEnded was sent).").runtime_only()
+        .field("playedClip", &SpriteAnimator::playedClip, "Runtime state: the clip `time` counts in.").runtime_only()
         .field("time", &SpriteAnimator::time, "Runtime state: seconds elapsed in the current clip.").runtime_only()
         .field("frame", &SpriteAnimator::frame, "Runtime state: current frame index.").runtime_only();
 

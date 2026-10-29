@@ -627,6 +627,10 @@
        "doc": "Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get(\"Animator\") answers null instead."
       },
       {
+       "sig": "readonly spriteAnimator: SpriteAnimatorAPI",
+       "doc": "Named clips of this entity's SpriteAnimator (play, clips, on(\"clipEnded\")). Throws if the entity has no SpriteAnimator; entity.get(\"SpriteAnimator\") answers null instead."
+      },
+      {
        "sig": "readonly tilemap: TilemapAPI",
        "doc": "Single-tile access to this entity's Tilemap component (getTile, setTile, width, height) and the cell <-> world conversion for both projections (cellAt, cellToWorld). Throws if the entity has no Tilemap; entity.get(\"Tilemap\") answers null instead."
       },
@@ -3819,6 +3823,65 @@
       {
        "sig": "readonly component: Components[\"Animator\"]",
        "doc": "The Animator component view (model, params, states, transitions, events...)."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "SpriteAnimatorAPI",
+     "doc": "Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The renderer steps the animation with the frame time, so it runs with a renderer (a headless run has one when a GPU is found). Example: `fx.spriteAnimator.play(\"pop\"); fx.spriteAnimator.on(\"clipEnded\", () => fx.destroy());`.",
+     "members": [
+      {
+       "sig": "play(clip: string, restart?: boolean): void",
+       "doc": "Starts the clip `clip` of the texture's sheet from its first frame and plays it. Asking for the clip that already plays (and has not ended) does nothing unless `restart` is true, so it may be called every frame. Throws with the clip names (and a \"did you mean\") when the sheet has no such clip."
+      },
+      {
+       "sig": "stop(): void",
+       "doc": "Pauses on the current frame."
+      },
+      {
+       "sig": "resume(): void",
+       "doc": "Continues after stop()."
+      },
+      {
+       "sig": "readonly clips: string[]",
+       "doc": "Names of the clips of the sprite texture's sheet. Throws when the texture has no sheet entry."
+      },
+      {
+       "sig": "clipInfo(clip: string): { name: string; firstFrame: number; lastFrame: number; frames: number; fps: number; loop: boolean; pivot?: [number, number] }",
+       "doc": "The sheet entry of one clip (pivot from the TOP-left of the frame, as stored). Throws with the clip names when it does not exist."
+      },
+      {
+       "sig": "on(event: \"clipEnded\", fn: (data: { id: string; clip: string }, source: Entity | null) => void): () => void",
+       "doc": "Listens to the game event of THIS entity's animator: \"clipEnded\", sent once when a clip that does not loop (loop false in the sheet or the component) reaches its end. Returns the unsubscribe function. world.on(\"clipEnded\", fn) hears every entity."
+      },
+      {
+       "sig": "clip: string",
+       "doc": "The clip playing now (SpriteAnimator.clip). Assigning another name restarts the animation."
+      },
+      {
+       "sig": "mode: \"forward\" | \"reverse\" | \"pingpong\"",
+       "doc": "Order of the frames."
+      },
+      {
+       "sig": "readonly frame: number",
+       "doc": "Index in the sheet's grid (row-major from the top-left) of the frame shown."
+      },
+      {
+       "sig": "time: number",
+       "doc": "Seconds into the current clip. Assigning seeks (set playing to true to run a finished clip again)."
+      },
+      {
+       "sig": "playing: boolean",
+       "doc": "false pauses, true resumes."
+      },
+      {
+       "sig": "readonly ended: boolean",
+       "doc": "True after a clip that does not loop reached its end."
+      },
+      {
+       "sig": "readonly component: Components[\"SpriteAnimator\"]",
+       "doc": "The SpriteAnimator component view (columns, rows, firstFrame, lastFrame, fps, loop, clip, mode, sheetPivot...)."
       }
      ]
     },

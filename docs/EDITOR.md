@@ -505,6 +505,10 @@ badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its p
   ground plane (y = 0), and 10 units in front of the camera when it misses it (the ray points up or the ground is farther than
   1000 units). Other types do nothing on the Viewport (the tooltip says only prefabs).
 - **Double-click** a `.scene.json` to open it (with the same "Unsaved changes" question as File > Open Scene).
+- **Sprite sheets.** Select a picture that has a `sheet` entry in `assets.json` and a strip appears under the file list: a menu
+  of its clips ("(all frames)" first) and the chosen clip playing, frame by frame at the clip's `fps`, the way a
+  `SpriteAnimator` plays it (same code: padding and a non-looping clip's last frame included), with the frame number and
+  range. A picture without a `sheet` entry shows no strip.
 - **Right-click** a file: **Show in Finder** (Explorer, file manager), **Copy path**, **Delete...** (asks first, then `fs.delete`;
   it is not an Undo step, the file is gone from disk).
 
@@ -577,7 +581,7 @@ wrapping, right-click menu), G (delete a project), H (Export window), I (Platfor
 (custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
 agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
-its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key) and W (two AI chats at once against a scripted model: both finish with their own answers, the
+its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key, Z (sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets `SpriteAnimator.clip`) and W (two AI chats at once against a scripted model: both finish with their own answers, the
 same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash

@@ -11,6 +11,7 @@
 
 #include "assets_anim_js.h"
 #include "assets_internal.h"
+#include "sheet_checks.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/asset_import.h"
@@ -89,40 +90,6 @@ std::optional<std::array<double, 2>> pivot_arg(const Json& obj, const std::strin
         arg_error(kCommand, pointer + "/pivot", "expected [x, y], two numbers from 0 to 1 measured from the top-left of the frame.",
                   "[0.5, 0.5] is the centre (the default); [0.5, 1] is the middle of the bottom edge, where a character stands.");
     return std::array<double, 2>{(*it)[0].get<double>(), (*it)[1].get<double>()};
-}
-
-// Mean difference between two pictures of the same size, 0 (equal) to 2.
-double picture_difference(const Image& a, const Image& b) {
-    if (a.rgba.size() != b.rgba.size() || a.rgba.empty()) return 0;
-    double sum = 0;
-    for (std::size_t i = 0; i < a.rgba.size(); i += 4) {
-        const double a1 = a.rgba[i + 3], a2 = b.rgba[i + 3];
-        const double colour = (std::abs(a.rgba[i] - b.rgba[i]) + std::abs(a.rgba[i + 1] - b.rgba[i + 1]) + std::abs(a.rgba[i + 2] - b.rgba[i + 2])) / 3.0;
-        sum += std::abs(a1 - a2) + std::min(a1, a2) / 255.0 * colour;
-    }
-    return sum / (255.0 * double(a.rgba.size() / 4));
-}
-
-bool picture_is_empty(const Image& im) {
-    for (std::size_t i = 3; i < im.rgba.size(); i += 4)
-        if (im.rgba[i] != 0) return false;
-    return true;
-}
-
-bool touches_edge(const Image& im) {
-    auto ink = [&](int x, int y) { return im.rgba[(std::size_t(y) * im.width + x) * 4 + 3] > 8; };
-    for (int x = 0; x < im.width; ++x)
-        if (ink(x, 0) || ink(x, im.height - 1)) return true;
-    for (int y = 0; y < im.height; ++y)
-        if (ink(0, y) || ink(im.width - 1, y)) return true;
-    return false;
-}
-
-std::string list_frames(const std::vector<std::string>& names) {
-    std::string out;
-    for (std::size_t i = 0; i < names.size() && i < 12; ++i) out += (i ? ", " : "") + names[i];
-    if (names.size() > 12) out += std::format(", ... ({} in all)", names.size());
-    return out;
 }
 
 Json animate(const std::string& projectDir, const Json& a) {
@@ -354,23 +321,14 @@ Json animate(const std::string& projectDir, const Json& a) {
     if (!emptyFrames.empty())
         warn(std::format("{} of the {} frames draw nothing (frame {}): the shapes may sit outside the viewBox, or the module returned an empty drawing.", emptyFrames.size(), total, list_frames(emptyFrames)));
     if (!edgeFrames.empty())
-        warn(std::format("Shapes touch the edge of the cell in {} frame(s) (frame {}): they may be cut off. Draw smaller inside the viewBox, or make frameWidth/frameHeight larger, or set `padding`.", edgeFrames.size(), list_frames(edgeFrames)));
+        warn(std::format("Shapes touch the edge of the cell in {} frame(s) (frame {}): they may be cut off. Draw smaller inside the viewBox, or make frameWidth/frameHeight larger, or set `padding` (a transparent gutter around each frame).", edgeFrames.size(), list_frames(edgeFrames)));
     {
         int first = 0;
         for (const ClipSpec& clip : clips) {
             if (clip.loop && clip.frames >= 3) {
-                double consecutive = 0;
-                for (int f = 1; f < clip.frames; ++f) consecutive += picture_difference(pictures[std::size_t(first + f - 1)], pictures[std::size_t(first + f)]);
-                consecutive /= clip.frames - 1;
-                const double wrap = picture_difference(pictures[std::size_t(first + clip.frames - 1)], pictures[std::size_t(first)]);
-                const std::string name = hasClips ? " of clip \"" + clip.name + "\"" : "";
-                if (wrap > 0.004 && wrap > 2.5 * consecutive)
-                    warn(std::format("The loop{} jumps: its last frame differs from the first {:.1f} times more than the frames differ from each other, so a pop shows when it repeats. "
-                                     "Let the last frame lead into the first: draw frame i at progress = frame / frames (it reaches 1 only after the last frame), or set loop: false.",
-                                     name, consecutive > 0 ? wrap / consecutive : 99.0));
-                else if (consecutive > 0.004 && wrap < 0.1 * consecutive)
-                    warn(std::format("The loop{} stops for a frame: its last frame is the same as the first, shown twice when it repeats. Draw frame i at progress = frame / frames, "
-                                     "so the end is the frame after the last.", name));
+                std::vector<const Image*> clipFrames;
+                for (int f = 0; f < clip.frames; ++f) clipFrames.push_back(&pictures[std::size_t(first + f)]);
+                if (auto w = loop_seam_warning(clipFrames, hasClips ? " of clip \"" + clip.name + "\"" : std::string())) warn(*w);
             }
             first += clip.frames;
         }
@@ -472,9 +430,6 @@ Json animate(const std::string& projectDir, const Json& a) {
     if (!warnings.empty()) result["warnings"] = warnings;
     result["$image"] = Json::object({{"path", file.string()}, {"mimeType", "image/png"}});
     std::vector<std::string> steps = sheet_next_steps(rel, sheet, hasClips ? clips[0].fps : fps);
-    if (padding > 0)
-        steps.push_back(std::format("The cells have a {} px transparent gutter, recorded as `padding` in the sheet entry of assets.json: the SpriteAnimator steps above slice a plain grid "
-                                    "with no gutter, so they are right only for padding 0.", padding));
     steps.push_back("Look at the sheet in this result. To change the animation, edit " + (isModule ? sourceRel : std::string("the SVG")) + " and call again with overwrite: true, "
                     "or run assets.regenerate {\"path\":\"" + rel + "\"} (the recipe is in the provenance; {\"stale\":true} makes again every asset whose source changed).");
     result["nextSteps"] = steps;

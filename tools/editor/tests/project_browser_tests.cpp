@@ -7,6 +7,7 @@
 #include "fa/core/hash.h"
 #include "fa/core/math.h"
 #include "project_browser_model.h"
+#include "sheet_preview_model.h"
 
 using namespace fa;
 using namespace fa::editor;
@@ -187,4 +188,33 @@ TEST_CASE("project browser: made assets carry their recipe check; a saved source
     CHECK(recipe_of_file(l, "assets/made.png")->missing == std::vector<std::string>{"assets/src.svg"});
     CHECK(stale_assets(l).empty());
     stdfs::remove_all(dir);
+}
+
+TEST_CASE("sheet preview: plays a clip like a SpriteAnimator (fps, loop, padding, pivot) and lists the choices") {
+    auto sheet = assets::parse_sheet(Json::parse(R"({"columns": 3, "rows": 1, "frameWidth": 8, "frameHeight": 8, "frames": 3, "padding": 1,
+        "pivot": [0.5, 0.5], "clips": [{"name": "run", "firstFrame": 1, "lastFrame": 2, "fps": 2, "loop": false, "pivot": [0.5, 1.0]}]})"));
+    REQUIRE(sheet);
+    const auto choices = editor::sheet_preview_choices(*sheet);
+    REQUIRE(choices.size() == 2);
+    CHECK(choices[0] == editor::kAllFrames);
+    CHECK(choices[1] == "run");
+
+    // texture 30 x 10: cells of 10, frames of 8 inside a 1 px gutter
+    editor::SheetPreviewFrame f = editor::sheet_preview_frame(*sheet, "run", 0.0, 30, 10);
+    CHECK(f.frame == 1);
+    CHECK(f.rect.x == doctest::Approx(11.0f));
+    CHECK(f.rect.w == doctest::Approx(8.0f));
+    CHECK(f.pivot.y == doctest::Approx(1.0f));  // from the top-left: the clip's own pivot
+    f = editor::sheet_preview_frame(*sheet, "run", 0.6, 30, 10);  // 2 fps: the second frame after 0.5 s
+    CHECK(f.frame == 2);
+    CHECK(f.ended);
+    f = editor::sheet_preview_frame(*sheet, "run", 50.0, 30, 10);  // does not loop: stays
+    CHECK(f.frame == 2);
+
+    f = editor::sheet_preview_frame(*sheet, editor::kAllFrames, 0.35, 30, 10);  // all frames at 10 fps, looping
+    CHECK(f.steps == 3);
+    CHECK(f.frame == 0);  // step 3 wrapped to 0
+    CHECK(f.pivot.y == doctest::Approx(0.5f));
+    f = editor::sheet_preview_frame(*sheet, "nope", 0.15, 30, 10);  // an unknown name shows every frame
+    CHECK(f.frame == 1);
 }

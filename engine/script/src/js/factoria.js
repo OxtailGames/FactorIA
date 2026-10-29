@@ -502,6 +502,11 @@
         throw new Error(`entity '${this.id}' has no Animator component; add one next to a MeshRenderer with a skinned glTF: entity.add("Animator", {clip: "Idle"})`);
       return new AnimatorApi(this.$h);
     }
+    get spriteAnimator() {
+      if (!N.hasComp(this.$h, "SpriteAnimator"))
+        throw new Error(`entity '${this.id}' has no SpriteAnimator component; add one next to a Sprite whose texture has a sheet: entity.add("SpriteAnimator", {clip: "idle"})`);
+      return new SpriteAnimatorApi(this.$h);
+    }
     get tilemap() {
       if (!N.hasComp(this.$h, "Tilemap"))
         throw new Error(`entity '${this.id}' has no Tilemap component; add one with entity.add("Tilemap", {...}) or build it with scene.import_ascii`);
@@ -554,6 +559,38 @@
     set loop(v) { this.component.loop = v; }
     get playing() { return this.component.playing; }
     set playing(v) { this.component.playing = v; }
+  }
+
+  // ============================================================================================== sprite animator
+  // entity.spriteAnimator: plays the named clips of a sprite sheet (the `sheet` entry of the texture in assets.json). The
+  // SpriteAnimator component holds the state; the renderer steps it with the frame time.
+  class SpriteAnimatorApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("SpriteAnimator")); }
+    play(name, restart = false) { N.spriteAnimCall(this.$h, "play", String(name), !!restart); }
+    stop() { this.component.playing = false; }
+    resume() { this.component.playing = true; }
+    get clips() { return N.spriteAnimCall(this.$h, "clips").map((c) => c.name); }
+    clipInfo(name) {
+      const all = N.spriteAnimCall(this.$h, "clips");
+      const c = all.find((x) => x.name === name);
+      if (!c) { const names = all.map((x) => x.name); throw new Error(`no sprite clip '${name}'; the sheet has: ${names.join(", ") || "(none)"}${closest(name, names) ? `. Did you mean '${closest(name, names)}'?` : ""}`); }
+      return c;
+    }
+    on(name, fn) {
+      const id = N.idOf(this.$h);
+      return addListener(name, (data, source) => { if (data && data.id === id) fn(data, source); }, null);
+    }
+    get clip() { return this.component.clip; }
+    set clip(v) { this.component.clip = v; }
+    get mode() { return this.component.mode; }
+    set mode(v) { this.component.mode = v; }
+    get frame() { return this.component.frame; }
+    get time() { return this.component.time; }
+    set time(v) { this.component.time = v; }
+    get playing() { return this.component.playing; }
+    set playing(v) { this.component.playing = v; }
+    get ended() { return this.component.ended; }
   }
 
   // ======================================================================================================== tilemap
