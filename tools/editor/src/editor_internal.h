@@ -471,7 +471,7 @@ public:
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false, showProject_ = true;
     ProjectBrowser projBrowser_;
-    bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false, showDemo_ = false;
+    bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
     // Engine update (fa/editor/update.h): checked once when the editor opens. While a newer release is offered the
     // modal popup blocks the editor until Update or Not now; Update installs it, then the editor quits and reopens.
@@ -622,9 +622,6 @@ public:
     std::string feedbackError_;
     std::int64_t feedbackMtime_ = INT64_MIN;
     double feedbackPolled_ = -10;
-    Json feedbackArchive_;                         // the archive file's document (null when there is none)
-    std::int64_t feedbackArchiveMtime_ = INT64_MIN;
-    bool fbShowArchive_ = false;                   // list the archived entries too
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
