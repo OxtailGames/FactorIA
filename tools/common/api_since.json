@@ -727,6 +727,7 @@
     "assets.pack_atlas": "0.3.0",
     "assets.provenance": "0.1.6",
     "assets.rasterize_svg": "0.4.0",
+    "assets.regenerate": "unreleased",
     "assets.set_provenance": "0.1.6",
     "assets.slice_sheet": "0.1.6",
     "assets.subset_font": "0.3.0",

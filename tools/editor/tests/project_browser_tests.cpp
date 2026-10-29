@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "doctest.h"
+#include "fa/core/hash.h"
 #include "fa/core/math.h"
 #include "project_browser_model.h"
 
@@ -145,4 +146,45 @@ TEST_CASE("project browser: a prefab dropped in 3D lands on the ground plane, el
     // Too far away (grazing the horizon): the fallback again.
     const Vec3 far = drop_point_3d({0, 1, 0}, normalize(Vec3{0, -0.0001f, -1}));
     CHECK(far.z > -11.0f);
+}
+
+TEST_CASE("project browser: made assets carry their recipe check; a saved source makes them stale") {
+    namespace stdfs = std::filesystem;
+    const stdfs::path dir = stdfs::temp_directory_path() / "fa_browser_recipes";
+    stdfs::remove_all(dir);
+    stdfs::create_directories(dir / "assets");
+    auto write = [&](const char* rel, const std::string& text) { std::ofstream(dir / rel, std::ios::binary) << text; };
+    write("assets/src.svg", "<svg>one</svg>");
+    write("assets/made.png", "png");
+    write("assets/plain.png", "png");
+    auto hash = sha256_file_hex(dir / "assets/src.svg");
+    REQUIRE(hash.ok());
+    write("assets.json", R"({"assets":{"assets/made.png":{"provenance":{"origin":"original","recipe":{"command":"assets.rasterize_svg",)"
+                         R"("args":{"path":"assets/made.png","source":"assets/src.svg"},)"
+                         R"("inputs":[{"path":"assets/src.svg","sha256":")" + hash.value() + R"("}]}}},)"
+                         R"("assets/plain.png":{"provenance":{"origin":"original"}}}})");
+    ProjectListing l = scan_project(dir.string());
+    REQUIRE(l.recipes.size() == 1);
+    const AssetRecipeStatus* made = recipe_of_file(l, "assets/made.png");
+    REQUIRE(made);
+    CHECK(made->command == "assets.rasterize_svg");
+    CHECK(!made->stale());
+    CHECK(made->missing.empty());
+    CHECK(recipe_of_file(l, "assets/plain.png") == nullptr);
+    CHECK(stale_assets(l).empty());
+    const std::string before = recipe_inputs_stamp(dir.string(), l);
+    CHECK(before.find("assets/src.svg") != std::string::npos);
+
+    write("assets/src.svg", "<svg>two, longer</svg>");  // the source is saved
+    CHECK(recipe_inputs_stamp(dir.string(), l) != before);
+    l = scan_project(dir.string());
+    CHECK(stale_assets(l) == std::vector<std::string>{"assets/made.png"});
+    CHECK(recipe_of_file(l, "assets/made.png")->changed == std::vector<std::string>{"assets/src.svg"});
+
+    stdfs::remove(dir / "assets/src.svg");  // the source is deleted: it cannot be made again
+    l = scan_project(dir.string());
+    REQUIRE(recipe_of_file(l, "assets/made.png"));
+    CHECK(recipe_of_file(l, "assets/made.png")->missing == std::vector<std::string>{"assets/src.svg"});
+    CHECK(stale_assets(l).empty());
+    stdfs::remove_all(dir);
 }

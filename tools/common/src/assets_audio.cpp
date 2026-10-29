@@ -365,7 +365,8 @@ Json generate_loop(const std::string& projectDir, const Json& a) {
     const Json provenance = Json::object({{"origin", "original"}, {"ai", false}, {"kind", "sound"}, {"provider", "factoria assets.generate_loop"}, {"seed", seed},
                                           {"license", "CC0-1.0"}, {"author", "factoria"},
                                           {"notes", "Synthesised loop (" + kind + "): " + notes + ", " + std::format("{:.2f}", seconds) + " s at " + std::to_string(rate) + " Hz, seed " + std::to_string(seed) + ". No recording or sample."},
-                                          {"date", assets::today()}});
+                                          {"date", assets::today()},
+                                          {"recipe", make_recipe(projectDir, cmd, recipe_args(a, {{"path", path}, {"kind", kind}, {"seed", seed}, {"seconds", seconds}, {"sampleRate", rate}}), {})}});
     record_provenance(projectDir, path, provenance);
     Json next = Json::array({"Loop it: an AudioSource with \"loop\": true, or audio.music(\"" + path + "\").",
                              "Another take: change `seed`. Same arguments, same bytes."});
@@ -400,6 +401,7 @@ Json convert_audio(const std::string& projectDir, const Json& a) {
         const Json entry = assets::entry(path);
         if (entry.is_object() && entry.contains("provenance") && entry["provenance"].is_object()) old = &entry["provenance"];
         provenance = old ? *old : Json::object({{"origin", "original"}, {"ai", false}, {"kind", "sound"}, {"author", "factoria"}, {"date", assets::today()}});
+        provenance.erase("recipe");  // the WAV's recipe makes the WAV, not this Ogg
         std::string notes = provenance.value("notes", std::string());
         if (!notes.empty()) notes += " ";
         provenance["notes"] = notes + "Converted from " + path + " to Ogg Vorbis (quality " + std::format("{}", quality) + ") by assets.convert_audio.";

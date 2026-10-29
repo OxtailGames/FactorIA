@@ -2,6 +2,27 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Assets made with code can be made again.
+
+Assets
+
+- The offline makers (`assets.rasterize_svg`, `assets.draw_icon`, `assets.draw_capsules`, `assets.generate_texture`,
+  `assets.synth_sound`, `assets.generate_loop`, `assets.pack_atlas`, `assets.slice_sheet`) record a recipe in the asset's
+  provenance: the command, the arguments that make the same bytes again (explicit seeds, project-relative paths) and the
+  files it read with their hashes.
+- New `assets.regenerate {path | all | stale, dryRun}` runs the recipe again and says what changed (pixels or bytes, size,
+  sheet layout). `stale` makes again only the assets whose sources were edited. Provider-made assets have no recipe.
+- `factoria validate` warns about a stale asset and about a recipe whose input no longer exists, with the exact
+  `assets.regenerate` command in the hint.
+
+Editor
+
+- The Project panel marks stale made assets with a "stale" badge (red "no src" when a source is gone), has a Regenerate
+  button (the selected asset, else every stale one) and a Regenerate item in the right-click menu. When a source of a made
+  asset is saved a banner offers Regenerate or Not now.
+
 ## 0.5.0
 
 FactorIA 0.5.0 makes the editor a proper Mac app: its menus are in the Mac's own menu bar.

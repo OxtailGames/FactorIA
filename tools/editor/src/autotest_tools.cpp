@@ -3465,6 +3465,111 @@ void Editor::at_build_tools_script() {
         });
     }
 
+    // ------------------------------------------------------------------------------------------------ Y. Recipes
+    section("Y");
+    // A made asset (assets.rasterize_svg records a recipe): the Project panel shows a stale badge when its source changed on
+    // disk, a banner offers Regenerate / Not now (quiet after Not now), the toolbar Regenerate makes the selected asset again
+    // (different pixels, up to date), the banner's Regenerate makes every stale one again, and a deleted source turns the badge
+    // into "no src" with Regenerate off.
+    {
+        struct Recipes {
+            std::string manifest, firstPng;
+            bool hadManifest = false;
+        };
+        auto ry = std::make_shared<Recipes>();
+        const std::string png = "assets/ay_coin.png", svg = "assets/ay_src.svg", tile = "proj:file:assets/ay_coin.png";
+        auto svg_text = [](const char* fill, int size) {
+            return std::string("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><circle cx=\"32\" cy=\"32\" r=\"") +
+                   std::to_string(size) + "\" fill=\"" + fill + "\"/></svg>";
+        };
+        step(2, [this, ry, project_file, svg_text, png, svg] {
+            stop();
+            select_id("");
+            ry->hadManifest = stdfs::exists(project_file("assets.json"));
+            ry->manifest = ry->hadManifest ? read_file(project_file("assets.json")) : std::string();
+            write_file(project_file(svg), svg_text("#e03030", 20));
+            std::string err;
+            CommandResult r = edit_command("at:y:make", "assets.rasterize_svg",
+                                           Json::object({{"path", png}, {"source", svg}, {"width", 32}, {"height", 32}}), &err);
+            at_check(r.ok, "assets.rasterize_svg made a picture with a recipe: " + err);
+            ry->firstPng = read_file(project_file(png));
+            showProject_ = true;
+            projBrowser_.selected.clear();
+            projBrowser_.offeredStale.clear();
+            focus_window("Project");
+        });
+        step(1, [this, tile] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, tile] { return at_visible(tile); };
+        });
+        step(3, [this, png] {
+            const AssetRecipeStatus* st = recipe_of_file(projBrowser_.listing, png);
+            at_check(st && !st->stale() && st->missing.empty() && st->command == "assets.rasterize_svg",
+                     "the made picture has a recipe and is up to date");
+            at_check(!at_visible("recipe:notice"), "no banner while everything is up to date");
+        });
+        step(2, [project_file, svg, svg_text] { write_file(project_file(svg), svg_text("#3060e0", 26)); });  // the source is saved
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("recipe:notice"); };  // the watcher looks once a second
+        });
+        step(3, [this, png] {
+            const std::vector<std::string> stale = stale_assets(projBrowser_.listing);
+            at_check(stale == std::vector<std::string>{png}, "the saved source makes the picture stale");
+            at_check(at_visible("recipe:regenerate") && at_visible("recipe:notnow"), "the banner offers Regenerate and Not now");
+        });
+        snap("editor_recipe_stale.png");
+        click("recipe:notnow");
+        step(2, [this] { projBrowser_.inputsPolled = -100; });
+        step(40, [this] { at_check(!at_visible("recipe:notice"), "Not now hides the banner and it stays quiet"); });
+        step(2, [this, png] {
+            projBrowser_.selected = png;
+            at_check(at_enabled("proj:regenerate"), "the toolbar Regenerate is on for the selected made picture");
+        });
+        click("proj:regenerate");
+        step(6, [this, ry, project_file, png] {
+            at_check(read_file(project_file(png)) != ry->firstPng, "Regenerate drew the picture again from the new source");
+            const AssetRecipeStatus* st = recipe_of_file(projBrowser_.listing, png);
+            at_check(st && !st->stale(), "...and it is up to date again");
+            at_check(stale_assets(projBrowser_.listing).empty(), "...so nothing is stale");
+        });
+        step(2, [this, project_file, svg, svg_text] {
+            write_file(project_file(svg), svg_text("#30c060", 14));
+            projBrowser_.offeredStale.clear();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("recipe:notice"); };
+        });
+        click("recipe:regenerate");
+        step(6, [this, png] {
+            at_check(stale_assets(projBrowser_.listing).empty(), "the banner's Regenerate made the stale picture again");
+            at_check(!at_visible("recipe:notice"), "...and the banner is gone");
+        });
+        step(2, [this, project_file, svg] {
+            std::error_code ec;
+            stdfs::remove(project_file(svg), ec);
+            projBrowser_.recipesDirty = true;
+            projBrowser_.stale = true;
+            projBrowser_.inputsPolled = -100;
+        });
+        step(30, [this, png] {
+            const AssetRecipeStatus* st = recipe_of_file(projBrowser_.listing, png);
+            at_check(st && !st->missing.empty(), "a deleted source is a missing input");
+            at_check(!at_enabled("proj:regenerate"), "...and Regenerate is off (it cannot be made again)");
+        });
+        step(2, [this, ry, project_file, png, svg] {  // put the project back
+            std::error_code ec;
+            stdfs::remove(project_file(png), ec);
+            stdfs::remove(project_file(svg), ec);
+            if (ry->hadManifest) write_file(project_file("assets.json"), ry->manifest);
+            else stdfs::remove(project_file("assets.json"), ec);
+            projBrowser_.selected.clear();
+            projBrowser_.offeredStale.clear();
+            project_files_changed();
+        });
+    }
+
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;
     step(2, [this] {

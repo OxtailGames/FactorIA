@@ -501,7 +501,11 @@ Json set_provenance(const Ctx&, const Json& args) {
     }
     if (const std::optional<i64> seed = seed_arg(args)) p["seed"] = *seed;
     if (std::vector<std::string> refs = string_list(args, "references"); !refs.empty()) p["references"] = refs;
-    auto r = assets::update_entry(path, [&](Json& entry) { entry["provenance"] = p; });
+    // The recipe of a made asset (assets.regenerate) is not something to type here: describing who made the file keeps it.
+    auto r = assets::update_entry(path, [&](Json& entry) {
+        if (entry.contains("provenance") && entry["provenance"].is_object() && entry["provenance"].contains("recipe")) p["recipe"] = entry["provenance"]["recipe"];
+        entry["provenance"] = p;
+    });
     if (!r) fail("manifest_failed", r.error());
     return Json::object({{"path", path}, {"provenance", p}});
 }
@@ -636,7 +640,7 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         true, provenance_command);
     add_command(
         registry, ctx, "assets.set_provenance", "Record where an asset came from (hand-made, imported, or made with AI elsewhere).",
-        "Replaces the provenance record of an existing file in assets.json. The generate commands write it for you; use this "
+        "Replaces the provenance record of an existing file in assets.json (the recipe that assets.regenerate runs, when the file has one, is kept). The generate commands write it for you; use this "
         "for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to "
         "true for origin generated, false otherwise). Example: {\"path\":\"assets/music/theme.ogg\",\"origin\":\"imported\","
         "\"ai\":false,\"license\":\"CC0\",\"source\":\"https://example.com/theme\",\"author\":\"A. Composer\"}",

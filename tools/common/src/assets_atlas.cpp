@@ -8,6 +8,7 @@
 #include <tuple>
 
 #include "assets_internal.h"
+#include "fa/core/asset_manifest.h"
 #include "export_internal.h"  // blit_extruded and the padding of the export's atlas packer
 #include "fa/core/strings.h"
 #include "util.h"
@@ -112,6 +113,7 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     if (!stdfs::is_directory(dir, ec))
         fail("not_found", "The folder '" + *folder + "' does not exist.", "Put the frames (png, jpg, tga, bmp) in a folder of the project and give its path.");
 
+    require_usable_manifest(projectDir);
     // ---- the frames: every image under the folder, named by its path without the extension ----
     const stdfs::path outFile = project_file(projectDir, *out);
     std::vector<std::string> files;
@@ -257,6 +259,28 @@ Json pack_atlas(const std::string& projectDir, const Json& a) {
     const bool tableChanged = tooling_detail::read_file(tableFile).value_or("") != tableText;
     if (pngChanged && !tooling_detail::write_file(outFile, pngBytes, &err)) fail("failed", err);
     if (tableChanged && !tooling_detail::write_file(tableFile, tableText, &err)) fail("failed", err);
+
+    // The recipe: the frames and pivots.json it read. The previous table is not an input but it matters (frames keep their place),
+    // and regenerating over the table this call wrote gives the same bytes. The atlas counts as AI-made when a frame's record says so.
+    {
+        std::vector<std::string> inputs;
+        bool ai = false;
+        ProjectRootGuard root(projectDir);
+        for (const std::string& rel : files) {
+            inputs.push_back(*folder + "/" + rel);
+            if (assets::entry(inputs.back()).value("provenance", Json::object()).value("ai", false)) ai = true;
+        }
+        if (stdfs::is_regular_file(pivotFile, ec)) inputs.push_back(*folder + "/pivots.json");
+        const Json recipe = make_recipe(projectDir, "assets.pack_atlas",
+                                        recipe_args(a, {{"folder", *folder}, {"out", *out}, {"table", *table}, {"maxSize", maxSize}, {"padding", pad}}), inputs);
+        auto r = assets::update_entry(*out, [&](Json& e) {
+            e.erase("analysis");
+            e["provenance"] = Json::object({{"origin", "original"}, {"ai", ai}, {"kind", "image"}, {"date", assets::today()},
+                                            {"notes", "Packed from the images of " + *folder + " by assets.pack_atlas; the frame table is " + *table + "."},
+                                            {"recipe", recipe}});
+        });
+        if (!r.ok()) fail("failed", "The atlas was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+    }
 
     Json added = Json::array(), moved = Json::array(), removed = Json::array();
     int kept = 0;
