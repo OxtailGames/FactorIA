@@ -82,7 +82,21 @@ bool ray_box(Vec3 o, Vec3 d, Vec3 lo, Vec3 hi, float& tOut) {
     tOut = t0;
     return true;
 }
+
 }  // namespace
+
+// The box of a MeshRenderer's mesh in its own space, for the selection outline: the real bounds of a procedural mesh, the
+// unit cube (+-0.5) for the built-in shapes and models, which the editor treats as one unit box.
+void Editor::mesh_local_box(Entity e, Vec3& lo, Vec3& hi) {
+    lo = Vec3{-0.5f, -0.5f, -0.5f};
+    hi = Vec3{0.5f, 0.5f, 0.5f};
+    const MeshRenderer* mr = world().get<MeshRenderer>(e);
+    if (!mr || !MeshStore::is_id(mr->mesh)) return;
+    if (const MeshStore::Entry* m = world().meshes().find(mr->mesh)) {
+        lo = m->data.bmin;
+        hi = m->data.bmax;
+    }
+}
 
 Entity Editor::pick_at(Vec2 design) {
     if (!engine_ || !engine_->renderer()) return kNullEntity;
@@ -99,6 +113,19 @@ Entity Editor::pick_at(Vec2 design) {
             Mat4 inv = w.world_matrix(e).inverse();
             Vec3 lo_ = inv.transform_point(o), ld = inv.transform_dir(d);
             float t;
+            const MeshRenderer* mr = w.get<MeshRenderer>(e);
+            if (MeshStore::is_id(mr->mesh) && w.meshes().find(mr->mesh)) {
+                // A procedural mesh: its real triangles (the box first, as a quick reject), not a unit cube.
+                const MeshStore::Entry* m = w.meshes().find(mr->mesh);
+                const Vec3 pad{1e-4f, 1e-4f, 1e-4f};
+                if (!ray_box(lo_, ld, m->data.bmin - pad, m->data.bmax + pad, t)) continue;
+                const auto g = w.meshes().geometry(mr->mesh);
+                if (g && ray_hits_mesh(*g, lo_, ld, t) && t < bestT) {
+                    bestT = t;
+                    best = e;
+                }
+                continue;
+            }
             if (ray_box(lo_, ld, Vec3{-0.55f, -0.55f, -0.55f}, Vec3{0.55f, 0.55f, 0.55f}, t) && t < bestT) {
                 bestT = t;
                 best = e;
@@ -276,7 +303,9 @@ void Editor::draw_viewport() {
         const ImU32 col = IM_COL32(255, 205, 60, 255);
         if (w.has<MeshRenderer>(sel) && !primary_is_ortho()) {
             ImVec2 c8[8];
-            for (int i = 0; i < 8; ++i) c8[i] = project(sel, Vec3{(i & 1) ? .5f : -.5f, (i & 2) ? .5f : -.5f, (i & 4) ? .5f : -.5f}, false);
+            Vec3 lo, hi;
+            mesh_local_box(sel, lo, hi);
+            for (int i = 0; i < 8; ++i) c8[i] = project(sel, Vec3{(i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z}, false);
             static const int edges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
             for (auto& ed : edges) dl->AddLine(c8[ed[0]], c8[ed[1]], col, 2.0f);
         } else {

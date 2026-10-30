@@ -66,7 +66,8 @@
 //     overlaps. Impulse = approach speed (m/s). Kinematic bodies follow RigidBody3D.velocity and push dynamic bodies.
 //   * 3D SHAPES (Collider3D.shape): Box, Sphere, CAPSULE (radius + height tip to tip along the entity's local Y, so it
 //     rotates with the entity), CONVEX (the convex hull of the vertices of Collider3D.mesh: a primitive name or a
-//     .gltf/.glb path, read without the GPU by fa_scene's load_mesh_geometry, cached by name; clouds over 256 points are
+//     .gltf/.glb path, read without the GPU by fa_scene's load_mesh_geometry, cached by name, or the "mesh:N" id of a
+//     procedural mesh (fa_scene mesh_store.h: rebuilt when the mesh is updated); clouds over 256 points are
 //     reduced to the 256 extreme points of well-spread directions) and MESH (the triangles of Collider3D.mesh, STATIC
 //     ONLY: a dynamic or kinematic body with a mesh collider is reported as a teaching problem, logged once, shown in
 //     debug_state["problem"] and Physics::problems3d(), and its collider is ignored). Box and Sphere keep their exact

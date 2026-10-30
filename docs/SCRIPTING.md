@@ -1181,6 +1181,88 @@ callback, compare `scene.current` with the scene you started in before you act o
 must still exist, or the call throws). `scene.current` is equal after a
 reload of the same scene: keep `const gen = scene.generation` and compare it instead, it changes on every load.
 
+### Procedural meshes (`mesh.create`, `mesh.update`, `mesh.destroy`, `mesh.save`)
+
+For geometry a script builds while the game runs: a terrain patch, a deformed body, a generated tree, a custom shape from a
+voxel grid. You do not write a glTF file: `mesh.create` returns a `Mesh` whose `id` (`"mesh:3"`) goes where a model path goes.
+
+```js
+const m = mesh.create({
+  positions: [0,0,0,  1,0,0,  1,0,1,  0,0,1],     // x y z per vertex (or [[0,0,0], [1,0,0], ...])
+  uvs:       [0,1,  1,1,  1,0,  0,0],             // optional, u v per vertex
+  indices:   [0,2,1,  0,3,2],                     // three per triangle
+  submeshes: [{ material: { name: "grass", color: "#58a040", roughness: 0.9 } }],
+});
+this.entity.get("MeshRenderer").mesh = m.id;
+// later, every frame if you like:
+m.update({ positions: newPositions });            // the rest is kept
+```
+
+- **Arrays.** `positions` (3 numbers per vertex), `normals` (3), `uvs` (2), `tangents` (4: xyz and a handedness w of 1 or -1; 3 means
+  w = 1), `colors` (4 rgba or 3 rgb) are flat lists, typed arrays (`Float32Array`, read without a copy through the
+  language) or lists of `[x, y, z]` / `{x, y, z}`. `indices` (a flat list, a `Uint32Array` or a list of `[a, b, c]`) has three per
+  triangle; left out on create it is `0, 1, 2, 3, ...` (a triangle soup).
+- **Computed.** Missing `normals` are smooth and area-weighted; missing `tangents` come from the `uvs` (zero `uvs` give an
+  arbitrary but valid tangent frame). A mesh without `normals` or `tangents` on update gets them computed again from the new data.
+- **Conventions are glTF's:** right-handed, +Y up, counter-clockwise triangles face front, uv (0, 0) is the top-left of the
+  image (v grows downwards). Meshes of a saved file and meshes made here therefore look the same.
+- **Materials and submeshes.** `submeshes: [{ material, start, count }]` splits the index list into runs drawn with their own
+  material; `start` and `count` count indices (multiples of 3), `start` defaults to where the previous run ended and `count`
+  to the rest. A material is a name or `{ name, color, texture, metallic, roughness, emissive, doubleSided, blend }` (the fields of a
+  glTF material the renderer reads); `texture` is a project image path or a `render.captureTexture` texture. Without `submeshes`
+  there is one submesh with a default material over all the indices; indices outside every submesh are not drawn.
+  `MeshRenderer.color` tints the base color, `materialColors` is keyed by the submesh's material `name`, and a material that gives
+  `metallic` or `roughness` replaces `MeshRenderer.metallic`/`roughness` for that submesh (as a glTF material does).
+- **Vertex colors are stored but NOT drawn yet.** They are validated, kept, and written to a saved `.glb` as `COLOR_0`, but the
+  renderer ignores them: color parts with submesh materials.
+- **Update.** `mesh.update(m, {...})` (or `m.update({...})`) replaces what you give and keeps the rest (`positions`, `uvs`,
+  `colors`, `indices`, `submeshes`; the `uvs` only if the mesh was made with some). `normals` and `tangents` are computed again unless
+  you pass them. Changing `indices` of a mesh with several submeshes needs `submeshes` as well. The bounds follow, so culling,
+  shadows and picking stay right. The GPU buffers are reused while the new data fits (they are made 50% larger when a
+  mesh outgrows them), so a per-frame update of a mesh that keeps its size creates no buffer; two changes of one mesh inside
+  one frame make new buffers for the second.
+- **Colliders.** `Collider3D` with `shape: "convex"` or `"mesh"` accepts the id in `Collider3D.mesh` (docs/COMPONENTS.md). Every
+  update rebuilds the collider's shape, so a mesh collider on a mesh you deform each frame is expensive: update it less often
+  or use a primitive collider. A box or sphere collider needs no mesh at all.
+- **Limits.** 256 live meshes, 1 048 576 vertices and 6 291 456 indices per mesh. A mesh that is not shown any more should
+  be destroyed.
+- **Errors teach.** A wrong array length, an index outside the vertices, a submesh outside the index list, a number that is NaN
+  or infinite, or a destroyed or unknown id throws an `Error` naming the field, the counts and the fix.
+- **Lifetime.** A mesh belongs to the scene that was running when it was made. Loading a scene (or reloading the same one)
+  releases every procedural mesh, like its entities. The ids are never reused in a run, so an old id never names another mesh.
+  An entity that names a mesh that is gone (destroyed, or from the old scene) draws a placeholder box and the error log says
+  why once. Meshes are NOT written to scene files: `factoria validate` rejects a `mesh:N` id in a scene or prefab; use
+  `mesh.save` to get a file. In an `onUpdate` that kept a `Mesh` for a long time, `m.alive` is false once the scene changed;
+  `m.update`/`m.save` then throw, and `m.destroy()` is quiet.
+- **Save.** `mesh.save(m, "assets/models/tree.glb")` (or `m.save(path)`) writes a `.glb` with one primitive per submesh,
+  its materials and `COLOR_0`, and returns the path; it loads back as a normal model (`MeshRenderer.mesh = path`) with
+  the same submeshes and `materialColors` names. The path must end in `.glb` and be a place commands may write. A material
+  without `metallic` or `roughness` is saved with the defaults (0 and 0.6). A material texture that is a run-time texture cannot be
+  saved (the file would point at nothing): the error says so.
+- **In the editor.** A procedural mesh in a running (play) scene is picked and outlined by its real bounds and triangles, and the inspector
+  shows its vertex and triangle counts next to `MeshRenderer.mesh`.
+
+The same operations are commands (CLI, MCP and the editor's AI): `mesh.create` (the options above as JSON;
+a flat list or lists of triples), `mesh.update {id, ...}`, `mesh.destroy {id}`, `mesh.save {id, path}`, `mesh.list` and
+`mesh.info {id}`. They act on the scene that is loaded in the process that runs them (a mesh lives only as long as that process and scene), and you set the field with
+`scene.set_component {"id": "...", "component": "MeshRenderer", "fields": {"mesh": "mesh:1"}}`.
+
+After an `await` (`scene.preload`, `http.fetch`, a timer) the scene may have changed, and the meshes of the old one are
+released: compare `scene.generation` with the value you kept before you use a mesh you made or build a new one.
+
+```js
+async onStart() {
+  const gen = scene.generation;                 // changes on every load, also of the same scene
+  const r = await http.fetch("https://api.example.com/terrain").catch(() => null);
+  if (!r || scene.generation !== gen) return;   // another scene is running: do not build for it
+  const data = r.json();
+  this.mesh = mesh.create({ positions: data.positions, indices: data.indices });
+  this.entity.get("MeshRenderer").mesh = this.mesh.id;
+}
+onUpdate() { if (this.mesh && this.mesh.alive) this.mesh.update({ positions: this.nextPositions() }); }
+onDestroy() { if (this.mesh) this.mesh.destroy(); }
+```
+
 ### The date: `game.today()` (never `Date`)
 `new Date()` and `Date.now()` read the wall clock, so a run is different every time and a test cannot pin it. Read the
 calendar date with `game.today()` instead, as you use `rng` for chance:

@@ -2917,6 +2917,161 @@
     },
   };
 
+  // ---- mesh: procedural meshes (docs/SCRIPTING.md, "Procedural meshes") ----
+  // The arrays become a Float32Array (indices: Uint32Array) here, whatever the script gave, so the native side reads bytes.
+  const MESH_FIELDS = ["positions", "normals", "uvs", "tangents", "colors", "indices", "submeshes"];
+  const MESH_SIZES = { positions: [3, 3], normals: [3, 3], uvs: [2, 2], tangents: [3, 4], colors: [3, 4] };
+  const meshRow = (e) => {
+    if (Array.isArray(e) || ArrayBuffer.isView(e)) return Array.from(e);
+    if (isObj(e)) {
+      if (e.x !== undefined) return e.w !== undefined ? [e.x, e.y, e.z, e.w] : e.z !== undefined ? [e.x, e.y, e.z] : [e.x, e.y];
+      if (e.r !== undefined) return e.a !== undefined ? [e.r, e.g, e.b, e.a] : [e.r, e.g, e.b];
+    }
+    return null;
+  };
+  function meshFloats(label, field, v) {
+    if (v === undefined || v === null) return undefined;
+    const [lo, hi] = MESH_SIZES[field];
+    const example = field === "uvs" ? "[u, v, u, v, ...]" : "[x, y, z, x, y, z, ...] or [[x, y, z], [x, y, z], ...]";
+    if (v instanceof Float32Array) return v;
+    if (ArrayBuffer.isView(v) && !(v instanceof DataView)) return Float32Array.from(v);
+    if (!Array.isArray(v))
+      throw new Error(`${label}: ${field} must be an array or a Float32Array like ${example}, but got ${inspect(v)}`);
+    if (v.length === 0) throw new Error(`${label}: ${field} is an empty array; leave it out to not give it`);
+    if (typeof v[0] === "number") return Float32Array.from(v);
+    const out = [];
+    for (let i = 0; i < v.length; i++) {
+      const row = meshRow(v[i]);
+      if (!row || row.length < lo || row.length > hi)
+        throw new Error(`${label}: ${field}[${i}] must be ${lo === hi ? lo : lo + " or " + hi} numbers (a [..] array or an object with ${field === "colors" ? "r, g, b" : field === "uvs" ? "x, y" : "x, y, z"}), but got ${inspect(v[i])}`);
+      for (const n of row) out.push(n);
+    }
+    return Float32Array.from(out);
+  }
+  function meshIndices(label, v) {
+    if (v === undefined || v === null) return undefined;
+    if (v instanceof Uint32Array) return v;
+    if (v instanceof Uint16Array || v instanceof Uint8Array) return Uint32Array.from(v);
+    if (!Array.isArray(v) && !(ArrayBuffer.isView(v) && !(v instanceof DataView)))
+      throw new Error(`${label}: indices must be an array or a Uint32Array of vertex numbers, three per triangle, e.g. [0, 1, 2, 0, 2, 3], but got ${inspect(v)}`);
+    let flat = Array.isArray(v) && v.length && typeof v[0] !== "number" ? [] : v;
+    if (flat !== v) for (let i = 0; i < v.length; i++) {
+      const row = meshRow(v[i]);
+      if (!row || row.length !== 3) throw new Error(`${label}: indices[${i}] must be a triangle [a, b, c] of three vertex numbers, but got ${inspect(v[i])}`);
+      for (const n of row) flat.push(n);
+    }
+    for (let i = 0; i < flat.length; i++)
+      if (!Number.isInteger(flat[i]) || flat[i] < 0 || flat[i] > 4294967295)
+        throw new Error(`${label}: indices[${i}] is ${inspect(flat[i])}, but an index is a whole number from 0 up (the position of a vertex in positions)`);
+    return Uint32Array.from(flat);
+  }
+  const MESH_MATERIAL_KEYS = ["name", "color", "texture", "metallic", "roughness", "emissive", "doubleSided", "blend"];
+  function meshMaterial(label, m) {
+    if (m === undefined || m === null) return {};
+    if (typeof m === "string") return { name: m };
+    if (!isObj(m) || Array.isArray(m))
+      throw new Error(`${label}: material must be a name or an object { name, color, texture, metallic, roughness, emissive, doubleSided, blend }, but got ${inspect(m)}`);
+    for (const k of Object.keys(m))
+      if (!MESH_MATERIAL_KEYS.includes(k)) {
+        const sug = closest(k, MESH_MATERIAL_KEYS);
+        throw new Error(`${label}: material has no field '${k}'.${sug ? ` Did you mean '${sug}'?` : ""} Fields: ${MESH_MATERIAL_KEYS.join(", ")}`);
+      }
+    const out = { ...m };
+    if (m.color !== undefined) out.color = color(m.color).toArray();
+    if (m.emissive !== undefined) out.emissive = color(m.emissive).toArray();
+    if (m.texture instanceof Texture) out.texture = m.texture.id;
+    return out;
+  }
+  function meshArgs(label, o) {
+    if (!isObj(o) || Array.isArray(o))
+      throw new Error(`${label}: expected an options object, e.g. mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2] }), but got ${inspect(o)}`);
+    for (const k of Object.keys(o))
+      if (!MESH_FIELDS.includes(k)) {
+        const sug = closest(k, MESH_FIELDS);
+        throw new Error(`${label}: unknown field '${k}'.${sug ? ` Did you mean '${sug}'?` : ""} Fields: ${MESH_FIELDS.join(", ")}`);
+      }
+    const arrays = {};
+    for (const k of Object.keys(MESH_SIZES)) arrays[k] = meshFloats(label, k, o[k]);
+    arrays.indices = meshIndices(label, o.indices);
+    let subs;
+    if (o.submeshes !== undefined && o.submeshes !== null) {
+      if (!Array.isArray(o.submeshes) || o.submeshes.length === 0)
+        throw new Error(`${label}: submeshes must be a non-empty array of { material, start, count }, but got ${inspect(o.submeshes)}`);
+      subs = o.submeshes.map((sm, i) => {
+        if (!isObj(sm)) throw new Error(`${label}: submeshes[${i}] must be an object { material, start, count }, but got ${inspect(sm)}`);
+        return { material: meshMaterial(`${label}: submeshes[${i}]`, sm.material), start: sm.start, count: sm.count };
+      });
+    }
+    return [arrays, subs];
+  }
+  const meshIdOf = (label, x) => {
+    if (x instanceof Mesh) {
+      if (!x.$alive) throw new Error(`${label}: mesh ${x.id} was destroyed with mesh.destroy(); make it again with mesh.create()`);
+      return x.id;
+    }
+    if (typeof x !== "string")
+      throw new Error(`${label}: expected a mesh (what mesh.create returned) or its id like "mesh:1", but got ${inspect(x)}`);
+    return x;
+  };
+  class Mesh {
+    constructor(info) {
+      Object.defineProperty(this, "id", { value: info.id, enumerable: true });
+      Object.defineProperty(this, "$info", { value: info, writable: true });
+      Object.defineProperty(this, "$alive", { value: true, writable: true });
+    }
+    get vertexCount() { return this.$info.vertices; }
+    get triangleCount() { return this.$info.triangles; }
+    get bounds() { const b = this.$info.bounds; return { min: vec3(b.min), max: vec3(b.max) }; }
+    get submeshes() { return this.$info.submeshes.map((s) => ({ material: s.material, start: s.start, count: s.count })); }
+    get destroyed() { return !this.$alive; }
+    // False after destroy() and also when the scene that made the mesh was unloaded.
+    get alive() { return this.$alive && N.meshInfo(this.id) !== null; }
+    update(o) { return mesh.update(this, o); }
+    save(path) { return mesh.save(this, path); }
+    destroy() { mesh.destroy(this); }
+    toString() { return `Mesh(${this.id}, ${this.$info.vertices} vertices${this.$alive ? "" : ", destroyed"})`; }
+  }
+  const mesh = {
+    // create({ positions, indices, ... }): a mesh the renderer, physics and the editor use as MeshRenderer.mesh = m.id; see MeshAPI.
+    create(o) {
+      const label = "mesh.create({ positions, indices })";
+      const [arrays, subs] = meshArgs(label, o);
+      return new Mesh(N.meshCreate(arrays, subs));
+    },
+    // update(mesh, { positions?, ... }): new data for a live mesh; arrays left out are kept (normals and tangents are computed again).
+    update(m, o) {
+      const label = "mesh.update(mesh, { positions })";
+      const id = meshIdOf(label, m);
+      const [arrays, subs] = meshArgs(label, o);
+      const info = N.meshUpdate(id, arrays, subs);
+      if (m instanceof Mesh) { m.$info = info; return m; }
+      return info;
+    },
+    // destroy(mesh): frees the mesh; an entity that still names it draws the missing-mesh placeholder.
+    destroy(m) {
+      if (m instanceof Mesh && !m.$alive) return;  // twice is fine
+      const id = meshIdOf("mesh.destroy(mesh)", m);
+      if (m instanceof Mesh) {
+        if (N.meshInfo(id) === null) { m.$alive = false; return; }  // its scene was unloaded: already released
+        m.$alive = false;
+      }
+      N.meshDestroy(id);
+    },
+    // save(mesh, path): writes the mesh as a .glb that loads back as a normal model; returns the path written.
+    save(m, path) {
+      const id = meshIdOf("mesh.save(mesh, path)", m);
+      if (typeof path !== "string" || path === "")
+        throw new Error(`mesh.save(mesh, path): path must be a project-relative file name ending in .glb, e.g. mesh.save(m, "assets/models/tree.glb"), but got ${inspect(path)}`);
+      return N.meshSave(id, path);
+    },
+    // exists(idOrMesh): true while the mesh is alive in the current scene.
+    exists(m) {
+      const id = m instanceof Mesh ? m.id : m;
+      return typeof id === "string" && N.meshInfo(id) !== null;
+    },
+    list() { return N.meshList(); },
+  };
+
   // ---- nav: path finding on the baked NavMesh3D (docs/NAVIGATION.md) ----
   // A grid kept natively (nav.createGrid) and flow fields over it (nav.flowField); docs/NAVIGATION.md, "Reusable grids".
   const navCellArgs = (label, a, b) => {
@@ -3259,7 +3414,7 @@
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
-    window: windowApi, clipboard: clipboardApi, render, tween, ease, cancelTweens, bt,
+    window: windowApi, clipboard: clipboardApi, render, mesh, tween, ease, cancelTweens, bt,
   };
 
   // ============================================================================================ eval serialization

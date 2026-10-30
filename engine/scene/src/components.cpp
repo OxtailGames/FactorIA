@@ -926,7 +926,8 @@ void register_builtin_components(TypeRegistry& r) {
                         "3D")
         .field("mesh", &MeshRenderer::mesh,
                "Built-in shape name (\"cube\", \"sphere\", \"plane\", \"cylinder\", \"capsule\", \"cone\", \"quad\") or a "
-               "project-relative path to a .gltf/.glb model (e.g. \"assets/models/ship.glb\").")
+               "project-relative path to a .gltf/.glb model (e.g. \"assets/models/ship.glb\"), or the `id` (\"mesh:3\") of a "
+               "procedural mesh a script made with mesh.create() (it lives as long as the scene: a scene load releases it).")
         .asset_field("texture", &MeshRenderer::texture, "texture", "Base color texture. Empty = none (or the glTF material). \"target:<name>\" shows the live picture of the Camera whose `renderTarget` is that name (a screen, a mirror, the page of a book; docs/RENDERING.md, \"Render targets\"). A pointer over the mesh reaches the Interactables of that camera.")
         .asset_field("normalMap", &MeshRenderer::normalMap, "texture",
                      "Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief "
@@ -1190,7 +1191,8 @@ void register_builtin_components(TypeRegistry& r) {
         .field("mesh", &Collider3D::mesh,
                "convex / mesh shapes: a built-in primitive name (\"cube\", \"sphere\", \"plane\", \"cylinder\", "
                "\"capsule\", \"cone\", \"quad\", the same sizes as MeshRenderer) or a project-relative path to a "
-               ".gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the "
+               ".gltf/.glb model (every mesh node of the file, with its node transform), or the `id` (\"mesh:3\") of a procedural mesh "
+               "made with mesh.create() (the collider is rebuilt whenever the mesh is updated). Use the same value as the "
                "MeshRenderer so the collider matches what is drawn.")
         .field("offset", &Collider3D::offset,
                "Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and "

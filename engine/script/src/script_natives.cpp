@@ -1393,6 +1393,105 @@ NATIVE(renderDestroy) {  // (id) -> bool; texture.destroy
     return JS_TRUE;
 }
 
+// ---- mesh.create / update / destroy / save ---------------------------------------------------------------------------------
+// The JS side (factoria.js, `mesh`) turns every array into a Float32Array (Uint32Array for indices) and every material into
+// a plain object, so the arrays are read here as bytes.
+// Reads `v` (a typed array of 4-byte elements) into `out`; false when `v` is undefined or null (not given).
+bool typed_array_words(JSContext* ctx, JSValueConst v, std::vector<std::uint32_t>& out) {
+    if (JS_IsUndefined(v) || JS_IsNull(v)) return false;
+    std::size_t off = 0, len = 0, per = 0;
+    JSValue buf = JS_GetTypedArrayBuffer(ctx, v, &off, &len, &per);
+    if (JS_IsException(buf)) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        return false;
+    }
+    std::size_t size = 0;
+    const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, buf);
+    if (data && per == 4 && off + len <= size) {
+        out.resize(len / 4);
+        if (len) std::memcpy(out.data(), data + off, len);
+    }
+    JS_FreeValue(ctx, buf);
+    return true;
+}
+
+// The MeshInput a script call gives: (arrays, submeshes) -> *in; "" or a message.
+std::string mesh_input_of(Impl* I, JSContext* ctx, JSValueConst arrays, JSValueConst submeshes, MeshInput* in) {
+    auto floats = [&](const char* key, std::vector<float>& dst) {
+        JSValue v = JS_GetPropertyStr(ctx, arrays, key);
+        std::vector<std::uint32_t> words;
+        if (typed_array_words(ctx, v, words)) {
+            dst.resize(words.size());
+            if (!words.empty()) std::memcpy(dst.data(), words.data(), words.size() * 4);
+        }
+        JS_FreeValue(ctx, v);
+    };
+    floats("positions", in->positions);
+    floats("normals", in->normals);
+    floats("uvs", in->uvs);
+    floats("tangents", in->tangents);
+    floats("colors", in->colors);
+    JSValue ix = JS_GetPropertyStr(ctx, arrays, "indices");
+    in->hasIndices = typed_array_words(ctx, ix, in->indices);
+    JS_FreeValue(ctx, ix);
+    if (!JS_IsUndefined(submeshes) && !JS_IsNull(submeshes)) {
+        Json args = Json::object({{"submeshes", I->to_json(submeshes)}});
+        auto parsed = mesh_input_from_json(args);
+        if (!parsed.ok()) return parsed.error().to_string();
+        in->submeshes = std::move(parsed->submeshes);
+    }
+    return {};
+}
+
+NATIVE(meshCreate) {  // (arrays, submeshes) -> info; mesh.create
+    SETUP;
+    MeshInput in;
+    if (std::string e = mesh_input_of(I, ctx, argv[0], argc > 1 ? argv[1] : JS_UNDEFINED, &in); !e.empty()) return throw_err(ctx, "mesh.create: " + e);
+    auto id = W.meshes().create(in);
+    if (!id.ok()) return throw_err(ctx, "mesh.create: " + id.error().to_string());
+    return I->from_json(mesh_info_json(*W.meshes().find(*id)));
+}
+
+NATIVE(meshUpdate) {  // (id, arrays, submeshes) -> info; mesh.update
+    SETUP;
+    const std::string id = arg_str(ctx, argc, argv, 0);
+    MeshInput in;
+    if (std::string e = mesh_input_of(I, ctx, argv[1], argc > 2 ? argv[2] : JS_UNDEFINED, &in); !e.empty()) return throw_err(ctx, "mesh.update: " + e);
+    auto r = W.meshes().update(id, in);
+    if (!r.ok()) return throw_err(ctx, "mesh.update: " + r.error().to_string());
+    return I->from_json(mesh_info_json(*W.meshes().find(id)));
+}
+
+NATIVE(meshDestroy) {  // (id) -> bool; mesh.destroy
+    SETUP;
+    const std::string id = arg_str(ctx, argc, argv, 0);
+    auto r = W.meshes().destroy(id);
+    if (!r.ok()) return throw_err(ctx, "mesh.destroy: " + r.error().to_string());
+    return JS_TRUE;
+}
+
+NATIVE(meshInfo) {  // (id) -> info, or null when the mesh is not alive; mesh.info
+    SETUP;
+    const MeshStore::Entry* e = W.meshes().find(arg_str(ctx, argc, argv, 0));
+    return e ? I->from_json(mesh_info_json(*e)) : JS_NULL;
+}
+
+NATIVE(meshList) {  // () -> [info]; mesh.list
+    SETUP;
+    Json out = Json::array();
+    for (const std::string& id : W.meshes().ids()) out.push_back(mesh_info_json(*W.meshes().find(id)));
+    return I->from_json(out);
+}
+
+NATIVE(meshSave) {  // (id, path) -> the path written; mesh.save
+    SETUP;
+    auto got = W.meshes().get(arg_str(ctx, argc, argv, 0));
+    if (!got.ok()) return throw_err(ctx, "mesh.save: " + got.error().to_string());
+    auto path = save_mesh_glb((*got)->data, arg_str(ctx, argc, argv, 1));
+    if (!path.ok()) return throw_err(ctx, path.error().to_string());
+    return JS_NewString(ctx, path->c_str());
+}
+
 NATIVE(uiLayout) {  // () -> undefined: the per-frame UI layout, now
     SETUP;
     UiSystem* U = I->host->ui();
@@ -3848,7 +3947,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

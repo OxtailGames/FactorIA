@@ -721,6 +721,10 @@ and next steps with the component settings to use. Each written file gets an `as
 Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.psb`
 (convert to PNG), `.svg` (`assets.rasterize_svg` makes the PNG), `.flac` `.m4a` `.aac` (convert to OGG or WAV), and SDF/MSDF font atlases.
 
+Models do not have to be files: a script can build a mesh at run time with `mesh.create` and keep it as a `.glb` with
+`mesh.save` (a plain `assets/models/` file after that; docs/SCRIPTING.md, "Procedural meshes"). `factoria validate` rejects a
+`mesh:N` id written in a scene or prefab, because the mesh exists only in the running game.
+
 ### Aseprite
 
 Every frame is drawn with its visible layers (layer and cel opacity, linked cels, RGBA, grayscale and indexed color with

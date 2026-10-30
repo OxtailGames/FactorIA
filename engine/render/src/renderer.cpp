@@ -1226,6 +1226,7 @@ void Renderer::Impl::render(World& world, float dt) {
     stats = RenderStats{};
     anyFrameRendered = true;
 
+    assets->set_mesh_store(&world.meshes());  // before any camera asks for a "mesh:N" id
     lastCams = collect_cameras(world);
     assets->set_drawing(true);
     targetSelf.clear();
@@ -1957,6 +1958,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
                     b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
                     if (skinned) b.vertex_buffers[2] = p.skinVb;
                     b.index_buffer = p.ib;
+                    b.index_buffer_offset = p.ibOffset;
                     const PartDraw pd = part_draw(rep, p);
                     if (prog) bind_textures(b, pd, prog, inputs, true);
                     sg_apply_bindings(&b);
@@ -2120,6 +2122,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
                 b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
                 if (skinned) b.vertex_buffers[2] = part.skinVb;
                 b.index_buffer = part.ib;
+                b.index_buffer_offset = part.ibOffset;
                 bind_textures(b, pd, prog, inputs, false);
                 sg_apply_bindings(&b);
                 apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
