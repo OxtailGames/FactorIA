@@ -90,7 +90,10 @@ axis the main camera does not see. A page you want to see both ways, in the worl
 
 A pointer over a mesh that shows `"target:<name>"` reaches the `Interactable`s that camera sees, at the point of the picture
 under the pointer. The engine finds that point from the hit triangle's UV, so it works on a flat `quad`, on a curved model (a
-cylinder, a bent screen, a sphere), on a glTF model, with `uvScale` taken into account:
+cylinder, a bent screen, a sphere), on a glTF model or on a procedural mesh (`mesh.create`, docs/SCRIPTING.md), with `uvScale` taken
+into account. A procedural mesh is hit-tested against its CURRENT triangles and uvs: a page you bend with `mesh.update` every frame
+answers where it is drawn, and a mesh that did not change is not rebuilt (the triangles are cached per mesh version). Only the triangles
+inside a submesh count, the ones the mesh draws:
 
 ```js
 import { game, camera } from "factoria";
@@ -110,8 +113,7 @@ game.click(pos);                      // press + release: ui.click, ui.change (t
 Limits, so you do not look for a bug:
 
 - The nearest page mesh under the pointer wins. Other 3D things in front of it (a hand, a table lamp) do not stop the pointer.
-- Only meshes with UVs that lay the picture out: the built-in primitives and glTF models. Procedural meshes (`MeshData`) are not
-  reached by the pointer yet.
+- Only meshes with UVs that lay the picture out: the built-in primitives, glTF models and procedural meshes (`mesh.create`).
 - A `Sprite`, `Panel` or `Button` that shows a target is only a picture: it forwards no pointer input to the page. Use a
   `CameraView` (docs/MENUS.md) when the player must drag what a camera shows inside a menu.
 - `game.click(id)` of an entity of the page aims at where the main view would draw that entity, not at the model. In a test pass

@@ -10,6 +10,7 @@
 #include "fa/core/strings.h"
 #include "fa/scene/gltf_file.h"
 #include "fa/scene/mesh_geometry.h"
+#include "fa/scene/mesh_store.h"
 
 namespace fa {
 
@@ -189,6 +190,16 @@ Result<std::shared_ptr<const MeshSurface>> load_mesh_surface(const std::string& 
     }
     if (out) cache[key] = out.value();
     return out;
+}
+
+Result<std::shared_ptr<const MeshSurface>> load_mesh_surface(MeshStore& store, const std::string& mesh) {
+    if (!MeshStore::is_id(mesh)) return load_mesh_surface(mesh);
+    if (auto s = store.surface(mesh)) {
+        if (!s->indices.empty()) return s;
+        return make_error(std::format("procedural mesh '{}' has no drawn triangles, so the pointer cannot reach a texture on it", mesh),
+                          "Give the mesh indices, and submeshes that cover them (indices outside every submesh are not drawn).");
+    }
+    return store.get(mesh).error();
 }
 
 namespace {

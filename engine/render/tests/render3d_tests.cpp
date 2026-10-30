@@ -716,6 +716,50 @@ TEST_CASE("materials: alphaMode clip cuts holes in the mesh and in its shadow") 
     expect_golden(cut, "3d_material_cutout");
 }
 
+TEST_CASE("materials: the alpha of a vertex color cuts a clip material's mesh and its shadow, and custom materials keep the tint") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    // A leaf of 2 x 2 at height 0.8: its left corners have an alpha of 0, its right ones 1, so alpha 0.5 (alphaCutoff) is at x = 0.
+    auto leaf_input = [](float x0, bool alphaGradient) {
+        MeshInput in;
+        in.positions = {x0, 0.8f, 1, 1, 0.8f, 1, 1, 0.8f, -1, x0, 0.8f, -1};
+        in.indices = {0, 1, 2, 0, 2, 3};
+        in.hasIndices = true;
+        if (alphaGradient) in.colors = {1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0};
+        return in;
+    };
+    auto frame = [&](bool vertexAlpha) {
+        World w;
+        add_camera(w, {0, 3, 4}, {0, 0, 0});
+        add_mesh(w, "plane", {0, -0.5f, 0}, Color::hex(0x909090), {8, 1, 8});
+        w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-60, 20, 0}, 0.9f))->castShadows = true;
+        // vertexAlpha: the whole leaf with the alpha gradient and the clip material; else only its right half, plain.
+        auto id = w.meshes().create(vertexAlpha ? leaf_input(-1, true) : leaf_input(0, false));
+        REQUIRE(id.ok());
+        Entity leaf = add_mesh(w, id->c_str(), {0, 0, 0}, Color::hex(0xe0e0e0));
+        if (vertexAlpha) w.get<MeshRenderer>(leaf)->material = "materials/vcut.material.json";
+        return g.render(w);
+    };
+    ErrorLog log;
+    const Image cut = frame(true);
+    CHECK(log.messages.empty());
+    CHECK(g.renderer.stats().materials == 1);
+    const Image half = frame(false);
+    // The same picture as the leaf that only has its right half, shadow included.
+    CHECK(diff_images(cut, half, 6.0f / 255.0f).meanError < 0.002);
+    // And the shadow is really cut: without the vertex alpha the whole leaf casts it.
+    World w;
+    add_camera(w, {0, 3, 4}, {0, 0, 0});
+    add_mesh(w, "plane", {0, -0.5f, 0}, Color::hex(0x909090), {8, 1, 8});
+    w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-60, 20, 0}, 0.9f))->castShadows = true;
+    auto solid = w.meshes().create(leaf_input(-1, false));
+    REQUIRE(solid.ok());
+    Entity leaf = add_mesh(w, solid->c_str(), {0, 0, 0}, Color::hex(0xe0e0e0));
+    w.get<MeshRenderer>(leaf)->material = "materials/vcut.material.json";
+    CHECK(diff_images(g.render(w), cut, 4.0f / 255.0f).meanError > 0.003);
+}
+
 TEST_CASE("materials: a material that does not compile is drawn magenta and logged once with its file, line and hint") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

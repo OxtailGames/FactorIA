@@ -1,7 +1,8 @@
 // The pointer through a render target: a MeshRenderer shows "target:<name>" (the picture of a camera with Camera.renderTarget), the
 // pointer is over that mesh, and the point of the picture under it is found from the mesh's UV there. The UI then hit-tests the
 // world-space Interactables as the target's camera sees them (UiSystem::set_surface_pointer). Works on any mesh whose UVs lay the
-// picture out: a flat quad, a bent screen, a sphere.
+// picture out: a flat quad, a bent screen, a sphere, a procedural mesh (its current triangles: a page deformed every frame is hit
+// against the shape it is drawn with).
 #include <cmath>
 #include <set>
 
@@ -9,19 +10,25 @@
 #include "fa/core/log.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/components.h"
+#include "fa/scene/mesh_store.h"
 #include "fa/scene/mesh_surface.h"
 
 namespace fa {
 
 namespace {
 
-// The render target a MeshRenderer shows: its texture, else the first material parameter that names one ("" for none).
-std::string shown_target(const MeshRenderer& mr) {
+// The render target a MeshRenderer shows: its texture, else the first material parameter that names one, else (a procedural mesh) the
+// base color texture of its first submesh material that names one ("" for none).
+std::string shown_target(const World& world, const MeshRenderer& mr) {
     if (const std::string n = render_target_name(mr.texture); !n.empty()) return n;
     if (mr.materialParams.is_object())
         for (const auto& [key, value] : mr.materialParams.items())
             if (value.is_string())
                 if (const std::string n = render_target_name(value.get<std::string>()); !n.empty()) return n;
+    if (MeshStore::is_id(mr.mesh))
+        if (const MeshStore::Entry* e = world.meshes().find(mr.mesh))
+            for (const MeshSubmesh& s : e->data.submeshes)
+                if (const std::string n = render_target_name(s.material.texture); !n.empty()) return n;
     return {};
 }
 
@@ -43,10 +50,10 @@ UiSurfaceFn make_ui_surface_pointer(Engine::Impl& I) {
         world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
             if (pin && pin->mesh != e) return;
             if (mr.mesh.empty() || !world.active_in_hierarchy(e)) return;
-            std::string target = shown_target(mr);
+            std::string target = shown_target(world, mr);
             if (target.empty()) return;
             static std::set<std::string> warned;
-            auto surface = load_mesh_surface(mr.mesh);
+            auto surface = load_mesh_surface(world.meshes(), mr.mesh);
             if (!surface) {
                 if (warned.insert(mr.mesh).second)
                     FA_WARN("ui", "MeshRenderer '{}' shows render target '{}' but the pointer cannot reach it: {}. Hint: {}", world.id_of(e),
