@@ -10,6 +10,19 @@
     "maxTriangles": 30000
   },
   "runners": {
+    "linux-gcc-llvmpipe": {
+      "frames": 300,
+      "cpuMsAvg": 449.736,
+      "cpuMsP95": 4207.253,
+      "cpuMsMax": 9364.49,
+      "peakMemoryMB": 413.9,
+      "drawCalls": 225,
+      "entities": 331,
+      "graphics": "EGL surfaceless / llvmpipe (LLVM 20.1.2, 256 bits) (GL 4.3 core, 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.24.04.4)",
+      "triangles": 9208,
+      "lights": 13,
+      "textureMB": 5.33
+    },
     "macos-clang-metal-debug": {
       "frames": 300,
       "cpuMsAvg": 5.6,
@@ -22,7 +35,19 @@
       "triangles": 9208,
       "lights": 13,
       "textureMB": 5.33
+    },
+    "macos-clang-metal-paravirtual": {
+      "frames": 300,
+      "cpuMsAvg": 3.128,
+      "cpuMsP95": 4.564,
+      "cpuMsMax": 44.902,
+      "peakMemoryMB": 74.0,
+      "drawCalls": 225,
+      "entities": 331,
+      "graphics": "Metal / Apple Paravirtual device",
+      "triangles": 9208,
+      "lights": 13,
+      "textureMB": 5.33
     }
   }
 }
-

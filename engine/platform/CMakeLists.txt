@@ -52,3 +52,6 @@ elseif(FA_PLATFORM STREQUAL "android")
     target_link_libraries(fa_platform PUBLIC GLESv3 EGL android log aaudio)
 endif()
 fa_add_tests(platform)
+if(WIN32 AND TARGET fa_test_platform)
+    target_link_libraries(fa_test_platform PRIVATE ws2_32)  # tests/http_test_server.h: a local HTTP server
+endif()

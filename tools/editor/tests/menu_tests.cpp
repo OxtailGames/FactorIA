@@ -88,7 +88,8 @@ TEST_CASE("menu: the editor's tree has the menus, the autotest names and the pla
     CHECK(bar.trailing.rfind("FactorIA ", 0) == 0);
     CHECK(bar.trailingAtName == "menu:version");
 
-    const std::set<std::string> names(menu::at_names(bar.items).begin(), menu::at_names(bar.items).end());
+    const std::vector<std::string> atNames = menu::at_names(bar.items);
+    const std::set<std::string> names(atNames.begin(), atNames.end());
     for (const char* n : {"menu:file", "menu:view", "menu:ai", "menu:export", "menu:setup", "menu:platform-settings",
                           "menu:revert-ai", "menu:hierarchy", "menu:inspector", "menu:project", "menu:audio", "menu:profiler",
                           "menu:ai-settings", "menu:ai-roles"})

@@ -24,6 +24,7 @@
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 #include "fa/mcp/server.h"
+#include "fa/tooling/mcp_config.h"
 #include "fa/tooling/self_update.h"
 
 namespace fa {
@@ -87,6 +88,7 @@ public:
 private:
     void check_executable();
     void check_client_config();
+    bool config_changed_after_start(const ClaudeCodeMcpState& st) const;
     bool client_reads_mcp_json() const;
     void notice_stale_server(const std::string& detail);
 

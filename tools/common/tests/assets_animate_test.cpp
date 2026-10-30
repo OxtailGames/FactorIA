@@ -263,6 +263,20 @@ TEST_CASE("assets.animate_svg: a module that fills the memory fails with a messa
     CHECK(message(r).find("art/hog.anim.js:3") != std::string::npos);
 }
 
+TEST_CASE("assets.animate_svg: a module that fills the memory with small objects still names the line") {
+    // The allocation that crosses the limit is tiny here: the error and its stack must still fit (they used to "throw null").
+    AssetsProject p;
+    write_all(p.file("art/hog.anim.js"),
+              "export default function frame() {\n"
+              "  const keep = [];\n"
+              "  for (;;) keep.push([keep.length]);\n"
+              "}\n");
+    const CommandResult r = p.call("assets.animate_svg", Json{{"path", "assets/hog.png"}, {"source", "art/hog.anim.js"}, {"frames", 1}, {"timeLimitMs", 20000}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(message(r).find("ran out of memory") != std::string::npos);
+    CHECK(message(r).find("art/hog.anim.js:3") != std::string::npos);
+}
+
 TEST_CASE("assets.animate_svg: Math.random, Date and rng are deterministic and follow the seed") {
     AssetsProject p;
     write_all(p.file("art/sparks.anim.js"),

@@ -44,8 +44,9 @@ seconds to minutes (the first one much longer): the call returns when the build 
 export would replace), `mode` (Android, iOS), `format` and `artifact` (Android, Linux with `appimage`), `toolchain` (Android with `apk` or `aab`:
 `jdk`, `jdkFrom`, `jdkMajor`, `sdk` and `sdkFrom`, the JDK and SDK the build would use and where they were found), `player`
 (desktop; web: its `factoria_player.js`) and `warnings`, or the error the export would give, including a missing JDK or SDK, a missing keystore or
-password for `--release` (`fa::plan_export` in C++). `--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
-folder next to the running binary, or `$FACTORIA_ENGINE_DIR` when it is set.
+password for `--release` (`fa::plan_export` in C++). The command takes `--player` as `player` (an absolute path or one relative to the
+project). `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `mobile/` folder next to the running binary, or
+`$FACTORIA_ENGINE_DIR` when it is set.
 
 ```
 project_export {"platform":"windows","release":true}
