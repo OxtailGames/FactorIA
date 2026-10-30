@@ -247,12 +247,12 @@ namespace fa {
 
 std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir) {
     using namespace setup_detail;
-    if (projectDir.empty()) return {};
     const std::string os = context.host_os();
     if (os == "windows") {
         // FactorIA-Editor.exe next to this factoria.exe: the program the taskbar pin and the Start menu entry run.
         const stdfs::path launcher = exe_dir(context) / "FactorIA-Editor.exe";
         if (!is_file(launcher) || !is_file(factoria_exe(context))) return {};
+        if (projectDir.empty()) return {launcher.string()};
         return {launcher.string(), projectDir};
     }
     if (os != "macos") return {};  // Linux: the window's WM_CLASS (StartupWMClass of the .desktop) already groups the new one
@@ -260,6 +260,7 @@ std::vector<std::string> editor_restart_command(const SetupContext& context, con
     const auto l = files_for_host(context);
     if (!l) return {};
     // -n: the editor that is quitting is still running, and `open` would only activate it.
+    if (projectDir.empty()) return {"/usr/bin/open", "-n", l->root.string()};  // the start screen
     return {"/usr/bin/open", "-n", l->root.string(), "--args", projectDir};
 }
 

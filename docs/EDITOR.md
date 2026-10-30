@@ -76,9 +76,9 @@ does; the chats of the AI Assistant (`.factoria/ai/chats/`) come back with their
 file changes again. Restart is off, with the reason in its tooltip, while an AI run is in progress (or a worker still runs),
 a play session runs, an export or a Set Up This Computer install runs, or a keystore is being created: nothing is stopped
 silently. The editor starts again through the launcher you pinned, so the Dock or taskbar keeps one FactorIA icon: on macOS
-`open -n ~/Applications/FactorIA.app --args <project>` when that app is the launcher of this `factoria` and up to date
+`open -n ~/Applications/FactorIA.app --args <project>` (no `--args` on the start screen) when that app is the launcher of this `factoria` and up to date
 (`factoria setup launcher`; the editor rewrites an older one at start), on Windows `FactorIA-Editor.exe` next to
-`factoria.exe`; on Linux the `.desktop` entry's `StartupWMClass=FactorIA` groups the new window with it. With no such
+`factoria.exe` (also with no project open); on Linux the `.desktop` entry's `StartupWMClass=FactorIA` groups the new window with it. With no such
 launcher (a development build, a launcher of another `factoria`) or if starting it fails, it runs `factoria editor <project>`
 directly. A rebuild of the same commit, a file with no identity (a build outside git) or an unreadable file never shows the
 notice. The AI can ask with the read-only command `engine.update_status` (`running`, `onDisk`, `restartDue`, and under `editor`

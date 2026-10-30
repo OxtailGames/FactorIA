@@ -187,7 +187,12 @@ TEST_CASE("editor_restart_command (macOS): through the launcher of this factoria
     CHECK(cmd[3] == "--args");
     CHECK(cmd[4] == project);
 
-    CHECK(editor_restart_command(w.ctx, "").empty());  // no project: the plain restart
+    // No project (the start screen): still the launcher, without the arguments.
+    const std::vector<std::string> bare = editor_restart_command(w.ctx, "");
+    REQUIRE(bare.size() == 3);
+    CHECK(bare[0] == "/usr/bin/open");
+    CHECK(bare[1] == "-n");
+    CHECK(bare[2] == w.app().string());
 }
 
 TEST_CASE("editor_restart_command (macOS): an out-of-date, foreign or another factoria's launcher is not used") {
@@ -230,7 +235,9 @@ TEST_CASE("editor_restart_command (Windows): FactorIA-Editor.exe next to factori
     REQUIRE(cmd.size() == 2);
     CHECK(stdfs::path(cmd[0]).filename() == "FactorIA-Editor.exe");
     CHECK(cmd[1] == project);
-    CHECK(editor_restart_command(w.ctx, "").empty());
+    const std::vector<std::string> bare = editor_restart_command(w.ctx, "");  // start screen: no project argument
+    REQUIRE(bare.size() == 1);
+    CHECK(stdfs::path(bare[0]).filename() == "FactorIA-Editor.exe");
 
     LauncherWorld l("linux");
     REQUIRE(l.install().ok);
