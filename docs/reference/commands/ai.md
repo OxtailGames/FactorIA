@@ -73,7 +73,7 @@ Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchest
 
 ## `ai.session_timeline`
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Show where the time of a recorded AI session went: the long gaps and what was going on in each.
 

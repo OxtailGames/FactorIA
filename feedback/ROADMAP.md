@@ -1339,7 +1339,7 @@ Left open:
 - `fa::ChildProcess` for Windows (`child_process_win32.cpp`) was written but not built or run (macOS host only).
 - Only tools are used: MCP resources and prompts, sampling and the old SSE transport are not supported.
 
-## M44. Roguestory's 3D book: procedural meshes, render targets, stale tools and run timelines (S-L each; FB-0027, FB-0029-FB-0035)
+## M44. Roguestory's 3D book: procedural meshes, render targets, stale tools and run timelines (S-L each; FB-0027, FB-0029-FB-0035) — DONE (0.9.0)
 
 Roguestory (the user's own game) built a 3D book for its menu and opened 8 entries on the way: it had to write its own
 glTF encoder to make a mesh in code, could not put its 2D menu on a page, its project tool ran stale code, and nobody
@@ -1365,6 +1365,28 @@ could tell where 17 minutes of an AI run went.
   (one RGBA per grid vertex, multiplied with `color`) on the deformable sprite (FB-0033); a destroyed entity and its
   children never reach the next drawn frame or capture, with a test that destroys and spawns a group in one frame and
   captures the next (FB-0034).
+- M44.5 (L, added while integrating) The two packages built in parallel met: the pointer through a render target reaches
+  procedural meshes (and follows `mesh.update`), and vertex colors (`mesh.create {colors}` and glTF `COLOR_0`) are drawn,
+  multiplying the material's base color in every 3D path.
+
+Built: `project_<name>` tools reload changed modules before the call and report `toolVersion`; session logs carry `t`
+and `ms` and `ai.session_timeline` reads them (M44.1). `mesh.create/update/destroy/save/list/info` with bounds, culling,
+shadows, `Collider3D` shapes and the editor's picking on the real geometry (M44.2). `Camera.renderTarget` and
+`"target:<name>"` textures, the pointer through the hit triangle's UV, off-screen `render.captureTexture({entity |
+rect, space: "world", scale})` up to 4096 and docs/RENDERING.md (M44.3). `Text.fontSize` down to 0.001, `Text.lit`,
+`Sprite.vertexColors`, and an entity destroyed in a frame is not drawn in that frame (M44.4). Procedural meshes behind
+the render-target pointer and vertex colors drawn (M44.5).
+
+Left open:
+- Only Metal ran: the render targets, the procedural mesh uploads and the 52-byte mesh vertex with its color attribute
+  are not run on GL, GLES or D3D11 yet (CI sees them first).
+- The render-target pointer takes the nearest page mesh: other 3D things in front do not block it; a Sprite, Panel or
+  Button that shows a target forwards no input.
+- `Text.lit` is one Lambert term per Text at its origin (no shadows, no per-pixel light) and uses the 3D `Light`s even
+  in a 2D scene.
+- Vertex colors are 8 bits per channel, clamped to 0..1; their alpha shows only with `blend` or a clip material.
+- A `Collider3D` on a procedural mesh is rebuilt on every `mesh.update` (costly for a mesh deformed each frame).
+- The editor picks glTF models and primitives by their unit box; only procedural meshes use their triangles.
 
 ## Out of scope: Roblox
 

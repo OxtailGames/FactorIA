@@ -51,8 +51,8 @@ Renders the scene to the screen. Every active camera with primary=true draws its
 | `bloomRadius` | float | `20.0` | Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128. Range 1.0..128.0. |
 | `bloomScreenSpace` | bool | `true` | Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow. |
 | `colorFilter` | enum: none \\| greyscale \\| highContrast \\| protanopia \\| deuteranopia \\| tritanopia | `"none"` | Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. With several cameras the lowest-depth camera's filter covers the whole frame. (since 0.2.0) |
-| `renderTarget` | string | `""` | Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "book". The texture is the id "target:book" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a 3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active (entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so (a render loop needs two targets: A shows B and B shows A, each one frame late). There is no culling mask: the camera sees everything in its frustum, so put what a target shows (a 2D page with Text, Sprites, Buttons as world-space entities) away from the camera that shows the model. Screen-space UI (Panel, Button and the other widgets, space "screen" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, "Render targets"). Names are unique: a second camera with the same name is not drawn, with an error. "" (default) = the screen. Letters, digits, '_', '-' and '.', up to 64 characters. (not released yet, on main after 0.8.2) |
-| `renderTargetSize` | vec2 | `[1024.0,1024.0]` | Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; memory is about width x height x 8 bytes (4 more per pixel with antialiasing). (not released yet, on main after 0.8.2) |
+| `renderTarget` | string | `""` | Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "book". The texture is the id "target:book" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a 3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active (entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so (a render loop needs two targets: A shows B and B shows A, each one frame late). There is no culling mask: the camera sees everything in its frustum, so put what a target shows (a 2D page with Text, Sprites, Buttons as world-space entities) away from the camera that shows the model. Screen-space UI (Panel, Button and the other widgets, space "screen" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, "Render targets"). Names are unique: a second camera with the same name is not drawn, with an error. "" (default) = the screen. Letters, digits, '_', '-' and '.', up to 64 characters. (since 0.9.0) |
+| `renderTargetSize` | vec2 | `[1024.0,1024.0]` | Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; memory is about width x height x 8 bytes (4 more per pixel with antialiasing). (since 0.9.0) |
 
 ## 2D
 
@@ -82,7 +82,7 @@ Draws a textured (or solid color) quad. Use `region` to pick a frame from a spri
 | `meshColumns` | int | `0` | Makes the sprite deformable: it is drawn as a grid of meshColumns x meshRows cells (so (meshColumns + 1) x (meshRows + 1) vertices) that textures `region` evenly, and `vertexOffsets` moves the vertices. Needs meshRows > 0 too. 0 (default) = a plain quad. A side above 128 is clamped to 128; a grid of more than 4096 cells (columns x rows) is drawn as a plain quad and a warning is logged once per scene. A bent page, a flag or cloth is ONE entity with e.g. 16 columns x 1 row or 8 x 8. A deformable sprite ignores `slice` (9-slice). It costs one quad per cell, still in the sprite's batch: draw calls do not grow. Range 0.0..128.0. (since 0.4.0) |
 | `meshRows` | int | `0` | Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad. Range 0.0..128.0. (since 0.4.0) |
 | `vertexOffsets` | json | `[]` | Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter array leaves the vertices it does not name in place; extra numbers are ignored; a value that is not a number counts as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices. (since 0.4.0) |
-| `vertexColors` | json | `[]` | Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied with `color` (and Tint), blended smoothly across each cell. A flat array of numbers [r0, g0, b0, a0, r1, g1, b1, a1, ...], components 0..1, one RGBA per vertex in the order of `vertexOffsets` (row by row from the TOP row, left to right): vertex (column c, row r) starts at index (r * (meshColumns + 1) + c) * 4. The length must be exactly (meshColumns + 1) * (meshRows + 1) * 4: a scene or prefab with another length is an error naming the length it needs, and a script that writes a wrong length gets one warning and the colours are ignored. A bent page gets its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in light. Write the whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with SpriteSkin. (not released yet, on main after 0.8.2) |
+| `vertexColors` | json | `[]` | Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied with `color` (and Tint), blended smoothly across each cell. A flat array of numbers [r0, g0, b0, a0, r1, g1, b1, a1, ...], components 0..1, one RGBA per vertex in the order of `vertexOffsets` (row by row from the TOP row, left to right): vertex (column c, row r) starts at index (r * (meshColumns + 1) + c) * 4. The length must be exactly (meshColumns + 1) * (meshRows + 1) * 4: a scene or prefab with another length is an error naming the length it needs, and a script that writes a wrong length gets one warning and the colours are ignored. A bent page gets its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in light. Write the whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with SpriteSkin. (since 0.9.0) |
 
 ### Tint
 
@@ -227,7 +227,7 @@ Draws a string with a TrueType font (or the built-in font). Works in world and s
 | `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (since 0.3.0) |
 | `font` | asset (font) | `""` | Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic, Hebrew, Arabic). Other built-in fonts, by name: "builtin:pixel" (Press Start 2P, retro), "builtin:serif" (Crimson Text, a book serif with real bold, italic and bold italic), "builtin:hand" (Kalam, handwriting, with bold), "builtin:blackletter" (UnifrakturMaguntia, for titles) and "builtin:display" (IM Fell English, old print, with italic); the four after the pixel font have no Greek, Cyrillic, Hebrew or Arabic (those fall back to DejaVu Sans) and an export ships just the ones a project names (docs/TEXT.md, "Built-in fonts"). Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). |
 | `fontSize` | float | `24.0` | Glyph height in world units (pixels in 2D, meters in a 3D scene). A world Text may be tiny: 0.07 is 7 cm. The glyphs are rasterized for the size they have ON SCREEN, not for this number, so small world text stays sharp. Screen-space text is in design pixels (use 1 or more). docs/TEXT.md, "Text in a 3D scene". Range 0.001..4096.0. |
-| `lit` | bool | `false` | World space only: true = the text is shaded by the scene's 3D lights (Light entities and SceneSettings.ambientLight) like a lit material, so gold lettering on a book cover darkens with the shading. The text is a flat surface facing its +Z (the side you read it from; seen from behind it uses the facing side); directional, point and spot lights are summed ONCE per Text, at the text's origin, and multiply `color` (and the colours and pictures of a rich text): no shadows, no per-pixel variation. false (default) = drawn unlit, exactly `color`. Ignored in screen space and under a Camera with lighting "studio". For a Text under 2D lights use a Sprite or Shape2D with `lit`. (not released yet, on main after 0.8.2) |
+| `lit` | bool | `false` | World space only: true = the text is shaded by the scene's 3D lights (Light entities and SceneSettings.ambientLight) like a lit material, so gold lettering on a book cover darkens with the shading. The text is a flat surface facing its +Z (the side you read it from; seen from behind it uses the facing side); directional, point and spot lights are summed ONCE per Text, at the text's origin, and multiply `color` (and the colours and pictures of a rich text): no shadows, no per-pixel variation. false (default) = drawn unlit, exactly `color`. Ignored in screen space and under a Camera with lighting "studio". For a Text under 2D lights use a Sprite or Shape2D with `lit`. (since 0.9.0) |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Text color. |
 | `align` | enum: left \\| center \\| right \\| start \\| end | `"left"` | Horizontal alignment of lines inside the text box. left / right are always the left / right edge, even for right-to-left text. start / end follow the current language: start = left and end = right in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left languages (i18n.direction), or when `direction` is rtl; use them for text that must read from its start side. |
 | `pivot` | vec2 | `[0.0,1.0]` | Anchor of the text box: [0, 1] top-left (default), [0.5, 0.5] center, [1, 0] bottom-right. |
@@ -1146,7 +1146,7 @@ Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchest
 
 ### `ai.session_timeline`
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Show where the time of a recorded AI session went: the long gaps and what was going on in each.
 
@@ -2574,7 +2574,7 @@ Reads a *.material.json (schemas/material.schema.json) and returns {material, do
 
 ### `mesh.create` (modifies state)
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Create a procedural mesh from arrays and get its id for MeshRenderer.mesh.
 
@@ -2592,7 +2592,7 @@ Builds geometry at run time, without writing a file: `positions` (three numbers 
 
 ### `mesh.destroy` (modifies state)
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Free a procedural mesh.
 
@@ -2604,7 +2604,7 @@ Entities that still name the id draw the missing-mesh placeholder and the engine
 
 ### `mesh.info`
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Describe one procedural mesh: counts, bounds, submeshes and materials.
 
@@ -2616,7 +2616,7 @@ Result: {id, version, vertices, triangles, hasColors, bounds: {min, max}, submes
 
 ### `mesh.list`
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 List the live procedural meshes of the running scene.
 
@@ -2624,7 +2624,7 @@ Result: {meshes: [info...], count}. Each info: {id, version, vertices, triangles
 
 ### `mesh.save` (modifies state)
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Write a procedural mesh as a .glb file that loads back as a normal model.
 
@@ -2637,7 +2637,7 @@ One node, one primitive per submesh with its material (name, base color, metalli
 
 ### `mesh.update` (modifies state)
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Replace the data of a procedural mesh; arrays left out are kept.
 
@@ -5884,22 +5884,22 @@ declare module "factoria" {
     fit?: "cover" | "stretch";
     /**
      * World form: photograph this entity and its children. The area is the union of their entity.bounds() (world-space Sprite, Shape2D, Text and Tilemap); only that subtree is drawn, even if other things are in front of it or inside the area, and it is drawn whether it is active or not (a hidden subject is photographed) and wherever it is (off the camera's view too). Throws when the subtree draws nothing in world space: use rect. Give entity or rect, not both.
-     * @since unreleased
+     * @since 0.9.0
      */
     entity?: Entity | string;
     /**
      * World form: the area as [x, y, width, height] in world units, x, y the bottom-left corner, +Y up (the shape entity.bounds() returns). Draws everything in the area that is active, from the world as it is now, with the lights of the scene. Give entity or rect, not both.
-     * @since unreleased
+     * @since 0.9.0
      */
     rect?: [number, number, number, number];
     /**
      * World form: the space of rect. Only "world" exists: screen-space items (UI, HUD) are not part of the world; capture the frame with width and height to get them.
-     * @since unreleased
+     * @since 0.9.0
      */
     space?: "world";
     /**
      * World form: pixels per world unit, above 0 (default 1). The texture is ceil(width * scale) x ceil(height * scale) pixels of the area, each at most 4096; a bigger one throws and says the largest scale that fits. There is no 2048 limit here, the frame form keeps it. The background is transparent.
-     * @since unreleased
+     * @since 0.9.0
      */
     scale?: number;
   }
@@ -5965,264 +5965,264 @@ declare module "factoria" {
 
   /**
    * The look of one submesh of a procedural mesh: the fields of a glTF material the renderer reads. Pass a plain string instead of an object to give only the name.
-   * @since unreleased
+   * @since 0.9.0
    */
   export interface MeshMaterialOptions {
     /**
      * What MeshRenderer.materialColors is keyed by to recolor this submesh (materialColors: { skin: [1, 0.5, 0.4, 1] }), and the material name in a saved .glb. Default "".
-     * @since unreleased
+     * @since 0.9.0
      */
     name?: string;
     /**
      * Base color factor: a color(), an [r, g, b, a] array or "#rrggbb". Multiplied with MeshRenderer.color. Default white.
-     * @since unreleased
+     * @since 0.9.0
      */
     color?: ColorLike;
     /**
      * Base color texture: a project image path, or a Texture from render.captureTexture (shown, but mesh.save refuses a run-time texture because the file would point to nothing). Default none.
-     * @since unreleased
+     * @since 0.9.0
      */
     texture?: string | Texture;
     /**
      * 0 to 1. With roughness, replaces MeshRenderer.metallic and roughness for this submesh. Default 0 once either is given.
-     * @since unreleased
+     * @since 0.9.0
      */
     metallic?: number;
     /**
      * 0 to 1. Default 0.6 once either metallic or roughness is given.
-     * @since unreleased
+     * @since 0.9.0
      */
     roughness?: number;
     /**
      * Light the surface gives off (rgb), added after lighting. Default black.
-     * @since unreleased
+     * @since 0.9.0
      */
     emissive?: ColorLike;
     /**
      * Draw the back faces too (a leaf, a flag). Default false: only counter-clockwise triangles are drawn.
-     * @since unreleased
+     * @since 0.9.0
      */
     doubleSided?: boolean;
     /**
      * Alpha-blended with the color's alpha and the texture's; drawn far to near with the other transparent meshes. Default false.
-     * @since unreleased
+     * @since 0.9.0
      */
     blend?: boolean;
   }
 
   /**
    * A run of the index list drawn with one material. Submeshes of one mesh share its vertices and are drawn in order.
-   * @since unreleased
+   * @since 0.9.0
    */
   export interface MeshSubmeshOptions {
     /**
      * The submesh's material (a name, or the object). Default: an unnamed white material.
-     * @since unreleased
+     * @since 0.9.0
      */
     material?: string | MeshMaterialOptions;
     /**
      * First index of the run, a multiple of 3 (indices, not triangles). Default: where the previous submesh ends (0 for the first).
-     * @since unreleased
+     * @since 0.9.0
      */
     start?: number;
     /**
      * Number of indices, a multiple of 3 and at least 3. Default: up to the end of the index list.
-     * @since unreleased
+     * @since 0.9.0
      */
     count?: number;
   }
 
   /**
    * What mesh.create and mesh.update take. Arrays may be plain arrays or typed arrays (a Float32Array is read without copying through the language); numbers may be flat or grouped, [x, y, z, x, y, z] or [[x, y, z], [x, y, z]] or [{x, y, z}]. Coordinates are glTF's: +Y up, right-handed, counter-clockwise triangles face front, uv (0, 0) is the top-left of the image (v grows downwards).
-   * @since unreleased
+   * @since 0.9.0
    */
   export interface MeshOptions {
     /**
      * Three numbers per vertex. Required in create; kept when left out of update. At most 1048576 vertices.
-     * @since unreleased
+     * @since 0.9.0
      */
     positions?: number[] | Float32Array | number[][];
     /**
      * Vertex numbers, three per triangle. In create, left out = every three vertices make a triangle (0,1,2 then 3,4,5...). In update, left out = kept. At most 6291456 indices. Every entry must be a vertex of positions.
-     * @since unreleased
+     * @since 0.9.0
      */
     indices?: number[] | Uint32Array | Uint16Array | number[][];
     /**
      * Three numbers per vertex, normalized for you. Left out = computed: smooth, weighted by triangle area, averaging the triangles that share a vertex (duplicate the vertices of a hard edge). Normals are never kept from an earlier call: pass them again with every update, or let them be computed.
-     * @since unreleased
+     * @since 0.9.0
      */
     normals?: number[] | Float32Array | number[][];
     /**
      * Two numbers per vertex. Left out = zeros in create, kept in update.
-     * @since unreleased
+     * @since 0.9.0
      */
     uvs?: number[] | Float32Array | number[][];
     /**
      * Four numbers (x, y, z, w = handedness +1 or -1) or three per vertex, for normal maps. Left out = computed from the uvs the way the engine does for .gltf files without tangents. Like normals, never kept from an earlier call.
-     * @since unreleased
+     * @since 0.9.0
      */
     tangents?: number[] | Float32Array | number[][];
     /**
      * Three (rgb) or four (rgba) numbers per vertex. Drawn like glTF COLOR_0: they multiply the material's base color (and MeshRenderer.color) in every 3D draw path, rgb and alpha (the alpha shows with a material with blend: true and cuts holes with a custom material that has alphaMode clip), clamped to 0..1 with 8 bits per channel; they are also written to a saved .glb as COLOR_0. Left out = white in create, kept in update.
-     * @since unreleased
+     * @since 0.9.0
      */
     colors?: number[] | Float32Array | number[][];
     /**
      * Runs of the index list with their own materials. Left out = one submesh over all the indices with a default material (in update: the existing ones are kept; an update that changes indices of a mesh with several submeshes must pass submeshes too).
-     * @since unreleased
+     * @since 0.9.0
      */
     submeshes?: MeshSubmeshOptions[];
   }
 
   /**
    * The box around a mesh's vertices, in the mesh's own space.
-   * @since unreleased
+   * @since 0.9.0
    */
   export interface MeshBounds {
     /**
      * Smallest x, y and z.
-     * @since unreleased
+     * @since 0.9.0
      */
     min: Vec3;
     /**
      * Largest x, y and z.
-     * @since unreleased
+     * @since 0.9.0
      */
     max: Vec3;
   }
 
   /**
    * What mesh.list returns for each live mesh.
-   * @since unreleased
+   * @since 0.9.0
    */
   export interface MeshInfo {
     /**
      * The id, "mesh:3".
-     * @since unreleased
+     * @since 0.9.0
      */
     id: string;
     /**
      * Starts at 1 and grows with every update.
-     * @since unreleased
+     * @since 0.9.0
      */
     version: number;
     /**
      * Vertex count.
-     * @since unreleased
+     * @since 0.9.0
      */
     vertices: number;
     /**
      * Triangle count (indices / 3).
-     * @since unreleased
+     * @since 0.9.0
      */
     triangles: number;
     /**
      * Whether the mesh has vertex colors.
-     * @since unreleased
+     * @since 0.9.0
      */
     hasColors: boolean;
     /**
      * The box around the vertices.
-     * @since unreleased
+     * @since 0.9.0
      */
     bounds: { min: number[], max: number[] };
     /**
      * The submeshes with their materials.
-     * @since unreleased
+     * @since 0.9.0
      */
     submeshes: { material: MeshMaterialOptions, start: number, count: number }[];
   }
 
   /**
    * A mesh made at run time with mesh.create. Put `id` in MeshRenderer.mesh (or Collider3D.mesh for a convex or mesh collider) like the path of a model: entity.get("MeshRenderer").mesh = m.id. It lives in the scene that made it: loading another scene (or reloading this one) releases every procedural mesh, and an entity of the new scene must not keep the old id. The engine keeps at most 256 meshes alive, so destroy the ones you stop showing. Example: const m = mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2] }); entity.get("MeshRenderer").mesh = m.id;
-   * @since unreleased
+   * @since 0.9.0
    */
   export interface Mesh {
     /**
      * What MeshRenderer.mesh takes in place of a model path ("mesh:3"). Numbers count from 1 in each run and are never reused, so a stale id never names another mesh.
-     * @since unreleased
+     * @since 0.9.0
      */
     readonly id: string;
     /**
      * Vertices after the last create or update.
-     * @since unreleased
+     * @since 0.9.0
      */
     readonly vertexCount: number;
     /**
      * Triangles after the last create or update.
-     * @since unreleased
+     * @since 0.9.0
      */
     readonly triangleCount: number;
     /**
      * The box around the vertices (what culling, picking and the editor's selection box use).
-     * @since unreleased
+     * @since 0.9.0
      */
     readonly bounds: MeshBounds;
     /**
      * The submeshes with their completed materials.
-     * @since unreleased
+     * @since 0.9.0
      */
     readonly submeshes: { material: MeshMaterialOptions, start: number, count: number }[];
     /**
      * True after destroy().
-     * @since unreleased
+     * @since 0.9.0
      */
     readonly destroyed: boolean;
     /**
      * False after destroy() and also when the scene that made the mesh was unloaded. Check it (or the scene) after an await before using the mesh.
-     * @since unreleased
+     * @since 0.9.0
      */
     readonly alive: boolean;
     /**
      * Same as mesh.update(this, options). Returns this.
-     * @since unreleased
+     * @since 0.9.0
      */
     update(options: MeshOptions): Mesh;
     /**
      * Same as mesh.save(this, path).
-     * @since unreleased
+     * @since 0.9.0
      */
     save(path: string): string;
     /**
      * Same as mesh.destroy(this). Safe to call twice.
-     * @since unreleased
+     * @since 0.9.0
      */
     destroy(): void;
   }
 
   /**
    * Procedural meshes: geometry a script builds at run time (a terrain patch, a deformed body, a generated tree) and shows with MeshRenderer, collides with Collider3D (convex hull or mesh) and picks in the editor, without writing a file. The same operations exist as the mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list and mesh.info commands (docs/SCRIPTING.md, "Procedural meshes").
-   * @since unreleased
+   * @since 0.9.0
    */
   export interface MeshAPI {
     /**
      * Validates the arrays and makes a mesh. Missing normals and tangents are computed. Throws a teaching Error naming the field and the entry for a wrong array length, an index outside the vertices, a submesh outside the index list, NaN, or when 256 meshes are alive. Example: const m = mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2], submeshes: [{ material: { name: "skin", color: "#e0b090" } }] }); entity.get("MeshRenderer").mesh = m.id;
-     * @since unreleased
+     * @since 0.9.0
      */
     create(options: MeshOptions): Mesh;
     /**
      * Replaces what `options` gives and keeps the rest; cheap enough to call every frame: the GPU buffers are reused while the new data fits (a second change of the same mesh within one frame makes new ones). Bounds follow, so culling and picking stay right; a Collider3D that uses the mesh rebuilds its shape on every update (a mesh collider on a mesh deformed each frame is expensive: update it less often, or use a primitive collider). Throws for a destroyed or unknown mesh, or when the new arrays do not fit together. Returns the Mesh when given one.
-     * @since unreleased
+     * @since 0.9.0
      */
     update(mesh: Mesh | string, options: MeshOptions): Mesh;
     /**
      * Frees the mesh. Entities that still name it draw a placeholder box and the engine logs why once; set their mesh first. Throws for an unknown id, not for a Mesh that was destroyed already.
-     * @since unreleased
+     * @since 0.9.0
      */
     destroy(mesh: Mesh | string): void;
     /**
      * Writes the mesh as a .glb (project-relative path ending in .glb, outside .factoria/ except .factoria/tmp/) with its submeshes, materials and vertex colors, and returns the normalized path. It loads back as a normal asset: MeshRenderer.mesh = path. A material whose texture is a run-time texture cannot be saved (throws). A mesh without metallic or roughness is saved with the defaults (0 and 0.6).
-     * @since unreleased
+     * @since 0.9.0
      */
     save(mesh: Mesh | string, path: string): string;
     /**
      * True while the mesh is alive in the current scene.
-     * @since unreleased
+     * @since 0.9.0
      */
     exists(mesh: Mesh | string): boolean;
     /**
      * The live meshes of the current scene.
-     * @since unreleased
+     * @since 0.9.0
      */
     list(): MeshInfo[];
   }
@@ -7814,7 +7814,7 @@ declare module "factoria" {
 
   /**
    * Procedural meshes: mesh.create / update / destroy / save, then MeshRenderer.mesh = m.id.
-   * @since unreleased
+   * @since 0.9.0
    */
   export const mesh: MeshAPI;
 
@@ -8778,12 +8778,12 @@ declare module "factoria" {
     colorFilter: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
     /**
      * Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "book". The texture is the id "target:book" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a 3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active (entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so (a render loop needs two targets: A shows B and B shows A, each one frame late). There is no culling mask: the camera sees everything in its frustum, so put what a target shows (a 2D page with Text, Sprites, Buttons as world-space entities) away from the camera that shows the model. Screen-space UI (Panel, Button and the other widgets, space "screen" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, "Render targets"). Names are unique: a second camera with the same name is not drawn, with an error. "" (default) = the screen. Letters, digits, '_', '-' and '.', up to 64 characters.
-     * @since unreleased
+     * @since 0.9.0
      */
     renderTarget: string;
     /**
      * Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; memory is about width x height x 8 bytes (4 more per pixel with antialiasing).
-     * @since unreleased
+     * @since 0.9.0
      */
     get renderTargetSize(): Vec2;
     set renderTargetSize(value: Vec2Like);
@@ -8891,7 +8891,7 @@ declare module "factoria" {
     vertexOffsets: any;
     /**
      * Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied with `color` (and Tint), blended smoothly across each cell. A flat array of numbers [r0, g0, b0, a0, r1, g1, b1, a1, ...], components 0..1, one RGBA per vertex in the order of `vertexOffsets` (row by row from the TOP row, left to right): vertex (column c, row r) starts at index (r * (meshColumns + 1) + c) * 4. The length must be exactly (meshColumns + 1) * (meshRows + 1) * 4: a scene or prefab with another length is an error naming the length it needs, and a script that writes a wrong length gets one warning and the colours are ignored. A bent page gets its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in light. Write the whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with SpriteSkin. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.9.0
      */
     vertexColors: any;
   }
@@ -9295,7 +9295,7 @@ declare module "factoria" {
     fontSize: number;
     /**
      * World space only: true = the text is shaded by the scene's 3D lights (Light entities and SceneSettings.ambientLight) like a lit material, so gold lettering on a book cover darkens with the shading. The text is a flat surface facing its +Z (the side you read it from; seen from behind it uses the facing side); directional, point and spot lights are summed ONCE per Text, at the text's origin, and multiply `color` (and the colours and pictures of a rich text): no shadows, no per-pixel variation. false (default) = drawn unlit, exactly `color`. Ignored in screen space and under a Camera with lighting "studio". For a Text under 2D lights use a Sprite or Shape2D with `lit`.
-     * @since unreleased
+     * @since 0.9.0
      */
     lit: boolean;
     /**
