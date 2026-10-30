@@ -1,5 +1,7 @@
 #include <doctest.h>
+#include <chrono>
 #include <sstream>
+#include <thread>
 
 #include "test_host.h"
 #include "../src/script_storage.h"
@@ -1999,4 +2001,40 @@ TEST_CASE("world.spawn: a reference that never appears is a warning, the spawn w
     ev_ok(h, "world.find('p').set('Interactable', {knob:'mine'})");
     ev_ok(h, "world.spawn({id:'later'})");
     CHECK(h.w.get<Interactable>(h.w.find("p"))->knob == h.w.find("mine"));
+}
+
+TEST_CASE("a project tool edited on disk runs its new code at the next call, and says which version ran") {
+    TestHost h("toolstale");
+    h.file("scripts/lib.js", "export const label = () => 'lib1';\n");
+    h.file("tools/stale.js", "import { label } from '../scripts/lib.js';\n"
+                             "export default { name: 'stale', summary: 's', run() { return { tool: 'v1', lib: label() }; } };\n");
+    REQUIRE(h.start());
+    auto settle = [] { std::this_thread::sleep_for(std::chrono::milliseconds(30)); };  // a later modification time
+    auto r1 = h.cmds.call("project.stale");
+    REQUIRE(r1.ok);
+    CHECK(r1.result["tool"] == "v1");
+    CHECK(r1.result["lib"] == "lib1");
+    const std::string hash1 = r1.result["toolVersion"]["hash"];
+    CHECK(r1.result["toolVersion"]["file"] == "tools/stale.js");
+    CHECK(!r1.result["toolVersion"]["loadedAt"].get<std::string>().empty());
+
+    // The imported module changes: the tool that imports it sees it.
+    settle();
+    h.file("scripts/lib.js", "export const label = () => 'lib2';\n");
+    auto r2 = h.cmds.call("project.stale");
+    REQUIRE(r2.ok);
+    CHECK(r2.result["lib"] == "lib2");
+
+    // The tool file itself changes: new behaviour and another hash.
+    settle();
+    h.file("tools/stale.js", "import { label } from '../scripts/lib.js';\n"
+                             "export default { name: 'stale', summary: 's', run() { return { tool: 'v2', lib: label() }; } };\n");
+    auto r3 = h.cmds.call("project.stale");
+    REQUIRE(r3.ok);
+    CHECK(r3.result["tool"] == "v2");
+    CHECK(r3.result["toolVersion"]["hash"] != hash1);
+
+    // Untouched files are not re-imported: the load time stays.
+    auto r4 = h.cmds.call("project.stale");
+    CHECK(r4.result["toolVersion"]["loadedAt"] == r3.result["toolVersion"]["loadedAt"]);
 }

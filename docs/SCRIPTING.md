@@ -1337,6 +1337,13 @@ the MCP tool `project_<name>` and `fa.call("project.<name>")` see it at once; `s
 every loaded module whose file changed on disk before it runs, so the call never uses the code from before the edit.
 (The watcher is off with `factoria mcp --no-hot-reload`; then use `script.reload` or `scene.reload`.)
 
+Calling a project tool never runs a stale version either, watcher or not (also in the editor's MCP session): before the
+call, the tool file and every module it imports are compared with their modification time on disk, and what changed is
+re-imported (not while another command is running: a tool that calls a tool uses what was loaded at the outer call).
+When the tool returns an object, the result gets a `toolVersion` field `{file, hash, loadedAt}`: the first 16 hex digits
+of the sha256 of the tool file as it ran, and when it was loaded (UTC). A result that is an array or a scalar has none.
+A `toolVersion` your tool returns itself is kept. If a result lists old behaviour, compare `hash` with the file.
+
 **Failing a tool.** `throw new ToolError(message, hint, data?)` (from `"factoria"`) reports an *expected* failure
 (for example a check tool that found bad level data): the caller gets code `tool_error`, the message, your `hint`
 (how to fix the data, not the tool) and, if given, `data` (any JSON). `data` travels as the structured field `error.data`

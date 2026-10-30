@@ -79,6 +79,8 @@ struct ToolEntry {
     std::string commandName;
     std::string file;
     JsVal fn;
+    std::string hash;      // sha256 of the tool file as it was read (what ran), first 16 hex digits
+    std::string loadedAt;  // UTC ISO 8601 time with ms when the tool was (re)loaded
 };
 
 struct ScriptSystem::Impl {

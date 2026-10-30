@@ -533,6 +533,7 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
                 AgentEvent e;
                 e.type = AgentEvent::Type::ToolStart;
                 e.toolName = str(b, "name");
+                e.toolId = str(b, "id");
                 if (const Json* in = child(b, "input")) e.toolInput = *in;
                 toolNames_[str(b, "id")] = e.toolName;
                 out.push_back(e);
@@ -552,6 +553,7 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
             AgentEvent e;
             e.type = AgentEvent::Type::ToolEnd;
             e.toolName = toolNames_[str(b, "tool_use_id")];
+            e.toolId = str(b, "tool_use_id");
             e.isError = flag(b, "is_error");
             if (const Json* c = child(b, "content")) e.toolResult = clip(summarize_content(*c));
             out.push_back(e);

@@ -1,3 +1,6 @@
+#include <chrono>
+#include <cctype>
+#include <cstdio>
 #include "fa/core/date.h"
 
 #include <cstdio>
@@ -115,6 +118,45 @@ Result<CalendarDate> parse_calendar_date(std::string_view text, std::string_view
                          "Use a time such as 23:59:59; midnight is 00:00:00 of the next day."};
     }
     return c;
+}
+
+std::int64_t unix_time_ms_now() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+std::string iso_utc_ms(std::int64_t unixMs) {
+    std::int64_t days = unixMs / 86400000;
+    std::int64_t rem = unixMs % 86400000;
+    if (rem < 0) { rem += 86400000; --days; }
+    CalendarDate d = calendar_date_from_days(static_cast<long>(days));
+    char buf[40];
+    std::snprintf(buf, sizeof buf, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", d.year, d.month, d.day, static_cast<int>(rem / 3600000),
+                  static_cast<int>(rem / 60000 % 60), static_cast<int>(rem / 1000 % 60), static_cast<int>(rem % 1000));
+    return buf;
+}
+
+bool parse_iso_utc_ms(std::string_view text, std::int64_t& unixMs) {
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0, sec = 0, ms = 0, n = 0;
+    std::string t(text);
+    if (std::sscanf(t.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%n", &y, &mo, &d, &h, &mi, &sec, &n) != 6) return false;
+    if (mo < 1 || mo > 12 || d < 1 || d > days_in_month(y, mo) || h > 23 || mi > 59 || sec > 60) return false;
+    std::size_t pos = static_cast<std::size_t>(n);
+    if (pos < t.size() && t[pos] == '.') {
+        int digits = 0;
+        ++pos;
+        int scale = 100;
+        while (pos < t.size() && std::isdigit(static_cast<unsigned char>(t[pos]))) {
+            if (digits < 3) { ms += (t[pos] - '0') * scale; scale /= 10; }
+            ++digits;
+            ++pos;
+        }
+        if (digits == 0) return false;
+    }
+    if (pos < t.size() && t[pos] != 'Z') return false;
+    CalendarDate cd;
+    cd.year = y; cd.month = mo; cd.day = d;
+    unixMs = (static_cast<std::int64_t>(cd.days_since_epoch()) * 86400 + h * 3600 + mi * 60 + sec) * 1000 + ms;
+    return true;
 }
 
 }  // namespace fa

@@ -56,4 +56,10 @@ Result<CalendarDate> parse_calendar_date(std::string_view text, std::string_view
 // Days since 1970-01-01 -> year/month/day (the inverse of CalendarDate::days_since_epoch).
 CalendarDate calendar_date_from_days(long days);
 
+// Wall-clock time for logs (never for simulation): milliseconds since 1970-01-01 UTC now, "YYYY-MM-DDTHH:MM:SS.mmmZ" for
+// a time, and the inverse (false when `text` is not that shape; the ".mmm" part is optional on reading).
+std::int64_t unix_time_ms_now();
+std::string iso_utc_ms(std::int64_t unixMs);
+bool parse_iso_utc_ms(std::string_view text, std::int64_t& unixMs);
+
 }  // namespace fa

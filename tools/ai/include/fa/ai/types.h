@@ -139,6 +139,7 @@ struct AgentEvent {
     std::string role;     // orchestrator|worker|fast|artist|audio|artCritic|reviewer|cli
     std::string text;     // text delta / info / error message / final text
     std::string toolName;
+    std::string toolId;   // the provider's id of the tool call (ToolStart and its ToolEnd share it); "" when the agent gives none
     Json toolInput;
     Json toolResult;
     bool isError = false;

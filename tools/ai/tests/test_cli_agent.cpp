@@ -5,6 +5,7 @@
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/provider.h"
+#include "fa/core/date.h"
 #include "fa/core/strings.h"
 #include "test_common.h"
 
@@ -717,3 +718,38 @@ TEST_CASE("list_models: a Claude Code that is not logged in says so") {
     CHECK(models.error().hint.find("claude") != std::string::npos);
 }
 #endif
+
+TEST_CASE("AgentSession: every transcript line of a CLI agent has a time and tool_end says how long the tool ran") {
+    TempDir dir;
+    AiConfig cfg = default_config();
+    cfg.providers["claude-code"].command = script("fake_claude.sh");
+    for (const char* role : {"orchestrator"}) cfg.roles[role].provider = "claude-code";
+    CommandRegistry registry = make_registry();
+    SessionOptions so;
+    so.projectDir = dir.str();
+    AgentSession s(registry, cfg, so);
+    auto r = s.run("Check the project");
+    REQUIRE(r.ok);
+    REQUIRE_FALSE(r.transcriptPath.empty());
+    std::ifstream in(r.transcriptPath);
+    std::string line;
+    int lines = 0, toolEnds = 0;
+    while (std::getline(in, line)) {
+        Json j = Json::parse(line);
+        ++lines;
+        std::int64_t t = 0;
+        CHECK_MESSAGE(parse_iso_utc_ms(j.value("t", std::string()), t), line);
+        if (j.value("kind", "") == "tool_end") {
+            ++toolEnds;
+            CHECK(j.contains("ms"));
+            CHECK(j["ms"].get<std::int64_t>() >= 0);
+            CHECK(j["tool"] == "mcp__factoria__project_validate");
+        }
+    }
+    CHECK(lines >= 4);
+    CHECK(toolEnds == 1);
+    // The command reads the newest session of the project.
+    auto tl = session_timeline(dir.str(), "", 0);
+    REQUIRE(tl);
+    CHECK((*tl)["hasTimes"] == true);
+}
