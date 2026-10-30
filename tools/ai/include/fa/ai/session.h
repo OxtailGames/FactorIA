@@ -127,6 +127,15 @@ std::string cancel_cause_text(const std::string& cause);
 // "cancelled" or "cancelled: <cause text>": what a cancelled run's error says.
 std::string cancelled_message(const std::string& cause);
 
+// Where the time of a recorded session went (ai.session_timeline). `text` is the content of a .factoria/ai/sessions/*.jsonl:
+// the gaps of at least `minGapSeconds` between two events, each with what was going on (a tool running, the model thinking,
+// waiting for the model, waiting for the user), and the totals per kind and per tool. A session without "t" on its events
+// (recorded by an older engine) gives hasTimes false and a note.
+Json session_timeline_from_text(const std::string& text, double minGapSeconds);
+// The same for a session of the project: `session` is a file name (with or without .jsonl) in <project>/.factoria/ai/sessions,
+// "" = the newest. The result has the file's path in "session".
+Result<Json> session_timeline(const std::string& projectDir, const std::string& session, double minGapSeconds);
+
 inline constexpr const char* kDelegateTool = "agent_delegate";
 
 class AgentSession {

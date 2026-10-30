@@ -62,6 +62,16 @@ std::vector<const CommandInfo*> CommandRegistry::list(std::string_view category)
 }
 
 CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) const {
+    struct DepthGuard {
+        int& d;
+        explicit DepthGuard(int& v) : d(v) { ++d; }
+        ~DepthGuard() { --d; }
+    };
+    if (beforeCall_ && callDepth_ == 0) {
+        DepthGuard g(callDepth_);
+        beforeCall_(name);
+    }
+    DepthGuard depth(callDepth_);
     auto it = commands_.find(name);
     if (it == commands_.end()) {
         std::vector<std::string> names;
