@@ -351,6 +351,14 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
                 at_track(track + ":pick", !disabled);
                 tooltip("Pick one of the project's " + f.assetType + " files");
             }
+            if (asset && f.assetType == "mesh" && cur.is_string() && MeshStore::is_id(cur.get<std::string>())) {
+                // A procedural mesh (mesh.create): what it is, or why the entity shows the placeholder box.
+                if (const MeshStore::Entry* m = world().meshes().find(cur.get<std::string>()))
+                    ImGui::TextDisabled("Procedural mesh: %zu vertices, %zu triangles, %zu submeshes (mesh.save writes it as a .glb)",
+                                        m->data.vertex_count(), m->data.triangle_count(), m->data.submeshes.size());
+                else
+                    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "This procedural mesh no longer exists (destroyed, or its scene was unloaded): a placeholder box is drawn.");
+            }
             break;
         }
         case FieldWidget::JsonText: {

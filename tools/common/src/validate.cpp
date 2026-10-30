@@ -23,6 +23,7 @@
 #include "fa/runtime/plugins.h"
 #include "fa/runtime/project.h"
 #include "fa/scene/mesh_geometry.h"
+#include "fa/scene/mesh_store.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/sprite_animator.h"
 #include "fa/scene/serialize.h"
@@ -103,6 +104,13 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
         if (!problem.empty())
             c.error(file, pointer, "The texture '" + path + "' names a render target, but " + problem + ".",
                     "Write \"target:\" and the name of a Camera.renderTarget: letters, digits, '_', '-' and '.', up to 64 characters, e.g. \"target:book\".");
+        return;
+    }
+    if (f.assetType == "mesh" && MeshStore::is_id(path)) {
+        // The ids of procedural meshes live in the World of a running scene only: a file that names one points to nothing.
+        c.error(file, pointer, "'" + path + "' is a procedural mesh id: it exists only while the scene that built it runs.",
+                "Set the mesh from a script (MeshRenderer.mesh = the id mesh.create returned), or write the mesh to a file with "
+                "mesh.save(m, \"assets/models/name.glb\") (or the mesh.save command) and use that path here.");
         return;
     }
     // A built-in font ("builtin:serif", or one face of it, "builtin:serif#bold") is a file of the engine, not of the project.
@@ -253,6 +261,7 @@ void check_material_colors(Ctx& c, const std::string& file, const std::string& p
     }
     if (colors.empty()) return;
     const std::string mesh = fields.contains("mesh") && fields["mesh"].is_string() ? fields["mesh"].get<std::string>() : "cube";
+    if (MeshStore::is_id(mesh)) return;  // a procedural mesh: its submesh material names are known at run time (reported as an id error)
     const std::string lower = to_lower(mesh);
     if (!lower.ends_with(".gltf") && !lower.ends_with(".glb")) {
         c.warn(file, base, "materialColors only applies to a glTF model, and mesh '" + mesh + "' is a built-in shape: it is ignored.",

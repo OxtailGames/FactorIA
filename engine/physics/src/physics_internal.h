@@ -435,7 +435,8 @@ private:
 
     // ---- shapes of meshes, shared by every collider of the same mesh
     std::map<std::string, std::shared_ptr<ShapeData>> shapes_;
-    std::shared_ptr<const ShapeData> shape_data(const std::string& mesh, bool bvh, std::string& problem);
+    std::shared_ptr<const ShapeData> shape_data(World& world, const std::string& mesh, bool bvh, std::string& problem);
+    void prune_procedural_shapes(const World& world);  // drops the shapes of procedural meshes that were destroyed or updated
     // ---- navigation
     struct NavState {
         Entity e;

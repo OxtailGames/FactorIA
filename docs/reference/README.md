@@ -270,6 +270,15 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`publish.microsoft`](commands/publish.md#publishmicrosoft-modifies-state): Upload the Windows MSIX package to the Microsoft Store (msstore publish). _Since 0.3.0._
 - [`publish.steam`](commands/publish.md#publishsteam-modifies-state): Upload the desktop exports to Steam (steamcmd, one depot per platform). _Since 0.2.0._
 
+### [render](commands/render.md)
+
+- [`mesh.create`](commands/render.md#meshcreate-modifies-state): Create a procedural mesh from arrays and get its id for MeshRenderer.mesh. _Not released yet._
+- [`mesh.destroy`](commands/render.md#meshdestroy-modifies-state): Free a procedural mesh. _Not released yet._
+- [`mesh.info`](commands/render.md#meshinfo): Describe one procedural mesh: counts, bounds, submeshes and materials. _Not released yet._
+- [`mesh.list`](commands/render.md#meshlist): List the live procedural meshes of the running scene. _Not released yet._
+- [`mesh.save`](commands/render.md#meshsave-modifies-state): Write a procedural mesh as a .glb file that loads back as a normal model. _Not released yet._
+- [`mesh.update`](commands/render.md#meshupdate-modifies-state): Replace the data of a procedural mesh; arrays left out are kept. _Not released yet._
+
 ### [scene](commands/scene.md)
 
 - [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Since 0.7.0._
