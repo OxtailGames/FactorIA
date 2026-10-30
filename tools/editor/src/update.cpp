@@ -246,7 +246,13 @@ Result<void> start_editor_process(const std::string& projectDir) {
     // second FactorIA icon next to it. Any failure falls back to starting the program itself.
     std::error_code absEc;
     const stdfs::path absProject = projectDir.empty() ? stdfs::path() : stdfs::absolute(editor::utf8_path(projectDir), absEc);
+#if defined(_WIN32)
     const std::vector<std::string> viaLauncher = editor_restart_command(SetupContext{}, editor::utf8_string(absProject));
+#else
+    // macOS: a helper that waits until this editor is gone, so the new one takes the pinned Dock icon.
+    const std::vector<std::string> viaLauncher =
+        editor_restart_command(SetupContext{}, editor::utf8_string(absProject), static_cast<long long>(getpid()));
+#endif
     if (!viaLauncher.empty()) {
 #if defined(_WIN32)
         std::wstring cmd = L"\"" + editor::utf8_path(viaLauncher[0]).wstring() + L"\"";
@@ -261,11 +267,17 @@ Result<void> start_editor_process(const std::string& projectDir) {
             return {};
         }
 #else
-        ProcessOptions po;
-        po.argv = viaLauncher;
-        po.timeoutSeconds = 20;
-        po.captureStdout = false;
-        if (auto r = run_process(po); r && r->exitCode == 0) return {};
+        // Detached and not waited for: it waits for this process to exit.
+        std::vector<char*> argv;
+        for (const std::string& a : viaLauncher) argv.push_back(const_cast<char*>(a.c_str()));
+        argv.push_back(nullptr);
+        if (pid_t pid = fork(); pid == 0) {
+            setsid();  // outlives this editor
+            execv(argv[0], argv.data());
+            _exit(127);
+        } else if (pid > 0) {
+            return {};
+        }
 #endif
     }
     stdfs::path exe = executable_dir() / (std::string("factoria") + kExe);
