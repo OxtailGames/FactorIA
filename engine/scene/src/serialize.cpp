@@ -492,6 +492,11 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                 error(cptr + "/Camera/viewport", problem,
                       "viewport is [x, y, width, height] as fractions of the screen with [0, 0] the top-left corner and +Y down, "
                       "inside 0..1. Left half: [0, 0, 0.5, 1]. Bottom-right quarter: [0.5, 0.5, 0.5, 0.5]. Whole screen: [0, 0, 1, 1].");
+            const std::string targetProblem = camera_render_target_problem(*cam);
+            if (!targetProblem.empty())
+                error(cptr + "/Camera/renderTarget", targetProblem,
+                      "renderTarget is a short name (letters, digits, '_', '-', '.') and renderTargetSize [width, height] is 1..4096 pixels "
+                      "each. Example: \"renderTarget\": \"book\", \"renderTargetSize\": [1024, 768]; then use \"target:book\" as a texture.");
         }
         if (const Joint2D* jt = world_.get<Joint2D>(e)) {
             if (jt->enableLimit && jt->lowerLimit > jt->upperLimit)

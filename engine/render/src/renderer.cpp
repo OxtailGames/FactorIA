@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <set>
 
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
@@ -34,7 +35,7 @@ using namespace render;
 Json RenderStats::to_json() const {
     return Json{{"drawCalls", drawCalls}, {"sprites", sprites}, {"shapes", shapes}, {"textGlyphs", textGlyphs},
                 {"particles", particles}, {"meshes", meshes}, {"meshesCulled", meshesCulled}, {"meshBatches", meshBatches},
-                {"triangles", triangles}, {"views", views}, {"shadowCasters", shadowCasters}, {"lights", lights}, {"lightsDropped", lightsDropped},
+                {"triangles", triangles}, {"views", views}, {"renderTargets", renderTargets}, {"shadowCasters", shadowCasters}, {"lights", lights}, {"lightsDropped", lightsDropped},
                 {"lights2d", lights2d}, {"lights2dDropped", lights2dDropped}, {"lights2dShadowed", lights2dShadowed},
                 {"materials", materials}, {"materialFallbacks", materialFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
@@ -155,13 +156,38 @@ struct Renderer::Impl {
         int w = 0, h = 0;
         bool used = false;  // asked for since the last release_unused_views()
         TextureAsset asset;  // what the UI quad samples: the resolved image, w x h
+        // A Camera.renderTarget texture on a backend that stores render targets bottom-up (GL): the picture copied the right way
+        // up into `flip`, which `asset` then samples, so a mesh, a Sprite or a Panel reads it like any file texture.
+        bool flipCopy = false;
+        sg_image flip{};
+        sg_view flipAtt{}, flipTex{};
     };
     std::unordered_map<std::uint64_t, std::unique_ptr<ViewTarget>> viewTargets;
     bool viewWarned = false;
-    TextureAsset* view_image(std::uint64_t key, int w, int h);
+    TextureAsset* view_image(std::uint64_t key, int w, int h, bool renderTarget = false);
     void release_view(ViewTarget& t);
     void release_unused_views();
     void draw_view_job(World& world, Frame& fr, ViewTarget& target);
+
+    // ---- Camera.renderTarget (docs/RENDERING.md, "Render targets") ----
+    struct TargetCam {
+        Entity entity;
+        std::string name;
+        int w = 1, h = 1;
+        std::uint64_t key = 0;
+        int depth = 0;
+        TextureAsset* asset = nullptr;
+    };
+    std::vector<TargetCam> targetCams;                       // this frame's: active, valid, one per name, in creation order
+    std::unordered_map<std::string, int> targetByName;       // name -> index into targetCams
+    std::unordered_map<const TextureAsset*, int> targetByAsset;
+    std::string targetSelf;      // the name of the target being gathered or drawn: its own texture is the checker (sentinel)
+    TextureAsset selfSentinel;   // what texture("target:<self>") answers meanwhile: the checker, its handles are shared
+    std::set<std::string> targetWarned;
+    void collect_targets(World& world);
+    void warn_target_once(const std::string& key, const std::string& message, const std::string& hint);
+    TextureAsset* resolve_target(const std::string& name);
+    void flip_copy(ViewTarget& t);
 
     void create_targets(int w, int h);
     void destroy_targets();
@@ -173,7 +199,7 @@ struct Renderer::Impl {
     sg_view upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();
     // `view` (a CameraView's rectangle in design pixels) makes the camera fill an image of that size instead of its viewport.
-    CameraInfo build_camera(World& world, Entity entity, const Vec2* viewSize = nullptr);
+    CameraInfo build_camera(World& world, Entity entity, const Vec2* viewSize = nullptr, bool renderTarget = false);
     std::vector<CameraInfo> collect_cameras(World& world);
     const CameraInfo& camera_for(Entity camera, const Vec2* screenPoint) const;
     struct JobPlan {
@@ -183,6 +209,7 @@ struct Renderer::Impl {
         const CameraInfo* post = nullptr;  // the camera whose bloom, bloomScreenSpace and colorFilter the frame gets (the first)
     };
     void render(World& world, float dt);
+    void setup_frame(Frame& fr, World& world, float dt);
     void draw_job(World& world, Frame& fr, const JobPlan& plan);
 };
 
@@ -319,13 +346,14 @@ void Renderer::Impl::destroy_targets() {
 
 // Makes (or keeps) the image of a CameraView: w x h pixels, drawn into with the game target's formats and sample count.
 // Null (and one logged error) when the GPU cannot make it.
-TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h) {
+TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool renderTarget) {
     std::unique_ptr<ViewTarget>& slot = viewTargets[key];
     if (!slot) slot = std::make_unique<ViewTarget>();
     ViewTarget& t = *slot;
     t.used = true;
     if (t.color.id && t.w == w && t.h == h) return &t.asset;
     release_view(t);
+    t.flipCopy = renderTarget && gpu.is_gl();
     const int samples = gpu.sample_count();
     sg_image_desc cd{};
     cd.usage.color_attachment = true;
@@ -372,23 +400,45 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h) {
         release_view(t);
         return nullptr;
     }
+    if (t.flipCopy) {
+        sg_image_desc fd{};
+        fd.usage.color_attachment = true;
+        fd.width = w; fd.height = h;
+        fd.pixel_format = SG_PIXELFORMAT_RGBA8;
+        fd.sample_count = 1;
+        fd.label = "target-flipped";
+        t.flip = make_image(fd);
+        sg_view_desc fa{};
+        fa.color_attachment.image = t.flip;
+        t.flipAtt = sg_make_view(&fa);
+        sg_view_desc ft{};
+        ft.texture.image = t.flip;
+        t.flipTex = sg_make_view(&ft);
+        if (sg_query_image_state(t.flip) != SG_RESOURCESTATE_VALID || sg_query_view_state(t.flipAtt) != SG_RESOURCESTATE_VALID ||
+            sg_query_view_state(t.flipTex) != SG_RESOURCESTATE_VALID) {
+            if (!viewWarned) FA_ERROR("render", "Cannot create the {}x{} image of a render target", w, h);
+            viewWarned = true;
+            release_view(t);
+            return nullptr;
+        }
+    }
     t.w = w;
     t.h = h;
     t.asset = TextureAsset{};
-    t.asset.path = "view";
-    t.asset.image = samples > 1 ? t.resolve : t.color;
-    t.asset.view = t.texView;
+    t.asset.path = renderTarget ? "target" : "view";
+    t.asset.image = t.flipCopy ? t.flip : (samples > 1 ? t.resolve : t.color);
+    t.asset.view = t.flipCopy ? t.flipTex : t.texView;
     t.asset.width = w;
     t.asset.height = h;
     return &t.asset;
 }
 
 void Renderer::Impl::release_view(ViewTarget& t) {
-    for (sg_view* v : {&t.colorAtt, &t.resolveAtt, &t.depthAtt, &t.texView}) {
+    for (sg_view* v : {&t.colorAtt, &t.resolveAtt, &t.depthAtt, &t.texView, &t.flipAtt, &t.flipTex}) {
         if (v->id) sg_destroy_view(*v);
         *v = {};
     }
-    for (sg_image* i : {&t.color, &t.resolve, &t.depth}) {
+    for (sg_image* i : {&t.color, &t.resolve, &t.depth, &t.flip}) {
         if (i->id) sg_destroy_image(*i);
         *i = {};
     }
@@ -407,6 +457,95 @@ void Renderer::Impl::release_unused_views() {
             it = viewTargets.erase(it);
         }
     }
+}
+
+// ---- Camera.renderTarget -------------------------------------------------------------------------------------------------
+
+void Renderer::Impl::warn_target_once(const std::string& key, const std::string& message, const std::string& hint) {
+    if (!targetWarned.insert(key).second) return;
+    FA_ERROR("render", "{}. Hint: {}", message, hint);
+}
+
+// The active cameras with a Camera.renderTarget: valid, one per name, each with its image (made here, so the textures exist
+// before any gather asks for them). The images of the cameras that are gone are freed at the end of the frame.
+void Renderer::Impl::collect_targets(World& world) {
+    targetCams.clear();
+    targetByName.clear();
+    targetByAsset.clear();
+    if (selfSentinel.path.empty()) {  // the checker under another address: a camera that shows its own target gets this
+        selfSentinel = *assets->placeholder();
+        selfSentinel.path = "target-self";
+    }
+    world.each<Camera>([&](Entity e, Camera& c) {
+        if (c.renderTarget.empty() || !world.active_in_hierarchy(e)) return;
+        const std::string who = "Camera '" + world.id_of(e) + "'";
+        Camera probe = c;
+        probe.renderTargetSize = Vec2{1, 1};
+        if (const std::string problem = camera_render_target_problem(probe); !problem.empty()) {
+            warn_target_once("name:" + std::to_string(e.bits()) + c.renderTarget, who + ": " + problem + "; the camera is not drawn",
+                             "Camera.renderTarget is a short name of letters, digits, '_', '-' and '.' (up to 64 characters).");
+            return;
+        }
+        if (targetByName.count(c.renderTarget)) {
+            const TargetCam& first = targetCams[std::size_t(targetByName[c.renderTarget])];
+            warn_target_once("dup:" + c.renderTarget,
+                             who + " renders into target '" + c.renderTarget + "', which Camera '" + world.id_of(first.entity) +
+                                 "' already renders into; this camera is not drawn",
+                             "Give every render-target camera its own renderTarget name, or deactivate one of them.");
+            return;
+        }
+        int w = 1, h = 1;
+        bool clamped = false;
+        camera_render_target_pixels(c, w, h, &clamped);
+        if (clamped) {
+            const Vec2 sz = c.renderTargetSize;
+            warn_target_once("size:" + std::to_string(e.bits()) + std::to_string(w) + "x" + std::to_string(h),
+                             who + ": Camera.renderTargetSize is [" + std::to_string(sz.x) + ", " + std::to_string(sz.y) +
+                                 "], the texture is made " + std::to_string(w) + " x " + std::to_string(h),
+                             "renderTargetSize is [width, height] in pixels, each 1..4096.");
+        }
+        const std::uint64_t key = (1ull << 63) | std::uint64_t(std::hash<std::string>{}(c.renderTarget) & 0x7fffffffffffffffull);
+        TextureAsset* asset = view_image(key, w, h, true);
+        if (!asset) return;
+        targetByName[c.renderTarget] = int(targetCams.size());
+        targetByAsset[asset] = int(targetCams.size());
+        targetCams.push_back(TargetCam{e, c.renderTarget, w, h, key, c.depth, asset});
+    });
+}
+
+// What texture("target:<name>") answers: the target's live texture; the checker (selfSentinel) for the camera that draws that very
+// target (a pass cannot sample the image it writes); null when no camera renders into the name.
+TextureAsset* Renderer::Impl::resolve_target(const std::string& name) {
+    auto it = targetByName.find(name);
+    if (it == targetByName.end()) return nullptr;
+    if (name == targetSelf) return &selfSentinel;
+    return targetCams[std::size_t(it->second)].asset;
+}
+
+// GL stores render targets bottom-up: copy the finished picture the right way up into the image the texture asset samples.
+void Renderer::Impl::flip_copy(ViewTarget& t) {
+    if (!t.flipCopy || !t.flip.id) return;
+    sg_pass p{};
+    p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
+    p.action.colors[0].store_action = SG_STOREACTION_STORE;
+    p.attachments.colors[0] = t.flipAtt;
+    p.label = "target-flip";
+    sg_begin_pass(&p);
+    sg_apply_pipeline(gpu.colorfilter_pipeline());
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_colorfilter_tex] = t.texView;
+    b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    colorfilter_colorfilter_vs_params_t vu{};
+    vu.flip[0] = 0.0f;  // the filter's own flip (1 on GL) reads the target as it is stored; 0 turns it
+    apply_uniforms(UB_colorfilter_colorfilter_vs_params, vu);
+    colorfilter_colorfilter_params_t fu{};
+    fu.p[0] = 0.0f;  // mode 0: a plain copy with the alpha
+    apply_uniforms(UB_colorfilter_colorfilter_params, fu);
+    sg_draw(0, 3, 1);
+    sg_end_pass();
+    ++stats.drawCalls;
 }
 
 // Makes (or keeps) the light buffer: `scale` times the size of the game target, in the format the GPU draws lights in.
@@ -594,7 +733,7 @@ static Rect sanitize_viewport(const Rect& v, std::string& warned) {
     return Rect{x, y, std::min(v.w, 1.0f - x), std::min(v.h, 1.0f - y)};
 }
 
-CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize) {
+CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize, bool renderTarget) {
     CameraInfo ci;
     const bool z01 = gpu.depth_zero_to_one();
     Camera cam;  // defaults when no camera exists
@@ -645,7 +784,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     } else {
         float halfH = cam.orthoSize > 0 ? cam.orthoSize : viewH * 0.5f;
         float halfW = halfH * aspect;
-        if (scaleMode == ScaleMode::Expand && cam.orthoSize > 0) {
+        if (scaleMode == ScaleMode::Expand && cam.orthoSize > 0 && !renderTarget) {
             // Expand: the design height (landscape-ish targets) or design width (taller targets) stays fixed;
             // the other axis grows with the window aspect.
             float designAspect = float(desc.designWidth) / float(std::max(1, desc.designHeight));
@@ -673,7 +812,7 @@ std::vector<CameraInfo> Renderer::Impl::collect_cameras(World& world) {
     struct Found { Entity e; int depth; };
     std::vector<Found> found;
     world.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && world.active_in_hierarchy(e)) found.push_back({e, c.depth});
+        if (c.primary && c.renderTarget.empty() && world.active_in_hierarchy(e)) found.push_back({e, c.depth});
     });
     std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
     constexpr std::size_t kMaxCameras = 8;
@@ -753,6 +892,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     }
     im.assets = std::make_unique<Assets>(im.gpu);
     im.assets->set_shader_compiler(shaderCompiler_);
+    Impl* impl = &im;
+    im.assets->set_target_resolver([impl](const std::string& name) { return impl->resolve_target(name); });
     im.fonts = std::make_unique<Fonts>(im.gpu, *im.assets);
     im.fonts->set_fallback_fonts(fallbackFonts_);
     im.fonts->set_rich_style(richStyle_);
@@ -919,6 +1060,30 @@ Entity Renderer::camera_at(Vec2 screenPos) const {
     return impl_ ? impl_->camera_for(kNullEntity, &screenPos).entity : kNullEntity;
 }
 
+std::optional<Renderer::RenderTargetView> Renderer::render_target_view(World& world, const std::string& name) const {
+    if (!impl_ || name.empty()) return std::nullopt;
+    Entity found;
+    world.each<Camera>([&](Entity e, Camera& c) {
+        if (found || c.renderTarget != name || !world.active_in_hierarchy(e)) return;
+        Camera probe = c;
+        probe.renderTargetSize = Vec2{1, 1};  // a size that is off is clamped when drawn, not a reason to skip the camera
+        if (camera_render_target_problem(probe).empty()) found = e;
+    });
+    if (!found) return std::nullopt;
+    RenderTargetView v;
+    v.camera = found;
+    camera_render_target_pixels(*world.get<Camera>(found), v.width, v.height);
+    const Vec2 size{float(v.width), float(v.height)};
+    const CameraInfo ci = impl_->build_camera(world, found, &size, true);
+    const Mat4 viewProj = ci.viewProj;
+    v.to_pixels = [viewProj, size](Vec3 p) {
+        const Vec4 c = viewProj * Vec4{p, 1.0f};
+        const float w = std::fabs(c.w) > 1e-8f ? c.w : 1e-8f;
+        return Vec2{(c.x / w * 0.5f + 0.5f) * size.x, (1.0f - (c.y / w * 0.5f + 0.5f)) * size.y};
+    };
+    return v;
+}
+
 Vec2 Renderer::framebuffer_to_design(Vec2 fb, int fbW, int fbH, ScaleMode mode) const {
     int tw = impl_ ? impl_->targetW : fbW, th = impl_ ? impl_->targetH : fbH;
     Viewport vp = compute_viewport(mode, fbW, fbH, tw, th);
@@ -1028,6 +1193,28 @@ void Renderer::render_world(World& world, float dt) {
     impl_->render(world, dt);
 }
 
+// What every gather of a frame needs from the renderer: the sizes, the caches, the warning flags.
+void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
+    fr.targetW = targetW;
+    fr.targetH = targetH;
+    fr.dt = dt;
+    fr.stats = &stats;
+    fr.assets = assets.get();
+    fr.fonts = fonts.get();
+    fr.textScale = textScale;
+    fr.uiScale = ui_scale_clamped(world.ui_scale());
+    fr.renderScale = renderScale;
+    fr.warnedLights2d = &warnedLights2d;
+    fr.warnedShadows2d = &warnedShadows2d;
+    fr.warnedSpriteMesh = &warnedSpriteMesh;
+    fr.warnedSpriteClip = &warnedSpriteClip;
+    fr.warnedGradientStops = &warnedGradientStops;
+    fr.shadowCache = &shadowCache;
+    fr.ramps = &ramps;
+    fr.viewFlipV = gpu.is_gl();
+    fr.viewImage = [this](std::uint64_t key, int w, int h) { return view_image(key, w, h); };
+}
+
 // One frame: the cameras drawn in depth order (each into its viewport rectangle: its own culling, 2D lights, 3D lights, clear)
 // and then, when the cameras do not fill the screen together with a single full-screen camera, the screen-space items
 // (Sprite/Shape2D/Text/ParticleEmitter with space "screen", UI, debug text) once over the whole screen. A game with one
@@ -1040,6 +1227,9 @@ void Renderer::Impl::render(World& world, float dt) {
     anyFrameRendered = true;
 
     lastCams = collect_cameras(world);
+    assets->set_drawing(true);
+    targetSelf.clear();
+    collect_targets(world);  // before any gather: the textures "target:<name>" exist when a Sprite or a mesh asks for them
     ++shadowCache.tick;  // one per drawn frame, not per camera: every camera of this frame keeps the rows it reads
     ramps.begin_frame();
     if (world.scene_path() != lights2dScene) {
@@ -1063,33 +1253,38 @@ void Renderer::Impl::render(World& world, float dt) {
     }
 
     flush_particle_bursts(world);
+    // The MeshRenderers that show a render target (texture, normalMap or a texture parameter of the material): who shows what is
+    // known from the meshes in view of each camera, below. Nothing is scanned when no camera renders into a target.
+    struct MeshRef { Entity e; std::vector<int> targets; };
+    std::vector<MeshRef> meshRefs;
+    if (!targetCams.empty()) {
+        world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
+            if (!world.active_in_hierarchy(e)) return;
+            MeshRef ref{e, {}};
+            auto add = [&](const std::string& path) {
+                if (!Assets::is_target_id(path)) return;
+                auto it = targetByName.find(path.substr(7));
+                if (it != targetByName.end() && std::find(ref.targets.begin(), ref.targets.end(), it->second) == ref.targets.end())
+                    ref.targets.push_back(it->second);
+            };
+            add(mr.texture);
+            add(mr.normalMap);
+            if (mr.materialParams.is_object())
+                for (auto& [k, v] : mr.materialParams.items())
+                    if (v.is_string()) add(v.get<std::string>());
+            if (!ref.targets.empty()) meshRefs.push_back(std::move(ref));
+        });
+    }
     std::vector<Frame> frames(specs.size());
+    std::vector<Frame> targetFrames;  // one per Camera.renderTarget, in targetCams order
+    std::vector<std::set<int>> targetDeps;  // targetDeps[i]: the targets that the frame of target i shows
     // The CameraViews of the frame (collected by the UI gather of the frames): each one's camera drawn into its own image first.
     std::vector<std::pair<std::uint64_t, Frame>> viewFrames;
     // The glyph atlas can be cleared halfway through a gather (it is full): the texts gathered before that hold UVs of the
     // old atlas. Gather once more then, so no text of the frame is drawn from a cleared atlas (it fits after a clear).
     for (int attempt = 0; attempt < 2; ++attempt) {
     const unsigned atlasEpoch = fonts->atlas_epoch();
-    auto setup = [&](Frame& fr) {
-        fr.targetW = targetW;
-        fr.targetH = targetH;
-        fr.dt = dt;
-        fr.stats = &stats;
-        fr.assets = assets.get();
-        fr.fonts = fonts.get();
-        fr.textScale = textScale;
-        fr.uiScale = ui_scale_clamped(world.ui_scale());
-        fr.renderScale = renderScale;
-        fr.warnedLights2d = &warnedLights2d;
-        fr.warnedShadows2d = &warnedShadows2d;
-        fr.warnedSpriteMesh = &warnedSpriteMesh;
-        fr.warnedSpriteClip = &warnedSpriteClip;
-        fr.warnedGradientStops = &warnedGradientStops;
-        fr.shadowCache = &shadowCache;
-        fr.ramps = &ramps;
-        fr.viewFlipV = gpu.is_gl();
-        fr.viewImage = [this](std::uint64_t key, int w, int h) { return view_image(key, w, h); };
-    };
+    auto setup = [&](Frame& fr) { setup_frame(fr, world, dt); };
     for (std::size_t i = 0; i < specs.size(); ++i) {
         frames[i] = Frame{};
         Frame& fr = frames[i];
@@ -1104,6 +1299,31 @@ void Renderer::Impl::render(World& world, float dt) {
         gather_debug(*debug.impl(), fr);
     }
     // One job per CameraView the UI met: a world gather of its camera at the size of its rectangle.
+    // One job per render target: a world gather of its camera at the size of its texture. Its own texture is the checker meanwhile.
+    targetFrames.clear();
+    for (const TargetCam& tc : targetCams) {
+        Frame& fr = targetFrames.emplace_back();
+        targetSelf = tc.name;
+        const Vec2 size{float(tc.w), float(tc.h)};
+        fr.cam = build_camera(world, tc.entity, &size, true);
+        fr.wantWorld = true;
+        fr.wantScreen = false;
+        setup(fr);
+        fr.targetW = tc.w;
+        fr.targetH = tc.h;
+        fr.renderScale = 1.0f;
+        update_animators(world, fr, false);
+        gather_2d(world, fr);
+        if (fr.cam.studio) {
+            fr.lights2d.clear();
+            fr.ambient2d = Color{1, 1, 1, 1};
+            fr.shadowData.clear();
+            fr.shadowRows = 0;
+            fr.shadowKey = 0;
+        }
+        gather_particles(world, fr);
+        targetSelf.clear();
+    }
     viewFrames.clear();
     for (const Frame& main : frames)
         for (const ViewRequest& rq : main.views) {
@@ -1142,7 +1362,94 @@ void Renderer::Impl::render(World& world, float dt) {
         specs.pop_back();
     }
 
-    // The CameraViews first: the frame's own jobs sample their images.
+    // The render targets first, each after the targets it shows: the frame's own jobs (and the CameraViews) sample their textures.
+    if (!targetFrames.empty()) {
+        const bool z01 = gpu.depth_zero_to_one();
+        const int n = int(targetFrames.size());
+        targetDeps.assign(std::size_t(n), {});
+        auto scan_quads = [&](const Frame& fr, const QuadList& list, std::set<int>& into, bool& self) {
+            for (const QuadItem& it : list.items) {
+                bool relevant = false;
+                for (const TextureAsset* t : {it.tex, it.normal})
+                    relevant = relevant || (t && (t == &selfSentinel || targetByAsset.count(t)));
+                if (!relevant) continue;
+                // A Sprite or Text that is not in the camera's view draws nothing, so it does not count as shown (gather_2d keeps
+                // every quad: the GPU clips them).
+                Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+                for (std::uint32_t v = it.firstVert; v < it.firstVert + it.quadCount * 4; ++v) {
+                    const Vertex2D& q = list.raw[v];
+                    lo = Vec3{std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
+                    hi = Vec3{std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+                }
+                if (!box_in_frustum(fr.cam.viewProj, z01, lo, hi, Mat4::identity())) continue;
+                for (const TextureAsset* t : {it.tex, it.normal}) {
+                    if (!t) continue;
+                    if (t == &selfSentinel) self = true;
+                    else if (auto f = targetByAsset.find(t); f != targetByAsset.end()) into.insert(f->second);
+                }
+            }
+        };
+        for (int i = 0; i < n; ++i) {
+            Frame& fr = targetFrames[std::size_t(i)];
+            const TargetCam& tc = targetCams[std::size_t(i)];
+            bool self = false;
+            scan_quads(fr, fr.world, targetDeps[std::size_t(i)], self);
+            for (const MeshRef& ref : meshRefs) {
+                const MeshRenderer* mr = world.get<MeshRenderer>(ref.e);
+                if (!mr) continue;
+                const MeshAsset* mesh = assets->mesh(mr->mesh);
+                if (!box_in_frustum(fr.cam.viewProj, z01, mesh->bmin, mesh->bmax, world.world_matrix(ref.e))) continue;
+                for (int t : ref.targets) {
+                    if (t == i) self = true;
+                    else targetDeps[std::size_t(i)].insert(t);
+                }
+            }
+            if (self)
+                warn_target_once("self:" + tc.name,
+                                 "Camera '" + world.id_of(tc.entity) + "' renders into target '" + tc.name + "' and its own view shows \"target:" + tc.name +
+                                     "\" (a Sprite, a Panel or a MeshRenderer in front of it): a pass cannot read the image it is drawing into, so "
+                                     "that surface is drawn as the missing-texture checker",
+                                 "Move the entity that shows the target out of this camera's view (the camera sees everything in its frustum), "
+                                 "or give the picture to another camera: two targets can show each other, each one frame late.");
+        }
+        std::vector<char> done(std::size_t(n), 0);
+        std::vector<int> order;
+        for (int k = 0; k < n; ++k) {
+            int pick = -1;
+            for (int i = 0; i < n; ++i) {
+                if (done[std::size_t(i)]) continue;
+                bool ready = true;
+                for (int d : targetDeps[std::size_t(i)]) ready = ready && done[std::size_t(d)];
+                if (ready && (pick < 0 || targetCams[std::size_t(i)].depth < targetCams[std::size_t(pick)].depth)) pick = i;
+            }
+            if (pick < 0) {  // a loop (A shows B, B shows A): the one that draws first shows the other's picture of the last frame
+                std::string names;
+                for (int i = 0; i < n; ++i) {
+                    if (done[std::size_t(i)]) continue;
+                    names += (names.empty() ? "'" : ", '") + targetCams[std::size_t(i)].name + "'";
+                    if (pick < 0 || targetCams[std::size_t(i)].depth < targetCams[std::size_t(pick)].depth) pick = i;
+                }
+                if (targetWarned.insert("cycle:" + names).second)
+                    FA_WARN("render", "The render targets {} show each other, so one of them shows the other's picture of the previous frame "
+                            "(one frame late). Hint: that is fine for a mirror of a mirror; to avoid the lag, break the loop so a target only "
+                            "shows targets drawn before it", names);
+            }
+            done[std::size_t(pick)] = 1;
+            order.push_back(pick);
+        }
+        for (int i : order) {
+            const TargetCam& tc = targetCams[std::size_t(i)];
+            auto it = viewTargets.find(tc.key);
+            if (it == viewTargets.end() || !it->second->color.id) continue;
+            targetSelf = tc.name;
+            draw_view_job(world, targetFrames[std::size_t(i)], *it->second);
+            targetSelf.clear();
+            flip_copy(*it->second);
+            ++stats.renderTargets;
+        }
+    }
+
+    // The CameraViews next: the frame's own jobs sample their images.
     for (auto& [key, vf] : viewFrames) {
         auto it = viewTargets.find(key);
         if (it != viewTargets.end() && it->second->color.id) draw_view_job(world, vf, *it->second);
@@ -1159,6 +1466,7 @@ void Renderer::Impl::render(World& world, float dt) {
     }
 
     release_unused_views();
+    assets->set_drawing(false);
     debug.clear();
     gpuTimer.end();  // closes the query begun above even if the profiler was switched off meanwhile
     auto t1 = std::chrono::steady_clock::now();
@@ -1223,7 +1531,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     if (fr.wantWorld) world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
-        if (!world.active_in_hierarchy(e)) return;
+        if (!entity_active(world, fr, e)) return;
         MeshItem mi;
         mi.mesh = assets->mesh(mr.mesh);
         mi.model = world.world_matrix(e);
@@ -1971,6 +2279,94 @@ bool Renderer::capture_fitted(Image& out, int width, int height, bool stretch, s
     Image full;
     if (!capture(full, error)) return false;
     out = stretch ? resize_image(full, width, height) : cover_image(full, width, height);
+    return true;
+}
+
+bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out, std::string* error) {
+    auto fail = [&](std::string message) {
+        if (error) *error = std::move(message);
+        return false;
+    };
+    if (!initialized()) return fail("Renderer is not initialized");
+    Impl& im = *impl_;
+    const Rect& r = spec.rect;
+    if (!std::isfinite(r.x) || !std::isfinite(r.y) || !std::isfinite(r.w) || !std::isfinite(r.h) || !(r.w > 0.0f) || !(r.h > 0.0f))
+        return fail("the rectangle [" + std::to_string(r.x) + ", " + std::to_string(r.y) + ", " + std::to_string(r.w) + ", " +
+                    std::to_string(r.h) + "] is empty or not a number. Pass [x, y, width, height] in world units with a positive width and height");
+    if (!std::isfinite(spec.scale) || !(spec.scale > 0.0f))
+        return fail("scale must be a number above 0 (pixels per world unit), but got " + std::to_string(spec.scale));
+    const double pw = std::ceil(double(r.w) * double(spec.scale) - 1e-4), ph = std::ceil(double(r.h) * double(spec.scale) - 1e-4);
+    if (pw > kMaxWorldCaptureSide || ph > kMaxWorldCaptureSide)
+        return fail("the picture would be " + std::to_string(std::llround(pw)) + " x " + std::to_string(std::llround(ph)) +
+                    " pixels (" + std::to_string(r.w) + " x " + std::to_string(r.h) + " world units at scale " + std::to_string(spec.scale) +
+                    "), more than the " + std::to_string(kMaxWorldCaptureSide) + " a side a texture may have. Use a smaller scale or a smaller rectangle");
+    const int w = std::max(1, int(pw)), h = std::max(1, int(ph));
+
+    // The camera: orthographic, centred on the rect, showing exactly w x h pixels at `scale` pixels per unit.
+    CameraInfo ci;
+    const float cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+    ci.halfW = float(w) / (2.0f * spec.scale);
+    ci.halfH = float(h) / (2.0f * spec.scale);
+    ci.pixelsPerUnit = spec.scale;
+    ci.position = Vec3{cx, cy, 0.0f};
+    ci.view = Mat4::identity();
+    ci.view.at(3, 0) = -cx;
+    ci.view.at(3, 1) = -cy;
+    ci.proj = Mat4::ortho(-ci.halfW, ci.halfW, -ci.halfH, ci.halfH, -1000.0f, 1000.0f, im.gpu.depth_zero_to_one());
+    ci.viewProj = ci.proj * ci.view;
+    ci.invViewProj = ci.viewProj.inverse();
+    ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
+    ci.clear = true;
+    ci.clearColor = Color{0, 0, 0, 0};
+
+    const RenderStats savedStats = im.stats;
+    im.targetSelf.clear();
+    im.ramps.begin_frame();
+    Frame fr;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        const unsigned atlasEpoch = im.fonts->atlas_epoch();
+        fr = Frame{};
+        fr.cam = ci;
+        fr.wantWorld = true;
+        fr.wantScreen = false;
+        fr.scopeRoot = spec.subject;
+        im.setup_frame(fr, world, 0.0f);
+        fr.targetW = w;
+        fr.targetH = h;
+        fr.renderScale = spec.scale;
+        update_animators(world, fr, false);
+        gather_2d(world, fr);
+        gather_particles(world, fr);
+        if (im.fonts->atlas_epoch() == atlasEpoch) break;  // else the atlas was remade halfway: gather again
+    }
+    im.fonts->sync();
+    im.ramps.sync();
+
+    constexpr std::uint64_t kKey = 1ull << 62;  // not a CameraView widget (entity bits) and not a render target (bit 63)
+    TextureAsset* tex = im.view_image(kKey, w, h);
+    if (!tex) return fail("the " + std::to_string(w) + " x " + std::to_string(h) + " image could not be created (out of GPU memory?)");
+    im.gpu.begin_frame();
+    im.draw_view_job(world, fr, *im.viewTargets[kKey]);
+    // Read-back waits for the GPU, and on Metal the work is only submitted by sg_commit (see capture()).
+    sg_commit();
+    im.gpu.note_commit();
+    const Impl::ViewTarget& vt = *im.viewTargets[kKey];
+    std::vector<std::uint8_t> px;
+    std::string readError;
+    const bool ok = readback_rgba8(vt.asset.image, w, h, px, &readError);
+    im.release_view(*im.viewTargets[kKey]);
+    im.viewTargets.erase(kKey);
+    im.stats = savedStats;
+    if (!ok) return fail("reading the picture back from the GPU failed: " + readError);
+    // The pass blended onto a transparent background, so the colour is premultiplied by alpha; texture fields expect straight alpha.
+    for (std::size_t i = 0; i + 3 < px.size(); i += 4) {
+        const unsigned a = px[i + 3];
+        if (a == 0 || a == 255) continue;
+        for (int c = 0; c < 3; ++c) px[i + std::size_t(c)] = std::uint8_t(std::min(255u, (unsigned(px[i + std::size_t(c)]) * 255u + a / 2) / a));
+    }
+    out.width = w;
+    out.height = h;
+    out.rgba = std::move(px);
     return true;
 }
 

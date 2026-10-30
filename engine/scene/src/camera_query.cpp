@@ -11,7 +11,7 @@ std::vector<Entity> rendering_cameras(World& w) {
     struct Found { Entity e; int depth; };
     std::vector<Found> found;
     w.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && w.active_in_hierarchy(e)) found.push_back({e, c.depth});
+        if (c.primary && c.renderTarget.empty() && w.active_in_hierarchy(e)) found.push_back({e, c.depth});
     });
     std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
     if (found.size() > 8) found.resize(8);

@@ -83,7 +83,23 @@ struct Camera {
     bool bloomScreenSpace = true;  // false: screen-space items (HUD) are drawn after the bloom, so they stay crisp
     // Accessibility filter over the whole finished frame (HUD included), after the bloom; a flat enum like the bloom fields.
     ColorFilter colorFilter = ColorFilter::None;
+    // Render target: a name makes this camera draw into a texture of renderTargetSize pixels, live every frame, instead of the
+    // screen. The texture is the id "target:<name>" (render_target_id), accepted wherever a texture path is. "" = the screen.
+    std::string renderTarget;
+    Vec2 renderTargetSize{1024, 1024};
 };
+
+// The texture id of the render target `name` ("target:book"): what MeshRenderer.texture, a material texture, Sprite.texture,
+// Panel.texture and Button.icon take. render_target_name() is the reverse ("" when `id` is not a target id).
+std::string render_target_id(const std::string& name);
+std::string render_target_name(const std::string& id);
+// "" when Camera.renderTarget / renderTargetSize are valid (an empty name is: the camera draws to the screen), else what is
+// wrong, as the first half of an error message (the hint is the caller's). The size limit is the largest texture: 4096 px.
+std::string camera_render_target_problem(const Camera& camera);
+inline constexpr int kMaxRenderTargetSide = 4096;
+// The pixel size of the texture a camera with Camera.renderTarget draws: renderTargetSize rounded; each side outside 1..4096 (or not
+// a number) is clamped, and *clamped says so. The renderer and the pointer mapping (a click through the target) both use it.
+void camera_render_target_pixels(const Camera& camera, int& width, int& height, bool* clamped = nullptr);
 
 // "" when `viewport` is a valid Camera.viewport (x and y in 0..1, width and height above 0, x + width and y + height at most 1;
 // a small tolerance for rounding), else what is wrong, as the first half of an error message (the hint is the caller's).

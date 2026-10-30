@@ -262,7 +262,7 @@ std::optional<Rect> camera_view_rect(Engine::Impl& I) {
     const TypeInfo* ct = TypeRegistry::global().of<Camera>();
     for (Entity e : I.world.entities_with(ct)) {
         const Camera* c = I.world.get<Camera>(e);
-        if (!c || !c->primary || !I.world.active_in_hierarchy(e)) continue;
+        if (!c || !c->primary || !c->renderTarget.empty() || !I.world.active_in_hierarchy(e)) continue;
         if (best == kNullEntity || c->depth < bestDepth) { best = e; bestDepth = c->depth; }
     }
     if (best == kNullEntity) return std::nullopt;

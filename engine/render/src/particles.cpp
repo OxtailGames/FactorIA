@@ -158,7 +158,7 @@ void update_particles(World& world, float dt) {
 void gather_particles(World& world, Frame& f) {
     auto& all = states();
     world.each<ParticleEmitter>([&](Entity e, ParticleEmitter& em) {
-        if (!entity_active(world, e)) return;
+        if (!entity_active(world, f, e)) return;
         auto it = all.find(e.bits());
         if (it == all.end()) return;
         EmitterState& st = it->second;

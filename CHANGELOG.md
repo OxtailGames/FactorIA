@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+### New
+
+- Render targets: a `Camera` with `renderTarget: "book"` and `renderTargetSize: [w, h]` (1..4096) draws live into the texture `"target:book"` every frame instead of the screen, 2D or 3D. The id goes wherever a texture path does: `MeshRenderer.texture`, `normalMap` and texture `materialParams`, `Sprite.texture`, `Panel.texture`, `Button.icon`. A target is drawn before the cameras that sample it, so a screen on a model is never a frame behind. A camera that sees the surface showing its own target gets the missing-texture checker there and one error that says how to fix it; two targets that show each other work, each one frame late. A target camera is never drawn to the screen, `camera.main`, in `camera.all` or the audio listener. `RenderStats` has `renderTargets`. `factoria validate` accepts `target:<name>` in texture fields (and reports an empty or invalid name). Guide: docs/RENDERING.md.
+- The pointer through a mesh: a mouse or finger over a `MeshRenderer` that shows a render target reaches the `Interactable` entities its camera sees, by the hit triangle's UV: hover, click, toggles and slider drags work on a flat quad, a curved model (cylinder, sphere, bent screen) and glTF models, and a slider drag goes on after the pointer leaves the mesh. A book with turning pages and working buttons needs no overlay. Limits (docs/RENDERING.md): the nearest page mesh wins and other 3D things in front do not block the pointer; procedural meshes are not reached yet; a Sprite, Panel or Button that shows a target forwards no input; in a test aim with a screen position, not the id of a page entity.
+- `render.captureTexture({ entity | rect, space: "world", scale })` draws a part of the world off-screen at `scale` pixels per world unit and returns a `Texture`: a hidden, covered or off-camera subject works, no frame has to be drawn first (it works in `onStart` and in tests), and the picture may be up to 4096 x 4096 (the whole-frame form keeps its 2048). The background is transparent and the colour is straight alpha. A request over 4096 is an error that names the largest scale that fits.
+
+### Changes
+
+- `render.textureFromPNG` accepts pictures up to 4096 x 4096 (it was 2048), the size run-time textures could already have.
+
 ### Fixes
 
 - A project tool (`project_<name>`, from `tools/*.js`) now runs the code on disk: when its file, or a module it imports, was edited since it was loaded, the tool is re-imported before the call, as `script.eval {module}` does. This holds in the editor's MCP session, `factoria mcp` and `factoria call`. An object result also carries `toolVersion` (`file`, `hash` of the file as it ran, `loadedAt`), so a stale tool is visible.

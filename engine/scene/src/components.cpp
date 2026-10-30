@@ -68,7 +68,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], \"#rrggbb\" or a name.")
         .asset_field("texture", static_cast<std::string T::*>(&UiBox::texture), "texture",
                      "Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour "
-                     "sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\").")
+                     "sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\"). So does the live picture of a camera: \"target:<name>\" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, \"Render targets\").")
         .field("slice", static_cast<Vec4 T::*>(&UiBox::slice),
                "9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture "
                "pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives "
@@ -337,7 +337,28 @@ void register_builtin_components(TypeRegistry& r) {
                     "and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours "
                     "that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game "
                     "without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate "
-                    "instead. With several cameras the lowest-depth camera's filter covers the whole frame.");
+                    "instead. With several cameras the lowest-depth camera's filter covers the whole frame.")
+        .field("renderTarget", &Camera::renderTarget,
+               "Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as \"book\". The texture "
+               "is the id \"target:book\" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a "
+               "3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, "
+               "Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, "
+               "ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target "
+               "composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active "
+               "(entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no "
+               "lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so "
+               "(a render loop needs two targets: A shows B and B shows A, each one frame late). There is no culling mask: "
+               "the camera sees everything in its frustum, so put what a target shows (a 2D page with Text, Sprites, Buttons "
+               "as world-space entities) away from the camera that shows the model. Screen-space UI (Panel, Button and the "
+               "other widgets, space \"screen\" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, "
+               "whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, \"Render targets\"). "
+               "Names are unique: a second camera with the same name is not drawn, with an error. \"\" (default) = the screen. "
+               "Letters, digits, '_', '-' and '.', up to 64 characters.")
+        .field("renderTargetSize", &Camera::renderTargetSize,
+               "Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). "
+               "The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture "
+               "pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; "
+               "memory is about width x height x 8 bytes (4 more per pixel with antialiasing).");
 
     // --------------------------------------------------------------- 2D ---
     r.add<Sprite>("Sprite",
@@ -345,7 +366,7 @@ void register_builtin_components(TypeRegistry& r) {
                   "Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.",
                   "2D")
         .asset_field("texture", &Sprite::texture, "texture",
-                     "Project-relative path of the image (e.g. \"assets/hero.png\"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\").")
+                     "Project-relative path of the image (e.g. \"assets/hero.png\"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\"). So does the live picture of a camera: \"target:<name>\" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, \"Render targets\").")
         .field("region", &Sprite::region,
                "Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size "
                "means the whole texture. SpriteAnimator overwrites it every frame.")
@@ -887,10 +908,10 @@ void register_builtin_components(TypeRegistry& r) {
         .field("mesh", &MeshRenderer::mesh,
                "Built-in shape name (\"cube\", \"sphere\", \"plane\", \"cylinder\", \"capsule\", \"cone\", \"quad\") or a "
                "project-relative path to a .gltf/.glb model (e.g. \"assets/models/ship.glb\").")
-        .asset_field("texture", &MeshRenderer::texture, "texture", "Base color texture. Empty = none (or the glTF material).")
+        .asset_field("texture", &MeshRenderer::texture, "texture", "Base color texture. Empty = none (or the glTF material). \"target:<name>\" shows the live picture of the Camera whose `renderTarget` is that name (a screen, a mirror, the page of a book; docs/RENDERING.md, \"Render targets\"). A pointer over the mesh reaches the Interactables of that camera.")
         .asset_field("normalMap", &MeshRenderer::normalMap, "texture",
                      "Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief "
-                     "without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set.")
+                     "without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. Takes \"target:<name>\" like `texture`.")
         .field("normalScale", &MeshRenderer::normalScale, "How strong the normal map is: 0 = flat, 1 = as authored.").range(0, 4)
         .field("color", &MeshRenderer::color, "Base color, multiplied with the texture.")
         .field("metallic", &MeshRenderer::metallic,
@@ -914,7 +935,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("materialParams", &MeshRenderer::materialParams,
                "Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the "
                "material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths "
-               "for textures. Example: {\"glow\": [1, 0.2, 0, 1], \"mask\": \"textures/leaf.png\"}. Unnamed params keep the "
+               "for textures (a path, or \"target:<name>\" for the live picture of a render-target camera). Example: {\"glow\": [1, 0.2, 0, 1], \"mask\": \"textures/leaf.png\"}. Unnamed params keep the "
                "material's defaults. An entity without overrides batches with the others that share the material.")
         .field("materialColors", &MeshRenderer::materialColors,
                "Per-material colours of a glTF model, an object keyed by glTF material name: {\"Body\": [0.2, 0.8, 0.7, 1]}. "
@@ -1480,7 +1501,7 @@ void register_builtin_components(TypeRegistry& r) {
             .field("bold", &Button::bold, kBoldDoc)
             .asset_field("icon", &Button::icon, "texture",
                          "Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. "
-                         "Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\").")
+                         "Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\"). So does the live picture of a camera: \"target:<name>\" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, \"Render targets\").")
             .field("iconRegion", &Button::iconRegion,
                    "Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). "
                    "A zero size means the whole texture.")
@@ -1973,6 +1994,40 @@ void ensure_builtin_components() {
 }  // namespace fa
 
 namespace fa {
+std::string render_target_id(const std::string& name) { return "target:" + name; }
+std::string render_target_name(const std::string& id) { return id.rfind("target:", 0) == 0 ? id.substr(7) : std::string(); }
+
+void camera_render_target_pixels(const Camera& c, int& width, int& height, bool* clamped) {
+    const Vec2 sz = c.renderTargetSize;
+    const bool ok = std::isfinite(sz.x) && std::isfinite(sz.y) && sz.x >= 1 && sz.y >= 1 && sz.x <= kMaxRenderTargetSide + 0.5f &&
+                    sz.y <= kMaxRenderTargetSide + 0.5f;
+    if (clamped) *clamped = !ok;
+    width = std::isfinite(sz.x) ? std::clamp(int(std::lround(sz.x)), 1, kMaxRenderTargetSide) : 1024;
+    height = std::isfinite(sz.y) ? std::clamp(int(std::lround(sz.y)), 1, kMaxRenderTargetSide) : 1024;
+}
+
+std::string camera_render_target_problem(const Camera& c) {
+    if (c.renderTarget.empty()) return {};
+    if (c.renderTarget.size() > 64) return "Camera.renderTarget '" + c.renderTarget.substr(0, 20) + "...' is longer than 64 characters";
+    for (char ch : c.renderTarget) {
+        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' || ch == '.';
+        if (!ok)
+            return "Camera.renderTarget '" + c.renderTarget + "' has a character that is not a letter, a digit, '_', '-' or '.'";
+    }
+    const auto num = [](float f) {
+        char b[32];
+        std::snprintf(b, sizeof b, "%g", double(f));
+        return std::string(b);
+    };
+    const Vec2 sz = c.renderTargetSize;
+    const std::string shown = "[" + num(sz.x) + ", " + num(sz.y) + "]";
+    if (!std::isfinite(sz.x) || !std::isfinite(sz.y)) return "Camera.renderTargetSize " + shown + " has a value that is not a number";
+    if (sz.x < 1 || sz.y < 1) return "Camera.renderTargetSize " + shown + " is smaller than 1 x 1 pixel";
+    if (sz.x > kMaxRenderTargetSide || sz.y > kMaxRenderTargetSide)
+        return "Camera.renderTargetSize " + shown + " is larger than " + std::to_string(kMaxRenderTargetSide) + " x " + std::to_string(kMaxRenderTargetSide) + " pixels";
+    return {};
+}
+
 std::string camera_viewport_problem(const Rect& v) {
     constexpr float eps = 1e-4f;
     const auto num = [](float f) {

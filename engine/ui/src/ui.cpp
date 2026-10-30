@@ -238,8 +238,12 @@ Entity UiSystem::widget_at(const World& w, Vec2 design, Vec2 p, const VisualMeas
     Entity best;
     bool any = false;
     int bestLayer = 0;
-    for (const Item& it : ui_detail::interactable_items(w, design, measure, modal, project_, &p)) {
-        if (!it.inScope || !item_contains(it, p)) continue;
+    const std::optional<UiSurface> surface = surface_ ? surface_(p, nullptr) : std::nullopt;  // a page under p: its Interactables, not the main view's
+    std::vector<ui_detail::Item> candidates =
+        surface ? ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point)
+                : ui_detail::interactable_items(w, design, measure, modal, project_, &p);
+    for (const ui_detail::Item& it : candidates) {
+        if (!it.inScope || !item_contains(it, surface && it.world ? surface->point : p)) continue;
         if (ignore) {
             bool under = false;
             for (Entity a = it.e; a && !under; a = w.parent(a)) under = a == ignore;
@@ -425,6 +429,21 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     for (Item& it : ui_detail::interactable_items(w, design, measure, modal, project_, &mouse)) items.push_back(std::move(it));
     std::vector<Item> ordered = items;                    // reading order: top, then left
     reading_order(ordered);
+    // A page under the pointer (a render target shown on a mesh): its world-space Interactables are seen through the page's camera and
+    // the pointer is where it lands on the page, so they replace the ones seen through the main camera.
+    for (Item& it : items) it.at = mouse;
+    std::optional<UiSurface> surface;
+    if (surface_ && (!press_ || pressSurface_.mesh))  // a press that began off the pages stays in the main view
+        surface = surface_(mouse, press_ ? &pressSurface_ : nullptr);
+    if (surface) {
+        std::erase_if(items, [](const Item& it) { return it.custom && it.world; });
+        for (Item& it : ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point)) {
+            if (!it.world) continue;
+            it.surface = true;
+            it.at = surface->point;
+            items.push_back(std::move(it));
+        }
+    }
     auto find = [&](Entity e) -> const Item* {
         for (const Item& it : items)
             if (it.e == e) return &it;
@@ -440,6 +459,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         const Item* it = find(press_);
         if (!it || !it->interactable) press_ = kNullEntity;
     }
+    if (!press_) pressSurface_ = {};
     // set_focus(null) holds until the player navigates: the arrows' first press then lets autoFocus work again (and is
     // spent on that, it does not also move the new focus).
     bool navWoke = false;
@@ -610,8 +630,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         int hoverLayer = 0;
         for (std::size_t i = 0; i < items.size(); ++i) {  // creation order, so on equal layers the later entity wins
             const Item& it = items[i];
-            if (it.world != worldTier || !it.interactable || !item_contains(it, mouse)) continue;
-            const std::optional<Rect> clip = ui_clip_rect(w, it.e, design);
+            if (it.world != worldTier || !it.interactable || !item_contains(it, it.at)) continue;
+            const std::optional<Rect> clip = it.surface ? std::nullopt : ui_clip_rect(w, it.e, design);
             if (clip && !clip->contains(mouse)) continue;
             if (dragImage_) {  // the drag image is not a target
                 bool onImage = false;
@@ -642,6 +662,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
 
     if (ptrPressed && hover_) {
         press_ = hover_;
+        const Item* hit = find(hover_);
+        pressSurface_ = hit && hit->surface && surface ? surface->pin : UiSurfacePin{};
         set_focus(w, hover_);
         if (is_custom(w, hover_)) emit(w, "ui.press", hover_);
     }
@@ -649,7 +671,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     if (press_) {
         if (Interactable* ia = is_custom(w, press_) ? w.get<Interactable>(press_) : nullptr; ia && ia->kind == InteractableKind::Slider) {
             if (const Item* it = find(press_)) {
-                const float t = ui_detail::track_fraction(*it, mouse);
+                const float t = ui_detail::track_fraction(*it, it->at);
                 const float v = snap_slider(*ia, ia->min + t * (std::max(ia->min, ia->max) - ia->min));
                 if (v != ia->value) {
                     ia->value = v;
@@ -689,6 +711,9 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
                 }
             }
             press_ = kNullEntity;
+            pressSurface_ = {};
+        } else if (surface && pressSurface_.mesh) {
+            pressSurface_ = surface->pin;  // the drag follows the triangle the pointer is on now
         }
     }
 

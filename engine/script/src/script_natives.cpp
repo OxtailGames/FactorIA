@@ -1217,7 +1217,8 @@ NATIVE(textureSize) {  // (path) -> [w, h]; assets.textureSize
 
 // ---- render.captureTexture / render.textureFromPNG ------------------------------------------------------------------------
 constexpr int kMaxRuntimeTextures = 32;
-constexpr int kMaxRuntimeTextureSide = 2048;
+constexpr int kMaxRuntimeTextureSide = 2048;  // render.captureTexture of the whole frame
+constexpr int kMaxWorldTextureSide = Renderer::kMaxWorldCaptureSide;  // of the world, and what textureFromPNG takes (4096)
 
 // Registers `img` as a run-time texture: uploaded when the run has a renderer (the id is the renderer's), kept in
 // I->runtimeTextures either way. Returns the id; "" with *error set when it cannot be made.
@@ -1277,6 +1278,87 @@ NATIVE(renderCapture) {  // (width, height, stretch) -> [id, width, height, plac
     return runtime_texture_info(ctx, id, I->runtimeTextures[id], placeholder);
 }
 
+// The union of the world-space visuals of `root` and its descendants (entity.bounds() of each), nullopt when none draws.
+std::optional<Rect> subtree_world_rect(Impl* I, Entity root, const VisualMeasure& measure) {
+    World& W = I->host->world();
+    std::optional<Rect> out;
+    std::vector<Entity> stack{root};
+    while (!stack.empty()) {
+        const Entity e = stack.back();
+        stack.pop_back();
+        if (const std::optional<Rect> b = entity_world_rect(W, e, measure)) {
+            if (!out) out = *b;
+            else {
+                const float x0 = std::min(out->x, b->x), y0 = std::min(out->y, b->y);
+                const float x1 = std::max(out->x + out->w, b->x + b->w), y1 = std::max(out->y + out->h, b->y + b->h);
+                out = Rect{x0, y0, x1 - x0, y1 - y0};
+            }
+        }
+        for (Entity c : W.children(e)) stack.push_back(c);
+    }
+    return out;
+}
+
+// (entity | null, x, y, w, h, scale) -> [id, width, height, placeholder]; render.captureTexture({ entity | rect, scale }). With an
+// entity the rectangle is the union of the bounds of its subtree (x, y, w, h are ignored).
+NATIVE(renderCaptureWorld) {
+    SETUP;
+    const char* label = "render.captureTexture({ entity | rect, space: \"world\", scale })";
+    Entity subject;
+    Rect rect{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)),
+              static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4))};
+    const float scale = static_cast<float>(arg_num(ctx, argc, argv, 5, 1.0));
+    if (argc > 0 && !JS_IsNull(argv[0])) {
+        ENTITY(e, 0);
+        subject = e;
+        VisualMeasure measure = script_measure(I, "render.captureTexture() of a Text");
+        measure.textureSize = [I](const std::string& path) { return texture_pixel_size(I, path); };
+        const std::optional<Rect> box = subtree_world_rect(I, subject, measure);
+        if (!box)
+            return throw_err(ctx, std::format("{}: entity '{}' and its children draw nothing in world space (no Sprite, Shape2D, Text or Tilemap "
+                                              "with space \"world\", or an empty one), so there is no area to photograph. Give the area yourself with rect: [x, y, width, height] "
+                                              "in world units (that draws everything inside it, not only this entity)", label, W.id_of(subject)));
+        rect = *box;
+    }
+    if (!std::isfinite(rect.x) || !std::isfinite(rect.y) || !(rect.w > 0.0f) || !(rect.h > 0.0f) || !std::isfinite(rect.w) || !std::isfinite(rect.h))
+        return throw_err(ctx, std::format("{}: the area [{}, {}, {}, {}] is empty. rect is [x, y, width, height] in world units, +Y up, with a "
+                                          "positive width and height", label, rect.x, rect.y, rect.w, rect.h));
+    if (!std::isfinite(scale) || !(scale > 0.0f))
+        return throw_err(ctx, std::format("{}: scale must be a number above 0 (pixels per world unit, default 1), but got {}", label, scale));
+    const double pw = std::ceil(double(rect.w) * double(scale) - 1e-4), ph = std::ceil(double(rect.h) * double(scale) - 1e-4);
+    if (pw > kMaxWorldTextureSide || ph > kMaxWorldTextureSide)
+        return throw_err(ctx, std::format("{}: the picture would be {} x {} pixels ({} x {} world units at scale {}), more than the {} a side a texture "
+                                          "may have. Use a smaller scale (at most {}) or a smaller area", label, static_cast<long long>(pw),
+                                          static_cast<long long>(ph), rect.w, rect.h, scale, kMaxWorldTextureSide,
+                                          static_cast<double>(kMaxWorldTextureSide) / std::max(rect.w, rect.h)));
+    const int w = std::max(1, static_cast<int>(pw)), h = std::max(1, static_cast<int>(ph));
+    Image img;
+    bool placeholder = false;
+    if (Renderer* r = I->host->renderer(); r && r->initialized()) {
+        std::string err;
+        Renderer::WorldCapture spec;
+        spec.rect = rect;
+        spec.scale = scale;
+        spec.subject = subject;
+        if (!r->capture_world(W, spec, img, &err)) return throw_err(ctx, std::string(label) + ": " + err);
+    } else {  // no graphics: a flat picture of the size the capture would have, so the game's code runs on
+        placeholder = true;
+        img.width = w;
+        img.height = h;
+        img.rgba.resize(std::size_t(w) * std::size_t(h) * 4);
+        for (std::size_t i = 0; i < img.rgba.size(); i += 4) {
+            img.rgba[i] = 0x2a;
+            img.rgba[i + 1] = 0x2e;
+            img.rgba[i + 2] = 0x3a;
+            img.rgba[i + 3] = 0xff;
+        }
+    }
+    std::string err;
+    const std::string id = add_runtime_texture(I, std::move(img), &err);
+    if (id.empty()) return throw_err(ctx, std::string(label) + ": " + err);
+    return runtime_texture_info(ctx, id, I->runtimeTextures[id], placeholder);
+}
+
 NATIVE(renderFromPng) {  // (base64 text) -> [id, width, height, false]; render.textureFromPNG
     SETUP;
     std::string text = arg_str(ctx, argc, argv, 0);
@@ -1287,8 +1369,8 @@ NATIVE(renderFromPng) {  // (base64 text) -> [id, width, height, false]; render.
                               "for example render.textureFromPNG(storage.get(\"slot1.png\"))");
     auto img = decode_image(bytes.data(), bytes.size());
     if (!img.ok()) return throw_err(ctx, "render.textureFromPNG(png): the bytes are not an image: " + img.error().message + (img.error().hint.empty() ? "" : " " + img.error().hint));
-    if (img->width > kMaxRuntimeTextureSide || img->height > kMaxRuntimeTextureSide)
-        return throw_err(ctx, std::format("render.textureFromPNG(png): the picture is {} x {}, more than the {} pixels a side a run-time texture may have", img->width, img->height, kMaxRuntimeTextureSide));
+    if (img->width > kMaxWorldTextureSide || img->height > kMaxWorldTextureSide)
+        return throw_err(ctx, std::format("render.textureFromPNG(png): the picture is {} x {}, more than the {} pixels a side a run-time texture may have", img->width, img->height, kMaxWorldTextureSide));
     std::string err;
     const std::string id = add_runtime_texture(I, std::move(*img), &err);
     if (id.empty()) return throw_err(ctx, "render.textureFromPNG: " + err);
@@ -3766,7 +3848,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),

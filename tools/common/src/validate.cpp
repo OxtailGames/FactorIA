@@ -19,6 +19,7 @@
 #include "fa/physics/physics.h"
 #include "fa/platform/input.h"
 #include "fa/render/builtin_fonts.h"
+#include "fa/scene/components.h"
 #include "fa/runtime/plugins.h"
 #include "fa/runtime/project.h"
 #include "fa/scene/mesh_geometry.h"
@@ -94,6 +95,16 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
     std::string path = value.get<std::string>();
     if (path.empty()) return;
     if (f.assetType == "mesh" && is_builtin_mesh(path)) return;
+    // "target:<name>" is the live picture of the Camera whose renderTarget is <name>, not a file (docs/RENDERING.md, "Render targets").
+    if (f.assetType == "texture" && path.rfind("target:", 0) == 0) {
+        Camera probe;
+        probe.renderTarget = path.substr(7);
+        const std::string problem = probe.renderTarget.empty() ? "it has no name after \"target:\"" : camera_render_target_problem(probe);
+        if (!problem.empty())
+            c.error(file, pointer, "The texture '" + path + "' names a render target, but " + problem + ".",
+                    "Write \"target:\" and the name of a Camera.renderTarget: letters, digits, '_', '-' and '.', up to 64 characters, e.g. \"target:book\".");
+        return;
+    }
     // A built-in font ("builtin:serif", or one face of it, "builtin:serif#bold") is a file of the engine, not of the project.
     if (f.assetType == "font" && (path == "builtin" || path.rfind("builtin:", 0) == 0)) {
         const std::string family = path.substr(0, path.find('#'));
