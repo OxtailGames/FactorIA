@@ -152,6 +152,7 @@ struct Sprite {
     std::int32_t meshColumns = 0;     // > 0 with meshRows > 0: the sprite is a grid of this many cells across (a deformable sprite)
     std::int32_t meshRows = 0;        // > 0 with meshColumns > 0: grid cells down
     Json vertexOffsets = Json::array();  // grid sprites: [dx, dy, ...] per grid vertex, row-major from the TOP row, local units (+y up)
+    Json vertexColors = Json::array();   // grid sprites: [r, g, b, a, ...] per grid vertex (same order), multiplied with `color`
 };
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
@@ -257,6 +258,7 @@ struct Text {
     Json keyArgs = Json::object();    // values of the key's {placeholders} (and `count` of a plural entry): {"score": 12}
     std::string font;                 // asset path to .ttf; "" = built-in font
     float fontSize = 24.0f;           // in world units (pixels for 2D)
+    bool lit = false;                 // world space only: shaded by the 3D Light entities and SceneSettings.ambientLight
     Color color{1, 1, 1, 1};
     Align align = Align::Left;
     Vec2 pivot{0.0f, 1.0f};           // anchor within the text box: 0,1 = top-left

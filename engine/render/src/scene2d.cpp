@@ -13,11 +13,11 @@
 
 namespace fa::render {
 
-bool entity_active(const World& w, Entity e) { return w.active_in_hierarchy(e); }
+bool entity_active(const World& w, Entity e) { return w.active_in_hierarchy(e) && !w.pending_destroy(e); }
 
 bool entity_active(const World& w, const Frame& f, Entity e) {
-    if (f.scopeRoot == kNullEntity) return w.active_in_hierarchy(e);
-    if (!w.alive(e)) return false;
+    if (f.scopeRoot == kNullEntity) return entity_active(w, e);
+    if (!w.alive(e) || w.pending_destroy(e)) return false;
     for (Entity x = e; x != kNullEntity; x = w.parent(x)) {
         if (x == f.scopeRoot) return true;  // reached the subject: what is above it does not matter
         if (!w.info(x).active) return false;
@@ -359,9 +359,16 @@ void gather_2d(World& world, Frame& f) {
         const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -spritePivot.y * size.y, by1 = (1 - spritePivot.y) * size.y;
         // A deformable sprite (meshColumns x meshRows cells, vertexOffsets) and the shear (skew). Both leave the pivot where it is.
         int meshCols = 0, meshRows = 0;
-        std::vector<float> meshOffsets;
+        std::vector<float> meshOffsets, meshColors;
         if (sprite_mesh_grid(s, meshCols, meshRows)) {
             meshOffsets = sprite_vertex_offsets(s, meshCols, meshRows);
+            meshColors = sprite_vertex_colors(s, meshCols, meshRows);
+            if (meshColors.empty() && f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
+                if (const std::string problem = sprite_vertex_colors_problem(s); !problem.empty()) {
+                    *f.warnedSpriteMesh = true;
+                    FA_WARN("render", "on '{}': {}. The colours are ignored.", world.info(e).name, problem);
+                }
+            }
         } else if (s.meshColumns > 0 && s.meshRows > 0 && f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
             *f.warnedSpriteMesh = true;
             FA_WARN("render", "Sprite meshColumns {} x meshRows {} on '{}' is more than {} cells (at most {} columns, {} rows): it is "
@@ -425,7 +432,12 @@ void gather_2d(World& world, Frame& f) {
                         y += meshOffsets[k + 1];
                     }
                     const Vec3 p = em.xf(x, y);
-                    return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fx, v0 + (v1 - v0) * fy, em.color, em.mode, em.aux};
+                    std::uint32_t col = em.color;
+                    if (!meshColors.empty()) {
+                        const std::size_t k = (std::size_t(rw) * stride + std::size_t(c)) * 4;
+                        col = pack_color(spriteColor * Color{meshColors[k], meshColors[k + 1], meshColors[k + 2], meshColors[k + 3]});
+                    }
+                    return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fx, v0 + (v1 - v0) * fy, col, em.mode, em.aux};
                 };
                 for (int rw = 0; rw < meshRows; ++rw)
                     for (int c = 0; c < meshCols; ++c)
@@ -703,13 +715,59 @@ void gather_2d(World& world, Frame& f) {
     });
 
     // ---- text ----
+    // Text.lit: the 3D lights, gathered the first time a lit Text is drawn this frame.
+    struct TextLight { int type; Vec3 pos; Vec3 dir; Vec3 color; float range, cosOuter; };
+    std::vector<TextLight> textLights;
+    bool textLightsGathered = false;
+    // What a flat surface at `pos` facing `normal` receives: SceneSettings.ambientLight + the Lambert term of every Light with the
+    // mesh shader's fall-off (mesh_common.glsl), once per Text.
+    auto text_light_factor = [&](Vec3 pos, Vec3 normal) {
+        if (!textLightsGathered) {
+            textLightsGathered = true;
+            world.each<Light>([&](Entity le, Light& l) {
+                if (!entity_active(world, le)) return;
+                const Mat4 lm = world.world_matrix(le);
+                const Vec3 d = normalize(lm.transform_dir(kForward));
+                textLights.push_back({int(l.type == LightType::Directional ? 0 : l.type == LightType::Point ? 1 : 2), lm.translation(), d,
+                                      Vec3{l.color.r, l.color.g, l.color.b} * l.intensity, l.range, std::cos(radians(l.spotAngle))});
+            });
+        }
+        const Color amb = world.settings().ambientLight;
+        Vec3 total{amb.r, amb.g, amb.b};
+        for (const TextLight& l : textLights) {
+            Vec3 toLight = -l.dir;
+            float atten = 1.0f;
+            if (l.type != 0) {
+                const Vec3 d = l.pos - pos;
+                const float dist = length(d);
+                toLight = d / std::max(dist, 1e-4f);
+                const float range = std::max(l.range, 1e-3f), q = dist / range;
+                const float x = std::clamp(1.0f - q * q, 0.0f, 1.0f);
+                atten = x * x;
+                if (l.type == 2) {
+                    const float ca = dot(-toLight, l.dir);
+                    const float t = std::clamp((ca - l.cosOuter) / std::max(0.25f * (1.0f - l.cosOuter), 1e-6f), 0.0f, 1.0f);
+                    atten *= t * t * (3.0f - 2.0f * t);
+                }
+            }
+            total += l.color * (std::max(dot(normal, toLight), 0.0f) * atten);
+        }
+        return Color{std::min(total.x, 1.0f), std::min(total.y, 1.0f), std::min(total.z, 1.0f), 1.0f};
+    };
     world.each<Text>([&](Entity e, Text& t) {
         if (!entity_active(world, f, e) || t.text.empty() || t.color.a <= 0.0f || t.fontSize <= 0.0f) return;
-        const Color textTint = inherited_tint(world, f, e);
+        Color textTint = inherited_tint(world, f, e);
         if (textTint.a <= 0.0f) return;
         if (t.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         bool screen = t.space == RenderSpace::Screen;
         Mat4 m = draw_matrix(world, e, screen);
+        if (t.lit && !screen && !f.cam.studio) {
+            // The text is a flat surface whose front is its local +Z; seen from behind, the side facing the camera is lit.
+            Vec3 n = normalize(m.transform_dir(Vec3{0, 0, 1}));
+            const Vec3 pos = m.translation();
+            if (dot(n, f.cam.position - pos) < 0.0f) n = -n;
+            textTint = textTint * text_light_factor(pos, n);
+        }
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
         float scale = matrix_scale_x(m);
