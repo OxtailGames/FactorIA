@@ -398,29 +398,48 @@ void Editor::at_build_tools_script() {
     // long it is on this computer (a warning that wraps onto more lines moves everything down). A click never lands on a widget
     // that is scrolled out of its window: at_widget refuses it. dy is the way to try first (> 0 up); when the widget does not
     // move (the window is already at that end, as a section run alone finds it), the wheel turns the other way.
-    auto scroll_until = [this, &step](const std::string& name, float dy, Vec2 at, float maxY) {
-        step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at); });
+    // `at` may be a function: the point is looked up each frame (over a panel whose position depends on the window size).
+    auto scroll_until_at = [this, &step](std::function<std::string()> nameOf, float dy, std::function<Vec2()> at, float maxY, float minY = 120) {
+        step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at()); });
         struct Wheel {
             float dy, lastY = -1e9f;
             int stuck = 0;
         };
         auto wheel = std::make_shared<Wheel>(Wheel{dy});
         for (int i = 0; i < 60; ++i)
-            step(1, [this, name, wheel, at, maxY] {
+            step(1, [this, nameOf, wheel, at, maxY, minY] {
+                const std::string name = nameOf();
                 auto it = atWidgets_.find(name);
-                if (at_shown(name) && it != atWidgets_.end() && it->second.y < maxY && it->second.y > 120) return;
+                if (at_shown(name) && it != atWidgets_.end() && it->second.y < maxY && it->second.y > minY) return;
                 if (it != atWidgets_.end() && at_visible(name)) {
                     wheel->stuck = it->second.y == wheel->lastY ? wheel->stuck + 1 : 0;
                     wheel->lastY = it->second.y;
                     if (wheel->stuck == 2) wheel->dy = -wheel->dy;
                 }
+                const Vec2 where = at();
                 sapp_event ev{};
                 ev.type = SAPP_EVENTTYPE_MOUSE_SCROLL;
-                ev.mouse_x = at.x * dpi_;
-                ev.mouse_y = at.y * dpi_;
+                ev.mouse_x = where.x * dpi_;
+                ev.mouse_y = where.y * dpi_;
                 ev.scroll_y = wheel->dy;
                 on_event(&ev);
             });
+    };
+    auto scroll_until = [&scroll_until_at](const std::string& name, float dy, Vec2 at, float maxY) {
+        scroll_until_at([name] { return name; }, dy, [at] { return at; }, maxY);
+    };
+    // The visible middle of a window, wherever this display put it: where the wheel goes to scroll that window. A widget
+    // below the fold of a small display (the macOS runner's 1024x642) needs it before a click.
+    auto window_middle = [](const char* window) {
+        const ImGuiWindow* w = ImGui::FindWindowByName(window);
+        if (!w) return Vec2{500, 300};
+        const ImVec2 d = ImGui::GetIO().DisplaySize;
+        const float top = std::max(w->Pos.y, 0.0f), bottom = std::min(w->Pos.y + w->Size.y, d.y - 24.0f);
+        return Vec2{std::clamp(w->Pos.x + w->Size.x * 0.5f, 0.0f, d.x), (top + bottom) * 0.5f};
+    };
+    // Scroll the window `window` until `name` is shown: the way to try first is down (a form's buttons are at its end).
+    auto scroll_to = [&scroll_until_at, window_middle](const std::string& name, const char* window, float dy = -6) {
+        scroll_until_at([name] { return name; }, dy, [window_middle, window] { return window_middle(window); }, 100000, -1e9f);
     };
 
     // FA_EDITOR_AUTOTEST_REAL_CMAKE=1 (a manual end-to-end check, never set by ctest): the editor's setup context is the real
@@ -2633,6 +2652,7 @@ void Editor::at_build_tools_script() {
         at_check(world().find("RevertCoin").is_null(), "...and Redo takes it away again");
     });
     snap("editor_ai_reverted.png");
+    scroll_to("ai:undo-revert", "AI Assistant");
     click("ai:undo-revert");
     step(4, [this] { at_check(at_visible("ai:revert:confirm"), "Undo revert asks first too"); });
     click("ai:revert:confirm");
@@ -3852,6 +3872,14 @@ void Editor::at_build_tools_script() {
         });
 
         // ---- move a key, undo it
+        // On a small window the dopesheet rows scroll: bring the Position track's keys into the visible part first.
+        auto rows_point = [] {  // the visible bottom of the Animation window
+            const ImGuiWindow* w = ImGui::FindWindowByName("Animation");
+            if (!w) return Vec2{500, 500};
+            const float bottom = std::min(w->Pos.y + w->Size.y, ImGui::GetIO().DisplaySize.y - 24.0f);
+            return Vec2{w->Pos.x + w->Size.x * 0.5f, bottom - 12.0f};
+        };
+        scroll_until_at([position_track] { return "anim:key:" + std::to_string(position_track()) + ":600"; }, -6, rows_point, 100000, -1e9f);
         step(3, [this, b, position_track] {
             b->undo = undo_depth();
             at_check(at_visible("anim:key:" + std::to_string(position_track()) + ":600"), "the dopesheet shows the key at 600 ms");
@@ -3900,6 +3928,7 @@ void Editor::at_build_tools_script() {
         });
 
         // ---- an event
+        scroll_until_at([] { return std::string("anim:addevent"); }, 6, rows_point, 100000, -1e9f);
         click_widget("anim:addevent");
         wait_until([this] { return at_visible("anim:event:ok"); });
         click_widget("anim:event:ok");
@@ -3910,6 +3939,7 @@ void Editor::at_build_tools_script() {
         });
 
         // ---- onion skin
+        scroll_until_at([] { return std::string("anim:onion"); }, 6, rows_point, 100000, -1e9f);
         click_widget("anim:onion");
         step(1, [this] {
             atWaitCount_ = 0;
@@ -3917,6 +3947,7 @@ void Editor::at_build_tools_script() {
         });
         step(3, [this] { at_check(anim_.onion && anim_.onionDrawn >= 2, "the onion skin draws the poses before and after the playhead (" + std::to_string(anim_.onionDrawn) + " ghosts)"); });
         snap("editor_animation_onion.png");
+        scroll_until_at([] { return std::string("anim:onion"); }, 6, rows_point, 100000, -1e9f);
         click_widget("anim:onion");
         step(4, [this, project_file] {
             at_check(!anim_.onion && anim_.onionDrawn == 0, "turning Onion off draws no ghosts");
@@ -4032,6 +4063,7 @@ void Editor::at_build_tools_script() {
             bone_.meshRows = 4;
             c->undo = undo_depth();
         });
+        scroll_to("bone:bind", "Bone tools");
         click_widget("bone:bind");
         step(5, [this, c] {
             const SpriteSkin* skin = world().get<SpriteSkin>(world().find_by_id("limb"));
@@ -4043,11 +4075,13 @@ void Editor::at_build_tools_script() {
         });
 
         // ---- weights: the overlay, then a brush stroke
+        scroll_to("bone:tool:weights", "Bone tools", 6);
         click_widget("bone:tool:weights");
         step(2, [this] { select_id("limb"); });
         step(5, [this] {
             at_check(bone_.tool == BoneTool::Weights && bone_.weightDots == 15, "the weights tool draws a dot on each of the 15 mesh vertices (" + std::to_string(bone_.weightDots) + ")");
         });
+        scroll_to("bone:mode:set", "Bone tools");
         click_widget("bone:mode:set");
         step(3, [this, c] {
             at_check(bone_.mode == 1, "the Set brush mode is on");
@@ -4097,6 +4131,7 @@ void Editor::at_build_tools_script() {
             at_check(r.ok, "an IK2D on bone_2 targets the Target: " + err);
             select_id("rig");
         });
+        scroll_to("bone:tool:ik", "Bone tools", 6);
         click_widget("bone:tool:ik");
         step(4, [this, c, bone_named] {
             at_check(bone_.tool == BoneTool::Ik && bone_.ikHandles == 1, "the IK tool draws one handle for the one IK chain");
@@ -4237,6 +4272,7 @@ void Editor::at_build_tools_script() {
             e.roles = {"worker", "artist"};
             aiSettings_.tools.editHeaders = "Authorization: Basic {key}";
         });
+        scroll_to("aiset:tools:apply", "AI settings###AiSettings");
         click("aiset:tools:apply");
         step(3, [this] {
             at_check(aiSettings_.tools.servers.empty() && aiSettings_.tools.editing >= 0 &&
@@ -4244,6 +4280,7 @@ void Editor::at_build_tools_script() {
                      "a reserved name stops Apply and says why (" + aiSettings_.tools.editError + ")");
             aiSettings_.tools.edit.name = "scenario";
         });
+        scroll_to("aiset:tools:apply", "AI settings###AiSettings");
         click("aiset:tools:apply");
         step(3, [this] {
             const auto& s = aiSettings_.tools.servers;
@@ -4252,6 +4289,7 @@ void Editor::at_build_tools_script() {
                          s[0].headers[0].second == "Basic {key}" && s[0].roles.size() == 2,
                      "...with its header and roles");
         });
+        scroll_to("aiset:tools:test:scenario", "AI settings###AiSettings");
         click("aiset:tools:test:scenario");
         step(1, [this] {
             atWaitCount_ = 0;
