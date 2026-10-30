@@ -44,7 +44,7 @@ bool Editor::primary_is_ortho() {
     bool ortho = true;
     if (!engine_) return true;
     world().each<Camera>([&](Entity, Camera& c) {
-        if (c.primary) ortho = c.projection == Projection::Orthographic;
+        if (c.primary && c.renderTarget.empty()) ortho = c.projection == Projection::Orthographic;
     });
     return ortho;
 }

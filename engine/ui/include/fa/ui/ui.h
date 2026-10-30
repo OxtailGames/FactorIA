@@ -129,6 +129,26 @@ struct UiDropHooks {
 // the scene's cameras (fa/scene/camera_query.h), which is also what a game without a GPU gets.
 using UiProjectFn = std::function<Vec2(Vec3 world, const Vec2* pointer)>;
 
+// Which mesh and triangle a pointer landed on, so a drag that started there can follow the pointer off the mesh. Opaque to the UI.
+struct UiSurfacePin {
+    Entity mesh;                 // the entity with the MeshRenderer
+    std::uint32_t triangle = 0;  // the triangle hit last
+};
+
+// The page behind the pointer: a MeshRenderer shows a render target (Camera.renderTarget), the pointer is on that mesh, and the
+// world-space Interactables are the ones of the page, not of the main view. `project` puts a world point on the page's pixels (the
+// target camera's view), `point` is where the pointer lands on it, in the same pixels.
+struct UiSurface {
+    UiProjectFn project;
+    Vec2 point;
+    UiSurfacePin pin;
+};
+
+// Where the pointer `screenPos` (design pixels) lands on a page. `pin` null: the nearest mesh showing a target under the pointer, nullopt
+// when there is none. `pin` given: stay on that mesh while a drag goes on, extending its last triangle's plane when the pointer is
+// off the mesh, so the point may lie outside the page. The runtime gives it (the renderer's cameras and the meshes' UVs).
+using UiSurfaceFn = std::function<std::optional<UiSurface>(Vec2 screenPos, const UiSurfacePin* pin)>;
+
 class UiSystem {
 public:
     // Every frame, before scripts.update: lays out containers, then updates hover / press / focus / values from `input`
@@ -178,6 +198,10 @@ public:
 
     // The camera projection the world-space Interactable widgets are hit-tested with (see UiProjectFn). Empty = the default.
     void set_world_projection(UiProjectFn project) { project_ = std::move(project); }
+    // How the pointer reaches a render target shown on a mesh (see UiSurfaceFn). Empty = never: Interactables are only seen through the
+    // main camera. Under the pointer a page replaces the main view's world-space Interactables with the ones seen by the page's camera:
+    // hover, click, press / release and slider drags work through it. Screen widgets still win over the page.
+    void set_surface_pointer(UiSurfaceFn fn) { surface_ = std::move(fn); }
 
     // ui_widget_at() plus the Interactable widgets: a screen widget (or screen-space Interactable) wins over a world-space one under the
     // same point, which is seen through the camera that draws at `p`. `measure` sizes the visuals of the Interactables.
@@ -268,6 +292,8 @@ private:
     Entity hoverFocused_;                 // the hovered Interactable whose focusOnHover entry already moved the focus
     Entity prevHover_;                    // the Interactable the pointer was over at the last update (ui.hover is sent on a change)
     UiProjectFn project_;
+    UiSurfaceFn surface_;
+    UiSurfacePin pressSurface_;        // the page mesh the pressed Interactable sits on (mesh null: it is not on a page)
     std::unordered_set<u64> warnedKnobs_;  // knobs / fills that are not children of their slider, already reported
     bool focusCleared_ = false;   // set_focus(null) was called: autoFocus waits for a navigation press
     bool pointerOn_ = false, pointerDown_ = false, pointerPrevDown_ = false, pointerOverUi_ = false, wheelConsumed_ = false;

@@ -26,6 +26,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -93,6 +94,7 @@ struct RenderStats {
     int triangles = 0;
     int shadowCasters = 0;   // MeshRenderer entities drawn into the shadow map (castShadows, inside the shadow light's volume)
     int views = 0;           // CameraViews drawn this frame (each one renders its camera into an image first)
+    int renderTargets = 0;   // cameras with Camera.renderTarget drawn into their texture this frame (before the cameras that show them)
     int lights = 0;          // 3D lights sent to the shader (at most 32); Light2D is counted in lights2d
     int lightsDropped = 0;   // 3D lights over the limit that were left out (the least relevant ones)
     int lights2d = 0;        // Light2D lights shading the 2D visuals (at most 256)
@@ -234,6 +236,28 @@ public:
     // same size as the target gives exactly the pixels of capture(), so of a screenshot of the same frame.
     bool capture_fitted(Image& out, int width, int height, bool stretch, std::string* error = nullptr);
 
+    // ---- Off-screen capture of the world (render.captureTexture with an entity or a rect) ---------------------------------
+    // A rectangle of the world, or an entity's subtree, drawn at an exact pixel scale into its own image and read back: no frame
+    // has to be drawn first, the main camera and the window size do not matter, and what is hidden, covered or off screen is drawn
+    // all the same.
+    struct WorldCapture {
+        // World xy, +Y up. The image is ceil(rect * scale) pixels, the camera shows exactly that many (so the view may be less than a pixel
+        // larger than the rect, never smaller).
+        Rect rect{};
+        float scale = 1.0f;  // pixels per world unit
+        // Null: everything in the rect is drawn. An entity: only it and its descendants (the world-space Sprite, Shape2D, Text, Tilemap,
+        // ParticleEmitter and MeshRenderer of the subtree), whether they are active or not; the lights of the scene still light them.
+        Entity subject = kNullEntity;
+    };
+    // The biggest side of a world capture, in pixels (a run-time texture cannot be bigger).
+    static constexpr int kMaxWorldCaptureSide = 4096;
+    // Draws `spec` with an orthographic camera centred on the rect and answers its pixels (row 0 = top). The background is transparent
+    // (alpha 0); soft edges keep their colour (straight alpha). Screen-space items (UI, HUD) are not part of the world and are not
+    // drawn. A Sprite or a mesh that shows "target:<name>" shows that target's last picture. False + *error (a sentence that says what
+    // to change) when the rect is empty, the scale is not positive or the image would pass kMaxWorldCaptureSide. Does not change
+    // stats() or the picture of the frame.
+    bool capture_world(World& world, const WorldCapture& spec, Image& out, std::string* error = nullptr);
+
     // ---- Run-time textures ------------------------------------------------------------------------------------------
     // A texture made from pixels at run time (render.captureTexture, render.textureFromPNG in scripts). Returns its id,
     // "runtime:N" (N counts from 1, never reused): put it in Sprite.texture (or any other texture field) like an asset
@@ -256,6 +280,16 @@ public:
     std::vector<Entity> cameras() const;
     // The camera a screen point belongs to (see above); null when the world has no camera entity.
     Entity camera_at(Vec2 screenPos) const;
+
+    // A render target seen from outside (Camera.renderTarget): the camera that draws it, its picture's size and where a world point lands
+    // on that picture (pixels, top-left origin, the camera's own projection, orthographic or perspective). The pointer reaches the
+    // widgets of a page through it. nullopt when no active camera renders into `name` (a duplicate name counts the first). Does not draw.
+    struct RenderTargetView {
+        Entity camera;
+        int width = 0, height = 0;
+        std::function<Vec2(Vec3 world)> to_pixels;
+    };
+    std::optional<RenderTargetView> render_target_view(World& world, const std::string& name) const;
 
     DebugDraw& debug();
     RenderStats stats() const;  // of the last frame

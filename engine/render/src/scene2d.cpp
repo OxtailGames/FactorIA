@@ -15,6 +15,16 @@ namespace fa::render {
 
 bool entity_active(const World& w, Entity e) { return w.active_in_hierarchy(e); }
 
+bool entity_active(const World& w, const Frame& f, Entity e) {
+    if (f.scopeRoot == kNullEntity) return w.active_in_hierarchy(e);
+    if (!w.alive(e)) return false;
+    for (Entity x = e; x != kNullEntity; x = w.parent(x)) {
+        if (x == f.scopeRoot) return true;  // reached the subject: what is above it does not matter
+        if (!w.info(x).active) return false;
+    }
+    return false;  // not part of the subject
+}
+
 Color inherited_tint(const World& world, const Frame& f, Entity e) {
     if (!f.anyTint) return Color{1, 1, 1, 1};
     Color out{1, 1, 1, 1};
@@ -292,7 +302,7 @@ SpriteAnimPlan animator_plan(Frame& f, const SpriteAnimator& a, const std::strin
 void update_animators(World& world, Frame& f, bool advance) {
     const float dt = advance ? f.dt : 0.0f;
     world.each<SpriteAnimator, Sprite>([&](Entity e, SpriteAnimator& a, Sprite& s) {
-        if (!entity_active(world, e)) return;
+        if (!entity_active(world, f, e)) return;
         const SpriteAnimPlan plan = animator_plan(f, a, s.texture);
         if (!plan.error.empty() && f.warnedSpriteClip && f.warnedSpriteClip->insert(world.id_of(e) + "|" + a.clip).second)
             FA_WARN("render", "entity '{}': {}", world.id_of(e), plan.error);
@@ -320,7 +330,7 @@ void gather_2d(World& world, Frame& f) {
 
     // ---- sprites ----
     world.each<Sprite>([&](Entity e, Sprite& s) {
-        if (!entity_active(world, e) || s.color.a <= 0.0f) return;
+        if (!entity_active(world, f, e) || s.color.a <= 0.0f) return;
         if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         const Color spriteColor = s.color * inherited_tint(world, f, e);
         if (spriteColor.a <= 0.0f) return;
@@ -491,7 +501,7 @@ void gather_2d(World& world, Frame& f) {
         // Invisible only when every colour the shape draws with is transparent: a gradient fill also uses color2 (the
         // documented vignette starts at alpha 0 and ends opaque).
         const bool usesColor2 = s.filled && s.gradient != ShapeGradient::None;
-        if (!entity_active(world, e)) return;
+        if (!entity_active(world, f, e)) return;
         if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         const Color tint = inherited_tint(world, f, e);
         Color color1 = s.color * tint, color2 = s.color2 * tint;
@@ -603,7 +613,7 @@ void gather_2d(World& world, Frame& f) {
 
     // ---- tilemaps ----
     world.each<Tilemap>([&](Entity e, Tilemap& tm) {
-        if (!f.wantWorld || !entity_active(world, e) || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return;
+        if (!f.wantWorld || !entity_active(world, f, e) || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return;
         // The same size 2D physics collides with (rows form: the rows; flat form: width/height). The tiles are read in
         // place from the component each frame: nothing is copied out of the Json.
         const TilemapSize grid = tilemap_size(tm);
@@ -694,7 +704,7 @@ void gather_2d(World& world, Frame& f) {
 
     // ---- text ----
     world.each<Text>([&](Entity e, Text& t) {
-        if (!entity_active(world, e) || t.text.empty() || t.color.a <= 0.0f || t.fontSize <= 0.0f) return;
+        if (!entity_active(world, f, e) || t.text.empty() || t.color.a <= 0.0f || t.fontSize <= 0.0f) return;
         const Color textTint = inherited_tint(world, f, e);
         if (textTint.a <= 0.0f) return;
         if (t.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;

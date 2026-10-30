@@ -178,6 +178,7 @@ struct Engine::Impl {
 void apply_gamepad_json(Input& input, const Json& value, std::vector<std::string>& problems);
 void apply_touch_json(Input& input, const Json& value, std::vector<std::string>& problems);
 
+UiSurfaceFn make_ui_surface_pointer(Engine::Impl& impl);  // surface_pointer.cpp: the pointer through a render target shown on a mesh
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
 void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
