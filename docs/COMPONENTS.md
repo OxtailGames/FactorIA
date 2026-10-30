@@ -1140,6 +1140,19 @@ Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchest
 | `maxCostUsd` | number | no |  |
 | `stream` | boolean | no |  Default true. |
 
+### `ai.session_timeline`
+
+Not released yet (on main after 0.8.2).
+
+Show where the time of a recorded AI session went: the long gaps and what was going on in each.
+
+Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", the UTC time with ms; tool_end has "ms", the duration of the tool; thinking has "ms", how long the model thought, also when its text is hidden). Returns `gaps`: each pause of at least minGapSeconds with start, end, seconds, activity (tool, thinking, model = waiting for the model, user = waiting for the user) and detail (the tool's name...), and `totals` per activity with the tools sorted by time. A session recorded before events carried times gives hasTimes false and a note. Example: {"minGapSeconds":60}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `session` | string | no | File name of the session (20261014-153012-orchestrator or with .jsonl) in .factoria/ai/sessions. Omit for the newest. |
+| `minGapSeconds` | number | no | List only the gaps at least this long (seconds). Totals always count every gap. Default 30. |
+
 ### `ai.tool_servers`
 
 Since 0.8.0.

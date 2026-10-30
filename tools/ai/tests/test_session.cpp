@@ -116,7 +116,13 @@ TEST_CASE("tool loop: batched results, errors flagged, append-only history") {
     CHECK(lines >= 5);
     for (std::size_t pos = 0; pos < tr.size();) {
         auto nl = tr.find('\n', pos);
-        CHECK_FALSE(Json::parse(tr.substr(pos, nl - pos), nullptr, false).is_discarded());
+        Json line = Json::parse(tr.substr(pos, nl - pos), nullptr, false);
+        CHECK_FALSE(line.is_discarded());
+        CHECK_MESSAGE(line.contains("t"), "every transcript line has a time");
+        if (line.value("kind", "") == "assistant") CHECK(line.contains("ms"));
+        if (line.value("kind", "") == "tool_results") {
+            for (const auto& entry : line["results"]) CHECK(entry.contains("ms"));
+        }
         pos = nl + 1;
     }
 }

@@ -1004,6 +1004,13 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
         ui->set_drop_hooks(std::move(dh));
     }
     reload_tools();
+    // A project tool edited on disk (or a module it imports) runs with its new code, not the version loaded earlier
+    // in a long session (editor MCP, `factoria mcp`). Done between commands: reloading replaces the tool commands.
+    host->commands().set_before_call([this](std::string_view name) {
+        if (!initialized || tools.empty() || name.size() < 9 || name.rfind("project", 0) != 0 || (name[7] != '.' && name[7] != '_')) return;
+        if (!tools.count("project." + std::string(name.substr(8)))) return;
+        owner->reload_changed_modules();
+    });
     return true;
 }
 
@@ -1011,6 +1018,7 @@ void ScriptSystem::Impl::shutdown() {
     if (!initialized && !rt) return;
     storage_drain();  // a setAsync write still running finishes before the process can end
     unregister_tools();
+    if (host) host->commands().set_before_call({});
     if (host && observerId >= 0) host->world().remove_observer(observerId);
     observerId = -1;
     if (host)

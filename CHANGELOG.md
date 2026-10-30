@@ -2,6 +2,17 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Fixes
+
+- A project tool (`project_<name>`, from `tools/*.js`) now runs the code on disk: when its file, or a module it imports, was edited since it was loaded, the tool is re-imported before the call, as `script.eval {module}` does. This holds in the editor's MCP session, `factoria mcp` and `factoria call`. An object result also carries `toolVersion` (`file`, `hash` of the file as it ran, `loadedAt`), so a stale tool is visible.
+
+### AI
+
+- Every event of `.factoria/ai/sessions/*.jsonl` carries `t` (UTC time with milliseconds). `tool_end` carries `ms` (how long the tool ran), a `thinking` event carries `ms` (the time since the event before it, so the duration is kept when the text is hidden), and the built-in agent's `assistant` lines carry `ms` (the model call) and its `tool_results` entries the tool name and `ms`.
+- New read-only command `ai.session_timeline {session?, minGapSeconds?}` (newest session by default): the gaps longer than N seconds with what was going on (a tool, thinking, waiting for the model, waiting for the user) and totals per kind and per tool. A log from an older engine has no times and the command says so.
+
 ## 0.8.2
 
 FactorIA 0.8.2 restarts the editor into the FactorIA icon you pinned in the Dock, instead of opening it as a second FactorIA icon next to it.
