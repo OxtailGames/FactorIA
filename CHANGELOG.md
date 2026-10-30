@@ -2,11 +2,14 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.7.3
+
+FactorIA 0.7.3 fixes a false error of `factoria validate` on glTF texture paths and makes the real ones say how to fix them.
 
 ### Fixes
 
-- `factoria validate`: the error for a glTF/glb texture or buffer uri that points nowhere resolves the uri against the model's folder and names the real path (it used to name the model's own folder, which exists), says plainly when the uri climbs out of the project folder, and suggests the corrected uri when the file exists in the project.
+- `factoria validate`: the error for a glTF/glb texture or buffer uri that points nowhere resolves the uri against the model's folder and names the real path (it used to name the model's own folder, which exists, and flagged uris such as
+  `../../../assets/textures/x.png` that go up to the project root and back in, which load fine), says plainly when the uri climbs out of the project folder, and suggests the corrected uri when the file exists in the project.
 
 ## 0.7.2
 
