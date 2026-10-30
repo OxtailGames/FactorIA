@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Fixes
+
+- `factoria validate`: the error for a glTF/glb texture or buffer uri that points nowhere resolves the uri against the model's folder and names the real path (it used to name the model's own folder, which exists), says plainly when the uri climbs out of the project folder, and suggests the corrected uri when the file exists in the project.
+
 ## 0.7.2
 
 FactorIA 0.7.2 keeps one FactorIA icon in the Dock or taskbar when the editor restarts after an update.
