@@ -28,7 +28,7 @@ there. Otherwise only **Delete...** in the dialog removes a project from the lis
 
 The window title names the engine version and the open project, `FactorIA 0.1.3 — My Game` (just `FactorIA 0.1.3` on
 the Open or create a project dialog). The version is the one `factoria version` prints; the right end of the menu bar
-shows it too on Windows and Linux (`FactorIA 0.8.0`; hover it for the build fingerprint), and on macOS **FactorIA > About
+shows it too on Windows and Linux (`FactorIA 0.8.1`; hover it for the build fingerprint), and on macOS **FactorIA > About
 FactorIA** shows it with the build fingerprint.
 
 ## The menu bar
@@ -76,8 +76,8 @@ does; the chats of the AI Assistant (`.factoria/ai/chats/`) come back with their
 file changes again. Restart is off, with the reason in its tooltip, while an AI run is in progress (or a worker still runs),
 a play session runs, an export or a Set Up This Computer install runs, or a keystore is being created: nothing is stopped
 silently. The editor starts again through the launcher you pinned, so the Dock or taskbar keeps one FactorIA icon: on macOS
-`open -n ~/Applications/FactorIA.app --args <project>` (no `--args` on the start screen) when that app is the launcher of this `factoria` and up to date
-(`factoria setup launcher`; the editor rewrites an older one at start), on Windows `FactorIA-Editor.exe` next to
+`open -n ~/Applications/FactorIA.app --args <project>` (no `--args` on the start screen) when that app is the launcher of this `factoria`
+(`factoria setup launcher`; the editor rewrites an older one at start), also when a newer FactorIA installed over the running editor wrote it, on Windows `FactorIA-Editor.exe` next to
 `factoria.exe` (also with no project open); on Linux the `.desktop` entry's `StartupWMClass=FactorIA` groups the new window with it. With no such
 launcher (a development build, a launcher of another `factoria`) or if starting it fails, it runs `factoria editor <project>`
 directly. A rebuild of the same commit, a file with no identity (a build outside git) or an unreadable file never shows the

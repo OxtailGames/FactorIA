@@ -2,6 +2,14 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## 0.8.1
+
+FactorIA 0.8.1 keeps one FactorIA icon in the Dock when an editor that is still open restarts after a newer FactorIA was installed over it.
+
+### Fixes
+
+- Restarting the editor (the update notice's Restart) after a newer FactorIA was installed over it on macOS no longer opens the new editor as a second Dock icon: the restart goes through `~/Applications/FactorIA.app` whenever that app opens this `factoria` and passes the project on, whichever version wrote it (an out-of-date one used to be skipped, so the editor started the bare program).
+
 ## 0.8.0
 
 FactorIA 0.8.0 (M43) lets the AI use external tool servers (MCP) that you configure in the editor's AI settings, such as Scenario for generating game art: Claude Code, Codex, the generic CLI agent and the API providers all get them, and the AI calls them only when they help.

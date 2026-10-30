@@ -1142,7 +1142,7 @@ Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchest
 
 ### `ai.tool_servers`
 
-Not released yet (on main after 0.8.0).
+Since 0.8.0.
 
 List the external tool servers (MCP) the user configured in ai.json, and optionally test them.
 

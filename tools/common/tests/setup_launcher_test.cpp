@@ -195,17 +195,24 @@ TEST_CASE("editor_restart_command (macOS): through the launcher of this factoria
     CHECK(bare[2] == w.app().string());
 }
 
-TEST_CASE("editor_restart_command (macOS): an out-of-date, foreign or another factoria's launcher is not used") {
+TEST_CASE("editor_restart_command (macOS): an old, foreign or another factoria's launcher is not used") {
     LauncherWorld w("macos");
     REQUIRE(w.install().ok);
     const std::string project = (w.tmp.path / "game").string();
     REQUIRE_FALSE(editor_restart_command(w.ctx, project).empty());
 
+    // Another version's launcher of this same factoria: still used, both ways. An editor still running after a newer
+    // FactorIA was installed over it (and `setup launcher` ran) restarts into the Dock icon, not next to it.
     SetupContext updated = w.ctx;
     updated.engineVersion = "9.9.0";  // not rewritten yet
-    CHECK(editor_restart_command(updated, project).empty());
+    CHECK(setup_status(updated, "launcher", false).components.at(0).state == "partial");
+    const std::vector<std::string> before = editor_restart_command(updated, project);
+    REQUIRE(before.size() == 5);
+    CHECK(before[2] == w.app().string());
     CHECK(refresh_launcher(updated));
-    CHECK_FALSE(editor_restart_command(updated, project).empty());
+    CHECK(w.status().state == "partial");  // the old editor, after the newer one rewrote the launcher
+    CHECK(editor_restart_command(w.ctx, project) == editor_restart_command(updated, project));
+    REQUIRE(w.install(true).ok);
 
     // An old launcher (it ignored its arguments) is out of date, so the editor rewrites it before a restart needs it.
     testing::write_all(w.app() / "Contents/MacOS/FactorIA",

@@ -308,7 +308,8 @@ bool refresh_launcher(const SetupContext& context = {});
 // The command that restarts the editor on `projectDir` through the launcher the user has pinned, so the Dock or taskbar
 // shows one FactorIA icon and not a second one for the bare `factoria` program (argv[0] is the program; the caller runs it
 // detached). macOS: `/usr/bin/open -n <FactorIA.app> --args <projectDir>`, only when ~/Applications/FactorIA.app is the
-// launcher of THIS factoria and up to date (launcher_status "installed"). Windows: FactorIA-Editor.exe next to this
+// launcher of THIS factoria and passes the project on, even when another version wrote it (an editor still running
+// after a newer FactorIA was installed over it). Windows: FactorIA-Editor.exe next to this
 // factoria.exe. With an empty projectDir (the editor is on its start screen) the same launcher without the project
 // (`open -n <FactorIA.app>`; just FactorIA-Editor.exe). Empty (start `factoria editor <projectDir>` yourself) when
 // there is no such launcher, it is another factoria's, or on Linux (the .desktop's StartupWMClass groups the window
