@@ -2,7 +2,9 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.7.4
+
+FactorIA 0.7.4 makes the editor restart through the pinned launcher also from the start screen, so the Dock keeps one FactorIA icon.
 
 ### Fixes
 
