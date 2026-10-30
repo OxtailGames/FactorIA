@@ -148,7 +148,7 @@ void assign_shadow_rows(World& world, Frame& f) {
 
     std::vector<Occluder> occluders;
     world.each<Tilemap>([&](Entity e, Tilemap& tm) {
-        if (!tm.occludesLight || !world.active_in_hierarchy(e) || !(tm.tileSize.x > 0.0f) || !(tm.tileSize.y > 0.0f)) return;
+        if (!tm.occludesLight || !entity_active(world, e) || !(tm.tileSize.x > 0.0f) || !(tm.tileSize.y > 0.0f)) return;
         Occluder o;
         o.size = tilemap_size(tm);
         if (o.size.empty() || !tm.solidTiles.is_array()) return;

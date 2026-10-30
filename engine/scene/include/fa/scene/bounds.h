@@ -63,6 +63,12 @@ bool sprite_mesh_grid(const Sprite& s, int& columns, int& rows);
 // vertexOffsets as (columns + 1) * (rows + 1) * 2 floats [dx, dy, ...], row-major from the top row; missing entries are 0. Empty
 // when the sprite has no offsets (not an array, or empty).
 std::vector<float> sprite_vertex_offsets(const Sprite& s, int columns, int rows);
+// vertexColors as (columns + 1) * (rows + 1) * 4 floats [r, g, b, a, ...] (a value that is not a number counts as 1), row-major
+// from the top row. Empty when the sprite has none, or when its length is not exactly that (see sprite_vertex_colors_problem).
+std::vector<float> sprite_vertex_colors(const Sprite& s, int columns, int rows);
+// "" when vertexColors is fine (empty, or an array of exactly (meshColumns + 1) * (meshRows + 1) * 4 numbers on a deformable
+// sprite); otherwise a teaching message: what is wrong, the length the grid needs and how to fix it.
+std::string sprite_vertex_colors_problem(const Sprite& s);
 
 // One drawn thing of an entity.
 struct VisualFootprint {

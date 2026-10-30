@@ -432,7 +432,16 @@ void register_builtin_components(TypeRegistry& r) {
                "as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; "
                "changing one element of the array it returned does not write back). The texture is stretched with the "
                "vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change "
-               "`size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices.");
+               "`size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices.")
+        .field("vertexColors", &Sprite::vertexColors,
+               "Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied with `color` "
+               "(and Tint), blended smoothly across each cell. A flat array of numbers [r0, g0, b0, a0, r1, g1, b1, a1, ...], "
+               "components 0..1, one RGBA per vertex in the order of `vertexOffsets` (row by row from the TOP row, left to right): "
+               "vertex (column c, row r) starts at index (r * (meshColumns + 1) + c) * 4. The length must be exactly "
+               "(meshColumns + 1) * (meshRows + 1) * 4: a scene or prefab with another length is an error naming the length it "
+               "needs, and a script that writes a wrong length gets one warning and the colours are ignored. A bent page gets "
+               "its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in light. Write the "
+               "whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with SpriteSkin.");
 
     r.add<Tint>("Tint",
                 "Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren "
@@ -747,7 +756,17 @@ void register_builtin_components(TypeRegistry& r) {
                      "and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto "
                      "Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, "
                      "localization.languageFonts) to cover every Text of the game (docs/TEXT.md).")
-        .field("fontSize", &Text::fontSize, "Glyph height in world units (pixels in 2D).").range(1, 4096)
+        .field("fontSize", &Text::fontSize, "Glyph height in world units (pixels in 2D, meters in a 3D scene). A world Text may be tiny: 0.07 is 7 cm. The glyphs "
+               "are rasterized for the size they have ON SCREEN, not for this number, so small world text stays sharp. Screen-space "
+               "text is in design pixels (use 1 or more). docs/TEXT.md, \"Text in a 3D scene\".").range(0.001, 4096)
+        .field("lit", &Text::lit,
+               "World space only: true = the text is shaded by the scene's 3D lights (Light entities and "
+               "SceneSettings.ambientLight) like a lit material, so gold lettering on a book cover darkens with the shading. "
+               "The text is a flat surface facing its +Z (the side you read it from; seen from behind it uses the facing side); "
+               "directional, point and spot lights are summed ONCE per Text, at the text's origin, and multiply `color` "
+               "(and the colours and pictures of a rich text): no shadows, no per-pixel variation. false (default) = drawn "
+               "unlit, exactly `color`. Ignored in screen space and under a Camera with lighting \"studio\". For a Text "
+               "under 2D lights use a Sprite or Shape2D with `lit`.")
         .field("color", &Text::color, "Text color.")
         .enum_field("align", &Text::align, {"left", "center", "right", "start", "end"},
                     "Horizontal alignment of lines inside the text box. left / right are always the left / right edge, "
@@ -762,7 +781,7 @@ void register_builtin_components(TypeRegistry& r) {
                "maxHeight 30 stays on one line at any text size by shrinking. 0 (default) = only the width counts. Nothing is "
                "clipped or wrapped by it; it only drives autoShrink and ui.overflowed(id).").range(0, 100000)
         .field("autoShrink", &Text::autoShrink, kAutoShrinkDoc)
-        .field("minFontSize", &Text::minFontSize, kMinFontSizeDoc).range(1, 4096)
+        .field("minFontSize", &Text::minFontSize, kMinFontSizeDoc).range(0.001, 4096)
         .field("maxTextScale", &Text::maxTextScale, kMaxTextScaleDoc).range(0, 3)
         .field("markup", &Text::markup, kMarkupDoc)
         .field("bold", &Text::bold, kBoldDoc)

@@ -477,7 +477,7 @@ void Renderer::Impl::collect_targets(World& world) {
         selfSentinel.path = "target-self";
     }
     world.each<Camera>([&](Entity e, Camera& c) {
-        if (c.renderTarget.empty() || !world.active_in_hierarchy(e)) return;
+        if (c.renderTarget.empty() || !entity_active(world, e)) return;
         const std::string who = "Camera '" + world.id_of(e) + "'";
         Camera probe = c;
         probe.renderTargetSize = Vec2{1, 1};
@@ -812,7 +812,7 @@ std::vector<CameraInfo> Renderer::Impl::collect_cameras(World& world) {
     struct Found { Entity e; int depth; };
     std::vector<Found> found;
     world.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && c.renderTarget.empty() && world.active_in_hierarchy(e)) found.push_back({e, c.depth});
+        if (c.primary && c.renderTarget.empty() && entity_active(world, e)) found.push_back({e, c.depth});
     });
     std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
     constexpr std::size_t kMaxCameras = 8;
@@ -1064,7 +1064,7 @@ std::optional<Renderer::RenderTargetView> Renderer::render_target_view(World& wo
     if (!impl_ || name.empty()) return std::nullopt;
     Entity found;
     world.each<Camera>([&](Entity e, Camera& c) {
-        if (found || c.renderTarget != name || !world.active_in_hierarchy(e)) return;
+        if (found || c.renderTarget != name || !entity_active(world, e)) return;
         Camera probe = c;
         probe.renderTargetSize = Vec2{1, 1};  // a size that is off is clamped when drawn, not a reason to skip the camera
         if (camera_render_target_problem(probe).empty()) found = e;
@@ -1259,7 +1259,7 @@ void Renderer::Impl::render(World& world, float dt) {
     std::vector<MeshRef> meshRefs;
     if (!targetCams.empty()) {
         world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
-            if (!world.active_in_hierarchy(e)) return;
+            if (!entity_active(world, e)) return;
             MeshRef ref{e, {}};
             auto add = [&](const std::string& path) {
                 if (!Assets::is_target_id(path)) return;
@@ -1573,7 +1573,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     });
     std::stable_sort(blended.begin(), blended.end(), [](const MeshItem& a, const MeshItem& b) { return a.dist > b.dist; });
     if (fr.wantWorld && !fr.cam.studio) world.each<Light>([&](Entity e, Light& l) {
-        if (!world.active_in_hierarchy(e)) return;
+        if (!entity_active(world, e)) return;
         Mat4 m = world.world_matrix(e);
         LightData ld;
         Vec3 col{l.color.r * l.intensity, l.color.g * l.intensity, l.color.b * l.intensity};

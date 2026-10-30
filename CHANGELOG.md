@@ -14,8 +14,15 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 - `render.textureFromPNG` accepts pictures up to 4096 x 4096 (it was 2048), the size run-time textures could already have.
 
+### Text and sprites
+
+- `Text.fontSize` (and `minFontSize`) go down to 0.001, so a world Text in a 3D scene can be sized in meters (a 7 cm title is `fontSize: 0.07`). The glyphs are still rasterized for the size they have on screen, so tiny world text stays sharp. docs/TEXT.md has a new section, "Text in a 3D scene", on how Text behaves under a perspective camera.
+- New `Text.lit` (default false): a world Text is shaded by the scene's 3D lights and `SceneSettings.ambientLight` like a lit material (once per Text, at its origin; no shadows).
+- New `Sprite.vertexColors`: a flat `[r, g, b, a, ...]` per grid vertex of a deformable sprite, multiplied with `color`. A scene or prefab whose length is not `(meshColumns + 1) * (meshRows + 1) * 4` fails to load with an error that names the length it needs; a script that writes a wrong length gets one warning and the colours are ignored.
+
 ### Fixes
 
+- An entity destroyed during a frame (and its children) is no longer drawn in that frame: the renderer used to draw it until the end of the frame, so a group destroyed and rebuilt in one frame was drawn twice for one frame, and a `render.captureTexture` taken the next frame showed both. docs/SCRIPTING.md says which frame a capture shows.
 - A project tool (`project_<name>`, from `tools/*.js`) now runs the code on disk: when its file, or a module it imports, was edited since it was loaded, the tool is re-imported before the call, as `script.eval {module}` does. This holds in the editor's MCP session, `factoria mcp` and `factoria call`. An object result also carries `toolVersion` (`file`, `hash` of the file as it ran, `loadedAt`), so a stale tool is visible.
 
 ### AI
