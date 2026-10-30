@@ -306,16 +306,18 @@ std::string ffmpeg_install_path(const SetupContext& context);
 bool refresh_launcher(const SetupContext& context = {});
 
 // The command that restarts the editor on `projectDir` through the launcher the user has pinned, so the Dock or taskbar
-// shows one FactorIA icon and not a second one for the bare `factoria` program (argv[0] is the program; the caller runs it
-// detached). macOS: `/usr/bin/open -n <FactorIA.app> --args <projectDir>`, only when ~/Applications/FactorIA.app is the
-// launcher of THIS factoria and passes the project on, even when another version wrote it (an editor still running
-// after a newer FactorIA was installed over it). Windows: FactorIA-Editor.exe next to this
-// factoria.exe. With an empty projectDir (the editor is on its start screen) the same launcher without the project
-// (`open -n <FactorIA.app>`; just FactorIA-Editor.exe). Empty (start `factoria editor <projectDir>` yourself) when
-// there is no such launcher, it is another factoria's, or on Linux (the .desktop's StartupWMClass groups the window
-// already).
+// shows one FactorIA icon and not a second one (argv[0] is the program; the caller runs it detached and does not wait for
+// it). macOS, only when ~/Applications/FactorIA.app is the launcher of THIS factoria and passes the project on, even when
+// another version wrote it (an editor still running after a newer FactorIA was installed over it): with `quittingPid`
+// (the editor that is about to quit), a `/bin/sh` that waits until that process is gone and then runs
+// `/usr/bin/open <FactorIA.app> --args <projectDir>`, so the new editor takes the pinned Dock icon (a second instance,
+// `open -n`, gets an icon of its own); without it, `/usr/bin/open -n <FactorIA.app> --args <projectDir>`. Windows:
+// FactorIA-Editor.exe next to this factoria.exe. With an empty projectDir (the editor is on its start screen) the same
+// launcher without the project. Empty (start `factoria editor <projectDir>` yourself) when there is no such launcher,
+// it is another factoria's, or on Linux (the .desktop's StartupWMClass groups the window already).
 // `projectDir` should be absolute: the macOS launcher runs from the home folder.
-std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir);
+std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir,
+                                               long long quittingPid = 0);
 
 // Registers "setup.status" (read-only) and "setup.install" (category "setup"). They need no project, so they are
 // registered with the tooling commands and with the project-less command set; the editor calls the C++ API above.
