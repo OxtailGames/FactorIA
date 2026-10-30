@@ -2869,12 +2869,39 @@
     }
     toString() { return `Texture(${this.id}, ${this.width}x${this.height}${this.$alive ? "" : ", destroyed"})`; }
   }
+  // captureTexture({ entity | rect, space: "world", scale? }): the world drawn off-screen at a pixel scale (RenderAPI.captureTexture).
+  const captureWorldTexture = (o) => {
+    const label = "render.captureTexture({ entity | rect, space: \"world\", scale })";
+    for (const k of Object.keys(o))
+      if (!["entity", "rect", "space", "scale"].includes(k)) {
+        const hint = k === "width" || k === "height" || k === "fit"
+          ? ` The size of the picture is the area times scale, so drop ${k}; or drop entity/rect to capture the whole frame the player sees at a width and height.`
+          : "";
+        throw new Error(`${label}: unknown option '${k}'; the options are entity, rect, space and scale.${hint}`);
+      }
+    if (o.space !== undefined && o.space !== "world")
+      throw new Error(`${label}: space must be "world" (the only space that can be photographed off-screen), but got ${inspect(o.space)}. Screen-space UI is drawn over the frame: capture the frame with render.captureTexture({ width, height }) to include it`);
+    if ((o.entity === undefined || o.entity === null) === (o.rect === undefined || o.rect === null))
+      throw new Error(`${label}: give exactly one of entity (photograph its subtree) or rect ([x, y, width, height] in world units), but got ${o.entity !== undefined && o.entity !== null ? "both" : "neither"}`);
+    if (o.scale !== undefined && (typeof o.scale !== "number" || !(o.scale > 0) || !Number.isFinite(o.scale)))
+      throw new Error(`${label}: scale must be a number above 0 (pixels per world unit, default 1), e.g. scale: 2 for a picture twice as wide as the area is in world units, but got ${inspect(o.scale)}`);
+    const scale = o.scale === undefined ? 1 : o.scale;
+    if (o.rect !== undefined && o.rect !== null) {
+      const r = o.rect;
+      if (!Array.isArray(r) || r.length !== 4 || !r.every((v) => typeof v === "number" && Number.isFinite(v)) || !(r[2] > 0) || !(r[3] > 0))
+        throw new Error(`${label}: rect must be [x, y, width, height] in world units (x, y the bottom-left corner, +Y up; entity.bounds() gives one), with a positive width and height, but got ${inspect(r)}`);
+      return new Texture(N.renderCaptureWorld(null, r[0], r[1], r[2], r[3], scale));
+    }
+    return new Texture(N.renderCaptureWorld(entityHandle(o.entity, label + " entity"), 0, 0, 0, 0, scale));
+  };
   const render = {
-    // captureTexture({ width, height, fit? }): the picture the player sees now, as a texture; see RenderAPI.
+    // captureTexture({ width, height, fit? }) or ({ entity | rect, space, scale? }): the picture the player sees now, as a texture; see RenderAPI.
     captureTexture(o) {
+      if (o && typeof o === "object" && (o.entity !== undefined || o.rect !== undefined || o.space !== undefined || o.scale !== undefined))
+        return captureWorldTexture(o);
       const label = "render.captureTexture({ width, height })";
       if (!o || typeof o !== "object")
-        throw new Error(`${label}: expected an options object, e.g. render.captureTexture({ width: 320, height: 180 }), but got ${inspect(o)}`);
+        throw new Error(`${label}: expected an options object, e.g. render.captureTexture({ width: 320, height: 180 }) or render.captureTexture({ entity, scale: 2 }), but got ${inspect(o)}`);
       for (const k of ["width", "height"])
         if (!Number.isInteger(o[k]) || o[k] < 1 || o[k] > RT_MAX_SIDE)
           throw new Error(`${label}: ${k} must be a whole number from 1 to ${RT_MAX_SIDE}, e.g. render.captureTexture({ width: 320, height: 180 }), but got ${inspect(o[k])}`);

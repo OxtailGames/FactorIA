@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -415,6 +416,15 @@ public:
     ~Assets();
     TextureAsset* texture(const std::string& path);       // never null (placeholder on failure)
     TextureAsset* white();                                 // 1x1 white
+    TextureAsset* placeholder() { return placeholderTex_.get(); }  // the missing-texture checker
+    // Answers the render-target ids ("target:<name>", Camera.renderTarget): the resolver returns the live texture of the target or
+    // null when no camera renders into that name (texture() then answers the checker and logs why, once per name).
+    using TargetResolver = std::function<TextureAsset*(const std::string& name)>;
+    void set_target_resolver(TargetResolver r) { targetResolver_ = std::move(r); }
+    // True while Renderer::render() runs: only then does a target id nobody renders into count as a failure (a query made
+    // before the first frame, such as an entity's bounds, only gets the checker).
+    void set_drawing(bool on) { drawing_ = on; }
+    static bool is_target_id(const std::string& path) { return path.rfind("target:", 0) == 0; }
     MeshAsset* mesh(const std::string& name);             // never null (cube placeholder on failure)
     // A custom material (a *.material.json), built on first use; never null. A material that failed to build has ok == false
     // (the failure is in report() and logged once) and is drawn with the error material.
@@ -477,6 +487,8 @@ private:
     int nextRuntime_ = 1;
     std::unique_ptr<TextureAsset> white_;
     std::unique_ptr<TextureAsset> placeholderTex_;
+    TargetResolver targetResolver_;
+    bool drawing_ = false;
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;
     std::unordered_map<std::string, std::string> meshSources_;  // mesh key -> source file (for reload)

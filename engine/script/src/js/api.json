@@ -2149,19 +2149,35 @@
     {
      "kind": "interface",
      "name": "CaptureTextureOptions",
-     "doc": "What render.captureTexture takes.",
+     "doc": "What render.captureTexture takes: either { width, height, fit? } for the picture the player sees now, or { entity | rect, space?, scale? } for a part of the world drawn off-screen.",
      "members": [
       {
-       "sig": "width: number",
-       "doc": "Width of the texture in pixels, a whole number from 1 to 2048."
+       "sig": "width?: number",
+       "doc": "Frame form: width of the texture in pixels, a whole number from 1 to 2048. Required unless entity or rect is given."
       },
       {
-       "sig": "height: number",
-       "doc": "Height of the texture in pixels, a whole number from 1 to 2048."
+       "sig": "height?: number",
+       "doc": "Frame form: height of the texture in pixels, a whole number from 1 to 2048. Required unless entity or rect is given."
       },
       {
        "sig": "fit?: \"cover\" | \"stretch\"",
-       "doc": "What to do when width : height is not the frame's aspect ratio. \"cover\" (default) cuts the middle part with that ratio out of the frame, so nothing is distorted and the long side loses its edges; \"stretch\" squeezes the whole frame into the size."
+       "doc": "Frame form: what to do when width : height is not the frame's aspect ratio. \"cover\" (default) cuts the middle part with that ratio out of the frame, so nothing is distorted and the long side loses its edges; \"stretch\" squeezes the whole frame into the size."
+      },
+      {
+       "sig": "entity?: Entity | string",
+       "doc": "World form: photograph this entity and its children. The area is the union of their entity.bounds() (world-space Sprite, Shape2D, Text and Tilemap); only that subtree is drawn, even if other things are in front of it or inside the area, and it is drawn whether it is active or not (a hidden subject is photographed) and wherever it is (off the camera's view too). Throws when the subtree draws nothing in world space: use rect. Give entity or rect, not both."
+      },
+      {
+       "sig": "rect?: [number, number, number, number]",
+       "doc": "World form: the area as [x, y, width, height] in world units, x, y the bottom-left corner, +Y up (the shape entity.bounds() returns). Draws everything in the area that is active, from the world as it is now, with the lights of the scene. Give entity or rect, not both."
+      },
+      {
+       "sig": "space?: \"world\"",
+       "doc": "World form: the space of rect. Only \"world\" exists: screen-space items (UI, HUD) are not part of the world; capture the frame with width and height to get them."
+      },
+      {
+       "sig": "scale?: number",
+       "doc": "World form: pixels per world unit, above 0 (default 1). The texture is ceil(width * scale) x ceil(height * scale) pixels of the area, each at most 4096; a bigger one throws and says the largest scale that fits. There is no 2048 limit here, the frame form keeps it. The background is transparent."
       }
      ]
     },
@@ -2207,11 +2223,11 @@
      "members": [
       {
        "sig": "captureTexture(options: CaptureTextureOptions): Texture",
-       "doc": "Makes a texture of the picture the player sees: the last frame that was drawn, with the HUD and every camera, at the size asked (the frame is read back from the GPU on Metal, OpenGL, Direct3D 11 and WebGL2, then resampled on the CPU). Called from a script during a frame it gives the frame before it; in a test it draws the current state first, like game.screenshot, and with the same size as the game target (game.screenSize, times window.renderScale) its pixels are exactly the screenshot's. In a run without a renderer (graphics off) it gives a flat placeholder of the size asked (texture.placeholder is true) so the code that saves and shows it still runs. Throws for a size outside 1 to 2048 and when 32 textures are alive. Example: const tex = render.captureTexture({ width: 256, height: 144 });"
+       "doc": "Two forms. { width, height, fit? } makes a texture of the picture the player sees: the last frame that was drawn, with the HUD and every camera, at the size asked (the frame is read back from the GPU on Metal, OpenGL, Direct3D 11 and WebGL2, then resampled on the CPU). Called from a script during a frame it gives the frame before it; in a test it draws the current state first, like game.screenshot, and with the same size as the game target (game.screenSize, times window.renderScale) its pixels are exactly the screenshot's. In a run without a renderer (graphics off) it gives a flat placeholder of the size asked (texture.placeholder is true) so the code that saves and shows it still runs. Throws for a size outside 1 to 2048 and when 32 textures are alive. { entity | rect, space?, scale? } photographs the world instead: the area of an entity's subtree (or a rectangle of world units) is drawn off-screen with its own camera at `scale` pixels per world unit (default 1), up to 4096 x 4096 pixels, on a transparent background. It needs no frame drawn first and does not care where the main camera looks, what covers the area or whether the subject is active or hidden; the screen-space UI is not part of it, and the frame the player sees is not touched. MeshRenderers in the area are drawn too, seen from the front (looking down -Z) by an orthographic camera. A Sprite that shows a render target (\"target:<name>\") shows that target's last picture. In a run without a renderer the texture is a flat placeholder of the size the picture would have. Example: const tex = render.captureTexture({ width: 256, height: 144 }); or, for a card sprite 120 x 160 units big, render.captureTexture({ entity: card, scale: 2 }) is 240 x 320 pixels."
       },
       {
        "sig": "textureFromPNG(png: string): Texture",
-       "doc": "A texture from the text texture.toPNG() returned (Base64 of a PNG file; a data:image/png;base64,... URL works too), at most 2048 x 2048. Throws a teaching Error for text that is not a PNG or JPG/BMP/TGA image, and when 32 textures are alive. Synchronous: no Promise, so there is nothing to check afterwards. Example: const pic = storage.get(\"slot1.png\", null); if (pic) entity.get(\"Sprite\").texture = render.textureFromPNG(pic).id;"
+       "doc": "A texture from the text texture.toPNG() returned (Base64 of a PNG file; a data:image/png;base64,... URL works too), at most 4096 x 4096. Throws a teaching Error for text that is not a PNG or JPG/BMP/TGA image, and when 32 textures are alive. Synchronous: no Promise, so there is nothing to check afterwards. Example: const pic = storage.get(\"slot1.png\", null); if (pic) entity.get(\"Sprite\").texture = render.textureFromPNG(pic).id;"
       }
      ]
     },

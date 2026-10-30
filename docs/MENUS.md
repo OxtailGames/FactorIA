@@ -774,8 +774,10 @@ ui.on("viewPointer", "item_view", (e) => {               // e.phase: "down" | "d
   default: 0.5 for a soft, cheap picture, up to 2). The images of views that went away are freed in the same frame. A view
   draws the world its camera sees, not the UI or the `space: "screen"` items (so a CameraView cannot show another); `bloom`,
   `colorFilter` and the debug draw belong to the main frame and are not applied in it; 2D lights are read per pixel, so a view
-  of a 2D scene with many lights costs more than the main frame does; a studio camera draws no sky. Only a named camera can be
-  shown: a render texture as the source does not exist yet.
+  of a 2D scene with many lights costs more than the main frame does; a studio camera draws no sky. Only a camera can be shown, not a
+  texture. To put a camera's live picture on a `Panel.texture` or a `Button.icon` instead, give that camera a
+  `Camera.renderTarget` and use `"target:<name>"` there (docs/RENDERING.md, "Render targets"): the widget shows the picture and
+  forwards no pointer input to the world behind it, so use a CameraView when the player has to drag what the camera shows.
 - **Test.** `game.mouseMove`, `game.mouseDown`, `game.wheel` and `game.touchStart` over the rectangle send the events; a
   render test compares pixels of the view (the engine's own tests do this with a cube on a stage).
 

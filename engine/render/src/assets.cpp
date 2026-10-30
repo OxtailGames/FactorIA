@@ -780,6 +780,22 @@ TextureAsset* Assets::texture(const std::string& path) {
         }
         return slot.get();
     }
+    if (is_target_id(path)) {  // a render target: live, never cached (its image is remade when the camera's size changes)
+        TextureAsset* t = targetResolver_ ? targetResolver_(path.substr(7)) : nullptr;
+        if (t) {
+            if (!failures_.empty())  // a camera renders into it now: an older "nobody renders into it" record is stale
+                failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                               [&](const Failure& f) { return f.kind == "texture" && f.path == path; }),
+                                failures_.end());
+            return t;
+        }
+        if (drawing_) note_failure("texture", path,
+                     std::format("'{}' is a render target id but no active Camera renders into it now (Camera.renderTarget = '{}'). "
+                                 "Until one does, the missing-texture checker is drawn.", path, path.substr(7)),
+                     "Add a Camera entity with \"renderTarget\": \"" + path.substr(7) + "\" (and a renderTargetSize), keep it active, "
+                     "and check the name against the camera's.");
+        return placeholderTex_.get();
+    }
     std::string key = fs::normalize(path);
     if (key.empty()) key = path;
     auto it = textures_.find(key);

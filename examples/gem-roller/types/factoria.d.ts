@@ -1992,25 +1992,45 @@ declare module "factoria" {
   }
 
   /**
-   * What render.captureTexture takes.
+   * What render.captureTexture takes: either { width, height, fit? } for the picture the player sees now, or { entity | rect, space?, scale? } for a part of the world drawn off-screen.
    * @since 0.3.0
    */
   export interface CaptureTextureOptions {
     /**
-     * Width of the texture in pixels, a whole number from 1 to 2048.
+     * Frame form: width of the texture in pixels, a whole number from 1 to 2048. Required unless entity or rect is given.
      * @since 0.3.0
      */
-    width: number;
+    width?: number;
     /**
-     * Height of the texture in pixels, a whole number from 1 to 2048.
+     * Frame form: height of the texture in pixels, a whole number from 1 to 2048. Required unless entity or rect is given.
      * @since 0.3.0
      */
-    height: number;
+    height?: number;
     /**
-     * What to do when width : height is not the frame's aspect ratio. "cover" (default) cuts the middle part with that ratio out of the frame, so nothing is distorted and the long side loses its edges; "stretch" squeezes the whole frame into the size.
+     * Frame form: what to do when width : height is not the frame's aspect ratio. "cover" (default) cuts the middle part with that ratio out of the frame, so nothing is distorted and the long side loses its edges; "stretch" squeezes the whole frame into the size.
      * @since 0.3.0
      */
     fit?: "cover" | "stretch";
+    /**
+     * World form: photograph this entity and its children. The area is the union of their entity.bounds() (world-space Sprite, Shape2D, Text and Tilemap); only that subtree is drawn, even if other things are in front of it or inside the area, and it is drawn whether it is active or not (a hidden subject is photographed) and wherever it is (off the camera's view too). Throws when the subtree draws nothing in world space: use rect. Give entity or rect, not both.
+     * @since unreleased
+     */
+    entity?: Entity | string;
+    /**
+     * World form: the area as [x, y, width, height] in world units, x, y the bottom-left corner, +Y up (the shape entity.bounds() returns). Draws everything in the area that is active, from the world as it is now, with the lights of the scene. Give entity or rect, not both.
+     * @since unreleased
+     */
+    rect?: [number, number, number, number];
+    /**
+     * World form: the space of rect. Only "world" exists: screen-space items (UI, HUD) are not part of the world; capture the frame with width and height to get them.
+     * @since unreleased
+     */
+    space?: "world";
+    /**
+     * World form: pixels per world unit, above 0 (default 1). The texture is ceil(width * scale) x ceil(height * scale) pixels of the area, each at most 4096; a bigger one throws and says the largest scale that fits. There is no 2048 limit here, the frame form keeps it. The background is transparent.
+     * @since unreleased
+     */
+    scale?: number;
   }
 
   /**
@@ -2061,12 +2081,12 @@ declare module "factoria" {
    */
   export interface RenderAPI {
     /**
-     * Makes a texture of the picture the player sees: the last frame that was drawn, with the HUD and every camera, at the size asked (the frame is read back from the GPU on Metal, OpenGL, Direct3D 11 and WebGL2, then resampled on the CPU). Called from a script during a frame it gives the frame before it; in a test it draws the current state first, like game.screenshot, and with the same size as the game target (game.screenSize, times window.renderScale) its pixels are exactly the screenshot's. In a run without a renderer (graphics off) it gives a flat placeholder of the size asked (texture.placeholder is true) so the code that saves and shows it still runs. Throws for a size outside 1 to 2048 and when 32 textures are alive. Example: const tex = render.captureTexture({ width: 256, height: 144 });
+     * Two forms. { width, height, fit? } makes a texture of the picture the player sees: the last frame that was drawn, with the HUD and every camera, at the size asked (the frame is read back from the GPU on Metal, OpenGL, Direct3D 11 and WebGL2, then resampled on the CPU). Called from a script during a frame it gives the frame before it; in a test it draws the current state first, like game.screenshot, and with the same size as the game target (game.screenSize, times window.renderScale) its pixels are exactly the screenshot's. In a run without a renderer (graphics off) it gives a flat placeholder of the size asked (texture.placeholder is true) so the code that saves and shows it still runs. Throws for a size outside 1 to 2048 and when 32 textures are alive. { entity | rect, space?, scale? } photographs the world instead: the area of an entity's subtree (or a rectangle of world units) is drawn off-screen with its own camera at `scale` pixels per world unit (default 1), up to 4096 x 4096 pixels, on a transparent background. It needs no frame drawn first and does not care where the main camera looks, what covers the area or whether the subject is active or hidden; the screen-space UI is not part of it, and the frame the player sees is not touched. MeshRenderers in the area are drawn too, seen from the front (looking down -Z) by an orthographic camera. A Sprite that shows a render target ("target:<name>") shows that target's last picture. In a run without a renderer the texture is a flat placeholder of the size the picture would have. Example: const tex = render.captureTexture({ width: 256, height: 144 }); or, for a card sprite 120 x 160 units big, render.captureTexture({ entity: card, scale: 2 }) is 240 x 320 pixels.
      * @since 0.3.0
      */
     captureTexture(options: CaptureTextureOptions): Texture;
     /**
-     * A texture from the text texture.toPNG() returned (Base64 of a PNG file; a data:image/png;base64,... URL works too), at most 2048 x 2048. Throws a teaching Error for text that is not a PNG or JPG/BMP/TGA image, and when 32 textures are alive. Synchronous: no Promise, so there is nothing to check afterwards. Example: const pic = storage.get("slot1.png", null); if (pic) entity.get("Sprite").texture = render.textureFromPNG(pic).id;
+     * A texture from the text texture.toPNG() returned (Base64 of a PNG file; a data:image/png;base64,... URL works too), at most 4096 x 4096. Throws a teaching Error for text that is not a PNG or JPG/BMP/TGA image, and when 32 textures are alive. Synchronous: no Promise, so there is nothing to check afterwards. Example: const pic = storage.get("slot1.png", null); if (pic) entity.get("Sprite").texture = render.textureFromPNG(pic).id;
      * @since 0.3.0
      */
     textureFromPNG(png: string): Texture;
@@ -4615,6 +4635,17 @@ declare module "factoria" {
      * @since 0.2.0
      */
     colorFilter: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
+    /**
+     * Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "book". The texture is the id "target:book" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a 3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active (entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so (a render loop needs two targets: A shows B and B shows A, each one frame late). There is no culling mask: the camera sees everything in its frustum, so put what a target shows (a 2D page with Text, Sprites, Buttons as world-space entities) away from the camera that shows the model. Screen-space UI (Panel, Button and the other widgets, space "screen" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, "Render targets"). Names are unique: a second camera with the same name is not drawn, with an error. "" (default) = the screen. Letters, digits, '_', '-' and '.', up to 64 characters.
+     * @since unreleased
+     */
+    renderTarget: string;
+    /**
+     * Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; memory is about width x height x 8 bytes (4 more per pixel with antialiasing).
+     * @since unreleased
+     */
+    get renderTargetSize(): Vec2;
+    set renderTargetSize(value: Vec2Like);
   }
   /**
    * Draws a textured (or solid color) quad. Use `region` to pick a frame from a sprite sheet. Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.
@@ -4623,7 +4654,7 @@ declare module "factoria" {
    */
   export interface SpriteComponent {
     /**
-     * Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      */
     texture: string;
     /**
@@ -5402,11 +5433,11 @@ declare module "factoria" {
      */
     mesh: string;
     /**
-     * Base color texture. Empty = none (or the glTF material). (asset path: texture)
+     * Base color texture. Empty = none (or the glTF material). "target:<name>" shows the live picture of the Camera whose `renderTarget` is that name (a screen, a mirror, the page of a book; docs/RENDERING.md, "Render targets"). A pointer over the mesh reaches the Interactables of that camera. (asset path: texture)
      */
     texture: string;
     /**
-     * Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. (asset path: texture)
+     * Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. Takes "target:<name>" like `texture`. (asset path: texture)
      * @since 0.2.0
      */
     normalMap: string;
@@ -5456,7 +5487,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. An entity without overrides batches with the others that share the material. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures (a path, or "target:<name>" for the live picture of a render-target camera). Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. An entity without overrides batches with the others that share the material. Returns a plain-object COPY; assign a new value to write.
      * @since 0.2.0
      */
     materialParams: any;
@@ -6272,7 +6303,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -6418,7 +6449,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -6543,7 +6574,7 @@ declare module "factoria" {
      */
     bold: boolean;
     /**
-     * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.3.0
      */
     icon: string;
@@ -6607,7 +6638,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -6777,7 +6808,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -7158,7 +7189,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -7308,7 +7339,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -7407,7 +7438,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -7506,7 +7537,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -7650,7 +7681,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -7766,7 +7797,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.3.0
      */
     texture: string;
@@ -7890,7 +7921,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.3.0
      */
     texture: string;
@@ -7984,7 +8015,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.3.0
      */
     texture: string;
@@ -8248,7 +8279,7 @@ declare module "factoria" {
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia" };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; renderTarget?: string; renderTargetSize?: Vec2Like };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: any };
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
