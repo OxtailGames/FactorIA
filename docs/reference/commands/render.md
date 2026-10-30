@@ -4,7 +4,7 @@
 
 ## `mesh.create` (modifies state)
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Create a procedural mesh from arrays and get its id for MeshRenderer.mesh.
 
@@ -22,7 +22,7 @@ Builds geometry at run time, without writing a file: `positions` (three numbers 
 
 ## `mesh.destroy` (modifies state)
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Free a procedural mesh.
 
@@ -34,7 +34,7 @@ Entities that still name the id draw the missing-mesh placeholder and the engine
 
 ## `mesh.info`
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Describe one procedural mesh: counts, bounds, submeshes and materials.
 
@@ -46,7 +46,7 @@ Result: {id, version, vertices, triangles, hasColors, bounds: {min, max}, submes
 
 ## `mesh.list`
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 List the live procedural meshes of the running scene.
 
@@ -54,7 +54,7 @@ Result: {meshes: [info...], count}. Each info: {id, version, vertices, triangles
 
 ## `mesh.save` (modifies state)
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Write a procedural mesh as a .glb file that loads back as a normal model.
 
@@ -67,7 +67,7 @@ One node, one primitive per submesh with its material (name, base color, metalli
 
 ## `mesh.update` (modifies state)
 
-Not released yet (on main after 0.8.2).
+Since 0.9.0.
 
 Replace the data of a procedural mesh; arrays left out are kept.
 

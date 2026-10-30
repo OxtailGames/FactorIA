@@ -89,7 +89,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Since 0.4.0._
 - [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Since 0.4.0._
 - [`ai.run`](commands/ai.md#airun-modifies-state): Run an AI agent on a task in the current project (blocks until it finishes).
-- [`ai.session_timeline`](commands/ai.md#aisession_timeline): Show where the time of a recorded AI session went: the long gaps and what was going on in each. _Not released yet._
+- [`ai.session_timeline`](commands/ai.md#aisession_timeline): Show where the time of a recorded AI session went: the long gaps and what was going on in each. _Since 0.9.0._
 - [`ai.tool_servers`](commands/ai.md#aitool_servers): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Since 0.8.0._
 
 ### [anim](commands/anim.md)
@@ -272,12 +272,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [render](commands/render.md)
 
-- [`mesh.create`](commands/render.md#meshcreate-modifies-state): Create a procedural mesh from arrays and get its id for MeshRenderer.mesh. _Not released yet._
-- [`mesh.destroy`](commands/render.md#meshdestroy-modifies-state): Free a procedural mesh. _Not released yet._
-- [`mesh.info`](commands/render.md#meshinfo): Describe one procedural mesh: counts, bounds, submeshes and materials. _Not released yet._
-- [`mesh.list`](commands/render.md#meshlist): List the live procedural meshes of the running scene. _Not released yet._
-- [`mesh.save`](commands/render.md#meshsave-modifies-state): Write a procedural mesh as a .glb file that loads back as a normal model. _Not released yet._
-- [`mesh.update`](commands/render.md#meshupdate-modifies-state): Replace the data of a procedural mesh; arrays left out are kept. _Not released yet._
+- [`mesh.create`](commands/render.md#meshcreate-modifies-state): Create a procedural mesh from arrays and get its id for MeshRenderer.mesh. _Since 0.9.0._
+- [`mesh.destroy`](commands/render.md#meshdestroy-modifies-state): Free a procedural mesh. _Since 0.9.0._
+- [`mesh.info`](commands/render.md#meshinfo): Describe one procedural mesh: counts, bounds, submeshes and materials. _Since 0.9.0._
+- [`mesh.list`](commands/render.md#meshlist): List the live procedural meshes of the running scene. _Since 0.9.0._
+- [`mesh.save`](commands/render.md#meshsave-modifies-state): Write a procedural mesh as a .glb file that loads back as a normal model. _Since 0.9.0._
+- [`mesh.update`](commands/render.md#meshupdate-modifies-state): Replace the data of a procedural mesh; arrays left out are kept. _Since 0.9.0._
 
 ### [scene](commands/scene.md)
 
