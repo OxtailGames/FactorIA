@@ -430,8 +430,14 @@ void Editor::draw_bone_tools_panel() {
     }
     World& w = world();
     BoneUi& b = bone_;
+    bool firstMode = true;
     auto mode_button = [&](const char* label, BoneTool tool, const char* id, const char* tip) {
         const bool on = b.tool == tool;
+        // Side by side while they fit; a narrow window (a small display) wraps the row instead of clipping a button.
+        const float width = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
+        const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        if (!firstMode && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right) ImGui::SameLine();
+        firstMode = false;
         if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.24f, 0.42f, 0.70f, 1));
         if (ImGui::Button(label)) {
             if (b.tool == BoneTool::Chain && tool != BoneTool::Chain) bone_cancel_chain();
@@ -442,12 +448,10 @@ void Editor::draw_bone_tools_panel() {
         if (on) ImGui::PopStyleColor();
         at_track(id);
         ImGui::SetItemTooltip("%s", tip);
-        ImGui::SameLine();
     };
     mode_button(" Draw chain ", BoneTool::Chain, "bone:tool:chain", "Click points in the viewport to lay a chain of bones; Enter finishes, Esc cancels");
     mode_button(" Weights ", BoneTool::Weights, "bone:tool:weights", "Show and paint how much one bone moves each vertex of the selected skinned sprite");
     mode_button(" IK targets ", BoneTool::Ik, "bone:tool:ik", "Drag the targets of the IK2D chains in the viewport");
-    ImGui::NewLine();
     if (b.tool == BoneTool::Off) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped("Pick a tool. While one is on the viewport gizmo is off (click the tool again to leave it).");

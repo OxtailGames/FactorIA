@@ -398,7 +398,7 @@ void Editor::draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clipPtr
     const ImGuiIO& io = ImGui::GetIO();
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     ImVec2 avail = ImGui::GetContentRegionAvail();
-    avail.y = std::max(avail.y, 120.0f);
+    avail.y = std::max(avail.y, 160.0f);  // a small window scrolls as a whole: the rows keep room for a few tracks
     const float x0 = origin.x + kLeft, x1 = origin.x + avail.x - 4.0f;
     u.timeX0 = x0;
     u.timeX1 = x1;
