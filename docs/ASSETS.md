@@ -906,7 +906,7 @@ with warnings still runs and exports):
   reuses the `analysis` records of `assets.json` while they are fresh and measures the other sounds on the spot; it
   never writes `assets.json` (run `assets.analyze_audio` to store the measurements, which makes validating fast).
   A sound that cannot be decoded is reported too.
-- **Model files.** An error (not a warning) when a `.gltf` or `.glb` under `assets/` names a texture or a `.bin` buffer by a relative `uri` and the file is not there: the model would draw untextured or fail to load. `assets.import` copies those files.
+- **Model files.** An error (not a warning) when a `.gltf` or `.glb` under `assets/` names a texture or a `.bin` buffer by a relative `uri` and the file is not there: the model would draw untextured or fail to load. The uri is resolved against the model's folder and the message names the project path it reaches (or says it climbs out of the project folder); the hint suggests the uri that works when the file exists in the project (too many leading `..`, or the same file name elsewhere under `assets/`). `assets.import` copies those files.
 - **Videos.** An error when a `Video` names a file under `assets/` that is not there, or when an `.mpg` the project uses cannot be
   played (not an MPEG file, or a different codec such as H.264 inside): the hint has the ffmpeg command that converts it.
 - **Atlas groups.** A texture in an `atlas` group used by a component that cannot draw from an atlas (a `Tilemap`

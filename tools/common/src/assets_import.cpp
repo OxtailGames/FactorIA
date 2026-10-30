@@ -235,6 +235,78 @@ Result<ImportOutput> import_psd(const ImportRequest& request) {
     return out;
 }
 
+// A glTF uri resolved against the model's folder, relative to the project root.
+struct ModelUri {
+    std::string path;               // project-relative, normalized; "" when it climbs out
+    int climbs = 0;                 // '..' segments left over above the project root
+    int depth = 0;                  // folder levels of the model (how many '..' reach the root)
+    std::vector<std::string> rest;  // the segments that follow the last '..'
+};
+
+ModelUri resolve_model_uri(const std::string& modelDir, const std::string& uri) {
+    ModelUri r;
+    std::vector<std::string> stack = split(modelDir, '/');
+    r.depth = static_cast<int>(stack.size());
+    std::string norm = uri;
+    std::replace(norm.begin(), norm.end(), '\\', '/');
+    for (const std::string& part : split(norm, '/')) {
+        if (part == ".") continue;
+        if (part == "..") {
+            if (stack.empty()) ++r.climbs;
+            else stack.pop_back();
+            r.rest.clear();
+            continue;
+        }
+        stack.push_back(part);
+        r.rest.push_back(part);
+    }
+    if (r.climbs == 0) r.path = join(stack, "/");
+    return r;
+}
+
+std::string encode_uri_path(const std::string& p) {
+    std::string out;
+    for (char c : p) {
+        if (c == ' ') out += "%20";
+        else if (c == '%') out += "%25";
+        else if (c == '#') out += "%23";
+        else if (c == '?') out += "%3F";
+        else out += c;
+    }
+    return out;
+}
+
+// "Did you mean 'x'? " (with the trailing space), a short list of same-named files, or "": the uri that would work
+// from the model's folder.
+std::string suggest_model_uri(const stdfs::path& root, const std::string& modelDir, const ModelUri& res, const std::string& fileName) {
+    std::error_code ec;
+    auto uri_to = [&](const std::string& target) {
+        return encode_uri_path(stdfs::relative(root / target, root / modelDir, ec).generic_string());
+    };
+    // (a) Too many leading '..': read what follows them from the project root.
+    if (res.climbs > 0 && !res.rest.empty()) {
+        const std::string fromRoot = join(res.rest, "/");
+        if (stdfs::is_regular_file(root / fromRoot, ec)) return "Did you mean '" + uri_to(fromRoot) + "' (" + fromRoot + ")? ";
+    }
+    // (b) The same file name elsewhere under assets/.
+    if (fileName.empty()) return "";
+    std::vector<std::string> found;
+    const std::string lower = to_lower(fileName);
+    for (stdfs::recursive_directory_iterator it(root / "assets", stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_regular_file(ec) && to_lower(it->path().filename().string()) == lower)
+            found.push_back(stdfs::relative(it->path(), root, ec).generic_string());
+    if (found.empty()) return "";
+    const std::string wanted = res.path.empty() ? join(res.rest, "/") : res.path;
+    std::sort(found.begin(), found.end(), [&](const std::string& x, const std::string& y) {
+        const auto dx = edit_distance(x, wanted), dy = edit_distance(y, wanted);
+        return dx != dy ? dx < dy : x < y;
+    });
+    if (found.size() == 1) return "Did you mean '" + uri_to(found[0]) + "' (" + found[0] + ")? ";
+    std::string out = "Files with that name: ";
+    for (std::size_t n = 0; n < found.size() && n < 3; ++n) out += (n ? ", '" : "'") + uri_to(found[n]) + "'";
+    return out + (found.size() > 3 ? ", ..." : "") + ". ";
+}
+
 // Validate: every file (texture or buffer) a glTF/glb under assets/ refers to must exist next to it.
 void check_model_files_impl(const std::string& projectDir, std::vector<ValidationIssue>& errors) {
     const stdfs::path root = stdfs::path(projectDir);
@@ -266,14 +338,24 @@ void check_model_files_impl(const std::string& projectDir, std::vector<Validatio
                 if (!item.is_object() || !item.contains("uri") || !item["uri"].is_string()) continue;
                 const std::string raw = item["uri"].get<std::string>();
                 if (starts_with(raw, "data:") || raw.find("://") != std::string::npos) continue;
-                const std::string norm = fs::normalize(uri_decode(raw));
                 const bool image = std::string(key) == "images";
-                if (!norm.empty() && stdfs::is_regular_file(model.parent_path() / norm, ec)) continue;
                 const std::string where = fs::parent(rel);
-                errors.push_back({rel, std::string("/") + key + "/" + std::to_string(i) + "/uri",
-                                  std::string("This model refers to the ") + (image ? "texture" : "buffer") + " '" + raw + "', and '" +
-                                      (where.empty() ? norm : where + "/" + norm) + "' does not exist: it draws untextured or fails to load.",
-                                  "Copy the file there (assets.import of the model copies the files its uris point at), or edit the uri in the model."});
+                const ModelUri res = resolve_model_uri(where, uri_decode(raw));
+                if (res.climbs == 0 && !res.path.empty() && stdfs::is_regular_file(root / res.path, ec)) continue;
+                const std::string what = image ? "texture" : "buffer";
+                const std::string folder = where.empty() ? "the project folder" : "'" + where + "/'";
+                std::string message;
+                if (res.climbs > 0) {
+                    message = "This model refers to the " + what + " '" + raw + "', which climbs out of the project folder: " +
+                              std::to_string(res.climbs + res.depth) + " '..' from " + folder + " reach " + std::to_string(res.climbs) +
+                              " level" + (res.climbs == 1 ? "" : "s") + " above the project.";
+                } else {
+                    message = "This model refers to the " + what + " '" + raw + "', and '" + res.path +
+                              "' does not exist: it draws untextured or fails to load.";
+                }
+                const std::string suggestion = suggest_model_uri(root, where, res, stdfs::path(uri_decode(raw)).filename().string());
+                const std::string hint = suggestion + "Copy the file there (assets.import of the model copies the files its uris point at), or edit the uri in the model.";
+                errors.push_back({rel, std::string("/") + key + "/" + std::to_string(i) + "/uri", message, hint});
             }
         }
     }
