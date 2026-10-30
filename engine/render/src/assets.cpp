@@ -301,13 +301,15 @@ private:
 
     bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
                         std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx) {
-        const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr;
+        const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr, *col = nullptr;
         for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
             const cgltf_attribute& at = prim.attributes[a];
             if (at.type == cgltf_attribute_type_position && at.index == 0) pos = at.data;
             else if (at.type == cgltf_attribute_type_normal && at.index == 0) nrm = at.data;
             else if (at.type == cgltf_attribute_type_texcoord && at.index == 0) uv = at.data;
             else if (at.type == cgltf_attribute_type_tangent && at.index == 0 && at.data->type == cgltf_type_vec4) tng = at.data;
+            else if (at.type == cgltf_attribute_type_color && at.index == 0 && (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
+                col = at.data;  // COLOR_0: multiplies the base color (rgb or rgba, floats or normalized integers)
         }
         if (!pos) return false;
         verts.resize(pos->count);
@@ -328,6 +330,11 @@ private:
             if (tng) cgltf_accessor_read_float(tng, i, tn, 4);
             Vec3 wt = normalize(world.transform_dir({tn[0], tn[1], tn[2]}));
             v.tx = wt.x; v.ty = wt.y; v.tz = wt.z; v.tw = tn[3] < 0.0f ? -1.0f : 1.0f;
+            if (col) {
+                float c[4] = {1, 1, 1, 1};
+                cgltf_accessor_read_float(col, i, c, col->type == cgltf_type_vec3 ? 3 : 4);
+                v.color = pack_vertex_color(c[0], c[1], c[2], c[3]);
+            }
         }
         if (prim.indices) {
             idx.resize(prim.indices->count);
@@ -948,6 +955,7 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
         v.nx = d.normals[i * 3]; v.ny = d.normals[i * 3 + 1]; v.nz = d.normals[i * 3 + 2];
         v.u = d.uvs[i * 2]; v.v = d.uvs[i * 2 + 1];
         v.tx = d.tangents[i * 4]; v.ty = d.tangents[i * 4 + 1]; v.tz = d.tangents[i * 4 + 2]; v.tw = d.tangents[i * 4 + 3];
+        if (!d.colors.empty()) v.color = pack_vertex_color(d.colors[i * 4], d.colors[i * 4 + 1], d.colors[i * 4 + 2], d.colors[i * 4 + 3]);
     }
     const std::size_t vbBytes = n * sizeof(MeshVertex), ibBytes = d.indices.size() * sizeof(std::uint32_t);
 

@@ -10,9 +10,11 @@
 // Metallic-roughness PBR (Cook-Torrance GGX) with normal, metallic-roughness, occlusion and emissive maps, up to 32
 // directional/point/spot lights, sky image-based lighting (a procedural environment built from the scene's sky and
 // horizon colors), fog and an optional directional shadow map.
-// Instanced: the model matrix of every instance comes from vertex buffer 1 (four vec4 columns, locations 4..7; 1..4 in
+// Instanced: the model matrix of every instance comes from vertex buffer 1 (four vec4 columns, locations 5..8; 1..4 in
 // the shadow pass, whose attributes must be contiguous). Skinned meshes use the _skin programs: joints and weights come
-// from vertex buffer 2 (locations 8, 9; 5, 6 in the shadow pass).
+// from vertex buffer 2 (locations 9, 10; 5, 6 in the shadow pass).
+// Vertex colors (glTF COLOR_0, MeshData.colors) are the fourth attribute of vertex buffer 0, four normalized bytes; a mesh
+// without colors has white there. They multiply the base color in fa_standard_surface (rgb and alpha).
 //
 // alphaMode "clip" defines FA_ALPHA_CLIP: fs discards below alphaCutoff after surface(), and the shadow programs run
 // surface() too (shadow_vs outputs the varyings, shadow_fs includes the fragment resources) to cut the same holes.
@@ -29,6 +31,7 @@ struct SurfaceInput {           // read-only, per fragment
     vec3 world_normal;          // interpolated geometric normal, normalized, flipped on back faces
     vec4 world_tangent;         // xyz tangent, w handedness
     vec2 uv;                    // after MeshRenderer.uvScale
+    vec4 vertex_color;          // the interpolated vertex color (glTF COLOR_0), white for a mesh without; already in the base color
     vec3 view_dir;              // surface -> camera, normalized
     bool front_facing;
 };
@@ -46,6 +49,7 @@ struct VertexData {             // vertex(): world space, after instancing and s
     vec3 world_normal;
     vec4 world_tangent;
     vec2 uv;
+    vec4 color;                 // the vertex color (white for a mesh without)
     vec3 object_pos;            // the model-space position (read-only by convention)
 };
 
@@ -72,7 +76,7 @@ layout(binding=0) uniform fa_mesh_vs_params {
 @include_block fa_user
 
 // World space from the model matrix: the VertexData vertex() receives.
-VertexData fa_vertex_data(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0) {
+VertexData fa_vertex_data(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
     VertexData v;
     v.world_pos = (model * vec4(position, 1.0)).xyz;
     // Normal matrix = cofactor matrix of the upper 3x3 (inverse transpose up to a positive scale), so one
@@ -84,6 +88,7 @@ VertexData fa_vertex_data(mat4 model, vec3 position, vec3 normal, vec4 tangent, 
     v.world_normal = (cross(c1, c2) * normal.x + cross(c2, c0) * normal.y + cross(c0, c1) * normal.z) * s;
     v.world_tangent = vec4(c0 * tangent.x + c1 * tangent.y + c2 * tangent.z, tangent.w * s);
     v.uv = texcoord0 * fa_uv_scale.xy;
+    v.color = color;
     v.object_pos = position;
     return v;
 }
@@ -115,11 +120,12 @@ out vec3 fa_world_pos;
 out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
 out vec2 fa_uv;
+out vec4 fa_vertex_color;
 out vec4 fa_shadow_pos;
 
 // Everything after the model matrix is known: shared by the instanced and the skinned vertex shader.
-void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0) {
-    VertexData v = fa_vertex_data(model, position, normal, tangent, texcoord0);
+void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
+    VertexData v = fa_vertex_data(model, position, normal, tangent, texcoord0, color);
 #ifdef FA_HAS_VERTEX
     vertex(v);
 #endif
@@ -128,6 +134,7 @@ void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 
     fa_world_normal = v.world_normal;
     fa_world_tangent = v.world_tangent;
     fa_uv = v.uv;
+    fa_vertex_color = v.color;
     fa_shadow_pos = fa_light_vp * wp;
     gl_Position = fa_view_proj * wp;
 }
@@ -140,13 +147,14 @@ layout(location=0) in vec3 fa_position;
 layout(location=1) in vec3 fa_normal;
 layout(location=2) in vec2 fa_texcoord0;
 layout(location=3) in vec4 fa_tangent;     // xyz tangent, w = handedness (+1 / -1)
-layout(location=4) in vec4 fa_inst_m0;     // per-instance model matrix, one column each
-layout(location=5) in vec4 fa_inst_m1;
-layout(location=6) in vec4 fa_inst_m2;
-layout(location=7) in vec4 fa_inst_m3;
+layout(location=4) in vec4 fa_color;       // vertex color, normalized bytes (white without)
+layout(location=5) in vec4 fa_inst_m0;     // per-instance model matrix, one column each
+layout(location=6) in vec4 fa_inst_m1;
+layout(location=7) in vec4 fa_inst_m2;
+layout(location=8) in vec4 fa_inst_m3;
 
 void main() {
-    fa_shade_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3), fa_position, fa_normal, fa_tangent, fa_texcoord0);
+    fa_shade_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3), fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
 
@@ -160,16 +168,17 @@ layout(location=0) in vec3 fa_position;
 layout(location=1) in vec3 fa_normal;
 layout(location=2) in vec2 fa_texcoord0;
 layout(location=3) in vec4 fa_tangent;
-layout(location=4) in vec4 fa_inst_m0;
-layout(location=5) in vec4 fa_inst_m1;
-layout(location=6) in vec4 fa_inst_m2;
-layout(location=7) in vec4 fa_inst_m3;
-layout(location=8) in vec4 fa_joints;
-layout(location=9) in vec4 fa_weights;
+layout(location=4) in vec4 fa_color;
+layout(location=5) in vec4 fa_inst_m0;
+layout(location=6) in vec4 fa_inst_m1;
+layout(location=7) in vec4 fa_inst_m2;
+layout(location=8) in vec4 fa_inst_m3;
+layout(location=9) in vec4 fa_joints;
+layout(location=10) in vec4 fa_weights;
 
 void main() {
     fa_shade_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights),
-                    fa_position, fa_normal, fa_tangent, fa_texcoord0);
+                    fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
 
@@ -206,6 +215,7 @@ in vec3 fa_world_pos;
 in vec3 fa_world_normal;
 in vec4 fa_world_tangent;
 in vec2 fa_uv;
+in vec4 fa_vertex_color;
 
 @include_block fa_types
 @include_block fa_user
@@ -214,7 +224,7 @@ in vec2 fa_uv;
 // emissive. surface() starts from it.
 Surface fa_standard_surface(in SurfaceInput i) {
     Surface s;
-    vec4 albedo4 = texture(sampler2D(fa_tex, fa_smp), i.uv) * fa_base_color;
+    vec4 albedo4 = texture(sampler2D(fa_tex, fa_smp), i.uv) * fa_base_color * i.vertex_color;
     s.albedo = albedo4.rgb;
     s.alpha = albedo4.a;
     s.normal = i.world_normal;
@@ -294,6 +304,7 @@ void main() {
     if (!i.front_facing) { i.world_normal = -i.world_normal; }
     i.world_tangent = fa_world_tangent;
     i.uv = fa_uv;
+    i.vertex_color = fa_vertex_color;
     i.view_dir = normalize(fa_camera_pos.xyz - fa_world_pos);
     Surface s = fa_standard_surface(i);
     surface(i, s);
@@ -381,17 +392,19 @@ layout(location=4) in vec4 fa_inst_m3;
 layout(location=5) in vec3 fa_normal;
 layout(location=6) in vec2 fa_texcoord0;
 layout(location=7) in vec4 fa_tangent;
+layout(location=8) in vec4 fa_color;
 #endif
 #ifdef FA_ALPHA_CLIP
 out vec3 fa_world_pos;
 out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
 out vec2 fa_uv;
+out vec4 fa_vertex_color;
 #endif
 void main() {
     mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3);
 #if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
-    VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0);
+    VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 #ifdef FA_HAS_VERTEX
     vertex(v);
 #endif
@@ -400,6 +413,7 @@ void main() {
     fa_world_normal = v.world_normal;
     fa_world_tangent = v.world_tangent;
     fa_uv = v.uv;
+    fa_vertex_color = v.color;
 #endif
     gl_Position = fa_light_vp * vec4(v.world_pos, 1.0);
 #else
@@ -422,17 +436,19 @@ layout(location=6) in vec4 fa_weights;
 layout(location=7) in vec3 fa_normal;
 layout(location=8) in vec2 fa_texcoord0;
 layout(location=9) in vec4 fa_tangent;
+layout(location=10) in vec4 fa_color;
 #endif
 #ifdef FA_ALPHA_CLIP
 out vec3 fa_world_pos;
 out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
 out vec2 fa_uv;
+out vec4 fa_vertex_color;
 #endif
 void main() {
     mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights);
 #if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
-    VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0);
+    VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 #ifdef FA_HAS_VERTEX
     vertex(v);
 #endif
@@ -441,6 +457,7 @@ void main() {
     fa_world_normal = v.world_normal;
     fa_world_tangent = v.world_tangent;
     fa_uv = v.uv;
+    fa_vertex_color = v.color;
 #endif
     gl_Position = fa_light_vp * vec4(v.world_pos, 1.0);
 #else
@@ -465,6 +482,7 @@ void main() {
     if (!i.front_facing) { i.world_normal = -i.world_normal; }
     i.world_tangent = fa_world_tangent;
     i.uv = fa_uv;
+    i.vertex_color = fa_vertex_color;
     i.view_dir = normalize(fa_camera_pos.xyz - fa_world_pos);
     Surface s = fa_standard_surface(i);
     surface(i, s);

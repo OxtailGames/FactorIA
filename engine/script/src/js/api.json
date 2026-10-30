@@ -2316,7 +2316,7 @@
       },
       {
        "sig": "colors?: number[] | Float32Array | number[][]",
-       "doc": "Three (rgb) or four (rgba) numbers per vertex. Stored and written to a saved .glb as COLOR_0, but NOT drawn yet: the renderer ignores vertex colors. Use submesh materials to color parts. Left out = kept in update."
+       "doc": "Three (rgb) or four (rgba) numbers per vertex. Drawn like glTF COLOR_0: they multiply the material's base color (and MeshRenderer.color) in every 3D draw path, rgb and alpha (the alpha shows with a material with blend: true and cuts holes with a custom material that has alphaMode clip), clamped to 0..1 with 8 bits per channel; they are also written to a saved .glb as COLOR_0. Left out = white in create, kept in update."
       },
       {
        "sig": "submeshes?: MeshSubmeshOptions[]",

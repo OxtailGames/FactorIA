@@ -35,7 +35,7 @@ const char* kMeshProps = R"({
     "normals":{"description":"Three numbers per vertex, normalized for you. Left out = computed (smooth, weighted by triangle area). Never kept from an earlier call."},
     "uvs":{"description":"Two numbers per vertex ((0,0) is the top-left of the image). Left out = zeros (create) or kept (update)."},
     "tangents":{"description":"Four (xyz + handedness +1/-1) or three numbers per vertex, for normal maps. Left out = computed from the uvs."},
-    "colors":{"description":"Three (rgb) or four (rgba) numbers per vertex. Stored and saved as COLOR_0 in a .glb, but not drawn yet (the renderer ignores vertex colors)."},
+    "colors":{"description":"Three (rgb) or four (rgba) numbers per vertex. Drawn like glTF COLOR_0: they multiply the material's base color (rgb and alpha; alpha shows with a material with blend: true and cuts holes with a custom material that has alphaMode clip) in every 3D draw path, clamped to 0..1 with 8 bits per channel, and are saved as COLOR_0 in a .glb. Left out = white (create) or kept (update)."},
     "submeshes":{"type":"array","description":"Runs of the index list with their own material: [{material, start?, count?}]. material is a name or {name, color, texture, metallic, roughness, emissive, doubleSided, blend}; start and count count indices (multiples of 3); start defaults to where the previous submesh ends, count to the end of the index list. Left out = one submesh over all indices (update: the existing ones are kept)."}
 })";
 
@@ -67,7 +67,7 @@ void register_mesh_commands(Engine& engine, Engine::Impl& I) {
            "convex or mesh collider) to that id; culling, shadows, picking and the editor's selection use the mesh's real bounds. "
            "The mesh belongs to the running scene: loading a scene releases every mesh, and it is not written to scene files "
            "(scene validation rejects an id in a file): use mesh.save for a file. At most 256 meshes, 1048576 vertices and "
-           "6291456 indices each. Vertex colors are stored but not drawn. Example: mesh.create {\"positions\":[0,0,0, 1,0,0, 0,1,0],"
+           "6291456 indices each. Vertex colors multiply the base color. Example: mesh.create {\"positions\":[0,0,0, 1,0,0, 0,1,0],"
            "\"indices\":[0,1,2],\"submeshes\":[{\"material\":{\"name\":\"skin\",\"color\":[0.9,0.7,0.5,1]}}]}",
            schema_with(nullptr, nullptr, true), false, "render"},
           [&I](const Json& a) {

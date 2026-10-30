@@ -855,7 +855,7 @@ Production 3D rendering (all automatic; there is nothing to switch on):
   a normal model. Missing normals and tangents are computed; glTF conventions (+Y up, counter-clockwise faces front, uv (0, 0) top-left).
   Bounds, culling, shadows, picking and the editor follow the real geometry; `Collider3D` shape `convex` or `mesh` takes the id too (a
   mesh collider rebuilds on every update: do not deform one each frame). The mesh belongs to the running scene and is released when a
-  scene loads: after an `await`, compare `scene.generation`. Vertex colors are stored but not drawn: color parts with submesh materials.
+  scene loads: after an `await`, compare `scene.generation`. `colors` (per vertex, rgb or rgba) multiply the material's base color like glTF `COLOR_0`; the pointer reaches a render target shown on a procedural mesh too.
   Commands: `mesh.create`, `mesh.update`, `mesh.destroy`, `mesh.save`, `mesh.list`, `mesh.info`. Full guide: `docs_read {"name":"scripting"}`,
   "Procedural meshes".
 - Not available yet: an environment map image for reflections, shadows from point and spot lights.
