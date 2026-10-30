@@ -473,6 +473,7 @@ bool Physics3D::sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3
 }
 
 void Physics3D::sync(World& world) {
+    prune_procedural_shapes(world);
     const std::uint64_t stamp = ++syncCounter_;  // one per sync: two syncs between steps still sweep removed colliders
     std::unordered_set<std::uint64_t> joinTargets;  // bodies another entity's Joint3D is attached to: they turn too
     for (Entity e : world.entities())
@@ -536,7 +537,7 @@ void Physics3D::sync(World& world) {
                     world.id_of(e), rb->type == BodyType::Dynamic ? "dynamic" : "kinematic");
             else if (col->shape == ColliderShape3D::Convex || col->shape == ColliderShape3D::Mesh) {
                 std::string why;
-                shapeData = shape_data(col->mesh, col->shape == ColliderShape3D::Mesh, why);
+                shapeData = shape_data(world, col->mesh, col->shape == ColliderShape3D::Mesh, why);
                 if (!shapeData) problem = std::format("entity '{}': Collider3D shape \"{}\": {}", world.id_of(e),
                                                       col->shape == ColliderShape3D::Mesh ? "mesh" : "convex", why);
             }

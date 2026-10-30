@@ -2073,6 +2073,220 @@ declare module "factoria" {
   }
 
   /**
+   * The look of one submesh of a procedural mesh: the fields of a glTF material the renderer reads. Pass a plain string instead of an object to give only the name.
+   */
+  export interface MeshMaterialOptions {
+    /**
+     * What MeshRenderer.materialColors is keyed by to recolor this submesh (materialColors: { skin: [1, 0.5, 0.4, 1] }), and the material name in a saved .glb. Default "".
+     */
+    name?: string;
+    /**
+     * Base color factor: a color(), an [r, g, b, a] array or "#rrggbb". Multiplied with MeshRenderer.color. Default white.
+     */
+    color?: ColorLike;
+    /**
+     * Base color texture: a project image path, or a Texture from render.captureTexture (shown, but mesh.save refuses a run-time texture because the file would point to nothing). Default none.
+     */
+    texture?: string | Texture;
+    /**
+     * 0 to 1. With roughness, replaces MeshRenderer.metallic and roughness for this submesh. Default 0 once either is given.
+     */
+    metallic?: number;
+    /**
+     * 0 to 1. Default 0.6 once either metallic or roughness is given.
+     */
+    roughness?: number;
+    /**
+     * Light the surface gives off (rgb), added after lighting. Default black.
+     */
+    emissive?: ColorLike;
+    /**
+     * Draw the back faces too (a leaf, a flag). Default false: only counter-clockwise triangles are drawn.
+     */
+    doubleSided?: boolean;
+    /**
+     * Alpha-blended with the color's alpha and the texture's; drawn far to near with the other transparent meshes. Default false.
+     */
+    blend?: boolean;
+  }
+
+  /**
+   * A run of the index list drawn with one material. Submeshes of one mesh share its vertices and are drawn in order.
+   */
+  export interface MeshSubmeshOptions {
+    /**
+     * The submesh's material (a name, or the object). Default: an unnamed white material.
+     */
+    material?: string | MeshMaterialOptions;
+    /**
+     * First index of the run, a multiple of 3 (indices, not triangles). Default: where the previous submesh ends (0 for the first).
+     */
+    start?: number;
+    /**
+     * Number of indices, a multiple of 3 and at least 3. Default: up to the end of the index list.
+     */
+    count?: number;
+  }
+
+  /**
+   * What mesh.create and mesh.update take. Arrays may be plain arrays or typed arrays (a Float32Array is read without copying through the language); numbers may be flat or grouped, [x, y, z, x, y, z] or [[x, y, z], [x, y, z]] or [{x, y, z}]. Coordinates are glTF's: +Y up, right-handed, counter-clockwise triangles face front, uv (0, 0) is the top-left of the image (v grows downwards).
+   */
+  export interface MeshOptions {
+    /**
+     * Three numbers per vertex. Required in create; kept when left out of update. At most 1048576 vertices.
+     */
+    positions?: number[] | Float32Array | number[][];
+    /**
+     * Vertex numbers, three per triangle. In create, left out = every three vertices make a triangle (0,1,2 then 3,4,5...). In update, left out = kept. At most 6291456 indices. Every entry must be a vertex of positions.
+     */
+    indices?: number[] | Uint32Array | Uint16Array | number[][];
+    /**
+     * Three numbers per vertex, normalized for you. Left out = computed: smooth, weighted by triangle area, averaging the triangles that share a vertex (duplicate the vertices of a hard edge). Normals are never kept from an earlier call: pass them again with every update, or let them be computed.
+     */
+    normals?: number[] | Float32Array | number[][];
+    /**
+     * Two numbers per vertex. Left out = zeros in create, kept in update.
+     */
+    uvs?: number[] | Float32Array | number[][];
+    /**
+     * Four numbers (x, y, z, w = handedness +1 or -1) or three per vertex, for normal maps. Left out = computed from the uvs the way the engine does for .gltf files without tangents. Like normals, never kept from an earlier call.
+     */
+    tangents?: number[] | Float32Array | number[][];
+    /**
+     * Three (rgb) or four (rgba) numbers per vertex. Stored and written to a saved .glb as COLOR_0, but NOT drawn yet: the renderer ignores vertex colors. Use submesh materials to color parts. Left out = kept in update.
+     */
+    colors?: number[] | Float32Array | number[][];
+    /**
+     * Runs of the index list with their own materials. Left out = one submesh over all the indices with a default material (in update: the existing ones are kept; an update that changes indices of a mesh with several submeshes must pass submeshes too).
+     */
+    submeshes?: MeshSubmeshOptions[];
+  }
+
+  /**
+   * The box around a mesh's vertices, in the mesh's own space.
+   */
+  export interface MeshBounds {
+    /**
+     * Smallest x, y and z.
+     */
+    min: Vec3;
+    /**
+     * Largest x, y and z.
+     */
+    max: Vec3;
+  }
+
+  /**
+   * What mesh.list returns for each live mesh.
+   */
+  export interface MeshInfo {
+    /**
+     * The id, "mesh:3".
+     */
+    id: string;
+    /**
+     * Starts at 1 and grows with every update.
+     */
+    version: number;
+    /**
+     * Vertex count.
+     */
+    vertices: number;
+    /**
+     * Triangle count (indices / 3).
+     */
+    triangles: number;
+    /**
+     * Whether the mesh has vertex colors.
+     */
+    hasColors: boolean;
+    /**
+     * The box around the vertices.
+     */
+    bounds: { min: number[], max: number[] };
+    /**
+     * The submeshes with their materials.
+     */
+    submeshes: { material: MeshMaterialOptions, start: number, count: number }[];
+  }
+
+  /**
+   * A mesh made at run time with mesh.create. Put `id` in MeshRenderer.mesh (or Collider3D.mesh for a convex or mesh collider) like the path of a model: entity.get("MeshRenderer").mesh = m.id. It lives in the scene that made it: loading another scene (or reloading this one) releases every procedural mesh, and an entity of the new scene must not keep the old id. The engine keeps at most 256 meshes alive, so destroy the ones you stop showing. Example: const m = mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2] }); entity.get("MeshRenderer").mesh = m.id;
+   */
+  export interface Mesh {
+    /**
+     * What MeshRenderer.mesh takes in place of a model path ("mesh:3"). Numbers count from 1 in each run and are never reused, so a stale id never names another mesh.
+     */
+    readonly id: string;
+    /**
+     * Vertices after the last create or update.
+     */
+    readonly vertexCount: number;
+    /**
+     * Triangles after the last create or update.
+     */
+    readonly triangleCount: number;
+    /**
+     * The box around the vertices (what culling, picking and the editor's selection box use).
+     */
+    readonly bounds: MeshBounds;
+    /**
+     * The submeshes with their completed materials.
+     */
+    readonly submeshes: { material: MeshMaterialOptions, start: number, count: number }[];
+    /**
+     * True after destroy().
+     */
+    readonly destroyed: boolean;
+    /**
+     * False after destroy() and also when the scene that made the mesh was unloaded. Check it (or the scene) after an await before using the mesh.
+     */
+    readonly alive: boolean;
+    /**
+     * Same as mesh.update(this, options). Returns this.
+     */
+    update(options: MeshOptions): Mesh;
+    /**
+     * Same as mesh.save(this, path).
+     */
+    save(path: string): string;
+    /**
+     * Same as mesh.destroy(this). Safe to call twice.
+     */
+    destroy(): void;
+  }
+
+  /**
+   * Procedural meshes: geometry a script builds at run time (a terrain patch, a deformed body, a generated tree) and shows with MeshRenderer, collides with Collider3D (convex hull or mesh) and picks in the editor, without writing a file. The same operations exist as the mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list and mesh.info commands (docs/SCRIPTING.md, "Procedural meshes").
+   */
+  export interface MeshAPI {
+    /**
+     * Validates the arrays and makes a mesh. Missing normals and tangents are computed. Throws a teaching Error naming the field and the entry for a wrong array length, an index outside the vertices, a submesh outside the index list, NaN, or when 256 meshes are alive. Example: const m = mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2], submeshes: [{ material: { name: "skin", color: "#e0b090" } }] }); entity.get("MeshRenderer").mesh = m.id;
+     */
+    create(options: MeshOptions): Mesh;
+    /**
+     * Replaces what `options` gives and keeps the rest; cheap enough to call every frame: the GPU buffers are reused while the new data fits (a second change of the same mesh within one frame makes new ones). Bounds follow, so culling and picking stay right; a Collider3D that uses the mesh rebuilds its shape on every update (a mesh collider on a mesh deformed each frame is expensive: update it less often, or use a primitive collider). Throws for a destroyed or unknown mesh, or when the new arrays do not fit together. Returns the Mesh when given one.
+     */
+    update(mesh: Mesh | string, options: MeshOptions): Mesh;
+    /**
+     * Frees the mesh. Entities that still name it draw a placeholder box and the engine logs why once; set their mesh first. Throws for an unknown id, not for a Mesh that was destroyed already.
+     */
+    destroy(mesh: Mesh | string): void;
+    /**
+     * Writes the mesh as a .glb (project-relative path ending in .glb, outside .factoria/ except .factoria/tmp/) with its submeshes, materials and vertex colors, and returns the normalized path. It loads back as a normal asset: MeshRenderer.mesh = path. A material whose texture is a run-time texture cannot be saved (throws). A mesh without metallic or roughness is saved with the defaults (0 and 0.6).
+     */
+    save(mesh: Mesh | string, path: string): string;
+    /**
+     * True while the mesh is alive in the current scene.
+     */
+    exists(mesh: Mesh | string): boolean;
+    /**
+     * The live meshes of the current scene.
+     */
+    list(): MeshInfo[];
+  }
+
+  /**
    * Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.
    */
   export interface StorageAPI {
@@ -3656,6 +3870,11 @@ declare module "factoria" {
    * @since 0.3.0
    */
   export const render: RenderAPI;
+
+  /**
+   * Procedural meshes: mesh.create / update / destroy / save, then MeshRenderer.mesh = m.id.
+   */
+  export const mesh: MeshAPI;
 
   /**
    * Save data.
@@ -5398,7 +5617,7 @@ declare module "factoria" {
    */
   export interface MeshRendererComponent {
     /**
-     * Built-in shape name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad") or a project-relative path to a .gltf/.glb model (e.g. "assets/models/ship.glb").
+     * Built-in shape name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad") or a project-relative path to a .gltf/.glb model (e.g. "assets/models/ship.glb"), or the `id` ("mesh:3") of a procedural mesh a script made with mesh.create() (it lives as long as the scene: a scene load releases it).
      */
     mesh: string;
     /**
@@ -5865,7 +6084,7 @@ declare module "factoria" {
      */
     height: number;
     /**
-     * convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn.
+     * convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform), or the `id` ("mesh:3") of a procedural mesh made with mesh.create() (the collider is rebuilt whenever the mesh is updated). Use the same value as the MeshRenderer so the collider matches what is drawn.
      * @since 0.2.0
      */
     mesh: string;

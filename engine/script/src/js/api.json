@@ -2217,6 +2217,227 @@
     },
     {
      "kind": "interface",
+     "name": "MeshMaterialOptions",
+     "doc": "The look of one submesh of a procedural mesh: the fields of a glTF material the renderer reads. Pass a plain string instead of an object to give only the name.",
+     "members": [
+      {
+       "sig": "name?: string",
+       "doc": "What MeshRenderer.materialColors is keyed by to recolor this submesh (materialColors: { skin: [1, 0.5, 0.4, 1] }), and the material name in a saved .glb. Default \"\"."
+      },
+      {
+       "sig": "color?: ColorLike",
+       "doc": "Base color factor: a color(), an [r, g, b, a] array or \"#rrggbb\". Multiplied with MeshRenderer.color. Default white."
+      },
+      {
+       "sig": "texture?: string | Texture",
+       "doc": "Base color texture: a project image path, or a Texture from render.captureTexture (shown, but mesh.save refuses a run-time texture because the file would point to nothing). Default none."
+      },
+      {
+       "sig": "metallic?: number",
+       "doc": "0 to 1. With roughness, replaces MeshRenderer.metallic and roughness for this submesh. Default 0 once either is given."
+      },
+      {
+       "sig": "roughness?: number",
+       "doc": "0 to 1. Default 0.6 once either metallic or roughness is given."
+      },
+      {
+       "sig": "emissive?: ColorLike",
+       "doc": "Light the surface gives off (rgb), added after lighting. Default black."
+      },
+      {
+       "sig": "doubleSided?: boolean",
+       "doc": "Draw the back faces too (a leaf, a flag). Default false: only counter-clockwise triangles are drawn."
+      },
+      {
+       "sig": "blend?: boolean",
+       "doc": "Alpha-blended with the color's alpha and the texture's; drawn far to near with the other transparent meshes. Default false."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "MeshSubmeshOptions",
+     "doc": "A run of the index list drawn with one material. Submeshes of one mesh share its vertices and are drawn in order.",
+     "members": [
+      {
+       "sig": "material?: string | MeshMaterialOptions",
+       "doc": "The submesh's material (a name, or the object). Default: an unnamed white material."
+      },
+      {
+       "sig": "start?: number",
+       "doc": "First index of the run, a multiple of 3 (indices, not triangles). Default: where the previous submesh ends (0 for the first)."
+      },
+      {
+       "sig": "count?: number",
+       "doc": "Number of indices, a multiple of 3 and at least 3. Default: up to the end of the index list."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "MeshOptions",
+     "doc": "What mesh.create and mesh.update take. Arrays may be plain arrays or typed arrays (a Float32Array is read without copying through the language); numbers may be flat or grouped, [x, y, z, x, y, z] or [[x, y, z], [x, y, z]] or [{x, y, z}]. Coordinates are glTF's: +Y up, right-handed, counter-clockwise triangles face front, uv (0, 0) is the top-left of the image (v grows downwards).",
+     "members": [
+      {
+       "sig": "positions?: number[] | Float32Array | number[][]",
+       "doc": "Three numbers per vertex. Required in create; kept when left out of update. At most 1048576 vertices."
+      },
+      {
+       "sig": "indices?: number[] | Uint32Array | Uint16Array | number[][]",
+       "doc": "Vertex numbers, three per triangle. In create, left out = every three vertices make a triangle (0,1,2 then 3,4,5...). In update, left out = kept. At most 6291456 indices. Every entry must be a vertex of positions."
+      },
+      {
+       "sig": "normals?: number[] | Float32Array | number[][]",
+       "doc": "Three numbers per vertex, normalized for you. Left out = computed: smooth, weighted by triangle area, averaging the triangles that share a vertex (duplicate the vertices of a hard edge). Normals are never kept from an earlier call: pass them again with every update, or let them be computed."
+      },
+      {
+       "sig": "uvs?: number[] | Float32Array | number[][]",
+       "doc": "Two numbers per vertex. Left out = zeros in create, kept in update."
+      },
+      {
+       "sig": "tangents?: number[] | Float32Array | number[][]",
+       "doc": "Four numbers (x, y, z, w = handedness +1 or -1) or three per vertex, for normal maps. Left out = computed from the uvs the way the engine does for .gltf files without tangents. Like normals, never kept from an earlier call."
+      },
+      {
+       "sig": "colors?: number[] | Float32Array | number[][]",
+       "doc": "Three (rgb) or four (rgba) numbers per vertex. Stored and written to a saved .glb as COLOR_0, but NOT drawn yet: the renderer ignores vertex colors. Use submesh materials to color parts. Left out = kept in update."
+      },
+      {
+       "sig": "submeshes?: MeshSubmeshOptions[]",
+       "doc": "Runs of the index list with their own materials. Left out = one submesh over all the indices with a default material (in update: the existing ones are kept; an update that changes indices of a mesh with several submeshes must pass submeshes too)."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "MeshBounds",
+     "doc": "The box around a mesh's vertices, in the mesh's own space.",
+     "members": [
+      {
+       "sig": "min: Vec3",
+       "doc": "Smallest x, y and z."
+      },
+      {
+       "sig": "max: Vec3",
+       "doc": "Largest x, y and z."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "MeshInfo",
+     "doc": "What mesh.list returns for each live mesh.",
+     "members": [
+      {
+       "sig": "id: string",
+       "doc": "The id, \"mesh:3\"."
+      },
+      {
+       "sig": "version: number",
+       "doc": "Starts at 1 and grows with every update."
+      },
+      {
+       "sig": "vertices: number",
+       "doc": "Vertex count."
+      },
+      {
+       "sig": "triangles: number",
+       "doc": "Triangle count (indices / 3)."
+      },
+      {
+       "sig": "hasColors: boolean",
+       "doc": "Whether the mesh has vertex colors."
+      },
+      {
+       "sig": "bounds: { min: number[], max: number[] }",
+       "doc": "The box around the vertices."
+      },
+      {
+       "sig": "submeshes: { material: MeshMaterialOptions, start: number, count: number }[]",
+       "doc": "The submeshes with their materials."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "Mesh",
+     "doc": "A mesh made at run time with mesh.create. Put `id` in MeshRenderer.mesh (or Collider3D.mesh for a convex or mesh collider) like the path of a model: entity.get(\"MeshRenderer\").mesh = m.id. It lives in the scene that made it: loading another scene (or reloading this one) releases every procedural mesh, and an entity of the new scene must not keep the old id. The engine keeps at most 256 meshes alive, so destroy the ones you stop showing. Example: const m = mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2] }); entity.get(\"MeshRenderer\").mesh = m.id;",
+     "members": [
+      {
+       "sig": "readonly id: string",
+       "doc": "What MeshRenderer.mesh takes in place of a model path (\"mesh:3\"). Numbers count from 1 in each run and are never reused, so a stale id never names another mesh."
+      },
+      {
+       "sig": "readonly vertexCount: number",
+       "doc": "Vertices after the last create or update."
+      },
+      {
+       "sig": "readonly triangleCount: number",
+       "doc": "Triangles after the last create or update."
+      },
+      {
+       "sig": "readonly bounds: MeshBounds",
+       "doc": "The box around the vertices (what culling, picking and the editor's selection box use)."
+      },
+      {
+       "sig": "readonly submeshes: { material: MeshMaterialOptions, start: number, count: number }[]",
+       "doc": "The submeshes with their completed materials."
+      },
+      {
+       "sig": "readonly destroyed: boolean",
+       "doc": "True after destroy()."
+      },
+      {
+       "sig": "readonly alive: boolean",
+       "doc": "False after destroy() and also when the scene that made the mesh was unloaded. Check it (or the scene) after an await before using the mesh."
+      },
+      {
+       "sig": "update(options: MeshOptions): Mesh",
+       "doc": "Same as mesh.update(this, options). Returns this."
+      },
+      {
+       "sig": "save(path: string): string",
+       "doc": "Same as mesh.save(this, path)."
+      },
+      {
+       "sig": "destroy(): void",
+       "doc": "Same as mesh.destroy(this). Safe to call twice."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "MeshAPI",
+     "doc": "Procedural meshes: geometry a script builds at run time (a terrain patch, a deformed body, a generated tree) and shows with MeshRenderer, collides with Collider3D (convex hull or mesh) and picks in the editor, without writing a file. The same operations exist as the mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list and mesh.info commands (docs/SCRIPTING.md, \"Procedural meshes\").",
+     "members": [
+      {
+       "sig": "create(options: MeshOptions): Mesh",
+       "doc": "Validates the arrays and makes a mesh. Missing normals and tangents are computed. Throws a teaching Error naming the field and the entry for a wrong array length, an index outside the vertices, a submesh outside the index list, NaN, or when 256 meshes are alive. Example: const m = mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2], submeshes: [{ material: { name: \"skin\", color: \"#e0b090\" } }] }); entity.get(\"MeshRenderer\").mesh = m.id;"
+      },
+      {
+       "sig": "update(mesh: Mesh | string, options: MeshOptions): Mesh",
+       "doc": "Replaces what `options` gives and keeps the rest; cheap enough to call every frame: the GPU buffers are reused while the new data fits (a second change of the same mesh within one frame makes new ones). Bounds follow, so culling and picking stay right; a Collider3D that uses the mesh rebuilds its shape on every update (a mesh collider on a mesh deformed each frame is expensive: update it less often, or use a primitive collider). Throws for a destroyed or unknown mesh, or when the new arrays do not fit together. Returns the Mesh when given one."
+      },
+      {
+       "sig": "destroy(mesh: Mesh | string): void",
+       "doc": "Frees the mesh. Entities that still name it draw a placeholder box and the engine logs why once; set their mesh first. Throws for an unknown id, not for a Mesh that was destroyed already."
+      },
+      {
+       "sig": "save(mesh: Mesh | string, path: string): string",
+       "doc": "Writes the mesh as a .glb (project-relative path ending in .glb, outside .factoria/ except .factoria/tmp/) with its submeshes, materials and vertex colors, and returns the normalized path. It loads back as a normal asset: MeshRenderer.mesh = path. A material whose texture is a run-time texture cannot be saved (throws). A mesh without metallic or roughness is saved with the defaults (0 and 0.6)."
+      },
+      {
+       "sig": "exists(mesh: Mesh | string): boolean",
+       "doc": "True while the mesh is alive in the current scene."
+      },
+      {
+       "sig": "list(): MeshInfo[]",
+       "doc": "The live meshes of the current scene."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "StorageAPI",
      "doc": "Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.",
      "members": [
@@ -3678,6 +3899,12 @@
      "name": "render",
      "type": "RenderAPI",
      "doc": "Textures made at run time: a picture of the game for a save slot (captureTexture, textureFromPNG)."
+    },
+    {
+     "kind": "const",
+     "name": "mesh",
+     "type": "MeshAPI",
+     "doc": "Procedural meshes: mesh.create / update / destroy / save, then MeshRenderer.mesh = m.id."
     },
     {
      "kind": "const",

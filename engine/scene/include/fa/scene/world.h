@@ -26,6 +26,7 @@
 #include "fa/core/math.h"
 #include "fa/core/reflect.h"
 #include "fa/scene/components.h"
+#include "fa/scene/mesh_store.h"
 #include "fa/scene/ui_tooltip.h"
 
 namespace fa {
@@ -199,6 +200,11 @@ public:
     std::uint64_t scene_generation() const { return sceneGeneration_; }
     void bump_scene_generation() { ++sceneGeneration_; }
 
+    // The procedural meshes (mesh_store.h) scripts built with mesh.create: used as MeshRenderer.mesh by their "mesh:N" id.
+    // clear() (every scene load that is not additive) releases them all.
+    MeshStore& meshes() { return meshes_; }
+    const MeshStore& meshes() const { return meshes_; }
+
     // Observers (physics/audio/script systems release resources, editor refreshes).
     using EntityCallback = std::function<void(Entity)>;
     int on_destroy(EntityCallback cb);   // called right before an entity is erased
@@ -228,6 +234,7 @@ private:
     double time_ = 0.0;
     std::string scenePath_;
     std::uint64_t sceneGeneration_ = 0;
+    MeshStore meshes_;
 };
 
 }  // namespace fa

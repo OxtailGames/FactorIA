@@ -232,6 +232,7 @@ public:
     const TextureEntry* texture_for(const std::string& path);
     VisualMeasure visual_measure();        // texture sizes and text layout for the engine's bounds code
     PickBounds bounds_of(Entity e);
+    void mesh_local_box(Entity e, Vec3& lo, Vec3& hi);  // the selection box of a MeshRenderer in its own space (viewport.cpp)
     Entity pick_at(Vec2 designPos);
     bool primary_is_ortho();
     // Transform gizmos of the viewport (viewport_gizmo.cpp). gizmo_frame runs once per viewport frame (edit and paused): keys,

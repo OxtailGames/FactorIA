@@ -317,17 +317,45 @@ bool Physics3D::ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float
     return ray_core(core_of(b), origin, dir, maxT, t, normal);
 }
 
-std::shared_ptr<const ShapeData> Physics3D::shape_data(const std::string& mesh, bool bvh, std::string& problem) {
-    const std::string key = std::string(bvh ? "M:" : "H:") + mesh_key(mesh);
-    if (auto it = shapes_.find(key); it != shapes_.end()) return it->second;
-    auto geometry = load_mesh_geometry(mesh);
-    if (!geometry) {
-        problem = geometry.error().to_string();
-        return nullptr;
+// A procedural mesh ("mesh:N", fa/scene/mesh_store.h) is cached under its id and version, so an update builds a new shape and
+// the bodies using the mesh pick it up; prune_procedural_shapes() drops the ones nobody can ask for any more.
+std::shared_ptr<const ShapeData> Physics3D::shape_data(World& world, const std::string& mesh, bool bvh, std::string& problem) {
+    std::string key = std::string(bvh ? "M:" : "H:") + mesh_key(mesh);
+    std::shared_ptr<const MeshGeometry> geometry;
+    if (MeshStore::is_id(mesh)) {
+        auto entry = world.meshes().get(mesh);
+        if (!entry) {
+            problem = entry.error().to_string();
+            return nullptr;
+        }
+        key += "@" + std::to_string((*entry)->version);
+        if (auto it = shapes_.find(key); it != shapes_.end()) return it->second;
+        geometry = world.meshes().geometry(mesh);
+    } else {
+        if (auto it = shapes_.find(key); it != shapes_.end()) return it->second;
+        auto loaded = load_mesh_geometry(mesh);
+        if (!loaded) {
+            problem = loaded.error().to_string();
+            return nullptr;
+        }
+        geometry = loaded.value();
     }
-    auto data = make_shape_data(geometry.value(), !bvh, bvh);
+    auto data = make_shape_data(geometry, !bvh, bvh);
     shapes_[key] = data;
     return data;
+}
+
+void Physics3D::prune_procedural_shapes(const World& world) {
+    for (auto it = shapes_.begin(); it != shapes_.end();) {
+        const std::string& key = it->first;  // "M:mesh:3@7"
+        const std::size_t at = key.find('@');
+        bool keep = true;
+        if (at != std::string::npos && MeshStore::is_id(std::string_view(key).substr(2, at - 2))) {
+            const MeshStore::Entry* e = world.meshes().find(key.substr(2, at - 2));
+            keep = e && std::to_string(e->version) == key.substr(at + 1);
+        }
+        it = keep ? std::next(it) : shapes_.erase(it);
+    }
 }
 
 std::vector<std::string> Physics3D::problems() const {

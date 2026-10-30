@@ -2,6 +2,24 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### New
+
+- Procedural meshes (M44.2, FB-0030): `mesh.create({ positions, normals?, uvs?, tangents?, colors?, indices, submeshes? })` returns a
+  `Mesh` whose `id` (`"mesh:N"`) goes in `MeshRenderer.mesh` (and `Collider3D.mesh`), so a script builds terrain, a deformed body or
+  a generated tree without writing a glTF file. Missing normals and tangents are computed; `submeshes` give runs of the index list
+  their own material. `mesh.update` replaces what is given and keeps the rest, reusing the GPU buffers while the data fits;
+  `mesh.destroy` frees the mesh; `mesh.save(m, path)` writes a `.glb` (one primitive per submesh, materials, `COLOR_0`) that loads
+  back as a normal asset; `mesh.exists` and `mesh.list` ask what is alive. The same operations are the commands `mesh.create`,
+  `mesh.update`, `mesh.destroy`, `mesh.save`, `mesh.list` and `mesh.info`.
+- Bounds, frustum culling, shadows, the editor's picking, outline and selection and `Collider3D` convex and mesh shapes use the real
+  geometry; the inspector shows a procedural mesh's vertex and triangle counts. A `Collider3D` on a mesh rebuilds its shape on every
+  update. Meshes are released when a scene loads; an id that is destroyed, from an older scene or unknown gives an error that says
+  so, and an entity that still names it draws the placeholder box. Limits: 256 meshes, 1 048 576 vertices and 6 291 456 indices each.
+- `factoria validate` rejects a `mesh:N` id in a scene or prefab (the mesh would not exist when the file loads).
+- Vertex colors are stored and saved as `COLOR_0` but not drawn yet.
+
 ## 0.8.2
 
 FactorIA 0.8.2 restarts the editor into the FactorIA icon you pinned in the Dock, instead of opening it as a second FactorIA icon next to it.
