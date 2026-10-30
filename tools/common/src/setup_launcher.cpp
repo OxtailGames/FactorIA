@@ -245,7 +245,7 @@ SetupResult launcher_install(const SetupContext& ctx, const SetupInstallOptions&
 
 namespace fa {
 
-std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir) {
+std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir, long long quittingPid) {
     using namespace setup_detail;
     const std::string os = context.host_os();
     if (os == "windows") {
@@ -263,9 +263,25 @@ std::vector<std::string> editor_restart_command(const SetupContext& context, con
     // another factoria's, or an old one that dropped its arguments: none, the editor starts the program itself.
     if (!is_file(main_file(context, *l)) || launcher_target(context, *l) != factoria_exe(context).string()) return {};
     if (read_all(l->root / l->script).find("editor \"$@\"") == std::string::npos) return {};
-    // -n: the editor that is quitting is still running, and `open` would only activate it.
-    if (projectDir.empty()) return {"/usr/bin/open", "-n", l->root.string()};  // the start screen
-    return {"/usr/bin/open", "-n", l->root.string(), "--args", projectDir};
+    std::vector<std::string> open = {l->root.string()};
+    if (!projectDir.empty()) open.insert(open.end(), {"--args", projectDir});  // none: the start screen
+    if (quittingPid <= 0) {
+        // -n: the editor that is quitting is still running, and `open` would only activate it. It also gets its own Dock
+        // icon, next to the pinned one, so a caller that is about to quit passes its pid.
+        open.insert(open.begin(), {"/usr/bin/open", "-n"});
+        return open;
+    }
+    // Waits until that editor is gone, then opens the app the way the Dock does: the new editor takes the pinned icon. An
+    // editor still alive after 30 s gets the second instance anyway (-n); a failed `open` starts the program itself.
+    std::vector<std::string> cmd = {"/bin/sh", "-c",
+                                    "p=$1 f=$2 d=$3; shift 3; n=0\n"
+                                    "while kill -0 \"$p\" 2>/dev/null; do\n"
+                                    "  n=$((n+1)); if [ $n -gt 300 ]; then set -- -n \"$@\"; break; fi; sleep 0.1\n"
+                                    "done\n"
+                                    "/usr/bin/open \"$@\" || exec \"$f\" editor ${d:+\"$d\"}\n",
+                                    "factoria-restart", std::to_string(quittingPid), factoria_exe(context).string(), projectDir};
+    cmd.insert(cmd.end(), open.begin(), open.end());
+    return cmd;
 }
 
 bool refresh_launcher(const SetupContext& context) {
