@@ -256,9 +256,13 @@ std::vector<std::string> editor_restart_command(const SetupContext& context, con
         return {launcher.string(), projectDir};
     }
     if (os != "macos") return {};  // Linux: the window's WM_CLASS (StartupWMClass of the .desktop) already groups the new one
-    if (launcher_status(context).state != "installed") return {};  // missing, foreign, another factoria's or out of date
     const auto l = files_for_host(context);
     if (!l) return {};
+    // A launcher of this factoria that passes the project on, whichever version wrote it: an editor still running after a
+    // newer FactorIA was installed over it (and its `setup launcher` ran) restarts into the Dock icon too. Missing, foreign,
+    // another factoria's, or an old one that dropped its arguments: none, the editor starts the program itself.
+    if (!is_file(main_file(context, *l)) || launcher_target(context, *l) != factoria_exe(context).string()) return {};
+    if (read_all(l->root / l->script).find("editor \"$@\"") == std::string::npos) return {};
     // -n: the editor that is quitting is still running, and `open` would only activate it.
     if (projectDir.empty()) return {"/usr/bin/open", "-n", l->root.string()};  // the start screen
     return {"/usr/bin/open", "-n", l->root.string(), "--args", projectDir};
