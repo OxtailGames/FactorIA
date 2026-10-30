@@ -68,6 +68,10 @@ public:
     std::atomic<long long> startMs{0}, lastActivityMs{0};  // steady-clock milliseconds
     // True from the run's start to its end, whatever the agent thread does in between.
     bool active() const { return running.load() || detached.load(); }
+    // Sets `cancel` and records why (a cause key of ai::cancel_cause_text(): user_stop, watchdog_process_gone...). The first
+    // cause stays: a run that was stopped and then torn down with the project is still "stopped by the user".
+    void request_cancel(const char* cause);
+    std::string cancel_cause();  // "" until request_cancel() was called
 
     // ---- owned by the main thread
     std::thread thread;
@@ -92,6 +96,7 @@ public:
     std::vector<AiDelegate> delegates;
     std::vector<AiTool> tools;
     std::vector<AiProc> procs;
+    std::string cancelCause_;                  // why cancel was set (request_cancel)
     std::string activity;                      // the latest thing the agent did ("worker > running Bash (cmake)")
     std::shared_ptr<CommandRegistry> proxy;    // what the agent's tool calls run on (the MCP endpoint reads it)
 
@@ -125,6 +130,12 @@ public:
     std::string activity_line();
     std::vector<AiProc> processes();
 };
+
+// The watchdog's and "Check activity"'s verdict on one CLI agent process: gone only when process_tree() found nothing, the OS
+// itself says the pid does not run (process_alive: the process list can miss a process that lives) and the run produced no event
+// for `graceSeconds` (a run that still reports is not dead, whatever the list says). `alive` is process_alive; tests pass fakes.
+inline constexpr double kProcessGoneGraceSeconds = 10;
+bool agent_process_gone(long long pid, bool treeEmpty, double idleSeconds, bool (*alive)(long long) = &process_alive);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Which files each running chat changed.

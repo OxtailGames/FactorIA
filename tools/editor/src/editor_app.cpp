@@ -217,7 +217,7 @@ void MainThreadQueue::reopen() {
 Editor::Editor(EditorOptions options) : options_(std::move(options)) {}
 
 Editor::~Editor() {
-    ai_stop();
+    ai_stop("editor_closing");
     if (aiDetectThread_.joinable()) aiDetectThread_.join();
     if (atThread_.joinable()) atThread_.join();
     atWatchdogStop_ = true;
@@ -408,7 +408,7 @@ void Editor::on_cleanup() {
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();
     set_update_status_extra("editor", nullptr);
-    ai_stop();
+    ai_stop(restartAfterQuit_ ? "editor_restart" : "editor_closing");
     queue_.close();
     if (uiUp_) {
         ui::shutdown();
@@ -461,7 +461,7 @@ bool Editor::open_project(const std::string& dir) {
 
 bool Editor::boot(const std::string& dirIn) {
     std::string dir = dirIn;
-    ai_stop();
+    ai_stop("project_closed");
     reset_export_state();  // an export of the previous project finishes first
     reset_platform_settings_state();  // so does a keystore being created; the unsaved settings of the old project are dropped
     // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).

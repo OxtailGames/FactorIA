@@ -33,6 +33,7 @@ SessionResult run_agent_session(CommandRegistry& registry, const AiConfig& cfg, 
     });
     if (opts.providerFactory) session.set_provider_factory(opts.providerFactory);
     session.set_cancel_flag(opts.cancel);
+    session.set_cancel_cause(opts.cancelCause);
     report_command_progress(info.role + ": starting");
     if (opts.onRunStart) opts.onRunStart(info);
     SessionResult r = session.run(info.task);
