@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Fixes
+
+- Restarting the editor from the update notice with no project open also goes through the pinned launcher, so the Dock or taskbar keeps one FactorIA icon (it used to start a bare `factoria editor` that showed a second one).
+
 ## 0.7.3
 
 FactorIA 0.7.3 fixes a false error of `factoria validate` on glTF texture paths and makes the real ones say how to fix them.
