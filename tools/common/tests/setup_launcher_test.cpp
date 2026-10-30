@@ -193,6 +193,25 @@ TEST_CASE("editor_restart_command (macOS): through the launcher of this factoria
     CHECK(bare[0] == "/usr/bin/open");
     CHECK(bare[1] == "-n");
     CHECK(bare[2] == w.app().string());
+
+    // The editor that is about to quit passes its pid: a shell waits until it is gone, then opens the app without -n, so
+    // the new editor takes the pinned Dock icon instead of getting one of its own.
+    const std::vector<std::string> waiting = editor_restart_command(w.ctx, project, 4242);
+    REQUIRE(waiting.size() == 10);
+    CHECK(waiting[0] == "/bin/sh");
+    CHECK(waiting[1] == "-c");
+    CHECK(waiting[2].find("kill -0") != std::string::npos);
+    CHECK(waiting[2].find("/usr/bin/open \"$@\"") != std::string::npos);
+    CHECK(waiting[4] == "4242");
+    CHECK(waiting[5] == w.exe().string());  // the fallback when `open` fails
+    CHECK(waiting[6] == project);
+    CHECK(waiting[7] == w.app().string());  // what `open` gets: no -n
+    CHECK(waiting[8] == "--args");
+    CHECK(waiting[9] == project);
+    const std::vector<std::string> waitingBare = editor_restart_command(w.ctx, "", 4242);
+    REQUIRE(waitingBare.size() == 8);
+    CHECK(waitingBare[6].empty());
+    CHECK(waitingBare[7] == w.app().string());
 }
 
 TEST_CASE("editor_restart_command (macOS): an old, foreign or another factoria's launcher is not used") {

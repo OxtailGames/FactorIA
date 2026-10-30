@@ -2,6 +2,14 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## 0.8.2
+
+FactorIA 0.8.2 restarts the editor into the FactorIA icon you pinned in the Dock, instead of opening it as a second FactorIA icon next to it.
+
+### Fixes
+
+- Restarting the editor on macOS (the update notice's Restart) no longer leaves two FactorIA icons in the Dock: the editor used to start the new one with `open -n` while it was still quitting, and macOS gives a second instance of an app its own icon. A helper now waits until the old editor has quit and then opens `~/Applications/FactorIA.app` the way the Dock does (with `open -n` only if the old editor is still running after 30 seconds).
+
 ## 0.8.1
 
 FactorIA 0.8.1 keeps one FactorIA icon in the Dock when an editor that is still open restarts after a newer FactorIA was installed over it.
