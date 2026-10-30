@@ -367,6 +367,14 @@ The models come from the `artCritic` and `reviewer` roles (or from the orchestra
   the model saw, never your API keys. The last line is the `end` event; a run that was cancelled has `"cause"` there
   (`user_stop`, `stuck_stop`, `watchdog_process_gone`, `project_closed`, `editor_closing`, `editor_restart`...) and an
   `error` like `cancelled: the user pressed Stop`, which `ai.run` also returns to its caller.
+* Times in the transcript: every line has `t`, the UTC time it was written (`2026-10-30T14:03:22.481Z`). A CLI agent's
+  `tool_end` has `ms`, how long the tool ran; its `thinking` lines have `ms`, the time since the line before them (the
+  model thought that long, also when its text is hidden and the line has none). The built-in agent's `assistant` lines
+  have `ms` (the model call) and each entry of `tool_results` has `tool` and `ms`. Logs written before this have no `t`.
+  `ai.session_timeline {session?, minGapSeconds?}` (CLI: `factoria call ai.session_timeline`) reads one transcript (the
+  newest by default) and returns the gaps of at least `minGapSeconds` (default 30) with what was going on (`tool`,
+  `thinking`, `model` = waiting for the model, `user` = waiting for the user), plus `totals` per kind and per tool, so you
+  can tell a long think from a slow tool. For a log without times it returns `hasTimes: false` and a note.
 * Screenshots: a command result `{"image": {"mediaType": "image/png", "data": "<base64>"}}`
   is attached to the model as an image.
 

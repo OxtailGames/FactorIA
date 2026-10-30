@@ -2,7 +2,9 @@
 #include <algorithm>
 #include <format>
 
+#include "fa/core/date.h"
 #include "fa/core/fs.h"
+#include "fa/core/hash.h"
 #include "fa/core/i18n.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -117,11 +119,20 @@ void Impl::reload_tools() {
         entry.commandName = cname;
         entry.file = file;
         entry.fn = std::move(def);
+        if (auto text = fs::read_text(file)) entry.hash = sha256_hex(*text).substr(0, 16);
+        entry.loadedAt = iso_utc_ms(unix_time_ms_now());
         tools[cname] = std::move(entry);
         host->commands().add(std::move(info), [this, cname](const Json& args) -> Json {
             auto it = tools.find(cname);
             if (it == tools.end() || !ctx) throw CommandError("unavailable", "tool '" + cname + "' is no longer loaded", "Call project tools after the script system is initialized.");
             const std::string toolFile = it->second.file;
+            // Which version of the tool file ran, so a stale tool is visible: added to an object result.
+            const Json version = Json::object({{"file", toolFile}, {"hash", it->second.hash}, {"loadedAt", it->second.loadedAt}});
+            auto stamp = [&version](Json j) {
+                if (j.is_null()) j = Json::object();
+                if (j.is_object() && !j.contains("toolVersion")) j["toolVersion"] = version;
+                return j;
+            };
             // Converts a thrown JS value into a CommandError. ToolError(message, hint, data) is an expected failure
             // (not a script bug): its hint and data reach the caller. Any other error is "failed".
             auto throw_js = [&](JSValueConst exc) {
@@ -172,12 +183,10 @@ void Impl::reload_tools() {
                 if (st == JS_PROMISE_PENDING) throw CommandError("failed", "tool returned a promise that never resolved", "Tools must finish synchronously or await only already-resolved promises.");
                 JsVal value(ctx, JS_PromiseResult(ctx, result.get()));
                 run_jobs();
-                Json j = to_json(value.get());
-                return j.is_null() ? Json::object() : j;
+                return stamp(to_json(value.get()));
             }
             run_jobs();
-            Json j = to_json(result.get());
-            return j.is_null() ? Json::object() : j;
+            return stamp(to_json(result.get()));
         });
     }
     std::set<std::string> after;

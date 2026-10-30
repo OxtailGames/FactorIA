@@ -432,6 +432,29 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             return Json::object({{"reviews", out}});
         });
     }
+    {
+        CommandInfo info;
+        info.name = "ai.session_timeline";
+        info.category = "ai";
+        info.summary = "Show where the time of a recorded AI session went: the long gaps and what was going on in each.";
+        info.description =
+            "Reads one transcript of <project>/.factoria/ai/sessions/ (every event has \"t\", the UTC time with ms; tool_end has "
+            "\"ms\", the duration of the tool; thinking has \"ms\", how long the model thought, also when its text is hidden). "
+            "Returns `gaps`: each pause of at least minGapSeconds with start, end, seconds, activity (tool, thinking, model = "
+            "waiting for the model, user = waiting for the user) and detail (the tool's name...), and `totals` per activity with "
+            "the tools sorted by time. A session recorded before events carried times gives hasTimes false and a note. "
+            "Example: {\"minGapSeconds\":60}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "session":{"type":"string","description":"File name of the session (20261014-153012-orchestrator or with .jsonl) in .factoria/ai/sessions. Omit for the newest."},
+            "minGapSeconds":{"type":"number","minimum":0,"default":30,"description":"List only the gaps at least this long (seconds). Totals always count every gap."}},
+            "additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [project_dir](const Json& args) -> Json {
+            auto r = session_timeline(project_dir(), str(args, "session"), args.contains("minGapSeconds") ? num(args, "minGapSeconds") : 30.0);
+            if (!r) throw CommandError("not_found", r.error().message, r.error().hint);
+            return *r;
+        });
+    }
     register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
 }
 

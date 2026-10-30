@@ -7,6 +7,7 @@
 #include <fstream>
 #include <mutex>
 
+#include "fa/core/date.h"
 #include "fa/core/log.h"
 #include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
@@ -33,16 +34,47 @@ public:
         f_.open(path_, std::ios::binary | std::ios::app);
         if (!f_) path_.clear();
     }
+    // Every line gets "t", the UTC time it was written ("2026-10-30T14:03:22.481Z"), unless the caller set one.
     void write(Json line) {
         if (!f_.is_open()) return;
+        const std::int64_t now = unix_time_ms_now();
+        if (!line.contains("t")) line["t"] = iso_utc_ms(now);
         f_ << dump(line) << "\n";
         f_.flush();
+        lastMs_ = now;
+    }
+    // An event of a CLI agent. Adds "ms": a thinking event, the time since the line before it (the model was thinking
+    // that long, also when the text is hidden and the event has none); a tool_end, the time since its tool_start (the
+    // tool's own duration, matched by the tool call id, else the oldest running tool of that name).
+    void write_event(const AgentEvent& ev, Json line) {
+        if (!f_.is_open()) return;
+        const std::int64_t now = unix_time_ms_now();
+        if (ev.type == AgentEvent::Type::ThinkingDelta && lastMs_ > 0) line["ms"] = std::max<std::int64_t>(0, now - lastMs_);
+        if (ev.type == AgentEvent::Type::ToolStart) {
+            running_.push_back({ev.toolId, ev.toolName, now});
+        } else if (ev.type == AgentEvent::Type::ToolEnd) {
+            for (auto it = running_.begin(); it != running_.end(); ++it) {
+                if (ev.toolId.empty() ? it->name == ev.toolName : it->id == ev.toolId) {
+                    line["ms"] = std::max<std::int64_t>(0, now - it->startMs);
+                    running_.erase(it);
+                    break;
+                }
+            }
+        }
+        if (!ev.toolId.empty()) line["id"] = ev.toolId;
+        write(std::move(line));
     }
     const std::string& path() const { return path_; }
 
 private:
+    struct Running {
+        std::string id, name;
+        std::int64_t startMs = 0;
+    };
     std::ofstream f_;
     std::string path_;
+    std::int64_t lastMs_ = 0;
+    std::vector<Running> running_;
 };
 
 // "20261014-153012", with "-2", "-3"... when another session of this process already took that second: several runs started
@@ -385,8 +417,8 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
         if (ev.type == AgentEvent::Type::Usage && window > 0 && (copy.contextWindow == 0 || copy.contextWindow > window)) {
             copy.contextWindow = window;
         }
-        tr.write(Json::object({{"kind", event_type_name(ev.type)}, {"text", ev.text}, {"tool", ev.toolName},
-                               {"input", ev.toolInput}, {"result", ev.toolResult}}));
+        tr.write_event(ev, Json::object({{"kind", event_type_name(ev.type)}, {"text", ev.text}, {"tool", ev.toolName},
+                                         {"input", ev.toolInput}, {"result", ev.toolResult}}));
         emit(copy, depth, "cli");
     };
     // The run's limits see the live numbers: the CLI is killed as soon as its tokens or cost cross them.
@@ -703,7 +735,9 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         }
         res.turns = turn;
         req.messages = history;
+        const std::int64_t chatStartMs = unix_time_ms_now();
         auto resp = provider->chat(req, hooks, cancel_);
+        const std::int64_t chatMs = unix_time_ms_now() - chatStartMs;
         if (!resp) {
             if (is_cancelled(cancel_)) return finish_with(false, "cancelled", res.finalText, "cancelled", "");
             return finish_with(false, "error", res.finalText, resp.error().message, resp.error().hint);
@@ -722,7 +756,8 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         }
         history.push_back(resp->message);  // APPEND the assistant message unchanged (raw content kept)
         tr.write(Json::object({{"kind", "assistant"}, {"stopReason", resp->rawStopReason}, {"text", resp->message.text},
-                               {"content", resp->message.raw}, {"usage", resp->usage.to_json()}, {"costUsd", cost}}));
+                               {"content", resp->message.raw}, {"usage", resp->usage.to_json()}, {"costUsd", cost},
+                               {"ms", chatMs}}));
         if (!resp->message.text.empty()) res.finalText = resp->message.text;
 
         switch (resp->stopReason) {
@@ -753,6 +788,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
 
         // Execute ALL tool calls of this assistant turn and answer them in ONE user message.
         std::vector<ToolResult> results;
+        std::vector<std::int64_t> toolMs;
         const bool truncated = resp->stopReason == StopReason::MaxTokens;
         for (const auto& call : resp->message.toolCalls) {
             if (is_cancelled(cancel_)) break;
@@ -765,9 +801,12 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
                      {"message", "Your response hit the output token limit before this tool call could be trusted; it was not run."},
                      {"hint", "Repeat the call with smaller content (e.g. write big files in several steps)."}}));
                 results.push_back(std::move(r));
+                toolMs.push_back(0);
                 continue;
             }
+            const std::int64_t toolStartMs = unix_time_ms_now();
             results.push_back(execute_tool(call, role, depth, &toolServers));
+            toolMs.push_back(unix_time_ms_now() - toolStartMs);
         }
         if (is_cancelled(cancel_)) {
             // Still answer every tool_use so the transcript stays valid.
@@ -782,8 +821,14 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             return finish_with(false, "cancelled", res.finalText, "cancelled", "");
         }
         Json trJson = Json::array();
-        for (const auto& r : results) {
-            trJson.push_back(Json::object({{"toolUseId", r.toolUseId}, {"isError", r.isError}, {"content", clip_text(r.content, 4000)}}));
+        for (std::size_t i = 0; i < results.size(); ++i) {
+            const ToolResult& r = results[i];
+            Json entry = Json::object({{"toolUseId", r.toolUseId}, {"isError", r.isError}, {"content", clip_text(r.content, 4000)}});
+            if (i < toolMs.size() && i < resp->message.toolCalls.size()) {
+                entry["tool"] = resp->message.toolCalls[i].name;
+                entry["ms"] = toolMs[i];  // how long the tool ran
+            }
+            trJson.push_back(std::move(entry));
         }
         tr.write(Json::object({{"kind", "tool_results"}, {"results", trJson}}));
         history.push_back(Message::tool_results(std::move(results)));
