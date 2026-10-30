@@ -26,6 +26,12 @@ struct MeshSurface {
 // Errors name the mesh and say what to use instead.
 Result<std::shared_ptr<const MeshSurface>> load_mesh_surface(const std::string& mesh);
 
+class MeshStore;
+// The same for a mesh of a World: a procedural id ("mesh:N") is read from `store` (MeshStore::surface: the current triangles and uvs,
+// rebuilt only after a mesh.update), anything else goes through load_mesh_surface(mesh). The pointer through a render target calls this
+// every frame, so a page that bends every frame is hit-tested against the shape it is drawn with.
+Result<std::shared_ptr<const MeshSurface>> load_mesh_surface(MeshStore& store, const std::string& mesh);
+
 // Where a ray meets a surface.
 struct SurfaceHit {
     float distance = 0.0f;       // along the ray, in the units of `dir` (world units when `dir` is normalized)

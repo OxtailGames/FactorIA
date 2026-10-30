@@ -232,6 +232,7 @@ sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned, sg_
     d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+    d.layout.attrs[ATTR_mesh_mesh_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;  // vertex color, white without (MeshVertex::color)
     set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
     d.index_type = SG_INDEXTYPE_UINT32;
@@ -279,6 +280,7 @@ sg_pipeline Gpu::shadow_pipeline(bool skinned, sg_shader shader, bool fullVertex
         d.layout.attrs[first].format = SG_VERTEXFORMAT_FLOAT3;      // normal
         d.layout.attrs[first + 1].format = SG_VERTEXFORMAT_FLOAT2;  // texcoord0
         d.layout.attrs[first + 2].format = SG_VERTEXFORMAT_FLOAT4;  // tangent
+        d.layout.attrs[first + 3].format = SG_VERTEXFORMAT_UBYTE4N; // vertex color
     }
     set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_shadow_skin_fa_joints, ATTR_mesh_shadow_skin_fa_weights);
