@@ -267,7 +267,8 @@ public:
     // ai::save_asset_settings: only "assets", "assetSources" and the provider fields these need change in the user's ai.json.
     void open_ai_settings(bool rolesTab = false);  // rolesTab: show the Roles tab (else the tab the window had)
     void draw_ai_settings_window();
-    void ai_settings_load(const ai::AiConfig& cfg);
+    // Fills the draft from `cfg`. keepAssets / keepTools: carry that tab's unsaved edits over (a Save on the other tab).
+    void ai_settings_load(const ai::AiConfig& cfg, bool keepAssets = false, bool keepTools = false);
     Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
     bool ai_settings_dirty(const ai::AiConfig& cfg) const;
     void draw_feedback_panel();
@@ -782,8 +783,36 @@ public:
         std::array<std::string, 5> newUrl, newNote;       // the "add a site" row of each category
         std::string siteError, saveError;
         std::vector<ai::ProviderStatus> status;    // key / program checks, taken when the window loaded the file
+        // The "External tools" tab: the user's tool servers (ai.json "mcpServers") being edited.
+        struct ToolTests {                         // what the Test buttons found; shared with the thread that runs them
+            std::mutex mu;
+            std::map<std::string, std::string> text;   // by server name: "Connected: 3 tools..." / the error
+            std::map<std::string, bool> ok;
+            CancelFlag cancel{false};                  // set when the window closes: a running test stops waiting
+        };
+        struct ToolsDraft {
+            std::vector<ai::ToolServer> servers;       // the working copy, in the order of the file
+            int editing = -1;                          // index of the server in the form; -1 = form closed
+            bool adding = false;                       // the form makes a new server
+            ai::ToolServer edit;                       // the form
+            std::string editHeaders, editArgs, editEnv;  // the form's multi-line / one-line text fields
+            std::string editError;                     // why Apply refused
+            bool showPaste = false;
+            std::string pasteText, pasteName, pasteMessage;
+            bool pasteFailed = false;
+            std::string saveError;
+            std::shared_ptr<ToolTests> tests = std::make_shared<ToolTests>();
+        } tools;
     } aiSettings_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
+    ai::HttpTransport aiToolTransport_;  // test hook: the HTTP the External tools tab's Test button uses (empty = the network)
+    std::thread aiToolTestThread_;       // the running Test of a tool server (one at a time)
+    std::atomic<bool> aiToolTestRunning_{false};
+    void draw_ai_tools_tab(const ai::AiConfig& cfg, bool configReadable);
+    void ai_tool_form_open(int index);    // opens the form on server `index` (-1: a new one)
+    Result<ai::ToolServer> ai_tool_form_build() const;  // the form as a server, validated like ai.json would
+    void ai_tool_test(const ai::ToolServer& server);    // Test button: connects off the main thread, writes the draft's ToolTests
+    void ai_settings_discard();           // closes the draft (stops a running Test)
 
     // autotest
     bool autotest_ = false;

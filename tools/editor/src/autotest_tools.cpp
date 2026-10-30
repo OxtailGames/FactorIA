@@ -4139,6 +4139,206 @@ void Editor::at_build_tools_script() {
         });
     }
 
+    section("D2");
+    // The External tools tab of the AI settings window (docs/EDITOR.md, "AI settings"): a server added with the form (a name that
+    // cannot be used stops Apply), Test against a fake MCP server (the key goes out in the header), a Claude Code style JSON pasted,
+    // Save writes only "mcpServers" (the other keys of the file stay, owner-only, the key never in the log), Remove, Save again.
+    {
+        struct DState {
+            std::string path, previousEnv;
+            bool hadEnv = false;
+            std::vector<ai::ProviderStatus> savedStatus;
+            std::shared_ptr<std::string> auth = std::make_shared<std::string>();
+        };
+        auto x = std::make_shared<DState>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load() && !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            x->path = atOutDir_ + "/ai_tools_scratch.json";
+            const char* current = std::getenv("FACTORIA_AI_CONFIG");
+            x->hadEnv = current != nullptr;
+            x->previousEnv = current ? current : "";
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                x->savedStatus = aiStatus_;
+            }
+            write_file(x->path, R"({
+  "limits": { "maxConcurrentRuns": 3 },
+  "roles": { "worker": { "provider": "anthropic", "model": "sonnet" } }
+})");
+            set_env("FACTORIA_AI_CONFIG", x->path);
+            // A fake MCP server: initialize, tools/list, and it remembers the Authorization header it was given.
+            auto auth = x->auth;
+            aiToolTransport_ = [auth](const ai::HttpRequest& rq) -> ai::HttpResponse {
+                ai::HttpResponse rs;
+                rs.status = 200;
+                if (rq.method == "DELETE") return rs;
+                for (const auto& [k, v] : rq.headers) {
+                    if (k == "Authorization") *auth = v;
+                }
+                const Json body = Json::parse(rq.body, nullptr, false);
+                const std::string method = body.is_object() ? body.value("method", std::string()) : std::string();
+                if (!body.is_object() || !body.contains("id")) {
+                    rs.status = 202;
+                    return rs;
+                }
+                Json result = Json::object();
+                if (method == "initialize") {
+                    result = Json::object({{"protocolVersion", "2025-06-18"},
+                                           {"capabilities", Json::object({{"tools", Json::object()}})},
+                                           {"serverInfo", Json::object({{"name", "FakeArt"}, {"version", "1.0"}})}});
+                } else if (method == "tools/list") {
+                    result = Json::object(
+                        {{"tools", Json::array({Json::object({{"name", "generate_image"}, {"description", "Makes an image"},
+                                                              {"inputSchema", Json::object({{"type", "object"}})}}),
+                                                Json::object({{"name", "list_models"}, {"description", "Lists models"},
+                                                              {"inputSchema", Json::object({{"type", "object"}})}})})}});
+                }
+                rs.headers["content-type"] = "application/json";
+                rs.body = Json::object({{"jsonrpc", "2.0"}, {"id", body["id"]}, {"result", result}}).dump();
+                return rs;
+            };
+            ai_refresh_providers();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { focus_window("AI Assistant"); });
+        click("menu:ai");
+        click("menu:ai-settings");
+        step(4, [this, x] {
+            at_check(showAiSettings_ && aiSettings_.loaded && aiSettings_.path == x->path, "AI > AI Settings... opens the window on the scratch file");
+            aiSettingsTab_ = 3;  // External tools
+        });
+        step(3, [this] {
+            at_check(aiSettings_.tools.servers.empty(), "no tool server yet");
+            at_check(at_visible("aiset:tools:add") && at_visible("aiset:tools:paste"), "the External tools tab shows Add server and Paste JSON");
+        });
+        click("aiset:tools:add");
+        step(3, [this] {
+            at_check(aiSettings_.tools.editing >= 0 && aiSettings_.tools.adding && at_visible("aiset:tools:apply"), "Add server opens the form");
+            auto& e = aiSettings_.tools.edit;
+            e.name = "factoria";  // reserved
+            e.type = "http";
+            e.url = "https://mcp.example.test/mcp";
+            e.apiKey = "autotest-tool-key-987";
+            e.note = "Makes pixel-art sprites; costs credits per image.";
+            e.roles = {"worker", "artist"};
+            aiSettings_.tools.editHeaders = "Authorization: Basic {key}";
+        });
+        click("aiset:tools:apply");
+        step(3, [this] {
+            at_check(aiSettings_.tools.servers.empty() && aiSettings_.tools.editing >= 0 &&
+                         aiSettings_.tools.editError.find("factoria") != std::string::npos,
+                     "a reserved name stops Apply and says why (" + aiSettings_.tools.editError + ")");
+            aiSettings_.tools.edit.name = "scenario";
+        });
+        click("aiset:tools:apply");
+        step(3, [this] {
+            const auto& s = aiSettings_.tools.servers;
+            at_check(s.size() == 1 && s[0].name == "scenario" && aiSettings_.tools.editing < 0, "Apply adds the server and closes the form");
+            at_check(s.size() == 1 && s[0].headers.size() == 1 && s[0].headers[0].first == "Authorization" &&
+                         s[0].headers[0].second == "Basic {key}" && s[0].roles.size() == 2,
+                     "...with its header and roles");
+        });
+        click("aiset:tools:test:scenario");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiToolTestRunning_.load(); };
+        });
+        step(3, [this, x] {
+            std::string text;
+            {
+                std::lock_guard<std::mutex> lock(aiSettings_.tools.tests->mu);
+                text = aiSettings_.tools.tests->text["scenario"];
+            }
+            at_check(text.find("Connected to FakeArt") != std::string::npos && text.find("2 tools") != std::string::npos &&
+                         text.find("generate_image") != std::string::npos,
+                     "Test connects and lists the tools (" + text + ")");
+            at_check(*x->auth == "Basic autotest-tool-key-987", "...and the key went out in the Authorization header");
+        });
+        // A Claude Code style JSON.
+        click("aiset:tools:paste");
+        step(3, [this] {
+            at_check(aiSettings_.tools.showPaste && at_visible("aiset:tools:import"), "Paste JSON opens the paste box");
+            aiSettings_.tools.pasteText = R"({"mcpServers":{"fs":{"command":"npx","args":["-y","some-mcp","--root","/tmp/my dir"],"env":{"MODE":"fast"},"disabled":true}}})";
+        });
+        click("aiset:tools:import");
+        step(3, [this] {
+            const auto& s = aiSettings_.tools.servers;
+            at_check(s.size() == 2 && s[1].name == "fs" && s[1].is_stdio() && s[1].command == "npx" && s[1].args.size() == 4 &&
+                         s[1].args[3] == "/tmp/my dir" && s[1].env.count("MODE"),
+                     "Import adds the pasted stdio server (" + aiSettings_.tools.pasteMessage + ")");
+            at_check(aiSettings_.tools.pasteMessage.find("disabled") != std::string::npos, "...and says which keys FactorIA does not use");
+        });
+        snap("editor_ai_tools.png");
+        click("aiset:tools:save");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && aiSettings_.tools.saveError.empty(), "Save wrote a JSON object (" + aiSettings_.tools.saveError + ")");
+            if (!j.is_object()) return;
+            at_check(j["limits"]["maxConcurrentRuns"] == 3 && j["roles"]["worker"]["model"] == "sonnet", "the other keys of the file stayed");
+            at_check(j["mcpServers"]["scenario"]["url"] == "https://mcp.example.test/mcp" && j["mcpServers"]["scenario"]["apiKey"] == "autotest-tool-key-987" &&
+                         j["mcpServers"]["scenario"]["headers"]["Authorization"] == "Basic {key}" && j["mcpServers"]["scenario"]["roles"].size() == 2,
+                     "the server is in the file with its header, key and roles");
+            at_check(j["mcpServers"]["fs"]["command"] == "npx" && j["mcpServers"]["fs"]["args"].size() == 4, "the program server is in the file");
+#ifndef _WIN32
+            std::error_code ec;
+            const auto perms = stdfs::status(x->path, ec).permissions();
+            at_check((perms & (stdfs::perms::group_all | stdfs::perms::others_all)) == stdfs::perms::none,
+                     "the file with a key in it is readable only by its owner");
+#endif
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                at_check(aiConfig_.toolServers.size() == 2, "the editor's config was reloaded with the servers");
+            }
+            at_check(std::ranges::none_of(atLog_, [](const std::string& line) { return line.find("autotest-tool-key-987") != std::string::npos; }),
+                     "the key is in no line of the autotest log");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        click("aiset:tools:remove:fs");
+        click("aiset:tools:save");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && j["mcpServers"].contains("scenario") && !j["mcpServers"].contains("fs"), "Remove and Save take the server out of the file");
+            at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet", "the other keys stayed again");
+        });
+        click("aiset:tools:close");
+        step(4, [this] {
+            at_check(!showAiSettings_ && !aiSettings_.loaded && aiSettings_.tools.servers.empty(), "Close closes the window and drops the draft");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            aiToolTransport_ = nullptr;
+            set_env("FACTORIA_AI_CONFIG", x->hadEnv ? x->previousEnv : std::string());
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) {
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+            aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;
     step(2, [this] {

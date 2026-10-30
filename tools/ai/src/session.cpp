@@ -1,5 +1,6 @@
 #include "fa/ai/session.h"
 
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
@@ -283,6 +284,33 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     // A CLI orchestrator delegates through the FactorIA MCP server it is attached to: ai.run starts the role from ai.json.
     const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation && config_.can_delegate_to_anyone();
     PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "ai_run", config_.assetSources, config_.disabled_delegable_roles()};
+    // The user's external tool servers for this role: the CLI connects to them itself (Claude Code through the MCP config
+    // file, Codex through -c arguments, a generic CLI through {mcp_config}). A server whose key is missing is left out.
+    std::vector<ResolvedToolServer> resolvedServers;
+    std::vector<std::string> serverNotes;
+    {
+        const auto servers = config_.tool_servers_for(role);
+        const bool takesServers = pc.kind == ProviderKind::ClaudeCode || (pc.kind == ProviderKind::Codex && pc.argv.empty()) ||
+                                  std::any_of(pc.argv.begin(), pc.argv.end(),
+                                              [](const std::string& a) { return a.find("{mcp_config}") != std::string::npos; });
+        if (!servers.empty() && !takesServers) {
+            serverNotes.push_back("External tool servers are not passed to provider '" + pc.name +
+                                  "': its \"argv\" has no {mcp_config} placeholder, so it cannot be given an MCP config. Use "
+                                  "Claude Code, Codex (default argv) or the built-in agent to use them.");
+        } else {
+            const EnvLookup env = opt_.env ? opt_.env : system_env();
+            for (const ToolServer* s : servers) {
+                auto r = resolve_tool_server(*s, env);
+                if (!r) {
+                    serverNotes.push_back("External tool server '" + s->name + "' skipped: " + r.error().message +
+                                          (r.error().hint.empty() ? "" : " (" + r.error().hint + ")"));
+                    continue;
+                }
+                pctx.toolServers.push_back({s->name, s->note, pc.kind == ProviderKind::ClaudeCode ? "mcp__" + s->name + "__" : ""});
+                resolvedServers.push_back(std::move(*r));
+            }
+        }
+    }
     const std::string fullPrompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
     // A follow-up message continues the CLI's session: the system prompt is already part of it, so only the task is sent.
     const bool canResume = depth == 0 && cli_supports_resume(pc);
@@ -304,12 +332,19 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     req.readOnly = is_review_role(role);
     req.webDomains = asset_source_hosts(config_.assetSources);  // Claude Code: WebFetch for these sites, only these with onlyListed
     req.webOnlyListed = config_.assetSources.onlyListed;
+    req.toolServers = resolvedServers;
     if (opt_.onProcessStart) req.onStart = [this, role](long long pid) { opt_.onProcessStart(pid, role); };
 
     AgentEvent start;
     start.type = AgentEvent::Type::SessionStart;
     start.text = pc.name + (req.model.empty() ? "" : "/" + req.model) + " (CLI agent, runs its own loop)";
     emit(start, depth, role);
+    for (const std::string& note : serverNotes) {
+        AgentEvent info;
+        info.type = AgentEvent::Type::Info;
+        info.text = note;
+        emit(info, depth, role);
+    }
 
     Transcript tr;
     if (opt_.saveTranscript) tr.open(opt_.projectDir, stamp_ + "-" + role + (depth ? "-" + std::to_string(++delegateCount_) : ""));
@@ -388,7 +423,7 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     return res;
 }
 
-ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& role, int depth) {
+ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& role, int depth, McpToolSet* toolServers) {
     ToolResult tr;
     tr.toolUseId = call.id;
     AgentEvent start;
@@ -448,6 +483,11 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
         }
         tr.content = sub.finalText.empty() ? "(sub-agent finished without a report)" : sub.finalText;
         return finish(tr, Json(tr.content));
+    }
+    if (toolServers && toolServers->owns(call.name)) {  // a tool of one of the user's external tool servers
+        ToolResult r = toolServers->call(call);
+        r.content = clip_text(r.content, kMaxToolResultChars);
+        return finish(r, Json(r.content));
     }
     auto it = toolToCommand_.find(call.name);
     if (it == toolToCommand_.end()) {
@@ -519,6 +559,21 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
 
     const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation && config_.can_delegate_to_anyone();
     PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "", config_.assetSources, config_.disabled_delegable_roles()};
+    // The user's external tool servers for this role: connect now (a program is started, a service is asked for its tools);
+    // the ones that fail only give a note, the run goes on without them. They close when this function returns.
+    McpToolSet toolServers;
+    std::vector<std::string> serverNotes;
+    if (const auto servers = config_.tool_servers_for(role); !servers.empty()) {
+        McpOptions mo;
+        mo.transport = opt_.toolServerTransport;
+        mo.cancel = cancel_;
+        toolServers.connect(servers, opt_.env ? opt_.env : system_env(), mo, serverNotes);
+        for (const auto& client : toolServers.clients()) {
+            const ToolServer* s = nullptr;
+            for (const ToolServer* c : servers) if (c->name == client->name()) s = c;
+            pctx.toolServers.push_back({client->name(), s ? s->note : std::string(), client->name() + "__"});
+        }
+    }
     ChatRequest req;
     req.model = rc.model;
     req.effort = rc.effort;
@@ -527,6 +582,10 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     req.system = build_system_prompt(pctx);
     const bool readOnly = is_review_role(role);  // critics and reviewers observe and play, they change nothing
     req.tools = tools_from_registry(registry_, canDelegate, readOnly);
+    if (!toolServers.empty()) {
+        for (ToolDef& d : toolServers.tool_defs()) req.tools.push_back(std::move(d));
+        std::sort(req.tools.begin(), req.tools.end(), [](const ToolDef& a, const ToolDef& b) { return a.name < b.name; });
+    }
     req.stream = opt_.stream;
     toolToCommand_.clear();
     for (const CommandInfo* info : registry_.list()) {
@@ -539,6 +598,12 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     start.type = AgentEvent::Type::SessionStart;
     start.text = pc.name + "/" + rc.model + (rc.effort.empty() ? "" : " effort=" + rc.effort);
     emit(start, depth, role);
+    for (const std::string& note : serverNotes) {
+        AgentEvent info;
+        info.type = AgentEvent::Type::Info;
+        info.text = note;
+        emit(info, depth, role);
+    }
 
     Transcript tr;
     if (opt_.saveTranscript) tr.open(opt_.projectDir, stamp_ + "-" + role + (depth ? "-" + std::to_string(++delegateCount_) : ""));
@@ -670,7 +735,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
                 results.push_back(std::move(r));
                 continue;
             }
-            results.push_back(execute_tool(call, role, depth));
+            results.push_back(execute_tool(call, role, depth, &toolServers));
         }
         if (is_cancelled(cancel_)) {
             // Still answer every tool_use so the transcript stays valid.

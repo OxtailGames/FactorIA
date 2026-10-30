@@ -646,6 +646,22 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         }
     }
 
+    if (const Json* servers = child(j, "mcpServers")) {
+        auto parsed = parse_tool_servers(*servers, "/mcpServers");
+        if (!parsed) return make_error(std::string(sourceName) + ": " + parsed.error().message, parsed.error().hint);
+        cfg.toolServers = std::move(*parsed);
+        for (const ToolServer& s : cfg.toolServers) {
+            const bool secret = !s.apiKey.empty() || !s.apiKeyEnv.empty() || !s.headers.empty();
+            if (s.enabled && s.type == "http" && s.url.rfind("http://", 0) == 0 && secret) {
+                const std::string host = asset_site_host(s.url);
+                if (host != "localhost" && host != "127.0.0.1" && host != "[::1]" && host != "::1") {
+                    cfg.warnings.push_back(std::string(sourceName) + ": /mcpServers/" + s.name + "/url uses plain http://, so " +
+                                           "its headers and key travel unencrypted. Use https:// if the server offers it.");
+                }
+            }
+        }
+    }
+
     // Roles: defaults first, then overrides. The three original roles come first: artist, audio, artCritic and reviewer that
     // the file does not set follow what it says about them (same provider, model of the matching tier).
     cfg.roles = default_roles_for(cfg);
@@ -740,6 +756,7 @@ Result<AiConfig> load_config(std::string_view pathIn, const EnvLookup& env) {
 #ifndef _WIN32
     bool hasKey = false;
     for (const auto& [n, p] : cfg->providers) hasKey = hasKey || !p.apiKey.empty();
+    for (const ToolServer& s : cfg->toolServers) hasKey = hasKey || !s.apiKey.empty();
     struct stat st{};
     if (hasKey && stat(path.c_str(), &st) == 0 && (st.st_mode & (S_IRWXG | S_IRWXO)) != 0) {
         cfg->warnings.push_back(path + " contains an API key but is readable by other users. Run: chmod 600 " + path);
@@ -804,6 +821,11 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         out["assets"] = assets;
     }
     if (Json sources = asset_sources_to_json(cfg.assetSources); !sources.empty()) out["assetSources"] = std::move(sources);
+    if (!cfg.toolServers.empty()) {
+        Json servers = Json::object();
+        for (const ToolServer& s : cfg.toolServers) servers[s.name] = tool_server_to_json(s, redactKeys);
+        out["mcpServers"] = std::move(servers);
+    }
     Json roles = Json::object();
     for (const auto& [name, r] : cfg.roles) {
         Json rj = Json::object();
@@ -883,7 +905,7 @@ Result<void> write_private(std::string_view path, const std::string& text) {
     tmp += ".fa-tmp" + std::to_string(static_cast<long long>(::getpid()));
     {
         std::ofstream create(tmp, std::ios::binary | std::ios::trunc);
-        if (!create) return make_error("Cannot write AI config '" + std::string(path) + "'", "Check the directory exists and is writable.");
+        if (!create) return make_error("Cannot write '" + std::string(path) + "'", "Check the directory exists and is writable.");
     }
     fsys::permissions(tmp, fsys::perms::owner_read | fsys::perms::owner_write, fsys::perm_options::replace, ec);
     {
@@ -892,19 +914,21 @@ Result<void> write_private(std::string_view path, const std::string& text) {
         if (!out) {
             out.close();
             fsys::remove(tmp, ec);
-            return make_error("Cannot write AI config '" + std::string(path) + "'", "Is the disk full?");
+            return make_error("Cannot write '" + std::string(path) + "'", "Is the disk full?");
         }
     }
     fsys::rename(tmp, target, ec);
     if (ec) {
         fsys::remove(tmp, ec);
-        return make_error("Cannot replace AI config '" + std::string(path) + "'", "Check the file is writable.");
+        return make_error("Cannot replace '" + std::string(path) + "'", "Check the file is writable.");
     }
     return {};
 #endif
 }
 
 }  // namespace
+
+Result<void> write_private_file(std::string_view path, const std::string& text) { return write_private(path, text); }
 
 std::vector<std::string> split_args(std::string_view line) {
     std::vector<std::string> out;
@@ -1002,6 +1026,37 @@ Result<void> save_asset_settings(const AssetSettings& settings, std::string_view
         }
         if (pj.empty()) provs.erase(name);
         if (provs.empty()) j.erase("providers");
+    }
+    return write_private(path, dump_json(j));
+}
+
+Result<void> save_tool_servers(const std::vector<ToolServer>& servers, std::string_view path) {
+    Json j = Json::object();
+    std::error_code ec;
+    if (fsys::exists(fsys::path(path), ec)) {
+        auto text = fs::read_text(path);
+        if (!text) return text.error();
+        auto parsed = fa::parse_json(*text, path);
+        if (!parsed) return parsed.error();
+        if (!parsed->is_object()) {
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object",
+                              "Fix or delete the file, then save the tool servers again.");
+        }
+        j = std::move(*parsed);
+    }
+    if (servers.empty()) {
+        j.erase("mcpServers");
+    } else {
+        Json out = Json::object();
+        for (const ToolServer& s : servers) {
+            if (auto problem = tool_server_name_problem(s.name); !problem.empty())
+                return make_error("Cannot save the tool server '" + s.name + "': " + problem,
+                                  "Use a short name such as scenario (letters, digits, _ and -).");
+            if (out.contains(s.name))
+                return make_error("Two tool servers are called '" + s.name + "'", "Give each server its own name.");
+            out[s.name] = tool_server_to_json(s, false);
+        }
+        j["mcpServers"] = std::move(out);
     }
     return write_private(path, dump_json(j));
 }

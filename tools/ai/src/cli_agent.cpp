@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <ctime>
 #include <filesystem>
@@ -111,11 +112,87 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
     return po;
 }
 
-Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl) {
+Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl,
+                     const std::vector<ResolvedToolServer>& servers) {
     Json server = mcpUrl.empty() ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
                                  : Json::object({{"type", "http"}, {"url", mcpUrl}});
     server["timeout"] = kMcpToolTimeoutMs;  // Claude Code: milliseconds a tool call may take at most
-    return Json::object({{"mcpServers", Json::object({{"factoria", server}})}});
+    Json all = Json::object({{"factoria", server}});
+    for (const ResolvedToolServer& s : servers) {
+        Json entry = Json::object();
+        if (s.is_stdio()) {
+            entry["command"] = s.command;
+            if (!s.args.empty()) entry["args"] = s.args;
+            if (!s.env.empty()) {
+                Json env = Json::object();
+                for (const auto& [k, v] : s.env) env[k] = v;
+                entry["env"] = std::move(env);
+            }
+        } else {
+            entry["type"] = "http";
+            entry["url"] = s.url;
+            if (!s.headers.empty()) {
+                Json h = Json::object();
+                for (const auto& [k, v] : s.headers) h[k] = v;
+                entry["headers"] = std::move(h);
+            }
+        }
+        entry["timeout"] = static_cast<long long>(s.timeoutSeconds * 1000);
+        all[s.name] = std::move(entry);
+    }
+    return Json::object({{"mcpServers", std::move(all)}});
+}
+
+std::vector<std::string> codex_tool_server_args(const std::vector<ResolvedToolServer>& servers,
+                                                std::map<std::string, std::string>& env) {
+    std::vector<std::string> out;
+    const auto toml = [](const std::string& s) { return dump(Json(s)); };  // a JSON string is a valid TOML basic string
+    const auto toml_array = [&](const std::vector<std::string>& v) {
+        std::string a = "[";
+        for (std::size_t i = 0; i < v.size(); ++i) a += (i ? "," : "") + toml(v[i]);
+        return a + "]";
+    };
+    const auto add = [&](const std::string& server, const std::string& key, const std::string& value) {
+        out.push_back("-c");
+        out.push_back("mcp_servers." + server + "." + key + "=" + value);
+    };
+    const auto env_var_part = [](const std::string& text) {
+        std::string v;
+        for (char c : text) v += std::isalnum(static_cast<unsigned char>(c)) ? static_cast<char>(std::toupper(static_cast<unsigned char>(c))) : '_';
+        return v;
+    };
+    for (const ResolvedToolServer& s : servers) {
+        // Codex keys: a server name with '-' or '_' is a plain TOML key; the config has been checked to use [A-Za-z0-9_-] only.
+        if (s.is_stdio()) {
+            add(s.name, "command", toml(s.command));
+            if (!s.args.empty()) add(s.name, "args", toml_array(s.args));
+            std::vector<std::string> pass;
+            std::string literal;
+            for (const auto& [k, v] : s.env) {
+                const bool special = k == "PATH" || k == "HOME" || k == "USERPROFILE" || k == "SHELL" || k == "TMPDIR";
+                if (special) literal += (literal.empty() ? "" : ",") + toml(k) + "=" + toml(v);
+                else {
+                    env[k] = v;  // the value never appears in Codex's argument list
+                    pass.push_back(k);
+                }
+            }
+            if (!pass.empty()) add(s.name, "env_vars", toml_array(pass));
+            if (!literal.empty()) add(s.name, "env", "{" + literal + "}");
+        } else {
+            add(s.name, "url", toml(s.url));
+            std::string headers;
+            int index = 0;
+            for (const auto& [k, v] : s.headers) {
+                const std::string var = "FACTORIA_MCP_" + env_var_part(s.name) + "_H" + std::to_string(index++);
+                env[var] = v;
+                headers += (headers.empty() ? "" : ",") + toml(k) + "=" + toml(var);
+            }
+            if (!headers.empty()) add(s.name, "env_http_headers", "{" + headers + "}");
+        }
+        add(s.name, "tool_timeout_sec", std::to_string(static_cast<long long>(std::ceil(s.timeoutSeconds))));
+        add(s.name, "startup_timeout_sec", "60");
+    }
+    return out;
 }
 
 std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains) {
@@ -144,7 +221,10 @@ void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRe
             argv.push_back("--disallowedTools");
             argv.push_back(std::move(list));
         }
-        if (const auto rules = web_fetch_rules(req.webDomains); !rules.empty()) {
+        // Claude Code asks before every MCP tool in -p mode; the user's tool servers are allowed whole (`mcp__<name>`).
+        auto rules = web_fetch_rules(req.webDomains);
+        for (const ResolvedToolServer& s : req.toolServers) rules.push_back("mcp__" + s.name);
+        if (!rules.empty()) {
             std::string list;
             for (const auto& r : rules) list += (list.empty() ? "" : ",") + r;
             // Into the --allowedTools the argv already has (a second flag might replace the first instead of adding to it).
@@ -637,18 +717,41 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     // MCP config file for CLIs that take one (Claude Code). The editor's endpoint URL carries a per-session token for a
     // loopback port; the file stays in the project's git-ignored .factoria folder.
     std::string mcpPath;
+    fsys::path privateMcpFile;
     bool needsMcp = cfg_.kind == ProviderKind::ClaudeCode;
     for (const auto& a : tmpl) needsMcp = needsMcp || a.find("{mcp_config}") != std::string::npos;
     if (needsMcp) {
         std::error_code ec;
         fsys::path dir = fsys::path(projectDir) / ".factoria" / "ai";
         fsys::create_directories(dir, ec);
-        fsys::path file = dir / ("mcp-" + cfg_.name + ".json");
-        std::ofstream f(file, std::ios::binary | std::ios::trunc);
-        if (!f) return make_error("Cannot write " + file.string(), "Is the project directory writable?");
-        f << dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl)) << "\n";
-        mcpPath = file.string();
+        if (req.toolServers.empty()) {
+            fsys::path file = dir / ("mcp-" + cfg_.name + ".json");
+            std::ofstream f(file, std::ios::binary | std::ios::trunc);
+            if (!f) return make_error("Cannot write " + file.string(), "Is the project directory writable?");
+            f << dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl)) << "\n";
+            mcpPath = file.string();
+        } else {
+            // The user's tool servers put keys in this file: a file of its own (runs of other roles have other servers and
+            // may run at the same time), readable by the owner only, deleted when the run ends.
+            static std::atomic<unsigned> counter{0};
+            const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+            fsys::path file = dir / ("mcp-" + cfg_.name + "-" + std::to_string(stamp) + "-" + std::to_string(counter++) + ".json");
+            if (auto ok = write_private_file(file.string(),
+                                             dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers)) + "\n");
+                !ok)
+                return ok.error();
+            mcpPath = file.string();
+            privateMcpFile = file;
+        }
     }
+    struct RemoveAtExit {
+        fsys::path& path;
+        ~RemoveAtExit() {
+            if (path.empty()) return;
+            std::error_code ec;
+            fsys::remove(path, ec);
+        }
+    } removeMcpFile{privateMcpFile};
     CliRunRequest effective = req;
     effective.projectDir = projectDir;
 
@@ -661,6 +764,11 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand);  // {prompt} carries the paths too
     }
     apply_role_restrictions(cfg_.kind, cfg_.argv.empty(), req, expanded);
+    if (cfg_.kind == ProviderKind::Codex && cfg_.argv.empty() && !req.toolServers.empty()) {
+        auto extra = codex_tool_server_args(req.toolServers, po.env);
+        auto stdinMarker = std::find(expanded.begin(), expanded.end(), "-");
+        expanded.insert(stdinMarker, extra.begin(), extra.end());
+    }
     for (auto& a : expanded) po.argv.push_back(std::move(a));
     po.workingDir = projectDir;
     // A template without {prompt} gets the prompt on standard input (one stream-json line when the CLI asks for that).

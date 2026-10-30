@@ -41,6 +41,10 @@ struct CliRunRequest {
     // sandbox (`--sandbox read-only`) and the FactorIA MCP server started with `--read-only`, which offers only
     // is_read_only_tool commands.
     bool readOnly = false;
+    // The user's external tool servers (ai.json "mcpServers") this run's role may use, with their keys filled in. Claude Code
+    // gets them in the {mcp_config} file and `mcp__<name>` in --allowedTools; Codex (default argv) gets `-c mcp_servers.<name>.*`
+    // arguments; any other CLI finds them in the {mcp_config} file if its argv has that placeholder.
+    std::vector<ResolvedToolServer> toolServers;
     // Called once with the CLI process's pid when it started (ProcessOptions::onStart).
     std::function<void(long long pid)> onStart;
     // Asked after every parsed line with the usage so far (tokens, cost and whether the cost is an estimate); true kills
@@ -105,7 +109,18 @@ void merge_limit_windows(std::vector<LimitWindow>& into, const std::vector<Limit
 // the worker runs far longer. The server also sends progress while such a call runs (notifications/progress), so this
 // is only the ceiling for a call that really never ends.
 inline constexpr long long kMcpToolTimeoutMs = kClaudeCodeMcpToolTimeoutMs;  // 4 hours
-Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl = {});
+// `servers` (the user's tool servers) are added next to "factoria", each as Claude Code's .mcp.json writes a server:
+// {"type": "http", "url", "headers"} or {"command", "args", "env"}, with the same "timeout" from timeoutSeconds. The result then
+// holds keys: write it where only the user can read it, and delete it when the run ends.
+Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl = {},
+                     const std::vector<ResolvedToolServer>& servers = {});
+
+// Codex (default argv): the `-c key=value` arguments that add `servers` as MCP servers (mcp_servers.<name>.url, .command,
+// .args, .tool_timeout_sec, .startup_timeout_sec). Header values and the env of a stdio server are secrets and stay out of the
+// argument list (anyone can read it with `ps`): headers go through .env_http_headers and `env`, which name environment
+// variables, and `env` receives those variables for the Codex process. Arguments of a server ({key} in "args") are in the list.
+std::vector<std::string> codex_tool_server_args(const std::vector<ResolvedToolServer>& servers,
+                                                std::map<std::string, std::string>& env);
 
 // Install/login instructions per CLI.
 std::string cli_install_hint(const ProviderConfig& cfg);

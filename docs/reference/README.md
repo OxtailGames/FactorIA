@@ -89,6 +89,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Since 0.4.0._
 - [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Since 0.4.0._
 - [`ai.run`](commands/ai.md#airun-modifies-state): Run an AI agent on a task in the current project (blocks until it finishes).
+- [`ai.tool_servers`](commands/ai.md#aitool_servers): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Not released yet._
 
 ### [anim](commands/anim.md)
 
