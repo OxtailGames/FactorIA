@@ -1322,7 +1322,7 @@ Left open:
 - The CPU and memory budgets of the `skinned-sprites` perf fixture are estimates until CI measures them; only macOS was
   built and tested (GitHub is suspended, no CI for Windows, Linux, Android, iOS or web).
 
-## M43. External tool servers (MCP) the AI can use (L) — BUILT (`m43/tool-servers`, not yet released)
+## M43. External tool servers (MCP) the AI can use (L) — DONE (0.8.0)
 
 Asked by the user: let the AI use services such as Scenario (`https://mcp.scenario.com/mcp`, OAuth or
 `Authorization: Basic base64(KEY:SECRET)`) when it sees fit, without making FactorIA Scenario-specific.
