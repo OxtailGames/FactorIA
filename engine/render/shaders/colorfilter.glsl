@@ -3,6 +3,8 @@
 // writes); that image is what present(), the editor viewport and screenshots show.
 //
 // The game target holds sRGB-encoded values, so every filter works in linear light: decode, filter, encode.
+//   mode 0  a plain copy that keeps the alpha (not a Camera.colorFilter value: the renderer uses it to turn a render
+//           target the right way up on OpenGL)
 //   mode 1  greyscale     Rec. 709 luminance
 //   mode 2  highContrast  gamma-space contrast stretch around mid grey (x1.8), clipped
 //   mode 3-5 protanopia, deuteranopia, tritanopia: a daltonize correction (Fidaner et al.) for a viewer who lacks
@@ -45,7 +47,8 @@ vec3 to_srgb(vec3 c) {
 }
 
 void main() {
-    vec3 c = textureLod(sampler2D(tex, smp), uv, 0.0).rgb;
+    vec4 texel = textureLod(sampler2D(tex, smp), uv, 0.0);
+    vec3 c = texel.rgb;
     int mode = int(p.x + 0.5);
     vec3 o = c;
     if (mode == 1) {
@@ -70,7 +73,8 @@ void main() {
                              : vec3(0.0, 0.7 * err.r + err.g, 0.7 * err.r + err.b);
         o = to_srgb(l + add);
     }
-    frag_color = vec4(o, 1.0);
+    // mode 0 is the copy a render target makes (flipped on OpenGL, where targets are stored bottom-up): it keeps the alpha
+    frag_color = vec4(o, mode == 0 ? texel.a : 1.0);
 }
 @end
 

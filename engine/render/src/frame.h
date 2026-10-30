@@ -77,6 +77,9 @@ struct Frame {
     // Tint components (scene/components.h): set by gather_2d when the scene has at least one, which makes every visual walk its
     // parent chain; false = no visual pays for the feature.
     bool anyTint = false;
+    // Renderer::capture_world of an entity: only this entity and its descendants are drawn, and the `active` flag of the entity
+    // and of its ancestors is not looked at, so a hidden subject is captured. Null = the whole world as usual.
+    Entity scopeRoot = kNullEntity;
 };
 
 // The product of the Tint colours of `e` and its ancestors (white when there are none). Cheap when the scene has no Tint:
@@ -142,6 +145,9 @@ void gather_debug(DebugDrawData& dd, Frame& f);
 
 // Helpers
 bool entity_active(const World& w, Entity e);
+// The same for a visual of a frame: with f.scopeRoot set, true for the root and for the descendants whose own flag and whose
+// ancestors' flags below the root are on, whatever the root's and its ancestors' flags say; false outside the subtree.
+bool entity_active(const World& w, const Frame& f, Entity e);
 float matrix_scale_x(const Mat4& m);
 
 }  // namespace fa::render

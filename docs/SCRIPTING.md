@@ -1115,7 +1115,8 @@ For a save slot's thumbnail, a photo mode or a minimap snapshot. A texture's `id
 and `Button.icon` (docs/COMPONENTS.md).
 
 - `render.captureTexture({ width, height, fit })` returns a `Texture`: the picture the player sees (HUD and every camera) at
-  `width` x `height` pixels, each from 1 to 2048. `fit: "cover"` (default) cuts the middle part with that aspect ratio out of the
+  `width` x `height` pixels, each from 1 to 2048. To photograph one entity or an area of the world instead, at a scale you pick,
+  use the world form below. `fit: "cover"` (default) cuts the middle part with that aspect ratio out of the
   frame, so nothing is distorted; `"stretch"` squeezes the whole frame in.
 - Which frame: called from a script during a frame (an `onUpdate`, an event handler) it is the last frame that was drawn. In a
   test, before any frame was drawn and in headless runs it draws the current state first, like `game.screenshot`. A capture
@@ -1129,6 +1130,21 @@ and `Button.icon` (docs/COMPONENTS.md).
   `storage.set("slot1.pic", tex.toPNG())`. `render.textureFromPNG(text)` makes a texture of it again (a `data:image/png;base64,`
   URL works too). Both are synchronous: there is no Promise and no scene change to wait for. A Base64 string is about a third
   longer than the file, so keep pictures small (a 156 x 156 town picture is a few KB).
+- `render.captureTexture({ entity | rect, space: "world", scale })` is the WORLD form: it draws a part of the world off-screen
+  at `scale` pixels per world unit and returns it as a `Texture`. It is not a picture of the screen, so it does not need a frame
+  to have been drawn (it works in `onStart`, in a test and before the first frame), it is not capped at 2048 and it does not care
+  what the player sees: the subject may be hidden (`active` off, or inside a hidden parent), covered by other things or far outside
+  every camera. Give exactly one of `entity` (the entity and its children: the area is the union of their `entity.bounds()`, from world-space Sprite,
+  Shape2D, Text and Tilemap; particles and meshes inside that area are drawn too) or `rect` (`[x, y, w, h]` in world units, everything active inside it). The picture is
+  `ceil(w * scale)` x `ceil(h * scale)` pixels, at most 4096 on a side (a bigger one is an error that names the largest `scale`
+  that fits), with a transparent background (alpha 0 where nothing was drawn) and unpremultiplied colour. `width`, `height` and
+  `fit` are the screen form's options and are an error here. An `entity` with `active` off is drawn anyway (its own flag and its
+  ancestors' are ignored; a descendant that is itself inactive is not). A `rect` draws only what is active. The HUD and the
+  screen-space UI are never part of it. A Sprite that shows `"target:<name>"` (docs/RENDERING.md) appears with that target's last
+  picture. Meshes are drawn from the front by an orthographic camera. In a run with `graphics` off the texture is a flat
+  placeholder of the computed size, like the screen form. Memory is width x height x 4 bytes in the engine plus the same on the
+  GPU while it is drawn: a 4096 x 4096 picture is about 64 MB, and the 32-texture limit below counts it.
+  `render.textureFromPNG` accepts pictures up to 4096 x 4096 too.
 - At most 32 textures are alive at once. `texture.destroy()` frees one (safe to call twice; `toPNG()` then throws). Stop
   showing a texture (destroy its entity or change the texture field) before you destroy it: a frame that still names it draws
   the missing-texture checker and logs why. Every test file starts with no textures.
@@ -1149,10 +1165,16 @@ onStart() {
   }
 }
 onDestroy() { if (this.pic) this.pic.destroy(); }
+
+// World form: a card that is hidden, photographed at 2 pixels per unit, then shown as a sprite (the card keeps its own scale).
+const card = world.find("Card");                       // active: false, it is only drawn to be copied
+const shot = render.captureTexture({ entity: card, space: "world", scale: 2 });
+world.find("Preview").get("Sprite").texture = shot.id;  // destroy `shot` when Preview goes away
 ```
 
 Nothing here awaits an answer, so there is no scene to re-check; if you capture inside a `scene.preload` or `http`
-callback, compare `scene.current` with the scene you started in before you act on it. `scene.current` is equal after a
+callback, compare `scene.current` with the scene you started in before you act on it (the entity you pass to the world form
+must still exist, or the call throws). `scene.current` is equal after a
 reload of the same scene: keep `const gen = scene.generation` and compare it instead, it changes on every load.
 
 ### The date: `game.today()` (never `Date`)

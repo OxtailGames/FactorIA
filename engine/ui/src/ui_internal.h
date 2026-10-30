@@ -40,6 +40,8 @@ struct Item {
     bool world = false;    // projected through a camera (else in screen space, like a built-in widget)
     std::array<Vec2, 4> quad{};   // the hit area on the screen, a convex quad
     Vec2 trackA{}, trackB{};      // slider: the screen points of the minimum and the maximum end of the track
+    bool surface = false;         // seen on a page (a render target shown on a mesh): `quad` and `at` are in the page's pixels
+    Vec2 at{};                    // the pointer in the space of `quad`: the mouse, or where it lands on the page
 };
 
 using ProjectFn = UiProjectFn;

@@ -310,7 +310,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `viewport` ([x, y, w, h] of the game target, 0..1, top-left origin, default [0, 0, 1, 1]), `viewportSpace` (`screen` or `design`), `lighting` (`scene` or `studio`), `studioIntensity`, `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) | The view. Without a primary camera the screenshot is black. Every active camera with `primary: true` draws into its `viewport` in ascending `depth`: two or more make a split screen or an inset (section 9.29), and the lowest `depth` is the camera of the post effects, `camera.main` and the default of the screen conversions. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). `lighting: "studio"` ignores the scene's lights and ambient and lights with a key, fill and rim of its own; with `primary: false` and a `CameraView` widget it is the 3D picture of an item inside a menu ([MENUS.md](MENUS.md) "A camera inside the UI"). |
+| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `viewport` ([x, y, w, h] of the game target, 0..1, top-left origin, default [0, 0, 1, 1]), `viewportSpace` (`screen` or `design`), `lighting` (`scene` or `studio`), `studioIntensity`, `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`), `renderTarget` (a name: the camera draws into the texture `"target:<name>"` instead of the screen), `renderTargetSize` ([w, h], 1..4096) | The view. Without a primary camera the screenshot is black. Every active camera with `primary: true` draws into its `viewport` in ascending `depth`: two or more make a split screen or an inset (section 9.29), and the lowest `depth` is the camera of the post effects, `camera.main` and the default of the screen conversions. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). `lighting: "studio"` ignores the scene's lights and ambient and lights with a key, fill and rim of its own; with `primary: false` and a `CameraView` widget it is the 3D picture of an item inside a menu ([MENUS.md](MENUS.md) "A camera inside the UI"). With `renderTarget: "book"` it draws live into a texture that `MeshRenderer.texture`, `Sprite.texture`, `Panel.texture` or `Button.icon` show as `"target:book"` (a screen on a model, a mirror, a page whose buttons work through the model; section 9.30). |
 | `Sprite` | `texture` (asset path; empty = solid `color`), `size` (0 = image size), `pivot` (default [0.5, 0.5]), `color`, `flipX`, `flipY`, `layer`, `space`, `anchor`, `blend`, `region`, `pixelArt`, `skew`, `meshColumns` / `meshRows` / `vertexOffsets` | An image or a coloured quad. `skew` slants it, `meshColumns` x `meshRows` + `vertexOffsets` bend it (see "Tint, gradient stops, skew and bent sprites"). |
 | `SpriteAnimator` | `clip` (a clip name of the sheet), `mode` (forward, reverse, pingpong), `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet; play a clip by name (`entity.spriteAnimator.play("run")`, event `clipEnded`). |
 | `Tint` | `color` (RGBA, multiplied into the entity and all its descendants) | Fade or colour a group at once: a day/night wash, a hit flash, a menu fading in. |
@@ -848,6 +848,7 @@ Production 3D rendering (all automatic; there is nothing to switch on):
 - **Many objects.** Meshes outside the camera frustum are not drawn. Meshes with the same `mesh`, textures and material values (`color`, `metallic`, `roughness`, `emissive`, `unlit`, `receiveShadows`, `uvScale`, `normalMap`, `normalScale`, `material`, `materialParams`, `materialColors`) are drawn with ONE instanced draw call per mesh part, however many there are: 10 000 identical cubes cost one draw. Give each its own `color` and they stop sharing, so for crowds vary the Transform, not the material. `play.report` shows `meshes` (drawn), `meshesCulled`, `meshBatches` (groups drawn with one instanced draw), `drawCalls`, `materials` (custom materials drawn) and `materialFallbacks` (materials that failed to build and are drawn magenta; the error log, `game.logs`, says why). In a test, `game.screenshot(path)` draws a frame and `game.state().renderStats` then has the same numbers ([SHADERS.md](SHADERS.md)). Objects off screen still cast shadows into view while a shadow-casting light is on.
 - **Lights.** Up to 32 lights are used each frame. When a scene has more, the shadow-casting sun comes first, then the other directional lights, then point and spot lights by brightness over distance to the camera (the nearest and brightest are kept); `lightsDropped` in the stats says how many were left out. A light costs every lit pixel, so keep the lights that reach the camera few and give them a small `range`.
 - Custom shaders (full guide with five worked examples: `docs_read {"name":"shaders"}`, [SHADERS.md](SHADERS.md)): `MeshRenderer.material` names a `*.material.json` whose GLSL snippet changes the surface (and optionally moves vertices); `material_info` lists its params, `shader_compile` checks it, `materialParams` overrides params per entity. A material that does not compile draws magenta.
+- Live textures: `MeshRenderer.texture`, `normalMap` and texture `materialParams` accept `"target:<name>"`, the picture of a `Camera` with `renderTarget: "<name>"` (a screen, a mirror, a book page whose `Interactable`s work through the mesh): section 9.30, [RENDERING.md](RENDERING.md).
 - Not available yet: an environment map image for reflections, shadows from point and spot lights.
 
 ### 9.10 Save data
@@ -1778,6 +1779,27 @@ one's). Tools that read "the camera" (screenshots, `game.screenshot`, the editor
 `game.renderStats()`: `drawCalls`, `triangles`, `lights` and the rest are per FRAME, added up over every camera, so a four-camera
 frame costs about four times a one-camera frame in `drawCalls` (docs/PERFORMANCE.md). Screen-space visuals with `lit: true` get
 only the scene's ambient light (no `Light2D`) in a split-screen frame. Keep it to two or three cameras on phones.
+
+### 9.30 A camera in a texture: a screen on a model, a mirror, a book with working pages
+
+Full guide: `docs_read {"name":"rendering"}` ([RENDERING.md](RENDERING.md)). The short version:
+
+1. Make the page out of ordinary WORLD-space entities (`Sprite`, `Text`, `Shape2D`, children of one `Transform`) far from
+   anything the main camera sees (x = 5000): a target camera has no culling mask and the screen-space UI (`Panel`, `Button`,
+   `space: "screen"`) is not drawn into it. Give the buttons, toggles and sliders of the page an `Interactable`.
+2. Add a `Camera` with `renderTarget: "book"` and `renderTargetSize: [512, 768]` over the page (orthographic, `orthoSize` half
+   the page height in world units, or 0 for one unit per texture pixel). It never draws to the screen and is never `camera.main`.
+3. Show it: `MeshRenderer { mesh: "quad", texture: "target:book", unlit: true }` (or a curved glTF model, or a custom material's
+   `materialParams`), `Sprite.texture`, `Panel.texture`, `Button.icon`. The target is drawn before the cameras that show it.
+4. The pointer over the mesh reaches the page's Interactables through the mesh's UV (hover, click, toggles, slider drags, even off
+   a curved surface). Only meshes with UVs (primitives, glTF); the nearest page mesh wins; Sprite/Panel/Button showing a target
+   forward nothing; in a test aim with a screen position (`game.click(camera.worldToScreen(p))`), not an id.
+5. A camera that sees the model showing its own target draws a checker there with one error; two targets that show each other
+   are fine (one frame late).
+
+Photographs: `render.captureTexture({ entity | rect, space: "world", scale })` draws a hidden, covered or off-camera part of
+the world into a transparent texture of `ceil(size * scale)` pixels (at most 4096 a side), with no frame drawn first. The HUD is
+not in it. Details in RENDERING.md, "Off-screen capture".
 
 ## 10. Tests
 

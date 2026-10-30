@@ -537,6 +537,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         return ortho_view(I.world, I.design_size(), kNullEntity, pointer).to_screen(p);
     });
 
+    I.ui.set_surface_pointer(make_ui_surface_pointer(I));  // the pointer through a render target shown on a mesh
+
     // World + input.
     I.world.rng().reseed(config.seed);
     I.apply_project_settings();

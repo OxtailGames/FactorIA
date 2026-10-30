@@ -1697,7 +1697,7 @@ void Audio::update(World& world, float dt) {
         Entity first = kNullEntity, primary = kNullEntity;
         int primaryDepth = 0;
         world.each<Camera>([&](Entity e, Camera& c) {
-            if (!world.active_in_hierarchy(e)) return;
+            if (!world.active_in_hierarchy(e) || !c.renderTarget.empty()) return;  // a render-target camera is no listener
             if (c.primary) {
                 if (primary.is_null() || c.depth < primaryDepth) { primary = e; primaryDepth = c.depth; }
             } else if (first.is_null()) {
