@@ -2,9 +2,11 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.7.2
 
-Fixes:
+FactorIA 0.7.2 keeps one FactorIA icon in the Dock or taskbar when the editor restarts after an update.
+
+### Fixes
 
 - Restarting the editor after FactorIA was updated (Restart, or the in-editor updater) no longer adds a second FactorIA
   icon next to the pinned one. On macOS the editor reopens through `~/Applications/FactorIA.app` (`open -n`) when that
