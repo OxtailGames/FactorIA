@@ -1322,6 +1322,23 @@ Left open:
 - The CPU and memory budgets of the `skinned-sprites` perf fixture are estimates until CI measures them; only macOS was
   built and tested (GitHub is suspended, no CI for Windows, Linux, Android, iOS or web).
 
+## M43. External tool servers (MCP) the AI can use (L) — BUILT (`m43/tool-servers`, not yet released)
+
+Asked by the user: let the AI use services such as Scenario (`https://mcp.scenario.com/mcp`, OAuth or
+`Authorization: Basic base64(KEY:SECRET)`) when it sees fit, without making FactorIA Scenario-specific.
+
+Built: `mcpServers` in the user `ai.json`; wired for Claude Code (`--mcp-config`), Codex (`-c mcp_servers...`), the
+generic CLI agent (`{mcp_config}`) and the API providers (a built-in MCP client over Streamable HTTP and stdio, on top of
+the new `fa::ChildProcess`); an "External tools" prompt section; the `ai.tool_servers` command and `factoria ai doctor`
+lines; the editor's AI settings > External tools tab (autotest section D2).
+
+Left open:
+- OAuth is not implemented (the built-in agent and Codex need a key or header; Claude Code can log in with `/mcp`).
+- Not checked against the real Scenario service, nor with real Claude Code or Codex runs (only fake MCP servers and
+  scripted CLIs).
+- `fa::ChildProcess` for Windows (`child_process_win32.cpp`) was written but not built or run (macOS host only).
+- Only tools are used: MCP resources and prompts, sampling and the old SSE transport are not supported.
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,

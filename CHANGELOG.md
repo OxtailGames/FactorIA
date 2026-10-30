@@ -2,6 +2,18 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+FactorIA lets the AI use external tool servers (MCP) that you configure, such as Scenario for generating game art.
+
+### New
+
+- External tool servers: a top-level `mcpServers` object in your user `ai.json` (web services by address, with headers or a key from an environment variable, or programs on your computer) that the AI may use when it sees fit. Claude Code gets them through a generated `--mcp-config` (and `mcp__<name>` in `--allowedTools`), Codex through `-c mcp_servers...` (keys stay out of the argument list), the generic CLI agent through the `{mcp_config}` placeholder, and the API providers through a built-in MCP client (Streamable HTTP and stdio) whose tools appear to the model as `<server>__<tool>`. OAuth is not implemented: use a key. `docs/AI_PROVIDERS.md`, "External tools (MCP servers)".
+- The AI prompt has an "External tools" section naming the servers that are connected for the run.
+- Command `ai.tool_servers` (a server's state, or a connection test), and `factoria ai doctor` lists each server with what is wrong with it.
+- AI settings > External tools tab: add or edit a server with a form, Test it, paste a Claude Code `.mcp.json`, Remove; Save keeps the other keys of `ai.json`. Editor autotest section D2.
+- `fa::ChildProcess` in the core module (a program with piped stdin and stdout, for stdio MCP servers), with tests; the Windows version is not yet built or run.
+
 ## 0.7.4
 
 FactorIA 0.7.4 makes the editor restart through the pinned launcher also from the start screen, so the Dock keeps one FactorIA icon.

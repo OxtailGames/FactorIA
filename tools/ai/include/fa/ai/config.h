@@ -146,12 +146,83 @@ const char* role_group_title(int group);  // "Orchestration and code", "Art and 
 std::string role_off_message(std::string_view role);
 std::string role_off_hint(std::string_view role);
 
+using EnvLookup = std::function<std::string(const std::string& name)>;  // "" when unset
+
+// An external tool server (MCP) the user configured in ai.json ("mcpServers"; docs/AI_PROVIDERS.md, "External tools (MCP
+// servers)"): a service such as Scenario (AI game art) or a local program whose tools the AI may call when it helps. The shape
+// follows Claude Code's .mcp.json (type, url, headers, command, args, env) plus FactorIA's own fields. Only the USER file has
+// them: a game project can never add a server (it would run a program or send data to a host the user did not choose).
+struct ToolServer {
+    std::string name;                                          // [A-Za-z0-9_-], not "factoria": the key under "mcpServers"
+    std::string type;                                          // "http" (Streamable HTTP) or "stdio" (a local program)
+    std::string url;                                           // http
+    std::vector<std::pair<std::string, std::string>> headers;  // http; values may use {key} and ${ENV}
+    std::string command;                                       // stdio
+    std::vector<std::string> args;                             // stdio; may use {key} and ${ENV}
+    std::map<std::string, std::string> env;                    // stdio; values may use {key} and ${ENV}
+    std::string apiKeyEnv;                                     // name of the env var that holds the key ({key})
+    std::string apiKey;                                        // the key itself (user file only; an env var is better)
+    std::string note;                                          // goes to the AI's prompt: what the server is good for
+    std::vector<std::string> roles;                            // who may use it; empty = kDefaultToolServerRoles
+    bool enabled = true;
+    double timeoutSeconds = 120;                               // one tools/call (generating an image takes a while)
+
+    bool is_stdio() const { return type == "stdio"; }
+    // Whether `role` gets this server's tools: it is enabled and the role is in `roles` (in the defaults when `roles` is
+    // empty). The review roles (artCritic, reviewer) get a server only when `roles` lists them.
+    bool serves_role(std::string_view role) const;
+};
+inline constexpr const char* kToolServerFactoria = "factoria";  // reserved: the engine's own tool server
+inline constexpr std::size_t kMaxToolServerName = 40;
+// Who gets a server that lists no roles: the roles that build the game, not the ones that judge it.
+inline constexpr const char* kDefaultToolServerRoles[] = {kRoleOrchestrator, kRoleWorker, kRoleFast, kRoleArtist, kRoleAudio};
+// "" when `name` is a usable server name, else what is wrong with it (empty, characters outside [A-Za-z0-9_-], "factoria",
+// longer than kMaxToolServerName characters).
+std::string tool_server_name_problem(std::string_view name);
+
+// A server with its {key} and ${ENV} references filled in, ready to connect or to hand to a CLI agent. Never logged or
+// printed: it holds the key.
+struct ResolvedToolServer {
+    std::string name;
+    std::string type;
+    std::string url;
+    std::vector<std::pair<std::string, std::string>> headers;
+    std::string command;
+    std::vector<std::string> args;
+    std::map<std::string, std::string> env;
+    double timeoutSeconds = 120;
+    std::string keySource;  // "env:SCENARIO_API_KEY", "config" or "" (the server does not use {key}, or has none)
+    bool usesKey = false;   // some header/arg/env value contains {key}
+    bool is_stdio() const { return type == "stdio"; }
+};
+// Fills in {key} (the env var named by apiKeyEnv, else apiKey) and ${NAME} / ${NAME:-default} (environment variables) in
+// header values, args and env values. Error (what is missing and where to put it) when a reference has nothing to fill it in.
+Result<ResolvedToolServer> resolve_tool_server(const ToolServer& server, const EnvLookup& env);
+// Parses one server (the value under its name in "mcpServers"). `at` is the JSON pointer used in errors
+// ("/mcpServers/scenario"). With `ignored` set, keys this version does not know are listed there and skipped instead of an
+// error (pasted .mcp.json entries often have a few).
+Result<ToolServer> parse_tool_server(const Json& entry, std::string name, std::string_view at,
+                                     std::vector<std::string>* ignored = nullptr);
+// Parses the whole "mcpServers" object, or Claude Code's {"mcpServers": {...}} wrapper around it.
+Result<std::vector<ToolServer>> parse_tool_servers(const Json& object, std::string_view at,
+                                                   std::vector<std::string>* ignored = nullptr);
+// One server as ai.json writes it; the key is replaced by "***" when redactKeys.
+Json tool_server_to_json(const ToolServer& server, bool redactKeys);
+// Writes ONLY "mcpServers" into the config file at `path` (created when missing) and keeps everything else in it, the way
+// save_asset_settings does. An empty list removes the section. On Linux and macOS the file is written with owner-only
+// permissions. A file that is not a JSON object is left alone (error).
+Result<void> save_tool_servers(const std::vector<ToolServer>& servers, std::string_view path);
+// Writes text where only the owner can read it, from the first byte (a temporary file made private before the text goes in,
+// then renamed over `path`). Windows: a plain write (the profile folder is already private to the user).
+Result<void> write_private_file(std::string_view path, const std::string& text);
+
 struct AiConfig {
     std::string defaultProvider = "anthropic";
     std::map<std::string, ProviderConfig> providers;
     std::map<std::string, RoleConfig> roles;  // always has the seven roles after load
     std::map<std::string, AssetRoute> assets; // by media_kind_name; empty unless the file sets "assets"
     AssetSources assetSources;                // the sites to look at for assets; empty unless the file sets "assetSources"
+    std::vector<ToolServer> toolServers;      // the external tool servers (MCP), in the file's order; empty unless the file sets "mcpServers"
     Limits limits;
     std::string sourcePath;                   // "" when defaults only
     std::vector<std::string> warnings;
@@ -164,6 +235,8 @@ struct AiConfig {
     // The role a run really uses: role(name), except that a review role (artCritic, reviewer) that is off runs on the
     // orchestrator's provider, model, effort and limits (it keeps its read-only prompt and tools).
     RoleConfig effective_role(std::string_view name) const;
+    // The enabled tool servers `role` may use, in the file's order. Review roles get only the servers that list them.
+    std::vector<const ToolServer*> tool_servers_for(std::string_view role) const;
     // The delegable roles (worker, fast, artist, audio) that are off, in kAllRoles order.
     std::vector<std::string> disabled_delegable_roles() const;
     // True when at least one delegable role is on, so the orchestrator has someone to hand work to.
@@ -172,7 +245,6 @@ struct AiConfig {
 
 std::string providers_that_make(const AiConfig& cfg, MediaKind m);  // the names of the providers that make `m`: "a, b"
 
-using EnvLookup = std::function<std::string(const std::string& name)>;  // "" when unset
 EnvLookup system_env();
 
 // Linux/macOS: ~/.factoria/ai.json ; Windows: %APPDATA%/factoria/ai.json ;

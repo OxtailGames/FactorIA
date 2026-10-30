@@ -6,6 +6,7 @@
 
 #include "asset_commands.h"
 #include "fa/ai/detect.h"
+#include "fa/ai/mcp_client.h"
 #include "fa/ai/review.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -94,7 +95,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "action":{"type":"string","enum":["list","doctor"],"default":"list","description":"list or doctor."}},
             "additionalProperties":false})");
         info.readOnly = true;
-        registry.add(std::move(info), [load, project_dir](const Json& args) -> Json {
+        registry.add(std::move(info), [load, project_dir, opts](const Json& args) -> Json {
             auto cfg = load();
             if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
             const bool doctor = str(args, "action", "list") == "doctor";
@@ -122,8 +123,82 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
                                      {"roles", roles},
                                      {"assets", assets},
                                      {"warnings", cfg->warnings}});
-            if (doctor) out["report"] = format_doctor_report(*cfg, status);
+            Json toolServers = Json::array();
+            for (const auto& t : tool_server_statuses(*cfg, opts->runtime.env)) toolServers.push_back(t.to_json());
+            out["toolServers"] = toolServers;
+            if (doctor) out["report"] = format_doctor_report(*cfg, status, opts->runtime.env);
             return out;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.tool_servers";
+        info.category = "ai";
+        info.summary = "List the external tool servers (MCP) the user configured in ai.json, and optionally test them.";
+        info.description =
+            "The user's \"mcpServers\" (docs/AI_PROVIDERS.md, External tools): services such as Scenario (game art) or local "
+            "programs whose tools the AI may call. Each entry has name, type (http|stdio), target (URL without its query, or "
+            "program), enabled, roles (who gets it), usesKey, keySource (where the key was found, never the key), problem (what "
+            "is missing, \"\" when ready) and note. With test:true each enabled, ready server is contacted (initialize + "
+            "tools/list; no tool is called, nothing is spent) and gets `connected`, `server` (how it introduced itself), `tools` "
+            "[{name, description}] or `error` + `hint`. Keys are never returned. `name` limits the call to one server. "
+            "Example: {\"test\":true,\"name\":\"scenario\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "test":{"type":"boolean","default":false,"description":"Connect to each server and list its tools."},
+            "name":{"type":"string","description":"Only this server (a name from the list)."}},
+            "additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [load, opts](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string only = str(args, "name");
+            if (!only.empty() && !std::any_of(cfg->toolServers.begin(), cfg->toolServers.end(),
+                                              [&](const ToolServer& s) { return s.name == only; })) {
+                std::vector<std::string> known;
+                for (const auto& s : cfg->toolServers) known.push_back(s.name);
+                throw CommandError("unknown_tool_server", "No tool server named '" + only + "'",
+                                   known.empty() ? "ai.json has no \"mcpServers\" yet (docs/AI_PROVIDERS.md, External tools)."
+                                                 : fa::did_you_mean(only, known));
+            }
+            const bool test = flag(args, "test", false);
+            Json servers = Json::array();
+            for (const auto& st : tool_server_statuses(*cfg, opts->runtime.env)) {
+                if (!only.empty() && st.name != only) continue;
+                const ToolServer* server = nullptr;
+                for (const auto& s : cfg->toolServers) if (s.name == st.name) server = &s;
+                Json entry = st.to_json();
+                entry["note"] = server->note;
+                if (test) {
+                    if (!st.enabled) {
+                        entry["connected"] = false;
+                        entry["error"] = "The server is turned off (enabled false).";
+                    } else if (!st.problem.empty()) {
+                        entry["connected"] = false;
+                        entry["error"] = st.problem;
+                    } else {
+                        auto resolved = resolve_tool_server(*server, opts->runtime.env);
+                        McpOptions mo;
+                        mo.transport = opts->runtime.transport;
+                        mo.cancel = opts->cancel;
+                        auto client = McpClient::connect(*resolved, mo);
+                        if (client) {
+                            entry["connected"] = true;
+                            entry["server"] = (*client)->server_description();
+                            Json tools = Json::array();
+                            for (const auto& t : (*client)->tools()) {
+                                tools.push_back(Json::object({{"name", t.name}, {"description", t.description}}));
+                            }
+                            entry["tools"] = tools;
+                        } else {
+                            entry["connected"] = false;
+                            entry["error"] = client.error().message;
+                            if (!client.error().hint.empty()) entry["hint"] = client.error().hint;
+                        }
+                    }
+                }
+                servers.push_back(std::move(entry));
+            }
+            return Json::object({{"servers", servers}, {"configured", cfg->toolServers.size()}});
         });
     }
     {

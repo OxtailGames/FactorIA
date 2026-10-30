@@ -1,5 +1,5 @@
 // AI settings window: where each kind of asset is made (provider, model, voice, API key) and which websites the AI should
-// look at when it searches for assets. Save writes "assets", "assetSources" and the few provider fields these need into the
+// look at when it searches for assets (the Assets tab; the External tools tab lives in ai_tool_servers.cpp). Save writes "assets", "assetSources" and the few provider fields these need into the
 // user's ai.json (ai::save_asset_settings: every other section of the file stays) and reloads it. docs/EDITOR.md
 // ("AI settings"), docs/AI_PROVIDERS.md ("The AI settings window", "Asset sources").
 #include <algorithm>
@@ -62,10 +62,18 @@ void Editor::open_ai_settings(bool rolesTab) {
 }
 
 // Fills the draft from the loaded config (and the status of the providers from this machine).
-void Editor::ai_settings_load(const ai::AiConfig& cfg) {
+void Editor::ai_settings_discard() {
+    if (aiSettings_.tools.tests) aiSettings_.tools.tests->cancel = true;  // a running Test stops waiting
+    aiSettings_ = AiSettingsDraft{};
+}
+
+void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool keepTools) {
     AiSettingsDraft& d = aiSettings_;
+    AiSettingsDraft old = std::move(d);
+    if (!keepTools && old.tools.tests) old.tools.tests->cancel = true;
     d = AiSettingsDraft{};
     d.loaded = true;
+    d.tools.servers = cfg.toolServers;
     d.path = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
     for (ai::MediaKind k : ai::kMediaKinds) {
         const auto it = cfg.assets.find(ai::media_kind_name(k));
@@ -80,6 +88,19 @@ void Editor::ai_settings_load(const ai::AiConfig& cfg) {
     ai::DetectOptions options;
     options.probeVersions = false;  // only PATH lookups and key checks: nothing slow on the UI thread
     d.status = ai::detect_providers(cfg, options);
+    if (keepAssets) {
+        d.routes = std::move(old.routes);
+        d.sources = std::move(old.sources);
+        d.keys = std::move(old.keys);
+        d.removeKey = std::move(old.removeKey);
+        d.command = std::move(old.command);
+        d.args = std::move(old.args);
+        d.newUrl = std::move(old.newUrl);
+        d.newNote = std::move(old.newNote);
+        d.siteError = std::move(old.siteError);
+        d.saveError = std::move(old.saveError);
+    }
+    if (keepTools) d.tools = std::move(old.tools);
 }
 
 // What the draft would write, or the reason it cannot be written yet.
@@ -177,7 +198,7 @@ void Editor::draw_ai_settings_window() {
     const bool visible = ImGui::Begin("AI settings###AiSettings", &open, ImGuiWindowFlags_NoDocking);
     if (!open) {
         showAiSettings_ = false;
-        d = AiSettingsDraft{};  // a typed key does not outlive the window
+        ai_settings_discard();  // a typed key does not outlive the window
     }
     if (!visible || !open) {
         ImGui::End();
@@ -224,6 +245,13 @@ void Editor::draw_ai_settings_window() {
             liveStatus = aiStatus_;
         }
         draw_ai_roles_tab(cfg, liveStatus);
+        ImGui::EndTabItem();
+    }
+    const bool toolsShown = ImGui::BeginTabItem("External tools", nullptr, wantTab == 3 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    at_track("aiset:tab:tools");
+    ImGui::SetItemTooltip("Services and programs the AI may use when they help: image generators such as Scenario, or tools of your own (MCP servers).");
+    if (toolsShown) {
+        draw_ai_tools_tab(cfg, cfgErr.empty());
         ImGui::EndTabItem();
     }
     const bool assetsShown = ImGui::BeginTabItem("Assets", nullptr, wantTab == 2 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
@@ -512,7 +540,7 @@ void Editor::draw_ai_settings_window() {
                 aiConfigError_ = loaded ? std::string() : loaded.error().to_string();
             }
             if (loaded) {
-                ai_settings_load(*loaded);  // also forgets the typed keys
+                ai_settings_load(*loaded, false, true);  // also forgets the typed keys
                 notify("AI settings saved. The next asset the AI makes uses them.");
             } else {
                 d.saveError = "Saved, but ai.json no longer loads: " + loaded.error().to_string();
@@ -525,7 +553,7 @@ void Editor::draw_ai_settings_window() {
     ImGui::SameLine();
     if (ImGui::Button("Close")) {
         showAiSettings_ = false;
-        d = AiSettingsDraft{};
+        ai_settings_discard();
     }
     at_track("aiset:close");
     ImGui::EndTabItem();
