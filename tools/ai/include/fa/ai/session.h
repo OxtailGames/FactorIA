@@ -54,6 +54,7 @@ struct SessionResult {
     std::string stopReason;            // end_turn | max_turns | budget | refusal | cancelled | error | cli
     std::string error;
     std::string hint;
+    std::string cancelCause;           // stopReason "cancelled": why (cancel_cause_text() words it), "" when nobody said
     Usage usage;
     double costUsd = 0;
     int turns = 0;
@@ -99,6 +100,13 @@ std::string asset_sources_prompt(const AssetSources& sources);
 // Stable system prompt: engine guide summary + project context + rules.
 std::string build_system_prompt(const PromptContext& ctx);
 
+// Why a run was cancelled, as the host names it (set with the cancel flag, see AgentSession::set_cancel_cause): user_stop,
+// stuck_stop (the Stop of the stuck warning), watchdog_process_gone, activity_check_process_gone, project_closed,
+// editor_closing, editor_restart, run_ended. An unknown key is shown as it is; "" gives plain "cancelled".
+std::string cancel_cause_text(const std::string& cause);
+// "cancelled" or "cancelled: <cause text>": what a cancelled run's error says.
+std::string cancelled_message(const std::string& cause);
+
 inline constexpr const char* kDelegateTool = "agent_delegate";
 
 class AgentSession {
@@ -108,6 +116,9 @@ public:
     void set_event_handler(EventHandler handler) { onEvent_ = std::move(handler); }
     void set_provider_factory(ProviderFactory f) { factory_ = std::move(f); }
     void set_cancel_flag(const CancelFlag* c) { cancel_ = c; }
+    // Asked when the run ends cancelled: the cause key the host set with the flag ("" = unknown). Written in the transcript's end
+    // event ("cause"), SessionResult::cancelCause and the error text.
+    void set_cancel_cause(std::function<std::string()> f) { cancelCause_ = std::move(f); }
 
     // Runs the task to completion (synchronously). `imageFiles` are pictures (absolute paths, .png .jpg .jpeg .gif .webp)
     // the user attached to this message; an unreadable one fails the run before anything is sent.
@@ -131,6 +142,7 @@ private:
     EventHandler onEvent_;
     ProviderFactory factory_;
     const CancelFlag* cancel_ = nullptr;
+    std::function<std::string()> cancelCause_;
     std::map<std::string, std::shared_ptr<ChatProvider>> providers_;
     std::map<std::string, std::string> toolToCommand_;
     Usage totalUsage_;

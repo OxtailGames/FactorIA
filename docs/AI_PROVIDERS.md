@@ -363,7 +363,9 @@ The models come from the `artCritic` and `reviewer` roles (or from the orchestra
   category and explanation.
 * Transcripts: `<project>/.factoria/ai/sessions/<time>-<role>.jsonl`
   (one JSON object per line: messages, tool results, usage). They contain what
-  the model saw, never your API keys.
+  the model saw, never your API keys. The last line is the `end` event; a run that was cancelled has `"cause"` there
+  (`user_stop`, `stuck_stop`, `watchdog_process_gone`, `project_closed`, `editor_closing`, `editor_restart`...) and an
+  `error` like `cancelled: the user pressed Stop`, which `ai.run` also returns to its caller.
 * Screenshots: a command result `{"image": {"mediaType": "image/png", "data": "<base64>"}}`
   is attached to the model as an image.
 

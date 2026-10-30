@@ -2,6 +2,13 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Fixes
+
+- macOS: the editor's AI watchdog no longer stops a healthy agent with "process is gone". `process_tree` read the count `proc_listallpids` returns as bytes and kept only the newest ~50 of ~550 processes, so after a few minutes of an agent starting processes the orchestrator's own pid fell off the list. The list is sized from the count now. Before it stops a run for a missing process, the watchdog and Check activity also ask the OS directly (new `fa::process_alive`: `kill(pid, 0)`, or `OpenProcess` + `GetExitCodeProcess` on Windows) and never stop a run that produced an event in the last 10 seconds.
+- A run that ends cancelled says why: the session transcript's end event has a `cause` (`user_stop`, `stuck_stop`, `watchdog_process_gone`, `activity_check_process_gone`, `project_closed`, `editor_closing`, `editor_restart`, `run_ended`) and an error such as "cancelled: the editor's watchdog thought the agent process was gone"; the chat's error line and the `ai_run` result of a cancelled sub-agent carry the same text.
+
 ## 0.7.4
 
 FactorIA 0.7.4 makes the editor restart through the pinned launcher also from the start screen, so the Dock keeps one FactorIA icon.
