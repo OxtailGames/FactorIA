@@ -186,6 +186,7 @@ void register_i18n_commands(Engine& engine, Engine::Impl& impl);  // localizatio
 void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_check.cpp: ui.check_layout
 void register_shot_commands(Engine& engine, Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
 void register_anim_commands(Engine& engine, Engine::Impl& impl);  // anim_commands.cpp (+ anim_view_commands.cpp): anim.*
+void register_mesh_commands(Engine& engine, Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
 void register_bones_commands(Engine& engine, Engine::Impl& impl);  // bones_commands.cpp: bones.create, skin.*
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".

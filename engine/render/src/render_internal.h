@@ -175,6 +175,7 @@ struct SubMesh {
     sg_buffer skinVb{};               // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
     int skin = -1;                    // index of the glTF skin that deforms it (-1 = not skinned)
     sg_buffer ib{};
+    int ibOffset = 0;                 // byte offset of this part's first index in `ib` (a procedural mesh's submeshes share one pair)
     int vertexCount = 0;
     int indexCount = 0;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
@@ -416,6 +417,13 @@ public:
     TextureAsset* texture(const std::string& path);       // never null (placeholder on failure)
     TextureAsset* white();                                 // 1x1 white
     MeshAsset* mesh(const std::string& name);             // never null (cube placeholder on failure)
+    // The procedural meshes ("mesh:N" ids of MeshRenderer.mesh, fa/scene/mesh_store.h) are looked up in `store`, the store of the
+    // world being drawn: call this before mesh() once per frame. It frees the GPU copy of every mesh that left the store (destroyed,
+    // or its scene unloaded) and all of them when `store` is another one than last time. mesh("mesh:N") uploads the mesh on first use
+    // and again when its version changed (the buffers are reused when the new data fits); an id the store does not know gives the
+    // placeholder cube and a failure that teaches (once per id).
+    void set_mesh_store(const MeshStore* store);
+    std::size_t procedural_mesh_count() const { return procedural_.size(); }
     // A custom material (a *.material.json), built on first use; never null. A material that failed to build has ok == false
     // (the failure is in report() and logged once) and is drawn with the error material.
     MaterialAsset* material(const std::string& path);
@@ -458,6 +466,18 @@ private:
     void use_placeholder(TextureAsset& t);
     MeshAsset* load_mesh(const std::string& name);
     void destroy_mesh(MeshAsset& m);
+    struct ProceduralMesh {
+        std::unique_ptr<MeshAsset> asset;
+        std::uint64_t version = 0;       // MeshStore::Entry::version the GPU copy was made from
+        sg_buffer vb{}, ib{};            // shared by every part
+        sg_buffer vbStage{}, ibStage{};  // write-transient staging buffers of an updatable pair (id 0 = immutable buffers)
+        std::size_t vbCap = 0, ibCap = 0;  // bytes the buffers hold
+        std::uint64_t stagedFrame = 0;   // Gpu::frame() + 1 of the last write into the staging buffers, 0 = never
+        std::vector<std::string> partTextures;  // base color texture of each part ("" = none), resolved again on every use
+    };
+    MeshAsset* procedural_mesh(const std::string& id);
+    void upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e);
+    void destroy_procedural(ProceduralMesh& pm);
     void build_material(MaterialAsset& m);
     Result<void> build_material_checked(MaterialAsset& m);
     std::string missing_hint(const std::string& path, std::string_view ext) const;
@@ -480,6 +500,9 @@ private:
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;
     std::unordered_map<std::string, std::string> meshSources_;  // mesh key -> source file (for reload)
+    std::map<std::string, ProceduralMesh> procedural_;          // "mesh:N" -> its GPU copy
+    const MeshStore* meshStore_ = nullptr;
+    std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
     ShaderCompiler shaderCompiler_;
 };
