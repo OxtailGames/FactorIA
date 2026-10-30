@@ -31,10 +31,16 @@ endif()
 
 if(FA_BUILD_TESTS)
     file(GLOB_RECURSE ai_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
+    list(FILTER ai_tests EXCLUDE REGEX "/tests/programs/")  # programs the tests run (their own main()), built below
     if(ai_tests)
         add_executable(fa_test_ai ${ai_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
         target_link_libraries(fa_test_ai PRIVATE fa_ai fa_ext_cgltf fa_ext_doctest fa_warnings)
         target_include_directories(fa_test_ai PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_AI_FIXTURES...
+        # tests/test_mcp_client.cpp talks to this MCP server over stdio; ctest hands the test its path (FA_FAKE_MCP_SERVER).
+        add_executable(fa_fake_mcp_server tests/programs/fake_mcp_server.cpp)
+        target_link_libraries(fa_fake_mcp_server PRIVATE fa_core fa_warnings)
+        add_dependencies(fa_test_ai fa_fake_mcp_server)
         add_test(NAME ai COMMAND fa_test_ai WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(ai PROPERTIES ENVIRONMENT "FA_FAKE_MCP_SERVER=$<TARGET_FILE:fa_fake_mcp_server>")
     endif()
 endif()

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "FactorIA AI config (~/.factoria/ai.json)",
-  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), the asset providers that generate images, sounds and 3D models, and the websites the AI should search for assets. Lives in the user's home, NEVER inside a game project.",
+  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), the asset providers that generate images, sounds and 3D models, the websites the AI should search for assets, and the external tool servers (MCP) the AI may use (mcpServers). Lives in the user's home, NEVER inside a game project.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -39,6 +39,11 @@
       },
       "additionalProperties": false
     },
+    "mcpServers": {
+      "type": "object",
+      "description": "External tool servers (MCP) the AI may use when it helps the game, for example Scenario (AI game art) or a local program. The key is the server's name ([A-Za-z0-9_-], not \"factoria\"). The shape follows Claude Code's .mcp.json (type, url, headers, command, args, env) plus FactorIA's apiKeyEnv, apiKey, note, roles, enabled and timeoutSeconds. Only this user file can add servers, never a game project. The editor's AI settings window (External tools tab) edits this section. Example: {\"scenario\": {\"type\": \"http\", \"url\": \"https://mcp.scenario.com/mcp\", \"headers\": {\"Authorization\": \"Basic {key}\"}, \"apiKeyEnv\": \"SCENARIO_MCP_KEY\", \"note\": \"AI game art: sprites, textures, icons\"}}. See docs/AI_PROVIDERS.md, \"External tools (MCP servers)\".",
+      "additionalProperties": { "$ref": "#/$defs/toolServer" }
+    },
     "roles": {
       "type": "object",
       "description": "Which provider/model plays each role. orchestrator plans and delegates, worker implements, fast does small mechanical tasks, artist makes the game's art, audio makes its sound and music, artCritic and reviewer (read-only) give opinions on the art and on the whole game when the user asks for a review. A role that is not listed gets a default that follows the provider and model of orchestrator (artist, artCritic, reviewer) or worker (audio), so an ai.json written before these roles existed keeps working on the same provider.",
@@ -68,6 +73,26 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "toolServer": {
+      "type": "object",
+      "description": "One external tool server (MCP). type \"http\" (needs url) talks Streamable HTTP to a remote server; type \"stdio\" (needs command) starts a local program and talks to it through its standard input and output. When type is left out it is \"stdio\" if command is set, else \"http\". {key} in a header value, an argument or an env value is replaced by the key (apiKeyEnv's variable, else apiKey); ${NAME} and ${NAME:-default} by an environment variable.",
+      "properties": {
+        "type": { "enum": ["http", "stdio"], "description": "http = a remote server at url (Streamable HTTP; the older SSE transport is not supported). stdio = a local program (command)." },
+        "url": { "type": "string", "minLength": 1, "description": "http: the server's address, for example https://mcp.scenario.com/mcp." },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "http: extra request headers, for example {\"Authorization\": \"Basic {key}\"}. Values may use {key} and ${ENV}." },
+        "command": { "type": "string", "minLength": 1, "description": "stdio: the program to start (npx, uvx, node, python, a path)." },
+        "args": { "type": "array", "items": { "type": "string" }, "description": "stdio: its arguments. May use {key} and ${ENV}." },
+        "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "stdio: environment variables added for the program. Values may use {key} and ${ENV}." },
+        "apiKeyEnv": { "type": "string", "description": "Name of the environment variable that holds the key used for {key}. Preferred over apiKey: the key stays out of this file." },
+        "apiKey": { "type": "string", "description": "The key itself, used for {key} when apiKeyEnv is not set or not found. Only this user file can hold it; the file is kept readable by you only." },
+        "note": { "type": "string", "description": "Goes to the AI's prompt: what this server is good for and when to use it (\"AI game art: sprites, textures, icons\")." },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/roleName" }, "description": "Which roles may use the server. Default: orchestrator, worker, fast, artist, audio. artCritic and reviewer get a server only when listed here (they never change the project, and a server may cost credits)." },
+        "enabled": { "type": "boolean", "default": true, "description": "false keeps the entry but nobody uses it." },
+        "timeoutSeconds": { "type": "number", "minimum": 1, "default": 120, "description": "How long one tool call may take before it fails (generating an image can take a minute or two)." }
+      },
+      "additionalProperties": false
+    },
+    "roleName": { "enum": ["orchestrator", "worker", "fast", "artist", "audio", "artCritic", "reviewer"] },
     "siteList": {
       "type": "array",
       "items": {

@@ -68,7 +68,7 @@ if(FA_BUILD_TESTS)
             # share an entry because they use the system clipboard. FA_EDITOR_AUTOTEST=1 alone still plays every section in one
             # window, and FA_EDITOR_AUTOTEST_SECTIONS=K,M only those (docs/EDITOR.md).
             set(editor_autotest_entries
-                "1:I,J,Q,R,U,X,Z"
+                "1:I,J,Q,R,U,X,Z,D2"
                 "2:S,A,G,H,L,V,B2,C2"
                 "3:B,C,D,M,O,P,W"
                 "4:T,A2,E,F,K,N,Y")

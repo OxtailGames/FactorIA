@@ -219,6 +219,8 @@ Editor::Editor(EditorOptions options) : options_(std::move(options)) {}
 Editor::~Editor() {
     ai_stop("editor_closing");
     if (aiDetectThread_.joinable()) aiDetectThread_.join();
+    if (aiSettings_.tools.tests) aiSettings_.tools.tests->cancel = true;
+    if (aiToolTestThread_.joinable()) aiToolTestThread_.join();
     if (atThread_.joinable()) atThread_.join();
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();

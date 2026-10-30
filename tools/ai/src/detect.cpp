@@ -88,7 +88,37 @@ std::vector<ProviderStatus> detect_providers(const AiConfig& cfg, const DetectOp
     return out;
 }
 
-std::string format_doctor_report(const AiConfig& cfg, const std::vector<ProviderStatus>& status) {
+Json ToolServerStatus::to_json() const {
+    return Json::object({{"name", name}, {"type", type}, {"target", target}, {"enabled", enabled}, {"roles", roles},
+                         {"usesKey", usesKey}, {"keySource", keySource}, {"problem", problem},
+                         {"ready", enabled && problem.empty()}});
+}
+
+std::vector<ToolServerStatus> tool_server_statuses(const AiConfig& cfg, const EnvLookup& env) {
+    std::vector<ToolServerStatus> out;
+    for (const ToolServer& s : cfg.toolServers) {
+        ToolServerStatus st;
+        st.name = s.name;
+        st.type = s.type;
+        st.enabled = s.enabled;
+        // A key in a query string stays out of reports.
+        st.target = s.is_stdio() ? s.command : s.url.substr(0, s.url.find_first_of("?#"));
+        for (const char* r : kAllRoles) {
+            if (s.serves_role(r)) st.roles.push_back(r);
+        }
+        if (auto r = resolve_tool_server(s, env)) {
+            st.usesKey = r->usesKey;
+            st.keySource = r->keySource;
+        } else {
+            st.problem = r.error().message + (r.error().hint.empty() ? "" : " " + r.error().hint);
+            st.usesKey = true;
+        }
+        out.push_back(std::move(st));
+    }
+    return out;
+}
+
+std::string format_doctor_report(const AiConfig& cfg, const std::vector<ProviderStatus>& status, const EnvLookup& env) {
     std::string out = "FactorIA AI providers";
     out += cfg.sourcePath.empty() ? " (no config file: built-in defaults)\n" : " (config: " + cfg.sourcePath + ")\n";
     for (const auto& s : status) {
@@ -109,6 +139,15 @@ std::string format_doctor_report(const AiConfig& cfg, const std::vector<Provider
                (r->second.model.empty() ? "" : " / " + r->second.model) + "\n";
     }
     if (cfg.assets.empty()) out += "  none configured: add \"assets\" to ai.json (docs/AI_PROVIDERS.md, Asset providers)\n";
+    out += "External tool servers (mcpServers):\n";
+    for (const auto& t : tool_server_statuses(cfg, env)) {
+        out += std::string(!t.enabled ? "  [off]  " : t.problem.empty() ? "  [ok]   " : "  [--]   ") + t.name + " (" + t.type +
+               "): " + t.target;
+        if (t.usesKey && t.problem.empty()) out += t.keySource.empty() ? " [no key needed]" : " [key from " + t.keySource + "]";
+        out += " [roles " + fa::join(t.roles, ", ") + "]\n";
+        if (t.enabled && !t.problem.empty()) out += "         -> " + t.problem + "\n";
+    }
+    if (cfg.toolServers.empty()) out += "  none configured: add \"mcpServers\" to ai.json (docs/AI_PROVIDERS.md, External tools)\n";
     for (const auto& w : cfg.warnings) out += "WARNING: " + w + "\n";
     return out;
 }

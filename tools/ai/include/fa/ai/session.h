@@ -6,6 +6,8 @@
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/config.h"
+#include "fa/ai/http.h"
+#include "fa/ai/mcp_client.h"
 #include "fa/ai/provider.h"
 #include "fa/ai/types.h"
 #include "fa/core/command.h"
@@ -46,6 +48,10 @@ struct SessionOptions {
     // A CLI agent's process started (any depth): its pid (fa/core/process.h process_tree()) and role. Runs on the thread
     // that runs the session. The editor's "check activity" asks the OS about these processes.
     std::function<void(long long pid, const std::string& role)> onProcessStart;
+    // How {key} and ${ENV} of the tool servers are filled in (empty = the process environment). Tests set it.
+    EnvLookup env;
+    // The HTTP the built-in agent uses to reach tool servers (empty = the real network). Tests set it to a fake server.
+    HttpTransport toolServerTransport;
 };
 
 struct SessionResult {
@@ -83,6 +89,14 @@ std::vector<std::string> cli_disallowed_tools(const CommandRegistry& registry, s
 // Tool list from the registry, sorted by name (byte-stable for prompt caching). `readOnly`: only is_read_only_tool commands.
 std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate, bool readOnly = false);
 
+// What the prompt says about one tool server.
+struct ToolServerBrief {
+    std::string name;
+    std::string note;        // ToolServer::note
+    std::string toolPrefix;  // how this agent's tool names for the server start: "scenario__" (built-in agent),
+                             // "mcp__scenario__" (Claude Code); "" = the agent names them itself (Codex...)
+};
+
 struct PromptContext {
     std::string projectDir;
     std::string role;
@@ -93,7 +107,13 @@ struct PromptContext {
     // Delegable roles the user turned off (AiConfig::disabled_delegable_roles). The orchestrator's prompt lists only the
     // others and says it does the work of these itself, with the art/audio guidance the role's own prompt would give.
     std::vector<std::string> disabledRoles;
+    // The user's external tool servers this role may use (ai.json "mcpServers"): the prompt gets an "External tools" section.
+    std::vector<ToolServerBrief> toolServers;
 };
+// The "External tools" section of the prompt of a role that got tool servers: each server with its note and how its tools are
+// named, and the rules for using them (they may cost credits; what they make comes into the project through assets_import).
+// `readOnly`: the role only looks and plays, so it is told not to bring anything into the project. "" when `servers` is empty.
+std::string external_tools_prompt(const std::vector<ToolServerBrief>& servers, bool readOnly = false);
 // The "Asset sources" section of the prompt of the roles that look for assets: the listed sites per category, the rule (prefer
 // them, or use ONLY them when `onlyListed`) and how to record where an asset came from. "" when no site is listed.
 std::string asset_sources_prompt(const AssetSources& sources);
@@ -130,7 +150,7 @@ private:
                            const std::string& task, int depth);
     SessionResult run_cli(const std::string& role, const RoleConfig& rc, const ProviderConfig& pc,
                           const std::string& task, int depth);
-    ToolResult execute_tool(const ToolCall& call, const std::string& role, int depth);
+    ToolResult execute_tool(const ToolCall& call, const std::string& role, int depth, McpToolSet* toolServers = nullptr);
     void emit(AgentEvent e, int depth, const std::string& role);
     bool over_budget(std::string& why) const;
     bool over_budget(const Usage& usageNow, double costNow, std::string& why) const;  // with these totals instead
