@@ -307,6 +307,29 @@ std::shared_ptr<const MeshGeometry> MeshStore::geometry(const std::string& id) {
     return e.geometry;
 }
 
+std::shared_ptr<const MeshSurface> MeshStore::surface(const std::string& id) {
+    auto it = entries_.find(id);
+    if (it == entries_.end()) return nullptr;
+    Entry& e = *it->second;
+    if (!e.surface || e.surfaceVersion != e.version) {
+        auto s = std::make_shared<MeshSurface>();
+        const std::size_t n = e.data.vertex_count();
+        s->positions.resize(n);
+        s->uvs.resize(n);
+        for (std::size_t i = 0; i < n; ++i) {
+            s->positions[i] = {e.data.positions[i * 3], e.data.positions[i * 3 + 1], e.data.positions[i * 3 + 2]};
+            s->uvs[i] = {e.data.uvs[i * 2], e.data.uvs[i * 2 + 1]};
+        }
+        for (const MeshSubmesh& sm : e.data.submeshes) {
+            const std::size_t end = std::min<std::size_t>(std::size_t(sm.start) + sm.count, e.data.indices.size());
+            s->indices.insert(s->indices.end(), e.data.indices.begin() + std::min<std::size_t>(sm.start, end), e.data.indices.begin() + end);
+        }
+        e.surface = std::move(s);
+        e.surfaceVersion = e.version;
+    }
+    return e.surface;
+}
+
 std::shared_ptr<const MeshGeometry> mesh_geometry_for(MeshStore& store, const std::string& mesh, std::string* error) {
     if (MeshStore::is_id(mesh)) {
         auto g = store.geometry(mesh);

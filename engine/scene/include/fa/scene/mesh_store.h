@@ -21,6 +21,7 @@
 #include "fa/core/math.h"
 #include "fa/core/types.h"
 #include "fa/scene/mesh_geometry.h"
+#include "fa/scene/mesh_surface.h"
 
 namespace fa {
 
@@ -52,7 +53,7 @@ struct MeshInput {
     std::vector<float> normals;     // 3 per vertex; computed (smooth, area-weighted) when absent
     std::vector<float> uvs;         // 2 per vertex; zeros when absent
     std::vector<float> tangents;    // 4 (xyzw) or 3 (xyz, w = 1) per vertex; computed from the uvs when absent
-    std::vector<float> colors;      // 4 (rgba) or 3 (rgb) per vertex; stored and saved as COLOR_0, not drawn yet
+    std::vector<float> colors;      // 4 (rgba) or 3 (rgb) per vertex; multiply the base color when drawn (glTF COLOR_0) and are saved as COLOR_0
     std::vector<std::uint32_t> indices;  // three per triangle; when absent on create: 0,1,2,3,4,5... (a triangle soup)
     std::vector<MeshSubmesh> submeshes;  // absent = one submesh with a default material over all the indices
     bool hasIndices = false;        // `indices` was given (an empty list is then an error, not "absent")
@@ -91,6 +92,8 @@ public:
         MeshData data;
         std::shared_ptr<const MeshGeometry> geometry;  // positions + triangles for physics and picking; built on demand
         std::uint64_t geometryVersion = 0;
+        std::shared_ptr<const MeshSurface> surface;  // positions + uvs + triangles for the pointer through a render target; on demand
+        std::uint64_t surfaceVersion = 0;
     };
 
     MeshStore();
@@ -111,6 +114,10 @@ public:
 
     // The collider/picking geometry of the mesh (cached per version); nullptr when the id is not alive.
     std::shared_ptr<const MeshGeometry> geometry(const std::string& id);
+    // The drawn triangles of the mesh with their uvs (indices outside every submesh are left out, as they are not drawn), for
+    // raycast_surface: built on first use and again only after an update (cached per version, so a mesh that is deformed every frame
+    // is rebuilt once per update and one that did not change costs nothing); nullptr when the id is not alive.
+    std::shared_ptr<const MeshSurface> surface(const std::string& id);
 
 private:
     std::map<std::string, std::unique_ptr<Entry>> entries_;

@@ -1213,8 +1213,16 @@ m.update({ positions: newPositions });            // the rest is kept
   there is one submesh with a default material over all the indices; indices outside every submesh are not drawn.
   `MeshRenderer.color` tints the base color, `materialColors` is keyed by the submesh's material `name`, and a material that gives
   `metallic` or `roughness` replaces `MeshRenderer.metallic`/`roughness` for that submesh (as a glTF material does).
-- **Vertex colors are stored but NOT drawn yet.** They are validated, kept, and written to a saved `.glb` as `COLOR_0`, but the
-  renderer ignores them: color parts with submesh materials.
+- **Vertex colors** (`colors`, rgb or rgba per vertex) are drawn like glTF `COLOR_0`: they multiply the submesh material's base color
+  (and so `MeshRenderer.color`), rgb and alpha, lit or `unlit`, instanced, in the shadow pass of a `clip` material and in custom
+  materials (a snippet reads them as `i.vertex_color`, `v.color` in `vertex()`, docs/SHADERS.md). They are clamped to 0..1 with 8 bits
+  per channel on the GPU and white when you give none, so a mesh without `colors` looks exactly as before. Alpha below 1 shows only
+  with a material that has `blend: true` (or a `clip` material, which discards below its cutoff). They are also written to a saved
+  `.glb` as `COLOR_0`, and `.glb`/`.gltf` models that carry `COLOR_0` are drawn the same way.
+- **Pointer through a render target.** A procedural mesh can show a camera's picture (`MeshRenderer.texture: "target:book"`, or a
+  submesh material whose `texture` is `"target:book"`) and the pointer reaches the page's `Interactable`s through its `uvs` at the triangle
+  under the mouse, like any other mesh (docs/RENDERING.md, "Pointer input through the mesh"). The hit test uses the mesh as it is
+  now: bend a page with `mesh.update` and the next click lands on the new shape.
 - **Update.** `mesh.update(m, {...})` (or `m.update({...})`) replaces what you give and keeps the rest (`positions`, `uvs`,
   `colors`, `indices`, `submeshes`; the `uvs` only if the mesh was made with some). `normals` and `tangents` are computed again unless
   you pass them. Changing `indices` of a mesh with several submeshes needs `submeshes` as well. The bounds follow, so culling,

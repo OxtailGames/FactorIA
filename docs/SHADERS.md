@@ -65,7 +65,7 @@ A plain GLSL 450 file (Vulkan style, what sokol-shdc reads), with no `@` tags an
 - `void vertex(inout VertexData v)` (optional), run per vertex.
 
 Both may be preceded by your own helper functions (they compile in both stages). `surface()` arrives with `s` already
-filled with what a plain `MeshRenderer` would draw (texture times color, normal map, metallic/roughness/occlusion maps,
+filled with what a plain `MeshRenderer` would draw (texture times color times vertex color, normal map, metallic/roughness/occlusion maps,
 emissive), so change only what you need: a pulse is two lines and keeps working with the entity's `color`, `texture`
 and glTF materials.
 
@@ -75,6 +75,8 @@ struct SurfaceInput {        // read-only, per fragment
     vec3 world_normal;       // interpolated geometric normal, normalized, flipped on back faces
     vec4 world_tangent;      // xyz tangent, w handedness
     vec2 uv;                 // after MeshRenderer.uvScale
+    vec4 vertex_color;       // the interpolated vertex color (glTF COLOR_0 or the `colors` of a procedural mesh); white without.
+                             // Already multiplied into the s.albedo and s.alpha that surface() starts from
     vec3 view_dir;           // surface -> camera, normalized
     bool front_facing;
 };
@@ -92,6 +94,7 @@ struct VertexData {          // vertex(): world space, after instancing and skin
     vec3 world_normal;
     vec4 world_tangent;
     vec2 uv;
+    vec4 color;              // the vertex color (white without); what you write here is what `surface()` reads as i.vertex_color
     vec3 object_pos;         // the model-space position; read it, do not write it
 };
 ```

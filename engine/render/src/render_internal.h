@@ -64,8 +64,15 @@ struct MeshVertex {
     float nx, ny, nz;
     float u, v;
     float tx = 0, ty = 0, tz = 0, tw = 1;  // tangent (xyz) and handedness (w = +1 / -1): bitangent = cross(normal, tangent) * w
+    std::uint32_t color = 0xFFFFFFFFu;     // vertex color, rgba as four normalized bytes (r in the lowest byte): white = no tint
 };
-static_assert(sizeof(MeshVertex) == 48, "MeshVertex must be 48 bytes");
+static_assert(sizeof(MeshVertex) == 52, "MeshVertex must be 52 bytes");
+
+// The four bytes of MeshVertex::color for a color (each channel clamped to 0..1 and rounded).
+inline std::uint32_t pack_vertex_color(float r, float g, float b, float a) {
+    auto q = [](float x) { return std::uint32_t(std::lround(std::fmin(std::fmax(x, 0.0f), 1.0f) * 255.0f)); };
+    return q(r) | (q(g) << 8) | (q(b) << 16) | (q(a) << 24);
+}
 
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
 constexpr int kMaxLights = 32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
