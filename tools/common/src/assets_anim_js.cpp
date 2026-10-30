@@ -13,6 +13,7 @@
 #include <quickjs.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <set>
@@ -21,9 +22,31 @@
 #include "fa/core/strings.h"
 #include "util.h"
 
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#elif defined(_WIN32) || defined(__linux__)
+#include <malloc.h>
+#endif
+
 namespace fa::assets_detail {
 
 namespace {
+
+// What the runtime may still allocate once it went over the module's memory limit: room for QuickJS to build the
+// "out of memory" error and its stack (which gives the line), and for us to read them.
+constexpr std::size_t kOomReserve = std::size_t(4) * 1024 * 1024;
+
+std::size_t block_size(const void* p) {
+#if defined(__APPLE__)
+    return malloc_size(p);
+#elif defined(_WIN32)
+    return _msize(const_cast<void*>(p));
+#elif defined(__linux__)
+    return malloc_usable_size(const_cast<void*>(p));
+#else
+    return 0;
+#endif
+}
 
 constexpr const char* kPrelude = R"JS((function (native) {
   "use strict";
@@ -119,6 +142,11 @@ struct AnimModule::Impl {
     std::vector<std::string> logLines;
     std::chrono::steady_clock::time_point deadline;
     bool timedOut = false;
+    // The memory limit is counted here, not with JS_SetMemoryLimit: QuickJS's own limit refuses every allocation past it,
+    // so when the one that crosses it is small, the error cannot be built either and the module "throws null" with no
+    // line. Here the first refusal opens kOomReserve for the error.
+    std::size_t allocated = 0;
+    bool outOfMemory = false;
     std::string loaderError;  // why a project file could not be read (the JS error only says it failed)
 
     ~Impl() {
@@ -129,6 +157,42 @@ struct AnimModule::Impl {
         }
         if (rt) JS_FreeRuntime(rt);
     }
+
+    bool admit(std::size_t grow) {
+        if (allocated + grow <= limits.memoryBytes + (outOfMemory ? kOomReserve : 0)) return true;
+        outOfMemory = true;
+        return false;
+    }
+    static void* mem_malloc(void* opaque, size_t size) {
+        auto* self = static_cast<Impl*>(opaque);
+        if (!self->admit(size)) return nullptr;
+        void* p = std::malloc(size);
+        if (p) self->allocated += block_size(p);
+        return p;
+    }
+    static void* mem_calloc(void* opaque, size_t count, size_t size) {
+        auto* self = static_cast<Impl*>(opaque);
+        if (!self->admit(count * size)) return nullptr;  // QuickJS checked count * size for overflow
+        void* p = std::calloc(count, size);
+        if (p) self->allocated += block_size(p);
+        return p;
+    }
+    static void mem_free(void* opaque, void* p) {
+        if (!p) return;
+        static_cast<Impl*>(opaque)->allocated -= block_size(p);
+        std::free(p);
+    }
+    static void* mem_realloc(void* opaque, void* p, size_t size) {
+        auto* self = static_cast<Impl*>(opaque);
+        if (!p) return mem_malloc(opaque, size);
+        const std::size_t old = block_size(p);
+        if (size > old && !self->admit(size - old)) return nullptr;
+        void* np = std::realloc(p, size);
+        if (!np) return nullptr;
+        self->allocated = self->allocated - old + block_size(np);
+        return np;
+    }
+    static constexpr JSMallocFunctions kMallocFunctions = {mem_calloc, mem_malloc, mem_free, mem_realloc, block_size};
 
     static int interrupt(JSRuntime*, void* opaque) {
         auto* self = static_cast<Impl*>(opaque);
@@ -206,6 +270,7 @@ struct AnimModule::Impl {
     void arm() {
         deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(std::int64_t(limits.seconds * 1e6));
         timedOut = false;
+        if (allocated <= limits.memoryBytes) outOfMemory = false;  // the module caught the error and let go of the memory
         JS_UpdateStackTop(rt);
     }
 
@@ -259,6 +324,8 @@ struct AnimModule::Impl {
                     e.column = std::atoi(get_string(ctx, ex, "columnNumber").c_str());
                 }
             }
+        } else if (outOfMemory) {
+            e.message = "out of memory";  // the error object itself could not be made
         } else if (const char* s = JS_ToCString(ctx, ex)) {
             e.name = "Error";
             e.message = std::string("threw ") + s;
@@ -326,9 +393,8 @@ std::unique_ptr<AnimModule> AnimModule::load(const std::string& projectDir, cons
     I.projectDir = projectDir;
     I.moduleRel = moduleRel;
     I.limits = limits;
-    I.rt = JS_NewRuntime();
+    I.rt = JS_NewRuntime2(&Impl::kMallocFunctions, &I);
     if (!I.rt) fail("failed", "The JavaScript runtime could not be created.");
-    JS_SetMemoryLimit(I.rt, limits.memoryBytes);
     JS_SetMaxStackSize(I.rt, limits.stackBytes);
     JS_SetInterruptHandler(I.rt, Impl::interrupt, &I);
     JS_SetModuleLoaderFunc(I.rt, Impl::normalize, Impl::loader, &I);

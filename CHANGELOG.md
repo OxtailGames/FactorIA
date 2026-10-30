@@ -19,6 +19,7 @@ FactorIA 0.9.0 (M44) brings what a 3D book needs, found by the user's game Rogue
 ### Changes
 
 - `render.textureFromPNG` accepts pictures up to 4096 x 4096 (it was 2048), the size run-time textures could already have.
+- `project.export` takes `player` like the CLI's `--player`: the desktop or web player to bundle, so an AI can export for another OS with a player built there.
 
 ### Text and sprites
 
@@ -30,6 +31,8 @@ FactorIA 0.9.0 (M44) brings what a 3D book needs, found by the user's game Rogue
 
 - An entity destroyed during a frame (and its children) is no longer drawn in that frame: the renderer used to draw it until the end of the frame, so a group destroyed and rebuilt in one frame was drawn twice for one frame, and a `render.captureTexture` taken the next frame showed both. docs/SCRIPTING.md says which frame a capture shows.
 - A project tool (`project_<name>`, from `tools/*.js`) now runs the code on disk: when its file, or a module it imports, was edited since it was loaded, the tool is re-imported before the call, as `script.eval {module}` does. This holds in the editor's MCP session, `factoria mcp` and `factoria call`. An object result also carries `toolVersion` (`file`, `hash` of the file as it ran, `loadedAt`), so a stale tool is visible.
+- On Linux, the MCP server now tells the AI to restart the client (or `/mcp`) after it added the missing `"timeout"` to the project's `.mcp.json`: Linux stamps files with a clock a tick behind, so the write looked older than the server's start.
+- An `.anim.js` module that runs out of memory with many small allocations now says "ran out of memory" and names the line, instead of "threw null": the runtime keeps room to build the error.
 
 ### AI
 

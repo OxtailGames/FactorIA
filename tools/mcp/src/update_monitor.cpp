@@ -161,6 +161,12 @@ void McpUpdateMonitor::restart_failed(const std::string& reason) {
     check_executable();  // says it (once) now that the restart is off
 }
 
+bool McpUpdateMonitor::config_changed_after_start(const ClaudeCodeMcpState& st) const {
+    // FactorIA's own write came after the client started whatever the file's time says: Linux stamps files with a coarse
+    // clock (up to a kernel tick behind), so a file written right after startedMs_ can carry an older time.
+    return st.exists && (addedTimeout_ || st.modifiedMs > startedMs_);
+}
+
 void McpUpdateMonitor::check_client_config() {
     if (opt_.projectDir.empty() || !server_.initialized() || !client_reads_mcp_json()) return;
     ClaudeCodeMcpState st = read_claude_code_mcp_state(opt_.projectDir);
@@ -185,7 +191,7 @@ void McpUpdateMonitor::check_client_config() {
                                     timeoutError_ + "). Add \"timeout\": " + std::to_string(kClaudeCodeMcpToolTimeoutMs) +
                                     " to it by hand, or long tool calls such as ai_run are aborted by Claude Code after minutes.");
     }
-    if (st.modifiedMs <= startedMs_ || st.modifiedMs == configReportedMs_) return;  // the client read the file as it is
+    if (!config_changed_after_start(st) || st.modifiedMs == configReportedMs_) return;  // the client read the file as it is
     configReportedMs_ = st.modifiedMs;
     std::string text = "The project's .mcp.json (" + st.path + ") changed after the AI client started this factoria server, so "
                        "the client may still run with the old settings";
@@ -211,10 +217,10 @@ Json McpUpdateMonitor::status() const {
         const ClaudeCodeMcpState st = read_claude_code_mcp_state(opt_.projectDir);
         Json cfg = st.to_json();
         cfg["clientReadsIt"] = client_reads_mcp_json();
-        cfg["changedAfterClientStarted"] = st.exists && st.modifiedMs > startedMs_;
+        cfg["changedAfterClientStarted"] = config_changed_after_start(st);
         cfg["timeoutAddedByFactoria"] = addedTimeout_;
         cfg["timeoutError"] = timeoutError_;
-        cfg["advice"] = st.exists && st.modifiedMs > startedMs_ && client_reads_mcp_json()
+        cfg["advice"] = config_changed_after_start(st) && client_reads_mcp_json()
                             ? "the client may run with an older .mcp.json: ask the user to restart it or reconnect (Claude Code: /mcp)"
                             : "the client started with the .mcp.json on disk";
         j["projectConfig"] = cfg;

@@ -717,7 +717,6 @@ TEST_CASE("list_models: a Claude Code that is not logged in says so") {
     CHECK(models.error().message.find("not logged in") != std::string::npos);
     CHECK(models.error().hint.find("claude") != std::string::npos);
 }
-#endif
 
 TEST_CASE("AgentSession: every transcript line of a CLI agent has a time and tool_end says how long the tool ran") {
     TempDir dir;
@@ -753,3 +752,4 @@ TEST_CASE("AgentSession: every transcript line of a CLI agent has a time and too
     REQUIRE(tl);
     CHECK((*tl)["hasTimes"] == true);
 }
+#endif  // !_WIN32
