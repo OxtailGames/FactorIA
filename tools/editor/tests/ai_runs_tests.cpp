@@ -140,6 +140,27 @@ TEST_CASE("AiRun: reset_live clears what a previous run left") {
     CHECK(run.snoozeUntil == 0);
 }
 
+TEST_CASE("AiRun: request_cancel keeps the first cause, reset_live forgets it") {
+    AiRun run("chat");
+    CHECK(run.cancel_cause().empty());
+    run.request_cancel("user_stop");
+    run.request_cancel("run_ended");
+    CHECK(run.cancel.load());
+    CHECK(run.cancel_cause() == "user_stop");
+    run.cancel = false;
+    run.reset_live(1);
+    CHECK(run.cancel_cause().empty());
+}
+
+TEST_CASE("agent_process_gone: needs an empty list, silence and the OS agreeing") {
+    auto no = [](long long) { return false; };
+    auto yes = [](long long) { return true; };
+    CHECK(agent_process_gone(42, true, 30, +no));
+    CHECK_FALSE(agent_process_gone(42, true, 30, +yes));  // the list missed a process that lives
+    CHECK_FALSE(agent_process_gone(42, true, 3, +no));    // the run still reports: not dead
+    CHECK_FALSE(agent_process_gone(42, false, 30, +no));  // the list shows it
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // What a call changed
 

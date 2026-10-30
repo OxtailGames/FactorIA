@@ -396,7 +396,7 @@ public:
     // AI
     void ai_refresh_providers();
     void ai_start(const std::string& task);   // sends `task` (+ the pending pictures) in the active chat
-    void ai_stop();                           // stops every run: joins the agent threads, applies their last events, saves the chats
+    void ai_stop(const char* cause);                           // stops every run: joins the agent threads, applies their last events, saves the chats
     void ai_stop_run(const std::string& chatId);  // stops one chat's run the same way (the others go on)
     void ai_drain_events();                   // every run's pending events and result (one frame's worth)
     void ai_drain_run(AiRun& run);
