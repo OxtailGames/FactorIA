@@ -249,7 +249,8 @@ Result<void> start_editor_process(const std::string& projectDir) {
     const std::vector<std::string> viaLauncher = editor_restart_command(SetupContext{}, editor::utf8_string(absProject));
     if (!viaLauncher.empty()) {
 #if defined(_WIN32)
-        std::wstring cmd = L"\"" + editor::utf8_path(viaLauncher[0]).wstring() + L"\" \"" + editor::utf8_path(viaLauncher[1]).wstring() + L"\"";
+        std::wstring cmd = L"\"" + editor::utf8_path(viaLauncher[0]).wstring() + L"\"";
+        if (viaLauncher.size() > 1) cmd += L" \"" + editor::utf8_path(viaLauncher[1]).wstring() + L"\"";  // none: start screen
         STARTUPINFOW si{};
         si.cb = sizeof si;
         PROCESS_INFORMATION pi{};
