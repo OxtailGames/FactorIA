@@ -2,9 +2,9 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.8.0
 
-FactorIA lets the AI use external tool servers (MCP) that you configure, such as Scenario for generating game art.
+FactorIA 0.8.0 (M43) lets the AI use external tool servers (MCP) that you configure in the editor's AI settings, such as Scenario for generating game art: Claude Code, Codex, the generic CLI agent and the API providers all get them, and the AI calls them only when they help.
 
 ### New
 
