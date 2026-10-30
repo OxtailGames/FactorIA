@@ -2,7 +2,9 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.7.5
+
+FactorIA 0.7.5 stops the editor's AI watchdog from cancelling healthy agents on macOS and says why any run was cancelled.
 
 ### Fixes
 
