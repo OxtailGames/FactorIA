@@ -252,6 +252,32 @@ std::string asset_sources_prompt(const AssetSources& sources) {
     return out;
 }
 
+std::string external_tools_prompt(const std::vector<ToolServerBrief>& servers, bool readOnly) {
+    if (servers.empty()) return {};
+    std::string out = "# External tools\n"
+                      "The user connected these external tool servers. Their tools are listed next to your other tools; use them "
+                      "when they help the game (for example to make something the engine's own tools cannot), not for what you "
+                      "can do without them.\n\n";
+    for (const ToolServerBrief& s : servers) {
+        out += "- " + s.name;
+        if (!s.toolPrefix.empty()) out += " (its tools are named `" + s.toolPrefix + "<tool>`)";
+        out += s.note.empty() ? "\n" : ": " + s.note + "\n";
+    }
+    out += "\nRules:\n"
+           "- A call may cost the user credits or money. Try one small call first and look at the result before you start a batch; "
+           "do not repeat a call whose result you already have.\n"
+           "- If a call fails (a key, credits, the network), tell the user what failed and why instead of retrying in a loop.\n";
+    if (readOnly) {
+        out += "- You only look and judge: do not use a tool that generates or changes anything for the project.";
+    } else {
+        out += "- What a tool makes is not in the project yet. Download the file, bring it in with assets_import and pass sourceUrl "
+               "(where it came from), license (what the service grants for the user's plan, or \"unknown\" when you cannot tell) "
+               "and author, so assets.json keeps its source and license for the credits. Never use a file whose license you "
+               "cannot state.";
+    }
+    return out;
+}
+
 std::string build_system_prompt(const PromptContext& ctx) {
     std::string out = kGuide;
     out += "\n\n";
@@ -321,6 +347,8 @@ std::string build_system_prompt(const PromptContext& ctx) {
     if (!is_review_role(ctx.role)) {  // the critics and the reviewers look and play, they do not bring assets in
         if (const std::string section = asset_sources_prompt(ctx.assetSources); !section.empty()) out += section + "\n\n";
     }
+    if (const std::string section = external_tools_prompt(ctx.toolServers, is_review_role(ctx.role)); !section.empty())
+        out += section + "\n\n";
     out += "# Project context\n";
     if (ctx.projectDir.empty()) {
         out += "No project directory is open.\n";

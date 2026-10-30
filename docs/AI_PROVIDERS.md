@@ -151,8 +151,9 @@ Built-in providers exist without being listed: `anthropic`, `openai`,
 `codex`, and the asset providers `elevenlabs`, `meshy` and `fake`. Listing one overrides only the fields you give.
 A top-level `"assets"` section assigns asset providers to the kinds of asset
 (see [Asset providers](#asset-providers)); roles cannot use asset-only providers. A top-level `"assetSources"` section lists
-the websites the AI should look at when it searches for assets (see [Asset sources](#asset-sources)). The editor's **AI
-settings** window edits both ([below](#the-ai-settings-window)), so neither has to be written by hand.
+the websites the AI should look at when it searches for assets (see [Asset sources](#asset-sources)). A top-level
+`"mcpServers"` section connects external tool servers such as Scenario (see [External tools](#external-tools-mcp-servers)). The
+editor's **AI settings** window edits all three ([below](#the-ai-settings-window)), so none has to be written by hand.
 
 ## Roles
 
@@ -534,6 +535,24 @@ JSON is left alone (the window says so instead of overwriting it). Then it reloa
 next message use the new settings; nothing else needs a restart. The window always edits the user's `ai.json` (the one in
 `FACTORIA_AI_CONFIG`, if set), never a file of the game project.
 
+The **External tools** tab (between Roles and Assets) sets up the `mcpServers` of [External tools](#external-tools-mcp-servers):
+
+* **Servers.** One row per server: a checkbox to turn it on or off, its name, where it lives (a web address or a program), which
+  roles get it (`default`, or how many were chosen), and a status. **Test** connects to that server in the background (the editor
+  stays usable) and shows what it said: `Connected to <server>: N tools (the first twelve names)`, or the error with its hint. It only
+  asks for the tool list; no tool is called and nothing is spent. **Edit** opens the form, **Remove** drops the row (until Save).
+* **Add server** / **Edit.** Name; Kind (Web service (HTTP) or Program on this computer); the Address and Headers (one
+  `Name: value` per line), or the Program, Arguments (one line, quote what has spaces) and Environment (`NAME=value` per line);
+  the Key (a masked box, stored as `apiKey`) or the name of the environment variable that holds it (the window suggests
+  `<NAME>_API_KEY` and says an environment variable is the better place); a Note for the AI; checkboxes for who may use the server
+  (the review roles are off unless ticked); and how long to wait per call. **Test these settings** tries the form before it is
+  applied; **Apply** checks it the way the loader does and puts it in the table; **Cancel** drops it.
+* **Paste JSON...** takes what a service's documentation shows for Claude Code: a whole `{"mcpServers": {...}}` or one server
+  (then a name is taken from the address or program unless you type one). Keys FactorIA does not use (such as `disabled`) are
+  listed and skipped. A server with a name already in the table replaces it.
+* **Save** rewrites only `mcpServers` (the file is made private first when it holds a key) and reloads the file; every other key
+  stays and a file that is not valid JSON is left alone. The next message uses the servers. **Close** drops what was not saved.
+
 ## Asset sources
 
 `assetSources` tells the AI where to get assets that it does not generate: websites for images and textures, 3D models, audio,
@@ -580,6 +599,104 @@ not `curl` or a script run through Bash, and a domain rule matches that exact ho
 a subdomain such as `cdn.kenney.nl` has to be listed as its own entry). A WebFetch allowed globally in the user's own Claude Code
 settings still works. Use the prompt rule as the user's wish and the allow list as a safety net.
 
+## External tools (MCP servers)
+
+`mcpServers` in your `ai.json` connects the AI to services and programs of your own choosing: an image generator such as
+[Scenario](https://www.scenario.com) (game art), a search or file tool, anything that speaks the Model Context Protocol (MCP). The
+AI calls their tools when it sees fit, next to the engine's own tools. FactorIA does not know any service in particular: a server
+is an address (or a program) plus the key it wants, so Scenario is one entry among whatever you add.
+
+The shape is the one Claude Code's `.mcp.json` uses, so the JSON a service's documentation gives for Claude Code can be pasted
+(the editor has a button for it, [below](#the-ai-settings-window)):
+
+```json
+{
+  "mcpServers": {
+    "scenario": {
+      "type": "http",
+      "url": "https://mcp.scenario.com/mcp",
+      "headers": { "Authorization": "Basic {key}" },
+      "apiKeyEnv": "SCENARIO_API_KEY",
+      "note": "AI game art: sprites, textures, icons, consistent styles. Costs Scenario credits.",
+      "roles": ["orchestrator", "artist"],
+      "timeoutSeconds": 300
+    },
+    "files": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${ART_DIR:-./art-references}"],
+      "env": { "SOME_TOKEN": "${SOME_TOKEN:-none}" }
+    }
+  }
+}
+```
+
+The server name is the key (`[A-Za-z0-9_-]`, up to 40 characters, not `factoria`: that is the engine's own server).
+
+| Field | Meaning |
+|---|---|
+| `type` | `http` (a web service, Streamable HTTP) or `stdio` (a program on this computer). Left out: `command` means `stdio`, `url` means `http`. The old SSE transport (`type: "sse"`) is not supported. |
+| `url` | `http`: the server's endpoint, usually ending in `/mcp`. `https://`, or `http://` for a server on this computer. |
+| `headers` | `http`: extra headers (name to value), usually the one that carries the key. |
+| `command`, `args`, `env` | `stdio`: the program, its arguments and extra environment variables (added to the editor's own). |
+| `apiKeyEnv`, `apiKey` | Where `{key}` comes from: the environment variable named by `apiKeyEnv`, otherwise `apiKey` (the key written in this file). Prefer the variable. |
+| `note` | One or two lines for the AI's prompt: what the server is good for and what it costs. The AI reads it, so write for it. |
+| `roles` | Who may use the server (role names, see [Roles](#roles)). Left out: orchestrator, worker, fast, artist and audio. The review roles (`artCritic`, `reviewer`) get a server only when listed here. |
+| `enabled` | `false` keeps the entry without using it. |
+| `timeoutSeconds` | How long one tool call may take (default 120; generating an image takes a while). |
+
+`{key}` in a header value, an argument or an environment value is replaced by the key, and `${NAME}` or `${NAME:-default}` by
+an environment variable. A reference with nothing to fill it in is not guessed: the server is left out of the run and the error
+says which variable to set (restart the editor, or open a new shell, after setting one).
+
+**Scenario.** Create an API key and secret in your Scenario account (see Scenario's documentation for the current address and
+header; the entry above is its `Basic` scheme). The header carries `base64(KEY:SECRET)` and FactorIA puts `{key}` in as it
+is, so store that value, not the two halves:
+
+```bash
+export SCENARIO_API_KEY="$(printf '%s' 'YOUR_KEY:YOUR_SECRET' | base64)"
+```
+
+On Windows PowerShell: `[Environment]::SetEnvironmentVariable("SCENARIO_API_KEY", [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("YOUR_KEY:YOUR_SECRET")), "User")`.
+Then run `factoria ai doctor` (it lists the server and where its key was found) or press **Test** in the editor (below).
+
+**What each provider does with the servers**
+
+| Provider | How the server is used |
+|---|---|
+| `claude-code` | Claude Code connects itself: the run gets the servers in the `--mcp-config` file and `mcp__<name>` in `--allowedTools` (tools show up as `mcp__<name>__<tool>`). The file holds the keys, so it is created readable only by you (Linux, macOS), is named per run and is deleted when the run ends. Servers that want OAuth work here after you log in once inside Claude Code (`/mcp`); FactorIA never touches those credentials. |
+| `codex` (default `argv`) | Codex connects itself: `-c mcp_servers.<name>.*` arguments. The key never appears in the argument list (anyone can read it with `ps`): headers and a program's environment travel through environment variables that the arguments only name. With your own `argv` Codex is not given the servers (the run says so). |
+| `generic-cli` | A CLI whose `argv` has the `{mcp_config}` placeholder gets the same file as Claude Code (every server for that role, in `.mcp.json` shape); one without it is not given the servers, and the run says so. |
+| `anthropic`, `openai-compatible` | The built-in agent connects: at the start of each run FactorIA starts the program or opens the session, asks for the tool list, adds the tools as `<name>__<tool>` (reduced to letters, digits, `_` and `-`, at most 64 characters) and passes the model's calls to the server. Results come back as text, and as pictures when the server returns png, jpeg, gif or webp. Everything closes when the run ends. |
+
+A server that cannot be used (a missing key, unreachable, a program that is not installed, refused credentials) is left out of
+that run with a one-line note in the chat; the run goes on without it. Every run connects for itself: a worker handed a task by
+the orchestrator uses the servers listed for the `worker` role, not the orchestrator's.
+
+**What is not supported.** OAuth: a server must take a header or a key, except through Claude Code as said above (`401` with a
+`WWW-Authenticate` header is reported as "this server may want OAuth" with that advice). The old SSE transport. Server-initiated
+requests other than `ping`. Resources and prompts: only tools are used.
+
+**Permission, cost and privacy.**
+
+* Listing a server in `roles` is the permission: FactorIA does not ask before each call (the CLI agents run non-interactively and
+  the engine's own tools are not asked about either). A tool that generates content can spend credits on the service's side and
+  FactorIA cannot see what it costs (`limits.maxCostUsd` covers model tokens only). The prompt tells the AI to try one small call
+  first, to stop on an error instead of retrying, and to bring what a tool makes into the project with `assets_import`, giving the
+  source and license so the credits stay right. Keep `roles` narrow and put the price in `note`.
+* Only your own `ai.json` is read for servers: a game project cannot add one (that would let a downloaded project run a program
+  or send data to a host you did not pick). `apiKey` and header or environment values written in full are secrets like the provider keys:
+  the file is saved readable only by you, the key box of the settings window shows dots, and `ai.tool_servers`, `factoria ai doctor`
+  and the config dumps leave keys out (`***`) or never list them. Prefer `apiKeyEnv` and write `{key}` in the header instead of the
+  secret itself, so the header box of the window holds no secret either.
+* What goes to a server is what the AI puts in its calls (prompts, file names, sometimes images) and the key; the service's own
+  privacy terms apply to it. A server of type `stdio` runs with your permissions: add only programs you trust.
+* `http://` to another computer with a key is allowed but `factoria ai doctor` and the loader warn that it travels unencrypted.
+
+`factoria ai doctor` lists each server with `[ok]` (ready), `[--]` (what is missing) or `[off]`, its address (without any query
+string), where its key was found and which roles get it. The command `ai.tool_servers` returns the same as JSON and, with
+`{"test": true}`, connects to every enabled server that is ready and lists its tools (it only asks for the tool list: no tool is
+called and nothing is spent).
+
 ## Costs
 
 Estimated from reported token usage (input, output, cache read/write):
@@ -612,6 +729,9 @@ What a whole game cost, what drives it and how to see it: [AI_COSTS.md](AI_COSTS
 * Keys are sent only to the provider's `baseUrl`, in headers (never in URLs or
   logs). With the `curl` fallback they go through a private temp file, not the
   command line.
+* External tool servers (`mcpServers`) are read from your user-level `ai.json` only, and the same rules hold for their keys:
+  environment variable first, owner-only file, never in a log, a command result or an argument list
+  ([External tools](#external-tools-mcp-servers) says what each provider does).
 * What is sent to providers: your task, the system prompt, project file
   names, `factoria.json`, feedback titles and the results of tools the model
   calls (which can include file contents and screenshots). Use a local
@@ -641,3 +761,7 @@ What a whole game cost, what drives it and how to see it: [AI_COSTS.md](AI_COSTS
 | `'assets/a.wav' ends in '.wav', but the provider 'elevenlabs' makes sound as .mp3 files` | Use the extension the error names; it is checked before anything is paid for. |
 | `Meshy task ... was still IN_PROGRESS after N seconds` | Raise `timeoutSeconds` of the `meshy` provider; the task keeps running on Meshy's side. |
 | `... exited without writing asset.png` | The `asset-command` program must write to the path `{output}` stands for: put `{output}` in its `argv`. |
+| `External tool server 'scenario' skipped: Tool server 'scenario': ... uses {key}, which has no value` | Set the environment variable `apiKeyEnv` names (and restart the editor or open a new shell), or put the key in `apiKey`. `factoria ai doctor` shows it as `[--]` with the missing variable. |
+| `... refused the credentials (HTTP 401)` from a tool server | The key is wrong, or the header is not what the service wants (for Scenario: `Basic` plus `base64(KEY:SECRET)`). If the answer carries a `WWW-Authenticate` header the server may want OAuth: use it through Claude Code, or a key if it offers one. |
+| `... HTTP 404 ...` or `not an MCP reply` from a tool server | The address is not the server's Streamable HTTP endpoint (often ending in `/mcp`; an address ending in `/sse` is the old transport, not supported). |
+| A tool server works in Claude Code but not in the built-in agent or Codex | It uses OAuth; the built-in agent and Codex (through FactorIA) need a key or header. See [External tools](#external-tools-mcp-servers). |

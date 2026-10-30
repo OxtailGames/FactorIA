@@ -71,3 +71,16 @@ Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchest
 | `maxCostUsd` | number | no |  |
 | `stream` | boolean | no |  Default true. |
 
+## `ai.tool_servers`
+
+Not released yet (on main after 0.7.4).
+
+List the external tool servers (MCP) the user configured in ai.json, and optionally test them.
+
+The user's "mcpServers" (docs/AI_PROVIDERS.md, External tools): services such as Scenario (game art) or local programs whose tools the AI may call. Each entry has name, type (http|stdio), target (URL without its query, or program), enabled, roles (who gets it), usesKey, keySource (where the key was found, never the key), problem (what is missing, "" when ready) and note. With test:true each enabled, ready server is contacted (initialize + tools/list; no tool is called, nothing is spent) and gets `connected`, `server` (how it introduced itself), `tools` [{name, description}] or `error` + `hint`. Keys are never returned. `name` limits the call to one server. Example: {"test":true,"name":"scenario"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `test` | boolean | no | Connect to each server and list its tools. Default false. |
+| `name` | string | no | Only this server (a name from the list). |
+

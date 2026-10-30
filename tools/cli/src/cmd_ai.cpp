@@ -41,11 +41,14 @@ Json providers_report(const ai::AiConfig& cfg, bool probe) {
     for (const auto& s : ai::detect_providers(cfg, dopt)) providers.push_back(s.to_json());
     Json warnings = Json::array();
     for (const auto& w : cfg.warnings) warnings.push_back(w);
+    Json toolServers = Json::array();
+    for (const auto& t : ai::tool_server_statuses(cfg)) toolServers.push_back(t.to_json());
     return Json::object({{"configPath", ai::default_config_path()},
                          {"configLoadedFrom", cfg.sourcePath},
                          {"defaultProvider", cfg.defaultProvider},
                          {"roles", roles_json(cfg)},
                          {"providers", providers},
+                         {"toolServers", toolServers},
                          {"warnings", warnings}});
 }
 

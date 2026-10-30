@@ -1,4 +1,4 @@
-// Commands exposed by the AI module: ai.providers, ai.models and ai.run.
+// Commands exposed by the AI module: ai.providers, ai.tool_servers, ai.models and ai.run.
 #pragma once
 
 #include <functional>
