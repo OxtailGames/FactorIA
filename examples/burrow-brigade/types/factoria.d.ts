@@ -4717,6 +4717,11 @@ declare module "factoria" {
      * @since 0.4.0
      */
     vertexOffsets: any;
+    /**
+     * Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied with `color` (and Tint), blended smoothly across each cell. A flat array of numbers [r0, g0, b0, a0, r1, g1, b1, a1, ...], components 0..1, one RGBA per vertex in the order of `vertexOffsets` (row by row from the TOP row, left to right): vertex (column c, row r) starts at index (r * (meshColumns + 1) + c) * 4. The length must be exactly (meshColumns + 1) * (meshRows + 1) * 4: a scene or prefab with another length is an error naming the length it needs, and a script that writes a wrong length gets one warning and the colours are ignored. A bent page gets its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in light. Write the whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with SpriteSkin. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    vertexColors: any;
   }
   /**
    * Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. Put it on the root of a group to fade it out (color [1, 1, 1, 0.5]), turn it red (a damage flash), or darken a whole room, without touching each visual. The tints of an entity and all its ancestors multiply together, so nested groups compose; alpha is multiplied too (a 0.5 inside a 0.5 shows at 0.25), and a visual whose resulting opacity is 0 is not drawn. It multiplies the colours the visual already has (Sprite.color, Shape2D.color and color2 and every gradient stop, Text.color, Tilemap.color, a particle's own colour over its life, Panel.color) and does not affect 3D MeshRenderer, lights, the debug draw or the camera. Entities without a Tint ancestor cost nothing extra: the renderer only walks the parents when at least one Tint exists in the scene.
@@ -5113,9 +5118,14 @@ declare module "factoria" {
      */
     font: string;
     /**
-     * Glyph height in world units (pixels in 2D).
+     * Glyph height in world units (pixels in 2D, meters in a 3D scene). A world Text may be tiny: 0.07 is 7 cm. The glyphs are rasterized for the size they have ON SCREEN, not for this number, so small world text stays sharp. Screen-space text is in design pixels (use 1 or more). docs/TEXT.md, "Text in a 3D scene".
      */
     fontSize: number;
+    /**
+     * World space only: true = the text is shaded by the scene's 3D lights (Light entities and SceneSettings.ambientLight) like a lit material, so gold lettering on a book cover darkens with the shading. The text is a flat surface facing its +Z (the side you read it from; seen from behind it uses the facing side); directional, point and spot lights are summed ONCE per Text, at the text's origin, and multiply `color` (and the colours and pictures of a rich text): no shadows, no per-pixel variation. false (default) = drawn unlit, exactly `color`. Ignored in screen space and under a Camera with lighting "studio". For a Text under 2D lights use a Sprite or Shape2D with `lit`.
+     * @since unreleased
+     */
+    lit: boolean;
     /**
      * Text color.
      */
@@ -8249,7 +8259,7 @@ declare module "factoria" {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia" };
-    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: any };
+    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: any; vertexColors?: any };
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
@@ -8258,7 +8268,7 @@ declare module "factoria" {
     SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
-    Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
+    Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };

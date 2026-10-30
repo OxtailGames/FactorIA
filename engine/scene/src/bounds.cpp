@@ -72,6 +72,36 @@ std::vector<float> sprite_vertex_offsets(const Sprite& s, int columns, int rows)
     return out;
 }
 
+std::string sprite_vertex_colors_problem(const Sprite& s) {
+    if (s.vertexColors.is_null() || (s.vertexColors.is_array() && s.vertexColors.empty())) return {};
+    if (!s.vertexColors.is_array())
+        return "Sprite.vertexColors must be an array of numbers [r, g, b, a, ...], one RGBA per grid vertex, got " +
+               std::string(s.vertexColors.type_name()) + ". Example for a 2 x 1 grid: [1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1, 1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1]";
+    int columns = 0, rows = 0;
+    if (!sprite_mesh_grid(s, columns, rows))
+        return "Sprite.vertexColors is set but the sprite is not deformable (meshColumns " + std::to_string(s.meshColumns) + ", meshRows " +
+               std::to_string(s.meshRows) + "). Set meshColumns and meshRows above 0 (e.g. 16 and 1 for a page), or clear vertexColors";
+    const std::size_t need = std::size_t(columns + 1) * std::size_t(rows + 1) * 4;
+    if (s.vertexColors.size() == need) return {};
+    return "Sprite.vertexColors has " + std::to_string(s.vertexColors.size()) + " numbers but the " + std::to_string(columns) + " x " +
+           std::to_string(rows) + " grid (meshColumns x meshRows) has " + std::to_string((columns + 1) * (rows + 1)) + " vertices and needs " +
+           std::to_string(need) + " (4 per vertex: r, g, b, a, row by row from the top row, left to right). Write exactly " +
+           std::to_string(need) + " numbers, or change meshColumns / meshRows to match";
+}
+
+std::vector<float> sprite_vertex_colors(const Sprite& s, int columns, int rows) {
+    std::vector<float> out;
+    if (!s.vertexColors.is_array() || s.vertexColors.empty()) return out;
+    const std::size_t need = std::size_t(columns + 1) * std::size_t(rows + 1) * 4;
+    if (s.vertexColors.size() != need) return out;
+    out.reserve(need);
+    for (const Json& v : s.vertexColors) {
+        float f = v.is_number() ? float(v.get<double>()) : 1.0f;
+        out.push_back(std::isfinite(f) ? f : 1.0f);
+    }
+    return out;
+}
+
 Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth, bool markup) {
     if (markup) {  // the visible characters: tags take no room, an icon is two characters (1.2 em: as tall as the line)
         const MarkupText m = parse_markup(utf8_decode(text));

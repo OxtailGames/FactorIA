@@ -673,7 +673,7 @@ std::vector<CameraInfo> Renderer::Impl::collect_cameras(World& world) {
     struct Found { Entity e; int depth; };
     std::vector<Found> found;
     world.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && world.active_in_hierarchy(e)) found.push_back({e, c.depth});
+        if (c.primary && entity_active(world, e)) found.push_back({e, c.depth});
     });
     std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.depth < b.depth; });
     constexpr std::size_t kMaxCameras = 8;
@@ -1223,7 +1223,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     if (fr.wantWorld) world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
-        if (!world.active_in_hierarchy(e)) return;
+        if (!entity_active(world, e)) return;
         MeshItem mi;
         mi.mesh = assets->mesh(mr.mesh);
         mi.model = world.world_matrix(e);
@@ -1265,7 +1265,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     });
     std::stable_sort(blended.begin(), blended.end(), [](const MeshItem& a, const MeshItem& b) { return a.dist > b.dist; });
     if (fr.wantWorld && !fr.cam.studio) world.each<Light>([&](Entity e, Light& l) {
-        if (!world.active_in_hierarchy(e)) return;
+        if (!entity_active(world, e)) return;
         Mat4 m = world.world_matrix(e);
         LightData ld;
         Vec3 col{l.color.r * l.intensity, l.color.g * l.intensity, l.color.b * l.intensity};
