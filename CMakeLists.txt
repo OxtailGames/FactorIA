@@ -5,7 +5,7 @@ if(POLICY CMP0141)
 endif()
 
 project(FactorIA
-    VERSION 0.7.2
+    VERSION 0.7.3
     DESCRIPTION "AI-native 2D/3D game engine"
     LANGUAGES C CXX)
 
