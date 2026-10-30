@@ -288,7 +288,14 @@ The height is kept with the layout.
   list through the operating system (`/proc` on Linux, `libproc` on macOS, the toolhelp snapshot on Windows); where a
   figure is not available the check skips it and still reports the rest. An API provider has no process, so the verdict
   there covers only the tool call, the files and the last event. The panel also stops a run by itself, with a message, when
-  the CLI process has disappeared for 10 seconds while the run goes on.
+  the CLI process has disappeared for 10 seconds while the run goes on. "Disappeared" is confirmed with a direct question to
+  the operating system (is that pid still running) and only counts while the run has produced no event for 10 seconds: a
+  process the list does not show, or a run that still reports, is never stopped for it.
+- **Why a run was cancelled:** every cancel records its cause. The session transcript's `end` event
+  (`.factoria/ai/sessions/*.jsonl`) has `"cause"` (`user_stop` the Stop button, `stuck_stop` the Stop of the stuck warning,
+  `watchdog_process_gone`, `activity_check_process_gone`, `project_closed`, `editor_closing`, `editor_restart`, `run_ended`)
+  and an `error` such as `cancelled: the user pressed Stop`. The chat shows the same text, and the `ai_run` call of an
+  orchestrator whose worker was cancelled fails with it, so neither the user nor the orchestrator has to guess.
 - **Worker still running:** if the orchestrator's turn ends while an `ai_run` is still going (Claude Code cut the call off, for
   example), the panel says "Worker still running: the orchestrator's turn ended, its report will continue the chat" and keeps
   showing the worker's live steps. Play stays blocked. When the worker finishes, its report goes into the chat and the

@@ -1,5 +1,13 @@
 #include <doctest.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -177,9 +185,63 @@ TEST_CASE("process: endWithChild returns when the program exits although a desce
     CHECK(seconds < 10);  // without the flag this would take the 30 s of the sleep
 }
 
+// Regression: on macOS proc_listallpids returns a count, which was read as bytes, so the list kept only the newest ~50
+// pids and an older process (the editor's agent) looked gone as soon as many processes had started after it.
+TEST_CASE("process: process_tree finds this process and its parent among many newer processes, process_alive asks the OS") {
+    std::vector<pid_t> kids;
+    for (int i = 0; i < 80; ++i) {
+        const pid_t k = fork();
+        REQUIRE(k >= 0);
+        if (k == 0) {
+            pause();
+            _exit(0);
+        }
+        kids.push_back(k);
+    }
+    const long long self = getpid(), parent = getppid();
+    const std::vector<ProcessEntry> mine = process_tree(self);
+    REQUIRE_FALSE(mine.empty());
+    CHECK(mine[0].pid == self);
+    std::size_t found = 0;
+    for (const ProcessEntry& p : mine)
+        if (p.parentPid == self) ++found;
+    CHECK(found == kids.size());  // every child, the newest ones included
+    CHECK_FALSE(process_tree(parent).empty());
+    CHECK(process_alive(self));
+    CHECK(process_alive(parent));
+    CHECK(process_alive(kids.front()));
+    CHECK_FALSE(process_alive(0));
+    CHECK_FALSE(process_alive(-5));
+
+    for (pid_t k : kids) kill(k, SIGKILL);
+    for (pid_t k : kids) waitpid(k, nullptr, 0);
+    CHECK_FALSE(process_alive(kids.front()));  // reaped
+    CHECK(process_tree(kids.front()).empty());
+    CHECK(process_alive(self));
+}
+
+TEST_CASE("process: process_alive is false for a zombie (exited, not yet waited for)") {
+    const pid_t k = fork();
+    REQUIRE(k >= 0);
+    if (k == 0) _exit(0);
+    bool dead = false;
+    for (int i = 0; i < 200 && !dead; ++i) {
+        dead = !process_alive(k);
+        if (!dead) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(dead);
+    waitpid(k, nullptr, 0);
+    CHECK_FALSE(process_alive(k));
+}
+
 #endif  // !_WIN32
 
 #ifdef _WIN32
+
+TEST_CASE("process: process_alive is true for this process, false for an invalid pid") {
+    CHECK(process_alive(static_cast<long long>(GetCurrentProcessId())));
+    CHECK_FALSE(process_alive(0));
+}
 
 // npm installs claude and codex as .cmd files, which run through cmd.exe.
 TEST_CASE("process runner: .cmd in a path with spaces, multi-line stdin, unsafe arguments refused") {

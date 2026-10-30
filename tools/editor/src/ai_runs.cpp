@@ -10,6 +10,24 @@ namespace fa::editor {
 // ---------------------------------------------------------------------------------------------------------------------
 // AiRun
 
+void AiRun::request_cancel(const char* cause) {
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        if (!cancel.load() && cancelCause_.empty()) cancelCause_ = cause ? cause : "";
+    }
+    cancel = true;
+}
+
+std::string AiRun::cancel_cause() {
+    std::lock_guard<std::mutex> lock(mu);
+    return cancelCause_;
+}
+
+bool agent_process_gone(long long pid, bool treeEmpty, double idleSeconds, bool (*alive)(long long)) {
+    if (!treeEmpty || idleSeconds < kProcessGoneGraceSeconds) return false;
+    return !alive(pid);
+}
+
 void AiRun::note_event(const ai::AgentEvent& ev, long long nowMs) {
     using T = ai::AgentEvent::Type;
     const std::string what = ai::describe_agent_event(ev);
@@ -114,6 +132,7 @@ void AiRun::reset_live(long long nowMs) {
         procs.clear();
         tools.clear();
         activity.clear();
+        cancelCause_.clear();
     }
     detachedOk = false;
     startMs = lastActivityMs = nowMs;

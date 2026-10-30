@@ -70,6 +70,12 @@ struct ProcessEntry {
 // "is it still working" checks: call it twice and compare cpuSeconds for the CPU use in between.
 std::vector<ProcessEntry> process_tree(long long rootPid);
 
+// Asks the OS directly (kill(pid, 0) on POSIX, OpenProcess + GetExitCodeProcess on Windows) whether process `pid` still
+// runs; a zombie or an exited process whose handle is still held is not alive. Unlike process_tree() it does not depend on
+// a process list, so it settles "is it really gone" before anything is stopped for it. False where the OS offers no way to
+// ask (iOS, the web).
+bool process_alive(long long pid);
+
 // Absolute path of an executable found in PATH (PATHEXT on Windows), or "".
 std::string which(std::string_view name);
 

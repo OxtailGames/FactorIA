@@ -36,6 +36,9 @@ struct AiCommandOptions {
     std::function<void(const AiRunInfo&, long long pid)> onRunProcess;
     // Stops a running ai.run (the editor's Stop). nullptr = it runs to the end.
     const CancelFlag* cancel = nullptr;
+    // Why `cancel` was set (a cause key, see cancel_cause_text()); read when a run ends cancelled, so its error and the ai.run
+    // result say who stopped it. Empty = unknown.
+    std::function<std::string()> cancelCause;
     // MCP endpoint a CLI sub-agent attaches (SessionOptions::mcpUrl): the editor's, so ai.run edits its world too.
     std::string mcpUrl;
     // HTTP transport and environment of ai.models (tests inject fakes). Default: the real ones.

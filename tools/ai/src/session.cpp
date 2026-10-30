@@ -183,6 +183,25 @@ std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool w
     return tools;
 }
 
+std::string cancel_cause_text(const std::string& cause) {
+    static const std::map<std::string, std::string> words = {
+        {"user_stop", "the user pressed Stop"},
+        {"stuck_stop", "the user pressed Stop on the no-activity warning"},
+        {"watchdog_process_gone", "the editor's watchdog thought the agent process was gone"},
+        {"activity_check_process_gone", "Check activity found the agent process gone"},
+        {"project_closed", "the project was closed"},
+        {"editor_closing", "the editor was closing"},
+        {"editor_restart", "the editor was restarting"},
+        {"run_ended", "the run had already ended"},
+    };
+    auto it = words.find(cause);
+    return it != words.end() ? it->second : cause;
+}
+
+std::string cancelled_message(const std::string& cause) {
+    return cause.empty() ? std::string("cancelled") : "cancelled: " + cancel_cause_text(cause);
+}
+
 AgentSession::AgentSession(CommandRegistry& registry, AiConfig config, SessionOptions options)
     : registry_(registry), config_(std::move(config)), opt_(std::move(options)) {
     factory_ = [](const ProviderConfig& pc) { return make_chat_provider(pc); };
@@ -379,12 +398,18 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     res.stopReason = run->cancelled ? "cancelled" : (run->ok ? "cli" : "error");
     res.error = run->error;
     res.hint = run->hint;
+    if (run->cancelled && is_cancelled(cancel_)) {
+        res.cancelCause = cancelCause_ ? cancelCause_() : std::string();
+        res.error = cancelled_message(res.cancelCause);
+    }
     if (!budgetWhy.empty() && run->cancelled && !is_cancelled(cancel_)) {
         res.stopReason = "budget";
         res.error = budgetWhy;
         res.hint = "Raise limits in ~/.factoria/ai.json or ai.run options.";
     }
-    tr.write(Json::object({{"kind", "end"}, {"ok", res.ok}, {"text", res.finalText}, {"error", res.error}}));
+    Json endEvent = Json::object({{"kind", "end"}, {"ok", res.ok}, {"text", res.finalText}, {"error", res.error}});
+    if (!res.cancelCause.empty()) endEvent["cause"] = res.cancelCause;
+    tr.write(endEvent);
     return res;
 }
 
@@ -590,7 +615,14 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             res.conversation.key = convKey;
             res.conversation.history = history;
         }
-        tr.write(Json::object({{"kind", "end"}, {"ok", ok}, {"stopReason", stop}, {"text", text}, {"error", error}}));
+        Json endEvent = Json::object({{"kind", "end"}, {"ok", ok}, {"stopReason", stop}, {"text", text}, {"error", error}});
+        if (stop == "cancelled") {
+            res.cancelCause = cancelCause_ ? cancelCause_() : std::string();
+            res.error = cancelled_message(res.cancelCause);
+            endEvent["error"] = res.error;
+            if (!res.cancelCause.empty()) endEvent["cause"] = res.cancelCause;
+        }
+        tr.write(endEvent);
         return res;
     };
 

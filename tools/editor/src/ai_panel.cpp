@@ -392,6 +392,7 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry(AiRun& run) {
     ao.projectDir = [dir = projectDir_] { return dir; };
     ao.providerFactory = aiFactory_;
     ao.cancel = &r->cancel;
+    ao.cancelCause = [r] { return r->cancel_cause(); };
     ao.mcpUrl = r->mcp.url();
     // The worker's events reach the panel live: into the run's pending events (one lock, same queue as the orchestrator's
     // own events, so the order is the order they happened), drawn one level in. They are drained into the chat that
@@ -596,14 +597,15 @@ void Editor::ai_launch(AiRun& run, const std::string& prompt, const std::vector<
         if (factory) session.set_provider_factory(factory);
         session.set_event_handler([r](const ai::AgentEvent& ev) { r->note_event(ev, now_ms()); });
         session.set_cancel_flag(&r->cancel);
+        session.set_cancel_cause([r] { return r->cancel_cause(); });
         r->turn_ended(session.run(prompt, imageFiles));
     });
 }
 
 // Stops every run: the project is closing, or the editor is. Each agent thread ends (its queued commands fail at once), its
 // endpoint stops, its last events are applied and its chat is saved.
-void Editor::ai_stop() {
-    for (auto& r : aiRuns_) r->cancel = true;
+void Editor::ai_stop(const char* cause) {
+    for (auto& r : aiRuns_) r->request_cancel(cause);
     queue_.close();
     for (auto& r : aiRuns_) {
         if (r->thread.joinable()) r->thread.join();
@@ -641,7 +643,7 @@ void Editor::ai_end_run(AiRun& run, AiChat* c) {
         aiTouch_.end(chatId, {});
     }
     if (chatId == aiReview_.chatId) aiReview_.stopped = run.cancel.load();  // the user stopped a reviewer (ai_review_tick)
-    run.cancel = true;  // anything of this run still blocked on the queue or on its endpoint ends
+    run.request_cancel("run_ended");  // anything of this run still blocked on the queue or on its endpoint ends
     if (run.thread.joinable()) run.thread.join();
     run.mcp.stop();
     run.clear_live();
@@ -670,14 +672,19 @@ void Editor::ai_watchdog_tick(AiRun& run) {
     if (now - run.sampledAt < 5) return;
     run.sampledAt = now;
     const std::vector<AiProc> procs = run.processes();
+    const double idle = static_cast<double>(now_ms() - run.lastActivityMs.load()) / 1000.0;
     std::vector<ProcessEntry> all;
     const AiProc* dead = nullptr;
     for (const AiProc& p : procs) {
         std::vector<ProcessEntry> tree = process_tree(p.pid);
-        if (tree.empty()) {
+        // The process list can miss a process that lives, and a run that still reports is not dead: only the OS's own answer
+        // (process_alive) together with silence for the grace period counts as gone.
+        if (agent_process_gone(p.pid, tree.empty(), idle, &process_alive)) {
             double& since = run.deadSince[p.pid];
             if (since == 0) since = now;
             else if (now - since >= 10 && !dead) dead = &p;  // gone for two samples, and its run is still going
+        } else if (tree.empty()) {
+            run.deadSince.erase(p.pid);  // alive or still reporting, just not in the list this time
         } else {
             run.deadSince.erase(p.pid);
             all.insert(all.end(), tree.begin(), tree.end());
@@ -690,11 +697,12 @@ void Editor::ai_watchdog_tick(AiRun& run) {
             ChatItem it;
             it.kind = ChatItem::Kind::Error;
             it.text = "The " + dead->label + " agent's process (pid " + std::to_string(dead->pid) +
-                      ") is gone but its run did not end: stopping the run. The agent probably crashed or was closed.";
+                      ") is gone (the OS reports no such process) but its run did not end: stopping the run. The agent "
+                      "probably crashed or was closed.";
             chat->items.push_back(std::move(it));
             chat->scrollDown = true;
         }
-        run.cancel = true;
+        run.request_cancel("watchdog_process_gone");
     }
 }
 
@@ -733,7 +741,13 @@ void Editor::ai_check_activity(AiRun& run) {
     in.trackedProcess = !procs.empty();
     for (const AiProc& p : procs) {
         std::vector<ProcessEntry> tree = process_tree(p.pid);
-        if (tree.empty()) continue;
+        if (tree.empty()) {
+            if (agent_process_gone(p.pid, true, in.idleSeconds, &process_alive)) continue;
+            ProcessEntry self;  // the list missed it, but it lives (or the run still reports): count it, CPU unknown
+            self.pid = p.pid;
+            self.name = p.label;
+            tree.push_back(self);
+        }
         ++in.roots;
         in.processes.insert(in.processes.end(), tree.begin(), tree.end());
     }
@@ -755,7 +769,7 @@ void Editor::ai_check_activity(AiRun& run) {
         stop.kind = ChatItem::Kind::Info;
         stop.text = "stopping the run";
         chat->items.push_back(std::move(stop));
-        run.cancel = true;
+        run.request_cancel("activity_check_process_gone");
     }
 }
 
@@ -1498,7 +1512,7 @@ void Editor::draw_ai_panel() {
         if (showStuck) {
             ImGui::TextColored(ImVec4(1, 0.6f, 0.35f, 1), "No activity for %s: the agent may be stuck.", ai::format_duration(idle).c_str());
             at_track("ai:stuck");
-            if (ImGui::SmallButton("Stop##stuck")) run->cancel = true;
+            if (ImGui::SmallButton("Stop##stuck")) run->request_cancel("stuck_stop");
             at_track("ai:stuck:stop");
             ImGui::SetItemTooltip("Stops the agent (and a worker it started).");
             ImGui::SameLine();
@@ -1571,7 +1585,7 @@ void Editor::draw_ai_panel() {
     }
     ImGui::SameLine();
     ImGui::BeginDisabled(!isRunTab);
-    if (ImGui::Button("Stop") && run) run->cancel = true;
+    if (ImGui::Button("Stop") && run) run->request_cancel("user_stop");
     at_track("ai:stop");
     ImGui::EndDisabled();
     ImGui::SameLine();

@@ -43,6 +43,16 @@ double cpu_seconds_of(DWORD pid) {
 
 }  // namespace
 
+bool process_alive(long long pid) {
+    if (pid <= 0) return false;
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (!h) return GetLastError() == ERROR_ACCESS_DENIED;  // denied = it exists; invalid parameter = no such process
+    DWORD code = 0;
+    const bool alive = GetExitCodeProcess(h, &code) && code == STILL_ACTIVE;
+    CloseHandle(h);
+    return alive;
+}
+
 std::vector<ProcessEntry> process_tree(long long rootPid) {
     std::vector<ProcessEntry> out;
     if (rootPid <= 0) return out;

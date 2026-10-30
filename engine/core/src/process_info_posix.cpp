@@ -1,6 +1,9 @@
 // process_tree() for macOS and Linux (and Android, which has /proc); iOS and the web cannot ask, so they get an empty
 // answer.
+#include <signal.h>
+
 #include <algorithm>
+#include <cerrno>
 #include <map>
 #include <string>
 #include <vector>
@@ -70,12 +73,19 @@ std::vector<ProcessEntry> list_processes() {
     }
     closedir(dir);
 #elif defined(FA_PROCESS_INFO_LIBPROC)
-    const int bytes = proc_listallpids(nullptr, 0);
-    if (bytes <= 0) return all;
-    std::vector<int> pids(static_cast<std::size_t>(bytes) / sizeof(int) + 64);
-    const int got = proc_listallpids(pids.data(), static_cast<int>(pids.size() * sizeof(int)));
-    if (got <= 0) return all;
-    pids.resize(static_cast<std::size_t>(got) / sizeof(int));
+    // proc_listallpids returns a COUNT of pids (not bytes, unlike proc_listpids); the buffer is given in bytes. Processes
+    // start between the two calls, so it has headroom and is asked again when it came back full.
+    std::vector<int> pids;
+    int got = 0;
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        const int count = proc_listallpids(nullptr, 0);
+        if (count <= 0) return all;
+        pids.assign(static_cast<std::size_t>(count) + static_cast<std::size_t>(count) / 4 + 64 + 64u * attempt, 0);
+        got = proc_listallpids(pids.data(), static_cast<int>(pids.size() * sizeof(int)));
+        if (got <= 0) return all;
+        if (static_cast<std::size_t>(got) < pids.size()) break;  // room to spare: that was every pid
+    }
+    pids.resize(static_cast<std::size_t>(got));
     mach_timebase_info_data_t tb{1, 1};
     mach_timebase_info(&tb);
     for (int pid : pids) {
@@ -99,6 +109,21 @@ std::vector<ProcessEntry> list_processes() {
 }
 
 }  // namespace
+
+bool process_alive(long long pid) {
+    if (pid <= 0) return false;
+#if defined(FA_PROCESS_INFO_PROC) || defined(FA_PROCESS_INFO_LIBPROC)
+    if (kill(static_cast<pid_t>(pid), 0) == 0) {
+        // A zombie (exited, awaiting its parent) still answers kill(): it is not alive.
+        for (const ProcessEntry& p : list_processes())
+            if (p.pid == pid) return true;
+        return false;
+    }
+    return errno == EPERM;  // ESRCH = no such process; EPERM = it exists but belongs to someone else
+#else
+    return false;
+#endif
+}
 
 std::vector<ProcessEntry> process_tree(long long rootPid) {
     std::vector<ProcessEntry> out;
