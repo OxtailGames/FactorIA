@@ -268,6 +268,30 @@ one wrapped, aligned, measured text (`maxWidth`, `align`, `autoShrink` and `maxT
 - **Localized text.** The tags travel in the string table: translators keep them and move them around the words. Put
   `markup: true` on the Text that shows the key.
 
+## Text in a 3D scene (meters, perspective, `lit`)
+
+A `Text` with `space: "world"` is a flat quad in the world, so under a perspective camera it behaves like an object:
+it has a size in meters, it looks smaller far away and it follows the entity's rotation and scale.
+
+- **Size in meters.** `fontSize` is the glyph height in world units, which are meters in a 3D scene, and it may go down to
+  `0.001`: a title 7 cm tall is `fontSize: 0.07`. You do not need the old trick of `fontSize: 70` with a Transform scale
+  of `0.001`; the two look the same. `maxWidth` and `minFontSize` are in the same unit (`minFontSize` also goes down to
+  `0.001`; the default 10 is above a small `fontSize`, and `autoShrink` never goes under `fontSize`, so set `minFontSize` too
+  if a small world Text must shrink to fit).
+- **Sharp at any distance.** The glyphs are rasterized for the pixel size the text has ON SCREEN (distance from the camera,
+  field of view, entity scale and the window's render scale), not for the number in `fontSize`: the layout is always made in
+  local units and only the atlas size follows the screen. A 7 cm title seen from 40 cm is as crisp as a 24 px HUD label.
+  The raster size is kept between 4 and 400 pixels (Limits, below), and the camera distance used for it is at least 10 cm.
+- **Text size option.** `ui.textScale` does not apply to a world Text (it belongs to the world, not to the interface).
+- **Lighting.** By default a world Text is unlit: its pixels are `color`, whatever the lights. `lit: true` shades it like a
+  lit material: the Text is a flat surface facing its local +Z (the side you read it from; seen from behind, the side that
+  faces the camera is lit), and `SceneSettings.ambientLight` plus every `Light` (directional, point, spot, with the same
+  fall-off as meshes) multiply its colour. Gold lettering on a lit book cover then darkens with the shading of the cover.
+  The sum is made once per Text, at its origin (a long banner is not shaded along its length), without shadows and without
+  specular; the result is capped at `color` (a bright light does not make a Text brighter than its colour). It does nothing in
+  screen space, and under a Camera with `lighting: "studio"` the Text stays unlit. Lit text in a 2D scene is shaded by the
+  3D `Light` entities, not by `Light2D`: put a Sprite or Shape2D with `lit` where `Light2D` must act.
+
 ## Measuring
 
 `ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold })` returns

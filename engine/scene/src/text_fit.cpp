@@ -27,7 +27,7 @@ TextFit fit_text(const TextFitSpec& spec, const std::string& text, const std::st
     out.size = extent(text, font, hi, spec.wrap, spec.style);
     out.overflow = overflows(spec, out.size);
     if (!out.overflow || !spec.autoShrink) return out;
-    const float lo = std::min(std::max(spec.minFontSize, 1.0f), spec.fontSize) * k;
+    const float lo = std::min(std::max(spec.minFontSize, 0.001f), spec.fontSize) * k;
     if (lo >= hi) return out;
     const Vec2 atLo = extent(text, font, lo, spec.wrap, spec.style);
     if (overflows(spec, atLo)) {  // it does not fit even at the smallest allowed size: draw it there

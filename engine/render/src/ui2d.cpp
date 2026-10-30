@@ -304,7 +304,7 @@ void draw_video(const Ctx& c, const Video& v, const UiBox& b, const Rect& r) {
 // drawn while no active Camera has the name (the script may not have made it yet).
 void draw_camera_view(const Ctx& c, const World& world, Entity e, const CameraView& v, const UiBox& b, const Rect& r) {
     Entity cam = v.camera.empty() ? kNullEntity : world.find(v.camera);
-    if (cam && (!world.has<Camera>(cam) || !world.active_in_hierarchy(cam))) cam = kNullEntity;
+    if (cam && (!world.has<Camera>(cam) || !entity_active(world, cam))) cam = kNullEntity;
     // Whole screen pixels, as background() rounds them: the image maps one to one onto its rectangle.
     const float x0 = snap(c, r.x), y0 = snap(c, r.y), x1 = snap(c, r.x + r.w), y1 = snap(c, r.y + r.h);
     TextureAsset* tex = nullptr;

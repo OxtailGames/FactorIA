@@ -140,7 +140,7 @@ field, and `factoria validate` reports it too; rename the field (`tradeOn`).
 | `add(name, fields?)` | adds (or returns) a component, applies `fields` |
 | `set(name, fields)` | patches fields (adds if missing) |
 | `has(name)`, `remove(name)` | |
-| `destroy()` | deferred to end of frame (children too); leaves physics at once (see below) |
+| `destroy()` | deferred to end of frame (children too); leaves physics at once and is not drawn from then on, not even in the frame it is called in (see below) |
 | `parent`, `children`, `setParent(e, keepWorld?, index?)` | hierarchy; `index` puts it at a place among the new parent's other children (0 = first, up to the number of those others = last; omitted = last), also within the same parent. A negative, fractional or too large index, or an index without a parent, throws. Layout containers follow this order |
 | `hasTag(t)`, `addTag(t)`, `removeTag(t)` | tags |
 | `behaviour` | the script instance attached to it (or `null`) |
@@ -1117,7 +1117,11 @@ and `Button.icon` (docs/COMPONENTS.md).
 - `render.captureTexture({ width, height, fit })` returns a `Texture`: the picture the player sees (HUD and every camera) at
   `width` x `height` pixels, each from 1 to 2048. `fit: "cover"` (default) cuts the middle part with that aspect ratio out of the
   frame, so nothing is distorted; `"stretch"` squeezes the whole frame in.
-- Which frame: called from a script during a frame (an `onUpdate`, an event handler) it is the last frame that was drawn. In a
+- Which frame: called from a script during a frame (an `onUpdate`, an event handler) it is the last frame that was drawn,
+  i.e. the one BEFORE the frame the script runs in; what the script changed in this frame (a spawned entity, an edited
+  field) is not in it yet. An entity that was destroyed during a frame (`entity.destroy()`, children too) is not drawn in
+  that frame, so a group rebuilt in one frame (the old one destroyed, the new one spawned) shows only the new one in the
+  next capture. In a
   test, before any frame was drawn and in headless runs it draws the current state first, like `game.screenshot`. A capture
   the size of the game (`game.screenSize` times `window.renderScale`) has exactly the pixels of a screenshot of that frame.
   The frame is read back from the GPU (Metal, OpenGL / GLES, Direct3D 11, WebGL2) and resampled on the CPU.

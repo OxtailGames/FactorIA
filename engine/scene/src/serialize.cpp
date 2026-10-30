@@ -8,6 +8,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/scene/bounds.h"
 #include "fa/scene/tilemap.h"
 
 namespace fa {
@@ -481,6 +482,9 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
             if (!sp->normalMap.empty() && !sp->lit)
                 warn(cptr + "/Sprite/normalMap", "Sprite.normalMap is set but Sprite.lit is false, so the normal map is not used",
                      "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
+            if (const std::string problem = sprite_vertex_colors_problem(*sp); !problem.empty())
+                error(cptr + "/Sprite/vertexColors", problem,
+                      "vertexColors is [r, g, b, a, ...] with 4 numbers (0..1) per vertex of the (meshColumns + 1) x (meshRows + 1) grid.");
             if (sp->slice.x < 0 || sp->slice.y < 0 || sp->slice.z < 0 || sp->slice.w < 0)
                 error(cptr + "/Sprite/slice", "Sprite.slice has a negative border [" + std::to_string(sp->slice.x) + ", " + std::to_string(sp->slice.y) +
                       ", " + std::to_string(sp->slice.z) + ", " + std::to_string(sp->slice.w) + "]",
