@@ -1339,6 +1339,33 @@ Left open:
 - `fa::ChildProcess` for Windows (`child_process_win32.cpp`) was written but not built or run (macOS host only).
 - Only tools are used: MCP resources and prompts, sampling and the old SSE transport are not supported.
 
+## M44. Roguestory's 3D book: procedural meshes, render targets, stale tools and run timelines (S-L each; FB-0027, FB-0029-FB-0035)
+
+Roguestory (the user's own game) built a 3D book for its menu and opened 8 entries on the way: it had to write its own
+glTF encoder to make a mesh in code, could not put its 2D menu on a page, its project tool ran stale code, and nobody
+could tell where 17 minutes of an AI run went.
+
+- M44.1 (M) AI tooling: a `project_<name>` tool re-imports `tools/*.js` (and what they import) when a file changed on
+  disk since it was loaded, like `script.eval {module}` does, and its result says which file version ran (FB-0029);
+  every event of `.factoria/ai/sessions/*.jsonl` carries `t` (ISO time), `tool_end` carries `ms`, a thinking event
+  records its duration even when its text is hidden, and a read-only `ai.session_timeline {session, minGapSeconds}`
+  lists the gaps with what was going on (tool, thinking, waiting for the model) (FB-0035).
+- M44.2 (L) Procedural meshes: `mesh.create({positions, normals, uvs, tangents?, colors?, indices, submeshes})` returns
+  an id that `MeshRenderer.mesh` accepts (like `render.captureTexture` ids), `mesh.update` changes it per frame for
+  deformation, `mesh.destroy`, and `mesh.save {id, path}` writes a `.glb` (with its materials) so tools need no encoder
+  of their own; bounds, picking and shadows work with such meshes (FB-0030).
+- M44.3 (L) Render targets: a 2D or 3D camera can render into a texture (`Camera.renderTarget`, a texture id with a
+  size) that `MeshRenderer.texture`, material texture params, `Sprite`, `Panel` and `Button` accept, live every frame;
+  pointer input reaches the Interactables of that camera through the mesh's UVs (ray -> mesh UV -> 2D camera), so a
+  menu drawn on a curved or turning page stays clickable (FB-0031); `render.captureTexture({entity | rect, space,
+  scale})` renders an entity subtree or a world rectangle off-screen at an explicit pixel scale, even when it is
+  hidden, covered or off camera, with no frame drawn first and no 2048 px cap from the window (FB-0032).
+- M44.4 (M) Text and sprites: `Text.fontSize` down to 0.001 so a world Text can be sized in meters, TEXT.md says how
+  Text behaves under a perspective camera, and `Text.lit` shades it with the 3D lights (FB-0027); `Sprite.vertexColors`
+  (one RGBA per grid vertex, multiplied with `color`) on the deformable sprite (FB-0033); a destroyed entity and its
+  children never reach the next drawn frame or capture, with a test that destroys and spawns a group in one frame and
+  captures the next (FB-0034).
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
