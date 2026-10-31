@@ -11,6 +11,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/ai/extensions.h"
 #include "fa/ai/types.h"
 #include "fa/core/json_schema.h"
 
@@ -227,6 +228,7 @@ struct AiConfig {
     std::map<std::string, AssetRoute> assets; // by media_kind_name; empty unless the file sets "assets"
     AssetSources assetSources;                // the sites to look at for assets; empty unless the file sets "assetSources"
     std::vector<ToolServer> toolServers;      // the external tool servers (MCP), in the file's order; empty unless the file sets "mcpServers"
+    ExtensionsConfig extensions;              // plugins, skills and hooks the CLI agents load; empty unless the file sets "extensions"
     Limits limits;
     std::string sourcePath;                   // "" when defaults only
     std::vector<std::string> warnings;
@@ -241,6 +243,9 @@ struct AiConfig {
     RoleConfig effective_role(std::string_view name) const;
     // The enabled tool servers `role` may use, in the file's order. Review roles get only the servers that list them.
     std::vector<const ToolServer*> tool_servers_for(std::string_view role) const;
+    // The enabled extensions of the user file that `role` loads, in the file's order (plugins, skills, hooks). The project's
+    // own are added by plan_extensions (extension_plan.h).
+    std::vector<const Extension*> extensions_for(std::string_view role) const;
     // The delegable roles (worker, fast, artist, audio) that are off, in kAllRoles order.
     std::vector<std::string> disabled_delegable_roles() const;
     // True when at least one delegable role is on, so the orchestrator has someone to hand work to.

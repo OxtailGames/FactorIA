@@ -43,8 +43,9 @@ struct ToolServerStatus {
 };
 std::vector<ToolServerStatus> tool_server_statuses(const AiConfig& cfg, const EnvLookup& env = system_env());
 
-// Text report for the terminal. `env` is where the tool servers' keys are looked up.
+// Text report for the terminal. `env` is where the tool servers' keys are looked up. `projectDir` ("" = none) is the project whose
+// extensions file and Claude Code deny rules (mcp__factoria) the Extensions section also checks.
 std::string format_doctor_report(const AiConfig& cfg, const std::vector<ProviderStatus>& status,
-                                 const EnvLookup& env = system_env());
+                                 const EnvLookup& env = system_env(), std::string_view projectDir = {});
 
 }  // namespace fa::ai

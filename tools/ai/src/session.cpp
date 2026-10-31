@@ -7,6 +7,7 @@
 #include <fstream>
 #include <mutex>
 
+#include "fa/ai/extension_plan.h"
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/date.h"
 #include "fa/core/log.h"
@@ -361,6 +362,11 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
             }
         }
     }
+    // The extensions (plugins, skills, hooks) of the user and of the project for this role, and what this provider takes of them.
+    ExtensionContext extCtx = make_extension_context(config_, opt_.projectDir, opt_.env);
+    if (!opt_.extensionsTrustPath.empty()) extCtx.trustPath = opt_.extensionsTrustPath;
+    const ExtensionPlan extPlan = plan_extensions(config_, pc, role, extCtx);
+    for (const std::string& note : extPlan.notes) serverNotes.push_back(note);
     const std::string fullPrompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
     // A follow-up message continues the CLI's session: the system prompt is already part of it, so only the task is sent.
     const bool canResume = depth == 0 && cli_supports_resume(pc);
@@ -383,6 +389,11 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     req.webDomains = asset_source_hosts(config_.assetSources);  // Claude Code: WebFetch for these sites, only these with onlyListed
     req.webOnlyListed = config_.assetSources.onlyListed;
     req.toolServers = resolvedServers;
+    req.pluginDirs = extPlan.pluginDirs;
+    req.skillDirs = extPlan.skillDirs;
+    req.hooks = extPlan.hooks;
+    req.userPluginsOff = extPlan.userPluginsOff;
+    req.projectSettingsOff = extPlan.projectSettingsOff;
     if (opt_.onProcessStart) req.onStart = [this, role](long long pid) { opt_.onProcessStart(pid, role); };
 
     AgentEvent start;
@@ -687,6 +698,11 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             for (const ToolServer* c : servers) if (c->name == client->name()) s = c;
             pctx.toolServers.push_back({client->name(), s ? s->note : std::string(), client->name() + "__"});
         }
+    }
+    {   // The API providers do not use extensions yet: say so when the role has any, instead of ignoring them silently.
+        ExtensionContext extCtx = make_extension_context(config_, opt_.projectDir, opt_.env);
+        if (!opt_.extensionsTrustPath.empty()) extCtx.trustPath = opt_.extensionsTrustPath;
+        for (const std::string& note : plan_extensions(config_, pc, role, extCtx).notes) serverNotes.push_back(note);
     }
     ChatRequest req;
     req.model = rc.model;

@@ -20,6 +20,7 @@
 
 #include "autotest_sections.h"
 #include "editor_internal.h"
+#include "fa/ai/extension_plan.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
 #include "ui_backend.h"
@@ -4368,6 +4369,277 @@ void Editor::at_build_tools_script() {
             set_env("FACTORIA_AI_CONFIG", x->hadEnv ? x->previousEnv : std::string());
             std::error_code ec;
             stdfs::remove(x->path, ec);
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) {
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+            aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
+    section("E2");
+    // The Extensions tab of the AI settings window (docs/EDITOR.md, "AI settings"): a plugin folder added with the form, hooks pasted,
+    // a role switched off, Save writing only "extensions" (the other keys of ai.json stay, owner-only); then the project's own
+    // file: a skill and hooks kept "only for this project", the hooks not running until Trust this project, and the trust dropped
+    // when the file changes.
+    {
+        struct EState {
+            std::string path, previousEnv, plugin, skill, projectFileText, claudeFile, claudeBackup;
+            bool hadEnv = false, hadClaudeFile = false;
+            std::vector<ai::ProviderStatus> savedStatus;
+        };
+        auto x = std::make_shared<EState>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load() && !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            x->path = atOutDir_ + "/ai_ext_scratch.json";
+            x->plugin = atOutDir_ + "/ext_plugin";
+            x->skill = projectDir_ + "/skills/autotest_gdd";
+            const char* current = std::getenv("FACTORIA_AI_CONFIG");
+            x->hadEnv = current != nullptr;
+            x->previousEnv = current ? current : "";
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                x->savedStatus = aiStatus_;
+            }
+            write_file(x->path, R"({
+  "limits": { "maxConcurrentRuns": 3 },
+  "roles": { "worker": { "provider": "anthropic", "model": "sonnet" } }
+})");
+            write_file(x->plugin + "/.claude-plugin/plugin.json", R"({"name":"ext_plugin","version":"1.0.0"})");
+            write_file(x->skill + "/SKILL.md", "---\nname: autotest-gdd\ndescription: A skill for the autotest.\n---\nBody.\n");
+            std::error_code ec;
+            stdfs::remove(projectDir_ + "/.factoria/extensions.json", ec);
+            stdfs::remove(ai::extensions_trust_path(x->path), ec);
+            // The project's own Claude Code settings run a program: the trust below covers them too.
+            x->claudeFile = projectDir_ + "/.claude/settings.local.json";
+            x->hadClaudeFile = stdfs::exists(x->claudeFile, ec);
+            if (x->hadClaudeFile) x->claudeBackup = read_file(x->claudeFile);
+            write_file(x->claudeFile, R"j({"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo autotest"}]}]}})j");
+            set_env("FACTORIA_AI_CONFIG", x->path);
+            ai_refresh_providers();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { focus_window("AI Assistant"); });
+        click("menu:ai");
+        click("menu:ai-settings");
+        step(4, [this, x] {
+            at_check(showAiSettings_ && aiSettings_.loaded && aiSettings_.path == x->path, "AI > AI Settings... opens the window on the scratch file");
+            aiSettingsTab_ = 4;  // Extensions
+        });
+        step(3, [this] {
+            at_check(aiSettings_.ext.user.empty() && aiSettings_.ext.project.empty(), "no extension yet");
+            at_check(at_visible("aiset:ext:add") && at_visible("aiset:ext:hooks"), "the Extensions tab shows Add and Paste hooks JSON");
+        });
+        // A plugin folder.
+        step(3, [this, x] { aiSettings_.ext.addPath = x->plugin; });
+        click("aiset:ext:add");
+        step(3, [this, x] {
+            const auto& u = aiSettings_.ext.user;
+            at_check(u.size() == 1 && u[0].kind == ai::ExtensionKind::Plugin && u[0].name == "ext_plugin" && u[0].source == "user",
+                     "Add puts the plugin folder in the list under the folder's name (" + aiSettings_.ext.addError + ")");
+            at_check(u.size() == 1 && ai::resolve_extension_path(u[0], "", ai::system_env()) == stdfs::path(x->plugin).lexically_normal().string(),
+                     "...with a path that leads back to the folder");
+            at_check(aiSettings_.ext.addError.empty() && aiSettings_.ext.addPath.empty(), "...and the add row is empty again");
+        });
+        // A relative path cannot be kept in ai.json: it teaches.
+        step(3, [this] {
+            aiSettings_.ext.addPath = "plugins/relative";
+            aiSettings_.ext.addName = "rel";
+        });
+        click("aiset:ext:add");
+        step(3, [this] {
+            at_check(aiSettings_.ext.user.size() == 1 && aiSettings_.ext.addError.find("~/") != std::string::npos,
+                     "a relative path is refused with the way to write it (" + aiSettings_.ext.addError + ")");
+            aiSettings_.ext.addPath.clear();
+            aiSettings_.ext.addName.clear();
+            aiSettings_.ext.addError.clear();
+        });
+        // Pasted hooks.
+        click("aiset:ext:hooks");
+        step(3, [this] {
+            at_check(aiSettings_.ext.showHooks && at_visible("aiset:ext:hooks-import"), "Paste hooks JSON opens the paste box");
+            aiSettings_.ext.hooksText = R"({"hooks":{"PostToolUsee":[]}})";
+        });
+        click("aiset:ext:hooks-import");
+        step(3, [this] {
+            at_check(aiSettings_.ext.user.size() == 1 && aiSettings_.ext.hooksMessage.find("PostToolUse") != std::string::npos,
+                     "hooks with a misspelled event are refused with the right name (" + aiSettings_.ext.hooksMessage + ")");
+            aiSettings_.ext.hooksText = R"({"hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"echo edited"}]}]}})";
+            aiSettings_.ext.hooksName = "log";
+        });
+        click("aiset:ext:hooks-import");
+        step(3, [this] {
+            const auto& u = aiSettings_.ext.user;
+            at_check(u.size() == 2 && u[1].kind == ai::ExtensionKind::Hooks && u[1].name == "log" && u[1].hooks.contains("PostToolUse"),
+                     "Import hooks adds them (" + aiSettings_.ext.hooksMessage + ")");
+        });
+        // A role off.
+        click("aiset:ext:role:plugin:ext_plugin:fast");
+        step(3, [this] {
+            const auto& r = aiSettings_.ext.user[0].roles;
+            at_check(r.size() == 4 && std::ranges::find(r, std::string("fast")) == r.end() && std::ranges::find(r, std::string("worker")) != r.end(),
+                     "switching fast off lists the other four default roles");
+        });
+        click("aiset:ext:inherit");
+        step(3, [this] { at_check(!aiSettings_.ext.inherit, "the inherit box switches off"); });
+        snap("editor_ai_extensions.png");
+        click("aiset:ext:save");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && aiSettings_.ext.saveError.empty(), "Save wrote a JSON object (" + aiSettings_.ext.saveError + ")");
+            if (!j.is_object()) return;
+            at_check(j["limits"]["maxConcurrentRuns"] == 3 && j["roles"]["worker"]["model"] == "sonnet", "the other keys of the file stayed");
+            const Json& e = j["extensions"];
+            at_check(e.is_object() && e.value("inheritUserPlugins", true) == false, "inheritUserPlugins: false is in the file");
+            at_check(e.contains("plugins") && e["plugins"].contains("ext_plugin") && e["plugins"]["ext_plugin"]["roles"].size() == 4,
+                     "the plugin is in the file with its roles");
+            at_check(e.contains("hooks") && e["hooks"]["log"]["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == "echo edited", "the hooks are in the file");
+#ifndef _WIN32
+            std::error_code ec;
+            const auto perms = stdfs::status(x->path, ec).permissions();
+            at_check((perms & (stdfs::perms::group_all | stdfs::perms::others_all)) == stdfs::perms::none, "the file is readable only by its owner");
+#endif
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                at_check(aiConfig_.extensions.entries.size() == 2 && !aiConfig_.extensions.inheritUserPlugins, "the editor's config was reloaded with the extensions");
+            }
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        // The project's own file: a skill (text, needs no trust) and hooks (run a program, need it).
+        step(3, [this, x] {
+            at_check(aiSettings_.ext.saveError.empty() && aiSettings_.ext.user.size() == 2, "the draft was rebuilt from the saved file");
+            aiSettings_.ext.addKind = 1;
+            aiSettings_.ext.addToProject = true;
+            aiSettings_.ext.addPath = x->skill;
+        });
+        click("aiset:ext:add");
+        step(3, [this] {
+            const auto& p = aiSettings_.ext.project;
+            at_check(p.size() == 1 && p[0].kind == ai::ExtensionKind::Skill && p[0].path == "skills/autotest_gdd" && p[0].source == "project",
+                     "a skill added \"only for this project\" is kept relative to the project (" + aiSettings_.ext.addError + ")");
+            aiSettings_.ext.showHooks = true;
+            aiSettings_.ext.hooksText = R"({"Stop":[{"hooks":[{"type":"command","command":"echo project-hook"}]}]})";
+            aiSettings_.ext.hooksName = "stop-log";
+        });
+        click("aiset:ext:hooks-import");
+        step(3, [this] {
+            const auto& p = aiSettings_.ext.project;
+            at_check(p.size() == 2 && p[1].kind == ai::ExtensionKind::Hooks && p[1].source == "project", "pasted hooks can be kept for the project too");
+        });
+        click("aiset:ext:save");
+        step(6, [this] {
+            const ai::ProjectExtensions pe = ai::load_project_extensions(projectDir_);
+            at_check(pe.exists && pe.error.empty() && pe.entries.size() == 2, "Save wrote the project's .factoria/extensions.json (" + pe.error + ")");
+            at_check(!aiSettings_.ext.projectTrusted, "a project's hooks are not trusted just because they were saved");
+            aiSettings_.ext.statusAt = -10;
+        });
+        step(3, [this] {
+            const auto it = aiSettings_.ext.status.find("hooks:project:stop-log");
+            at_check(it != aiSettings_.ext.status.end() && it->second.find("not trusted") != std::string::npos,
+                     "the hooks of the project show as not trusted");
+            const auto skill = aiSettings_.ext.status.find("skill:project:autotest_gdd");
+            at_check(skill != aiSettings_.ext.status.end() && skill->second.empty(), "...while the skill (text) is ready");
+        });
+        click("aiset:ext:review");
+        step(3, [this] {
+            at_check(aiSettings_.ext.showTrust && at_visible("aiset:ext:trust"), "Review what would run opens the list and the Trust button");
+            at_check(aiSettings_.ext.claudeGrants.size() == 1 && aiSettings_.ext.claudeGrants[0].find("settings.local.json: hooks (SessionStart)") != std::string::npos,
+                     "...which also lists what the project's .claude/settings.local.json would run");
+            const ai::AiConfig cfg = [&] {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                return aiConfig_;
+            }();
+            const ai::ExtensionPlan plan = ai::plan_extensions(cfg, ai::default_config().providers.at("claude-code"), "worker",
+                                                               ai::make_extension_context(cfg, projectDir_, ai::system_env()));
+            at_check(plan.projectSettingsOff, "until then a Claude Code run starts without the project's .claude settings");
+        });
+        scroll_to("aiset:ext:trust", "AI settings###AiSettings");  // the list of what would run grew: the button is below the fold
+        snap("editor_ai_extensions_trust.png");
+        click("aiset:ext:trust");
+        step(4, [this, x] {
+            const ai::ProjectExtensions pe = ai::load_project_extensions(projectDir_);
+            const ai::ClaudeProjectSettings claude = ai::load_claude_project_settings(projectDir_);
+            at_check(aiSettings_.ext.projectTrusted && claude.needs_trust() &&
+                         ai::project_extensions_trusted(ai::extensions_trust_path(x->path), projectDir_, pe.hash, nullptr, false, claude.hash),
+                     "Trust this project records the trust for both the extensions file and .claude/settings*.json (" + aiSettings_.ext.trustMessage + ")");
+            const ai::AiConfig cfg = [&] {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                return aiConfig_;
+            }();
+            ai::ExtensionContext ctx = ai::make_extension_context(cfg, projectDir_, ai::system_env());
+            const ai::ExtensionPlan plan = ai::plan_extensions(cfg, ai::default_config().providers.at("claude-code"), "worker", ctx);
+            at_check(plan.hooks.is_object() && plan.hooks.contains("Stop"), "a Claude Code run for the worker now gets the project's hooks");
+            at_check(!plan.projectSettingsOff, "...and loads the project's own .claude settings");
+            x->projectFileText = read_file(projectDir_ + "/.factoria/extensions.json");
+        });
+        // The file changes behind the editor's back (an AI edit): the trust ends.
+        step(2, [this, x] {
+            Json j = Json::parse(x->projectFileText);
+            j["hooks"]["stop-log"]["hooks"]["Stop"][0]["hooks"][0]["command"] = "echo something-else";
+            write_file(projectDir_ + "/.factoria/extensions.json", j.dump(2));
+            const ai::ProjectExtensions pe = ai::load_project_extensions(projectDir_);
+            at_check(!ai::project_extensions_trusted(ai::extensions_trust_path(x->path), projectDir_, pe.hash, nullptr, false,
+                                                     ai::load_claude_project_settings(projectDir_).hash),
+                     "an edited project file is no longer trusted");
+            const ai::AiConfig cfg = [&] {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                return aiConfig_;
+            }();
+            const ai::ExtensionPlan plan = ai::plan_extensions(cfg, ai::default_config().providers.at("claude-code"), "worker",
+                                                               ai::make_extension_context(cfg, projectDir_, ai::system_env()));
+            at_check(!plan.hooks.is_object() || !plan.hooks.contains("Stop"), "...and a run does not get its hooks");
+            at_check(plan.projectSettingsOff, "...nor the project's .claude settings, which the same trust covered");
+        });
+        // Remove everything, Save.
+        step(3, [this] {
+            aiSettings_.ext.user.clear();
+            aiSettings_.ext.project.clear();
+            aiSettings_.ext.inherit = true;
+            aiSettings_.ext.projectError.clear();
+        });
+        click("aiset:ext:save");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && !j.contains("extensions") && j["roles"]["worker"]["model"] == "sonnet",
+                     "Saving an empty list takes \"extensions\" out of the file and the other keys stay");
+            at_check(!ai::load_project_extensions(projectDir_).exists, "...and removes the project's file");
+        });
+        click("aiset:ext:close");
+        step(4, [this] { at_check(!showAiSettings_ && !aiSettings_.loaded, "Close closes the window and drops the draft"); });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            set_env("FACTORIA_AI_CONFIG", x->hadEnv ? x->previousEnv : std::string());
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            stdfs::remove(ai::extensions_trust_path(x->path), ec);
+            stdfs::remove_all(x->plugin, ec);
+            stdfs::remove_all(projectDir_ + "/skills/autotest_gdd", ec);
+            if (x->hadClaudeFile) write_file(x->claudeFile, x->claudeBackup);
+            else {
+                stdfs::remove(x->claudeFile, ec);
+                stdfs::remove(projectDir_ + "/.claude", ec);  // only when it is empty
+            }
             std::lock_guard<std::mutex> lock(aiMu_);
             if (atSavedConfig_) {
                 aiConfig_ = std::move(*atSavedConfig_);

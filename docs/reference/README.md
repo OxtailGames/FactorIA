@@ -84,6 +84,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [ai](commands/ai.md)
 
+- [`ai.extensions`](commands/ai.md#aiextensions): Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading. _Not released yet._
 - [`ai.models`](commands/ai.md#aimodels): List the models each AI provider offers (the values for roles.<role>.model).
 - [`ai.providers`](commands/ai.md#aiproviders): List configured AI providers and roles, or diagnose which ones are usable (doctor).
 - [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Since 0.4.0._
