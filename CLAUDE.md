@@ -119,6 +119,12 @@ check passes and deletes its branch:
   of fixes only. Bump `VERSION` in CMakeLists.txt, rename `## Unreleased` in CHANGELOG.md to it with a one-paragraph
   summary, replace every `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings
   (docs/ARCHITECTURE.md, "Versions").
+- Every new engine version is also installed on the user's Mac, on top of CI and the GitHub release: build the
+  macOS universal package locally (the steps of the macOS job in .github/workflows/release.yml: Android, iOS and Web
+  players plus the `macos-release` universal build), keep the old install as `~/FactorIA-<old version>`, replace the
+  files of `~/FactorIA` with the package's and check that `~/FactorIA/factoria --version` prints the new version.
+  Swap each file by rename (`mv`, never copy over a binary) so a running editor survives, and do not run `factoria
+  setup launcher`: the running editor restarts through the Dock app and the new one refreshes the launcher.
 - Delete the local branch, remove the task's worktrees (agent worktrees
   included) and its `build/agent-<name>` dirs.
 - Leave the main checkout on `main`, up to date with `origin/main`, clean.

@@ -374,18 +374,34 @@ TEST_CASE("mcp: tools/list_changed and log notifications") {
 
 TEST_CASE("mcp: a long tool call with a progressToken sends notifications/progress; without one nothing") {
     Fixture f;
+    std::mutex mu;
+    std::vector<Json> got;
+    bool withToken = false;  // the call asked for progress: the command waits for what it should have caused
+    // Waits (up to 10 s) until `n` notifications start with `prefix`, instead of sleeping a fixed time: a busy CI machine
+    // can wake the heartbeat thread late.
+    auto wait_for = [&](const std::string& prefix, std::size_t n) {
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (withToken && std::chrono::steady_clock::now() < end) {
+            {
+                std::lock_guard<std::mutex> lock(mu);
+                std::size_t seen = 0;
+                for (const Json& m : got)
+                    if (m["params"]["message"].get<std::string>().rfind(prefix, 0) == 0) ++seen;
+                if (seen >= n) return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    };
     CommandInfo i;
     i.name = "test.slow";
     i.summary = "Reports what it does, then returns.";
-    f.registry.add(i, [](const Json&) {
+    f.registry.add(i, [&](const Json&) {
         report_command_progress("step one");
-        std::this_thread::sleep_for(std::chrono::milliseconds(120));
+        wait_for("step one", 1);  // sent when the throttle is over
         report_command_progress("step two");
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        wait_for("step two", 2);  // sent, then repeated by the heartbeat while the command is silent
         return Json::object({{"done", true}});
     });
-    std::mutex mu;
-    std::vector<Json> got;
     f.server.set_notification_sink([&](const std::string& m) {
         std::lock_guard<std::mutex> lock(mu);
         got.push_back(Json::parse(m));
@@ -400,6 +416,7 @@ TEST_CASE("mcp: a long tool call with a progressToken sends notifications/progre
         CHECK(got.empty());
     }
 
+    withToken = true;
     auto reply = f.rpc("tools/call", {{"name", "test_slow"},
                                       {"arguments", Json::object()},
                                       {"_meta", Json::object({{"progressToken", 7}})}});
