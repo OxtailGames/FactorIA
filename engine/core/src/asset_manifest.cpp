@@ -20,6 +20,7 @@ struct Cache {
     std::mutex mutex;
     std::string root;           // project root the cached manifest belongs to
     std::int64_t modified = -2; // modified_time of the file when read (-1 = missing, -2 = never read)
+    std::int64_t size = -1;     // and its size: two writes within the clock's step (~16 ms on Windows) share a time
     Json doc;
     std::unordered_map<std::string, std::shared_ptr<const Sheet>> sheets;  // parsed sheet entries of this read of the file
     std::string warnedFor;      // "root|mtime" of the last warning, so a broken file warns once
@@ -149,9 +150,11 @@ namespace {
 void refresh_locked(Cache& c) {
     const std::string root = fs::project_root().generic_string();
     const std::int64_t modified = fs::exists(kManifestFile) ? fs::modified_time(kManifestFile) : -1;
-    if (c.root == root && c.modified == modified && c.modified != -2) return;
+    const std::int64_t size = modified == -1 ? -1 : fs::file_size(kManifestFile);
+    if (c.root == root && c.modified == modified && c.size == size && c.modified != -2) return;
     c.root = root;
     c.modified = modified;
+    c.size = size;
     c.sheets.clear();
     c.doc = empty_manifest();
     if (modified == -1) return;
