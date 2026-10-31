@@ -239,8 +239,15 @@ Command bans_command() {
             return 0;
         }
         const Json& list = res.contains("bans") ? res["bans"] : res;
-        if (list.is_array() && list.empty()) ctx.out << "No bans.\n";
-        else print_tree(ctx.out, list, 0);
+        if (!list.is_array()) print_tree(ctx.out, list, 0);
+        else if (list.empty()) ctx.out << "No bans.\n";
+        else
+            for (const Json& b : list) {
+                if (!b.is_object()) continue;
+                const std::string kind = b.value("kind", std::string("?")), reason = b.value("reason", std::string());
+                ctx.out << (kind == "reporter" ? "reporter " : kind == "install" ? "install  " : kind + " ") << b.value("key", std::string("?"))
+                        << "  " << b.value("createdAt", std::string()).substr(0, 10) << (reason.empty() ? "" : "  " + reason) << "\n";
+            }
         return 0;
     };
     return c;
@@ -275,6 +282,33 @@ Command delete_command() {
     return c;
 }
 
+// Totals first, then one line per day that had any activity (the server sends every day of its window).
+void print_stats(std::ostream& out, const Json& res) {
+    const Json totals = res.value("totals", Json::object());
+    auto num = [](const Json& o, const char* k) { return o.contains(k) && o[k].is_number() ? o[k].get<long long>() : 0LL; };
+    out << "reports: " << num(totals, "reports") << "  installations: " << num(totals, "installations")
+        << "  occurrences: " << num(totals, "occurrences") << "  bans: " << num(totals, "bans") << "\n";
+    const Json days = res.value("days", Json::array());
+    int shown = 0;
+    for (const Json& d : days) {
+        if (!d.is_object()) continue;
+        const long long accepted = num(d, "accepted"), merged = num(d, "merged"), rejected = num(d, "rejected"),
+                        limited = num(d, "rateLimited"), banned = num(d, "banned");
+        if (accepted + merged + rejected + limited + banned == 0) continue;
+        if (shown++ == 0) out << "\nDays with activity (UTC):\n";
+        out << "  " << d.value("day", std::string("?")) << "  accepted " << accepted << ", merged " << merged << ", rejected "
+            << rejected << ", rate-limited " << limited << ", banned " << banned;
+        if (d.contains("rejections") && d["rejections"].is_object() && !d["rejections"].empty()) {
+            std::string why;
+            for (auto it = d["rejections"].begin(); it != d["rejections"].end(); ++it)
+                why += (why.empty() ? "" : ", ") + it.key() + " " + std::to_string(it->is_number() ? it->get<long long>() : 0);
+            out << " (" << why << ")";
+        }
+        out << "\n";
+    }
+    if (shown == 0) out << "No activity in the last " << days.size() << " days.\n";
+}
+
 Command stats_command() {
     Command c;
     c.name = "stats";
@@ -284,8 +318,11 @@ Command stats_command() {
     c.run = [](Context& ctx) {
         Json res;
         if (int rc = admin_run(ctx, "GET", "/v1/admin/stats", nullptr, res)) return rc;
-        if (ctx.args.has("json")) print_json(ctx.out, res);
-        else print_tree(ctx.out, res, 0);
+        if (ctx.args.has("json")) {
+            print_json(ctx.out, res);
+            return 0;
+        }
+        print_stats(ctx.out, res);
         return 0;
     };
     return c;

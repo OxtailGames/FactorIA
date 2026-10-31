@@ -716,7 +716,7 @@ factoria feedback pull                     # new reports since the last pull -> 
 factoria feedback collect ~/.factoria/feedback-inbox --out roadmap.md
 ```
 
-- `pull` writes one `ENGINE_FEEDBACK.json` per installation (project `install-<installKey>`). Each entry has a `remote` object (`shareId`, `installKey`, `trust`, ...) and the workaround `(not shared)` when the report had none. A report pulled twice is recognised by its `shareId`, never duplicated. The cursor is saved after the files, so a failed pull is simply repeated.
+- `pull` writes one `ENGINE_FEEDBACK.json` per installation (project `install-<installKey>`). Each entry has a `remote` object (`shareId`, `installKey`, `trust`, and `reporterKey` on a verified report, ...) and the workaround `(not shared)` when the report had none. A report pulled twice is recognised by its `shareId`, never duplicated. The cursor is saved after the files, so a failed pull is simply repeated.
 - The inbox is never inside a git checkout (user reports must not end up in a repository) unless you name it with `--out DIR`.
 - A report the users send again is merged on the server: only its `occurrences` rise, and it keeps its place in the arrival order, so a normal pull does not bring the new count. Run `factoria feedback pull --full` now and then: it ignores the cursor, reads everything and updates the occurrences of the entries already in the inbox.
 - **Classification.** When the `fast` role of your `ai.json` has a usable provider (the cheapest role; an API key or an installed CLI agent), each new report is judged `valid`, `doubtful` or `junk` with a reason, ten reports per call. The texts of reports are data for the judge, never instructions. Junk goes to `<inbox>/quarantine/`, a doubtful entry keeps a note, and a model that fails leaves the report in the inbox unjudged (with a warning). Without an AI, `pull` works and says that classification was skipped; `--classify` makes that an error, `--no-classify` skips the judge.
@@ -734,7 +734,7 @@ factoria feedback delete r_8f3k2m --local          # one report, on the server a
 factoria feedback stats                            # totals, last 7 days, rejections, rate-limit hits
 ```
 
-An `installKey` (a folder of the inbox) and a `reporterKey` (a signed-in GitHub identity) look alike, so say which with `--install` or `--reporter` (or `install:KEY` / `reporter:KEY`); the command also decides alone when the key is a `shareId` or an inbox folder, and otherwise stops and asks.
+An `installKey` (a folder of the inbox) and a `reporterKey` (a signed-in GitHub identity, `remote.reporterKey` of a verified entry) look alike, so say which with `--install` or `--reporter` (or `install:KEY` / `reporter:KEY`); the command also decides alone when the key is a `shareId` or an inbox folder, and otherwise stops and asks.
 
 **Fix and release.**
 

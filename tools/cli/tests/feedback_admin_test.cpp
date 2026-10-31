@@ -86,7 +86,9 @@ struct FakeServer {
         if (path == "/v1/admin/unban") return json(200, Json::object({{"ok", true}, {"removed", true}}));
         if (path.rfind("/v1/admin/reports/", 0) == 0) return json(200, Json::object({{"ok", true}, {"deleted", path.substr(18)}}));
         if (path == "/v1/admin/stats")
-            return json(200, Json::object({{"ok", true}, {"totals", Json::object({{"reports", 7}, {"installations", 3}, {"bans", 1}})}, {"days", Json::array()}}));
+            return json(200, Json::object({{"ok", true}, {"totals", Json::object({{"reports", 7}, {"installations", 3}, {"bans", 1}})},
+                                          {"days", Json::array({Json::object({{"day", "2026-10-31"}, {"accepted", 2}, {"rejected", 1}, {"rejections", Json::object({{"too_short", 1}})}}),
+                                                                Json::object({{"day", "2026-10-30"}, {"accepted", 0}})})}}));
         return json(404, Json::object({{"ok", false}, {"error", Json::object({{"code", "not_found"}, {"message", path + " is not an endpoint."}, {"hint", "x"}})}}));
     }
     std::string last_path() const { return requests.empty() ? std::string() : requests.back().url.substr(requests.back().url.find("/v1/")); }
@@ -176,6 +178,7 @@ TEST_CASE("feedback pull: pages through the server, writes one file per installa
     CHECK(a[0]["remote"]["installKey"] == kKeyA);
     CHECK(a[0]["remote"]["trust"] == "anonymous");
     CHECK(b[0]["remote"]["trust"] == "verified");
+    CHECK(b[0]["remote"]["reporterKey"] == "rrrrrrrrrrrrrrrr");  // what `feedback ban --reporter` takes
     CHECK(b[0]["occurrences"] == 3);
     CHECK(b[0]["date"] == "2026-10-20");
 
@@ -252,6 +255,22 @@ TEST_CASE("feedback pull: unreadable reports are skipped with a warning, the res
     CHECK(r.err.find("warning") != std::string::npos);
     CHECK(r.err.find("r_2") != std::string::npos);
     CHECK(f.entries_of(kKeyA).size() == 1);
+}
+
+TEST_CASE("feedback pull: null optional fields from the server read as absent") {
+    Fixture f;
+    Json r = report("r_1", kKeyA, "No one-way platforms");
+    r["effort"] = nullptr;
+    r["suggestion"] = nullptr;
+    r["engineVersion"] = nullptr;
+    f.server.reports = {r};
+    auto res = f.pull({"--no-classify"});
+    CHECK(res.code == 0);
+    Json e = f.entries_of(kKeyA);
+    REQUIRE(e.size() == 1);
+    CHECK_FALSE(e[0].contains("effort"));
+    CHECK_FALSE(e[0]["remote"].contains("reporterKey"));  // anonymous: the server sends null
+    CHECK(e[0]["title"] == "No one-way platforms");
 }
 
 TEST_CASE("feedback pull: never writes inside a git checkout unless --out names it") {
@@ -497,6 +516,9 @@ TEST_CASE("feedback ban, unban, bans, delete and stats talk to the admin API") {
     auto stats = run({"feedback", "stats"});
     CHECK(stats.code == 0);
     CHECK(stats.out.find("reports: 7") != std::string::npos);
+    CHECK(stats.out.find("2026-10-31  accepted 2, merged 0, rejected 1") != std::string::npos);
+    CHECK(stats.out.find("too_short 1") != std::string::npos);
+    CHECK(stats.out.find("2026-10-30") == std::string::npos);  // days without activity are left out
     CHECK(Json::parse(run({"feedback", "stats", "--json"}).out)["totals"]["installations"] == 3);
 
     f.server.fixed["/v1/admin/unban"] = f.server.json(200, Json::object({{"ok", true}, {"removed", false}}));
