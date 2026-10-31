@@ -1,0 +1,13 @@
+# FactorIA feedback server (Cloudflare Worker + D1). deploy.sh / deploy.ps1 create the database and write its id into
+# an untracked wrangler.local.toml (a copy of this file); the all-zero id below is a placeholder that only works for
+# `wrangler deploy --dry-run` and `wrangler dev --local`.
+name = "factoria-feedback"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "factoria-feedback"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"

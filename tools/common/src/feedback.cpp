@@ -584,6 +584,21 @@ void find_feedback_files(const stdfs::path& dir, int depth, std::vector<std::str
     for (const auto& d : subdirs) find_feedback_files(d, depth - 1, out);
 }
 
+constexpr long kMaxOccurrencesPerProject = 3;
+constexpr const char* kNotShared = "(not shared)";
+
+// "local" for an entry written in a project, "verified" / "anonymous" for one pulled from the feedback server (remote.trust).
+std::string entry_trust(const Json& e) {
+    if (!e.is_object() || !e.contains("remote") || !e["remote"].is_object()) return "local";
+    return e["remote"].value("trust", std::string("anonymous")) == "verified" ? "verified" : "anonymous";
+}
+
+// Scores are multiples of 0.5: a whole one is written as an integer.
+Json score_json(double score) {
+    if (score == std::floor(score)) return static_cast<long>(score);
+    return std::round(score * 10.0) / 10.0;
+}
+
 const char* kSeverityOrder[] = {"nice-to-have", "minor", "major", "blocker"};
 
 }  // namespace
@@ -666,7 +681,7 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
 
     struct Ranked {
         Json j;
-        long score;
+        double score;
         std::string title;
     };
     std::vector<Ranked> ranked;
@@ -682,7 +697,15 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
         long occ = 0;
         int maxW = 0;
         std::string sev = "nice-to-have";
-        std::set<std::string> projs;
+        // One voice per project (a local project or one installation): its worst severity, the occurrences of its entries
+        // here (capped at kMaxOccurrencesPerProject so repeating a report cannot push a gap up) and its trust.
+        struct Voice {
+            int weight = 0;
+            long occurrences = 0;
+            double trust = 0;
+            bool verified = false;
+        };
+        std::map<std::string, Voice> voices;
         Json entryRefs = Json::array(), samples = Json::array();
         std::string bestSuggestion;
         const Item* rep = &c.items.front();
@@ -693,27 +716,43 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
             occ += o;
             std::string s = it.entry.value("severity", "minor");
             if (feedback_severity_weight(s) > maxW) { maxW = feedback_severity_weight(s); sev = s; }
-            projs.insert(it.project);
+            const std::string trust = entry_trust(it.entry);
+            Voice& v = voices[it.project];
+            v.weight = std::max(v.weight, feedback_severity_weight(s));
+            v.occurrences += o;
+            v.trust = std::max(v.trust, trust == "anonymous" ? 0.5 : 1.0);
+            v.verified = v.verified || trust == "verified";
             entryRefs.push_back(Json::object({{"project", it.project}, {"id", it.entry.value("id", "")},
                                               {"severity", s}, {"status", status_of(it.entry)}, {"occurrences", o},
+                                              {"trust", trust},
                                               {"similarity", std::round(it.joinedScore * 100.0) / 100.0}}));
             if (o > repOcc) { repOcc = o; rep = &it; }
             std::string sug = it.entry.value("suggestion", "");
             if (sug.size() > bestSuggestion.size()) bestSuggestion = sug;
             std::string w = it.entry.value("workaround", "");
-            if (!w.empty() && sampleSeen.insert(w).second && samples.size() < 3) samples.push_back(w);
+            if (!w.empty() && w != kNotShared && sampleSeen.insert(w).second && samples.size() < 3) samples.push_back(w);
+        }
+        double score = 0;
+        long verifiedProjects = 0;
+        Json projs = Json::array();
+        for (const auto& [name, v] : voices) {
+            score += v.weight * v.trust * static_cast<double>(std::min(v.occurrences, kMaxOccurrencesPerProject));
+            if (v.verified) ++verifiedProjects;
+            projs.push_back(name);
         }
         Json j = Json::object();
         j["title"] = rep->entry.value("title", "");
         j["category"] = c.category;
         j["severity"] = sev;
-        j["score"] = occ * maxW;
+        j["score"] = score_json(score);
         j["totalOccurrences"] = occ;
-        j["projects"] = Json(std::vector<std::string>(projs.begin(), projs.end()));
+        j["installations"] = static_cast<long>(voices.size());
+        j["verifiedInstallations"] = verifiedProjects;
+        j["projects"] = projs;
         j["entries"] = entryRefs;
         j["bestSuggestion"] = bestSuggestion;
         j["sampleWorkarounds"] = samples;
-        ranked.push_back({std::move(j), occ * maxW, rep->entry.value("title", "")});
+        ranked.push_back({std::move(j), score, rep->entry.value("title", "")});
     }
     std::stable_sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
         if (a.score != b.score) return a.score > b.score;
@@ -738,8 +777,9 @@ std::string FeedbackReport::markdown() const {
     std::ostringstream o;
     o << "# Engine feedback report\n\n";
     o << json.value("totalEntries", 0) << " entries from " << json["projects"].size() << " project(s), "
-      << json["clusters"].size() << " distinct gap(s). Ranked by total occurrences x severity weight "
-      << "(blocker 8, major 4, minor 2, nice-to-have 1).\n\n";
+      << json["clusters"].size() << " distinct gap(s). Ranked by the sum over projects of severity weight x trust x "
+      << "min(occurrences, 3) (blocker 8, major 4, minor 2, nice-to-have 1; trust 1, or 0.5 for an anonymous "
+      << "installation).\n\n";
     if (!json["errors"].empty()) {
         o << "## Problems reading files\n\n";
         for (const auto& e : json["errors"]) o << "- " << e.get<std::string>() << "\n";
@@ -749,7 +789,13 @@ std::string FeedbackReport::markdown() const {
     for (const auto& c : json["clusters"]) {
         o << "## " << c["rank"].get<int>() << ". " << c["title"].get<std::string>() << "\n\n";
         o << "- **Category:** " << c["category"].get<std::string>() << "\n";
-        o << "- **Severity:** " << c["severity"].get<std::string>() << " (score " << c["score"].get<long>() << ")\n";
+        {
+            char buf[32];
+            std::snprintf(buf, sizeof buf, "%g", c["score"].get<double>());
+            o << "- **Severity:** " << c["severity"].get<std::string>() << " (score " << buf << ")\n";
+        }
+        o << "- **Installations:** " << c.value("installations", 0L) << " (" << c.value("verifiedInstallations", 0L)
+          << " verified)\n";
         o << "- **Total occurrences:** " << c["totalOccurrences"].get<long>() << "\n";
         o << "- **Projects affected:** ";
         bool first = true;
