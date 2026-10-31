@@ -1388,6 +1388,25 @@ Left open:
 - A `Collider3D` on a procedural mesh is rebuilt on every `mesh.update` (costly for a mesh deformed each frame).
 - The editor picks glTF models and primitives by their unit box; only procedural meshes use their triangles.
 
+## M46. Feedback from every game reaches the engine developer (L; 4 packages; the user) — PLANNED
+
+Asked by the user (2026-10-31): FactorIA has one developer, and the feedback of games made by other people must reach
+them. Today `ENGINE_FEEDBACK.json` stays on each user's machine and `feedback collect` only reads folders the developer
+has. Agreed design (docs/design/FEEDBACK_SHARING.md): a generic copy of each entry (`share`, engine terms only, cleaned
+by a sanitizer, nothing about the game) goes to the developer's own Cloudflare Worker after the user's consent; the
+server validates, rate-limits and bans; the ranking counts installations, not reports; GitHub sign-in is an optional
+identity that gives a report full weight; the user's AI checks a report before it is sent; the developer pulls into an
+inbox outside the repository with an AI classifier and a quarantine; each release ships the list of fixed gaps, which
+closes matching entries in the users' games.
+
+- M46.1 (L) The server: tools/feedback-server (Worker + D1, `node --test` suite in ctest), deploy script, privacy page.
+- M46.2 (L) The client: `share`/`reviewed`/`shared` fields, sanitizer, consent and outbox, the `feedback.share*`
+  commands and CLI, GitHub device flow, the embedded `feedback/fixed.json` and `feedback.check_fixed`.
+- M46.3 (L, after M46.2) The editor and the AI: consent dialog, Settings > Feedback, ask-mode confirmation, a new-entry
+  form, `ai.review_feedback`, AI_GUIDE.md and AGENTS.md.
+- M46.4 (L) The developer's side: `feedback pull` with classification and quarantine, bans, the per-installation
+  ranking in `collect`, `feedback fixed`.
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
