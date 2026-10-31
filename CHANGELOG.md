@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### New
+
+- Sharing feedback with the engine developer (M46.2, client): an entry of `ENGINE_FEEDBACK.json` may carry `share`, a generic copy of the gap in engine terms only, and `reviewed`; `feedback.report` and `factoria feedback add` take both. A deterministic sanitizer removes paths, file names, URLs, e-mail addresses, quoted text, the project's own names and control characters; nothing is sent until the user runs `factoria feedback sharing always|ask|never` (no engine command can change it). New commands `feedback.share_preview`, `feedback.share_status`, `feedback.share` and `feedback.check_fixed`; an outbox with retries (1 min, 10 min, 1 h, then daily); optional `factoria feedback signin github` (device flow). Each release's list of fixed gaps (`feedback/fixed.json`) closes matching open entries when the editor opens a project. The server address and GitHub client id are the CMake cache variables `FA_FEEDBACK_URL` and `FA_FEEDBACK_GITHUB_CLIENT_ID` (empty: sharing says it is unavailable). Guide: docs/ENGINE_FEEDBACK.md, "Sharing with the engine developer".
+
 ## 0.9.0
 
 FactorIA 0.9.0 (M44) brings what a 3D book needs, found by the user's game Roguestory: scripts build and deform meshes in code (`mesh.create`, `mesh.update`, `mesh.save` to a `.glb`) with vertex colors, a camera can draw live into a texture that a model shows (`Camera.renderTarget`, `"target:<name>"`) and the pointer reaches the buttons on it through the mesh, `render.captureTexture` photographs any part of the world off-screen at a scale you choose, world Text can be sized in meters and lit, a project tool always runs the code on disk, and AI session logs carry times that `ai.session_timeline` turns into a timeline.

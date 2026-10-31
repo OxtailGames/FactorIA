@@ -11,6 +11,7 @@
 
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/feedback_share.h"
 #include "util.h"
 
 namespace fa {
@@ -222,6 +223,33 @@ std::string check_enum(const char* field, const std::string& value, const std::v
     return std::string("Invalid ") + field + " '" + value + "'. " + did_you_mean(value, valid);
 }
 
+// The `share` of a report: the object to store ({title, missing, suggestion?, workaround?}, trimmed) or the reason it cannot be.
+std::string normalize_share(const Json& in, Json& out) {
+    if (!in.is_object()) return "share must be an object {title, missing, suggestion?, workaround?}";
+    out = Json::object();
+    struct Spec { const char* key; bool required; int min, max; };
+    const Spec specs[] = {{"title", true, kShareTitleMin, kShareTitleMax},
+                          {"missing", true, kShareMissingMin, kShareMissingMax},
+                          {"suggestion", false, 0, kShareSuggestionMax},
+                          {"workaround", false, 0, kShareWorkaroundMax}};
+    for (const Spec& sp : specs) {
+        auto it = in.find(sp.key);
+        if (it == in.end() || it->is_null()) {
+            if (sp.required) return std::string("share.") + sp.key + " is missing";
+            continue;
+        }
+        if (!it->is_string()) return std::string("share.") + sp.key + " must be a string";
+        const std::string text(trim(it->get<std::string>()));
+        std::size_t chars = 0;
+        for (unsigned char c : text)
+            if ((c & 0xC0) != 0x80) ++chars;
+        if (chars > std::size_t(sp.max)) return std::string("share.") + sp.key + " is too long (at most " + std::to_string(sp.max) + " characters)";
+        if (chars < std::size_t(sp.min)) return std::string("share.") + sp.key + " is too short (at least " + std::to_string(sp.min) + " characters)";
+        if (!text.empty()) out[sp.key] = text;
+    }
+    return {};
+}
+
 }  // namespace
 
 Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in, Json* archive) {
@@ -245,6 +273,14 @@ Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in,
 
     Json& entries = doc["entries"];
     const std::string today = tooling_detail::today_utc();
+
+    // The generic copy for sharing: a bad one is left out (the entry is still recorded) and the result says why.
+    Json share;
+    std::string shareProblem;
+    if (!in.share.is_null()) {
+        shareProblem = normalize_share(in.share, share);
+        if (!shareProblem.empty()) share = Json();
+    }
 
     // Dedupe against open entries of the same category.
     Json* best = nullptr;
@@ -297,10 +333,25 @@ Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in,
                 if (!have) e["workaroundFiles"].push_back(f);
             }
         }
+        if (share.is_object()) {
+            // The longer share wins (it says more); equally long: the newest.
+            auto size_of = [](const Json& j) { return j.value("title", std::string()).size() + j.value("missing", std::string()).size() +
+                                                      j.value("suggestion", std::string()).size() + j.value("workaround", std::string()).size(); };
+            if (!e.contains("share") || !e["share"].is_object() || size_of(share) >= size_of(e["share"])) {
+                const bool changed = !e.contains("share") || e["share"] != share;
+                e["share"] = share;
+                // A different text has not been sent: it goes through the sanitizer and the outbox again.
+                if (changed && e.contains("shared") && e["shared"].is_object() && e["shared"].value("status", std::string()) != "sent")
+                    e.erase("shared");
+            }
+        }
+        if (in.reviewed && *in.reviewed) e["reviewed"] = true;
+        else if (in.reviewed && !e.contains("reviewed")) e["reviewed"] = false;
         result.id = e["id"].get<std::string>();
         result.merged = true;
         result.occurrences = occ;
         result.entry = e;
+        result.shareProblem = shareProblem;
         return result;
     }
 
@@ -321,11 +372,14 @@ Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in,
     if (!in.workaroundFiles.empty()) e["workaroundFiles"] = in.workaroundFiles;
     if (!in.suggestion.empty()) e["suggestion"] = in.suggestion;
     if (!in.effort.empty()) e["effort"] = in.effort;
+    if (share.is_object()) e["share"] = share;
+    if (in.reviewed) e["reviewed"] = *in.reviewed;
     e["occurrences"] = 1;
     e["status"] = "open";
     entries.push_back(e);
     result.id = idbuf;
     result.entry = e;
+    result.shareProblem = shareProblem;
     return result;
 }
 
@@ -760,6 +814,7 @@ Json enum_schema(const std::vector<std::string>& v, const char* desc) {
 }  // namespace
 
 void register_feedback_commands(CommandRegistry& registry, const std::string& projectDir) {
+    register_feedback_share_commands(registry, projectDir);
     {
         CommandInfo info;
         info.name = "feedback.report";
@@ -776,10 +831,24 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             "are harmless. A gap the engine already fixed (archived, see feedback.archive) and that you report again reopens the archived entry as a possible regression. Write 'title' as a short noun phrase (\"No one-way platforms\"), 'missing' as what you needed "
             "and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the "
             "concrete engine change that would remove the workaround.\n"
+            "SHARE (optional, strongly recommended): `share` is the same gap written for the ENGINE DEVELOPER, who must never "
+            "learn what the game is about. Write it in engine terms only: components, fields, commands and API names that "
+            "exist (or that you propose), and NOTHING about the game: no game, character, level, scene, entity, asset or script "
+            "names, no file names or paths, no quotes from the game, no story. {title (8-120 characters), missing (20-1500, at "
+            "least 4 words), suggestion?, workaround? (the kind of workaround, without project details)}. Good: {\"title\":\"No "
+            "one-way platforms\",\"missing\":\"Collider2D has no one-way option, so a body cannot pass up through a platform "
+            "and land on it.\",\"suggestion\":\"Add Collider2D.oneWay (bool).\",\"workaround\":\"A script disables the "
+            "collider while the body moves up.\"}. Bad: \"The knight in Dungeon of Ash cannot jump through scripts/ledge.js "
+            "platforms\" (names the game, a character and a file). Check the docs first (docs.search) so the gap is real and "
+            "about the engine, then pass reviewed: true. An entry without `share` is never sent. Whether anything is sent is the "
+            "USER's choice (mode always, ask or never): the result's `share` says what happened, and no command changes the "
+            "mode, so do not try; if it says sharing is not set up, tell the user how to turn it on, once.\n"
             "Example: {\"category\":\"physics\",\"severity\":\"major\",\"title\":\"No one-way platforms\","
             "\"missing\":\"Collider2D has no one-way option so the player cannot jump up through platforms.\","
             "\"workaround\":\"scripts/one_way.js disables the platform collider while the player moves upward.\","
-            "\"workaroundFiles\":[\"scripts/one_way.js\"],\"suggestion\":\"Add Collider2D.oneWay (bool).\"}";
+            "\"workaroundFiles\":[\"scripts/one_way.js\"],\"suggestion\":\"Add Collider2D.oneWay (bool).\","
+            "\"share\":{\"title\":\"No one-way platforms\",\"missing\":\"Collider2D has no one-way option, so a body cannot "
+            "pass up through a platform and land on it.\",\"suggestion\":\"Add Collider2D.oneWay (bool).\"},\"reviewed\":true}";
         Json props = Json::object();
         props["category"] = enum_schema(feedback_categories(), "Engine area of the gap.");
         props["severity"] = enum_schema(feedback_severities(),
@@ -791,6 +860,18 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
                                                  {"description", "Project-relative files implementing the workaround."}});
         props["suggestion"] = Json::object({{"type", "string"}, {"description", "How the engine could fix it (field, command, API)."}});
         props["effort"] = enum_schema({"small", "medium", "large"}, "Your estimate of the engine-side effort to fix it.");
+        props["share"] = Json::object({{"type", "object"},
+            {"description", "The generic copy for the engine developer, in ENGINE TERMS ONLY: nothing about the game (no names, "
+                            "story, characters, assets, file names, paths or quotes). {title, missing, suggestion?, workaround?}. "
+                            "Without it the entry is never sent."},
+            {"properties", Json::object({
+                {"title", Json::object({{"type", "string"}, {"description", "8-120 characters: the gap as a noun phrase, e.g. \"No one-way platforms\"."}})},
+                {"missing", Json::object({{"type", "string"}, {"description", "20-1500 characters, at least 4 words: what the engine lacks, naming components, fields or commands."}})},
+                {"suggestion", Json::object({{"type", "string"}, {"description", "Up to 1500 characters: the engine change that would fix it."}})},
+                {"workaround", Json::object({{"type", "string"}, {"description", "Up to 1500 characters: the kind of workaround, without project details."}})}})},
+            {"required", Json::array({"title", "missing"})}});
+        props["reviewed"] = Json::object({{"type", "boolean"},
+            {"description", "true when you checked against the docs (docs.search, docs.components) that the gap is real and about the engine."}});
         props["reporter"] = Json::object({{"type", "object"},
             {"description", "Who is reporting. Defaults to {\"kind\":\"ai\"}; include your agent and model if you know them."},
             {"properties", Json::object({{"kind", enum_schema({"ai", "human"}, "ai or human.")},
@@ -798,7 +879,7 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
                                          {"model", Json::object({{"type", "string"}, {"description", "Model id."}})}})}});
         info.inputSchema = Json::object({{"type", "object"}, {"properties", props},
             {"required", Json::array({"category", "severity", "title", "missing", "workaround"})}});
-        registry.add(info, [projectDir](const Json& args) {
+        registry.add(info, [projectDir, &registry](const Json& args) {
             FeedbackInput in;
             in.category = arg_string(args, "category", true);
             in.severity = arg_string(args, "severity", true);
@@ -811,6 +892,8 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
                 for (const auto& f : args["workaroundFiles"])
                     if (f.is_string()) in.workaroundFiles.push_back(f.get<std::string>());
             in.reporter = args.contains("reporter") && args["reporter"].is_object() ? args["reporter"] : Json::object({{"kind", "ai"}});
+            if (args.contains("share") && !args["share"].is_null()) in.share = args["share"];
+            if (args.contains("reviewed") && args["reviewed"].is_boolean()) in.reviewed = args["reviewed"].get<bool>();
             std::string path = feedback_path_for(projectDir);
             auto r = add_feedback_entry_to_file(path, in, project_name_for(projectDir));
             if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
@@ -820,6 +903,15 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             out["occurrences"] = r->occurrences;
             out["file"] = stdfs::path(path).filename().string();
             out["reopened"] = r->reopened;
+            // Sharing never fails the report: whatever goes wrong is told in `share`.
+            if (!r->shareProblem.empty()) {
+                out["share"] = Json::object({{"status", "invalid"},
+                    {"message", "`share` was not stored: " + r->shareProblem + ". The entry is recorded without it and will not be shared. "
+                                "Report again with a corrected share (same title) to add it."}});
+            } else if (args.contains("share") && !args["share"].is_null()) {
+                Json summary = share_report_summary(share_env(), path, projectDir, r->id, &registry, true);
+                if (!summary.is_null()) out["share"] = std::move(summary);
+            }
             out["message"] = r->reopened ? "Reopened " + r->id + ": it was fixed in the engine and is reported again (a regression?). Thank you."
                              : r->merged ? "Merged into existing entry " + r->id + " (now " + std::to_string(r->occurrences) +
                                                " occurrences). Thank you."
