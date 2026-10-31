@@ -4,7 +4,10 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+### New
+
 - Feedback server (M46.1, `tools/feedback-server`): a Cloudflare Worker with D1 (free plan, plain JavaScript, no build step) that receives the generic engine-gap reports of M46: validation and field limits, per-installation merge of similar titles, rate limits per installation, network and server with `429`/`Retry-After`, bans with purge, the optional GitHub sign-in credential, the admin API with a stable pull cursor, and a plain privacy page. Installation, reporter and network keys are keyed hashes: the server never stores the installation id, an IP, a GitHub login or id, or a token. `deploy.sh` / `deploy.ps1` deploy it in one command and write `feedback-admin.json` next to `ai.json`; `node --test` tests run in ctest (`feedback_server`) when Node.js 20+ is found. Design: docs/design/FEEDBACK_SHARING.md.
+- Engine developer side of feedback sharing (M46.4): `factoria feedback pull` downloads the reports users shared into an inbox (one `ENGINE_FEEDBACK.json` per installation, merged by `shareId`, `--full` to refresh occurrences), a cheap AI role (`fast`) judges them valid, doubtful or junk with junk going to `feedback quarantine`, `feedback ban|unban|bans|delete|stats` manage the server, and `feedback fixed add|list` maintain `feedback/fixed.json`. `feedback collect` now scores `severity weight x trust x min(occurrences, 3)` per project (anonymous installations count half) and reports installations and verified installations. Guide: docs/EXTENDING.md, section F.1.
 
 ## 0.9.0
 
