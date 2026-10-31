@@ -2,6 +2,10 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+- Feedback server (M46.1, `tools/feedback-server`): a Cloudflare Worker with D1 (free plan, plain JavaScript, no build step) that receives the generic engine-gap reports of M46: validation and field limits, per-installation merge of similar titles, rate limits per installation, network and server with `429`/`Retry-After`, bans with purge, the optional GitHub sign-in credential, the admin API with a stable pull cursor, and a plain privacy page. Installation, reporter and network keys are keyed hashes: the server never stores the installation id, an IP, a GitHub login or id, or a token. `deploy.sh` / `deploy.ps1` deploy it in one command and write `feedback-admin.json` next to `ai.json`; `node --test` tests run in ctest (`feedback_server`) when Node.js 20+ is found. Design: docs/design/FEEDBACK_SHARING.md.
+
 ## 0.9.0
 
 FactorIA 0.9.0 (M44) brings what a 3D book needs, found by the user's game Roguestory: scripts build and deform meshes in code (`mesh.create`, `mesh.update`, `mesh.save` to a `.glb`) with vertex colors, a camera can draw live into a texture that a model shows (`Camera.renderTarget`, `"target:<name>"`) and the pointer reaches the buttons on it through the mesh, `render.captureTexture` photographs any part of the world off-screen at a scale you choose, world Text can be sized in meters and lit, a project tool always runs the code on disk, and AI session logs carry times that `ai.session_timeline` turns into a timeline.
