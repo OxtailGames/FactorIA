@@ -1,0 +1,43 @@
+{
+  "$comment": "Starting state and global rules of the economy. refund = share of the cost handed back when a building or road is demolished (rounded down per item). calendar: the clock (scripts/game/clock.js) turns game seconds into a date; tickSeconds is the fixed step the simulation runs at (the clock cuts every frame into steps of this size, so x1, x2 and x4 give the same town). sim: the knobs of scripts/game/sim.js - see the comment next to each in README.md (Economy and simulation). Times are game seconds, `Day` fractions are 0..1 of a day.",
+  "format": "tidewater.economy/2",
+  "start": {
+    "coins": 1000,
+    "stock": { "wood": 60, "stone": 20, "planks": 10, "grain": 0, "fish": 0, "bread": 0, "tools": 0, "flour": 0, "smoked_fish": 0 }
+  },
+  "refund": 0.5,
+  "undoLimit": 100,
+  "calendar": {
+    "seasons": ["spring", "summer", "autumn", "winter"],
+    "daysPerSeason": 10,
+    "secondsPerDay": 30,
+    "tickSeconds": 0.2,
+    "startYear": 1
+  },
+  "sim": {
+    "walkSpeed": { "villager": 2.4, "carrier": 2.0 },
+    "workStartDay": 0.05,
+    "workEndDay": 0.7,
+    "marketCloseDay": 0.92,
+    "departSpreadDay": 0.1,
+    "productionRate": 3.5,
+    "wagePerDay": 1,
+    "foodPerDay": 0.6,
+    "hungerLimitDays": 6,
+    "firstArrivalSeconds": 4,
+    "growthSeconds": 12,
+    "unemployedLimit": 3,
+    "baseStorage": 80,
+    "carrierCapacity": 12,
+    "outboxCycles": 2,
+    "inboxCycles": 2,
+    "marketTarget": 16,
+    "dispatchSeconds": 1,
+    "patienceSeconds": 15,
+    "unpaidEfficiency": 0.5,
+    "foodBuffer": 3,
+    "shopBelow": 1.2,
+    "growthFoodDays": 1.5,
+    "founders": 6
+  }
+}

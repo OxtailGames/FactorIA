@@ -282,6 +282,21 @@ describe("Options > Access", () => {
     expect(window.available).toBe(false);
     expect(game.find("video_note").active).toBe(true);
     expect(game.find("display_mode").get("Button").interactable).toBe(false);
-    expect(game.find("monitor").get("Text").text.length).toBeGreaterThan(0);
+    expect(game.find("monitor").active).toBe(false); // no window, so no monitor row
+    expect(game.find("display_mode").get("Button").text).toContain("windowed"); // the headless window is a window
+  });
+
+  test("Window modes: windowed, borderless and full screen; an older save's fullscreen flag still means full screen", () => {
+    expect(settings.DISPLAY_MODES).toEqual(["windowed", "borderless", "fullscreen"]);
+    expect(settings.displayModeOf({ displayMode: "borderless", fullscreen: true })).toBe("borderless");
+    expect(settings.displayModeOf({ displayMode: null, fullscreen: true })).toBe("fullscreen");
+    expect(settings.displayModeOf({ displayMode: null, fullscreen: false })).toBe("windowed");
+    expect(settings.displayModeOf({ displayMode: "exclusive", fullscreen: null })).toBe(null);
+    storage.set("settings", { fullscreen: true }); // saved before the borderless mode and the monitor choice
+    expect(settings.displayModeOf(settings.load())).toBe("fullscreen");
+    expect(settings.load().monitor).toBe(null);
+    settings.save({ ...settings.load(), displayMode: "borderless", monitor: { index: 1, name: "DELL" } });
+    expect(settings.load().displayMode).toBe("borderless");
+    expect(settings.load().monitor).toEqual({ index: 1, name: "DELL" });
   });
 });

@@ -1,0 +1,106 @@
+{
+  "format": "larkspur.cutscene/1",
+  "id": "ending_dawn",
+  "doc": "The 'dawn' ending: the truth is told in the hall as the first car comes down the pass.",
+  "duration": 17,
+  "room": "hall",
+  "skippable": true,
+  "actors": {
+    "porter": {
+      "as": "porter"
+    },
+    "vale": {
+      "as": "npc",
+      "cast": "vale"
+    },
+    "mara": {
+      "as": "npc",
+      "cast": "mara"
+    },
+    "haas": {
+      "as": "npc",
+      "cast": "haas"
+    }
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "do": "fade",
+      "to": 1,
+      "seconds": 0
+    },
+    {
+      "at": 0,
+      "do": "camera",
+      "pos": [
+        22.0,
+        2.6,
+        17.6
+      ],
+      "look": [
+        14.5,
+        1.0,
+        21.0
+      ],
+      "seconds": 0,
+      "ease": "inOut",
+      "space": "world"
+    },
+    {
+      "at": 0.4,
+      "do": "fade",
+      "to": 0,
+      "seconds": 1.8
+    },
+    {
+      "at": 0.4,
+      "do": "camera",
+      "pos": [
+        17.6,
+        2.5,
+        17.3
+      ],
+      "look": [
+        12.6,
+        1.0,
+        21.0
+      ],
+      "seconds": 12.5,
+      "ease": "inOut",
+      "space": "world"
+    },
+    {
+      "at": 1.0,
+      "do": "caption",
+      "key": "cutscene.ending_dawn.line01",
+      "seconds": 4.4,
+      "voice": "ending_dawn_01"
+    },
+    {
+      "at": 5.8,
+      "do": "caption",
+      "key": "cutscene.ending_dawn.line02",
+      "seconds": 4.8,
+      "voice": "ending_dawn_02",
+      "speaker": "mara"
+    },
+    {
+      "at": 10.8,
+      "do": "caption",
+      "key": "cutscene.ending_dawn.line03",
+      "seconds": 3.4,
+      "voice": "ending_dawn_03",
+      "speaker": "vale"
+    },
+    {
+      "at": 14.6,
+      "do": "fade",
+      "to": 1,
+      "seconds": 1.8
+    }
+  ],
+  "end": {
+    "fade": 1
+  },
+  "area": "ground"
+}

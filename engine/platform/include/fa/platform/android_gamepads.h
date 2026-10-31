@@ -97,12 +97,20 @@ public:
 
     // The device was queried (see the top of this file): its axis layout. Ignored for a device that has no slot.
     void set_layout(int deviceId, const AndroidLayout& layout);
+    // Who the device is (InputDevice name, vendor, product, descriptor: the id is built from them with make_gamepad_id).
+    // Called with set_layout() for a new device. Ignored for a device that has no slot.
+    void set_info(int deviceId, const GamepadInfo& info);
+    // true: a pad is not announced to the game (feed() shows its slot as free) until set_layout() has been called for it, so the
+    // "gamepadConnected" event carries the pad's real id and the pad can take the slot it had before. The JNI glue turns this
+    // on (it answers every new device, even when JNI fails); the default is off, a pad then connects at its first event.
+    void wait_for_info(bool wait) { waitForInfo_ = wait; }
     // The device is gone (InputDevice.getDevice(id) returned null): its slot is free for the next pad. The other pads
     // keep their slots, so player 2 stays player 2. No effect on a device that has no slot.
     void release_device(int deviceId);
 
-    // Feeds every slot (a pad: connect + all buttons and axes; a free slot: disconnect) to `input`. Once per frame.
-    void feed(Input& input) const;
+    // Feeds every slot (a pad: connect + all buttons and axes; a free slot: disconnect) to `input`. Once per frame. A pad
+    // whose info is known moves to the slot it had before when that is free (once, before it is announced).
+    void feed(Input& input);
 
     // Slots are 0..kMaxGamepads-1, the pad numbers the game sees. A free slot is -1 / at rest.
     int device_id(int slot) const;      // the Android device id of the pad in the slot, or -1
@@ -117,7 +125,9 @@ private:
         int deviceId = 0;
         std::uint64_t lastSeen = 0;
         bool layoutSet = false;
+        bool placed = false;  // feed() has chosen its slot for good (its id is known)
         AndroidLayout layout;
+        GamepadInfo info;
         std::array<bool, size_t(GamepadButton::Count)> keys{};  // buttons from key events
         bool l2Key = false, r2Key = false;                      // BUTTON_L2/R2: digital triggers
         bool analogLeft = false, analogRight = false;           // the trigger axis has moved: ignore the digital key
@@ -129,6 +139,7 @@ private:
 
     std::array<Pad, kMaxGamepads> pads_;
     std::uint64_t tick_ = 0;
+    bool waitForInfo_ = false;
 };
 
 }  // namespace fa

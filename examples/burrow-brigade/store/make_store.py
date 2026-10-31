@@ -78,12 +78,14 @@ def step_scenes():
 
 
 def step_record():
-    out = run([FACTORIA, "test", "store/record.test.js"], cwd=GAME, capture_output=True, text=True).stdout
-    for line in out.splitlines():
-        if "@@REPLAY " in line:
-            d = json.loads(line.split("@@REPLAY ", 1)[1])
-            write(os.path.join(HERE, "replays", d["name"] + ".json"), d["replay"])
-            print(f"store/replays/{d['name']}.json: {d['frames']} frames, {d['outcome']}")
+    tmp = os.path.join(GAME, ".factoria/tmp")
+    for old in glob.glob(os.path.join(tmp, "record_*.json")):
+        os.remove(old)
+    run([FACTORIA, "test", "store/record.test.js"], cwd=GAME, stdout=subprocess.DEVNULL)  # it saves each floor with fs.write
+    for path in sorted(glob.glob(os.path.join(tmp, "record_*.json"))):
+        d = json.load(open(path))
+        write(os.path.join(HERE, "replays", d["name"] + ".json"), d["replay"])
+        print(f"store/replays/{d['name']}.json: {d['frames']} frames, {d['outcome']}")
     join = {"0": {"gamepad": [{"index": i, "connected": True} for i in range(4)]}}
     for i in range(4):  # the four players press A one after the other
         join[str(10 + 6 * i)] = {"gamepad": [{"index": i, "buttons": {"A": True}}]}

@@ -215,7 +215,7 @@ describe("the camp with each input", () => {
     expect(run.upgrades.pickTier).toBe(1);
     game.click("copy_code");
     game.step(1);
-    expect(text("camp_message")).toContain("kept for this session");
+    expect(text("camp_message")).toContain("copied to the clipboard");
     descend();
     expect(scene.current).toBe(SHIFT);
   });

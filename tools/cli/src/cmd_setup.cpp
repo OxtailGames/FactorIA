@@ -19,7 +19,7 @@ namespace fa::cli {
 namespace {
 
 const std::vector<std::string>& components() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders", "vscode", "ffmpeg"};
+    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders", "vscode", "ffmpeg", "webplayer", "launcher"};
     return ids;
 }
 
@@ -143,7 +143,7 @@ int run_install(Context& ctx, const std::string& component) {
 Command make_setup_command() {
     Command g;
     g.name = "setup";
-    g.summary = "Check this computer for exporting and install what is missing (Android JDK + SDK, players, CMake, AppImage tools, the shader compiler).";
+    g.summary = "Check this computer for exporting and install what is missing (Android JDK + SDK, players, CMake, AppImage tools, the shader compiler, the app launcher).";
     g.usage = "";
     g.details =
         "'factoria setup' shows what an export needs and whether this computer has it. 'factoria setup <component>' installs it into\n"
@@ -152,6 +152,8 @@ Command make_setup_command() {
         "  android  JDK 21 (Eclipse Temurin) + the Android SDK, so 'factoria export --platform android' builds an APK/AAB.\n"
         "           The SDK license is shown first and installed only after you accept it (or pass --accept-licenses).\n"
         "  players  the factoria_player of the other desktop OSes and the Android/iOS libraries, for this version of factoria.\n"
+        "  webplayer builds the web player from the engine checkout factoria was built from (Emscripten, preset web-release) into\n"
+        "           build/web-release/player, for a development build with no release: fetches Emscripten 6.0.10 into .cache/ when none is found.\n"
         "  cmake    CMake 3.24+ for the iOS export (macOS), unless one is found.\n"
         "  xcode    macOS: checks Xcode; 'setup xcode' opens its App Store page and says what to do next.\n"
         "  appimage Linux x86_64 (and WSL): appimagetool and the AppImage runtime, so 'factoria export --platform linux --format appimage'\n"
@@ -161,7 +163,9 @@ Command make_setup_command() {
         "  vscode   the script debugger for VS Code (and Insiders, VSCodium, Cursor): copies the extension built into factoria to\n"
         "           ~/.vscode/extensions, so F5 in a project debugs its scripts (docs/DEBUGGING.md). Nothing is downloaded.\n"
         "  ffmpeg   the static ffmpeg 6.0 build (github.com/eugeneware/ffmpeg-static, SHA-256 checked) that turns 'factoria run\n"
-        "           --record-video trailer.mp4' into H.264 + AAC, so it works without installing ffmpeg by hand.";
+        "           --record-video trailer.mp4' into H.264 + AAC, so it works without installing ffmpeg by hand.\n"
+        "  launcher macOS: ~/Applications/FactorIA.app, Linux: a .desktop entry - opens this factoria's editor with the FactorIA\n"
+        "           icon, for the Dock, Launchpad or the application menu. Nothing is downloaded.";
     g.maxPositional = 1;
     g.flags = {{"json", "", "Machine-readable output."}};
     g.examples = {"factoria setup", "factoria setup android", "factoria setup android --accept-licenses", "factoria setup players",
@@ -200,6 +204,8 @@ Command make_setup_command() {
                          {{"platforms", "LIST", "Comma-separated: windows, linux, macos, mobile, web (default: every desktop OS but this one, plus mobile when missing; web, the web export's player, only when asked for: every download has it next to factoria)."},
                           {"force", "", "Download again even when installed."}},
                          {"factoria setup players", "factoria setup players --platforms windows,linux"}));
+    g.subs.push_back(sub("webplayer", "Build the web player from this engine checkout (development builds, which have no release), fetching Emscripten when it is missing.",
+                         {{"force", "", "Build again even when build/web-release/player is of this factoria's build."}}, {"factoria setup webplayer"}));
     g.subs.push_back(sub("cmake", "Install CMake 3.24+ (for the iOS export) unless one is found.",
                          {{"force", "", "Install it into ~/.factoria even when a CMake is found (or this is not a Mac)."}}, {"factoria setup cmake"}));
     g.subs.push_back(sub("xcode", "macOS: check Xcode and open its App Store page when it is missing.", {}, {"factoria setup xcode"}));
@@ -211,6 +217,8 @@ Command make_setup_command() {
                          {{"force", "", "Download it again even when an ffmpeg is found."}}, {"factoria setup ffmpeg"}));
     g.subs.push_back(sub("vscode", "Install the FactorIA debugger extension into VS Code (and Insiders, VSCodium, Cursor).",
                          {{"force", "", "Copy it again even when this version is installed."}}, {"factoria setup vscode"}));
+    g.subs.push_back(sub("launcher", "macOS, Linux: write the app that opens this factoria's editor with the FactorIA icon (Dock, Launchpad, application menu).",
+                         {{"force", "", "Write it again even when it is up to date."}}, {"factoria setup launcher"}));
     return g;
 }
 

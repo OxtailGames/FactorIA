@@ -1,0 +1,125 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Card",
+    "components": {
+      "Panel": {
+        "size": [1280, 720],
+        "anchor": [0.5, 0.5],
+        "layer": 290,
+        "color": [0, 0, 0, 0.55],
+        "layout": "column",
+        "justify": "center",
+        "modal": true
+      }
+    },
+    "children": [
+      {
+        "id": "card_box",
+        "components": {
+          "Panel": {
+            "layer": 300,
+            "color": [0.08, 0.1, 0.14, 0.97],
+            "layout": "column",
+            "align": "start",
+            "spacing": 12,
+            "padding": [24, 16, 24, 24],
+            "fit": true,
+            "minSize": [640, 0],
+            "maxSize": [640, 0]
+          }
+        },
+        "children": [
+          {
+            "id": "card_kind",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 18,
+                "color": [0.66, 0.69, 0.75, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_title",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 32,
+                "color": [1, 0.82, 0.29, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_body",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 20,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_choices",
+            "components": {
+              "Panel": {
+                "layer": 301,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "align": "start",
+                "spacing": 8,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            }
+          },
+          {
+            "id": "card_effects",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 22,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_continue",
+            "components": {
+              "Button": {
+                "text": "Continue",
+                "key": "card.continue",
+                "size": [160, 44],
+                "autoSize": true,
+                "autoShrink": true,
+                "minFontSize": 10,
+                "maxTextScale": 1.25,
+                "layer": 302,
+                "autoFocus": true
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

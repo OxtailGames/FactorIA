@@ -7,10 +7,12 @@
 // window screenshots. A script of small steps, one step per frame followed by a wait, so a step never races the UI: a click is
 // move, press, release on different frames.
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -19,6 +21,7 @@
 #include "autotest_sections.h"
 #include "editor_internal.h"
 #include "sokol_app.h"
+#include "imgui_internal.h"
 #include "ui_backend.h"
 
 namespace fa::editor {
@@ -26,6 +29,21 @@ namespace fa::editor {
 namespace {
 
 namespace stdfs = std::filesystem;
+
+// Section U: where a panel is now. Floating panels have no dock node; a docked one names its node.
+ImGuiWindow* panel_window(const char* name) { return ImGui::FindWindowByName(name); }
+bool panel_floating(const char* name) {
+    const ImGuiWindow* w = panel_window(name);
+    return w && !w->DockIsActive && w->DockNode == nullptr;
+}
+ImGuiID panel_node(const char* name) {
+    const ImGuiWindow* w = panel_window(name);
+    return w && w->DockNode ? w->DockNode->ID : 0;
+}
+float panel_width(const char* name) {
+    const ImGuiWindow* w = panel_window(name);
+    return w ? w->Size.x : 0.0f;
+}
 
 void write_file(const std::string& path, const std::string& bytes) {
     std::error_code ec;
@@ -253,6 +271,105 @@ public:
 private:
     int turn_ = 0;
 };
+
+// Section Q's worker: says something, takes `delayMs` to think (cancellable), then reports. Nothing else; no tool calls.
+class SlowWorkerProvider : public ai::ChatProvider {
+public:
+    explicit SlowWorkerProvider(int delayMs) : delayMs_(delayMs) {}
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest&, const ai::ChatHooks& hooks, const ai::CancelFlag* cancel) override {
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 300;
+        r.usage.outputTokens = 30;
+        if (hooks.onText) hooks.onText("Making the coin. ");
+        for (int waited = 0; waited < delayMs_ && !(cancel && cancel->load()); waited += 25)
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        r.message.text = "Making the coin. Worker report: coin done";
+        if (hooks.onText) hooks.onText("Worker report: coin done");
+        r.stopReason = ai::StopReason::EndTurn;
+        return r;
+    }
+
+private:
+    int delayMs_;
+};
+// Section W's scripted "model" for several chats at once. The first user message carries a marker. [A], [B] and [L] work: they
+// wait (1.2 s, 1.2 s, 3.5 s; cancellable), then write scripts/u_shared.js and their own scripts/u_<letter>.js and spawn a coin
+// (UCoin<LETTER>). [S] only waits, 20 s (a run to Stop). Every run ends by saying "Finished <marker>".
+class ConcurrentProvider : public ai::ChatProvider {
+public:
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks, const ai::CancelFlag* cancel) override {
+        char marker = '?';
+        for (const ai::Message& m : req.messages) {
+            if (m.role != ai::Role::User) continue;
+            const std::size_t at = m.text.find('[');
+            if (at != std::string::npos && at + 2 < m.text.size() && m.text[at + 2] == ']') {
+                marker = m.text[at + 1];
+                break;
+            }
+        }
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 500;
+        r.usage.outputTokens = 40;
+        const bool answered = !req.messages.empty() && !req.messages.back().toolResults.empty();
+        if (!answered) {
+            r.message.text = std::string("Working on ") + marker + ". ";
+            if (hooks.onText) hooks.onText(r.message.text);
+            const int delayMs = marker == 'S' ? 20000 : marker == 'L' ? 3500 : 1200;
+            for (int waited = 0; waited < delayMs && !(cancel && cancel->load()); waited += 25)
+                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            if (marker != 'S' && !(cancel && cancel->load())) {
+                const std::string lower(1, static_cast<char>(std::tolower(static_cast<unsigned char>(marker))));
+                const std::string upper(1, marker);
+                auto call = [&](const std::string& id, const char* name, const Json& input) {
+                    ai::ToolCall c;
+                    c.id = id;
+                    c.name = name;
+                    c.input = input;
+                    r.message.toolCalls.push_back(c);
+                };
+                call("w1", "fs_write", Json::object({{"path", "scripts/u_shared.js"}, {"content", "from " + upper + "\n"}}));
+                call("w2", "fs_write", Json::object({{"path", "scripts/u_" + lower + ".js"}, {"content", "only " + upper + "\n"}}));
+                call("w3", "scene_spawn",
+                     Json::parse("{\"name\":\"UCoin" + upper + "\",\"position\":[0,120],\"components\":{\"Shape2D\":{\"shape\":\"circle\","
+                                 "\"size\":[28,28],\"color\":[1,0.85,0.1,1]}}}"));
+                r.stopReason = ai::StopReason::ToolUse;
+                return r;
+            }
+        }
+        r.message.text = std::string("Finished ") + marker;
+        if (hooks.onText) hooks.onText(r.message.text);
+        r.stopReason = ai::StopReason::EndTurn;
+        return r;
+    }
+};
+// Section U's reviewer: no tool calls, one report that ends in the score block. It records the tools it was offered, so the
+// test can see that a read-only role really is not given the ones that change the project.
+std::vector<std::string> g_reviewToolsOffered;
+class ReviewerProvider : public ai::ChatProvider {
+public:
+    std::string name() const override { return "mock"; }
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks, const ai::CancelFlag*) override {
+        g_reviewToolsOffered.clear();
+        for (const ai::ToolDef& t : req.tools) g_reviewToolsOffered.push_back(t.name);
+        ai::ChatResponse r;
+        r.message.role = ai::Role::Assistant;
+        r.message.raw = Json::object();
+        r.usage.inputTokens = 900;
+        r.usage.outputTokens = 60;
+        r.message.text =
+            "The first minute is clear and the controls answer at once.\n\n```json\n"
+            "{\"score\": 7.5, \"subScores\": {\"fun\": 8, \"polish\": 6}, \"summary\": \"Clear and quick\"}\n```";
+        if (hooks.onText) hooks.onText(r.message.text);
+        r.stopReason = ai::StopReason::EndTurn;
+        return r;
+    }
+};
 }  // namespace
 
 void Editor::at_build_tools_script() {
@@ -281,29 +398,48 @@ void Editor::at_build_tools_script() {
     // long it is on this computer (a warning that wraps onto more lines moves everything down). A click never lands on a widget
     // that is scrolled out of its window: at_widget refuses it. dy is the way to try first (> 0 up); when the widget does not
     // move (the window is already at that end, as a section run alone finds it), the wheel turns the other way.
-    auto scroll_until = [this, &step](const std::string& name, float dy, Vec2 at, float maxY) {
-        step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at); });
+    // `at` may be a function: the point is looked up each frame (over a panel whose position depends on the window size).
+    auto scroll_until_at = [this, &step](std::function<std::string()> nameOf, float dy, std::function<Vec2()> at, float maxY, float minY = 120) {
+        step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at()); });
         struct Wheel {
             float dy, lastY = -1e9f;
             int stuck = 0;
         };
         auto wheel = std::make_shared<Wheel>(Wheel{dy});
         for (int i = 0; i < 60; ++i)
-            step(1, [this, name, wheel, at, maxY] {
+            step(1, [this, nameOf, wheel, at, maxY, minY] {
+                const std::string name = nameOf();
                 auto it = atWidgets_.find(name);
-                if (at_shown(name) && it != atWidgets_.end() && it->second.y < maxY && it->second.y > 120) return;
+                if (at_shown(name) && it != atWidgets_.end() && it->second.y < maxY && it->second.y > minY) return;
                 if (it != atWidgets_.end() && at_visible(name)) {
                     wheel->stuck = it->second.y == wheel->lastY ? wheel->stuck + 1 : 0;
                     wheel->lastY = it->second.y;
                     if (wheel->stuck == 2) wheel->dy = -wheel->dy;
                 }
+                const Vec2 where = at();
                 sapp_event ev{};
                 ev.type = SAPP_EVENTTYPE_MOUSE_SCROLL;
-                ev.mouse_x = at.x * dpi_;
-                ev.mouse_y = at.y * dpi_;
+                ev.mouse_x = where.x * dpi_;
+                ev.mouse_y = where.y * dpi_;
                 ev.scroll_y = wheel->dy;
                 on_event(&ev);
             });
+    };
+    auto scroll_until = [&scroll_until_at](const std::string& name, float dy, Vec2 at, float maxY) {
+        scroll_until_at([name] { return name; }, dy, [at] { return at; }, maxY);
+    };
+    // The visible middle of a window, wherever this display put it: where the wheel goes to scroll that window. A widget
+    // below the fold of a small display (the macOS runner's 1024x642) needs it before a click.
+    auto window_middle = [](const char* window) {
+        const ImGuiWindow* w = ImGui::FindWindowByName(window);
+        if (!w) return Vec2{500, 300};
+        const ImVec2 d = ImGui::GetIO().DisplaySize;
+        const float top = std::max(w->Pos.y, 0.0f), bottom = std::min(w->Pos.y + w->Size.y, d.y - 24.0f);
+        return Vec2{std::clamp(w->Pos.x + w->Size.x * 0.5f, 0.0f, d.x), (top + bottom) * 0.5f};
+    };
+    // Scroll the window `window` until `name` is shown: the way to try first is down (a form's buttons are at its end).
+    auto scroll_to = [&scroll_until_at, window_middle](const std::string& name, const char* window, float dy = -6) {
+        scroll_until_at([name] { return name; }, dy, [window_middle, window] { return window_middle(window); }, 100000, -1e9f);
     };
 
     // FA_EDITOR_AUTOTEST_REAL_CMAKE=1 (a manual end-to-end check, never set by ctest): the editor's setup context is the real
@@ -387,6 +523,10 @@ void Editor::at_build_tools_script() {
             showExport_ = showPlatformSettings_ = platformCloseAsk_ = keystoreOpen_ = false;
             showSetup_ = setupLicenseOpen_ = showProjectDialog_ = showAudio_ = showProfiler_ = false;
             showProject_ = showHierarchy_ = showInspector_ = true;
+            if (showAnimation_ || anim_.posed) anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
+            anim_ = AnimUi{};
+            bone_ = BoneUi{};
+            showAnimation_ = showBoneTools_ = false;
             projBrowser_.query = BrowserQuery{};
             exportLast_.reset();
             exportChecked_ = -100;
@@ -757,6 +897,77 @@ void Editor::at_build_tools_script() {
         const char* clip = ImGui::GetClipboardText();
         at_check(clip && std::string(clip) == "Copy this reply.", "an assistant message can be selected and copied (right-click > Select all, Copy)");
         chat_.current().items.pop_back();
+    });
+
+    // New output is followed only at the bottom: scrolled up to read, the transcript stays put and "Jump to latest" goes back.
+    auto transcript = [] {
+        for (ImGuiWindow* w : GImGui->Windows)
+            if (std::strstr(w->Name, "AI Assistant/##chat_") && !std::strstr(w->Name, "##jump") && w->Active) return w;
+        return static_cast<ImGuiWindow*>(nullptr);
+    };
+    auto items0 = std::make_shared<std::size_t>();
+    step(2, [this, items0] {
+        *items0 = chat_.current().items.size();
+        for (int i = 0; i < 80; ++i) {
+            ChatItem it;
+            it.kind = ChatItem::Kind::Info;
+            it.text = "line " + std::to_string(i);
+            chat_.current().items.push_back(it);
+        }
+        chat_.current().forceScroll = true;
+    });
+    step(3, [this, transcript] {
+        ImGuiWindow* w = transcript();
+        at_check(w && w->ScrollMax.y > 0 && w->Scroll.y >= w->ScrollMax.y - 4, "the AI transcript scrolls to the bottom");
+        if (w) ImGui::SetScrollY(w, 0);  // the user scrolls up to read
+    });
+    step(3, [this] {
+        ChatItem it;
+        it.kind = ChatItem::Kind::Info;
+        it.text = "new output while reading";
+        chat_.current().items.push_back(it);
+        chat_.current().scrollDown = true;
+    });
+    step(3, [this, transcript] {
+        ImGuiWindow* w = transcript();
+        at_check(w && w->Scroll.y < 1, "new output does not move a transcript the user scrolled up");
+    });
+    snap("editor_ai_jump_latest.png");
+    click("ai:jump");
+    step(3, [this, transcript] {
+        ImGuiWindow* w = transcript();
+        at_check(w && w->Scroll.y >= w->ScrollMax.y - 4, "Jump to latest goes back to the bottom");
+    });
+    step(2, [this] {
+        ChatItem it;
+        it.kind = ChatItem::Kind::Info;
+        it.text = "followed again";
+        chat_.current().items.push_back(it);
+        chat_.current().scrollDown = true;
+    });
+    step(3, [this, transcript] {
+        ImGuiWindow* w = transcript();
+        at_check(w && w->Scroll.y >= w->ScrollMax.y - 4, "at the bottom again, new output is followed");
+    });
+    // The grip above the message box makes it taller.
+    auto grip = std::make_shared<Vec2>();
+    step(2, [this, grip] {
+        aiInputH_ = 0;
+        *grip = at_widget("ai:input:grip");
+        inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, *grip);
+    });
+    step(2, [this, grip] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, *grip); });
+    step(2, [this, grip] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{grip->x, grip->y - 40}); });
+    step(2, [this, grip] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{grip->x, grip->y - 80}); });
+    step(2, [this, grip] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, Vec2{grip->x, grip->y - 80}); });
+    snap("editor_ai_input_tall.png");
+    step(2, [this, items0, transcript] {
+        const float def = ImGui::GetTextLineHeight() * 3.4f + 8;
+        at_check(aiInputH_ > def + 40, "dragging the grip up makes the AI message box taller (" + std::to_string(aiInputH_) + ")");
+        ImGuiWindow* w = transcript();
+        at_check(w && w->Scroll.y >= w->ScrollMax.y - 4, "a transcript at the bottom stays at the bottom while the box grows");
+        aiInputH_ = 0;
+        chat_.current().items.resize(*items0);
         focus_window("###Viewport");
     });
 
@@ -784,7 +995,7 @@ void Editor::at_build_tools_script() {
 
     // ------------------------------------------------- H. Export window: a button per platform, then the export's report
     section("H");
-    // The toolbar's Export opens it. Every platform's row says what an export there writes, or why it cannot run here
+    // Export Game in the menu bar opens it. Every platform's row says what an export there writes, or why it cannot run here
     // (another OS's desktop player is not in this build tree). This machine's platform is exported for real, with the
     // factoria_player of the build tree, on the export's worker thread; the report shows the folder and the next steps.
     const std::string host = normalize_export_platform("");
@@ -796,10 +1007,11 @@ void Editor::at_build_tools_script() {
     step(2, [this] {
         at_check(windowTitle_ == editor_window_title(FA_ENGINE_VERSION, "Autotest Platformer"),
                  "the window title names the engine version and the project (" + windowTitle_ + ")");
+        at_check(at_visible("menu:version"), "the menu bar shows the engine version at its right end");
     });
-    click("toolbar:export");
+    click("menu:export");
     step(4, [this, host_status] {
-        at_check(showExport_, "the toolbar's Export button opens the Export window");
+        at_check(showExport_, "the Export Game item of the menu bar opens the Export window");
         at_check(exportStatus_.size() == export_targets().size(), "the Export window checked every platform");
         for (size_t i = 0; i < exportStatus_.size() && i < export_targets().size(); ++i) {
             const ExportTarget& t = export_targets()[i];
@@ -866,7 +1078,7 @@ void Editor::at_build_tools_script() {
             }
         at_check(save_png(icon, project_file("assets/icon.png")).ok(), "a game icon was written to assets/icon.png");
     });
-    click("toolbar:export");
+    click("menu:export");
     step(4, [this] { at_check(at_visible("export:settings:android"), "the Export window has a Settings... button on the Android row"); });
     // On a smaller screen (the macOS runner's 1024x642) the Android row can be out of view: above it after section H (the
     // window stays scrolled down to the report it showed), below it when this section runs alone. Scroll to it.
@@ -1061,7 +1273,7 @@ void Editor::at_build_tools_script() {
         const SetupStatus& st = setupStatus_.status();
         std::string ids;
         for (const SetupComponent& c : st.components) ids += c.id + " ";
-        at_check(ids == "android players cmake xcode appimage shaders vscode ffmpeg ", "the window lists the eight components, in order (" + ids + ")");
+        at_check(ids == "android players cmake xcode appimage shaders vscode ffmpeg webplayer launcher ", "the window lists the ten components, in order (" + ids + ")");
         at_check(st.home == (std::filesystem::path(atOutDir_) / "factoria_home").string(), "...installing into the autotest's own FACTORIA_HOME (" + st.home + ")");
         for (const SetupComponent& c : st.components)
             if (setup_action_for_component(c, st.home))
@@ -2440,6 +2652,7 @@ void Editor::at_build_tools_script() {
         at_check(world().find("RevertCoin").is_null(), "...and Redo takes it away again");
     });
     snap("editor_ai_reverted.png");
+    scroll_to("ai:undo-revert", "AI Assistant");
     click("ai:undo-revert");
     step(4, [this] { at_check(at_visible("ai:revert:confirm"), "Undo revert asks first too"); });
     click("ai:revert:confirm");
@@ -2460,6 +2673,1710 @@ void Editor::at_build_tools_script() {
         chat_.clear();
         focus_window("###Viewport");
     });
+
+
+    // ------------------------------------------------------------------------- Q. The agent is never silent
+    section("Q");
+    // The fake Claude Code of the AI tests stands in for a real orchestrator. (1) It stays silent for longer than
+    // limits.stuckAfterSeconds: the panel warns, "Check activity" writes a verdict in the chat and quiets the warning, Stop
+    // ends the run. (2) It calls ai_run (a worker, over the editor's MCP endpoint) and ends its turn without waiting for the
+    // answer: the panel keeps showing the worker's progress, and when the worker finishes its report is in the chat and the
+    // orchestrator is continued with it (once). (3) Stop while the worker runs ends both and sends no continuation.
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return aiDetected_.load(); };
+    });
+    step(2, [this, project_file] {
+#ifdef _WIN32
+        stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.cmd");
+#else
+        stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.sh");
+#endif
+        atQFake_.clear();
+        if (!stdfs::exists(fake) || ai::which("curl").empty()) {
+            atLog_.push_back("SKIP the agent is never silent (no " + fake.string() + " or no curl)");
+            return;
+        }
+        atQFake_ = fake.make_preferred().string();
+        atQArgv_ = (stdfs::temp_directory_path() / "fa_autotest_q_argv.txt").string();
+        std::error_code ec;
+        stdfs::remove(atQArgv_, ec);
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            atSavedConfig_ = aiConfig_;
+            if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+            ai::ProviderConfig cc;
+            cc.name = "claude-code";
+            cc.kind = ai::ProviderKind::ClaudeCode;
+            cc.command = atQFake_;
+            cc.env["FAKE_ARGV_FILE"] = atQArgv_;
+            cc.env["FAKE_SLEEP"] = "7";
+            aiConfig_.providers[cc.name] = cc;
+            aiConfig_.roles[ai::kRoleOrchestrator] = ai::RoleConfig{cc.name};
+            ai::RoleConfig& worker = aiConfig_.roles[ai::kRoleWorker];
+            worker.provider = "anthropic";
+            worker.model = "mock";
+            aiConfig_.limits.stuckAfterSeconds = 2;
+        }
+        aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+            return std::shared_ptr<ai::ChatProvider>(std::make_shared<SlowWorkerProvider>(2500));
+        };
+        chat_.clear();
+        focus_window("AI Assistant");
+        ai_start("Think for a while.");
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return at_visible("ai:stuck"); };
+    });
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        at_check(ai_running(), "the agent is still running while it is silent");
+        at_check(at_visible("ai:status"), "the panel shows the run's elapsed time and last activity");
+        at_check(at_visible("ai:stuck") && at_visible("ai:stuck:stop") && at_visible("ai:stuck:check"),
+                 "a silent agent gets a warning with Stop and Check activity");
+    });
+    snap("editor_ai_stuck.png");
+    click("ai:stuck:check");
+    step(3, [this] {
+        if (atQFake_.empty()) return;
+        const ChatItem* check = nullptr;
+        for (const ChatItem& c : chat())
+            if ((c.kind == ChatItem::Kind::Info || c.kind == ChatItem::Kind::Error) && c.text.rfind("Activity check:", 0) == 0) check = &c;
+        at_check(check && check->text.find("Process:") != std::string::npos && check->text.find("Last event:") != std::string::npos,
+                 "Check activity writes a verdict with what it saw in the chat");
+        at_check(!at_visible("ai:stuck"), "...and quiets the warning");
+    });
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        at_check(!ai_running(), "the silent agent finished in the end");
+        // A second silent run, ended with the warning's Stop.
+        ai_start("Think for a while again.");
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return at_visible("ai:stuck"); };
+    });
+    click("ai:stuck:stop");
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        at_check(!ai_running() && !ai_busy(), "Stop in the warning ends the run");
+        // (2) the orchestrator delegates and ends its turn.
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            ai::ProviderConfig& cc = aiConfig_.providers["claude-code"];
+            cc.env["FAKE_MODE"] = "mcp_run_detach";
+            cc.env.erase("FAKE_SLEEP");
+            aiConfig_.limits.stuckAfterSeconds = 120;
+        }
+        std::error_code ec;
+        stdfs::remove(atQArgv_, ec);
+        chat_.clear();
+        ai_start("Delegate the coin.");
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] {
+            const AiRun* r = ai_run_of(chat_.current().id);
+            return r && r->detached.load();
+        };
+    });
+    step(3, [this] {
+        if (atQFake_.empty()) return;
+        {
+            const AiRun* r = ai_run_of(chat_.current().id);
+            at_check(ai_running() && r && !r->running.load(), "the orchestrator's turn ended and the run goes on for the worker");
+        }
+        at_check(at_visible("ai:detached"), "the panel says a worker is still running");
+        bool live = false;
+        for (const ChatItem& c : chat()) live = live || (c.kind == ChatItem::Kind::Assistant && c.depth == 1 && c.text.find("Making the coin") != std::string::npos);
+        at_check(live, "the worker's progress is in the chat while it runs, one level in");
+        play();
+        at_check(play_state() == PlayState::Edit, "Play waits for the worker");
+    });
+    snap("editor_ai_worker_running.png");
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(3, [this] {
+        if (atQFake_.empty()) return;
+        at_check(!ai_running() && !ai_busy(), "the run ended after the continuation");
+        int reports = 0, continued = 0;
+        for (const ChatItem& c : chat()) {
+            if (c.kind == ChatItem::Kind::Assistant && c.depth == 1 && c.text.find("Worker report: coin done") != std::string::npos) ++reports;
+            if (c.kind == ChatItem::Kind::Info && c.text.find("continuing the orchestrator") != std::string::npos) ++continued;
+        }
+        at_check(reports == 1, "the worker's report is in the chat once");
+        at_check(continued == 1, "the transcript says the orchestrator was continued");
+        const std::string argv = read_file(atQArgv_);
+        std::size_t stdins = 0, resumes = 0;
+        for (std::size_t at = argv.find("stdin:"); at != std::string::npos; at = argv.find("stdin:", at + 1)) ++stdins;
+        for (std::size_t at = argv.find("--resume"); at != std::string::npos; at = argv.find("--resume", at + 1)) ++resumes;
+        at_check(stdins == 2, "the orchestrator ran twice: its first turn and one continuation (" + std::to_string(stdins) + ")");
+        at_check(resumes == 1, "the continuation resumed the same Claude Code session");
+        at_check(argv.find("Worker report: coin done") != std::string::npos, "the continuation carried the worker's report");
+        // (3) Stop while the worker runs.
+        std::error_code ec;
+        stdfs::remove(atQArgv_, ec);
+        chat_.clear();
+        aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+            return std::shared_ptr<ai::ChatProvider>(std::make_shared<SlowWorkerProvider>(20000));
+        };
+        ai_start("Delegate the coin, slowly.");
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] {
+            const AiRun* r = ai_run_of(chat_.current().id);
+            return r && r->detached.load();
+        };
+    });
+    click("ai:stop");
+    step(2, [this] {
+        if (atQFake_.empty()) return;
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(3, [this] {
+        if (atQFake_.empty()) return;
+        at_check(!ai_running() && !ai_busy(), "Stop ends the run while the worker works");
+        const std::string argv = read_file(atQArgv_);
+        std::size_t stdins = 0;
+        for (std::size_t at = argv.find("stdin:"); at != std::string::npos; at = argv.find("stdin:", at + 1)) ++stdins;
+        at_check(stdins == 1, "...and no continuation is sent");
+        bool continued = false;
+        for (const ChatItem& c : chat()) continued = continued || c.text.find("continuing the orchestrator") != std::string::npos;
+        at_check(!continued, "...and the transcript does not claim one");
+        std::error_code ec;
+        stdfs::remove(atQArgv_, ec);
+        aiFactory_ = nullptr;
+        if (atSavedConfig_) {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            aiConfig_ = std::move(*atSavedConfig_);
+            atSavedConfig_.reset();
+        }
+        chat_.clear();
+        focus_window("###Viewport");
+    });
+
+    // ------------------------------------------------------------------------------------ R. Updated on disk
+    section("R");
+    // The program is replaced on disk without the updater: a non-blocking notice offers Restart / Not now. The watch looks at a
+    // fake program (two fingerprints written into files), so nothing real is replaced and Restart only records the click.
+    {
+        auto fake_program = [](const std::string& path, const std::string& version, const std::string& fingerprint, std::size_t pad) {
+            std::string bytes = "MZ fake program " + std::string(pad, '.');
+            bytes += std::string("FA-BUILD-") + "FINGERPRINT:" + fingerprint + ";";
+            bytes += std::string("FA-ENGINE-") + "VERSION:" + version + ";";
+            write_file(path, bytes);
+        };
+        step(2, [this, fake_program] {
+            const std::string fake = atOutDir_ + "/fake_factoria";
+            fake_program(fake, "0.1.0", "aaaaaaaaaaaa", 100);
+            diskWatchOwn_ = std::make_unique<UpdateWatch>(fake, BuildId{"0.1.0", "aaaaaaaaaaaa"});
+            diskDismissedSet_ = false;
+            diskRestartRequested_ = false;
+            diskSettling_ = false;
+            diskPolled_ = -100;
+        });
+        step(3, [this] {
+            at_check(!at_visible("update:disk"), "no notice while the program on disk is the one that runs");
+            Json status = update_status_json(disk_watch());
+            at_check(status.value("state", "") == "current" && status.value("restartDue", true) == false,
+                     "engine.update_status says current: " + status.dump());
+        });
+        step(2, [this, fake_program] {  // the new files arrive (a different size, so a different stamp even within one second)
+            fake_program(atOutDir_ + "/fake_factoria", "0.2.0", "bbbbbbbbbbbb", 400);
+            diskPollNow_ = true;
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("update:disk"); };  // seen twice alike (a second), then identified
+        });
+        step(3, [this] {
+            at_check(at_visible("update:disk"), "the notice appears when the program changed on disk");
+            at_check(at_enabled("update:restart") && at_visible("update:disknotnow"), "...with Restart and Not now");
+            Json status = update_status_json(disk_watch());
+            at_check(status.value("state", "") == "updated_on_disk" && status.value("restartDue", false) &&
+                         status["onDisk"].value("version", "") == "0.2.0" && status["editor"].value("noticeShown", false),
+                     "engine.update_status says an update is on disk and the notice is showing: " + status.dump());
+            // A play session is not stopped silently: Restart is off, with the reason.
+            play();
+        });
+        step(3, [this] {
+            at_check(play_state() != PlayState::Edit, "a play session runs");
+            at_check(!at_enabled("update:restart") && !disk_restart_blocker().empty(), "Restart is off while a play session runs (" + disk_restart_blocker() + ")");
+        });
+        snap("editor_update_disk.png");
+        step(2, [this] {
+            stop();
+            at_check(disk_restart_blocker().empty(), "...and back on when it stops");
+        });
+        click("update:disknotnow");
+        step(3, [this] {
+            at_check(!at_visible("update:disk"), "Not now hides the notice");
+            diskPollNow_ = true;
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !diskPollNow_; };
+        });
+        step(3, [this, fake_program] {
+            at_check(!at_visible("update:disk"), "...and it stays quiet while the file does not change");
+            fake_program(atOutDir_ + "/fake_factoria", "0.3.0", "cccccccccccc", 900);  // another build lands
+            diskPollNow_ = true;
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("update:disk"); };
+        });
+        step(3, [this] {
+            at_check(at_visible("update:disk") && disk_watch().on_disk().version == "0.3.0", "...and comes back when the file changes again");
+        });
+        click("update:restart");
+        step(3, [this] {
+            at_check(diskRestartRequested_, "Restart asks to quit and reopen the editor");
+            diskWatchOwn_.reset();
+            diskRestartRequested_ = false;
+            diskDismissedSet_ = false;
+            diskSettling_ = false;
+            std::error_code ec;
+            stdfs::remove(atOutDir_ + "/fake_factoria", ec);
+        });
+    }
+
+    // ------------------------------------------------------------------------------------ U. Layout kept
+    section("U");
+    // A layout the user changed (a panel floated, a tab moved to another dock, a column made wider) is in the layout file when the
+    // editor goes down, and comes back when a project opens again: straight away, and after a visit to the welcome screen (which
+    // has its own ImGui context, without the dock space). The test uses its own layout file; the real one is put back at the end.
+    {
+        auto reopen_wait = [this](bool viaWelcome) {
+            const std::string dir = projectDir_;
+            const std::uint64_t u0 = uiFrame_;
+            if (viaWelcome) {
+                close_project();
+                atReopenDir_ = dir;
+                atReopenIn_ = 10;
+            } else {
+                open_project(dir);
+            }
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, u0, viaWelcome] { return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 && uiFrame_ >= u0 + 8 + (viaWelcome ? 10 : 0); };
+        };
+        step(2, [this, reopen_wait] {
+            atIniSaved_ = iniPath_;
+            iniPath_ = atOutDir_ + "/layout_test.ini";
+            std::error_code ec;
+            stdfs::remove(iniPath_, ec);
+            reopen_wait(false);  // no layout file yet: the default layout, and the file is written when the UI goes down
+        });
+        step(2, [this] {
+            at_check(!panel_floating("Console") && panel_node("Console") != 0, "no layout file: Console starts docked (the default layout)");
+            at_check(panel_node("Project") == panel_node("Console"), "...in the same dock as Project");
+            at_check(panel_node("Project") != panel_node("Hierarchy"), "...and Project is not with the Hierarchy");
+            // The user's changes: Console floats, Project joins the Hierarchy and the left column gets wider.
+            ImGuiContext& g = *GImGui;
+            ImGuiWindow* console = panel_window("Console");
+            ImGui::DockContextQueueUndockWindow(&g, console);
+            ImGuiWindow* hier = panel_window("Hierarchy");
+            if (hier && hier->DockNode && panel_window("Project"))
+                ImGui::DockContextQueueDock(&g, hier->DockNode->HostWindow, hier->DockNode, panel_window("Project"), ImGuiDir_None, 0.0f, false);
+            if (hier && hier->DockNode) {
+                ImGuiDockNode* col = hier->DockNode->ParentNode;
+                while (col && col->ParentNode && col->ParentNode->SplitAxis != ImGuiAxis_X) col = col->ParentNode;
+                if (col && col->ParentNode) {  // the node of the left column inside the X split: take 200 px from its sibling
+                    ImGuiDockNode* sib = col->ParentNode->ChildNodes[0] == col ? col->ParentNode->ChildNodes[1] : col->ParentNode->ChildNodes[0];
+                    col->SizeRef.x += 200;
+                    if (sib) sib->SizeRef.x = std::max(100.0f, sib->SizeRef.x - 200);
+                }
+            }
+            showFeedback_ = false;  // a panel closed with its X, and one opened from the View menu
+            showAudio_ = true;
+            atLayoutWidth_ = panel_width("Hierarchy");
+        });
+        step(4, [] {
+            ImGui::SetWindowPos("Console", ImVec2(300, 300));
+            ImGui::SetWindowSize("Console", ImVec2(420, 210));
+        });
+        step(6, [this] {
+            at_check(panel_floating("Console"), "the test floated Console");
+            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0, "the test moved Project next to the Hierarchy");
+            at_check(panel_width("Hierarchy") > atLayoutWidth_ + 100, "the test made the left column wider (" + std::to_string(atLayoutWidth_) + " -> " +
+                                                                        std::to_string(panel_width("Hierarchy")) + ")");
+            atLayoutWidth_ = panel_width("Hierarchy");
+        });
+        step(2, [reopen_wait] { reopen_wait(false); });
+        auto check_changed_layout = [this](const std::string& when) {
+            at_check(!showFeedback_ && showAudio_ && showConsole_, "the closed panel (Engine Feedback) is still closed and the opened one (Audio) still open " + when);
+            at_check(panel_floating("Console"), "Console is still floating " + when);
+            const ImGuiWindow* c = panel_window("Console");
+            at_check(c && std::fabs(c->Size.x - 420) < 3 && std::fabs(c->Size.y - 210) < 3, "...with the size the user gave it " + when);
+            at_check(panel_node("Project") == panel_node("Hierarchy") && panel_node("Project") != 0, "Project is still next to the Hierarchy " + when);
+            at_check(std::fabs(panel_width("Hierarchy") - atLayoutWidth_) < 6,
+                     "the left column keeps its width " + when + " (" + std::to_string(panel_width("Hierarchy")) + " vs " + std::to_string(atLayoutWidth_) + ")");
+        };
+        step(2, [check_changed_layout] { check_changed_layout("after the project is opened again"); });
+        step(2, [reopen_wait] { reopen_wait(true); });  // through the welcome screen: its context must not wipe the dock data
+        step(2, [check_changed_layout] { check_changed_layout("after a visit to the welcome screen"); });
+        step(2, [this] { resetLayout_ = true; });
+        step(4, [this] {
+            at_check(!panel_floating("Console") && panel_node("Console") == panel_node("Project"), "Reset layout puts Console back in the bottom dock");
+            at_check(panel_node("Project") != panel_node("Hierarchy"), "...and Project away from the Hierarchy");
+            at_check(showFeedback_ && !showAudio_, "...and the panels that are open by default again");
+        });
+        step(2, [this, reopen_wait] {  // the real layout file again (none in the autotest), through a last reopen
+            iniPath_ = atIniSaved_;
+            reopen_wait(false);
+        });
+    }
+    // ------------------------------------------------------------------------------------------------------ U. Reviews
+    section("V");
+    // A review runs only when its button is pressed: it opens a tab of its own, the reviewer is offered only tools that look
+    // and play, the report is saved with its score, and nothing reaches the orchestrator until "Send to orchestrator".
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return aiDetected_.load(); };
+    });
+    step(2, [this, project_file] {
+        std::error_code ec;
+        stdfs::remove_all(project_file(".factoria/ai/reviews"), ec);
+        aiReviewDirty_ = true;
+        aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+            return std::shared_ptr<ai::ChatProvider>(std::make_shared<ReviewerProvider>());
+        };
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            atSavedConfig_ = aiConfig_;
+            if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+            for (const char* role : {ai::kRoleOrchestrator, ai::kRoleReviewer, ai::kRoleArtCritic}) {
+                ai::RoleConfig& rc = aiConfig_.roles[role];
+                rc.provider = "anthropic";
+                rc.model = "mock";
+            }
+        }
+        while (chat_.tabs.size() > 1) chat_.close(0);
+        chat_.clear();
+        g_reviewToolsOffered.clear();
+        focus_window("AI Assistant");
+    });
+    step(3, [this] {
+        at_check(at_visible("ai:review:game") && at_visible("ai:review:art"), "the AI Assistant has an Art critique and a Game review button");
+        at_check(chat().empty() && !ai_busy(), "nothing runs and nothing is asked until a button is pressed");
+    });
+    click("menu:ai");
+    click("menu:ai-roles");
+    step(3, [this] {
+        at_check(showAiSettings_, "AI > Roles... opens the AI settings window");
+        at_check(at_visible("ai:roles:enabled:orchestrator") && !at_enabled("ai:roles:enabled:orchestrator"),
+                 "the Roles window shows the orchestrator's Enabled checkbox ticked and disabled");
+        at_check(at_visible("ai:roles:enabled:artist") && at_enabled("ai:roles:enabled:artist") &&
+                     at_visible("ai:roles:enabled:reviewer"),
+                 "...and an Enabled checkbox for the other roles");
+    });
+    click("ai:roles:enabled:artist");
+    step(3, [this] {
+        at_check(!aiRolesEdit_[ai::kRoleArtist].enabled && aiRolesEdit_[ai::kRoleWorker].enabled,
+                 "unticking Artist turns off that role only");
+    });
+    click("ai:roles:revert");
+    step(3, [this] {
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            at_check(aiConfig_.role_enabled(ai::kRoleArtist), "Revert leaves the configuration alone");
+        }
+        at_check(aiRolesEdit_[ai::kRoleArtist].enabled, "...and puts the Enabled checkbox back");
+        showAiSettings_ = false;
+        aiSettings_ = AiSettingsDraft{};
+    });
+    click("ai:review:game");
+    step(3, [this] {
+        at_check(at_visible("ai:review:start") && !aiReview_.active && !ai_busy() && chat().empty(),
+                 "a review button asks first: nothing runs until Start is pressed");
+    });
+    click("ai:review:start");
+    step(2, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return !aiReview_.active && !ai_busy(); };
+    });
+    step(4, [this] {
+        at_check(!aiReview_.active && !ai_running(), "the review finished");
+        const auto saved = ai::list_reviews(projectDir_);
+        at_check(saved.size() == 1 && saved[0].role == ai::kRoleReviewer && saved[0].score == 7.5 && saved[0].persona == "all-rounder",
+                 "the report was saved with its score and persona (" + std::to_string(saved.size()) + " review(s))");
+        at_check(saved.size() == 1 && stdfs::exists(saved[0].path) && saved[0].subScores.size() == 2 &&
+                     saved[0].text.find("```") == std::string::npos,
+                 "...with its sub-scores and the text without the score block");
+        const bool hasLook = std::ranges::find(g_reviewToolsOffered, "scene_list_entities") != g_reviewToolsOffered.end();
+        bool hasEdit = false;
+        for (const char* t : {"scene_spawn", "fs_write", "scene_set_component", "ai_run", "agent_delegate"})
+            hasEdit = hasEdit || std::ranges::find(g_reviewToolsOffered, t) != g_reviewToolsOffered.end();
+        at_check(hasLook && !hasEdit, "the reviewer was offered tools that look, and none that change the project");
+        bool onlyReview = chat().size() >= 2;
+        for (const ChatItem& c : chat())
+            if (c.kind == ChatItem::Kind::User) onlyReview = onlyReview && c.role == "review";
+        at_check(onlyReview, "the review ran in its own tab: nothing was posted as a message to the orchestrator");
+        at_check(aiReviewsShown_, "the AI reviews window opens with the report");
+        at_check(play_state() == PlayState::Edit, "the project stays in edit mode");
+    });
+    snap("editor_ai_review.png");
+    click("ai:review:send");
+    step(2, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return !ai_busy(); };
+    });
+    step(4, [this] {
+        const AiChat& cur = chat_.current();
+        bool sent = false;
+        for (const ChatItem& c : cur.items)
+            sent = sent || (c.kind == ChatItem::Kind::User && c.role != "review" && c.text.find("7.5") != std::string::npos);
+        at_check(sent, "Send to orchestrator posts the report as a user message into an orchestrator chat");
+        at_check(chat_.tabs.size() >= 2, "...in a new tab, because the active one was the review's own");
+        std::error_code ec;
+        stdfs::remove_all(projectDir_ + "/.factoria/ai/reviews", ec);
+        aiReviewDirty_ = true;
+        aiReviewsShown_ = false;
+        aiFactory_ = nullptr;
+        if (atSavedConfig_) {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            aiConfig_ = std::move(*atSavedConfig_);
+            atSavedConfig_.reset();
+        }
+        while (chat_.tabs.size() > 1) chat_.close(0);
+        chat_.clear();
+        focus_window("###Viewport");
+    });
+
+    // ----------------------------------------------------------------------- W. Several AI chats at the same time
+    section("W");
+    // Two chats run at once against a scripted model that writes the same file and spawns a coin in both: both finish with their
+    // own results, each chat is warned that the other changed the same file, Play names the chats that work, a third chat is
+    // held back by limits.maxConcurrentRuns, Revert of one run keeps the other's changes. Then Stop on one run leaves the other going.
+    {
+        struct VState {
+            std::string a, b, c;
+        };
+        auto v = std::make_shared<VState>();
+        auto reset_chats = [this] {  // one blank tab, nothing of the previous scenario saved
+            for (int i = static_cast<int>(chat_.tabs.size()) - 1; i >= 0; --i) {
+                chat_.select(i);
+                chat_.clear();
+            }
+            while (chat_.tabs.size() > 1) chat_.close(static_cast<int>(chat_.tabs.size()) - 1);
+            aiTabForce_ = 2;
+        };
+        auto info_warnings = [](const AiChat* c) {
+            int n = 0;
+            for (const ChatItem& it : c->items)
+                n += it.kind == ChatItem::Kind::Info && it.isError && it.text.find("also changed") != std::string::npos ? 1 : 0;
+            return n;
+        };
+        auto said = [](const AiChat* c, const std::string& text) {
+            for (const ChatItem& it : c->items)
+                if (it.kind == ChatItem::Kind::Assistant && it.text.find(text) != std::string::npos) return true;
+            return false;
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load(); };
+        });
+        step(2, [this, v, project_file, reset_chats] {
+            write_file(project_file("scripts/u_shared.js"), "old\n");
+            std::error_code ec;
+            for (const char* f : {"scripts/u_a.js", "scripts/u_b.js", "scripts/u_l.js", "scripts/u_s.js"}) stdfs::remove(project_file(f), ec);
+            aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+                return std::shared_ptr<ai::ChatProvider>(std::make_shared<ConcurrentProvider>());
+            };
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+                ai::RoleConfig& orchestrator = aiConfig_.roles[ai::kRoleOrchestrator];
+                orchestrator.provider = "anthropic";
+                if (orchestrator.model.empty()) orchestrator.model = "mock";
+                aiConfig_.limits.maxConcurrentRuns = 2;
+            }
+            reset_chats();
+            focus_window("AI Assistant");
+            ai_start("Probe A [A]");
+            v->a = chat_.current().id;
+            chat_.add(static_cast<i64>(std::time(nullptr)));
+            ai_start("Probe B [B]");
+            v->b = chat_.current().id;
+            chat_.add(static_cast<i64>(std::time(nullptr)));
+            ai_start("Probe C [A]");  // the third: no slot
+            v->c = chat_.current().id;
+            aiTabForce_ = 2;
+        });
+        step(3, [this, v] {
+            at_check(ai_run_count() == 2 && ai_chat_running(v->a) && ai_chat_running(v->b), "two chats run at the same time");
+            at_check(!ai_chat_running(v->c) && chat_.find(v->c) && chat_.find(v->c)->items.empty(),
+                     "a third chat is held back by limits.maxConcurrentRuns (it did not start, its message was not sent)");
+            play();
+            at_check(play_state() == PlayState::Edit, "Play waits while the assistant edits");
+            const std::string note = ai_editing_note();
+            at_check(note.find("Probe A") != std::string::npos && note.find("Probe B") != std::string::npos,
+                     "...and the note names the chats that work: " + note);
+        });
+        step(2, [this] {
+            atWaitAi_ = true;
+            atWaitCount_ = 0;
+        });
+        step(3, [this, v, project_file, info_warnings, said] {
+            at_check(!ai_running(), "both scripted runs finished");
+            const AiChat* a = chat_.find(v->a);
+            const AiChat* b = chat_.find(v->b);
+            if (!a || !b) {
+                at_check(false, "both chats are still open");
+                return;
+            }
+            at_check(said(a, "Finished A") && !said(a, "Finished B") && said(b, "Finished B") && !said(b, "Finished A"),
+                     "each chat has its own run's answer");
+            at_check(a->usage.inputTokens > 0 && b->usage.inputTokens > 0, "each chat counted its own tokens");
+            at_check(info_warnings(a) >= 1 && info_warnings(b) >= 1,
+                     "each chat is warned that the other changed the same file (" + std::to_string(info_warnings(a)) + ", " +
+                         std::to_string(info_warnings(b)) + ")");
+            auto names = [&](const AiChat* c, const char* other, const char* file) {
+                bool named = false, file_listed = false;
+                for (const ChatItem& it : c->items) {
+                    if (it.kind != ChatItem::Kind::Info || !it.isError) continue;
+                    named = it.text.find(other) != std::string::npos;
+                    file_listed = file_listed || it.text.find(file) != std::string::npos;
+                }
+                return named && file_listed;
+            };
+            at_check(names(a, "Probe B", "scripts/u_shared.js") && names(b, "Probe A", "scripts/u_shared.js"),
+                     "...each warning names the other chat and the shared file");
+            const ChatItem* ra = nullptr;
+            const ChatItem* rb = nullptr;
+            for (const ChatItem& it : a->items)
+                if (it.kind == ChatItem::Kind::Run) ra = &it;
+            for (const ChatItem& it : b->items)
+                if (it.kind == ChatItem::Kind::Run) rb = &it;
+            auto has = [](const std::vector<std::string>& list, const char* f) { return std::ranges::find(list, f) != list.end(); };
+            at_check(ra && rb && has(ra->added, "scripts/u_a.js") && has(ra->modified, "scripts/u_shared.js") &&
+                         !has(ra->added, "scripts/u_b.js") && has(rb->added, "scripts/u_b.js") && !has(rb->added, "scripts/u_a.js"),
+                     "each Run item lists its own files, not the other chat's");
+            at_check(!world().find("UCoinA").is_null() && !world().find("UCoinB").is_null(), "both runs' coins are in the scene");
+            at_check(!read_file(project_file("scripts/u_a.js")).empty() && !read_file(project_file("scripts/u_b.js")).empty(),
+                     "both runs' files are on disk");
+            chat_.select(chat_.index_of(v->a));
+            aiTabForce_ = 2;
+        });
+        step(3, [] {});
+        scroll_to("ai:revert", "AI Assistant");  // A's warnings push it below the fold of a small display
+        click("ai:revert");
+        step(4, [this] {
+            at_check(at_visible("ai:revert:confirm") && at_visible("ai:revert:confirm-all"),
+                     "Revert of A asks, and offers to keep the other chat's changes or take those files back too");
+        });
+        click("ai:revert:confirm");
+        step(6, [this, v, project_file] {
+            at_check(!stdfs::exists(project_file("scripts/u_a.js")), "Revert of A removes the file only A added");
+            at_check(stdfs::exists(project_file("scripts/u_b.js")), "...and leaves the file B added");
+            at_check(read_file(project_file("scripts/u_shared.js")) != "old\n", "...and the file both changed stays as it is now");
+            at_check(!world().find("UCoinA").is_null() && !world().find("UCoinB").is_null(),
+                     "...and the scene stays too, since B edited it as well");
+            const AiChat* a = chat_.find(v->a);
+            bool scoped = false;
+            if (a)
+                for (const ChatItem& it : a->items) scoped = scoped || (it.kind == ChatItem::Kind::Revert && it.scoped);
+            at_check(scoped, "A's transcript says only some files went back");
+        });
+        // Stop on one run leaves the other going.
+        step(2, [this, v, project_file, reset_chats] {
+            std::error_code ec;
+            stdfs::remove(project_file("scripts/u_l.js"), ec);
+            reset_chats();
+            ai_start("Probe S [S]");
+            v->a = chat_.current().id;
+            chat_.add(static_cast<i64>(std::time(nullptr)));
+            ai_start("Probe L [L]");
+            v->b = chat_.current().id;
+            chat_.select(chat_.index_of(v->a));
+            aiTabForce_ = 2;
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, v] { return ai_chat_running(v->a) && ai_chat_running(v->b); };
+        });
+        step(3, [] {});
+        click("ai:stop");
+        step(2, [this, v] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, v] { return !ai_chat_running(v->a); };
+        });
+        step(3, [this, v] {
+            at_check(!ai_chat_running(v->a), "Stop ends the run of the chat it is pressed in");
+            at_check(ai_chat_running(v->b), "...and the other chat's run goes on");
+            atWaitAi_ = true;
+            atWaitCount_ = 0;
+        });
+        step(3, [this, v, project_file, info_warnings, said] {
+            const AiChat* b = chat_.find(v->b);
+            at_check(b && said(b, "Finished L") && info_warnings(b) == 0, "the other run finished with its own result and no false warning");
+            at_check(read_file(project_file("scripts/u_l.js")) == "only L\n", "...and its file is on disk");
+            at_check(!stdfs::exists(project_file("scripts/u_s.js")), "the stopped run wrote nothing");
+            at_check(!ai_running() && !ai_busy(), "no run is left");
+            std::error_code ec;
+            for (const char* f : {"scripts/u_shared.js", "scripts/u_a.js", "scripts/u_b.js", "scripts/u_l.js"}) stdfs::remove(project_file(f), ec);
+            aiFactory_ = nullptr;
+            if (atSavedConfig_) {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+        });
+        step(2, [this, reset_chats] {
+            reset_chats();
+            focus_window("###Viewport");
+        });
+    }
+
+    // ------------------------------------------------------------------------------------------------ X. AI settings window
+    section("X");
+    // AI > AI Settings... opens the window on the user's ai.json (here a scratch file: FACTORIA_AI_CONFIG
+    // is set for the section and put back after). What a person types in the fields is set on the draft; Save and Close are
+    // real clicks. A site that is not a web address stops Save with a message and leaves the file as it was; a good Save
+    // rewrites only assets / assetSources / the provider fields the routes need (roles and limits stay), stores a typed key in
+    // a file only the user can read and forgets it, and a stored key can be removed again.
+    {
+        struct XState {
+            std::string path, previousEnv;
+            bool hadEnv = false;
+            std::vector<ai::ProviderStatus> savedStatus;
+            std::string before;
+        };
+        auto x = std::make_shared<XState>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load() && !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            x->path = atOutDir_ + "/ai_settings_scratch.json";
+            const char* current = std::getenv("FACTORIA_AI_CONFIG");
+            x->hadEnv = current != nullptr;
+            x->previousEnv = current ? current : "";
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                x->savedStatus = aiStatus_;
+            }
+            write_file(x->path, R"({
+  "limits": { "maxConcurrentRuns": 3 },
+  "roles": { "worker": { "provider": "anthropic", "model": "sonnet" } },
+  "assets": { "image": { "provider": "fake" } }
+})");
+            set_env("FACTORIA_AI_CONFIG", x->path);
+            ai_refresh_providers();  // the panel and the window now read the scratch file
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { focus_window("AI Assistant"); });
+        click("menu:ai");
+        click("menu:ai-settings");
+        step(4, [this, x] {
+            at_check(showAiSettings_, "AI > AI Settings... opens the window");
+            aiSettingsTab_ = 2;  // the Assets tab: the rest of this section works there
+            at_check(aiSettings_.loaded && aiSettings_.path == x->path, "it works on the AI config file (" + aiSettings_.path + ")");
+            at_check(aiSettings_.routes["image"].provider == "fake" && aiSettings_.routes["sound"].provider.empty(),
+                     "the image row shows the provider of the file and the sound row none");
+            at_check(!aiSettings_.sources.onlyListed && aiSettings_.sources.empty(), "no site yet: 'Use only these sites' is off");
+            at_check(std::ranges::any_of(aiSettings_.status, [](const ai::ProviderStatus& s) { return s.name == "elevenlabs"; }),
+                     "it knows the status of the providers (keys and programs found on this computer)");
+            x->before = read_file(x->path);
+        });
+        // A site that is not a web address, a key and a program typed.
+        step(2, [this] {
+            AiSettingsDraft& d = aiSettings_;
+            d.routes["sound"] = {"elevenlabs", "", ""};
+            d.routes["music"] = {"elevenlabs", "", ""};
+            d.routes["voice"] = {"elevenlabs", "", "21m00Tcm4TlvDq8ikWAM"};
+            d.routes["model3d"] = {"asset-command", "", ""};
+            d.command["asset-command"] = "python";
+            d.args["asset-command"] = "/tools/gen3d.py --prompt {prompt} --out \"{output}\"";
+            d.keys["elevenlabs"] = "xi-autotest-secret-key-123";
+            d.sources.onlyListed = true;
+            d.sources.images.push_back({"https://opengameart.org/art-search", "CC0 packs"});
+            d.sources.models.push_back({"kenney.nl", ""});
+            d.sources.fonts.push_back({"not a site", ""});
+        });
+        snap("editor_ai_settings.png");
+        click("aiset:save");
+        step(4, [this, x] {
+            at_check(aiSettings_.saveError.find("not a web address") != std::string::npos,
+                     "a site that is not a web address stops Save and says so (" + aiSettings_.saveError + ")");
+            at_check(read_file(x->path) == x->before, "...and the file is left as it was");
+            at_check(showAiSettings_ && !aiSettings_.keys.empty(), "...with the window and the typed values still there");
+            aiSettings_.sources.fonts.clear();
+        });
+        click("aiset:save");
+        step(6, [this, x] {
+            const std::string text = read_file(x->path);
+            Json j = Json::parse(text, nullptr, false);
+            at_check(!j.is_discarded() && j.is_object(), "Save wrote a JSON object");
+            if (!j.is_object()) return;
+            at_check(aiSettings_.saveError.empty(), "Save reported no error (" + aiSettings_.saveError + ")");
+            at_check(j["limits"]["maxConcurrentRuns"] == 3 && j["roles"]["worker"]["model"] == "sonnet",
+                     "the roles and limits of the file stayed");
+            at_check(j["assets"]["image"]["provider"] == "fake" && j["assets"]["sound"]["provider"] == "elevenlabs" &&
+                         j["assets"]["voice"]["voice"] == "21m00Tcm4TlvDq8ikWAM" && j["assets"]["model3d"]["provider"] == "asset-command",
+                     "the asset routes are in the file");
+            at_check(j["assetSources"]["onlyListed"] == true && j["assetSources"]["images"][0]["url"] == "https://opengameart.org/art-search" &&
+                         j["assetSources"]["images"][0]["note"] == "CC0 packs" && j["assetSources"]["models"][0]["url"] == "kenney.nl",
+                     "the sites and 'Use only these sites' are in the file");
+            at_check(j["providers"]["elevenlabs"]["apiKey"] == "xi-autotest-secret-key-123", "the typed key is stored under its provider");
+            at_check(j["providers"]["asset-command"]["type"] == "asset-command" && j["providers"]["asset-command"]["command"] == "python" &&
+                         j["providers"]["asset-command"]["argv"].size() == 5 && j["providers"]["asset-command"]["argv"][4] == "{output}",
+                     "the program of the asset-command provider is stored with its arguments split");
+#ifndef _WIN32
+            std::error_code ec;
+            const auto perms = stdfs::status(x->path, ec).permissions();
+            at_check((perms & (stdfs::perms::group_all | stdfs::perms::others_all)) == stdfs::perms::none,
+                     "the file with a key in it is readable only by its owner");
+#endif
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                at_check(aiConfig_.assetSources.onlyListed && aiConfig_.assets.count("voice") && aiConfig_.assets.at("music").provider == "elevenlabs",
+                         "the editor's config was reloaded with the new settings");
+            }
+            at_check(std::ranges::all_of(aiSettings_.keys, [](const auto& kv) { return kv.second.empty(); }), "the typed key is forgotten after Save");
+            at_check(std::ranges::none_of(atLog_, [](const std::string& line) { return line.find("xi-autotest-secret-key-123") != std::string::npos; }),
+                     "the key is in no line of the autotest log");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        snap("editor_ai_settings_saved.png");
+        // Remove the stored key, and a kind back to None.
+        step(2, [this] {
+            aiSettings_.removeKey.insert("elevenlabs");
+            aiSettings_.routes["music"] = {};
+        });
+        click("aiset:save");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && (!j.contains("providers") || !j["providers"].contains("elevenlabs")),
+                     "Remove stored key takes the key out of the file");
+            at_check(j.is_object() && j.contains("assets") && !j["assets"].contains("music") && j["assets"].contains("sound") &&
+                         j.contains("assetSources") && j["assetSources"].contains("images"), "a kind set to None leaves the file");
+            at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet", "the roles stayed again");
+        });
+        click("aiset:close");
+        step(4, [this] {
+            at_check(!showAiSettings_, "Close closes the window");
+            at_check(aiSettings_.keys.empty() && !aiSettings_.loaded, "...and drops what was typed in it");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            set_env("FACTORIA_AI_CONFIG", x->hadEnv ? x->previousEnv : std::string());
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) {
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+            aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
+    // ------------------------------------------------------------------------------------------------ Y. Recipes
+    section("Y");
+    // A made asset (assets.rasterize_svg records a recipe): the Project panel shows a stale badge when its source changed on
+    // disk, a banner offers Regenerate / Not now (quiet after Not now), the toolbar Regenerate makes the selected asset again
+    // (different pixels, up to date), the banner's Regenerate makes every stale one again, and a deleted source turns the badge
+    // into "no src" with Regenerate off.
+    {
+        struct Recipes {
+            std::string manifest, firstPng;
+            bool hadManifest = false;
+        };
+        auto ry = std::make_shared<Recipes>();
+        const std::string png = "assets/ay_coin.png", svg = "assets/ay_src.svg", tile = "proj:file:assets/ay_coin.png";
+        auto svg_text = [](const char* fill, int size) {
+            return std::string("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><circle cx=\"32\" cy=\"32\" r=\"") +
+                   std::to_string(size) + "\" fill=\"" + fill + "\"/></svg>";
+        };
+        step(2, [this, ry, project_file, svg_text, png, svg] {
+            stop();
+            select_id("");
+            ry->hadManifest = stdfs::exists(project_file("assets.json"));
+            ry->manifest = ry->hadManifest ? read_file(project_file("assets.json")) : std::string();
+            write_file(project_file(svg), svg_text("#e03030", 20));
+            std::string err;
+            CommandResult r = edit_command("at:y:make", "assets.rasterize_svg",
+                                           Json::object({{"path", png}, {"source", svg}, {"width", 32}, {"height", 32}}), &err);
+            at_check(r.ok, "assets.rasterize_svg made a picture with a recipe: " + err);
+            ry->firstPng = read_file(project_file(png));
+            showProject_ = true;
+            projBrowser_.selected.clear();
+            projBrowser_.offeredStale.clear();
+            focus_window("Project");
+        });
+        step(1, [this, tile] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this, tile] { return at_visible(tile); };
+        });
+        step(3, [this, png] {
+            const AssetRecipeStatus* st = recipe_of_file(projBrowser_.listing, png);
+            at_check(st && !st->stale() && st->missing.empty() && st->command == "assets.rasterize_svg",
+                     "the made picture has a recipe and is up to date");
+            at_check(!at_visible("recipe:notice"), "no banner while everything is up to date");
+        });
+        step(2, [project_file, svg, svg_text] { write_file(project_file(svg), svg_text("#3060e0", 26)); });  // the source is saved
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("recipe:notice"); };  // the watcher looks once a second
+        });
+        step(3, [this, png] {
+            const std::vector<std::string> stale = stale_assets(projBrowser_.listing);
+            at_check(stale == std::vector<std::string>{png}, "the saved source makes the picture stale");
+            at_check(at_visible("recipe:regenerate") && at_visible("recipe:notnow"), "the banner offers Regenerate and Not now");
+        });
+        snap("editor_recipe_stale.png");
+        click("recipe:notnow");
+        step(2, [this] { projBrowser_.inputsPolled = -100; });
+        step(40, [this] { at_check(!at_visible("recipe:notice"), "Not now hides the banner and it stays quiet"); });
+        step(2, [this, png] {
+            projBrowser_.selected = png;
+            at_check(at_enabled("proj:regenerate"), "the toolbar Regenerate is on for the selected made picture");
+        });
+        click("proj:regenerate");
+        step(6, [this, ry, project_file, png] {
+            at_check(read_file(project_file(png)) != ry->firstPng, "Regenerate drew the picture again from the new source");
+            const AssetRecipeStatus* st = recipe_of_file(projBrowser_.listing, png);
+            at_check(st && !st->stale(), "...and it is up to date again");
+            at_check(stale_assets(projBrowser_.listing).empty(), "...so nothing is stale");
+        });
+        step(2, [this, project_file, svg, svg_text] {
+            write_file(project_file(svg), svg_text("#30c060", 14));
+            projBrowser_.offeredStale.clear();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("recipe:notice"); };
+        });
+        click("recipe:regenerate");
+        step(6, [this, png] {
+            at_check(stale_assets(projBrowser_.listing).empty(), "the banner's Regenerate made the stale picture again");
+            at_check(!at_visible("recipe:notice"), "...and the banner is gone");
+        });
+        step(2, [this, project_file, svg] {
+            std::error_code ec;
+            stdfs::remove(project_file(svg), ec);
+            projBrowser_.recipesDirty = true;
+            projBrowser_.stale = true;
+            projBrowser_.inputsPolled = -100;
+        });
+        step(30, [this, png] {
+            const AssetRecipeStatus* st = recipe_of_file(projBrowser_.listing, png);
+            at_check(st && !st->missing.empty(), "a deleted source is a missing input");
+            at_check(!at_enabled("proj:regenerate"), "...and Regenerate is off (it cannot be made again)");
+        });
+        step(2, [this, ry, project_file, png, svg] {  // put the project back
+            std::error_code ec;
+            stdfs::remove(project_file(png), ec);
+            stdfs::remove(project_file(svg), ec);
+            if (ry->hadManifest) write_file(project_file("assets.json"), ry->manifest);
+            else stdfs::remove(project_file("assets.json"), ec);
+            projBrowser_.selected.clear();
+            projBrowser_.offeredStale.clear();
+            project_files_changed();
+        });
+    }
+
+    // ----------------------------------------------------------------------------------------------- Z. Sprite sheets
+    section("Z");
+    // Sprite sheets: the Project panel previews the sheet that is selected (its clips, played the way a SpriteAnimator plays
+    // them, with a menu to change clip), and the Inspector of a SpriteAnimator lists the clips of its Sprite's texture, one click
+    // sets `clip` (one undo step).
+    {
+        struct YState {
+            size_t undo = 0;
+        };
+        auto y = std::make_shared<YState>();
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        step(2, [this, project_file, y] {
+            stop();
+            select_id("");
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            Image img;
+            img.width = 24;
+            img.height = 8;
+            img.rgba.assign(size_t(24) * 8 * 4, 255);
+            for (int x = 0; x < 24; ++x)
+                for (int yy = 0; yy < 8; ++yy) {
+                    std::uint8_t* px = &img.rgba[(size_t(yy) * 24 + x) * 4];
+                    px[0] = std::uint8_t(x / 8 == 0 ? 255 : 40);
+                    px[1] = std::uint8_t(x / 8 == 1 ? 255 : 40);
+                    px[2] = std::uint8_t(x / 8 == 2 ? 255 : 40);
+                }
+            at_check(save_png(img, project_file("assets/autotest_sheet.png")).ok(), "a sprite sheet was written for the sheet test");
+            write_file(project_file("assets.json"),
+                       R"({"format": "factoria.assets/1", "assets": {"assets/autotest_sheet.png": {"sheet": {"columns": 3, "rows": 1,
+                          "frameWidth": 8, "frameHeight": 8, "frames": 3, "clips": [
+                          {"name": "run", "firstFrame": 0, "lastFrame": 1, "fps": 4, "loop": true},
+                          {"name": "idle", "firstFrame": 2, "lastFrame": 2, "fps": 1, "loop": true}]}}}})");
+            std::string err;
+            CommandResult r = edit_command("at:sheethero", "scene.spawn",
+                                           Json::object({{"id", "sheethero"}, {"name", "Sheet Hero"},
+                                                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({300, 250, 0})}})},
+                                                                                      {"Sprite", Json::object({{"texture", "assets/autotest_sheet.png"}})},
+                                                                                      {"SpriteAnimator", Json::object()}})}}),
+                                           &err);
+            at_check(r.ok, "an entity with a Sprite and a SpriteAnimator was spawned: " + err);
+            projBrowser_.stale = true;
+            projBrowser_.query.search = "autotest_sheet";
+            projBrowser_.selected = "assets/autotest_sheet.png";
+            sheetPreviewPath_.clear();
+            showProject_ = true;
+            focus_window("Project");
+            y->undo = undo_depth();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("sheet:clip") && sheetPreviewFrame_ >= 0; };
+        });
+        step(30, [this] {
+            at_check(sheetPreviewChoice_ == "run", "the preview starts with the first clip of the sheet");
+            at_check(sheetPreviewFrame_ == 0 || sheetPreviewFrame_ == 1, "...and shows one of its frames (0 or 1)");
+        });
+        snap("editor_sheet_preview.png");
+        click_widget("sheet:clip");
+        step(3, [] {});
+        click_widget("sheet:choice:idle");
+        step(6, [this] {
+            at_check(sheetPreviewChoice_ == "idle", "choosing a clip in the menu plays that clip");
+            at_check(sheetPreviewFrame_ == 2, "...the idle clip is the third frame of the sheet");
+        });
+        step(2, [this] {
+            focus_window("Project");
+            select_id("sheethero");
+            inspScrollTo_ = "SpriteAnimator.clip";
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return at_visible("insp:SpriteAnimator.clip:run") && at_visible("insp:SpriteAnimator.clip:idle"); };
+        });
+        step(2, [this, y] {
+            at_check(true, "the Inspector lists the clips of the Sprite's texture under SpriteAnimator.clip");
+            y->undo = undo_depth();
+        });
+        click_widget("insp:SpriteAnimator.clip:idle");
+        step(5, [this, y] {
+            const SpriteAnimator* a = world().get<SpriteAnimator>(world().find_by_id("sheethero"));
+            at_check(a && a->clip == "idle", "clicking a clip sets SpriteAnimator.clip");
+            at_check(undo_depth() == y->undo + 1, "...as one undo step");
+        });
+        snap("editor_sheet_inspector.png");
+        step(2, [this, project_file] {
+            select_id("");
+            projBrowser_.selected.clear();
+            projBrowser_.query.search.clear();
+            std::error_code ec;
+            stdfs::remove(project_file("assets.json"), ec);
+            stdfs::remove(project_file("assets/autotest_sheet.png"), ec);
+            projBrowser_.stale = true;
+        });
+    }
+
+
+    section("B2");
+    // The Animation panel (docs/EDITOR.md, "Animation panel"): a puppet with an Animator and a Sprite part. New clip makes the
+    // clip; in record mode a gizmo drag on the part writes keys at the playhead instead of the rest position; a key is dragged
+    // (one undo step) and its easing changed from the context menu; an event is added; a click on the ruler poses the entity
+    // without touching the scene; the onion skin draws faded poses.
+    {
+        struct Bs {
+            size_t undo = 0;
+            Vec2 grab{}, cur{};
+            float firstX = 0, secondX = 0;
+        };
+        auto b = std::make_shared<Bs>();
+        auto click_widget = [this, &step](const std::string& name, int button = 0) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name, button] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), button); });
+            step(4, [this, name, button] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), button); });
+        };
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto clip_now = [this]() -> std::shared_ptr<const ClipAsset> {
+            const std::string path = anim_clip_path();
+            if (path.empty()) return nullptr;
+            auto loaded = load_anim_clip(path);
+            return loaded.ok() ? *loaded : nullptr;
+        };
+        auto position_track = [clip_now]() -> int {
+            const auto clip = clip_now();
+            if (!clip) return -1;
+            for (std::size_t i = 0; i < clip->tracks.size(); ++i)
+                if (clip->tracks[i].component == "Transform" && clip->tracks[i].field == "position") return int(i);
+            return -1;
+        };
+        auto key_at = [clip_now, position_track](double t) -> const ClipKey* {
+            const auto clip = clip_now();
+            const int ti = position_track();
+            if (!clip || ti < 0) return nullptr;
+            for (const ClipKey& k : clip->tracks[std::size_t(ti)].keys)
+                if (std::fabs(double(k.t) - t) < 0.0006) return &k;
+            return nullptr;
+        };
+        auto body_x = [this] { return world().get<Transform>(world().find_by_id("puppet_body"))->position.x; };
+        // One gizmo drag by (dx, dy) panel pixels on the X arrow, with the mouse over the viewport.
+        auto drag_arrow = [this, &step, &wait_until, b](float dx) {
+            step(2, [this, b] {
+                b->grab = b->cur = at_widget("gizmo:move:x");
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, b->grab);
+            });
+            step(2, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, b->grab); });
+            wait_until([this] { return gizmoDrag_.active; });
+            step(2, [this, b, dx] {
+                b->cur = Vec2{b->grab.x + dx, b->grab.y};
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, b->cur);
+            });
+            wait_until([this] { return gizmoDrag_.wrote; });
+            step(3, [] {});
+            step(2, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, b->cur); });
+            wait_until([this] { return !gizmoDrag_.active; });
+            step(4, [] {});
+        };
+
+        step(2, [this, project_file, b] {
+            stop();
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            std::error_code ec;
+            stdfs::remove(project_file("anim/clip.anim.json"), ec);
+            std::string err;
+            CommandResult r = edit_command("at:puppet", "scene.spawn",
+                                           Json::object({{"id", "puppet"}, {"name", "Puppet"},
+                                                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({300, 120, 0})}})},
+                                                                                      {"Animator", Json::object()}})}}),
+                                           &err);
+            at_check(r.ok, "a Puppet with an Animator was spawned: " + err);
+            r = edit_command("at:puppetbody", "scene.spawn",
+                             Json::object({{"id", "puppet_body"}, {"name", "Body"}, {"parent", "puppet"},
+                                           {"components", Json::object({{"Transform", Json::object()},
+                                                                        {"Sprite", Json::object({{"size", Json::array({60, 60})},
+                                                                                                 {"color", Json::array({0.9, 0.5, 0.2, 1})}})}})}}),
+                             &err);
+            at_check(r.ok, "...with a Sprite part called Body: " + err);
+            select_id("puppet_body");
+            showAnimation_ = true;
+            gizmoMode_ = GizmoMode::Move;
+            focus_window("Animation");
+            b->undo = undo_depth();
+        });
+        wait_until([this] { return at_visible("anim:newclip"); });
+        step(2, [this] {
+            at_check(anim_owner() == world().find_by_id("puppet"), "selecting the Body part makes its parent's Animator the one the panel edits");
+            at_check(!at_visible("anim:play"), "...and with no clip yet there is no transport");
+        });
+        click_widget("anim:newclip");
+        wait_until([this] { return at_visible("anim:newclip:create"); });
+        click_widget("anim:newclip:create");
+        step(6, [this, b] {
+            const Animator* a = world().get<Animator>(world().find_by_id("puppet"));
+            at_check(a && a->clips.is_object() && a->clips.contains("clip"), "New clip lists the clip in Animator.clips");
+            at_check(stdfs::exists(projectDir_ + "/anim/clip.anim.json"), "...and writes anim/clip.anim.json");
+            at_check(anim_.clipName == "clip", "...and the panel opens it");
+            at_check(at_visible("anim:record") && at_visible("anim:play"), "...so the transport and Record are there");
+            at_check(undo_depth() == b->undo + 2, "...as two undo steps: the clip file, then the Animator.clips entry");
+            dirty_ = false;  // from here on the checks ask whether record mode, scrubbing and clip edits touch the scene
+        });
+        click_widget("anim:clips");
+        step(3, [this] { at_check(at_visible("anim:clip:clip"), "the clip list names the new clip"); });
+        click_widget("anim:clip:clip");
+        snap("editor_animation_panel.png");
+
+        // ---- record mode: a gizmo drag writes a key
+        click_widget("anim:record");
+        step(3, [this] {
+            at_check(anim_.recording, "Record turns record mode on");
+            select_id("puppet_body");
+            anim_set_playhead(0.2);
+            focus_window("Animation");
+        });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); });
+        wait_until([this] { return at_visible("gizmo:move:x"); });
+        step(2, [this, b, body_x] {
+            b->undo = undo_depth();
+            b->firstX = body_x();
+        });
+        drag_arrow(40);
+        step(4, [this, b, key_at, position_track, body_x, clip_now] {
+            const int ti = position_track();
+            at_check(ti >= 0, "a Transform.position track was made for the Body part in record mode");
+            const ClipKey* k = key_at(0.2);
+            at_check(k != nullptr, "...with a key at the playhead (0.2 s)");
+            if (k) at_check(k->value[0] > b->firstX + 10.0f, "...holding the position the drag reached, not the rest position");
+            if (k) b->secondX = k->value[0];
+            at_check(anim_.recordedKeys >= 1, "the panel counts the keys record mode wrote");
+            at_check(!dirty_, "record mode leaves the scene file unchanged (no unsaved changes)");
+            at_check(undo_depth() == b->undo + 1, "the drag is ONE undo step");
+            const auto clip = clip_now();
+            at_check(clip && clip->tracks.size() >= 1, "the clip file has the track");
+            at_check(std::fabs(body_x() - b->secondX) < 0.01f, "the entity shows the recorded pose");
+        });
+        snap("editor_animation_record.png");
+        // a second key at 0.6 s
+        step(2, [this] { anim_set_playhead(0.6); });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); });
+        wait_until([this] { return at_visible("gizmo:move:x"); });
+        drag_arrow(40);
+        step(4, [this, key_at, clip_now, position_track, b] {
+            const ClipKey* k = key_at(0.6);
+            at_check(k != nullptr, "a second drag at 0.6 s writes a second key");
+            if (k) at_check(k->value[0] > b->secondX + 10.0f, "...further along");
+            const auto clip = clip_now();
+            const int ti = position_track();
+            at_check(clip && ti >= 0 && clip->tracks[std::size_t(ti)].keys.size() == 3,
+                     "the track has the rest key at 0 s (the part stays as it was until the first key) and the two recorded ones (" + [&] {
+                         std::string out;
+                         if (clip && ti >= 0)
+                             for (const ClipKey& k : clip->tracks[std::size_t(ti)].keys) out += std::to_string(k.t) + ":" + std::to_string(k.value[0]) + " ";
+                         return out;
+                     }() + ")");
+            if (k) b->firstX = k->value[0];
+            anim_.recording = false;
+        });
+
+        // ---- scrubbing poses the entity, the scene is not changed
+        click_widget("anim:ruler");
+        step(5, [this, b, body_x] {
+            at_check(std::fabs(anim_.playhead - 0.5) < 0.05, "a click on the ruler puts the playhead there");
+            const float expected = b->secondX + (b->firstX - b->secondX) * float((anim_.playhead - 0.2) / 0.4);
+            at_check(std::fabs(body_x() - expected) < 0.5f, "...and poses the Body between the two keys");
+            at_check(!dirty_, "scrubbing leaves the scene file unchanged");
+            anim_unpose();
+            at_check(std::fabs(body_x()) < 0.001f, "...the rest value is what the scene holds (unposed: Body at 0)");
+            anim_.dirtyPose = true;
+        });
+
+        // ---- move a key, undo it
+        // On a small window the dopesheet rows scroll: bring the Position track's keys into the visible part first.
+        auto rows_point = [] {  // the visible bottom of the Animation window
+            const ImGuiWindow* w = ImGui::FindWindowByName("Animation");
+            if (!w) return Vec2{500, 500};
+            const float bottom = std::min(w->Pos.y + w->Size.y, ImGui::GetIO().DisplaySize.y - 24.0f);
+            return Vec2{w->Pos.x + w->Size.x * 0.5f, bottom - 12.0f};
+        };
+        scroll_until_at([position_track] { return "anim:key:" + std::to_string(position_track()) + ":600"; }, -6, rows_point, 100000, -1e9f);
+        step(3, [this, b, position_track] {
+            b->undo = undo_depth();
+            at_check(at_visible("anim:key:" + std::to_string(position_track()) + ":600"), "the dopesheet shows the key at 600 ms");
+        });
+        step(2, [this, b, position_track] {
+            b->grab = b->cur = at_widget("anim:key:" + std::to_string(position_track()) + ":600");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, b->grab);
+        });
+        step(2, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, b->grab); });
+        step(3, [this, b] {
+            b->cur = Vec2{b->grab.x + float(anim_time_to_x(0.8) - anim_time_to_x(0.6)), b->grab.y};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, b->cur);
+        });
+        step(3, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{b->cur.x + 0.5f, b->cur.y}); });
+        step(2, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, b->cur); });
+        step(5, [this, b, key_at] {
+            at_check(key_at(0.6) == nullptr && key_at(0.8) != nullptr, "dragging the key moves it from 0.6 s to 0.8 s");
+            at_check(undo_depth() == b->undo + 1, "...as ONE undo step");
+            undo();
+            at_check(key_at(0.6) != nullptr && key_at(0.8) == nullptr, "Undo puts the key back at 0.6 s");
+            redo();
+            at_check(key_at(0.8) != nullptr, "Redo moves it again");
+            undo();
+            at_check(!dirty_, "clip edits never mark the scene dirty");
+        });
+
+        // ---- easing from the context menu
+        step(3, [this, position_track] {
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("anim:key:" + std::to_string(position_track()) + ":200"));
+        });
+        step(2, [this, b, position_track] {
+            b->grab = at_widget("anim:key:" + std::to_string(position_track()) + ":200");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, b->grab, 1);
+        });
+        step(3, [this, b] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, b->grab, 1); });
+        wait_until([this] { return at_visible("anim:menu:easing"); });
+        click_widget("anim:menu:easing");
+        wait_until([this] { return at_visible("anim:menu:ease:quadOut"); });
+        step(2, [this, b] { b->undo = undo_depth(); });
+        click_widget("anim:menu:ease:quadOut");
+        step(5, [this, b, key_at] {
+            const ClipKey* k = key_at(0.2);
+            at_check(k && k->interp == ClipInterp::Ease && k->ease >= 0 && clip_ease_names()[std::size_t(k->ease)] == "quadOut",
+                     "the context menu sets the easing of the key to quadOut");
+            at_check(undo_depth() == b->undo + 1, "...as one undo step");
+        });
+
+        // ---- an event
+        scroll_until_at([] { return std::string("anim:addevent"); }, 6, rows_point, 100000, -1e9f);
+        click_widget("anim:addevent");
+        wait_until([this] { return at_visible("anim:event:ok"); });
+        click_widget("anim:event:ok");
+        step(5, [this, clip_now] {
+            const auto clip = clip_now();
+            at_check(clip && clip->events.size() == 1 && clip->events[0].name == "event", "Add event writes a marker named 'event' into the clip");
+            at_check(at_visible("anim:event:0"), "...and the ruler shows it");
+        });
+
+        // ---- onion skin
+        scroll_until_at([] { return std::string("anim:onion"); }, 6, rows_point, 100000, -1e9f);
+        click_widget("anim:onion");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return anim_.onionDrawn > 0; };
+        });
+        step(3, [this] { at_check(anim_.onion && anim_.onionDrawn >= 2, "the onion skin draws the poses before and after the playhead (" + std::to_string(anim_.onionDrawn) + " ghosts)"); });
+        snap("editor_animation_onion.png");
+        scroll_until_at([] { return std::string("anim:onion"); }, 6, rows_point, 100000, -1e9f);
+        click_widget("anim:onion");
+        step(4, [this, project_file] {
+            at_check(!anim_.onion && anim_.onionDrawn == 0, "turning Onion off draws no ghosts");
+            anim_unpose();
+            at_check(!dirty_ && undo_depth() > 0, "the whole session left the scene unchanged and the steps are on the undo stack");
+            showAnimation_ = false;
+            select_id("");
+            std::error_code ec;
+            stdfs::remove(project_file("anim/clip.anim.json"), ec);
+        });
+    }
+
+    section("C2");
+    // The bone tools (docs/EDITOR.md, "Bone tools"): draw a chain with clicks, bind a sprite to it, paint weights with the brush
+    // (one stroke = one undo step), drag an IK target, and the weight overlay follows the selected bone.
+    {
+        struct Cs {
+            size_t undo = 0;
+            Vec2 grab{}, cur{};
+            Json weights;
+            float targetX = 0, targetY = 0, rotBefore = 0;
+        };
+        auto c = std::make_shared<Cs>();
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        // The panel position of a world point (the fixture camera sits at the origin).
+        auto panel_of = [this](float x, float y) {
+            const Vec2 d = engine_->renderer()->world_to_screen(Vec3{x, y, 0});
+            return Vec2{vpImageMin_.x + d.x / float(engine_->renderer()->target_width()) * vpImageSize_.x,
+                        vpImageMin_.y + d.y / float(engine_->renderer()->target_height()) * vpImageSize_.y};
+        };
+        auto vp_click = [this, &step](std::function<Vec2()> where) {
+            step(2, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, where()); });
+            step(2, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, where()); });
+            step(4, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, where()); });
+        };
+        auto bone_named = [this](const char* name) {
+            for (Entity e : world().entities_with(TypeRegistry::global().of<Bone2D>()))
+                if (world().info(e).name == name) return e;
+            return kNullEntity;
+        };
+
+        step(2, [this, project_file, c] {
+            stop();
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            std::string err;
+            CommandResult r = edit_command("at:rig", "scene.spawn",
+                                           Json::object({{"id", "rig"}, {"name", "Rig"},
+                                                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({-300, 50, 0})}})}})}}),
+                                           &err);
+            at_check(r.ok, "a Rig entity was spawned: " + err);
+            r = edit_command("at:limb", "scene.spawn",
+                             Json::object({{"id", "limb"}, {"name", "Limb"},
+                                           {"components", Json::object({{"Transform", Json::object({{"position", Json::array({200, 100, 0})}})},
+                                                                        {"Sprite", Json::object({{"size", Json::array({40, 120})},
+                                                                                                 {"color", Json::array({0.3, 0.7, 0.9, 1})}})}})}}),
+                             &err);
+            at_check(r.ok, "...and a Limb sprite: " + err);
+            r = edit_command("at:iktarget", "scene.spawn",
+                             Json::object({{"id", "ik_target"}, {"name", "Target"},
+                                           {"components", Json::object({{"Transform", Json::object({{"position", Json::array({-200, -20, 0})}})},
+                                                                        {"Shape2D", Json::object({{"size", Json::array({10, 10})}})}})}}),
+                             &err);
+            at_check(r.ok, "...and an IK target: " + err);
+            select_id("rig");
+            showBoneTools_ = true;
+            focus_window("Bone tools");
+            c->undo = undo_depth();
+        });
+        wait_until([this] { return at_visible("bone:tool:chain"); });
+        click_widget("bone:tool:chain");
+        step(3, [this] { at_check(bone_.tool == BoneTool::Chain, "Draw chain turns the tool on"); });
+
+        // ---- draw a chain: three clicks, two bones
+        vp_click([panel_of] { return panel_of(-300, 150); });
+        vp_click([panel_of] { return panel_of(-300, 50); });
+        vp_click([panel_of] { return panel_of(-300, -50); });
+        step(3, [this, c] {
+            at_check(bone_.chain.size() == 3, "three clicks in the viewport put three points on the chain");
+            at_check(undo_depth() == c->undo, "...and nothing is made until the chain is finished");
+            at_check(at_visible("bone:chain:finish") && at_enabled("bone:chain:finish"), "Finish chain is on");
+        });
+        snap("editor_bone_chain.png");
+        click_widget("bone:chain:finish");
+        step(5, [this, c, bone_named] {
+            const Entity b1 = bone_named("bone_1"), b2 = bone_named("bone_2");
+            at_check(!b1.is_null() && !b2.is_null(), "Finish chain makes bone_1 and bone_2");
+            at_check(!b1.is_null() && world().parent(b1) == world().find_by_id("rig"), "...the first hangs from the Rig");
+            at_check(!b2.is_null() && world().parent(b2) == b1, "...the second from the first");
+            at_check(undo_depth() == c->undo + 1, "the chain is ONE undo step");
+            undo();
+            at_check(bone_named("bone_1").is_null(), "Undo removes the bones");
+            redo();
+            at_check(!bone_named("bone_1").is_null(), "Redo brings them back");
+            at_check(bone_.chain.empty(), "the chain on screen is cleared");
+        });
+
+        // ---- bind the sprite
+        step(2, [this, bone_named, c] {
+            select_id("limb");
+            bone_.bindRoot = world().id_of(bone_named("bone_1"));
+            bone_.meshColumns = 2;
+            bone_.meshRows = 4;
+            c->undo = undo_depth();
+        });
+        scroll_to("bone:bind", "Bone tools");
+        click_widget("bone:bind");
+        step(5, [this, c] {
+            const SpriteSkin* skin = world().get<SpriteSkin>(world().find_by_id("limb"));
+            at_check(skin != nullptr, "Bind sprite to bones adds a SpriteSkin to the Limb");
+            at_check(skin && skin->bones.is_array() && skin->bones.size() == 2, "...with the two bones");
+            const Sprite* sp = world().get<Sprite>(world().find_by_id("limb"));
+            at_check(sp && sp->meshColumns == 2 && sp->meshRows == 4, "...and the 2 x 4 mesh");
+            at_check(undo_depth() == c->undo + 1, "...as one undo step");
+        });
+
+        // ---- weights: the overlay, then a brush stroke
+        scroll_to("bone:tool:weights", "Bone tools", 6);
+        click_widget("bone:tool:weights");
+        step(2, [this] { select_id("limb"); });
+        step(5, [this] {
+            at_check(bone_.tool == BoneTool::Weights && bone_.weightDots == 15, "the weights tool draws a dot on each of the 15 mesh vertices (" + std::to_string(bone_.weightDots) + ")");
+        });
+        scroll_to("bone:mode:set", "Bone tools");
+        click_widget("bone:mode:set");
+        step(3, [this, c] {
+            at_check(bone_.mode == 1, "the Set brush mode is on");
+            bone_.strength = 1.0f;
+            bone_.radius = 40.0f;
+            bone_.boneIndex = 0;
+            c->undo = undo_depth();
+            c->weights = world().get<SpriteSkin>(world().find_by_id("limb"))->weights;
+            focus_window("###Viewport");
+        });
+        step(2, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, panel_of(180, 160)); });
+        step(2, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, panel_of(180, 160)); });
+        step(3, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, panel_of(180, 130)); });
+        step(3, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, panel_of(180, 100)); });
+        step(2, [this, panel_of] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, panel_of(180, 100)); });
+        step(5, [this, c] {
+            const SpriteSkin* skin = world().get<SpriteSkin>(world().find_by_id("limb"));
+            at_check(skin && skin->weights.is_array() && skin->weights.size() == 15, "painting writes explicit weights for the 15 vertices");
+            bool full = false;
+            if (skin && skin->weights.is_array() && !skin->weights.empty() && skin->weights[0].is_array() && skin->weights[0].size() >= 2)
+                full = skin->weights[0][0].get<int>() == 0 && skin->weights[0][1].get<float>() > 0.99f;
+            at_check(full, "...the top-left vertex is fully bone_1's");
+            at_check(bone_.strokes >= 2, "...with more than one dab along the drag (" + std::to_string(bone_.strokes) + ")");
+            at_check(undo_depth() == c->undo + 1, "the whole stroke is ONE undo step");
+            undo();
+            const SpriteSkin* after = world().get<SpriteSkin>(world().find_by_id("limb"));
+            at_check(after && after->weights == c->weights, "Undo puts the weights back");
+            redo();
+        });
+        snap("editor_bone_weights.png");
+
+        // ---- the overlay follows the selected bone
+        step(2, [this, bone_named] { select(bone_named("bone_2")); });
+        step(4, [this] {
+            at_check(bone_.boneIndex == 1, "selecting bone_2 in the Hierarchy picks it as the bone shown");
+            at_check(bone_.weightDots == 15, "...the overlay is still on the Limb");
+            at_check(bone_.bonesDrawn == 1, "...and the viewport outlines the selected bone (" + std::to_string(bone_.bonesDrawn) + ")");
+        });
+
+        // ---- IK: a handle at the target
+        step(2, [this, bone_named, c] {
+            std::string err;
+            const Entity b2 = bone_named("bone_2");
+            const CommandResult r = edit_command("at:ik", "scene.set_component",
+                                                 Json::object({{"id", world().id_of(b2)}, {"component", "IK2D"},
+                                                               {"fields", Json::object({{"target", "ik_target"}, {"chainLength", 2}})}}), &err);
+            at_check(r.ok, "an IK2D on bone_2 targets the Target: " + err);
+            select_id("rig");
+        });
+        scroll_to("bone:tool:ik", "Bone tools", 6);
+        click_widget("bone:tool:ik");
+        step(4, [this, c, bone_named] {
+            at_check(bone_.tool == BoneTool::Ik && bone_.ikHandles == 1, "the IK tool draws one handle for the one IK chain");
+            c->undo = undo_depth();
+            const Transform* t = world().get<Transform>(world().find_by_id("ik_target"));
+            c->targetX = t->position.x;
+            c->targetY = t->position.y;
+            c->rotBefore = world().get<Transform>(bone_named("bone_1"))->rotation.z;
+            focus_window("###Viewport");
+        });
+        step(2, [this, c] {
+            c->grab = c->cur = at_widget("bone:ik:Target");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, c->grab);
+        });
+        step(2, [this, c] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, c->grab); });
+        step(3, [this, c] {
+            c->cur = Vec2{c->grab.x + 40.0f, c->grab.y - 30.0f};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, c->cur);
+        });
+        step(3, [this, c] {
+            c->cur = Vec2{c->grab.x + 60.0f, c->grab.y - 50.0f};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, c->cur);
+        });
+        step(2, [this, c] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, c->cur); });
+        step(5, [this, c, bone_named] {
+            const Transform* t = world().get<Transform>(world().find_by_id("ik_target"));
+            at_check(t && t->position.x > c->targetX + 20.0f && t->position.y > c->targetY + 20.0f, "dragging the handle moves the IK target");
+            at_check(undo_depth() == c->undo + 1, "...as ONE undo step");
+            at_check(std::fabs(world().get<Transform>(bone_named("bone_1"))->rotation.z - c->rotBefore) > 0.01f, "...and the bones turned to follow it");
+            undo();
+            const Transform* back = world().get<Transform>(world().find_by_id("ik_target"));
+            at_check(back && std::fabs(back->position.x - c->targetX) < 0.01f, "Undo puts the target back");
+            at_check(std::fabs(world().get<Transform>(bone_named("bone_1"))->rotation.z - c->rotBefore) < 0.01f, "...and the bones with it");
+        });
+        snap("editor_bone_ik.png");
+        step(2, [this] {
+            bone_.tool = BoneTool::Off;
+            showBoneTools_ = false;
+            select_id("");
+        });
+    }
+
+    section("D2");
+    // The External tools tab of the AI settings window (docs/EDITOR.md, "AI settings"): a server added with the form (a name that
+    // cannot be used stops Apply), Test against a fake MCP server (the key goes out in the header), a Claude Code style JSON pasted,
+    // Save writes only "mcpServers" (the other keys of the file stay, owner-only, the key never in the log), Remove, Save again.
+    {
+        struct DState {
+            std::string path, previousEnv;
+            bool hadEnv = false;
+            std::vector<ai::ProviderStatus> savedStatus;
+            std::shared_ptr<std::string> auth = std::make_shared<std::string>();
+        };
+        auto x = std::make_shared<DState>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load() && !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            x->path = atOutDir_ + "/ai_tools_scratch.json";
+            const char* current = std::getenv("FACTORIA_AI_CONFIG");
+            x->hadEnv = current != nullptr;
+            x->previousEnv = current ? current : "";
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                x->savedStatus = aiStatus_;
+            }
+            write_file(x->path, R"({
+  "limits": { "maxConcurrentRuns": 3 },
+  "roles": { "worker": { "provider": "anthropic", "model": "sonnet" } }
+})");
+            set_env("FACTORIA_AI_CONFIG", x->path);
+            // A fake MCP server: initialize, tools/list, and it remembers the Authorization header it was given.
+            auto auth = x->auth;
+            aiToolTransport_ = [auth](const ai::HttpRequest& rq) -> ai::HttpResponse {
+                ai::HttpResponse rs;
+                rs.status = 200;
+                if (rq.method == "DELETE") return rs;
+                for (const auto& [k, v] : rq.headers) {
+                    if (k == "Authorization") *auth = v;
+                }
+                const Json body = Json::parse(rq.body, nullptr, false);
+                const std::string method = body.is_object() ? body.value("method", std::string()) : std::string();
+                if (!body.is_object() || !body.contains("id")) {
+                    rs.status = 202;
+                    return rs;
+                }
+                Json result = Json::object();
+                if (method == "initialize") {
+                    result = Json::object({{"protocolVersion", "2025-06-18"},
+                                           {"capabilities", Json::object({{"tools", Json::object()}})},
+                                           {"serverInfo", Json::object({{"name", "FakeArt"}, {"version", "1.0"}})}});
+                } else if (method == "tools/list") {
+                    result = Json::object(
+                        {{"tools", Json::array({Json::object({{"name", "generate_image"}, {"description", "Makes an image"},
+                                                              {"inputSchema", Json::object({{"type", "object"}})}}),
+                                                Json::object({{"name", "list_models"}, {"description", "Lists models"},
+                                                              {"inputSchema", Json::object({{"type", "object"}})}})})}});
+                }
+                rs.headers["content-type"] = "application/json";
+                rs.body = Json::object({{"jsonrpc", "2.0"}, {"id", body["id"]}, {"result", result}}).dump();
+                return rs;
+            };
+            ai_refresh_providers();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { focus_window("AI Assistant"); });
+        click("menu:ai");
+        click("menu:ai-settings");
+        step(4, [this, x] {
+            at_check(showAiSettings_ && aiSettings_.loaded && aiSettings_.path == x->path, "AI > AI Settings... opens the window on the scratch file");
+            aiSettingsTab_ = 3;  // External tools
+        });
+        step(3, [this] {
+            at_check(aiSettings_.tools.servers.empty(), "no tool server yet");
+            at_check(at_visible("aiset:tools:add") && at_visible("aiset:tools:paste"), "the External tools tab shows Add server and Paste JSON");
+        });
+        click("aiset:tools:add");
+        step(3, [this] {
+            at_check(aiSettings_.tools.editing >= 0 && aiSettings_.tools.adding && at_visible("aiset:tools:apply"), "Add server opens the form");
+            auto& e = aiSettings_.tools.edit;
+            e.name = "factoria";  // reserved
+            e.type = "http";
+            e.url = "https://mcp.example.test/mcp";
+            e.apiKey = "autotest-tool-key-987";
+            e.note = "Makes pixel-art sprites; costs credits per image.";
+            e.roles = {"worker", "artist"};
+            aiSettings_.tools.editHeaders = "Authorization: Basic {key}";
+        });
+        scroll_to("aiset:tools:apply", "AI settings###AiSettings");
+        click("aiset:tools:apply");
+        step(3, [this] {
+            at_check(aiSettings_.tools.servers.empty() && aiSettings_.tools.editing >= 0 &&
+                         aiSettings_.tools.editError.find("factoria") != std::string::npos,
+                     "a reserved name stops Apply and says why (" + aiSettings_.tools.editError + ")");
+            aiSettings_.tools.edit.name = "scenario";
+        });
+        scroll_to("aiset:tools:apply", "AI settings###AiSettings");
+        click("aiset:tools:apply");
+        step(3, [this] {
+            const auto& s = aiSettings_.tools.servers;
+            at_check(s.size() == 1 && s[0].name == "scenario" && aiSettings_.tools.editing < 0, "Apply adds the server and closes the form");
+            at_check(s.size() == 1 && s[0].headers.size() == 1 && s[0].headers[0].first == "Authorization" &&
+                         s[0].headers[0].second == "Basic {key}" && s[0].roles.size() == 2,
+                     "...with its header and roles");
+        });
+        scroll_to("aiset:tools:test:scenario", "AI settings###AiSettings");
+        click("aiset:tools:test:scenario");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiToolTestRunning_.load(); };
+        });
+        step(3, [this, x] {
+            std::string text;
+            {
+                std::lock_guard<std::mutex> lock(aiSettings_.tools.tests->mu);
+                text = aiSettings_.tools.tests->text["scenario"];
+            }
+            at_check(text.find("Connected to FakeArt") != std::string::npos && text.find("2 tools") != std::string::npos &&
+                         text.find("generate_image") != std::string::npos,
+                     "Test connects and lists the tools (" + text + ")");
+            at_check(*x->auth == "Basic autotest-tool-key-987", "...and the key went out in the Authorization header");
+        });
+        // A Claude Code style JSON.
+        click("aiset:tools:paste");
+        step(3, [this] {
+            at_check(aiSettings_.tools.showPaste && at_visible("aiset:tools:import"), "Paste JSON opens the paste box");
+            aiSettings_.tools.pasteText = R"({"mcpServers":{"fs":{"command":"npx","args":["-y","some-mcp","--root","/tmp/my dir"],"env":{"MODE":"fast"},"disabled":true}}})";
+        });
+        click("aiset:tools:import");
+        step(3, [this] {
+            const auto& s = aiSettings_.tools.servers;
+            at_check(s.size() == 2 && s[1].name == "fs" && s[1].is_stdio() && s[1].command == "npx" && s[1].args.size() == 4 &&
+                         s[1].args[3] == "/tmp/my dir" && s[1].env.count("MODE"),
+                     "Import adds the pasted stdio server (" + aiSettings_.tools.pasteMessage + ")");
+            at_check(aiSettings_.tools.pasteMessage.find("disabled") != std::string::npos, "...and says which keys FactorIA does not use");
+        });
+        snap("editor_ai_tools.png");
+        click("aiset:tools:save");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && aiSettings_.tools.saveError.empty(), "Save wrote a JSON object (" + aiSettings_.tools.saveError + ")");
+            if (!j.is_object()) return;
+            at_check(j["limits"]["maxConcurrentRuns"] == 3 && j["roles"]["worker"]["model"] == "sonnet", "the other keys of the file stayed");
+            at_check(j["mcpServers"]["scenario"]["url"] == "https://mcp.example.test/mcp" && j["mcpServers"]["scenario"]["apiKey"] == "autotest-tool-key-987" &&
+                         j["mcpServers"]["scenario"]["headers"]["Authorization"] == "Basic {key}" && j["mcpServers"]["scenario"]["roles"].size() == 2,
+                     "the server is in the file with its header, key and roles");
+            at_check(j["mcpServers"]["fs"]["command"] == "npx" && j["mcpServers"]["fs"]["args"].size() == 4, "the program server is in the file");
+#ifndef _WIN32
+            std::error_code ec;
+            const auto perms = stdfs::status(x->path, ec).permissions();
+            at_check((perms & (stdfs::perms::group_all | stdfs::perms::others_all)) == stdfs::perms::none,
+                     "the file with a key in it is readable only by its owner");
+#endif
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                at_check(aiConfig_.toolServers.size() == 2, "the editor's config was reloaded with the servers");
+            }
+            at_check(std::ranges::none_of(atLog_, [](const std::string& line) { return line.find("autotest-tool-key-987") != std::string::npos; }),
+                     "the key is in no line of the autotest log");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        click("aiset:tools:remove:fs");
+        click("aiset:tools:save");
+        step(6, [this, x] {
+            Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && j["mcpServers"].contains("scenario") && !j["mcpServers"].contains("fs"), "Remove and Save take the server out of the file");
+            at_check(j.is_object() && j["roles"]["worker"]["model"] == "sonnet", "the other keys stayed again");
+        });
+        click("aiset:tools:close");
+        step(4, [this] {
+            at_check(!showAiSettings_ && !aiSettings_.loaded && aiSettings_.tools.servers.empty(), "Close closes the window and drops the draft");
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            aiToolTransport_ = nullptr;
+            set_env("FACTORIA_AI_CONFIG", x->hadEnv ? x->previousEnv : std::string());
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) {
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+            aiStatus_ = std::move(x->savedStatus);
+        });
+    }
 
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;

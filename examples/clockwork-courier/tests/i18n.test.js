@@ -310,7 +310,11 @@ describe("a big text size", () => {
       new Autoplay(game).run(YARD_ROUTE);
       game.step(150);
       expect(inside("results_panel_box")).toBe(true);
-      for (const id of ["results_next", "results_retry", "results_title"]) expect(inside(id)).toBe(true);
+      // The last level has no "next": a hidden button has no rectangle (ui.rectOf is null for it).
+      for (const id of ["results_next", "results_retry", "results_title"]) {
+        if (game.find(id).activeInHierarchy) expect(inside(id)).toBe(true);
+        else expect(ui.rectOf(id)).toBeNull();
+      }
     });
   }
 });

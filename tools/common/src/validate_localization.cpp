@@ -9,6 +9,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/i18n.h"
 #include "fa/core/strings.h"
+#include "fa/render/builtin_fonts.h"
 #include "fa/render/fonts.h"
 #include "localization_check.h"
 #include "localization_tables.h"
@@ -51,7 +52,7 @@ std::string list_code_points(const std::vector<std::uint32_t>& cps, std::size_t 
 
 std::string font_name(const std::string& font) {
     if (font.empty()) return "DejaVu Sans (built-in)";
-    if (font == "builtin:pixel") return "Press Start 2P (built-in)";
+    if (const BuiltinFont* b = font.rfind("builtin:", 0) == 0 ? find_builtin_font(font) : nullptr) return b->family + " (built-in)";
     return font;
 }
 
@@ -232,6 +233,36 @@ void check_plural_forms(Reporter& out, const TableFile& t) {
     }
 }
 
+// A select entry in a language with grammatical gender needs a form per gender it has: a gender without one shows "other".
+void check_select_forms(Reporter& out, const TableFile& t) {
+    const std::vector<std::string> needed = gender_forms(t.language);
+    for (const auto& [key, entry] : t.table->entries) {
+        if (!entry.select()) continue;
+        for (const std::string& form : needed) {
+            if (entry.selects.count(form)) continue;
+            out.warn(t.file, entry.pointer,
+                     "The select entry " + quote(key) + " has no \"" + form + "\" form, which '" + t.language +
+                         "' uses for a " + (form == "f" ? "feminine" : form == "m" ? "masculine" : "neuter") +
+                         " name: those names show the \"other\" form.",
+                     "Add \"" + form + "\" next to the other forms (docs/LOCALIZATION.md, \"Gender\").");
+        }
+    }
+}
+
+// A language with grammatical gender needs the gender of the names the default language gives one.
+void check_genders(Reporter& out, const TableFile& def, const TableFile& t) {
+    if (gender_forms(t.language).empty()) return;
+    for (const auto& [key, original] : def.table->entries) {
+        if (!original.gendered()) continue;
+        const auto it = t.table->entries.find(key);
+        if (it == t.table->entries.end() || it->second.gendered() || it->second.plural() || it->second.select()) continue;
+        out.warn(t.file, it->second.pointer,
+                 "The key " + quote(key) + " has the gender \"" + original.gender + "\" in " + def.file + " but none here, and '" + t.language +
+                     "' has grammatical gender: a sentence built with it picks the \"other\" form.",
+                 "Write it as {\"text\": \"...\", \"gender\": \"f\"} (or \"m\", \"n\").");
+    }
+}
+
 void compare_with_default(Reporter& out, const TableFile& def, const TableFile& t) {
     const auto& defaults = def.table->entries;
     const auto& own = t.table->entries;
@@ -264,11 +295,21 @@ void compare_with_default(Reporter& out, const TableFile& def, const TableFile& 
         const auto it = defaults.find(key);
         if (it == defaults.end()) continue;
         const StringEntry& original = it->second;
-        if (original.plural() != entry.plural()) {
+        // {"other": "..."} alone is a plural entry by its shape but also how a language without plural or gender forms (or a default
+        // language that only has the gendered forms in its translations) writes an entry: it fits every shape.
+        const auto lenient = [](const StringEntry& e) { return e.plural() && e.forms.size() == 1; };
+        if (original.plural() != entry.plural() && !lenient(original) && !lenient(entry)) {
             out.warn(t.file, entry.pointer,
                      entry.plural() ? "The key " + quote(key) + " is one plain string in " + def.file + " but has plural forms here."
                                     : "The key " + quote(key) + " has plural forms in " + def.file + " but is one plain string here: it shows the same text for every count.",
                      "Give the key the same shape in every language: either plural forms {\"one\": ..., \"other\": ...} or one string.");
+            continue;
+        }
+        if (original.select() && !entry.select() && !lenient(entry)) {
+            out.warn(t.file, entry.pointer,
+                     "The key " + quote(key) + " has gender forms in " + def.file + " but is " + (entry.plural() ? "a plural entry" : "one plain string") +
+                         " here: it shows the same text for every gender.",
+                     "Give the key the same shape in every language: either gender forms {\"f\": ..., \"m\": ..., \"other\": ...} or one string.");
             continue;
         }
         const std::set<std::string> want = placeholders_of(original), have = placeholders_of(entry);
@@ -290,6 +331,7 @@ std::set<std::string> placeholders_in_any_language(const std::string& key, const
         if (it == table.table->entries.end()) continue;
         names.merge(placeholders_of(it->second));
         if (it->second.plural()) names.insert("count");
+        if (it->second.select()) names.insert("gender");
     }
     return names;
 }
@@ -306,7 +348,8 @@ void check_key_args(Reporter& out, const SceneText& t, const std::vector<TableFi
         const std::string close = closest_match(name, argNames);
         out.warn(t.file, t.argsPointer,
                  where + " uses the key " + quote(t.key) + ", whose text has {" + name + "}, but its keyArgs has no \"" + name + "\"" +
-                     (count ? ": a plural entry always shows its \"other\" form without a count" : ": the placeholder would show as written") + ".",
+                     (count ? ": a plural entry always shows its \"other\" form without a count"
+                                : name == "gender" ? ": a select entry always shows its \"other\" form without a gender" : ": the placeholder would show as written") + ".",
                  "Add \"" + name + "\" to the " + t.component + "'s keyArgs (e.g. \"keyArgs\": {\"" + name +
                      "\": 0}); a script can change it later with entity.set or scene.set_component." +
                      (close.empty() ? std::string() : " Did you mean to rename the arg " + quote(close) + " to " + quote(name) + "?"));
@@ -332,10 +375,16 @@ void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const s
         if (!t.table) out.error(t.file, t.pointer, t.message, t.hint);
     }
     for (const TableFile& t : tables)
-        if (t.table) check_plural_forms(out, t);
+        if (t.table) {
+            check_plural_forms(out, t);
+            check_select_forms(out, t);
+        }
     if (def && def->table)
         for (const TableFile& t : tables)
-            if (t.table && &t != def) compare_with_default(out, *def, t);
+            if (t.table && &t != def) {
+                compare_with_default(out, *def, t);
+                check_genders(out, *def, t);
+            }
 
     // The keys the scenes use must exist in the default language's table: it is the last place the game looks.
     if (!def || !def->table) return;
@@ -369,7 +418,7 @@ void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const s
 // Opening every font once: a font that is missing or not a font is an error of its own, at the place that names it.
 void check_fonts(Reporter& out, Coverage& coverage, const std::string& dir, const LocalizationSettings& s, const std::vector<SceneText>& texts) {
     const auto settle = [&](const std::string& font, const std::string& file, const std::string& pointer, bool exists) {
-        if (font.empty() || font == "builtin:pixel" || coverage.get(font)) return;
+        if (font.empty() || coverage.get(font)) return;
         if (!exists) return;  // a Text.font that is missing is reported as a missing asset
         const Error& e = coverage.error(font);
         out.error(file, pointer, e.message, e.hint);

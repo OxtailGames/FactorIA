@@ -1,4 +1,6 @@
 // run, screenshot, test
+#include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 
@@ -48,7 +50,8 @@ Command make_run_command() {
         "Headless (--headless): no window; steps exactly 1/fixedHz per frame, so the same --seed and --input always\n"
         "give the same state and pixels. Prints a report; with --json it is machine-readable and lists the PNG\n"
         "paths so an AI can open them. Exit code 1 if scripts raised errors.\n\n"
-        "Input replay JSON: {\"frames\": {\"0\": {\"press\": [\"jump\"]}, \"30\": {\"release\": [\"jump\"]}}}\n\n"
+        "Input replay JSON: {\"frames\": {\"0\": {\"press\": [\"jump\"]}, \"30\": {\"release\": [\"jump\"]}}}\n"
+        "(record one from a running game with the input.record command, docs/DEBUGGING.md).\n\n"
         "File paths: an INPUT file (--input) is looked up in the current directory first, then in the project folder, so\n"
         "'factoria run games/x --headless --input replays/jump.json' works from anywhere; the error lists both places.\n"
         "OUTPUT files (--state-out, --screenshot-pattern, --record-audio, --record-video) are relative to the current directory; the\n"
@@ -56,6 +59,7 @@ Command make_run_command() {
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"scene", "PATH", "Start scene override (default: project mainScene)."},
+               {"props", "JSON|FILE", "Props of the start scene: a JSON object ('{\"level\":3}') or a .json file (looked up in the current directory, then the project). The scene's scripts read them with game.sceneProps() from their first start(); a reload keeps them. Windowed or headless."},
                {"width", "W", "Override the design/window width."},
                {"height", "H", "Override the design/window height."},
                {"headless", "", "No window: deterministic offscreen run."},
@@ -67,7 +71,7 @@ Command make_run_command() {
                {"screenshot-pattern", "PATTERN", "PNG path with {frame}, relative to the current directory (default <project>/.factoria/screenshots/frame_{frame}.png)."},
                {"state-out", "FILE", "Headless: write the final world state JSON here (relative to the current directory)."},
                {"record-audio", "FILE", "Headless: write the mixed audio to a WAV file (relative to the current directory)."},
-               {"record-video", "FILE", "Headless: write every frame (drawn at --render-scale, at the project's fixedHz fps) and the audio to a video. .avi (Motion-JPEG + PCM) needs nothing; .mp4 (H.264 + AAC) needs ffmpeg (FACTORIA_FFMPEG, publish.ffmpeg in ~/.factoria/export.json, or PATH). Relative to the current directory."},
+               {"record-video", "FILE", "Headless: write every frame (drawn at --render-scale, at the project's fixedHz fps) and the audio to a video. .avi (Motion-JPEG + PCM) needs nothing; .mp4 (H.264 + AAC) needs ffmpeg (FACTORIA_FFMPEG, publish.ffmpeg in ~/.factoria/export.json, or PATH). Relative to the current directory. Prints its progress (frames written of the total) on stderr about every tenth of the run."},
                {"seed", "N", "World RNG seed (default 1)."},
                kDateFlag,
                {"allow-script-errors", "", "Headless: exit 0 even if scripts raised errors."},
@@ -83,6 +87,22 @@ Command make_run_command() {
         std::string dir = resolve_project_dir(ctx, 0);
         fs::set_project_root(dir);
         EngineConfig cfg = project_engine_config(dir, a.str("scene"), a.uinteger("seed", 1), date_flag(a));
+        if (a.has("props")) {
+            std::string text = a.str("props");
+            std::string where = "--props";
+            if (text.find_first_not_of(" \t\r\n") == std::string::npos || text[text.find_first_not_of(" \t\r\n")] != '{') {
+                const std::string file = resolve_input_path(text, dir, "the --props file");
+                auto loaded = fs::read_text(file);
+                if (!loaded.ok()) throw UsageError("--props: " + loaded.error().to_string());
+                text = loaded.value();
+                where = file;
+            }
+            auto parsed = parse_json(text, where);
+            if (!parsed.ok()) throw UsageError("--props: " + parsed.error().to_string(), "Pass a JSON object like '{\"level\":3}' or a .json file that holds one.");
+            if (!parsed.value().is_object())
+                throw UsageError("--props must be a JSON object like '{\"level\":3}', got " + describe_json_value(parsed.value()) + ".");
+            cfg.sceneProps = parsed.value();
+        }
         cfg.width = a.integer("width", 0);
         cfg.height = a.integer("height", 0);
         if (!a.has("headless")) {
@@ -120,6 +140,15 @@ Command make_run_command() {
                     throw UsageError(ffmpeg.error().message, ffmpeg.error().hint + " Or record an .avi, which needs nothing: --record-video out.avi.");
                 ho.ffmpegPath = ffmpeg->path;
             }
+        }
+        if (!ho.videoOutPath.empty()) {
+            // Progress on stderr (stdout is the report): about every tenth of the run, and the last frame.
+            ho.videoProgress = [](int written, int total) {
+                const int step = std::max(1, total / 10);
+                if (written % step != 0 && written != total) return;
+                std::fprintf(stderr, "recording: %d of %d frames (%d%%)\n", written, total, total > 0 ? written * 100 / total : 100);
+                std::fflush(stderr);
+            };
         }
         ho.failOnScriptError = !a.has("allow-script-errors");
 

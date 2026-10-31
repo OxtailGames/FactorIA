@@ -196,7 +196,7 @@ engine's makers: nothing is sent anywhere unless you send it.
 
 Every message re-reads part of the conversation, so long chats cost more per message. Start a **new chat** (**+**) for each
 new feature, keep requests small and focused, and pick cheaper models for small work. [AI_COSTS.md](AI_COSTS.md) explains
-what costs what and how to set limits (**Roles...** in the panel, and `maxTurns` / `maxCostUsd` in `~/.factoria/ai.json`).
+what costs what and how to set limits (**AI > Roles...**, and `maxTurns` / `maxCostUsd` in `~/.factoria/ai.json`).
 
 ## Where to go from here
 

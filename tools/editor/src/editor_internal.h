@@ -27,32 +27,42 @@
 #include <unordered_map>
 #include <vector>
 
+#include "fa/ai/activity.h"
+#include "fa/ai/commands.h"
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/provider.h"
+#include "fa/ai/review.h"
 #include "fa/ai/session.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
+#include "fa/core/process.h"
 #include "fa/editor/editor.h"
 #include "fa/editor/update.h"
 #include "fa/mcp/http_server.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/play_session.h"
+#include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
+#include "fa/tooling/self_update.h"
 #include "fa/tooling/tooling.h"
 #include "ai_chat.h"
+#include "ai_runs.h"
 #include "ai_usage.h"
+#include "anim_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
 #include "gizmo_model.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "inspector_model.h"
+#include "menu_model.h"
+#include "native_menu.h"
 #include "platform_settings.h"
-#include "play_recorder.h"
 #include "project_browser_model.h"
 #include "setup_job.h"
 
@@ -63,30 +73,40 @@ namespace fa::editor {
 enum class PlayState { Edit, Playing, Paused };
 
 // ------------------------------------------------------------------------------------------
-// Thread-safe queue that moves command calls from the AI thread to the main thread.
+// Thread-safe queue that moves command calls from the AI threads to the main thread. Several runs call it at the same time
+// (up to limits.maxConcurrentRuns agent threads, each with its own cancel flag and tag): jobs run one at a time on the
+// main thread, in the order they were queued, and a job names the run it came from (current_tag) so the editor knows which
+// chat a command belongs to.
 class MainThreadQueue {
 public:
-    // Called from worker threads. Blocks until the main thread ran the command, the queue was
-    // closed, or `cancel` became true.
-    CommandResult call(const std::string& name, const Json& args, const std::atomic<bool>* cancel);
+    // Called from worker threads. Blocks until the main thread ran the command, the queue was closed, or `cancel` became
+    // true (that run was stopped: its job is dropped if it has not started, other runs' jobs are not touched). `tag` is
+    // handed back by current_tag() while the job runs.
+    CommandResult call(const std::string& name, const Json& args, const std::atomic<bool>* cancel, const std::string& tag = {});
     // Main thread: runs queued jobs (each through `run`) until `budgetMs` is used up (at least one job runs; the rest
     // stay queued for the next frame so the UI keeps updating). Returns how many ran. `run` may call take_current() and
-    // return nullopt: it then owns the reply and must fulfil the promise later (sliced long commands).
+    // return nullopt: it then owns the reply and must fulfil the promise later (sliced long commands). The pump stops
+    // after such a job, so a second long command from another run waits for the slice instead of replacing it.
     int pump(const std::function<std::optional<CommandResult>(const std::string&, const Json&)>& run, double budgetMs = 1e9);
     // Inside `run`: takes over the promise of the job being run.
     std::shared_ptr<std::promise<CommandResult>> take_current() { return std::move(current_); }
+    // Inside `run`: the tag the caller gave (the chat id of the run that made the call; "" for any other caller).
+    const std::string& current_tag() const { return currentTag_; }
     void close();   // fails pending and future calls (editor shutting down / project switch)
     void reopen();
+    std::size_t size();  // jobs waiting (a test and the autotest look at it)
 
 private:
     struct Job {
-        std::string name;
+        std::string name, tag;
         Json args;
         std::shared_ptr<std::promise<CommandResult>> promise;
+        std::shared_ptr<std::atomic<bool>> abandoned;  // the caller gave up (Stop): the job is skipped, not run
     };
     std::mutex mu_;
     std::deque<Job> jobs_;
     std::shared_ptr<std::promise<CommandResult>> current_;
+    std::string currentTag_;
     bool closed_ = false;
 };
 
@@ -144,7 +164,11 @@ public:
 
     // ---------------------------------------------------------------- project / scene
     bool open_project(const std::string& dir);      // deferred to the next frame start
-    void save_recent_projects();                    // ~/.factoria/editor_recent.json (not in the autotest)
+    // ~/.factoria/editor_recent.json (recent_projects.h); never read or written in the autotest.
+    std::string recent_projects_file() const;
+    void load_recent_projects();                    // once, when the editor starts: recentProjects_ = the ones that exist
+    void remember_recent_project(const std::string& dir);  // opened: first in the file, merged with what it holds
+    void forget_recent_project(const std::string& dir);    // deleted from disk: out of the file
     bool boot(const std::string& dir);              // immediate (tears down and rebuilds graphics)
     bool has_project() const { return engine_ != nullptr; }
     World& world() { return engine_->world(); }
@@ -208,6 +232,7 @@ public:
     const TextureEntry* texture_for(const std::string& path);
     VisualMeasure visual_measure();        // texture sizes and text layout for the engine's bounds code
     PickBounds bounds_of(Entity e);
+    void mesh_local_box(Entity e, Vec3& lo, Vec3& hi);  // the selection box of a MeshRenderer in its own space (viewport.cpp)
     Entity pick_at(Vec2 designPos);
     bool primary_is_ortho();
     // Transform gizmos of the viewport (viewport_gizmo.cpp). gizmo_frame runs once per viewport frame (edit and paused): keys,
@@ -222,19 +247,88 @@ public:
 
     // ---------------------------------------------------------------- panels
     void build_ui();
+    // The main menu (main_menu.cpp): build_main_menu makes the tree from the editor's state (`native`: for the system menu bar of
+    // macOS: no Quit in File, an Export menu instead of the bar's click item, no version text), draw_main_menu shows it.
+    menu::MainMenu build_main_menu(bool native);
     void draw_main_menu();
+    std::unique_ptr<NativeMenu> nativeMenu_;  // the macOS system menu bar; null = the ImGui bar draws the menu
+    bool nativeMenuChecked_ = false;          // nativeMenu_ is made on the first frame
     void draw_toolbar();
     void draw_status_bar();
     void build_default_layout(unsigned dockId, ImVec2 size);
+    // Back to the welcome screen (no project): the UI and the engine are torn down on the next frame like in open_project.
+    void close_project() { pendingWelcome_ = true; }
     void draw_viewport();
     void draw_console();
     void draw_ai_panel();
-    void draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status);
+    void draw_ai_roles_tab(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status);
+    std::string ai_roles_summary();  // the current roles, one per line (tooltip of the AI menu's Roles...)
+    // AI settings window (ai_settings.cpp; AI > AI Settings... and AI > Roles...): a Roles tab (the provider and model of each role),
+    // and an Assets tab: where each kind of asset is made (provider, model, voice, API key) and which websites the AI looks at. Save goes through
+    // ai::save_asset_settings: only "assets", "assetSources" and the provider fields these need change in the user's ai.json.
+    void open_ai_settings(bool rolesTab = false);  // rolesTab: show the Roles tab (else the tab the window had)
+    void draw_ai_settings_window();
+    // Fills the draft from `cfg`. keepAssets / keepTools: carry that tab's unsaved edits over (a Save on the other tab).
+    void ai_settings_load(const ai::AiConfig& cfg, bool keepAssets = false, bool keepTools = false);
+    Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
+    bool ai_settings_dirty(const ai::AiConfig& cfg) const;
     void draw_feedback_panel();
     void draw_audio_panel();
+    // Animation panel (anim_panel.cpp; View > Animation): the clips of the selected entity's Animator as a dopesheet and a curve
+    // view, a time ruler to scrub, event markers, record mode and the onion skin. Every edit of a clip is an anim.* command through
+    // anim_edit(), so the Console and the AI see the same calls; a clip file is not part of the scene, so its undo steps are
+    // entries of the same stack (`{"$clip": {path, clip}}`: the arguments of anim.restore) and undo() / redo() run them.
+    void draw_animation_panel();
+    void draw_anim_toolbar(const std::shared_ptr<const ClipAsset>& clip, const std::string& path);
+    void draw_anim_time_area(const std::shared_ptr<const ClipAsset>& clip, const std::string& path);
+    void draw_anim_curves(const std::shared_ptr<const ClipAsset>& clip, const std::string& path, ImVec2 origin, ImVec2 size);
+    void anim_key_menu(const std::shared_ptr<const ClipAsset>& clip, const std::string& path);
+    void anim_event_popups(const std::string& path);
+    void anim_refresh_owner();
+    Entity anim_owner();
+    std::string anim_clip_path();                                  // the file of the clip being edited ("" = none)
+    bool anim_edit(const std::string& key, const std::vector<ModelCall>& calls, std::string* error = nullptr);
+    bool anim_new_clip(const std::string& name, double duration, bool loop, std::string* error = nullptr);
+    void anim_select_clip(const std::string& name);
+    void anim_pose();                                              // poses the animated entity at the playhead (edit mode)
+    void anim_unpose();                                            // puts the rest values back (before a save, a scene edit, Play)
+    void anim_set_playhead(double t, bool pose = true);
+    void anim_apply_clip_undo(const Json& entry, bool forward);    // an undo / redo step of a clip file
+    bool anim_record_edit(const std::string& key, const Json& args, CommandResult& out, std::string* error);
+    void anim_cancel_step();                                       // Esc during a recorded gizmo drag: the key it wrote goes away
+    void anim_update_onion(Renderer& r);
+    void anim_draw_onion(ImDrawList* dl, Renderer& r);
+    void anim_draw_record_frame(ImDrawList* dl, ImVec2 imgMin, ImVec2 size);
+    double anim_x_to_time(float x) const { return anim_.viewStart + double(x - anim_.timeX0) / double(anim_.pps); }
+    float anim_time_to_x(double t) const { return anim_.timeX0 + float((t - anim_.viewStart) * double(anim_.pps)); }
+    bool anim_recording() const { return anim_.recording && showAnimation_; }
+    AnimUi anim_;
+    bool lastEditRecorded_ = false;  // the last edit_command wrote a clip key instead of a field
+    // Bone tools (bone_tools.cpp; View > Bone tools): draw a bone chain by clicking, bind a sprite to bones, the weight colours of
+    // the selected bone and a brush to paint them, IK targets as handles. They call bones.create, skin.bind, skin.auto_weights,
+    // skin.set_weights and scene.set_component through edit_command.
+    void draw_bone_tools_panel();
+    bool bone_tools_active() const { return showBoneTools_ && bone_.tool != BoneTool::Off; }
+    bool bone_tools_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);   // true when the click was taken
+    void bone_tools_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 size);
+    void bone_finish_chain();
+    void bone_cancel_chain();
+    bool bone_bind(std::string* error = nullptr);
+    bool bone_paint_at(Vec2 localPoint, bool firstOfStroke);
+    Entity bone_skin_entity();
+    SkinBox sprite_local_box(Entity e);  // the rectangle a Sprite covers in its own space, as the renderer lays it out
+    BoneUi bone_;
     // Project panel (project_browser_panel.cpp): the project's files; drag them onto Inspector asset fields and the Viewport.
     void draw_project_panel();
     void draw_project_tile(const BrowserFile& f, ImVec2 size);
+    void regenerate_assets(const Json& args);  // assets.regenerate with a toast for the result; the panel rescans afterwards
+    void poll_recipe_sources();                // every frame (project_browser_panel.cpp): a recipe input saved on disk?
+    void draw_recipe_notice();                 // "N assets out of date  [Regenerate] [Not now]"
+    void draw_sheet_preview(const std::string& path, const assets::Sheet& sheet, float height);
+    // Project panel sheet preview: the clip being played ("" = every frame), when it started, and the frame it shows now.
+    std::string sheetPreviewPath_, sheetPreviewChoice_;
+    double sheetPreviewStart_ = 0.0;
+    int sheetPreviewFrame_ = -1;
     void viewport_accept_drop(Renderer& r, Vec2 design);  // a prefab dropped on the Viewport: scene.spawn at the point under the mouse
     void project_files_changed();                          // the editor wrote or deleted a file: the Project panel rescans
     // Hierarchy (hierarchy_panel.cpp) and Inspector (inspector_panel.cpp): hand editing. Every change is a command call
@@ -251,6 +345,7 @@ public:
     void draw_inspector_component(Entity e, const TypeInfo& type);
     // Draws the widget of one reflected field for the JSON `current`; returns true and sets `out` when the user changed it.
     bool draw_field_widget(const std::string& key, const FieldInfo& f, const Json& current, bool disabled, Json& out);
+    void draw_animator_clips(Entity e, const std::string& id, const Json& current);
     void draw_material_params(Entity e, const Json& current);
     void draw_profiler_panel();
     void draw_project_dialog();
@@ -303,26 +398,62 @@ public:
     // AI
     void ai_refresh_providers();
     void ai_start(const std::string& task);   // sends `task` (+ the pending pictures) in the active chat
-    void ai_stop();                           // joins the agent thread, applies its last events, saves the chats
-    void ai_drain_events();
+    void ai_stop(const char* cause);                           // stops every run: joins the agent threads, applies their last events, saves the chats
+    void ai_stop_run(const std::string& chatId);  // stops one chat's run the same way (the others go on)
+    void ai_drain_events();                   // every run's pending events and result (one frame's worth)
+    void ai_drain_run(AiRun& run);
+    // Launches the agent thread of `run` for `prompt` (ai_start's second half; also the automatic continuation of an
+    // orchestrator whose delegated worker finished after its turn ended).
+    void ai_launch(AiRun& run, const std::string& prompt, const std::vector<std::string>& imageFiles);
+    // Ends `run`: its checkpoint item, the saved chat, the endpoint stopped, the run forgotten. `c` is its chat or nullptr.
+    void ai_end_run(AiRun& run, AiChat* c);
+    // The run of `chat`, not yet in aiRuns_, its MCP endpoint up; nullptr (with a notice) when every slot is taken.
+    std::unique_ptr<AiRun> ai_new_run(const AiChat& chat);
+    // Reviews (ai_review.cpp): art critiques and game reviews, started ONLY by the user's buttons. A review is one more run
+    // (it counts toward limits.maxConcurrentRuns) in the chat tab it was asked from.
+    void ai_review_request(const std::string& kind, int count, const std::string& focus);
+    void ai_review_next();           // starts the next reviewer of the job
+    void ai_review_tick();           // every frame: takes a finished reviewer's report in, starts the next one
+    void ai_review_abort(const std::string& why);
+    void draw_ai_review_row(bool gameRuns);          // the buttons under the message box
+    void draw_ai_reviews_window();                   // past reviews, scores, the report and "Send to orchestrator"
+    void ai_review_send(const ai::Review& review);   // posts a review to an orchestrator chat as a user message
+    // Everything about "is it still working": called every frame while a run is on (ai_panel.cpp).
+    void ai_watchdog_tick(AiRun& run);
+    void ai_check_activity(AiRun& run);       // the "Check activity" button: inspects the processes, writes the verdict in the chat
+    // The tool calls and file changes of a run, for the same-file warning and the Revert scope (ai_revert.cpp).
+    void ai_note_command(const std::string& chatId, const std::string& name, const Json& args, const CommandResult& result);
+    void ai_note_files(const std::string& chatId, const std::vector<std::string>& files);
+    void ai_warn_conflicts(const std::vector<FileConflict>& conflicts);   // queues them; ai_flush_conflicts tells the chats
+    void ai_flush_conflicts();
     // Revert an AI run (ai_revert.cpp): a checkpoint of the project before each run, the Revert button after it.
-    void ai_run_checkpoint_begin(const std::string& task);   // in ai_start, before the agent thread exists
-    void ai_run_checkpoint_finish(AiChat& chat);             // when the run's result is drained: the "changed N files" item
-    bool ai_busy() const { return aiRunning_.load() || !aiRunChat_.empty(); }
+    void ai_run_checkpoint_begin(AiRun& run, const std::string& task);   // in ai_start, before the agent thread exists
+    void ai_run_checkpoint_finish(AiRun& run, AiChat& chat);             // when the run's result is drained: the "changed N files" item
+    // Runs (one per chat, at most ai_max_runs() at a time). A run exists from ai_start until its result is drained.
+    AiRun* ai_run_of(const std::string& chatId) const;
+    bool ai_busy() const { return !aiRuns_.empty(); }                   // any chat has a run
+    bool ai_chat_busy(const std::string& chatId) const { return ai_run_of(chatId) != nullptr; }
+    bool ai_chat_running(const std::string& chatId) const;              // that chat's run is going (or waits for its worker)
+    int ai_run_count() const { return static_cast<int>(aiRuns_.size()); }
+    int ai_max_runs();                                                  // limits.maxConcurrentRuns of ai.json
+    // What the Play button says while the assistant works: which chats.
+    std::string ai_editing_note();
     int ai_last_revertable_run() const;                      // index of the active chat's newest Run item not reverted, or -1
     void ai_revert_request(const std::string& chatId, int item);  // opens the confirm dialog for a Run (Revert) or Revert (Undo revert) item
     void draw_ai_revert_dialog();
     void draw_ai_run_item(ChatItem& c, AiChat& chat, int index);  // a Run / Revert item of the transcript, with its button
-    void ai_revert_apply();
+    void ai_revert_apply(bool includeShared);
     void ai_remember_scene(const std::string& checkpointId, bool dirty);  // the world as it is now, for ai_revert_apply
     void ai_sync_chats();                     // the chat tabs belong to the open project: switch when it changed
     void ai_on_files_dropped();               // sokol file drop: images become pending attachments of the active chat
     void ai_attach_path(const std::string& path);
     void ai_add_pending(Result<ChatAttachment> attached);
     void ai_paste_image();                    // clipboard picture -> pending attachment (does nothing without one)
-    std::shared_ptr<CommandRegistry> make_proxy_registry();
+    std::shared_ptr<CommandRegistry> make_proxy_registry(AiRun& run);
     MainThreadQueue& queue() { return queue_; }
-    bool ai_running() const { return aiRunning_.load(); }
+    // True while any chat's run is going: an agent thread, or the wait for a delegated worker whose orchestrator turn already
+    // ended.
+    bool ai_running() const;
     bool ai_blocks_play();  // in edit mode while the assistant works: true (and says why), Play / Step must wait
     const std::vector<ChatItem>& chat() const { return chat_.current().items; }  // transcript of the active chat
 
@@ -338,6 +469,7 @@ public:
     std::string projectName_;
     std::string scenePath_;
     std::string pendingOpen_;
+    bool pendingWelcome_ = false;  // close_project(): back to the welcome screen on the next frame
     std::string bootError_;
     bool gfxUp_ = false;
     bool uiUp_ = false;
@@ -346,7 +478,6 @@ public:
     struct PlayRun {
         bool active = false;
         PlaySession session;
-        PlayRecorder rec;
         std::vector<double> frameMs;
         ProfileSummary profile;  // the profiler's numbers of the session (session.json "profile")
         std::uint64_t startFrame = 0, logSeq = 0;
@@ -373,6 +504,11 @@ public:
     std::string iniPath_;
     bool resetLayout_ = false;
     bool layoutBuilt_ = false;
+    // Which panels are open is saved with the layout (a [FactorIAEditor][Panels] section of the same ini file).
+    int panelMask_ = -1;  // the mask last seen; -1 = not yet (the first frame after the ini is read does not count as a change)
+    int panels_mask() const;
+    void set_panels_mask(int mask);
+    void register_layout_settings();
     const char* pendingFocus_ = nullptr;
 
     // viewport (ImGui logical coordinates; sokol event coordinates / dpi match them)
@@ -399,7 +535,7 @@ public:
         Vec3 pivot{};
         Vec3 local[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
         Mat4 parentWorld;
-        bool hasParent = false, wrote = false;
+        bool hasParent = false, wrote = false, recorded = false;  // recorded: the edits went to a clip key (record mode)
         Vec3 planeStart{};             // free move: where the mouse was on the drag plane
         AngleTracker angle;
         float sign = 1;
@@ -412,8 +548,9 @@ public:
     // panel visibility
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false, showProject_ = true;
+    bool showAnimation_ = false, showBoneTools_ = false;
     ProjectBrowser projBrowser_;
-    bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false, showDemo_ = false;
+    bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
     // Engine update (fa/editor/update.h): checked once when the editor opens. While a newer release is offered the
     // modal popup blocks the editor until Update or Not now; Update installs it, then the editor quits and reopens.
@@ -423,7 +560,25 @@ public:
     std::string updateError_;     // written before Failed
     std::atomic<float> updateProgress_{0};
     std::thread updateThread_;
+    std::thread launcherThread_;  // refresh_launcher at start: an out-of-date Dock/menu launcher of this factoria
     bool restartAfterQuit_ = false;  // on_cleanup starts the updated editor
+
+    // The program replaced on disk (tooling/self_update.h, docs/EDITOR.md "Updates"): files copied over the installation without
+    // the updater above. A non-blocking notice offers Restart / Not now; poll_disk_update() looks every few seconds and when the
+    // window gets focus.
+    std::unique_ptr<UpdateWatch> diskWatchOwn_;  // the autotest's watch over a fake program; null = this process's own
+    UpdateWatch& disk_watch() { return diskWatchOwn_ ? *diskWatchOwn_ : process_update_watch(); }
+    double diskPolled_ = -100;
+    bool diskPollNow_ = false;        // the window just got focus
+    bool diskSettling_ = false;       // the file changed and was not seen twice alike yet: look again in a second
+    FileStamp diskDismissed_;         // the file Not now was said to: the notice stays quiet until the file changes again
+    bool diskDismissedSet_ = false;
+    bool diskRestartRequested_ = false;  // the autotest: Restart was accepted (it must not really reopen the editor)
+    void poll_disk_update();             // every frame (dialogs.cpp)
+    bool disk_update_due();              // the notice is showing
+    std::string disk_restart_blocker();  // why Restart is not possible now; "" = it is
+    void request_disk_restart();         // quits (the unsaved-changes dialog still asks) and reopens on the same project
+    void draw_disk_update_notice();
     std::string pendingScene_;  // open-scene request waiting for the unsaved-changes dialog
     std::string windowTitle_;   // what set_window_title last set ("FactorIA <version> — <project>")
 
@@ -549,6 +704,7 @@ public:
     double feedbackPolled_ = -10;
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;
+    bool fbAddOpen_ = false;        // the Add entry section is open (the layout reserves its room)
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
     std::string fbNewTitle_, fbNewMissing_, fbNewWorkaround_, fbNewSuggestion_, fbMessage_;
 
@@ -566,14 +722,11 @@ public:
     std::atomic<bool> aiDetected_{false};
     std::atomic<bool> aiDetecting_{false};  // provider detection AND the model lists that follow it
     std::thread aiDetectThread_;
-    std::thread aiThread_;
-    std::atomic<bool> aiRunning_{false};
-    std::atomic<bool> aiCancel_{false};
-    std::vector<ai::AgentEvent> aiPending_;  // produced by the agent thread, drained on the main thread
-    std::optional<ai::SessionResult> aiResult_;
+    // The runs, one per chat that is working (main thread owns the vector; ai_runs.h says what is shared with the threads).
+    std::vector<std::unique_ptr<AiRun>> aiRuns_;
+    std::vector<FileConflict> aiConflicts_;  // same-file conflicts found this frame, not yet written into the chats
+    RunTouchTracker aiTouch_;       // main thread: which files each running chat changed (the same-file warning, Revert's scope)
     AiChats chat_;                  // the conversations (tabs); the active one is chat_.current()
-    std::string aiRunChat_;         // id of the chat the agent thread works for ("" = no run); set by ai_start, cleared on the result
-    std::string aiRunCheckpoint_;   // id of the checkpoint taken before the run in progress ("" = none)
     // The world as it was when a checkpoint was taken (before a run) or replaced (before a revert), by checkpoint id: restoring
     // that checkpoint puts the world back as ONE undo step. Memory only; after a restart the scene is read from disk instead.
     struct SceneAtCheckpoint {
@@ -587,21 +740,80 @@ public:
         std::string chatId, target, error;
         int item = -1, laterRuns = 0;
         CheckpointDiff diff;
+        RevertPlan plan;            // what other chats' runs change about it (ai_runs.h)
+        std::set<std::string> own;  // the files of the run and of its chat's later runs
+        std::string scene;          // the open scene's file when the run (or a later one of the chat) changed the scene
     } aiRevert_;
-    std::string aiRunProvider_;     // provider of that run (the plan limits belong to it)
+    // The review job in progress (ai_review.cpp): N reviewers one after another, each in the same chat tab.
+    struct AiReviewJob {
+        bool active = false;
+        std::string kind, role, focus, chatId;
+        int count = 1, next = 0;            // reviewers asked for / index of the one that runs (or runs next)
+        std::size_t itemStart = 0;          // chat items before the current reviewer's run
+        double costBefore = 0;
+        std::string provider, model;
+        std::vector<std::string> savedIds;  // the reviews this job produced
+        bool stopped = false;               // the current reviewer was stopped by the user (set when its run ends)
+    } aiReview_;
+    int aiReviewCount_ = 1;                 // the count the buttons use (1..kMaxReviewers)
+    std::string aiReviewFocus_;             // what to look at ("" = everything)
+    std::string aiReviewAsk_;               // the review kind ("art", "game") waiting for Start in the confirmation dialog
+    bool aiReviewsShown_ = false;           // the "AI reviews" window
+    std::vector<ai::Review> aiReviewList_;  // saved reviews, newest first (reloaded when aiReviewDirty_)
+    bool aiReviewDirty_ = true;
+    std::string aiReviewSelected_;          // id of the review whose report the window shows
     LimitsByProvider aiLimits_;     // plan windows reported since the editor started, shared by every tab
     int aiTabForce_ = 0;            // frames left to force the active tab (a tab opened/closed by code)
     bool aiHistoryOpen_ = false;    // request to open the History popup this frame
     std::vector<ChatHistoryEntry> aiHistory_;
     std::string aiHistoryDelete_;   // History row waiting for the second click on its Delete
-    bool aiRolesOpen_ = false;      // request to open the AI roles popup this frame
-    std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in that popup
+    bool aiRolesOpen_ = false;      // request to restart the role edits from the loaded config this frame
+    float aiInputH_ = 0;            // the AI message box's height the user dragged it to (0 = 3 lines); kept in the layout file
+    std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in the Roles tab
     std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
-    std::shared_ptr<CommandRegistry> aiProxy_;  // the current run's proxy (under aiMu_: the MCP endpoint reads it)
-    // The editor's MCP endpoint for CLI agents (Claude Code): it serves aiProxy_, so their tool calls run here like an
-    // API provider's. Started by the first ai_start, stopped by ai_stop (project switch, quit).
-    McpHttpServer aiMcp_;
+    bool showAiSettings_ = false, aiSettingsFocus_ = false;
+    int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets
+    struct AiSettingsDraft {                       // the AI settings window's working copy (dropped when it closes: a typed key must not linger)
+        bool loaded = false;
+        std::string path;                          // the ai.json it saves into
+        std::map<std::string, ai::AssetRoute> routes;  // by media kind name; provider "" = none (made procedurally)
+        ai::AssetSources sources;
+        std::map<std::string, std::string> keys;   // API keys typed this session, by provider (never shown, never logged)
+        std::set<std::string> removeKey;           // providers whose stored key Save deletes
+        std::map<std::string, std::string> command, args;  // asset-command providers: the program and its arguments line
+        std::array<std::string, 5> newUrl, newNote;       // the "add a site" row of each category
+        std::string siteError, saveError;
+        std::vector<ai::ProviderStatus> status;    // key / program checks, taken when the window loaded the file
+        // The "External tools" tab: the user's tool servers (ai.json "mcpServers") being edited.
+        struct ToolTests {                         // what the Test buttons found; shared with the thread that runs them
+            std::mutex mu;
+            std::map<std::string, std::string> text;   // by server name: "Connected: 3 tools..." / the error
+            std::map<std::string, bool> ok;
+            CancelFlag cancel{false};                  // set when the window closes: a running test stops waiting
+        };
+        struct ToolsDraft {
+            std::vector<ai::ToolServer> servers;       // the working copy, in the order of the file
+            int editing = -1;                          // index of the server in the form; -1 = form closed
+            bool adding = false;                       // the form makes a new server
+            ai::ToolServer edit;                       // the form
+            std::string editHeaders, editArgs, editEnv;  // the form's multi-line / one-line text fields
+            std::string editError;                     // why Apply refused
+            bool showPaste = false;
+            std::string pasteText, pasteName, pasteMessage;
+            bool pasteFailed = false;
+            std::string saveError;
+            std::shared_ptr<ToolTests> tests = std::make_shared<ToolTests>();
+        } tools;
+    } aiSettings_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
+    ai::HttpTransport aiToolTransport_;  // test hook: the HTTP the External tools tab's Test button uses (empty = the network)
+    std::thread aiToolTestThread_;       // the running Test of a tool server (one at a time)
+    std::atomic<bool> aiToolTestRunning_{false};
+    void draw_ai_tools_tab(const ai::AiConfig& cfg, bool configReadable);
+    void ai_tool_form_open(int index);    // opens the form on server `index` (-1: a new one)
+    Result<ai::ToolServer> ai_tool_form_build() const;  // the form as a server, validated like ai.json would
+    void ai_tool_test(const ai::ToolServer& server);    // Test button: connects off the main thread, writes the draft's ToolTests
+    void ai_settings_discard();           // closes the draft (stops a running Test)
 
     // autotest
     bool autotest_ = false;
@@ -614,6 +826,7 @@ public:
     std::vector<std::string> atPendingShots_;
     std::thread atThread_;
     std::shared_ptr<CommandResult> atMarshalResult_;
+    std::unique_ptr<AiRun> atMarshalRun_;  // the run whose proxy the marshaling check calls
     std::atomic<bool> atMarshalDone_{false};
     Vec3 atOriginalPos_{};
     std::uint64_t atStepFrame_ = 0;
@@ -653,14 +866,21 @@ public:
     size_t atUndoBeforeAi_ = 0;
     bool atWaitAi_ = false;
     std::vector<ai::ProviderStatus> atSavedStatus_;
+    std::string atQFake_, atQArgv_;  // section Q: the fake Claude Code and the file it records its argv and stdin in
     std::optional<ai::AiConfig> atSavedConfig_;  // the AI config while the CLI-agent check swaps in the fake Claude Code
-    int atWaitCount_ = 0;
+    int atWaitCount_ = 0;  // frames a wait has held the script; 0 = a new wait (a step sets it)
+    std::chrono::steady_clock::time_point atWaitStart_;  // when that wait began: waits are bounded in time, not frames
+    bool at_keep_waiting();
     // A frame that never ends (a GPU read-back that waits for ever) would leave the window frozen on the user's screen: the
     // watchdog thread ends the process when the editor draws no frame for a minute (on_init starts it, only in the autotest).
     std::atomic<std::uint64_t> atHeartbeat_{0};
     std::atomic<bool> atWatchdogStop_{false};
     std::thread atWatchdog_;
     int atFrameBudget_ = 4000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
+    float atLayoutWidth_ = 0;      // section U: the width of the Hierarchy after the user's change
+    int atReopenIn_ = 0;           // section U: frames on the welcome screen before the project is opened again
+    std::string atReopenDir_;
+    std::string atIniSaved_;       // section U: the layout file the editor really uses, put back at the end
     std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
     void save_screenshot_now(const std::string& path);
     // FA_EDITOR_AUTOTEST_SECTIONS (autotest_sections.h, read by run()): the sections to run, empty for all of them.

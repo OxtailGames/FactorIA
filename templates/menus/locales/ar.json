@@ -10,7 +10,7 @@
     "back": "رجوع"
   },
   "loading": {
-    "text": "جارٍ التحميل..."
+    "progress": "جارٍ التحميل... {percent}%"
   },
   "captions": {
     "welcome": "مرحبًا أيها المسافر.",
@@ -30,12 +30,19 @@
       "controls": "التحكم",
       "language": "اللغة"
     },
-    "fullscreen": "ملء الشاشة",
+    "windowMode": "وضع النافذة: {mode}",
+    "mode": {
+      "windowed": "نافذة",
+      "borderless": "بلا حدود",
+      "fullscreen": "ملء الشاشة"
+    },
+    "monitor": "الشاشة: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "حجم النافذة: {width} x {height}",
     "windowSizeFullscreen": "حجم النافذة: ملء الشاشة",
     "frameCap": "حد الإطارات: {fps} إطار/ث",
     "frameCapOff": "حد الإطارات: متوقف",
+    "uiScale": "حجم الواجهة: {percent}%",
     "colorFilter": "فلتر الألوان: {filter}",
     "filter": {
       "none": "متوقف",
@@ -59,15 +66,26 @@
       "pause": "إيقاف مؤقت"
     },
     "binding": "{action}: {button}",
+    "player": "اللاعب {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: اضغط مفتاحًا أو زرًا (Esc للإلغاء)",
     "resetControls": "استعادة الإعدادات الافتراضية",
     "language": "اللغة: {language}",
     "readAloud": "قراءة القوائم بصوت عالٍ",
     "subtitles": "الترجمة النصية",
     "privacyOptions": "إعدادات خصوصية الإعلانات",
+    "analytics": "مشاركة بيانات الاستخدام المجهولة",
     "on": "مفعّل",
     "off": "معطّل",
-    "percent": "{value} بالمئة"
+    "percent": "{value} بالمئة",
+    "textSpeed": "سرعة النص: {speed}",
+    "speed": {
+      "slow": "بطيئة",
+      "normal": "عادية",
+      "fast": "سريعة",
+      "instant": "فورية",
+      "custom": "مخصصة"
+    }
   },
   "credits": {
     "madeWith": "صُنعت باستخدام FactorIA",
@@ -101,5 +119,39 @@
     "year": "سنة الميلاد",
     "continue": "متابعة",
     "skip": "أفضّل ألا أقول"
+  },
+  "analyticsConsent": {
+    "title": "هل تساعدنا في تحسين اللعبة؟",
+    "what": "نود أن نحصي المستويات التي يتم لعبها وكيف تنتهي، وإصدار اللعبة الذي تستخدمه. لا نجمع أبدًا اسمك أو جهات اتصالك أو أي شيء تكتبه.",
+    "change": "يمكنك تغيير رأيك في الخيارات في أي وقت. إذا قلت لا، فلن يُرسل أي شيء.",
+    "allow": "السماح",
+    "deny": "لا، شكرًا"
+  },
+  "card": {
+    "continue": "متابعة"
+  },
+  "slots": {
+    "titleSave": "حفظ اللعبة",
+    "titleLoad": "تحميل اللعبة",
+    "empty": "الخانة {n}: فارغة",
+    "emptyAuto": "الحفظ التلقائي: فارغ",
+    "used": "الخانة {n}: {name}\nالفصل {chapter}، {time}",
+    "usedAuto": "الحفظ التلقائي: {name}\nالفصل {chapter}، {time}",
+    "damaged": "الخانة {n}: تالفة (احذفها لتفريغ الخانة)",
+    "damagedAuto": "الحفظ التلقائي: تالف (احذفه)",
+    "damagedNote": "تعذّرت قراءة إحدى الخانات. احذفها أو حمّل خانة أخرى.",
+    "unnamed": "بلا اسم",
+    "autoName": "الحفظ التلقائي",
+    "delete": "حذف",
+    "nameTitle": "اسم الحفظ في الخانة {n}",
+    "namePlaceholder": "سمِّ هذا الحفظ",
+    "confirmSave": "حفظ",
+    "cancel": "إلغاء",
+    "deleteTitle": "حذف الخانة {n}؟",
+    "confirmDelete": "حذف",
+    "saved": "تم الحفظ في الخانة {n}.",
+    "noGame": "لا توجد لعبة لحفظها بعد.",
+    "busy": "لا يمكن الحفظ الآن.",
+    "noSave": "الحفظ غير متاح هنا."
   }
 }

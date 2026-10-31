@@ -191,6 +191,8 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         }
     }
 
+    if (opt.onStart) opt.onStart(static_cast<long long>(pid));
+
     ProcessResult res;
     LineSplitter outLines{{}, opt.onStdoutLine};
     LineSplitter errLines{{}, opt.onStderrLine};
@@ -199,6 +201,9 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     bool terminated = false;
     int outFd = outPipe[0], errFd = errPipe[0];
     char buf[8192];
+    int status = 0;
+    bool reaped = false;
+    double exitedAt = -1;  // endWithChild: when the program was seen to have exited
 
     auto terminate = [&] {
         if (terminated) return;
@@ -219,6 +224,19 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
             kill(pid, SIGKILL);
             killAt = -1;
             // Descendants holding the pipes open must not block us forever.
+            if (outFd >= 0) { close(outFd); outFd = -1; }
+            if (errFd >= 0) { close(errFd); errFd = -1; }
+            break;
+        }
+        if (opt.endWithChild && !reaped) {
+            if (waitpid(pid, &status, WNOHANG) == pid) {
+                reaped = true;
+                exitedAt = now_seconds();
+            }
+        }
+        if (reaped && now_seconds() - exitedAt > 2.0) {
+            // The program is gone but something it started still holds the pipes: stop waiting for them.
+            kill(-pid, SIGKILL);
             if (outFd >= 0) { close(outFd); outFd = -1; }
             if (errFd >= 0) { close(errFd); errFd = -1; }
             break;
@@ -255,10 +273,9 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     outLines.flush();
     errLines.flush();
 
-    int status = 0;
     // The child may outlive its pipes (rare); escalate after a grace period.
     double waitStart = now_seconds();
-    for (;;) {
+    while (!reaped) {
         pid_t w = waitpid(pid, &status, WNOHANG);
         if (w == pid) break;
         if (w < 0 && errno != EINTR) break;

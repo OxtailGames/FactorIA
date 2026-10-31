@@ -145,4 +145,12 @@ Result<std::vector<ModelInfo>> list_models(const ProviderConfig& cfg, ProviderRu
     }
 }
 
+std::vector<ModelInfo> fallback_models(ProviderKind kind) {
+    if (kind != ProviderKind::ClaudeCode) return {};
+    return {{"default", "Default", "The CLI's own default model", ""},
+            {"opus", "Opus", "The latest Opus", ""},
+            {"sonnet", "Sonnet", "The latest Sonnet", ""},
+            {"haiku", "Haiku", "The latest Haiku", ""}};
+}
+
 }  // namespace fa::ai

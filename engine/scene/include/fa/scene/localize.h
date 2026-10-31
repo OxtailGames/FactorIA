@@ -2,6 +2,7 @@
 //   TouchButton.key                                      -> TouchButton.text
 //   Text.key                                             -> Text.text
 //   Button.key / Toggle.key / Slider.key / TextField.key -> Button.text / Toggle.label / Slider.label / TextField.placeholder
+//   Interactable.key                                     -> Interactable.label
 //   Slider.formatKey                                     -> Slider.format (the pattern, with {v} and {percent} left for the slider)
 // A text is written only when it differs. A key that no string table has leaves the component's own text and logs one warning
 // per key. The engine runs it after every scene load, every frame before drawing and on every language change; scripts that

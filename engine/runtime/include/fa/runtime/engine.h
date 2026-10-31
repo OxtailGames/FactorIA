@@ -38,6 +38,7 @@
 #include "fa/runtime/project.h"
 #include "fa/scene/world.h"
 #include "fa/script/script.h"
+#include "fa/services/platform.h"
 
 namespace fa {
 
@@ -55,6 +56,9 @@ enum class RenderMode { Always, OnDemand };
 struct EngineConfig {
     std::string projectDir = ".";  // folder containing factoria.json
     std::string scene;             // start scene override ("" = project mainScene)
+    // Props of the start scene (a JSON object; null = none): what its scripts read with game.sceneProps() from their first
+    // start(). `factoria run --props` sets it. Like scene.load(path, {props}), a reload keeps them.
+    Json sceneProps;
     bool headless = false;         // no window; offscreen GPU (HeadlessGpu)
     bool graphics = true;          // false = no GPU at all (pure logic tests); renderer() == nullptr
     bool audioDevice = true;       // false = null audio device (always false when headless)
@@ -69,6 +73,13 @@ struct EngineConfig {
     // Windowed runs only (run_windowed / make_app_desc): draw this many frames, then close the window; the exit code is 1 when
     // a script recorded an error by then. For smoke-testing an exported game (factoria_player --frames N). 0 = run until closed.
     int maxFrames = 0;
+    // Windowed runs only: an input replay (the JSON `input.record` writes, the one `factoria run --input` plays) the window plays
+    // while it runs: the entry of frame N is applied before the Nth frame is simulated, as in a headless run. The frame times are
+    // the real ones (a replay's "timing" is not used), so a replay made of presses and releases plays the same but a game that
+    // reads dt may differ from the recording. The player logs "player: replaying <file>" and "player: replay done after N
+    // frames" (the window stays open). The iOS player takes the file from the FA_INPUT_REPLAY environment variable
+    // (`xcrun simctl launch` with SIMCTL_CHILD_FA_INPUT_REPLAY; the `player.run_ios_sim` command does it). "" = none.
+    std::string inputReplayPath;
     bool hotReload = true;         // watch scripts/scenes/assets (desktop, not headless)
     // Watch only the files the renderer rebuilds in place (materials, shader snippets, textures, fonts, models) and
     // leave scripts, scenes and locales alone. For hosts that manage those themselves (the editor). Ignored when
@@ -119,12 +130,25 @@ public:
     // Deterministic frames of exactly 1/fixedHz (headless, tests, AI agents).
     void step(int frames = 1);
 
-    bool load_scene(std::string_view path, std::string* error);  // immediate
+    bool load_scene(std::string_view path, std::string* error);  // immediate; the scene has no props
+    // Immediate, and the scene starts with `props` (a JSON object, see EngineConfig::sceneProps): game.sceneProps().
+    bool load_scene(std::string_view path, const Json& props, std::string* error);
     // Replaces the world with a scene given as JSON (immediate; `sourceName` is only used in messages). Unlike
     // load_scene it does NOT change the current scene path (engine.info / game.state / scene.save / scene.reload keep
     // pointing at the file being edited), so editors can restore snapshots without temp files.
     bool load_scene_json(const Json& scene, std::string_view sourceName, std::string* error);
-    void reload_scene();
+    void reload_scene();  // keeps the scene's props
+
+    // Input recording (docs/DEBUGGING.md, the `input.record` command): from now on every key, mouse, touch, gamepad and Back
+    // event the game receives, the frame times, the clipboard reads and the answers of http.fetch are written in the input
+    // replay format. Starting again drops what was recorded. Start and stop BETWEEN frames: the frame that is running is not
+    // replayed whole. stop_input_recording() returns the replay (what `factoria run --headless --input` plays), also when
+    // nothing was recorded; frames are numbered from the start. What is held at the start (keys, buttons, pads) is part of
+    // the replay. A request still waiting for its answer at the stop is not in it, nor are the ones made after it.
+    void start_input_recording();
+    Json stop_input_recording();
+    bool input_recording() const;
+    std::size_t input_recording_frames() const;  // frames recorded so far
 
     // State
     bool paused() const;
@@ -150,8 +174,24 @@ public:
     // Same, with the colour-vision simulation `simulate` ("", "none", "greyscale", "protanopia", "deuteranopia",
     // "tritanopia") applied to the saved pixels on the CPU. What the game draws is not changed.
     bool screenshot_simulated(std::string_view path, double scale, std::string_view simulate, std::string* error) override;
+    // The picture now at the held render scale as pixels (ScriptHost::capture_frame: render.captureTexture).
+    bool capture_frame(Image& out, std::string* error) override;
     // The same picture as screenshot_scaled, as pixels (row 0 = top).
     bool capture_scaled(Image& out, double scale, std::string* error);
+    // The picture now, or the part of it inside `region` ({x, y, w, h} in design pixels; w or h <= 0 = the whole view),
+    // magnified `zoom` times (0.25 .. 32, the result at most 8192 px per side). Up to 4x the frame is drawn again at that
+    // render scale and cropped, so lines, text and shapes stay sharp (HUD and visible area as in a normal screenshot).
+    // Above 4x the 4x picture is enlarged with nearest-neighbour sampling (hard pixel blocks). The region is clamped to the
+    // view; the result is round(w * zoom) x round(h * zoom) of the clamped region.
+    bool capture_region(Image& out, const Rect& region, double zoom, std::string* error);
+    // The checks of capture_region on their own, for the arguments of a command: `region` clamped to a view of
+    // `viewSize` design pixels, and the size in pixels of the result. `error` is empty when the request is valid.
+    struct RegionPlan {
+        std::string error;            // what is wrong and how to fix it; empty = valid
+        double x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // the clamped region in design pixels
+        int width = 0, height = 0;    // the size of the result
+    };
+    static RegionPlan plan_region(Vec2 viewSize, const Rect& region, double zoom);
     // Keeps the render scale at `scale` between captures (a video draws every frame at one scale; without it each
     // capture would recreate the targets). Same limits as screenshot_scaled; false + message when out of range.
     bool hold_render_scale(double scale, std::string* error);
@@ -173,20 +213,34 @@ public:
     Json project_settings() const override;
     Vec2 design_size() const override;
     double fixed_dt() const override;
+    Clipboard* clipboard() override;  // the system's in a game window, an in-memory one everywhere else
+    // What clipboard reads returned since the last call (oldest first), once log on is set: the editor's play session
+    // records them as the "clipboard" of the frame they happened in. Off by default; set false to stop logging.
+    void log_clipboard_reads(bool on);
+    std::vector<std::string> take_clipboard_reads();
     WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     PlatformServices* platform_services() override;
     const I18n* i18n() override;
+    const RichTextStyle* rich_text_style() override;
     std::string set_language(std::string_view language) override;
     double preload_time_budget_ms() const override;
     void request_scene_change(std::string_view scenePath) override;
+    void request_scene_change_with_props(std::string_view scenePath, const Json& props) override;
+    void request_scene_reload(std::string_view scenePath) override;
+    const Json& scene_props() const override;
     void request_quit() override;
     void step_frames(int n) override;
     void set_text_scale(float scale) override;  // also the renderer's
+    void set_ui_scale(float scale) override;    // also the renderer's (text measuring)
+    bool default_ui_mirror_rtl() const override;  // the ui.mirrorRtl of factoria.json
+    float default_ui_scale() const override;    // the ui.scale of factoria.json
     double render_scale() const override;       // window.renderScale: the held render scale
     std::string set_render_scale(double scale) override;
     Json device_info() const override;          // a game window reports the real device; headless runs the fixed values
     Json render_stats_now() override;
     std::string load_scene_now(std::string_view scenePath) override;
+    std::string load_scene_now_with_props(std::string_view scenePath, const Json& props) override;
+    std::string load_scene_json_now_with_props(const Json& scene, std::string_view sourceName, const Json& props) override;
     std::string load_scene_json_now(const Json& scene, std::string_view sourceName) override;
 
     ScriptSystem& scripts();
@@ -231,6 +285,7 @@ int run_windowed(const EngineConfig& config);
 //       "30": { "release": ["jump"] } },
 //     "timing": [[0.0167, 1], [0.05, 3]] }     // optional: frame N runs with that dt and that many fixed steps
 //                                              // (editor play sessions record it); frames past its end step(1)
+//       "40": { "clipboard": "ABC123" }   // optional per frame: the text clipboard.read() / Ctrl+V give from that frame on
 //     "date": "2026-03-14", "utcOffsetMinutes": 60  // optional: what game.today() returns (editor play sessions
 //                                              // record it); --date wins; without it the fixed default date is used
 // "press"/"release" accept action names (virtual action override) and key names ("Space", "A", "MouseLeft"...).
@@ -253,6 +308,9 @@ struct HeadlessRunOptions {
     // ffmpeg from that, so it needs `ffmpegPath` (the CLI looks it up); without it a .mp4 request fails before the run.
     std::string videoOutPath;
     std::string ffmpegPath;
+    // Called after each frame is written to the video, with the frames written so far and the frames the run was asked
+    // for (a run that quits early ends below the total). The CLI prints it as progress lines.
+    std::function<void(int written, int total)> videoProgress;
     bool failOnScriptError = true;
     // Profile the run (fa/core/profiler.h): report["profile"] summarises the frames after `profileWarmup` (the first frames
     // load assets and warm caches): per system and per behaviour class ms, GPU ms or null + reason, memory. Wall-clock

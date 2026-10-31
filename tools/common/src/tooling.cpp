@@ -4,8 +4,10 @@
 
 #include "fa/runtime/engine.h"
 #include "fa/tooling/ci_workflow.h"
+#include "fa/tooling/ios_sim.h"
 #include "fa/tooling/menu_kit.h"
 #include "fa/tooling/perf.h"
+#include "fa/tooling/self_update.h"
 #include "fa/tooling/sign.h"
 
 namespace fa {
@@ -21,6 +23,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_translation_commands(registry, projectDir);
     register_export_commands(registry, projectDir);
     register_publish_commands(registry, projectDir);
+    register_ios_sim_commands(registry, projectDir);
     register_audio_commands(registry, projectDir);
     register_plugin_commands(registry, projectDir);
     register_sign_commands(registry, projectDir);
@@ -31,6 +34,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_checkpoint_commands(registry, projectDir);
     register_platform_setup_commands(registry, projectDir);
     register_setup_commands(registry);
+    register_update_commands(registry);
 }
 
 ValidateOptions engine_validate_options(Engine& engine) {
@@ -70,7 +74,7 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
             CommandInfo info = *ci;
             info.description += " Warns about Script.props keys that do not exist on the behaviour, and about behaviour "
                                 "methods that look like misspelled lifecycle hooks (update() or onupdate() instead of "
-                                "onUpdate()).";
+                                "onUpdate()), and about a class field that shadows a Behaviour method (on, after, every, world).";
             Engine* e = &engine;
             registry.add(info, [e, projectDir](const Json&) { return validate_project(projectDir, engine_validate_options(*e)).to_json(); });
         }

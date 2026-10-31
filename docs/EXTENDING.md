@@ -221,6 +221,50 @@ export default {
 
 Use `throw new ToolError(...)` when the failure is a single fact and the hint can carry the whole fix, for example a missing scene file.
 
+### A.6 Validating the cross references of your data tables
+
+A game's `data/*.json` tables name each other (a recipe names goods, a ship names a port). A typo there is found at play
+time by the game's own code, unless a project tool checks it. `didYouMean(word, choices)` from `"factoria"` returns the
+closest choice (or `""`), so the tool can say what was meant. Report every problem in one result (A.5), with the file, the
+JSON pointer and a hint; throw a `ToolError` when the tables cannot even be read:
+
+```js
+// tools/validate_data.js
+import { ToolError, didYouMean } from "factoria";
+import goods from "../data/goods.json";
+import recipes from "../data/recipes.json";
+
+export default {
+  name: "validate_data",
+  summary: "Check that every recipe names goods that exist.",
+  description: "Read-only. Returns ok and a list of problems, each with file, pointer, message and hint.",
+  input: { type: "object", properties: {} },
+  readOnly: true,
+  run() {
+    if (!Array.isArray(recipes)) {
+      throw new ToolError("data/recipes.json must be an array of recipes", 'Start the file with [ { "id": "plank", "needs": ["wood"] } ]');
+    }
+    const ids = Object.keys(goods);
+    const problems = [];
+    recipes.forEach((recipe, i) => {
+      (recipe.needs ?? []).forEach((good, j) => {
+        if (ids.includes(good)) return;
+        const near = didYouMean(good, ids);
+        problems.push({
+          file: "data/recipes.json",
+          pointer: `/${i}/needs/${j}`,
+          message: `recipe '${recipe.id}' needs '${good}', which is not in data/goods.json`,
+          hint: near ? `Did you mean '${near}'?` : `Goods: ${ids.join(", ")}.`,
+        });
+      });
+    });
+    return { ok: problems.length === 0, problems };
+  },
+};
+```
+
+Call it with `factoria call project.validate_data`, or from a test with `fa.call("project.validate_data")`.
+
 ## B. C++ commands in the engine
 
 A command is a named function from JSON to JSON, registered in `CommandRegistry` (`engine/core/include/fa/core/command.h`).
@@ -684,7 +728,7 @@ platform.add_backend` sets one up in a single step; an unknown name lists the on
 
 ```js
 plugins.example.add(1, 2)       // 3, computed in C (in its Java class on Android)
-fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 3}
+fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 4}
 ```
 
 ### G.2 The declaration
@@ -706,7 +750,13 @@ fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiV
   a warning in `factoria validate`, not an error. Without the build, `plugins.<name>` still exists but throws "the native
   plugin is not loaded" when a function is used, and the runtime logs a warning and goes on, so wrap calls in
   `try`/`catch` or rely on what the plugin provides (a store backend falls back to the development fake store).
-  `factoria export` still fails without the build for the target platform, so a store build cannot ship without it by accident.
+  `project.new_plugin` and `platform.add_backend` write `"optional": true` (pass `optional: false` to `project.new_plugin` for a
+  plugin the game cannot do without). `factoria export` still fails without the build for the target platform (optional or
+  not), so a store build cannot ship without it by accident; `--allow-missing-plugins` (the `project.export` argument
+  `allowMissingPlugins`) is the deliberate way around it: the export leaves out every plugin whose build is missing, names
+  each in a warning and lists them in `pluginsLeftOut`. It works for a plugin that is not `optional` too, and says in
+  the warning that scripts calling it will fail. A plugin is built only for the computer it is built on, so for the other
+  platforms take its build from CI or the other computer ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)).
 
 The folder holds one build per platform:
 
@@ -804,11 +854,11 @@ FA_PLUGIN_INIT(example) {
 - **Platform backends (version 2).** A plugin that wraps a store SDK registers a backend with
   `add_backend(api, &FaBackendDesc)` (one per plugin, inside the entry point): `name` (the key of the catalog's `ids`),
   `services` (a JSON array: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`,
-  `"presence"`, `"integrity"`), `request(req, method, args_json, user)` and an optional `frame(user)` (once per frame on the game
+  `"presence"`, `"integrity"`, `"ads"`, `"remotePlay"`), `request(req, method, args_json, user)` and an optional `frame(user)` (once per frame on the game
   thread, before scripts: `SteamAPI_RunCallbacks`, or Steam's manual dispatch as the Steam plugin does). The game's `platform.*` calls arrive in `request` with their ids
   already checked; answer each `FaRequest*` exactly once with `resolve(req, result_json)` or `reject(req, code,
   message, hint)`, now or later and from any thread, and push unasked news with `emit(api, "purchase" | "overlay" |
-  "player", data_json)`. A plugin built for version 2 checks `api->version >= 2`; a version 1 plugin keeps working.
+  "player" | "remotePlay", data_json)`. A plugin built for version 2 checks `api->version >= 2`; a version 1 plugin keeps working.
   [PLATFORM.md](PLATFORM.md), section 5, has the method table and a minimal backend.
 - **Platform keyboard (version 3).** A plugin that has a keyboard of the platform for gamepad players (the Steam plugin's
   Steam Deck keyboard) registers `add_text_input(api, handler, user)` (one per plugin, inside the entry point). The engine calls
@@ -823,3 +873,8 @@ FA_PLUGIN_INIT(example) {
   focus (cut to `maxLength`, control characters dropped, `ui.change` sent); otherwise it is dropped. A keyboard that types key
   presses into the window, like Steam's floating one, needs no `submit_text`. A plugin built for version 3 checks
   `api->version >= 3` before it reads `add_text_input` or `submit_text`; version 1 and 2 plugins are not affected.
+- **Device facts (version 4).** `set_device_fact(api, "steamDeck", 0 or 1)` tells the engine something about the machine that
+  only the plugin can know. The only name today is `steamDeck`: `game.device.steamDeck` (and `handheld`) follow it, and when
+  no plugin says anything the `SteamDeck=1` environment variable is used. The Steam plugin calls it once Steam is running, with
+  `IsSteamRunningOnSteamDeck`. Call it from the entry point: the engine reads it when the entry point returns. A plugin
+  built for version 4 checks `api->version >= 4` first; older plugins are not affected.

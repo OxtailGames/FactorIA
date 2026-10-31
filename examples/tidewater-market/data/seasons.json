@@ -1,0 +1,34 @@
+{
+  "$comment": "What each season changes (keys are the calendar.seasons of economy.json). production = speed multiplier per recipe id (missing = 1; 0 = nothing grows or is caught: the building waits). demand = multiplier on a good's basePrice at the market (missing = 1). tint = colour multiplied onto the grass, sand and trees of the map. music = the loop that plays in this season (assets/music, made by assets/src/make_music.py); musicVolume 0..1.",
+  "format": "tidewater.seasons/1",
+  "seasons": {
+    "spring": {
+      "production": { "harvest_grain": 0.5, "catch_fish": 1.0, "cut_wood": 1.0 },
+      "demand": { "fish": 1.0, "bread": 1.0, "smoked_fish": 1.0 },
+      "tint": [0.96, 1.04, 0.96, 1],
+      "music": "assets/music/spring.wav",
+      "musicVolume": 0.5
+    },
+    "summer": {
+      "production": { "harvest_grain": 1.0, "catch_fish": 1.2, "cut_wood": 1.0 },
+      "demand": { "fish": 0.9, "bread": 1.0, "smoked_fish": 0.9 },
+      "tint": [1.04, 1.02, 0.86, 1],
+      "music": "assets/music/summer.wav",
+      "musicVolume": 0.5
+    },
+    "autumn": {
+      "production": { "harvest_grain": 1.8, "catch_fish": 1.0, "cut_wood": 1.1 },
+      "demand": { "fish": 1.0, "bread": 0.9, "smoked_fish": 1.0 },
+      "tint": [1.2, 0.88, 0.62, 1],
+      "music": "assets/music/autumn.wav",
+      "musicVolume": 0.5
+    },
+    "winter": {
+      "production": { "harvest_grain": 0, "catch_fish": 0.6, "cut_wood": 0.8, "cut_stone": 0.7 },
+      "demand": { "fish": 1.25, "bread": 1.2, "smoked_fish": 1.4 },
+      "tint": [0.8, 0.92, 1.2, 1],
+      "music": "assets/music/winter.wav",
+      "musicVolume": 0.5
+    }
+  }
+}

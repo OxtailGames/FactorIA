@@ -7,11 +7,62 @@
       "Transform": {
         "position": [0, 0, 0]
       },
-      "Sprite": {
-        "texture": "assets/player.png",
-        "size": [32, 48],
-        "layer": 3,
-        "pixelArt": false
+      "Tint": {
+        "color": [1, 1, 1, 1]
+      },
+      "Animator": {
+        "clips": {
+          "idle": "anim/hero_idle.anim.json",
+          "walk": "anim/hero_walk.anim.json",
+          "jump": "anim/hero_jump.anim.json"
+        },
+        "params": {
+          "speed": 0,
+          "grounded": true
+        },
+        "states": {
+          "idle": {
+            "clip": "idle"
+          },
+          "walk": {
+            "clip": "walk"
+          },
+          "jump": {
+            "clip": "jump",
+            "loop": false
+          }
+        },
+        "transitions": [
+          {
+            "to": "jump",
+            "when": "!grounded",
+            "fade": 0.08
+          },
+          {
+            "from": "jump",
+            "to": "walk",
+            "when": "grounded && speed > 0.1",
+            "fade": 0.1
+          },
+          {
+            "from": "jump",
+            "to": "idle",
+            "when": "grounded",
+            "fade": 0.1
+          },
+          {
+            "from": "idle",
+            "to": "walk",
+            "when": "speed > 0.1",
+            "fade": 0.12
+          },
+          {
+            "from": "walk",
+            "to": "idle",
+            "when": "speed <= 0.1",
+            "fade": 0.15
+          }
+        ]
       },
       "RigidBody2D": {
         "type": "dynamic",
@@ -25,6 +76,313 @@
       "Script": {
         "path": "scripts/player.js"
       }
-    }
+    },
+    "children": [
+      {
+        "name": "rig",
+        "components": {
+          "Transform": {
+            "position": [0, 0, 0]
+          }
+        },
+        "children": [
+          {
+            "name": "body",
+            "components": {
+              "Transform": {
+                "position": [0, 3, 0]
+              },
+              "Sprite": {
+                "texture": "assets/parts_atlas.png",
+                "region": [78, 38, 32, 28],
+                "size": [16, 14],
+                "pivot": [0.5, 0.5],
+                "layer": 6,
+                "pixelArt": false
+              }
+            },
+            "children": [
+              {
+                "name": "arm_b",
+                "components": {
+                  "Transform": {
+                    "position": [-5, 4, 0]
+                  },
+                  "Sprite": {
+                    "texture": "assets/parts_atlas.png",
+                    "region": [114, 38, 10, 24],
+                    "size": [5, 12],
+                    "pivot": [0.5, 1.0],
+                    "layer": 4,
+                    "pixelArt": false,
+                    "color": [0.72, 0.72, 0.82, 1]
+                  }
+                }
+              },
+              {
+                "name": "scarf",
+                "components": {
+                  "Transform": {
+                    "position": [-6, 5, 0],
+                    "rotation": [0, 0, 180]
+                  },
+                  "Sprite": {
+                    "texture": "assets/parts_atlas.png",
+                    "region": [28, 50, 36, 10],
+                    "size": [18, 5],
+                    "pivot": [0.0, 0.5],
+                    "layer": 5,
+                    "pixelArt": false,
+                    "meshColumns": 6,
+                    "meshRows": 2
+                  },
+                  "SpriteSkin": {
+                    "bones": ["s1", "s2"],
+                    "weights": "auto"
+                  }
+                },
+                "children": [
+                  {
+                    "name": "s1",
+                    "components": {
+                      "Transform": {
+                        "position": [0, 0, 0]
+                      },
+                      "Bone2D": {
+                        "length": 9
+                      }
+                    },
+                    "children": [
+                      {
+                        "name": "s2",
+                        "components": {
+                          "Transform": {
+                            "position": [9, 0, 0]
+                          },
+                          "Bone2D": {
+                            "length": 9
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "name": "hip",
+                "components": {
+                  "Transform": {
+                    "position": [0, -6, 0]
+                  }
+                },
+                "children": [
+                  {
+                    "name": "thigh_b",
+                    "components": {
+                      "Transform": {
+                        "position": [-2, 0, 0],
+                        "rotation": [0, 0, -90]
+                      },
+                      "Bone2D": {
+                        "length": 10
+                      },
+                      "Sprite": {
+                        "texture": "assets/parts_atlas.png",
+                        "region": [2, 50, 22, 14],
+                        "size": [12, 7],
+                        "pivot": [0.14, 0.5],
+                        "layer": 3,
+                        "pixelArt": false,
+                        "color": [0.72, 0.72, 0.82, 1]
+                      }
+                    },
+                    "children": [
+                      {
+                        "name": "shin_b",
+                        "components": {
+                          "Transform": {
+                            "position": [10, 0, 0]
+                          },
+                          "Bone2D": {
+                            "length": 10,
+                            "minAngle": -150,
+                            "maxAngle": 0
+                          },
+                          "IK2D": {
+                            "target": "ik_b",
+                            "bend": "negative",
+                            "solver": "twoBone"
+                          },
+                          "Sprite": {
+                            "texture": "assets/parts_atlas.png",
+                            "region": [22, 70, 20, 12],
+                            "size": [12, 6],
+                            "pivot": [0.15, 0.5],
+                            "layer": 3,
+                            "pixelArt": false,
+                            "color": [0.72, 0.72, 0.82, 1]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "name": "thigh_f",
+                    "components": {
+                      "Transform": {
+                        "position": [2, 0, 0],
+                        "rotation": [0, 0, -90]
+                      },
+                      "Bone2D": {
+                        "length": 10
+                      },
+                      "Sprite": {
+                        "texture": "assets/parts_atlas.png",
+                        "region": [2, 50, 22, 14],
+                        "size": [12, 7],
+                        "pivot": [0.14, 0.5],
+                        "layer": 7,
+                        "pixelArt": false
+                      }
+                    },
+                    "children": [
+                      {
+                        "name": "shin_f",
+                        "components": {
+                          "Transform": {
+                            "position": [10, 0, 0]
+                          },
+                          "Bone2D": {
+                            "length": 10,
+                            "minAngle": -150,
+                            "maxAngle": 0
+                          },
+                          "IK2D": {
+                            "target": "ik_f",
+                            "bend": "negative",
+                            "solver": "twoBone"
+                          },
+                          "Sprite": {
+                            "texture": "assets/parts_atlas.png",
+                            "region": [22, 70, 20, 12],
+                            "size": [12, 6],
+                            "pivot": [0.15, 0.5],
+                            "layer": 7,
+                            "pixelArt": false
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "name": "head",
+                "components": {
+                  "Transform": {
+                    "position": [0, 5, 0]
+                  },
+                  "Sprite": {
+                    "texture": "assets/parts_atlas.png",
+                    "region": [78, 2, 36, 32],
+                    "size": [18, 16],
+                    "pivot": [0.5, 0.0],
+                    "layer": 8,
+                    "pixelArt": false
+                  }
+                }
+              },
+              {
+                "name": "arm_f",
+                "components": {
+                  "Transform": {
+                    "position": [5, 4, 0]
+                  },
+                  "Sprite": {
+                    "texture": "assets/parts_atlas.png",
+                    "region": [114, 38, 10, 24],
+                    "size": [5, 12],
+                    "pivot": [0.5, 1.0],
+                    "layer": 9,
+                    "pixelArt": false
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "name": "gait_b",
+            "components": {
+              "Transform": {
+                "position": [-3, -20.5, 0]
+              }
+            }
+          },
+          {
+            "name": "gait_f",
+            "components": {
+              "Transform": {
+                "position": [3, -20.5, 0]
+              }
+            }
+          },
+          {
+            "name": "ik_b",
+            "components": {
+              "Transform": {
+                "position": [-3, -20.5, 0]
+              }
+            },
+            "id": "ik_b",
+            "children": [
+              {
+                "name": "foot",
+                "components": {
+                  "Transform": {
+                    "position": [0, 0, 0]
+                  },
+                  "Sprite": {
+                    "texture": "assets/parts_atlas.png",
+                    "region": [2, 106, 16, 10],
+                    "size": [8, 5],
+                    "pivot": [0.19, 0.5],
+                    "layer": 3,
+                    "pixelArt": false,
+                    "color": [0.72, 0.72, 0.82, 1]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "name": "ik_f",
+            "components": {
+              "Transform": {
+                "position": [3, -20.5, 0]
+              }
+            },
+            "id": "ik_f",
+            "children": [
+              {
+                "name": "foot",
+                "components": {
+                  "Transform": {
+                    "position": [0, 0, 0]
+                  },
+                  "Sprite": {
+                    "texture": "assets/parts_atlas.png",
+                    "region": [2, 106, 16, 10],
+                    "size": [8, 5],
+                    "pivot": [0.19, 0.5],
+                    "layer": 7,
+                    "pixelArt": false
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

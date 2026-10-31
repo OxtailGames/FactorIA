@@ -106,6 +106,17 @@ SetupAction vscode_action(const SetupComponent& c, bool reinstall) {
     return a;
 }
 
+SetupAction launcher_action(const SetupComponent& c, bool reinstall) {
+    SetupAction a;
+    a.component = "launcher";
+    a.key = "launcher";
+    a.force = reinstall;
+    a.label = c.state == "partial" ? "Update" : (reinstall ? "Reinstall" : "Install");
+    a.tooltip = "Writes an app that opens this FactorIA's editor with the FactorIA icon, to keep in the Dock or the app menu: "
+                "~/Applications/FactorIA.app on macOS, a .desktop entry on Linux. Nothing is downloaded.";
+    return a;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -135,6 +146,7 @@ std::string setup_what(const std::string& component, const std::vector<std::stri
     if (component == "cmake") return "CMake";
     if (component == "xcode") return "Xcode";
     if (component == "vscode") return "the VS Code debugger";
+    if (component == "launcher") return "the app launcher";
     if (component != "players") return component;
     std::vector<std::string> desktops;
     bool mobile = false, web = false;
@@ -202,6 +214,7 @@ std::optional<SetupAction> setup_action_for_component(const SetupComponent& c, c
         return xcode_action(c, true);
     }
     if (c.id == "vscode") return vscode_action(c, installed);
+    if (c.id == "launcher") return launcher_action(c, installed);
     return std::nullopt;
 }
 

@@ -2,11 +2,14 @@
 #include <algorithm>
 #include <format>
 
+#include "fa/core/date.h"
 #include "fa/core/fs.h"
+#include "fa/core/hash.h"
 #include "fa/core/i18n.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
+#include "fa/render/renderer.h"
 #include "fa/script/bytecode.h"
 #include <cstdio>
 #include "debugger_internal.h"
@@ -116,11 +119,20 @@ void Impl::reload_tools() {
         entry.commandName = cname;
         entry.file = file;
         entry.fn = std::move(def);
+        if (auto text = fs::read_text(file)) entry.hash = sha256_hex(*text).substr(0, 16);
+        entry.loadedAt = iso_utc_ms(unix_time_ms_now());
         tools[cname] = std::move(entry);
         host->commands().add(std::move(info), [this, cname](const Json& args) -> Json {
             auto it = tools.find(cname);
             if (it == tools.end() || !ctx) throw CommandError("unavailable", "tool '" + cname + "' is no longer loaded", "Call project tools after the script system is initialized.");
             const std::string toolFile = it->second.file;
+            // Which version of the tool file ran, so a stale tool is visible: added to an object result.
+            const Json version = Json::object({{"file", toolFile}, {"hash", it->second.hash}, {"loadedAt", it->second.loadedAt}});
+            auto stamp = [&version](Json j) {
+                if (j.is_null()) j = Json::object();
+                if (j.is_object() && !j.contains("toolVersion")) j["toolVersion"] = version;
+                return j;
+            };
             // Converts a thrown JS value into a CommandError. ToolError(message, hint, data) is an expected failure
             // (not a script bug): its hint and data reach the caller. Any other error is "failed".
             auto throw_js = [&](JSValueConst exc) {
@@ -171,12 +183,10 @@ void Impl::reload_tools() {
                 if (st == JS_PROMISE_PENDING) throw CommandError("failed", "tool returned a promise that never resolved", "Tools must finish synchronously or await only already-resolved promises.");
                 JsVal value(ctx, JS_PromiseResult(ctx, result.get()));
                 run_jobs();
-                Json j = to_json(value.get());
-                return j.is_null() ? Json::object() : j;
+                return stamp(to_json(value.get()));
             }
             run_jobs();
-            Json j = to_json(result.get());
-            return j.is_null() ? Json::object() : j;
+            return stamp(to_json(result.get()));
         });
     }
     std::set<std::string> after;
@@ -345,12 +355,64 @@ void Impl::after_test_load() {
     run_jobs();
 }
 
-void Impl::request_quit() {
+namespace {
+constexpr double kQuitFlushSeconds = 3.0;
+}
+
+int Impl::service_call(const char* method, std::initializer_list<JSValue> args) {
+    if (!initialized) return 0;
+    JSValue r = call_method("services", "", hooks.get(), method, args);
+    int32_t v = 0;
+    if (JS_IsNumber(r)) JS_ToInt32(ctx, &v, r);
+    JS_FreeValue(ctx, r);
+    return v;
+}
+
+bool Impl::begin_quit_flush() {
+    service_call("serviceQuit", {});
+    run_jobs();  // an answer the fake gave at once settles here
+    return service_call("servicePending", {}) > 0;
+}
+
+void Impl::update_quit_wait(double dt) {
+    quitWaited += dt;
+    if (service_call("servicePending", {}) > 0 && quitWaited < kQuitFlushSeconds) return;
+    quitDeferred = false;
+    do_request_quit();
+}
+
+void Impl::do_request_quit() {
     if (inTestRun) testQuitRequested = true;  // a test observes the request (game.quitRequested); the run goes on
     else host->request_quit();
 }
 
+void Impl::request_quit() {
+    if (quitDeferred) return;  // already waiting for the analytics request
+    if (begin_quit_flush()) {
+        quitDeferred = true;
+        quitWaited = 0.0;
+        return;
+    }
+    do_request_quit();
+}
+
+// The interface scale and the text size of a test file, set without the `ui.scale` / `ui.textScale` events a change sends: they
+// describe the reset, not something the test did, and would reach the first listener of the next test.
+void Impl::set_scales_quietly(float uiScale, float textScale) {
+    host->set_ui_scale(uiScale);
+    host->set_text_scale(textScale);
+    auto& events = host->world().events().game;
+    std::erase_if(events, [](const GameEvent& e) { return e.name == "ui.scale" || e.name == "ui.textScale"; });
+}
+
+void Impl::drop_runtime_textures() {
+    if (Renderer* r = host->renderer())
+        for (const auto& [id, img] : runtimeTextures) r->destroy_runtime_texture(id);
+    runtimeTextures.clear();
+}
+
 void Impl::reset_for_test_file() {
+    drop_runtime_textures();
     Json proj = host->project_settings();
     std::string scene = "scenes/main.scene.json";
     if (proj.is_object() && proj.contains("mainScene") && proj["mainScene"].is_string()) scene = proj["mainScene"].get<std::string>();
@@ -361,6 +423,7 @@ void Impl::reset_for_test_file() {
     storageCorrupt = false;
     storageTextHook.reset();
     testQuitRequested = false;
+    quitDeferred = false;
     testSystemLanguages.clear();
     preload.reset();  // no job and no warm file of the earlier test file
     owner->reset_app_state();  // focused, not suspended, the date the host started with (before the scene loads)
@@ -376,7 +439,12 @@ void Impl::reset_for_test_file() {
         host->world().clear();
     }
     host->input().release_all();
-    host->set_text_scale(1.0f);
+    set_scales_quietly(host->default_ui_scale(), 1.0f);
+    host->world().set_ui_mirror_rtl(host->default_ui_mirror_rtl());
+    {  // the tooltip delay and look of factoria.json, whatever an earlier test file set (ui.tooltipDelay)
+        Result<UiTooltipSettings> tip = parse_tooltip_settings(proj.is_object() && proj.contains("ui") ? proj["ui"] : Json(), "factoria.json#/ui");
+        host->world().set_ui_tooltip_settings(tip.ok() ? tip.value() : UiTooltipSettings{});
+    }
     timeScale = 1.0;
     call_method("reset session", "", hooks.get(), "resetSession", {});
     after_test_load();
@@ -408,7 +476,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
     // Tests never touch the real save file: in-memory storage, fresh for every test file.
     const StorageMode savedMode = storageMode;
     storageMode = StorageMode::Memory;
-    const float savedTextScale = host->text_scale();
+    const float savedTextScale = host->text_scale(), savedUiScale = host->ui_scale();
     for (const std::string& f : files) {
         auto norm = fs::normalize_checked(f);
         std::string path = norm ? *norm : f;
@@ -496,7 +564,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         if (!placed) rep.otherLogs.push_back(line);
     }
     reset_for_test_file();
-    host->set_text_scale(savedTextScale);
+    set_scales_quietly(savedUiScale, savedTextScale);
     inTestRun = false;
     storageMode = savedMode;
     storage = Json::object();

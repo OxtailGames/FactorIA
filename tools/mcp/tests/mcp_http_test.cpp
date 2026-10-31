@@ -55,9 +55,20 @@ struct Endpoint {
             std::this_thread::sleep_for(std::chrono::milliseconds(300));
             return Json::object();
         });
-        auto started = server.start([this](std::string_view m) {
+        CommandInfo p;
+        p.name = "test.progress";
+        p.summary = "Stand-in for ai.run: reports what it does for 400 ms.";
+        registry.add(p, [](const Json&) {
+            report_command_progress("worker: Bash cmake --build");
+            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+            return Json::object();
+        });
+        auto started = server.start([this](std::string_view m, const McpHttpServer::Notify& notify) {
             SimpleMcpHost host(registry, ".");
-            return McpServer(host).handle_message(m);
+            McpServer mcp(host);
+            mcp.set_notification_sink([&notify](const std::string& n) { notify(n); });
+            mcp.set_progress_timing(std::chrono::milliseconds(50), std::chrono::milliseconds(100));
+            return mcp.handle_message(m);
         }, streamAfter);
         REQUIRE(started);
         url = *started;
@@ -121,6 +132,29 @@ TEST_CASE("MCP over loopback HTTP: a long call is answered as an event stream, a
     CHECK(quick.header("content-type") == "application/json");
 }
 
+TEST_CASE("MCP over loopback HTTP: progress notifications reach the client before the reply") {
+    if (!ai::http_has_libcurl() && ai::which("curl").empty()) {
+        MESSAGE("no HTTP client (libcurl or the curl executable); skipped");
+        return;
+    }
+    Endpoint ep(std::chrono::seconds(30));  // streamAfter far away: the first notification switches to a stream
+    auto call = send(ep.url, R"({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test_progress","arguments":{},"_meta":{"progressToken":5}}})");
+    INFO("body: " << call.body);
+    CHECK(call.status == 200);
+    CHECK(call.header("content-type") == "text/event-stream");
+    const auto progress = call.body.find("\"method\":\"notifications/progress\"");
+    const auto result = call.body.find("\"result\"");
+    REQUIRE(progress != std::string::npos);
+    REQUIRE(result != std::string::npos);
+    CHECK(progress < result);
+    CHECK(call.body.find("worker: Bash cmake --build") != std::string::npos);
+    CHECK(call.body.find("\"progressToken\":5") != std::string::npos);
+
+    // No token: no notification, plain JSON.
+    auto plain = send(ep.url, R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"test_progress","arguments":{}}})");
+    CHECK(plain.header("content-type") == "application/json");
+}
+
 TEST_CASE("a CLI agent given the endpoint runs its tool calls there (fake Claude Code)") {
     if (ai::which("curl").empty()) {
         MESSAGE("the fake CLI calls the endpoint with the curl executable, which is not installed; skipped");
@@ -149,7 +183,8 @@ TEST_CASE("a CLI agent given the endpoint runs its tool calls there (fake Claude
 
     // The MCP config points the CLI at the endpoint, not at a `factoria mcp` process of its own.
     auto cfg = Json::parse(read_file(project / ".factoria" / "ai" / "mcp-claude-code.json"));
-    CHECK(cfg["mcpServers"]["factoria"] == Json::object({{"type", "http"}, {"url", ep.url}}));
+    CHECK(cfg["mcpServers"]["factoria"] ==
+          Json::object({{"type", "http"}, {"url", ep.url}, {"timeout", ai::kMcpToolTimeoutMs}}));  // long calls are allowed
     // ...and its tool call ran on the endpoint's registry, with the result sent back.
     REQUIRE(ep.spawned.size() == 1);
     CHECK(ep.spawned[0] == "CliCoin");

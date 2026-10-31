@@ -1,5 +1,5 @@
 // The fake platform backend: a deterministic, in-memory store for headless runs, `factoria test` and development
-// (docs/PLATFORM.md, "The fake backend"). It offers all eight services, keeps everything in memory (nothing reaches a
+// (docs/PLATFORM.md, "The fake backend"). It offers every service, keeps everything in memory (nothing reaches a
 // real store, nothing is written to disk) and never reads the clock: the same requests always give the same answers.
 //
 // Test hooks: respond() scripts the next answers of a method (a cancelled purchase, a network error), emit() sends an
@@ -23,7 +23,13 @@ public:
     FakeBackend();
 
     std::string name() const override { return none_ ? "none" : "fake"; }
-    std::vector<std::string> services() const override { return none_ ? std::vector<std::string>{} : platform_services_all(); }
+    // The eight store services and "http" (http.fetch: answered from what respond() scripted, never from the network).
+    std::vector<std::string> services() const override {
+        if (none_) return {};
+        std::vector<std::string> all = platform_services_all();
+        all.push_back("http");
+        return all;
+    }
     void attach(const PlatformSink& sink) override { sink_ = sink; }
     void request(std::uint64_t id, const std::string& method, const Json& args, const PlatformSink& sink) override;
     void frame() override;
@@ -32,6 +38,9 @@ public:
     //   {"error": code, "message"?, "hint"?}   reject with that error (code: one of platform_error_codes())
     //   {"result": value}                      resolve with exactly that value
     //   any other object                       shallow-merged into the default result: {"status": "cancelled"}
+    // http.fetch has no default answer: a request nobody scripted is rejected "network", so a test never depends on a server. Its
+    // default result for a merge is {status: 200, headers: {}, text: ""}, and {"json": value} sets text to the JSON of the value
+    // (and a content-type header).
     // A scripted answer changes the fake's state only when it is a success the default would also apply: a cancelled
     // purchase owns nothing.
     Result<void> respond(const std::string& method, const Json& answer, int times = 1);
@@ -51,8 +60,22 @@ public:
     // "required", ads.privacyOptions "shows" the form (counted in state().ads.privacyShown) and answers {shown: true}.
     Result<void> set_ad(const std::string& outcome, const std::string& gdpr = {}, const std::string& tracking = {},
                         const std::string& privacyOptions = {});
-    // Fresh state: signed in, no delay, nothing scripted, nothing unlocked or bought, an empty request log; transactions
-    // and integrity tokens are numbered from 1 again.
+    // A guest joins through Remote Play Together, as Steam would tell: remotePlay.sessions lists it and the game gets the "remotePlay"
+    // event {status: "connected", session}. `info` is {guestName?, guestId?, deviceName?, formFactor?, resolution?: {width, height}};
+    // what is left out is made up ("Guest 1", "fake-guest-1", "Fake device", "computer", 1920 x 1080). Answers the session, with its
+    // id (numbered from 1).
+    Result<Json> connect_guest(const Json& info);
+    // The guest with this session id leaves: the game gets {status: "disconnected", session} (the session as it was). An id that
+    // is not connected is an error naming the connected ones.
+    Result<Json> disconnect_guest(long long sessionId);
+    // The time the fake gives to the next cloud.save, in Unix seconds, and that cloud.stat then reports as `modified`. It starts at
+    // kCloudClockStart (2026-01-01T00:00:00Z) and goes up by one second with every save, so saves are ordered without the wall
+    // clock; a test sets it to say that a save happened at another time. Negative values are refused.
+    Result<void> set_cloud_clock(long long unixSeconds);
+    long long cloud_clock() const { return cloudClock_; }
+    static constexpr long long kCloudClockStart = 1767225600;
+    // Fresh state: signed in, no delay, nothing scripted, nothing unlocked or bought, an empty request log, no guests; transactions
+    // and integrity tokens are numbered from 1 again and the cloud clock starts over.
     void reset();
     // Not signed in: every method but player.signIn answers "notSignedIn". Sends a `player` event when it changes.
     void set_signed_in(bool signedIn);
@@ -65,7 +88,7 @@ public:
     int delay_frames() const { return delay_; }
 
     // {player, signedIn, delayFrames, frame, achievements: {id: {unlocked, progress}}, stats: {id: value},
-    //  leaderboards: {id: best}, cloud: {key: text}, owned: [productId], unfinished: [{transactionId, productId, receipt}],
+    //  leaderboards: {id: best}, cloud: {key: text}, cloudModified: {key: unixSeconds}, cloudClock, remotePlay: [session], owned: [productId], unfinished: [{transactionId, productId, receipt}],
     //  presence: {text, data}, ads: {outcome, gdpr, tracking, privacyOptions, privacyShown, shown, rewarded}, scripted: {method: queued}, held: n, calls: [{seq, frame, method, args, answered, ok?,
     //  result? | error?, scripted?}], callsDropped}. `frame` counts frames since the fake was made or reset.
     Json state() const;
@@ -111,6 +134,10 @@ private:
     std::string adOutcome_ = "watched", gdpr_ = "granted", tracking_ = "authorized", privacyOptions_ = "notRequired";
     long long adsShown_ = 0, adsRewarded_ = 0, adsPrivacyShown_ = 0;
     std::map<std::string, std::string> cloud_;
+    std::map<std::string, long long> cloudModified_;  // key -> Unix seconds of its last save
+    long long cloudClock_ = kCloudClockStart;
+    std::vector<Json> guests_;  // the sessions connected through Remote Play Together
+    long long nextGuest_ = 1;
     std::map<std::string, Transaction> owned_;  // by product id: non-consumables and subscriptions
     std::vector<Transaction> unfinished_;
     Json presence_;

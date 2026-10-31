@@ -11,11 +11,13 @@
 // implements all of it from a registry + project directory.
 #pragma once
 
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "fa/core/command.h"
@@ -102,6 +104,21 @@ public:
     void set_notification_sink(Sink sink);
     std::vector<std::string> drain_outgoing();
 
+    // Progress of long tool calls (MCP notifications/progress). A tools/call that carries params._meta.progressToken
+    // (Claude Code sends one with every call) gets progress notifications to the notification sink while its command
+    // runs: whatever the command reports with report_command_progress() (fa/core/command.h; ai.run reports what its
+    // sub-agent does), at most one per `throttle`, plus a "still running" heartbeat every `heartbeat` of silence, so a
+    // client that aborts a call after minutes without a sign of life (Claude Code: 300 s) keeps waiting for as long as
+    // the command really runs. Each message ends with the elapsed time. Without a token nothing is sent. Defaults:
+    // 3 s and 15 s.
+    void set_progress_timing(std::chrono::milliseconds throttle, std::chrono::milliseconds heartbeat);
+
+    // Restricts the tools: a command for which `allow` returns false is neither listed by tools/list nor callable
+    // (`factoria mcp --read-only` uses it for the read-only roles of a CLI agent that cannot disallow tools itself). No
+    // filter = every command.
+    using CommandFilter = std::function<bool(const CommandInfo&)>;
+    void set_command_filter(CommandFilter allow) { filter_ = std::move(allow); }
+
     // notifications/tools/list_changed (call when commands were added/removed, e.g. JS tool hot reload).
     void notify_tools_changed();
     void notify_resources_changed();
@@ -111,6 +128,21 @@ public:
     bool initialized() const { return initialized_; }
     const std::string& protocol_version() const { return protocol_; }
     const std::string& client_name() const { return clientName_; }
+    const Json& client_capabilities() const { return clientCapabilities_; }
+    const std::string& log_level() const { return logLevel_; }
+
+    // The handshake, as a JSON object: {protocolVersion, clientInfo, clientCapabilities, logLevel}. A server that restarts
+    // itself in place (fa/mcp/update_monitor.h) hands it to the new process, which restores it so that the client, which
+    // initialized the old process, needs no new `initialize`. restore_session() marks the server initialized; a value that is
+    // not an object, or has no protocolVersion, is refused (false) and leaves the server as it was.
+    Json session_state() const;
+    bool restore_session(const Json& state);
+
+    // A note for the AI that reads the next tool result: `text` is added as a last text block of the result of the next
+    // tools/call (the result itself stays the first block), once. A notice with the same `key` replaces the one still waiting.
+    void add_tool_notice(const std::string& key, const std::string& text);
+    // The notices waiting for a tools/call: texts in the order they were added.
+    std::vector<std::string> pending_tool_notices() const;
 
     // The tools/list entries for the current registry.
     Json tools_json() const;
@@ -119,14 +151,22 @@ private:
     std::optional<Json> handle_one(const Json& msg);
     Json handle_request(const std::string& method, const Json& params, const Json& id);
     Json call_tool(const Json& params);
+    Json run_tool(const Json& params);
     void emit(const Json& message);
 
     McpHost& host_;
     bool initialized_ = false;
     std::string protocol_ = kMcpLatestProtocol;
     std::string clientName_;
+    Json clientInfo_ = Json::object();
+    Json clientCapabilities_ = Json::object();
     std::string logLevel_ = "info";
+    std::vector<std::pair<std::string, std::string>> notices_;  // {key, text} waiting for a tools/call
+    mutable std::mutex noticeMutex_;
     Sink sink_;
+    CommandFilter filter_;
+    std::chrono::milliseconds progressThrottle_{3000};
+    std::chrono::milliseconds progressHeartbeat_{15000};
     std::vector<std::string> queued_;
     std::mutex outMutex_;
 };

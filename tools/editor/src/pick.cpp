@@ -29,15 +29,9 @@ VisualFootprint marker(const char* component, int layer, Vec2 center, Vec2 half)
     return v;
 }
 
-// The world matrix the renderer draws a part with: screen-space parts get their anchor added to the translation.
+// The world matrix the renderer draws a part with (scene/bounds.h).
 Mat4 part_matrix(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize) {
-    Mat4 m = part.space == RenderSpace::Screen ? w.world_matrix(e) : visual_world_matrix(w, e);  // world parts: moved by Parallax
-    if (part.space == RenderSpace::Screen) {
-        const Vec2 a = anchor_point(part.anchor, part.safeArea, designSize, w.safe_insets());
-        m.at(3, 0) += a.x;
-        m.at(3, 1) += a.y;
-    }
-    return m;
+    return footprint_matrix(w, e, part, designSize);
 }
 
 // Local point (x, y up) of a part -> world xy (world parts) or design pixels (screen parts).
@@ -104,11 +98,7 @@ bool pick_hit(const World& w, Entity e, const PickBounds& b, Vec2 point, Vec2 de
     bool hit = false;
     int layer = 0;
     for (const VisualFootprint& part : b.parts) {
-        const Mat4 m = part_matrix(w, e, part, designSize);
-        // Into the part's local space (y up): rotation and scale of the entity are undone, so the box is the oriented one.
-        const Vec3 p = m.inverse().transform_point({point.x, point.y, 0.0f});
-        const Vec2 local{p.x, part.space == RenderSpace::Screen ? -p.y : p.y};
-        if (!point_in_quad(local, part.box)) continue;
+        if (!footprint_hit(w, e, part, designSize, point)) continue;
         if (!hit || part.layer > layer) layer = part.layer;
         hit = true;
     }

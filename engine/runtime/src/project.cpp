@@ -81,7 +81,16 @@ Json ProjectSettings::to_json() const {
     Json input = j.contains("input") && j["input"].is_object() ? j["input"] : Json::object();
     input["actions"] = inputActions;
     input["deadzone"] = inputDeadzone;
+    if (!inputSchemes.empty()) input["schemes"] = inputSchemes;
+    else input.erase("schemes");
     j["input"] = input;
+    if (uiScale != 1.0f || !uiMirrorRtl || (j.contains("ui") && j["ui"].is_object())) {
+        Json ui = j.contains("ui") && j["ui"].is_object() ? j["ui"] : Json::object();
+        ui["scale"] = uiScale;
+        if (!uiMirrorRtl) ui["mirrorRtl"] = false;
+        else ui.erase("mirrorRtl");
+        j["ui"] = ui;
+    }
     Json plats = Json::array();
     for (const auto& p : platforms) plats.push_back(p);
     j["platforms"] = plats;
@@ -485,9 +494,15 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
                 for (std::size_t k = 0; k < ai->size(); ++k)
                     if (!(*ai)[k].is_string())
                         return field_error("/input/actions/" + ai.key() + "/" + std::to_string(k), "a binding name string",
-                                           (*ai)[k], "Binding names look like \"Space\", \"A\", \"MouseLeft\".");
+                                           (*ai)[k], "Binding names look like \"Space\", \"A\", \"MouseLeft\" or, with modifiers held, \"Ctrl+Z\", \"Shift+MouseLeft\".");
             }
             s.inputActions = *a;
+        }
+        if (auto sc = it->find("schemes"); sc != it->end() && !sc->is_null()) {
+            if (!sc->is_object())
+                return field_error("/input/schemes", "an object mapping scheme names to key sets", *sc,
+                                   "Example: \"schemes\": {\"arrows\": {\"extends\": \"right\"}}; the actions and key names are checked when the game starts.");
+            s.inputSchemes = *sc;
         }
         if (auto d = it->find("deadzone"); d != it->end() && !d->is_null()) {
             if (!d->is_number()) return field_error("/input/deadzone", "a number from 0 to 0.95", *d);
@@ -497,6 +512,25 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
                                   "Typical values: 0.1 (precise sticks) to 0.3 (worn or drifting sticks); the default is 0.2.");
             s.inputDeadzone = v;
         }
+    }
+    if (auto it = j.find("ui"); it != j.end() && !it->is_null()) {
+        if (!it->is_object()) return field_error("/ui", "an object like {\"scale\": 1.25}", *it);
+        if (auto sc = it->find("scale"); sc != it->end() && !sc->is_null()) {
+            if (!sc->is_number()) return field_error("/ui/scale", "a number from 0.5 to 3", *sc);
+            const double v = sc->get<double>();
+            if (!(v >= 0.5 && v <= 3.0))
+                return make_error(at("/ui/scale") + ": value " + std::to_string(v) + " must be from 0.5 to 3",
+                                  "1 keeps the interface as authored; 1.25 makes every screen-space widget and its text 25% bigger "
+                                  "(docs/TEXT.md, \"Interface size\"). The Options menu and scripts change it with ui.scale.");
+            s.uiScale = float(v);
+        }
+        if (auto mr = it->find("mirrorRtl"); mr != it->end() && !mr->is_null()) {
+            if (!mr->is_boolean()) return field_error("/ui/mirrorRtl", "true or false", *mr);
+            s.uiMirrorRtl = mr->get<bool>();
+        }
+        Result<UiTooltipSettings> tip = parse_tooltip_settings(*it, at("/ui"));
+        if (!tip.ok()) return tip.error();
+        s.uiTooltip = tip.value();
     }
     if (auto it = j.find("platforms"); it != j.end() && !it->is_null()) {
         if (!it->is_array()) return field_error("/platforms", "an array of platform names", *it);
@@ -605,6 +639,42 @@ constexpr const char* kSchemaText =
       "type": "boolean",
       "description": "Default true. While the app is in the background (a phone's home button or an incoming call) the engine freezes the game (game.paused becomes true, unless a game.on(\"suspend\") handler paused it already) and silences the music and every sound, and unfreezes both when the app comes back. Set false to decide yourself in game.on(\"suspend\") and game.on(\"resume\") handlers. A window that merely loses the focus is never paused (use game.on(\"blur\")). docs/MOBILE.md, Lifecycle."
     },
+    "ui": {
+      "type": "object",
+      "description": "Screen-space interface settings.",
+      "properties": {
+        "scale": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 3,
+          "description": "The interface scale the game starts with (default 1): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Text with space \"screen\"...) are multiplied by it, on top of the text size option (ui.textScale). Scripts and the Options menu change it while the game runs (ui.scale = 1.25, the ui.set_scale command); tests start from this value. docs/COMPONENTS.md, \"Interface scale\"."
+        },
+        "mirrorRtl": {
+          "type": "boolean",
+          "description": "Whether a right-to-left language (i18n.direction \"rtl\") mirrors the screen-space UI (default true): anchor.x, pivot.x and position.x flip, Toggle boxes and Sliders run right to left, and a widget with UiBox.mirror false stays. Scripts change it with ui.mirrorRtl, the ui.set_mirror_rtl command too. docs/LOCALIZATION.md, \"Right to left\"."
+        },
+        "tooltipDelay": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60,
+          "description": "Seconds the pointer rests on a widget before its tooltip shows (default 0.5; 0 = at once). Scripts change it with ui.tooltipDelay. docs/MENUS.md, \"Tooltips\"."
+        },
+        "tooltipOnTouch": {
+          "type": "boolean",
+          "description": "Default false: tooltips stay off while the last input was a touch (a finger has no hover). true shows them there too."
+        },
+        "tooltip": {
+          "type": "object",
+          "description": "The look of every tooltip (the UI theme for them); sizes are UI units. Keys: color and textColor and titleColor (colours), texture and slice (a 9-slice background), font, fontSize, titleSize, maxWidth (lines wrap here), spacing, padding [l, t, r, b], gap (from the pointer), layer (draw order).",
+          "additionalProperties": false,
+          "properties": {
+            "color": {}, "textColor": {}, "titleColor": {}, "texture": {"type": "string"}, "slice": {}, "font": {"type": "string"},
+            "fontSize": {"type": "number"}, "titleSize": {"type": "number"}, "maxWidth": {"type": "number"}, "spacing": {"type": "number"},
+            "padding": {}, "gap": {"type": "number"}, "layer": {"type": "integer"}
+          }
+        }
+      }
+    },
     "display": {
       "type": "object",
       "description": "Window and design-resolution settings. The game always renders at the design resolution.",
@@ -672,13 +742,31 @@ constexpr const char* kSchemaText =
       "properties": {
         "actions": {
           "type": "object",
-          "description": "Named input actions. Each maps to a list of bindings: key names (\"Space\", \"A\", \"Left\"), \"MouseLeft\"/\"MouseRight\"/\"MouseMiddle\", \"Touch\", gamepad buttons (\"GamepadA\", \"GamepadStart\", \"GamepadDpadLeft\"...) and gamepad half axes (\"GamepadLeftStickLeft\", \"GamepadRightStickUp\", \"GamepadRightTrigger\"...). Gamepad bindings match any connected pad.",
+          "description": "Named input actions. Each maps to a list of bindings: key names (\"Space\", \"A\", \"Left\"), \"MouseLeft\"/\"MouseRight\"/\"MouseMiddle\", \"Touch\", gamepad buttons (\"GamepadA\", \"GamepadStart\", \"GamepadDpadLeft\"...) and gamepad half axes (\"GamepadLeftStickLeft\", \"GamepadRightStickUp\", \"GamepadRightTrigger\"...). Gamepad bindings match any connected pad. A key, mouse button or \"Touch\" takes modifiers joined by \"+\": \"Ctrl+Z\", \"Shift+MouseLeft\", \"Ctrl+Shift+S\" (Ctrl, Shift, Alt and Super each name either side's key; \"Shift\" alone is a binding too). When one action binds Z and another Ctrl+Z, Z does not fire while Ctrl is held.",
           "additionalProperties": {
             "type": "array",
             "items": {
               "type": "string"
             },
             "description": "Bindings that trigger this action."
+          }
+        },
+        "schemes": {
+          "type": "object",
+          "description": "Key schemes for local multiplayer: named sets of keys a player can be given with input.player(i).use({keys: name}). The built-in ones are \"all\", \"left\" (WASD side of the keyboard) and \"right\" (arrows side). Each scheme is {\"extends\": a built-in scheme, \"keys\": [key names], \"actions\": {action: [key names]}} or just an array of key names; its keys are the extended scheme's plus \"keys\" plus the keys of \"actions\", and \"actions\" gives the keys of those actions for players of the scheme (the others use the key bindings of input.actions that belong to the scheme).",
+          "additionalProperties": {
+            "oneOf": [
+              {"type": "array", "items": {"type": "string"}},
+              {
+                "type": "object",
+                "properties": {
+                  "extends": {"type": "string", "enum": ["all", "left", "right"]},
+                  "keys": {"type": "array", "items": {"type": "string"}},
+                  "actions": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+                },
+                "additionalProperties": false
+              }
+            ]
           }
         },
         "deadzone": {
@@ -748,6 +836,152 @@ constexpr const char* kSchemaText =
       }
     },
 )JSON"
+    R"JSON(    "audio": {
+      "type": "object",
+      "description": "The mixer (docs/SCRIPTING.md, \"Audio buses\"). `buses` declares the project's own buses; `snapshots` is the catalog audio.snapshot(name, { fade }) and the audio.snapshot command read. `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "buses": {
+          "type": "object",
+          "description": "The project's own mixer buses, by name, each with a parent. Beside the built-in \"sfx\", \"music\", \"ui\" and \"master\". A bus is mixed with its effects and volume and then summed into its parent. Example: {\"ambience\": {\"parent\": \"sfx\"}}. Names are lowercase letters, digits, '_' or '-'.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "One bus.",
+            "properties": {
+              "parent": {
+                "type": "string",
+                "description": "The bus this one is summed into: \"sfx\", \"music\", \"ui\", \"master\" (default) or another bus of this list."
+              }
+            }
+          }
+        },
+        "snapshots": {
+          "type": "object",
+          "description": "Named sets of bus settings. Applying one moves every bus to the snapshot's state: a bus it does not list goes back to neutral (volume scale 1, no low-pass, no reverb, no ducking), so a snapshot is the whole picture and `\"normal\": {}` is the way back. The volumes the player set (audio.setVolume) are not touched. Example: {\"underwater\": {\"fade\": 0.8, \"buses\": {\"sfx\": {\"lowpass\": 600, \"reverb\": 0.3}, \"music\": {\"volume\": 0.5, \"lowpass\": 400}}}, \"normal\": {}}.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "One snapshot.",
+            "properties": {
+              "fade": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 60,
+                "description": "Seconds audio.snapshot takes when the call gives no time (default 0.5)."
+              },
+              "buses": {
+                "type": "object",
+                "description": "Settings by bus name: \"sfx\", \"music\", \"ui\", \"master\" or a bus of audio.buses.",
+                "additionalProperties": {
+                  "type": "object",
+                  "description": "What the snapshot sets on one bus.",
+                  "properties": {
+                    "volume": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 4,
+                      "description": "A scale on the bus's own volume (the one the player's options set): 1 = unchanged (default), 0.5 = half, 0 = silent."
+                    },
+                    "lowpass": {
+                      "type": ["number", "null"],
+                      "minimum": 0,
+                      "maximum": 20000,
+                      "description": "Low-pass cutoff in Hz, 20..20000 (a 12 dB per octave filter: 600 is a muffled, underwater sound). 0 or null = no filter (default)."
+                    },
+                    "reverb": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "Reverb wet mix: 0 = none (default), 0.3 = a touch of room, 1 = all wet."
+                    },
+                    "duck": {
+                      "type": ["object", "null"],
+                      "description": "Lowers this bus while another one plays (not for \"master\"). Example: {\"by\": \"sfx\", \"amount\": 0.5, \"attack\": 0.05, \"release\": 0.5}. Ducking switches at once when the snapshot is applied; it does not fade.",
+                      "properties": {
+                        "by": {
+                          "enum": ["sfx", "music", "ui"],
+                          "description": "The bus that triggers it (another bus than this one)."
+                        },
+                        "amount": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "description": "The fraction of the volume removed while `by` plays: 0.5 (default) is half as loud, 1 is silent, 0 is no ducking."
+                        },
+                        "attack": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 30,
+                          "description": "Attack time constant in seconds: the bus covers 63% of the way down to the ducked level in this time, about 95% in three times it (default 0.05)."
+                        },
+                        "release": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 30,
+                          "description": "Release time constant in seconds: 63% of the way back up in this time once `by` has stopped, about 95% in three times it (default 0.5)."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+)JSON"
+    R"JSON(    "text": {
+      "type": "object",
+      "description": "Rich text (docs/TEXT.md, \"Rich text\"): what a Text with `markup: true` (and the label of a Button, Toggle, Slider or TouchButton with it) can name, and the bold face of each font. `[c:good]` reads `colors.good`, `[icon:fish]` reads `icons.fish`, `[b]` and `bold: true` use `fonts.<font>.bold`. `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "colors": {
+          "type": "object",
+          "description": "Named colours for `[c:name]`. A tag may also use a built-in colour name (\"red\") or #rgb / #rrggbb / #rrggbbaa without being declared. A run colour replaces the colour of the Text (its alpha still multiplies the Text's alpha). Example: {\"good\": \"#80dc80\", \"bad\": [1, 0.48, 0.42, 1]}. Names are letters, digits, '_', '-' and '.'.",
+          "additionalProperties": {
+            "description": "A colour: \"#rrggbb\", \"#rrggbbaa\", a colour name, or [r, g, b, a] with components 0 to 1."
+          }
+        },
+        "icons": {
+          "type": "object",
+          "description": "Pictures for `[icon:name]`: a rectangle of a project texture, drawn inline as tall as the line of text. Example: {\"fish\": {\"texture\": \"assets/atlas.png\", \"region\": [0, 0, 32, 32]}}.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "One icon.",
+            "properties": {
+              "texture": {
+                "type": "string",
+                "description": "Project-relative path of the image the icon is a part of."
+              },
+              "region": {
+                "type": "array",
+                "description": "[x, y, width, height] in pixels of the texture, from its top-left corner (width and height at least 1). The icon is drawn as tall as the line and as wide as the region's proportions say.",
+                "items": { "type": "number" },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            }
+          }
+        },
+        "fonts": {
+          "type": "object",
+          "description": "The bold and italic faces of each font, keyed by the font as a Text names it: a project path such as \"assets/fonts/Body-Regular.ttf\", a built-in font (\"builtin:pixel\", \"builtin:serif\", ...) or \"\" (DejaVu Sans). `[b]` and `Text.bold` use the bold face for the glyphs it has; a font with no entry (or a glyph its bold face lacks) is emboldened by the engine, which looks heavier but never as good as a drawn face. `[i]` uses the italic face; a font with none stays upright. builtin:serif, builtin:hand and builtin:display bring faces of their own, so they need no entry. `factoria validate` suggests adding one for a font that markup or bold uses.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "One font.",
+            "properties": {
+              "bold": {
+                "type": "string",
+                "description": "Project-relative path of the bold font file (.ttf or .otf)."
+              },
+              "italic": {
+                "type": "string",
+                "description": "Project-relative path of the italic font file (.ttf or .otf), drawn for `[i]` text."
+              }
+            }
+          }
+        }
+      }
+    },
+)JSON"
     R"JSON(    "localization": {
       "type": "object",
       "description": "Languages of the game (docs/LOCALIZATION.md). Each language has a string table locales/<language>.json; Text.key and the widgets' key fields, `i18n.t(key, args)` in scripts and the i18n.* commands read them. Without this section localization is off and the game behaves as it always did. Headless runs (tests, the MCP server, `factoria call`) and the editor always use defaultLanguage; a game in its own window or an exported game starts in the language of the player's system that best matches `languages`, unless the environment variable FA_LANGUAGE names one. `factoria validate` reports every problem with how to fix it.",
@@ -789,6 +1023,45 @@ constexpr const char* kSchemaText =
             }
           }
         }
+      }
+    },
+)JSON"
+    R"JSON(    "network": {
+      "type": "object",
+      "description": "The network use of the game: the hosts `http.fetch` may call (docs/NETWORKING.md). A game without this section has no network: every http.fetch throws and says what to declare. Declaring hosts also adds the INTERNET permission to an Android export and tells you what to write in the privacy policy (docs/LEGAL.md). Only https:// addresses are sent (plain http:// only to localhost, for development), and only to a declared host. `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "description": "The host names the game calls, as in the URL: \"api.example.com\" (that host only), \"*.cdn.example.com\" (every subdomain of cdn.example.com, not cdn.example.com itself), \"localhost\" (development; also the only way to call http:// there). No scheme, port or path.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "purpose": {
+          "type": "string",
+          "description": "What the game sends and why, in one or two sentences for the privacy policy, e.g. \"Sends the player's name and score to the leaderboard server, and reads the daily challenge.\" `factoria validate` warns when hosts are declared without it."
+        }
+      }
+    },
+)JSON"
+    R"JSON(    "analytics": {
+      "type": "object",
+      "description": "Usage analytics of the game (docs/ANALYTICS.md): analytics.event(name, props) queues small events and sends them in batches to `endpoint` through http.fetch, only after the player consented (analytics.setConsent). Its host must also be in \"network\".\"hosts\". Nothing is sent without this section. Say in your privacy policy and the store privacy forms what is sent (docs/LEGAL.md). `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "endpoint": { "type": "string", "description": "The https:// address that receives each batch as a POST with a JSON body { game, version, sentOn, events: [{ name, props, t }] }. Its host must be listed in network.hosts." },
+        "batch": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Events that make a batch go out at once. Default 20." },
+        "flushSeconds": { "type": "number", "minimum": 1, "maximum": 3600, "description": "The longest an event waits in the queue before it is sent (engine seconds). Default 30." },
+        "timeoutSeconds": { "type": "number", "minimum": 0.5, "maximum": 120, "description": "Seconds one request may take. Default 10." },
+        "consentFromAds": { "type": "boolean", "description": "For a game with ads: until the player answers the analytics question themselves, analytics counts as granted when the ads consent is (GDPR granted and tracking authorized or not required). The player's own answer always wins. Default false." }
+      }
+    },
+    "remoteConfig": {
+      "type": "object",
+      "description": "Remote values for the game (docs/ANALYTICS.md): remoteConfig.get(key, default) reads a JSON object fetched once at start from `url` through http.fetch, cached in storage for offline runs. The host must also be in \"network\".\"hosts\". Nothing is fetched without this section.",
+      "properties": {
+        "url": { "type": "string", "description": "The https:// address of a JSON object (at most 64 KB and 500 keys). Its host must be listed in network.hosts." },
+        "timeoutSeconds": { "type": "number", "minimum": 0.5, "maximum": 30, "description": "Seconds the fetch may take. Default 5." }
       }
     },
 )JSON"

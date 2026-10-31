@@ -1143,3 +1143,57 @@ TEST_CASE("3d character: its weight tips a seesaw on its pivot, and a jointed cr
         }
     }
 }
+
+TEST_CASE("3d shapes: a procedural mesh is a convex or mesh collider, and an update rebuilds it") {
+    Sim s;
+    // A floor quad 4 x 4 at y = 0, counter-clockwise seen from +Y.
+    MeshInput floor;
+    floor.positions = {-2, 0, -2, 2, 0, -2, 2, 0, 2, -2, 0, 2};
+    floor.indices = {0, 2, 1, 0, 3, 2};
+    floor.hasIndices = true;
+    auto id = s.world.meshes().create(floor);
+    REQUIRE(id.ok());
+    Entity e = s.world.create("floor", "floor");
+    s.world.get<Transform>(e)->position = {0, 0, 0};
+    Collider3D& c = s.world.add<Collider3D>(e);
+    c.shape = ColliderShape3D::Mesh;
+    c.mesh = *id;
+    s.physics.sync(s.world);
+    auto hit = s.physics.raycast3d(s.world, {0.5f, 5, 0.5f}, {0, -1, 0}, 100);
+    REQUIRE(hit);
+    CHECK(hit->entity == e);
+    CHECK(hit->distance == doctest::Approx(5.0f).epsilon(0.002));
+    CHECK_FALSE(s.physics.raycast3d(s.world, {3.5f, 5, 0.5f}, {0, -1, 0}, 100));  // outside the quad
+
+    // The mesh moves up one metre and widens: the collider follows the new version.
+    MeshInput up;
+    up.positions = {-4, 1, -4, 4, 1, -4, 4, 1, 4, -4, 1, 4};
+    REQUIRE(s.world.meshes().update(*id, up).ok());
+    s.physics.sync(s.world);
+    auto moved = s.physics.raycast3d(s.world, {3.5f, 5, 0.5f}, {0, -1, 0}, 100);
+    REQUIRE(moved);
+    CHECK(moved->distance == doctest::Approx(4.0f).epsilon(0.002));
+
+    // A convex hull of a procedural mesh: a box made of 8 corners.
+    MeshInput cube;
+    cube.positions = {-1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1};
+    cube.indices = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5};
+    cube.hasIndices = true;
+    auto hid = s.world.meshes().create(cube);
+    REQUIRE(hid.ok());
+    Entity h = s.world.create("hull", "hull");
+    s.world.get<Transform>(h)->position = {20, 0, 0};
+    Collider3D& hc = s.world.add<Collider3D>(h);
+    hc.shape = ColliderShape3D::Convex;
+    hc.mesh = *hid;
+    s.physics.sync(s.world);
+    auto side = s.physics.raycast3d(s.world, {10, 0.1f, 0.2f}, {1, 0, 0}, 100);
+    REQUIRE(side);
+    CHECK(side->entity == h);
+    CHECK(side->distance == doctest::Approx(9.0f).epsilon(0.003));
+
+    // Destroyed: the collider is dropped (no crash, nothing to hit) and a later sync is quiet.
+    REQUIRE(s.world.meshes().destroy(*id).ok());
+    s.physics.sync(s.world);
+    CHECK_FALSE(s.physics.raycast3d(s.world, {0.5f, 5, 0.5f}, {0, -1, 0}, 100));
+}

@@ -55,3 +55,22 @@ TEST_CASE("glob_match: * and ? stay in a folder, ** crosses folders") {
     CHECK(glob_match("store/**", "store/a/b.png"));
     CHECK_FALSE(glob_match("store/*", "store/a/b.png"));
 }
+
+#include "fa/core/compress.h"
+
+TEST_CASE("zlib_compress and zlib_decompress round-trip, and shrink repeated text") {
+    std::string text;
+    for (int i = 0; i < 200; ++i) text += "{\"id\":\"villager_" + std::to_string(i) + "\",\"job\":\"baker\"},";
+    const std::string z = fa::zlib_compress(text);
+    CHECK(!z.empty());
+    CHECK(z.size() < text.size() / 3);
+    CHECK(fa::zlib_compress(text) == z);  // deterministic
+    auto back = fa::zlib_decompress(z, text.size());
+    REQUIRE(back.ok());
+    CHECK(back.value() == text);
+    auto guessed = fa::zlib_decompress(z);
+    REQUIRE(guessed.ok());
+    CHECK(guessed.value() == text);
+    CHECK(!fa::zlib_decompress(z.substr(0, z.size() / 2)).ok());
+    CHECK(!fa::zlib_decompress("not a zlib stream").ok());
+}

@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: alphaMode clip with an empty surface(), so only the alpha of the standard surface (vertex colors included) cuts holes in the mesh and in its shadow.",
+  "shader": "shaders/empty.surface.glsl",
+  "alphaMode": "clip"
+}

@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstdio>
 #include <filesystem>
+#include <map>
 #include <regex>
 #include <set>
 
@@ -18,6 +20,7 @@
 #include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/export_settings.h"
+#include "fa/tooling/feedback.h"
 #include "fa/tooling/icons.h"
 #include "fa/tooling/notices.h"
 #include "fa/tooling/project_fs.h"
@@ -285,7 +288,22 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
         const std::vector<std::string> platforms = project->plugin_platforms(plugin);
         if (std::find(platforms.begin(), platforms.end(), platform) == platforms.end()) continue;
         auto build = plugin_build(generic(p.dir), plugin, platform);
-        if (!build.ok()) return build.error();
+        if (!build.ok()) {
+            if (!o.allowMissingPlugins) {
+                Error e = build.error();
+                e.hint += std::string(e.hint.empty() ? "" : " ") + "To export without this plugin, pass --allow-missing-plugins "
+                          "(the export command's \"allowMissingPlugins\": true); the game then runs without it" +
+                          (plugin.optional ? "." : ", and scripts that call it fail (the plugin is not \"optional\" in factoria.json).");
+                return e;
+            }
+            p.pluginsLeftOut.push_back(plugin.name);
+            warnings.push_back("plugin '" + plugin.name + "' is left out of the " + platform + " export because its build is missing (" +
+                               build.error().message + "); " +
+                               (plugin.optional ? "it is declared optional, so the game runs without it"
+                                                : "it is NOT declared \"optional\", so scripts that call it fail") +
+                               " (allowMissingPlugins / --allow-missing-plugins is on)");
+            continue;
+        }
         p.plugins.push_back({plugin.name, build.value()});
     }
     if (platform != "web" && p.settings.icon_for(platform).empty())  // a web export has no icon to set
@@ -295,15 +313,90 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
     return p;
 }
 
+// ---- the size report ---------------------------------------------------------------------------------
+
+namespace {
+
+std::string size_text(std::uint64_t bytes) {
+    char buf[32];
+    if (bytes >= 1024ull * 1024) std::snprintf(buf, sizeof buf, "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+    else if (bytes >= 1024) std::snprintf(buf, sizeof buf, "%.1f KB", static_cast<double>(bytes) / 1024.0);
+    else std::snprintf(buf, sizeof buf, "%llu B", static_cast<unsigned long long>(bytes));
+    return buf;
+}
+
+std::string seconds_text(double s) {
+    char buf[32];
+    if (s < 1.0) std::snprintf(buf, sizeof buf, "under 1 s");
+    else if (s < 90.0) std::snprintf(buf, sizeof buf, "%.0f s", s);
+    else std::snprintf(buf, sizeof buf, "%.1f min", s / 60.0);
+    return buf;
+}
+
+// The speeds of the download times, in Mbit/s.
+constexpr double kSpeeds[] = {1, 5, 20, 100};
+
+}  // namespace
+
+// The folder a file is counted in: its directory cut to two levels ("assets/audio/sfx/hit.ogg" -> "assets/audio").
+static std::string report_folder(const std::string& path) {
+    const std::size_t first = path.find('/');
+    if (first == std::string::npos) return "(top level)";
+    const std::size_t second = path.find('/', first + 1);
+    return second == std::string::npos ? path.substr(0, first) : path.substr(0, second);
+}
+
+// What the pack (or the game folder) holds, folder by folder: fills report.largestFolders and warns about the folders that
+// are almost always material for making the game, never something it loads (docs/EXPORTING.md, "What is shipped").
+static void report_packed_sizes(const Project& p, const std::vector<std::string>& files, ExportReport& report) {
+    std::map<std::string, ExportSize> folders;
+    std::map<std::string, ExportSize> suspect;  // the packed "store", "screenshots" or "src" folders, by their path
+    for (const std::string& f : files) {
+        const auto staged = p.staged.find(f);
+        std::error_code ec;
+        const auto n = stdfs::file_size(os_path(staged != p.staged.end() ? staged->second : p.dir / f), ec);
+        const std::uint64_t bytes = ec ? 0 : static_cast<std::uint64_t>(n);
+        ExportSize& row = folders[report_folder(f)];
+        row.name = report_folder(f);
+        ++row.files;
+        row.bytes += bytes;
+        // The first folder on the path that has one of the three names (a folder called src deep in assets/ counts too).
+        std::size_t start = 0;
+        for (std::size_t slash = f.find('/'); slash != std::string::npos; slash = f.find('/', start)) {
+            const std::string name = f.substr(start, slash - start);
+            if (name == "store" || name == "screenshots" || name == "src") {
+                ExportSize& s = suspect[f.substr(0, slash)];
+                s.name = f.substr(0, slash);
+                ++s.files;
+                s.bytes += bytes;
+                break;
+            }
+            start = slash + 1;
+        }
+    }
+    for (auto& [name, row] : folders) report.largestFolders.push_back(row);
+    std::sort(report.largestFolders.begin(), report.largestFolders.end(), [](const ExportSize& a, const ExportSize& b) {
+        return std::make_pair(b.bytes, a.name) < std::make_pair(a.bytes, b.name);
+    });
+    if (report.largestFolders.size() > 5) report.largestFolders.resize(5);
+    for (const auto& [name, s] : suspect)
+        report.warnings.push_back("The folder " + name + "/ (" + std::to_string(s.files) + " file(s), " + size_text(s.bytes) +
+                                  ") is packed into the game. A folder of that name usually holds store pictures, screenshots or the "
+                                  "sources of the assets, which the game never loads: if so, add \"" + name + "\" to \"export.exclude\" in "
+                                  "factoria.json (docs/EXPORTING.md, \"What is shipped and what is not\")");
+}
+
 // ---- game file collection ----------------------------------------------------------------------
 
 bool excluded_top_level(const std::string& name, const std::string& feedbackFile) {
     // steam_appid.txt makes a game run as the app it names, whoever starts it (the Steam plugin reads it in development):
     // a shipped game gets its app id from the Steam client.
     static const std::set<std::string> names = {"build", "tests", "tools", "types", "node_modules", "AGENTS.md",
-                                                "CLAUDE.md", "jsconfig.json", "ENGINE_FEEDBACK.json", "steam_appid.txt"};
+                                                "CLAUDE.md", "jsconfig.json", "ENGINE_FEEDBACK.json", "ENGINE_FEEDBACK.archive.json",
+                                                "steam_appid.txt", "REVIEW.md"};
+    // REVIEW.md is the note the art critics and game reviewers read first (docs/AI_PROVIDERS.md, "Reviews").
     // The project's own README is documentation for whoever works on the game, and no game reads it (any capitalization).
-    return names.count(name) > 0 || name == feedbackFile || to_lower(name) == "readme.md";
+    return names.count(name) > 0 || name == feedbackFile || name == stdfs::path(feedback_archive_path(feedbackFile)).filename().string() || to_lower(name) == "readme.md";
 }
 
 // Project-relative paths (forward slashes, sorted) of every file that ships.
@@ -451,7 +544,7 @@ stdfs::path notices_dir(const Project& p, const std::string& platform, const std
 
 Result<void> write_notices(const Project& p, const std::string& platform, const stdfs::path& outRoot, ExportReport& report) {
     const stdfs::path dir = notices_dir(p, platform, outRoot);
-    if (auto r = write_text(dir / kExportNoticesFile, third_party_notices(NoticeScope::Game)); !r.ok()) return r;
+    if (auto r = write_text(dir / kExportNoticesFile, third_party_notices(NoticeScope::Game, std::set<std::string>(report.builtinFonts.begin(), report.builtinFonts.end()))); !r.ok()) return r;
     report.notices = generic((dir.lexically_relative(outRoot) / kExportNoticesFile).lexically_normal());
     report.nextSteps.push_back(report.notices + " holds the licenses of the FactorIA runtime inside the game: keep it in "
                                "what you distribute (docs/EXPORTING.md, \"License notices\")");
@@ -559,10 +652,20 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         auto setup = resolve_mobile(options, plan.platform);
         if (!setup.ok()) return setup.error();
         plan.mobile = std::move(setup.value());
+        if (plan.mobile.prebuilt) {  // the engine compiled from source is this checkout's; prebuilt libraries have a fingerprint
+            std::vector<stdfs::path> libs;
+            if (plan.platform == "android")
+                for (const char* abi : kAndroidAbis) libs.push_back(plan.mobile.libs / "jniLibs" / abi / "libfactoria_player.so");
+            else
+                for (const char* slice : kIosSlices) libs.push_back(plan.mobile.libs / slice / kIosMarkerLib);
+            for (const stdfs::path& lib : libs)
+                if (auto r = check_player_build(options, lib, plan.platform, plan.warnings); !r.ok()) return r.error();
+        }
     } else if (plan.platform == "web") {
         auto web = find_web_player(options, options.buildSourceRoot.empty() ? std::string(FA_SOURCE_ROOT) : options.buildSourceRoot);
         if (!web.ok()) return web.error();
         plan.web = std::move(web.value());
+        if (auto r = check_player_build(options, plan.web.wasm, plan.platform, plan.warnings); !r.ok()) return r.error();
         plan.webZip = plan.outParent / (slug + "-web.zip");
     } else {
         auto player = find_player(options, plan.platform);
@@ -645,6 +748,26 @@ std::string normalize_export_platform(const std::string& name) {
     return {};
 }
 
+std::vector<std::string> ExportReport::size_lines() const {
+    std::vector<std::string> out;
+    if (!largestFolders.empty()) {
+        std::string line = "Largest folders in the game:";
+        for (const ExportSize& f : largestFolders) line += "\n  " + f.name + "  " + size_text(f.bytes) + " (" + std::to_string(f.files) + " files)";
+        out.push_back(line);
+    }
+    if (!webFiles.empty()) {
+        std::string line = "Web download (raw / about gzip):";
+        for (const ExportSize& f : webFiles) line += "\n  " + f.name + "  " + size_text(f.bytes) + " / " + size_text(f.gzipBytes);
+        line += "\n  total  " + size_text(webBytes) + " / " + size_text(webGzipBytes);
+        out.push_back(line);
+        std::string times = "Download of the total, compressed, at";
+        for (const double mbit : kSpeeds)
+            times += " " + std::to_string(static_cast<int>(mbit)) + " Mbit/s: " + seconds_text(static_cast<double>(webGzipBytes) * 8.0 / (mbit * 1e6)) + (mbit == kSpeeds[3] ? "" : ",");
+        out.push_back(times + " (a host that does not gzip sends the raw total)");
+    }
+    return out;
+}
+
 Json ExportReport::to_json() const {
     Json j = Json::object();
     j["outputDir"] = outputDir;
@@ -657,7 +780,28 @@ Json ExportReport::to_json() const {
         j["packed"] = packed;
     }
     if (!materials.empty()) j["materials"] = materials;
+    if (!builtinFonts.empty()) j["builtinFonts"] = builtinFonts;
+    if (!pluginsLeftOut.empty()) j["pluginsLeftOut"] = pluginsLeftOut;
     j["files"] = files;
+    auto size_rows = [](const std::vector<ExportSize>& rows) {
+        Json a = Json::array();
+        for (const ExportSize& r : rows) {
+            Json o = Json::object({{"name", r.name}, {"files", r.files}, {"bytes", r.bytes}});
+            if (r.gzipBytes) o["gzipBytes"] = r.gzipBytes;
+            a.push_back(o);
+        }
+        return a;
+    };
+    if (!largestFolders.empty()) j["largestFolders"] = size_rows(largestFolders);
+    if (!webFiles.empty()) {
+        j["webFiles"] = size_rows(webFiles);
+        j["webBytes"] = webBytes;
+        j["webGzipBytes"] = webGzipBytes;
+        Json t = Json::array();
+        for (const double mbit : kSpeeds)
+            t.push_back(Json::object({{"mbitPerSecond", mbit}, {"seconds", static_cast<double>(webGzipBytes) * 8.0 / (mbit * 1e6)}}));
+        j["webDownloadSeconds"] = t;
+    }
     j["nextSteps"] = nextSteps;
     j["warnings"] = warnings;
     return j;
@@ -723,6 +867,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     const stdfs::path& outRoot = plan.outRoot;
     ExportReport report;
     report.warnings = plan.warnings;
+    report.pluginsLeftOut = p.pluginsLeftOut;
 
     std::error_code ec;
     stdfs::create_directories(os_path(plan.outParent), ec);
@@ -753,6 +898,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         return assetsReady.error();
     }
 
+    report_packed_sizes(p, files, report);
     Result<void> r;
     bool keepOutput = false;  // a failed Gradle build leaves its project in place, so that it can be opened and fixed
     if (platform == "android" || platform == "ios") {
@@ -827,7 +973,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "installed or build). windows with `format` \"msix\" (or export.windows.format) also writes <out>/<slug>-windows.msix next to the folder, the package of the "
         "Microsoft Store, from any computer (reported as `artifact`, format \"msix\"; identity in export.windows.msix; sign it with `sign.windows`, upload it with "
         "`publish.microsoft`). A browser needs the folder served over http, not opened as a file (nextSteps has the command). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
-        "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). "
+        "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). The built-in fonts that are files "
+        "(builtin:serif, builtin:hand, builtin:blackletter, builtin:display) are copied to builtin-fonts/ only when a scene, prefab, script, data file or factoria.json "
+        "names them in full, with their licenses in the notices (`builtinFonts` in the result). "
         "Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], "
         "warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and "
         "writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, "
@@ -843,7 +991,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "format":{"type":"string","enum":["apk","aab","gradle","appimage","msix","folder"],"description":"Windows: msix also writes <slug>-windows.msix next to the export folder, the Microsoft Store package (any host; identity in export.windows.msix); folder (the default unless export.windows.format says otherwise) writes only the folder. Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it."},
         "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
         "allowDebugKey":{"type":"boolean","description":"Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android).","default":false},
-        "allowPlayerMismatch":{"type":"boolean","description":"Desktop (linux, windows, macos): bundle the factoria_player even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can.","default":false},
+        "player":{"type":"string","description":"The player to bundle, an absolute path or one relative to the project folder; the CLI flag is --player. Desktop (linux, windows, macos): the factoria_player binary, e.g. one built for another OS. Web: the folder with factoria_player.js and factoria_player.wasm, or factoria_player.js. Default: the player next to this factoria for its own platform, or the one `factoria setup players` downloaded for another."},
+        "allowMissingPlugins":{"type":"boolean","description":"Leave out a native plugin whose build for the target platform is missing (plugins/<name>/<platform>/, see docs_read EXTENDING.md) instead of stopping the export. Works for optional and non-optional plugins: a warning names each one and the result lists them in pluginsLeftOut[]. The exported game runs without the plugin (scripts that call it fail unless it is \"optional\" in factoria.json and they check for it). A plugin is built only for the computer you build it on (platform.add_backend and CMake): get the other platforms' builds from CI or another machine. The CLI flag is --allow-missing-plugins.","default":false},
+        "allowPlayerMismatch":{"type":"boolean","description":"Bundle the player (the desktop factoria_player, the web factoria_player.wasm, the prebuilt Android and iOS libraries) even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can.","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
       }})");
     registry.add(info, [projectDir](const Json& args) {
@@ -867,6 +1017,11 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         o.release = tooling_detail::arg_bool(args, "release", false);
         o.allowDebugKey = tooling_detail::arg_bool(args, "allowDebugKey", false);
         o.allowPlayerMismatch = tooling_detail::arg_bool(args, "allowPlayerMismatch", false);
+        o.allowMissingPlugins = tooling_detail::arg_bool(args, "allowMissingPlugins", false);
+        if (std::string player = tooling_detail::arg_string(args, "player", false); !player.empty()) {
+            const stdfs::path p(player);
+            o.playerBinary = (p.is_absolute() ? p : stdfs::path(projectDir) / p).lexically_normal().string();
+        }
         if (tooling_detail::arg_bool(args, "dryRun", false)) {
             auto plan = plan_export(o);
             if (!plan.ok()) throw CommandError("failed", plan.error().message, plan.error().hint);

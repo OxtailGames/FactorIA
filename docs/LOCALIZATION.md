@@ -54,6 +54,8 @@ Changing the section needs a restart; editing `locales/*.json` does not (hot rel
   en, es, pt, fr, de, it, nl, ru, uk, pl, cs, ar, he, ja, zh, ko, tr; others follow English; vi, th, id, ms have one
   form). A number with decimals counts as having them. Without a numeric `count` the `other` form is used and a
   warning says so. An ordinary group whose keys happen to be category names needs a different key name.
+- A string can have a **gender** (`{"text": "Ligera", "gender": "f"}`, `f`, `m` or `n`) and a **select entry** (an
+  object whose keys are all of `f`, `m`, `n`, `other`, with `other`) picks its form by `args.gender`: section 5c.
 - `{name}` is replaced by `args.name` (strings as they are, numbers without a trailing `.0`, `null` as empty). `{{` and
   `}}` are literal braces. A placeholder without an argument stays as written and the log says which. `{v:number:1}` and `{t:duration}` write
   numbers and times for the language (section 5b).
@@ -145,6 +147,7 @@ i18n.has("menu.play");                  // true: a real string, not the key retu
 i18n.language; i18n.languages;          // "es"; ["en", "es", "pt-BR", "zh-Hans"]
 i18n.defaultLanguage; i18n.systemLanguages;   // "en"; the player's languages (empty without a window)
 i18n.name("es");                        // "Español"
+i18n.gender("ship.light");              // "f": the gender of a string (section 5c)
 i18n.setLanguage("es");                 // everything with a key changes now
 const off = i18n.on("change", ({ language, previous }) => { /* write your own texts again */ });
 ```
@@ -209,15 +212,64 @@ a language to `style_for` in `engine/core/src/number_format.cpp` (and a test) wh
 only matter where the table lists them. Check the font of a language with its own digits (DejaVu Sans, the built-in
 font, has the Arabic-Indic and Persian ones).
 
+## 5c. Gender and agreement
+
+Spanish, French, German, Russian and many other languages change the article and the adjective with the gender of the
+noun. A sentence built from a name that comes from another table ("the {name} is ready" with a ship called Ligera or
+Esquife) needs that gender. Give the name a gender and write the sentence as a **select entry**:
+
+```json
+{
+  "ship": { "light": { "text": "Ligera", "gender": "f" }, "skiff": { "text": "Esquife", "gender": "m" } },
+  "ship_the": { "f": "la {name}", "m": "el {name}", "other": "{name}" },
+  "ship_ready": { "f": "{name} está lista", "m": "{name} está listo", "other": "{name} está listo" }
+}
+```
+
+```js
+const noun = "ship.light";
+i18n.t("ship_the", { name: i18n.t(noun), gender: i18n.gender(noun) });   // "la Ligera"
+i18n.t("ship_ready", { name: i18n.t("ship.skiff"), gender: i18n.gender("ship.skiff") });   // "Esquife está listo"
+```
+
+- A **gendered string** is an object with exactly the keys `text` and `gender` (`"f"` feminine, `"m"` masculine, `"n"`
+  neuter, as in German or Russian). `i18n.t` returns its `text` like any string; `i18n.gender(key)` returns the gender
+  of the first table of the fallback chain that has the key, `""` when it has none. Any other gender is an error with
+  the JSON pointer. A group whose only keys are `text` and `gender` needs other key names.
+- A **select entry** is an object whose keys are all of `f`, `m`, `n`, `other`; `other` is required and is what a name
+  without a known gender (or a gender without a form) shows. `i18n.t` picks the form by `args.gender`; without a string
+  `gender` argument it uses `other` and warns once. A select entry may use `{placeholders}` like any string; it is
+  not also a plural entry (phrase the count and the gender in separate strings).
+- English has no gender, so its table writes plain strings and a select entry with only `other` (`"ship_the": {"other":
+  "the {name}"}`). Such an object is read as a plural entry whose only form is `other`; it works the same, and
+  `factoria validate` accepts it next to the translations' select entries.
+- `factoria validate` warns when a language with grammatical gender (es, fr, pt, it, ca, ar, he and others: `f`, `m`;
+  de, ru, pl, cs, uk and others also `n`) has a select entry without a form it uses, and when a name that has a gender in
+  the default language has none in such a language. `i18n.export` writes one row per form (`ship_the#f`, `ship_the#m`,
+  `ship_the#other`) and a row `ship.light#gender` (cells `f`, `m` or `n`) for each string that has a gender in some
+  language; `i18n.import` reads them back (section 8).
+- **Case.** The tables do not model grammatical case (German "der/dem/den", Russian and Polish declension). Phrase
+  the sentence so the noun stays in the form the table gives it: "Edificio: {name}" instead of "al {name}", a
+  label and a colon instead of a preposition, or write a whole sentence per name when the language needs the case. The
+  gender forms cover articles and adjectives that agree with a noun in its base form, which is most of what a game says.
+
 ## 6. Fonts, right-to-left languages and text size
 
 [TEXT.md](TEXT.md) describes how text is drawn; what a localized game has to do about it:
 
+- **Korean line breaks.** A wrapped Korean Text ends its lines at spaces and keeps each word whole with no setting
+  (`Text.wordBreak` `auto`, TEXT.md, "Line breaking"). A reveal letter by letter is `Text.visibleCharacters` (TEXT.md,
+  "Typewriter reveal"): the box has the size of the whole translation from the first character, so no script has to wrap
+  or pad a line by hand.
 - **Fonts per language.** DejaVu Sans, the built-in font, has Latin, Greek, Cyrillic, Hebrew and Arabic letters; nothing
   else is built in. For Japanese, Korean, Chinese, Thai or an Indic script, ship a `.ttf` (Noto Sans has one per script)
   and list it in `factoria.json`: `languageFonts` for a font only that language needs, `fallbackFonts` for one every
   language needs (for example the font that draws the `$name` of every language in a language menu). A font is only
   read when some text needs it, and the list follows `i18n.setLanguage` at once, for the text already on screen too.
+  A CJK font is 10-17 MB: `assets.subset_font` cuts it to the characters of `locales/` plus Latin and punctuation (a
+  few hundred KB) and pins a variable font to one weight; see [TEXT.md](TEXT.md). It keeps the characters as written in the
+  tables: for Thai, Khmer or Lao also list in `keep` the letters a composed vowel splits into (the glyph check asks for them,
+  section 7).
   `factoria validate` fails when a table string has a character no font of its chain has (section 7).
 - **Right-to-left text.** Arabic and Hebrew are ordered with the Unicode bidirectional algorithm and joined by the
   shaper, with nothing to configure. The layout around the text is yours, and it follows the language when you ask:
@@ -232,23 +284,36 @@ font, has the Arabic-Indic and Persian ones).
     and the panel's `align` and `justify` values `start` and `end` mean the right and the left edge. A column keeps its
     order from top to bottom. One scene therefore serves both directions: `"direction": "auto"` on the panels,
     `"align": "start"` on the columns and the wrapped Texts.
-  - Not mirrored by themselves: anchors and pivots, and the inside of a Toggle (box on the left) and a Slider. For a
-    HUD corner, read the direction once and pick the corner:
-
-    ```js
-    const rtl = i18n.direction === "rtl";
-    const name = world.find("player_name").get("Text");
-    name.anchor = [rtl ? 1 : 0, 0];   // the corner where the reading starts
-    name.pivot = [rtl ? 1 : 0, 1];
-    name.align = "start";
-    ```
+  - `Text.direction` is `"auto"` (default), `"ltr"` or `"rtl"`: the base direction of the paragraphs. `auto` is the
+    direction of the first strong character, except that a Text with a localization key (`Text.key`, and the label of a
+    Button, Toggle, Slider or TextField with a `key`) takes the language's direction. So a Hebrew line such as
+    `Tab או הכפתורים העליונים` or `[F] פתיחה` starts with Latin letters but is a right-to-left paragraph when it comes from a
+    key, without a U+200F mark in the translation. A Text whose `text` a script sets (no key) gets the same with
+    `direction = i18n.direction`; `"rtl"` also makes `align: "start"` the right edge. `Text.visibleCharacters` still
+    reveals in text order, from the first character.
+  - **Mirrored screens** (`ui.mirrorRtl`). In a right-to-left language the screen-space UI is mirrored by the engine, so
+    one scene serves both directions: the `anchor.x`, `pivot.x` and `Transform.position.x` of every widget (Panel,
+    Button, Toggle, Slider, TextField, ScrollList, Chart, ...) flip, so a Panel anchored to the left sits against the right
+    edge at the same distance; a Toggle's box is at the right of its label; a Slider runs from right (min) to left (max)
+    in the drawing, a click and the Left and Right keys (Left raises the value); a Button's icon changes side.
+    The Text, Sprite and Shape2D below a widget (children of a Panel, a Button's icon) are mirrored with it, a line goes
+    between the mirrored end points. `Panel.layout` still lays out the rectangles on screen, so a `direction: "auto"` row
+    keeps its first child at the right edge. `ui.rectOf`, `ui.state`, clicks, focus and `entity.bounds` report the mirrored
+    places. What is not mirrored: world-space Text and entities, and a screen-space Text, Sprite or Shape2D with no widget
+    above it (give it `anchor`, `pivot` and `align: "start"` by hand, as before).
+  - A `CameraView` takes its place like any widget (its rectangle flips) but never mirrors its picture: the camera is drawn as it sees, and `u`, `v`, `dx` and `dy` of `ui.viewPointer` count from the picture's own top-left corner and the screen's own directions. A widget that must not mirror at all, not even its place (a map, a minimap, a joystick, a clock face), has `mirror: false`
+    (`UiBox.mirror`, on every widget); its children stay with it. The option is on by default; `ui.mirrorRtl`
+    (`"ui": { "mirrorRtl": false }` in factoria.json, `ui.mirrorRtl = false` in a script, the `ui.set_mirror_rtl` command)
+    turns the mirroring off for a game that places its UI by hand. It does nothing in a left-to-right language. The text
+    inside a widget is not reordered by it: a label is laid out by its direction as above.
 
   The menus fixture (`tools/cli/tests/fixtures/menus`, [MENUS.md](MENUS.md)) is mirrored this way: its options panel has
   `direction: "auto"` and `align: "start"`, and `locales/ar.json` is its Arabic table. Check a layout with
   `game.screenshot` after `FA_LANGUAGE=ar factoria run`.
 - **Text size.** `ui.textScale` (0.5 to 3) makes every text bigger for players who ask: translations are longer than
   English, so give buttons, toggles and sliders `"autoSize": true`: they stay at their design size and grow to their
-  label at the current language and text size (docs/TEXT.md, "Text size").
+  label at the current language and text size (docs/TEXT.md, "Text size"). `ui.scale` makes the whole interface bigger
+  or smaller (docs/TEXT.md, "Interface size"); `ui.check_layout` checks each size you offer.
 
 ## 7. Checks: `factoria validate`
 
@@ -262,7 +327,8 @@ a key that is one letter off. Errors fail the validation; warnings do not.
 | `locales/<tag>.json` missing, not JSON, or a value that is not a string (file and pointer) | error |
 | The default language has keys another language lacks: one line per language with the count and the first names | warning |
 | A key a table has and the default table lacks (a typo or a removed string), with the closest key | warning |
-| `{placeholders}` that differ from the default language's text, a key that is plain text in one table and plural in the other | warning |
+| `{placeholders}` that differ from the default language's text, a key that is plain text in one table and plural in the other, or has gender forms in the default language and none here | warning |
+| A select entry without a gender form the language uses (`m` in Spanish: the line says those names show `other`), or a name with a gender in the default language and none in a language with grammatical gender | warning |
 | A plural entry without a form the language uses (`few` and `many` in Russian: the line says which counts show `other` instead), or with a form no count picks (`zero` in Japanese) | warning |
 | A `key` of a Text or widget that the default table lacks (the game would show the scene's text and log a warning) | error |
 | A `nameKey`, `descriptionKey` or `titleKey` of the platform catalog that the default table lacks (file `factoria.json`, pointer, closest key) | error |
@@ -280,6 +346,11 @@ does not need a window or a GPU. The chain it tries:
   game without a `localization` section, the component's `font` alone.
 - The `$name` of a language, which a language menu draws whatever language the game runs in: an error when the
   language itself cannot draw it, a warning when only some other language of the game cannot.
+
+Thai SARA AM (U+0E33) and Lao AM (U+0EB3) are checked as the parts HarfBuzz always decomposes them into (U+0E4D U+0E32,
+U+0ECD U+0EB2): a font that has the composed character but not the nikhahit would silently drop it. Thai, Khmer, Lao and
+Burmese have no spaces between words and the engine has no dictionary: mark the places where a line may break with U+200B
+ZERO WIDTH SPACE in the translation (it takes no width and draws nothing).
 
 The error names the first characters (`U+65E5 '日'`), the text, the file, the pointer or the table key, the fonts that were
 tried, and the fix: change the text, or list a font that has them in `localization.languageFonts."<tag>"` or
@@ -304,7 +375,10 @@ factoria call i18n.import '{"file": "build/translations/translations.csv"}'
 
 **Rows.** One row per string, with the default language's text next to the text to translate. A nested key is written
 dotted (`menu.play`), a plural entry is **one row per form**, the category after a `#`: `coins#one`, `coins#other`
-(Russian gets `few` and `many` too; the forms a language needs are the CLDR categories of section 2). The row `$name`
+(Russian gets `few` and `many` too; the forms a language needs are the CLDR categories of section 2). A select entry
+(section 5c) is one row per form too (`ship_the#f`, `ship_the#m`, `ship_the#other`) and a string with a gender in any
+language gets a row `ship.light#gender` whose cell is `f`, `m` or `n`; to give a string a gender in a language that has
+none yet, write that row (`i18n.import` turns the string into `{"text", "gender"}`). The row `$name`
 is the language's own name. A placeholder (`{name}`, `{count}`) must stay in the translation exactly as in the source;
 XLIFF files carry a note that says so.
 
@@ -350,10 +424,17 @@ overflows its box (the test of `ui.overflowed`, so `autoSize`, `autoShrink` and 
 text or widget, or leaves the screen. Each problem comes once, with the scene, the entity id and path, the `key`, the
 rectangle and every language and scale where it happens, so the fix goes to the widget: `autoSize`, `autoShrink` with
 `minFontSize`, `maxWidth`, a bigger box or a shorter string. Narrow it with `scenes`, `languages` and `textScales`
-(`{"languages":["de"],"textScales":[1,1.5,2],"pseudo":false}`). It checks what is active when the scene has settled: a
-panel a script opens later (options, shop) is not seen until the scene shows it, and a text a script writes without a
-`key` is only checked at each text scale. It reloads scenes and restores the language and text size afterwards, so run
+(`{"languages":["de"],"textScales":[1,1.5,2],"pseudo":false}`); `uiScales` (default: the interface scale now in use) adds the
+interface sizes (`ui.scale`) the game offers, crossed with the languages and text scales: `{"uiScales":[1,1.25,1.5]}`. A widget in a `ScrollList` is checked on the part the list shows (a row half scrolled out is judged by its visible half; a row
+fully outside is skipped). It checks what is active when the scene has settled: a panel a script opens later (options, shop)
+is not seen unless you open it with `steps`, a list per scene run before the checks
+(`{"steps":{"scenes/menu.scene.json":[{"click":"options_button"},{"frames":10}]}}`; a step is `click` a widget by name or id,
+`key`, `action` or `frames`; the state the steps reach stays for every language and scale of that scene), and a text a script
+writes without a `key` is only checked at each text scale (in the state the steps reach). It reloads scenes and restores the language and text size afterwards, so run
 it on a fresh game, not in the middle of a play session.
+
+In a test, `game.checkLayout()` (docs/SCRIPTING.md, "Testing") runs the same check with `current: true`: no scene is loaded, so it
+measures the running scene with the panels the test has opened, and the game state is kept (`scenes` and `steps` do not apply).
 
 ## 9. Commands
 
@@ -365,7 +446,7 @@ it on a fresh game, not in the middle of a play session.
   translators exchange (section 8). Both write files, `i18n.export` only under `out` (default `build/translations/`,
   never in `locales/`).
 
-- `ui.check_layout {scenes?, languages?, textScales?, pseudo?, settleFrames?}`: the layout check above; returns
+- `ui.check_layout {scenes?, languages?, textScales?, uiScales?, pseudo?, current?, settleFrames?}`: the layout check above; returns
   `{ok, checked, skipped, issueCount, issues: [{scene, kind, entity, path, key, text, rect, other?, cases}]}` with `kind`
   `overflow`, `overlap` or `offscreen`.
 

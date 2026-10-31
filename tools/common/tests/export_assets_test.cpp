@@ -3,6 +3,7 @@
 
 #include <filesystem>
 
+#include "fa/core/asset_manifest.h"
 #include "fa/core/json.h"
 #include "fa/tooling/export.h"
 #include "fa/tooling/scaffold.h"
@@ -61,6 +62,34 @@ TEST_CASE("export: the shipped assets.json keeps import settings and drops prove
     CHECK(shipped.find("secret plans") == std::string::npos);
     // The project keeps its own file.
     CHECK(testing::read_all(stdfs::path(f.proj) / "assets.json") == manifest);
+}
+
+TEST_CASE("export: the sheet entry (grid, padding, pivot, clips) ships, and the game reads its clips from the shipped file") {
+    ExportFixture f;
+    testing::write_all(stdfs::path(f.proj) / "assets.json", R"({
+      "format": "factoria.assets/1",
+      "assets": {
+        "assets/hero.png": {
+          "provenance": {"origin": "generated", "date": "2026-10-16"},
+          "sheet": {"columns": 2, "rows": 1, "frameWidth": 8, "frameHeight": 8, "frames": 2, "padding": 1, "pivot": [0.5, 1],
+                    "clips": [{"name": "walk", "firstFrame": 0, "lastFrame": 1, "fps": 6, "loop": true, "pivot": [0.5, 0.9]}]}
+        }
+      }
+    })");
+    auto r = f.export_linux();
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    auto j = parse_json(testing::read_all(f.tmp.sub("out/proj-linux/game/assets.json")));
+    REQUIRE(j.ok());
+    REQUIRE((*j)["assets"].contains("assets/hero.png"));
+    CHECK_FALSE((*j)["assets"]["assets/hero.png"].contains("provenance"));
+    const auto sheet = assets::parse_sheet((*j)["assets"]["assets/hero.png"]["sheet"]);
+    REQUIRE(sheet);
+    CHECK(sheet->padding == 1);
+    REQUIRE(sheet->pivot);
+    REQUIRE(sheet->find("walk") != nullptr);
+    CHECK(sheet->find("walk")->fps == doctest::Approx(6.0f));
+    REQUIRE(sheet->find("walk")->pivot);
+    CHECK((*sheet->find("walk")->pivot)[1] == doctest::Approx(0.9f));
 }
 
 TEST_CASE("export: a project without assets.json ships none") {

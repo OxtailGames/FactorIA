@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "ai_usage.h"
 #include "fa/ai/session.h"
 #include "fa/core/image.h"
 #include "fa/core/json.h"
@@ -39,6 +40,7 @@ struct ChatItem {
     // to a checkpoint (or, with isUndo, that was taken back). Both are written by the editor, not by the model.
     enum class Kind { User, Assistant, Thinking, Tool, Info, Error, Run, Revert };
     Kind kind = Kind::Info;
+    // Info with isError set is a warning (the same-file notice of two chats running at once), drawn in amber.
     std::string text;
     std::string tool;
     Json input;
@@ -54,10 +56,15 @@ struct ChatItem {
     std::vector<std::string> modified, added, deleted;  // Run: what the run changed. Revert: what the restore did (capped)
     int omitted = 0;                      // files over the cap of kMaxListedFiles that the lists leave out
     bool sceneChanged = false;            // Run: the open scene differs from before the run
+    // Run: when the run started and ended (epoch seconds; 0 = saved before chats could run side by side) and the scene file
+    // that was open at its end. Revert uses them to tell which other chats' runs could have changed the same files.
+    i64 startedAt = 0, endedAt = 0;
+    std::string scenePath;
     std::string revertedBy;               // Run: the safety checkpoint of the Revert that took it back ("" = not reverted)
     std::string safetyId;                 // Revert: the automatic "Before restoring ..." checkpoint (what Undo revert restores)
     bool undone = false;                  // Revert: it was taken back with Undo revert
     bool isUndo = false;                  // Revert: this item IS an Undo revert
+    bool scoped = false;                  // Revert: only some files went back (other chats' runs had changed files too)
 
     Json to_json() const;
     static ChatItem from_json(const Json& j);
@@ -83,11 +90,11 @@ struct AiChat {
     u64 contextTokens = 0, contextWindow = 0;
 
     // Not saved:
-    ai::Usage runUsage;           // tokens of the run in progress
-    double runCostUsd = 0;
+    RunUsage run;                 // tokens and cost of the run in progress, per agent (not in usage / costUsd yet)
     std::string input;            // the unsent text
     std::vector<ChatAttachment> pending;  // the unsent pictures
-    bool scrollDown = false;
+    bool scrollDown = false;      // new output: follow it if the transcript is at the bottom
+    bool forceScroll = false;     // go to the bottom even if scrolled up (the user sent a message or asked for the latest)
 
     bool empty() const { return items.empty(); }
     Json to_json() const;

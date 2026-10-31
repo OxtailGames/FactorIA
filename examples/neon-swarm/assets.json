@@ -1,0 +1,89 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/art/shockwave.png": {
+      "sheet": {
+        "columns": 5,
+        "rows": 4,
+        "frameWidth": 96,
+        "frameHeight": 96,
+        "frames": 20,
+        "padding": 2,
+        "pivot": [
+          0.5,
+          0.5
+        ],
+        "clips": [
+          {
+            "name": "pop",
+            "firstFrame": 0,
+            "lastFrame": 7,
+            "fps": 24.0,
+            "loop": false
+          },
+          {
+            "name": "boom",
+            "firstFrame": 8,
+            "lastFrame": 19,
+            "fps": 20.0,
+            "loop": false
+          }
+        ]
+      },
+      "provenance": {
+        "origin": "generated",
+        "ai": true,
+        "kind": "image",
+        "provider": "factoria assets.animate_svg",
+        "license": "CC0-1.0",
+        "notes": "20 frames of 96x96 baked from module 'art/shockwave.anim.js'.",
+        "date": "2026-10-29",
+        "recipe": {
+          "command": "assets.animate_svg",
+          "args": {
+            "path": "assets/art/shockwave.png",
+            "fps": 12.0,
+            "loop": true,
+            "columns": 5,
+            "frameWidth": 96,
+            "frameHeight": 96,
+            "padding": 2,
+            "seed": 7,
+            "overwrite": true,
+            "source": "art/shockwave.anim.js",
+            "clips": [
+              {
+                "name": "pop",
+                "frames": 8,
+                "fps": 24,
+                "loop": false
+              },
+              {
+                "name": "boom",
+                "frames": 12,
+                "fps": 20,
+                "loop": false,
+                "params": {
+                  "sparks": 10
+                }
+              }
+            ],
+            "pivot": [
+              0.5,
+              0.5
+            ],
+            "timeLimitMs": 2000,
+            "license": "CC0-1.0"
+          },
+          "inputs": [
+            {
+              "path": "art/shockwave.anim.js",
+              "sha256": "b56d57e7d78c5fc007fa6cc9507a3eaca30a86f54d9a475c61f32fd11e4cba02"
+            }
+          ]
+        },
+        "source": "art/shockwave.anim.js"
+      }
+    }
+  }
+}

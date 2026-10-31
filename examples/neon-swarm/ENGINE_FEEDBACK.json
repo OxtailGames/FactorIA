@@ -421,6 +421,27 @@
         "Fixed in 6e5b5b2: scene.format {\"check\": true, \"strict\": true} fails (error not_canonical, non-zero exit from factoria call) when a file is not canonical, and project.validate warns once per non-canonical scene/prefab in scenes/ and prefabs/."
       ],
       "engineIssue": "6e5b5b2"
+    },
+    {
+      "id": "FB-0019",
+      "date": "2026-10-29",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "sonnet-5.5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "A non-looping sheet clip cannot be looped from the component",
+      "missing": "SpriteAnimator.loop only matters for a numeric range; a clip from the sheet keeps the loop flag it was baked with, so the same sheet cannot loop in one entity and play once in another.",
+      "workaround": "Baked the shockwave as two non-looping clips and removed the entity on clipEnded.",
+      "workaroundFiles": [
+        "scripts/game.js"
+      ],
+      "suggestion": "A tri-state loop override on SpriteAnimator (inherit / loop / once).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

@@ -1,11 +1,11 @@
 // P5: remote balance values: applied, rejected, held during a shift, and the offline fallback.
-import { test, describe, expect } from "factoria:test";
+import { test, describe, expect, game } from "factoria:test";
 import fixture from "./fixtures/balance.json";
 import * as balance from "../scripts/game/balance.js";
 import * as events from "../scripts/game/events.js";
 import { STATS } from "../scripts/game/enemy_brains.js";
 import { TUNING } from "../scripts/game/hazards.js";
-import { freshOnline, fakeServer } from "./helpers/online.js";
+import { freshOnline, serveConfig } from "./helpers/online.js";
 
 describe("balance", () => {
   freshOnline();
@@ -58,28 +58,38 @@ describe("balance", () => {
   });
 
   test("refresh from the server applies and reports", async () => {
-    const server = fakeServer({ "/v1/balance.json": fixture });
+    serveConfig({ balance: fixture.values });
     const r = await balance.refresh();
     expect(r.source).toBe("server");
     expect(r.applied["king.hp"]).toBe(14);
     expect(r.rejected.length).toBe(6);
-    server.restore();
   });
 
   test("offline: the defaults stay and the answer says so", async () => {
+    serveConfig(null);
     const before = balance.current();
     const r = await balance.refresh();
     expect(r.source).toBe("offline");
     expect(balance.current()).toEqual(before);
   });
 
-  test("a server file that is not a balance file changes nothing", async () => {
-    const server = fakeServer({ "/v1/balance.json": { hello: 1 } });
+  test("a server file with no balance section, or one of another type, changes nothing", async () => {
+    serveConfig({ hello: 1, balance: "fast" });
     const before = balance.current();
     const r = await balance.refresh();
-    expect(r.source).toBe("invalid");
+    expect(r.source).toBe("server");
+    expect(r.applied).toEqual({});
     expect(balance.current()).toEqual(before);
-    server.restore();
+  });
+
+  test("an offline start uses the values of the last run (the engine's cache)", async () => {
+    serveConfig({ balance: { "beetle.hp": 5 } });
+    await balance.refresh();
+    balance.reset();
+    game.remoteConfig.restart(); // the next run, offline: nothing is scripted
+    const r = await balance.refresh();
+    expect(r.source).toBe("cache");
+    expect(STATS.beetle.hp).toBe(5);
   });
 
   test("every key in RANGES starts at a value inside its own range", () => {

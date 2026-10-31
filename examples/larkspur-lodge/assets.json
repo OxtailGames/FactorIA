@@ -1,0 +1,1297 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/audio/cellar_air.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 37,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (noise): noise brown, cutoff 250 Hz, level 1, gusts 0, crackles 0/s, tick 0 s, 12.00 s at 22050 Hz, seed 37. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/audio/clock.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 0,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (noise): noise brown, cutoff 0 Hz, level 0, gusts 0, crackles 0/s, tick 1 s, 4.00 s at 22050 Hz, seed 0. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/audio/fire.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 23,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (noise): noise brown, cutoff 600 Hz, level 1, gusts 0, crackles 4/s, tick 0 s, 12.00 s at 22050 Hz, seed 23. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/audio/footstep_carpet_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_carpet_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_carpet_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_concrete_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_001.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/footstep_wood_002.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/impactBell_heavy_000.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/audio/music_ch1.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 2,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (drone): 4 chord(s) of 6 s, bass 0.5, brightness 0.25, arpeggio, 24.00 s at 16000 Hz, seed 2. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/audio/music_ch2.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 3,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (drone): 4 chord(s) of 6 s, bass 0.5, brightness 0.3, arpeggio, 24.00 s at 16000 Hz, seed 3. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/audio/music_ch3.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 4,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (drone): 4 chord(s) of 6 s, bass 0.5, brightness 0.2, arpeggio, 24.00 s at 16000 Hz, seed 4. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/audio/music_ch4.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 5,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (drone): 4 chord(s) of 6 s, bass 0.7, brightness 0.08, arpeggio, 24.00 s at 16000 Hz, seed 5. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/audio/music_ch5.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 6,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (drone): 4 chord(s) of 6 s, bass 0.5, brightness 0.4, arpeggio, 24.00 s at 16000 Hz, seed 6. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/audio/music_title.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 1,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (drone): 4 chord(s) of 6 s, bass 0.5, brightness 0.35, arpeggio, 24.00 s at 16000 Hz, seed 1. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/audio/wind.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "sound",
+        "provider": "factoria assets.generate_loop",
+        "seed": 11,
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "notes": "Synthesised loop (noise): noise brown, cutoff 900 Hz, level 1, gusts 0.6, crackles 0/s, tick 0 s, 20.00 s at 22050 Hz, seed 11. No recording or sample.",
+        "date": "2026-10-28"
+      }
+    },
+    "assets/fonts/NotoSansKR-Regular-subset.ttf": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://github.com/google/fonts/tree/main/ofl/notosanskr",
+        "license": "OFL-1.1",
+        "author": "Google, Adobe (Noto Sans KR, Source Han Sans)",
+        "notes": "Noto Sans KR variable font (sha256 194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252), pinned to wght 400 and cut to the characters of locales/ko.json, the Hangul jamo and the 2350 syllables of KS X 1001 (names typed on the on-screen keyboard), plus Latin and punctuation, by assets/src/build_fonts.py (the engine's assets.subset_font). Re-run it when a Korean string changes. The license text is assets/fonts/OFL.txt."
+      }
+    },
+    "assets/fonts/OFL.txt": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://github.com/google/fonts/blob/main/ofl/notosanskr/OFL.txt",
+        "license": "OFL-1.1",
+        "author": "Google, Adobe"
+      }
+    },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "1024x1024 icon cropped from an in-game render of the lodge by assets/src/make_store.py (ffmpeg crop); the lodge models are Kenney CC0 and the lighting is the game's own.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "assets/models/characters/Textures/texture-a.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/Textures/texture-b.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/Textures/texture-e.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/Textures/texture-f.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/character-a.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/character-b.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/character-e.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/characters/character-f.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/blocky-characters",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bathroomMirror.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bear.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bedBunk.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bedDouble.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bedSingle.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bench.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/benchCushion.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bookcaseClosed.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bookcaseClosedWide.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bookcaseOpen.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/bookcaseOpenLow.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/books.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cabinetBed.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cabinetBedDrawer.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cabinetBedDrawerTable.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cardboardBoxClosed.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/cardboardBoxOpen.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/chair.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/chairCushion.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/chairDesk.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/chairRounded.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/coatRack.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/coatRackStanding.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/desk.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/doorway.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/doorwayOpen.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/dryer.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/floorFull.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/hoodLarge.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenBar.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCabinet.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCabinetCornerInner.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCabinetDrawer.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCabinetUpper.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenCoffeeMachine.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenFridgeLarge.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenMicrowave.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenSink.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/kitchenStove.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/lampRoundFloor.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/lampRoundTable.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/lampSquareFloor.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/lampSquareTable.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/loungeChair.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/loungeChairRelax.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/loungeSofa.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/pillow.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/plantSmall1.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/plantSmall2.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/plantSmall3.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/pottedPlant.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/radio.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/rugDoormat.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/rugRectangle.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/rugRound.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/rugSquare.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/sideTable.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/sideTableDrawers.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/stairs.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/stoolBar.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/table.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/tableCloth.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/tableCoffee.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/tableCrossCloth.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/tableRound.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/toaster.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/trashcan.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wall.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wallCorner.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wallDoorway.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wallDoorwayWide.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/wallWindow.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "assets/models/lodge/washer.glb": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-27",
+        "source": "https://kenney.nl/assets/furniture-kit",
+        "license": "CC0-1.0",
+        "author": "Kenney"
+      }
+    },
+    "store/capsules/appstore/larkspur-lodge_2622x1206.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/appstore/larkspur-lodge_2752x2064.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/appstore/larkspur-lodge_2778x1284.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/appstore/larkspur-lodge_2868x1320.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/itch/larkspur-lodge_630x500.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/microsoft/larkspur-lodge_1080x1080.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/microsoft/larkspur-lodge_1920x1080.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/microsoft/larkspur-lodge_300x300.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/microsoft/larkspur-lodge_720x1080.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_1232x706.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_1280x720.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_1438x810.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_1920x1080.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_3840x1240.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_462x174.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_600x900.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_748x896.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/capsules/steam/larkspur-lodge_920x430.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "Store capsule built from store/keyart.png by assets.draw_capsules.",
+        "provider": "assets.draw_capsules",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/keyart.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless render of the game itself (Kenney CC0 models, the game's own lights), no HUD, lifted by assets/src/make_store.py; the capsules are built from it with assets.draw_capsules.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/cellar.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/dining.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/hall.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/hall2.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/kitchen.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/landing.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    },
+    "store/screenshots/library.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-27",
+        "notes": "A headless screenshot of the game (factoria run --render-scale 1.5, HUD hidden by assets/src/make_store.py), English UI.",
+        "provider": "assets/src/make_store.py",
+        "license": "CC0-1.0",
+        "author": "Larkspur Lodge project"
+      }
+    }
+  }
+}

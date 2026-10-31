@@ -1627,6 +1627,1006 @@ keyboard-only and gamepad-only tests drive the menus; the three exports are made
 is a by-hand check, ROADMAP.md); the busiest floor stays under its draw-call and light budgets in a headless run;
 `factoria feedback collect` includes the game.
 
+## M29. Found by the third reference game — DONE (the `m29/*` PRs)
+
+Planned 2026-10-25, against `c7e6ef6`, from the triage above: 21 packages, ranked by points (occurrences x severity
+weight) and size. Each ships with its doctest or JS test, its docs and the `"unreleased"` rows in
+`tools/common/api_since.json` for the API it adds. When one merges, its entries get a `Fixed in <commit>` note in the
+bookkeeping PR at the end, and Burrow Brigade drops the workaround it no longer needs (its `activeLights` helper, its own
+A* and behaviour tree, its whole-array tile writes, its stdout recordings).
+Order of work: three builds at once at most, a rolling pool; a package starts when the packages it comes after have
+merged. Packages that only share a file run at once and the later one merges `origin/main` before its PR; packages that
+change the same function or the same shader wait for each other (the "after" lines). First M29.1, M29.2 and M29.3;
+then M29.4, M29.5 and M29.7; then the rest in order, as their "after" packages merge.
+
+### M29.1 Light2D in the stats and the perf budget, a better choice of 16 (S) — BB/FB-0009, 0028, 0008 (part)
+
+Done (branch `m29/light2d-stats`, `bef8abf1`): `RenderStats` has `lights2d` and `lights2dDropped` (`renderStats()`,
+`game.render_stats`), and `perf.measure`'s `lights`, so the `maxLights` budget, counts the most 2D plus 3D lights of any
+frame. The kept lights are the ones that light the view: directional first, then point lights whose radius reaches the
+camera's rectangle, more of their radius in view first, then the brighter; one warning per scene when more are in view
+than the budget. As planned; the budget is 256 since M29.14's light buffer, not 16 (that package changed this package's
+test to expect 17 lights).
+
+- `gather_lights` (scene2d.cpp) counts the 2D lights it keeps and drops: `RenderStats` gets `lights2d` and
+  `lights2dDropped`, `renderStats()` and `game.render_stats` show them, and `perf.measure`'s `lights` (and so the
+  `maxLights` budget) is the most 2D plus 3D lights of any frame: a budget that watched nothing now watches them.
+- The 16 kept lights are the ones that light the view: directional lights first, then point lights whose radius reaches
+  the camera's visible rectangle, ranked by how much of their radius is inside it and their intensity; a light entirely
+  outside the view is never kept over one inside. More than 16 in view logs one warning per scene naming the count.
+- `game.render_stats`' description, PERFORMANCE.md and the Light2D docs say what is counted and how the 16 are chosen.
+
+Acceptance: render doctests: 20 lights give `lights2d` 16 and `lights2dDropped` 4, and the dropped ones are the
+off-screen ones; `perf.measure` of a scene with 3 Light2D reports `lights` 3. Burrow Brigade's perf baselines get its
+real light count, and its `perf.check` passes.
+
+### M29.2 The time of day in `game.today()` and a daily leaderboard by date (S) — BB/FB-0017, 0021
+
+Done (branch `m29/dates`, `120550c2`): `game.today()` has `hour`, `minute`, `second` and `utc: {year, month, day, iso}`;
+a built game reads the clock again about once a minute and on focus or resume, `game.on("dayChanged")` runs once per
+local day change, and `game.setDate`, `--date` and replay files take the time (and `game.setDate(iso,
+{utcOffsetMinutes})` the zone). `leaderboard.submit` and `entries` take `{day}`; the fake and Steam keep every day, Game
+Center and Play Games answer `unsupported` for a day that is neither the local nor the UTC today (the plan said "not the
+current one"). A second commit (`4596f528`) says in the docs that a daily board without `day` is the local date's and
+that `game.today().utc.iso` gives one board worldwide.
+
+- `CalendarDate` (and `game.today()`) gets `hour`, `minute` and `second` next to `utcOffsetMinutes`, and a `utc` field
+  with the UTC date. The date advances during play (the runner reads it again every minute and on focus or resume,
+  not only at start), with a `dayChanged` event when the local date changes; replays record and play back the date
+  fields, and `game.testSetDate` takes the new ones.
+- `leaderboard.submit` and `entries` take `{day: "YYYY-MM-DD"}` on a daily board (a UTC day), and the fake keys the board
+  by it; Game Center and Play Games answer `unsupported` for a day that is not the current one.
+- SCRIPTING.md (dates) and PLATFORM.md (leaderboard periods) follow.
+
+Acceptance: script tests: `game.today()` has the time and moves across midnight in a test that advances the clock
+(with `dayChanged` once); a daily board read with yesterday's `day` returns yesterday's scores in the fake. A replay
+recorded at 23:59 plays back on the same date.
+
+### M29.3 Thai line breaks at marked boundaries and the sara am check (S) — BB/FB-0036 (part), 0037
+
+Done (branch `m29/thai`, `2690d768`): A wrapped line breaks after U+200B (never drawn), the UAX #14 spaces and a hyphen
+(`-` unless a digit follows, U+2010); `FontCoverage::missing`, `localization validate` and the runtime missing-glyph
+warning check U+0E33 and U+0EB3 as the parts HarfBuzz decomposes them into (U+0E4D U+0E32, U+0ECD U+0EB2). TEXT.md and
+LOCALIZATION.md say how to mark the boundaries; unmarked Thai, Khmer, Lao and Burmese still need a dictionary and are
+not broken. As planned.
+
+- `can_break_between` (text_shaper.cpp) breaks after U+200B ZERO WIDTH SPACE (which is not drawn) and after the UAX #14
+  BA spaces (U+1680, U+2000-U+2006, U+2008-U+200A, U+205F) and the hyphen, so Thai, Khmer, Lao and Burmese text whose
+  translator marks word boundaries with U+200B wraps there.
+- `FontCoverage::missing` expands the composed vowels before checking: U+0E33 needs U+0E4D and U+0E32, U+0EB3 needs
+  U+0ECD and U+0EB2. `localization validate` and the runtime missing-glyph warning name them.
+- TEXT.md and LOCALIZATION.md: how to mark Thai boundaries; breaking unmarked Thai needs a dictionary and is not done.
+
+Acceptance: text doctests: a Thai line with U+200B wraps at it and never inside a word, and draws no glyph for it; a
+font without U+0E4D is reported missing for a string with U+0E33.
+
+### M29.4 The clipboard and the window-close event (M) — BB/FB-0016, 0023
+
+Done (branch `m29/clipboard-quit`, `d025e515`): `clipboard.read()` (a Promise) and `clipboard.write(text)` on Windows,
+macOS, Linux and the web (`window.supports("clipboard")`), an in-memory clipboard in headless runs and tests (a replay's
+`"clipboard"` entry sets it), and Ctrl/Cmd+V and Ctrl/Cmd+C in a focused `TextField`; phones answer `unsupported`.
+`game.on("quit", fn)` is raised by the close button, Cmd+Q and Alt+F4, `event.cancel()` keeps the game running,
+`game.quit()` closes without asking again, and the test helper `game.closeWindow()` raises it. As planned, except that a
+replay sets the clipboard at its start instead of recording each read.
+
+- `clipboard.read()` (a Promise) and `clipboard.write(text)`, with `supports("clipboard")`, on Windows, macOS, Linux and
+  the web (`enable_clipboard` in the app descriptor; the web reads only inside a paste gesture). A focused `TextField`
+  pastes with Ctrl+V (Cmd+V on macOS) and copies its text with Ctrl/Cmd+C. Headless runs and tests have an in-memory
+  clipboard; a replay records what a read returned. Mobile answers `unsupported` for now.
+- `game.on("quit", fn)`: the window's close button, Cmd+Q and Alt+F4 raise it (desktop only; `QuitRequested` is no longer
+  dropped by the runner); a handler may call `event.cancel()` to keep the window open, and `game.quit()` closes it.
+- SCRIPTING.md (clipboard, app events) and UI.md (`TextField`).
+
+Acceptance: script tests: write then read gives the text back; a TextField pastes with Ctrl+V; a requested quit raises
+`quit` once and a cancelled one keeps running. Replays of a paste are deterministic.
+
+### M29.5 Steam from one Mac: optional plugin, exports, app 480, capsules (M) — BB/FB-0031, 0032, 0033, 0034
+
+Done (branch `m29/steam-mac`, `f96d04d3`): The Steam plugin logs a warning, not an ERROR, without Valve's library, and
+`project.new_plugin` (so `platform.add_backend`) writes `optional: true`; `project.export` takes `allowMissingPlugins`
+(the result lists `pluginsLeftOut`); a player with no build fingerprint gets its own error; `publish.steam` accepts app
+480 in a dry run with a warning; `assets.draw_capsules` takes `safeArea` and `logoAnchor`, and `focus` moves the logo
+when the key art already has the capsule's proportions. Two follow-up commits fix a command description and regenerate
+the reference. As planned.
+
+- A plugin that cannot load its library logs a warning, not an ERROR; `platform.add_backend steam` and
+  `project.new_plugin` write `optional: true` (already supported since `ce8b98c`).
+- `project.export` takes `allowMissingPlugins` (like `allowPlayerMismatch`): a target whose plugin build is missing is
+  exported without it, and the export lists what it left out.
+- The player-build fingerprint check says what to do when the installed player predates fingerprints (0.2.0): install a
+  newer player or pass `allowPlayerMismatch`; EXPORTING.md stops pointing in a circle.
+- `publish.steam` accepts app 480 in a dry run (a warning that Spacewar is Valve's test app), still refused for a real
+  upload.
+- `assets.draw_capsules` takes `logoAnchor` and `safeArea` (per capsule, with defaults), and `focus` also moves the logo
+  when the aspect ratios already match.
+
+Acceptance: tooling tests: an export with a missing optional plugin build passes with `allowMissingPlugins` and lists
+it, and fails without it; a dry run with app 480 passes with a warning; a capsule with `logoAnchor` puts the logo inside
+its safe area. A run with a declared Steam plugin and no Valve library logs no ERROR.
+
+### M29.6 Test runner and `ui.check_layout` (M) — BB/FB-0019, 0024, 0038, 0035
+
+Done (branch `m29/test-runner`, `edb178ec`): `game.click` (and `mouseMove`, `touch`, `touchStart`, `touchMove` with a
+widget) lays the UI out first and throws, naming the widget and why, for a widget that is inactive, has no area or is
+scrolled out of its `ScrollList`; `game.tapKey(key)` presses and releases a key over one frame; `ui.check_layout` judges
+a widget by the part its `ScrollList` shows and takes `steps` per scene; SCRIPTING.md shows `fa.call("fs.write", ...)`.
+The throw broke one Clockwork Courier test (it clicked a hidden second ad button), which commit `73ac6212` now expects
+to throw. As planned.
+
+After M29.2 (both edit `factoria.js`'s test helpers).
+- `game.click` on a widget of a panel opened in the same frame lays the UI out first (`posArg` runs the layout), and a
+  click on a widget that is not laid out or not visible throws, naming it, instead of doing nothing.
+- `game.tapKey(key)` presses and releases a key over one frame; the docs show `game.tapKey("Enter")` submitting a
+  `TextField`.
+- `ui.check_layout` intersects each widget's rectangle with its `ScrollList`'s clip, so a row half inside is checked on
+  its visible part and a row fully outside is skipped, and takes `steps` per scene (clicks, keys, frames) run before the
+  checks.
+- SCRIPTING.md's tests section shows `fa.call("fs.write", {path, content})` to save a recording from a test.
+
+Acceptance: JS tests for the click after `open()` and the error, and for `tapKey`; `ui_check_layout_test.cpp` cases for
+a half-visible row and for `steps` that open a panel.
+
+### M29.7 Music: the scene-load bug, voice volume, synced layers, synth loudness (M) — BB/FB-0012, 0025, 0007
+
+Done (branch `m29/music`, `291f4b98`): A scene load restarts the new scene's music (the same track included),
+`audio.music(path, {persist: true})` keeps a track across loads, `audio.setVoiceVolume(id, volume, fade?)`,
+`audio.musicLayers({name: path}, opts)` and `audio.setLayer(name, level, fade?)` (stems start on the same sample, loop,
+are never evicted, and the play log has a `layer` field), and `assets.synth_sound` levels every preset to about -18 LUFS
+with a peak under -1 dBFS (the bytes of every seed change). The docs say a scene load stops sounds and music unless
+persisted. As planned.
+
+- The bug: `Audio::stop_all` leaves `sceneMusic` set, so a scene that loads with the same `settings.music` as the one
+  before plays nothing while `state().audio.music` says it is playing. Loading a scene now starts its music again, and
+  `audio.music(path, {persist: true})` keeps a track playing across scene loads.
+- SCRIPTING.md, AI_GUIDE §9.7 and the SceneSettings docs say a scene load stops sounds and music unless persisted.
+- `audio.setVoiceVolume(id, volume, fade?)` changes a playing voice's volume (the mixer already fades).
+- `audio.musicLayers({name: path, ...}, opts)` starts several tracks on the same sample, and `audio.setLayer(name, volume,
+  fade?)` mixes them; `stopMusic` stops them all and the play log names the layer.
+- `assets.synth_sound` normalizes its presets to the loudness the validator accepts (-18 LUFS, the measurement in
+  `fa/audio/analysis.h`) instead of peaking at -3 dBFS.
+
+Acceptance: audio doctests: two scenes with the same music play it after the load; layers stay sample-aligned; a voice's
+volume fades. A synth preset passes `factoria validate`'s loudness check.
+
+### M29.8 Menu kit: optional shop and age gate, a Controls tab from the actions (M) — BB/FB-0004, 0005
+
+Done (branch `m29/menu-kit`, `2af58d1d`): `project.add_menu_kit {"parts": ["main-menu"]}` writes a main menu without the
+shop button, the shop panel and the age gate (and without their scripts); no `parts` still adds everything. The options
+screen's Controls tab lists `input.actions()` except the `ui_*` ones, labelled with `options.action.<action>` (the
+action's name when there is no string), and the Script's `actions` property picks and orders them. As planned.
+
+- `main-menu` no longer requires `shop` and `ageGate`: the main menu shows the shop button and asks the age only when
+  those parts are in (its script imports them only then), and `project.add_menu_kit` adds them only when asked.
+- The options screen's Controls tab lists `input.actions()` without the `ui_*` ones, labelled with `i18n.t` (the action's
+  name when no key exists); the `Options.actions` property the docs promise is declared, to pick and order them.
+- MENUS.md follows.
+
+Acceptance: `menu_kit_test.cpp`: a kit without shop and age gate validates and runs; a game with `dig` and `place`
+actions sees them in Controls and can rebind them.
+
+### M29.9 Gamepad connect events, a stable pad id and Steam Deck detection (M) — BB/FB-0014, 0022
+
+Done (branch `m29/gamepads`, `fe840536`): `game.on("gamepadConnected" | "gamepadDisconnected", fn)` gives `{slot, id,
+name, type}` (`input.gamepad(i).id` and `.name` too) on Windows, Linux, macOS, iOS, Android and the web, and a pad that
+returns gets its old slot when it is free; tests use `game.gamepad(i).connect({...})`. `game.device.steamDeck` and
+`handheld` come from the Steam plugin through plugin API version 4 (`set_device_fact`; commit `e4b614cc` makes the
+engine read it when the entry point returns), else the `SteamDeck=1` environment variable; `game.setDevice` takes both.
+The plan did not mention the plugin API bump. On Windows the id comes from the XInput slot, so it does not tell two pads
+apart across slots.
+
+- `game.on("gamepadConnected" | "gamepadDisconnected", fn)` with the pad's slot and a stable `id` (its name, vendor and
+  product, and a serial or path where the backend has one), on the five backends (Windows, Linux, Apple, Android, web);
+  a pad that comes back gets its old slot when it is free.
+- `game.device.steamDeck` and `game.device.handheld` (the Steam plugin's `IsSteamRunningOnSteamDeck`, the `SteamDeck`
+  environment variable otherwise); `game.setDevice` in tests takes them.
+- INPUT docs and AI_GUIDE (which wrongly says the web has no pads).
+
+Acceptance: input doctests: connect, disconnect and reconnect raise the events and keep the slot; script tests with a
+test device that is a Steam Deck.
+
+### M29.10 Tilemap: tileset margin and spacing, `setTile` without rewriting the array (M) — BB/FB-0002, 0003
+
+Done (branch `m29/tilemap`, `390af568`): `Tilemap.margin` and `Tilemap.spacing` (pixels) are read by the 2D renderer
+(also the normal map), the tile count, `factoria validate` and the level commands; `entity.tilemap.setTile(col, row,
+id)` and `getTile(col, row)` and the command `tilemap.set_tile` change one tile in place, the renderer reads the grid
+without a copy per frame and 2D physics rebuilds only the changed colliders (a whole-array write still works, caught by
+a hash). A second commit (`97678e80`) makes `entity.tilemap` width and height native reads instead of copying the tiles
+to the script. The plan called the script call `tilemap.setTile(x, y, id)`; it is a method of `entity.tilemap`.
+`assets.slice_sheet` does not take margin or spacing.
+
+- `Tilemap.margin` and `Tilemap.spacing` (pixels), used by the 2D renderer (also for the normal map), the tileset tile
+  count, `factoria validate` and the level commands.
+- `tilemap.setTile(x, y, id)` and `getTile(x, y)` (script) and a `tilemap.set_tile` command change one tile in place;
+  the renderer stops copying the grid every frame, and 2D physics rebuilds only the colliders of the changed tiles.
+- LEVELS docs and the component reference.
+
+Acceptance: render doctests for a tileset with margin 1 and spacing 2; physics doctests: `setTile` opens a hole a body
+falls through on the next step; a scripted 1 000 tile writes cost less than one whole-array write each.
+
+### M29.11 Tile pathfinding and a behaviour-tree module (M) — BB/FB-0010, 0011
+
+Done (branch `m29/tile-nav-bt`, `23c2aae8`): `nav.findTilePath(map, from, to, {costs, diagonals, maxNodes, closest,
+allowBlockedGoal})` and the command `nav.find_tile_path` run a deterministic A* over a Tilemap or a `{width, height,
+cost}` grid and return `cells` and world `points` (diagonals never cut corners); `nav.tileVersion(tilemap)` counts
+`setTile` writes so a script can tell a kept path is stale. `import { bt } from "factoria"` has `Tree`, `sequence`,
+`selector`, `condition`, `action`, `wait`, `cooldown`, `inverter`, `succeeder` and the three results; Burrow Brigade's
+moles use both and dropped their copies. Commit `a018f4fb` makes a wrong option type a script error instead of an
+exception through QuickJS. Beyond the plan: `allowBlockedGoal`, `tileVersion` and an enemies recipe (AI guide 9.27).
+
+After M29.10 (it reads tiles through M29.10's API).
+- `nav.findTilePath(tilemap | {width, height, cost}, from, to, {costs, diagonals, maxNodes, closest})`: A* on a
+  Tilemap's cells (solid tiles block, `costs` per tile id), on the pattern of M26.10's search, with the
+  `nav.find_tile_path` command; deterministic, and `closest` returns the nearest reachable cell.
+- `import { bt } from "factoria"`: `Tree`, `sequence`, `selector`, `condition`, `action`, `wait`, `cooldown`,
+  `inverter`, `succeeder` and `SUCCESS`, `FAILURE`, `RUNNING`, in plain JS like `tween`, ticked by a script.
+- NAVIGATION.md and a SCRIPTING.md section on AI.
+
+Acceptance: physics doctests (a path around walls, diagonals off, `closest`, the same path twice); JS tests for each
+node type. Burrow Brigade's moles move onto both and drop their copies; their tests pass.
+
+### M29.12 `input.record` and starting a scene with props (M) — BB/FB-0030
+
+Done (branch `m29/input-record`, `21ce220b`): The input recorder moved from the editor into the engine and records keys,
+mouse, touches, Back and gamepads; `input.record {action: "start" | "stop", path?}` returns the replay `factoria run
+--input` plays. `scene.load(path, props)`, `game.load`, `game.loadJson`, the `scene.load` command's `props`, `factoria
+run --props JSON|FILE` and `game.sceneProps()` hand values to the scene's first start (a reload keeps them). Not
+recorded: the mouse wheel, locked-mouse movement and typed text. The plan also listed `run.start`'s `props`; the
+CHANGELOG does not mention it and it was not checked.
+
+- The input recorder moves from the editor into the runtime, records gamepads too, and is a command: `input.record`
+  `{action: "start" | "stop"}` (stop returns the replay JSON `factoria run --input` plays).
+- `scene.load(path, {props})` and `factoria run --props <json>` (and `run.start`'s `props`) hand values to the scene's
+  scripts at start (`game.sceneProps()`).
+- SCRIPTING.md and DEBUGGING.md.
+
+Acceptance: runtime tests: a recorded keyboard and pad session replays to the same state hash; a scene started with
+props sees them in its first `start()`.
+
+### M29.13 The exported player takes an input replay, dumps its state and takes a screenshot (M) — BB/FB-0029
+
+Done (branch `m29/player-replay`, `78e12e7a`): The exported player takes `--input <replay>`, `--dump-state <file>` and
+`--screenshot <file>` with `--frames N`, headless through the same code as `factoria run --headless`; exit code 2 for a
+missing replay, an unwritable output or a missing `--frames`. The new test `cli_player_replay` compares the state dump
+and the screenshot with `factoria run`'s, and EXPORTING.md has "Checking an exported build". As planned.
+
+After M29.12.
+- The exported player accepts `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` (with `--frames`),
+  through the same `HeadlessRunOptions` as `factoria run`, so a shipped build can be checked by script.
+- EXPORTING.md: checking an exported build.
+
+Acceptance: a tooling test runs an exported desktop build with a replay and compares its state dump and screenshot with
+`factoria run`'s.
+
+### M29.14 Light2D on a light buffer: shadows from solid tiles and no 16-light cap (L) — BB/FB-0001, 0008 (the rest)
+
+Done (branch `m29/light-buffer`, `0d306a3c`): Point lights are added up in a light buffer (one draw call, RGBA16F or
+RGBA8 at half range) that lit sprites, tiles and shapes read, and a frame keeps up to 256 lights;
+`SceneSettings.lightScale` sizes the buffer and `FA_LIGHT_FORMAT` picks its format. `Light2D.castShadows` and
+`Tilemap.occludesLight` make solid tiles cast shadows: differing from the plan's shadow mask, the shadows are traced on
+the CPU per light (1024 rays) and looked up on the GPU, for at most 32 lights per frame (new stat `lights2dShadowed`). A
+lit visual with a normal map, and a perspective camera, still shade per pixel with the first 16 lights. A scene with lit
+visuals adds one draw call (Burrow's baselines went from 10 to 11), and PERFORMANCE.md has the cost per light.
+
+After M29.1 and M29.10.
+- 2D lights render into a light buffer (one pass per light, or tiled), so a scene has as many as its budget allows;
+  `Light2D.castShadows` and `Tilemap.occludesLight` make solid tiles cast shadows (a shadow mask per light built from
+  the occluding tiles).
+- Shaders regenerated for every backend; PERFORMANCE.md gives the cost per light.
+
+Acceptance: render tests: a light behind a wall of tiles leaves the far side dark; 64 lights all light the scene; the
+perf budgets of the 2D examples pass on the CI runners.
+
+### M29.15 Per-player actions (L) — BB/FB-0006
+
+Done (branch `m29/player-actions`, `4f6d6b63`): `input.player(i)` (0..3) gives each person their own `down`, `pressed`,
+`released`, `value`, `axis` and `vector` from the devices assigned with `use({pad, padId, keys})`, key schemes (`"all"`,
+`"left"`, `"right"` or `input.schemes` in `factoria.json`) and bindings of their own (`rebind`, `reset`, `export`,
+`import`); the menu kit's options screen gets a Player button when its `players` property is above one, and Burrow
+Brigade's four diggers use it. Three commits: the engine (`4f6d6b63`), the natives and `factoria.json` (`3f2862d2`) and
+docs, schema, typings and the game (`099f3d15`); the last also fixed an invalid embedded project schema and regenerated
+`schemas/project.schema.json`. Players do not read the mouse or touch, which the global actions still do.
+
+After M29.8 and M29.9.
+- `input.player(i)` gives a player their own actions bound to their pad (or keyboard half), with `pressed`, `held`,
+  `axis` like the global ones, and rebinds saved per player; the kit's Controls tab rebinds a chosen player.
+- INPUT docs.
+
+Acceptance: input doctests: two pads drive two players' `move` independently; a rebind of player 2 leaves player 1's.
+Burrow Brigade drives its four diggers with it.
+
+### M29.16 Bus effects, ducking and snapshots (L) — BB/FB-0026
+
+Done (branch `m29/bus-fx`, `44c0bc69`): Every bus is mixed into its own buffer before the master:
+`audio.bus(name).lowpass(hz)`, `.reverb(mix)`, `.duck(byBus, amount, attack, release)` and `.unduck()` (`lowpass`,
+`reverb` and `volume` take `{fade}`), `audio.snapshot(name, {fade})` from `audio.snapshots` in `factoria.json`
+(validated), and the commands `audio.bus` and `audio.snapshot`. A volume change ramps over about 10 ms instead of
+jumping. Effects stay across scene loads. As planned.
+
+After M29.7.
+- The mixer sums each bus before the master, with volume ramps; `audio.bus(name).lowpass(hz)`, `.reverb(mix)` and
+  `.duck(byBus, amount, attack, release)`, and `audio.snapshot(name, {fade})` from the catalog, with commands.
+- AUDIO docs.
+
+Acceptance: audio doctests: a low-pass removes a high tone; a ducked bus drops while the other plays and recovers; a
+snapshot fades in its time. The mix stays deterministic.
+
+### M29.17 Monitor choice and window modes (M) — BB/FB-0027
+
+Done (branch `m29/window-modes`, `7156bfaf`): `window.monitors()`, `window.monitor`, `window.setMonitor(i)`,
+`window.setMode("windowed" | "borderless" | "fullscreen")`, `window.mode` and `window.supports("borderless" |
+"monitors")`; on Windows and Linux full screen is a frameless window over the monitor, so `"fullscreen"` and
+`"borderless"` look the same there, on macOS `"fullscreen"` is the native Space. The menu kit's options screen has a
+Window mode button and a Monitor button (only with several monitors) and `settings.js` saves `windowMode` and `monitor`,
+still reading the old `fullscreen`. The plan asked for a manual check per desktop OS; none was done.
+
+After M29.4 (both touch the window host).
+- `window.monitors()`, `window.setMonitor(i)` and `window.setMode("windowed" | "borderless" | "fullscreen")` on Windows,
+  macOS and Linux; the options screen offers them.
+- SCRIPTING.md (window).
+
+Acceptance: platform tests through the headless window host; a manual check per desktop OS listed in the docs.
+
+### M29.18 Steam Remote Play guests and `cloud.stat` (L) — BB/FB-0015, 0018
+
+Done (branch `m29/remote-play`, `cd8fb526`): A `remotePlay` platform service: `platform.remotePlay.sessions()` and
+`platform.on("remotePlay", ...)` with `{status, session}`, offered by the Steam plugin when the library has
+`ISteamRemotePlay`, and a fake (`game.platform.remotePlayConnect` and `remotePlayDisconnect`, with their commands).
+`platform.cloud.stat(key)` returns `{exists: false}` or `{exists: true, size, modified}` (Unix seconds, `null` on
+Apple); the fake's time is a counter set by `cloudClock`. A guest's controls arrive as one more pad and the engine does
+not say which one; commit `4800aad6` regenerates the reference after the merge with M29.20. Checked against the Steam
+mock only.
+
+After M29.2 and M29.5.
+- A `remotePlay` service: `remotePlay.sessions()` and `remotePlay` connect and disconnect events (Steam's
+  `SteamRemotePlay`), the fake for tests; a guest's input arrives as the pads Steam gives it.
+- `cloud.stat(key)` returns its size and modified time (Steam `GetFileTimestamp`, Play's snapshot metadata; Apple
+  returns null for the time).
+
+Acceptance: `steam_plugin_*` tests against the mock for sessions and timestamps; fake tests for both APIs.
+
+### M29.19 Split screen: camera viewports (L) — BB/FB-0013
+
+Done (branch `m29/split-screen`, `f8ddc3e9`): `Camera.viewport` is `[x, y, width, height]` (0 to 1, top-left origin);
+every active `primary: true` camera now draws in ascending `depth` with its own scissor, culling, 2D and 3D lights and
+`clear`, up to 8; bloom and `colorFilter` run once with the lowest-depth camera's settings and the UI once over the
+whole screen. Scripts get `camera.all`, `camera.at(point)`, `camera.screenRay` and an optional camera for
+`worldToScreen` and `screenToWorld`; `input.mouse.world` uses the camera under the pointer. Beyond the plan: a second
+primary camera that used to be ignored now draws (commit `ae68b5de` says so in the CHANGELOG). Burrow Brigade has
+Options > Video > "Split screen when players part"; AI guide recipe 9.29.
+
+After M29.14.
+- `Camera.viewport` (a normalized rectangle) and a render loop per camera, in depth order: each draws its view into its
+  rectangle with its own lights, and `screenToWorld` takes the camera; the contradictory Camera docs are fixed.
+- RENDERING docs and a split-screen recipe.
+
+Acceptance: render tests: two cameras draw two halves; four cameras in quarters; picking under the mouse picks the
+right camera. Burrow Brigade gets a split-screen option for far-apart players.
+
+### M29.20 `http.fetch` on every platform (L) — BB/FB-0020 (part)
+
+Done (branch `m29/http-fetch`, `94047d90`): `import { http } from "factoria"`: `http.fetch(url, {method, headers, body,
+timeout})` returns a Promise of `{status, ok, headers, text, json()}` on WinHTTP, `NSURLSession`, libcurl (loaded on
+first use), `HttpURLConnection` and the browser's `fetch`; a game declares its servers in `factoria.json`
+`network.hosts`, which `factoria validate` checks and the Android export turns into the `INTERNET` permission. Tests and
+headless runs get a fake scripted by `game.platform.respond`, and an input recording keeps the answers (commit
+`123c5f14`). New NETWORKING.md; LEGAL.md and MOBILE.md no longer say games have no network. Beyond the plan: the host
+list and its checks.
+
+- `http.fetch(url, {method, headers, body, timeout})` (a Promise of status, headers, text and JSON) on Windows (WinHTTP),
+  macOS and iOS (NSURLSession), Linux (libcurl, loaded when present), Android (HttpURLConnection, the `INTERNET`
+  permission when a game uses it) and the web (fetch). Tests and headless runs get a fake that answers what
+  `game.platform.respond` gives it, and never touch the network.
+- LEGAL.md and MOBILE.md stop saying games have no network; a NETWORKING doc.
+
+Acceptance: script tests against the fake; a desktop doctest against a local test server; the Android and web builds
+in CI.
+
+### M29.21 Analytics with consent and remote config (M) — BB/FB-0020 (the rest)
+
+Done (branch `m29/analytics`, `1c0beff9`): `analytics.event(name, props)` queues events and sends batches to the
+`endpoint` of the `"analytics"` section of `factoria.json` only after `analytics.setConsent(true)` (or
+`consentFromAds`); a quit waits at most 3 s for the last batch, and a failed send is retried at most 3 times per event.
+`remoteConfig.get(key, fallback)` reads the `"remoteConfig"` section's JSON, caches it in `storage` and checks each
+value against its fallback's type. Both are script modules on `http.fetch` (no new command), `factoria validate` checks
+the sections, the iOS export adds the analytics privacy entry, and the menu kit has an `analyticsConsent` part and an
+Options switch. The plan had the endpoint in "the catalog"; it is in `factoria.json`.
+
+After M29.20.
+- `analytics.event(name, props)` batched and sent through `http` only after the player consents (the ads consent, or the
+  kit's privacy toggle), to an endpoint the catalog names; `remoteConfig.get(key, default)` fetched at start and cached,
+  with the fake for tests.
+- PLATFORM.md and LEGAL.md (what is sent and when).
+
+Acceptance: fake tests: no event leaves before consent, a batch after it; remote config falls back to the cache offline.
+
+Out of M29: breaking unmarked Thai, Khmer, Lao and Burmese (a word dictionary like ICU's, L), a cloud conflict event
+(each store resolves it its own way), mapping a Remote Play guest to a pad (needs ISteamInput wrapped), cross-compiling
+plugins from the Mac, and WebSocket.
+
+## M30. A fourth reference game: management with the mouse, web and desktop first — DONE (the `m30/reference-game` PR)
+
+Lantern Keep is a 2D platformer, Clockwork Courier a 3D phone game and Burrow Brigade a 2D couch co-op game for pads:
+none was played with the mouse first, had a screen full of panels, lists and tooltips, hundreds of agents at once,
+sessions of hours with saves that must survive a game update, or the browser as its main target. **Tidewater Market**
+(`examples/tidewater-market`, its README and `SHIPPING.md`; feedback ids `TM/FB-n`) is that game: a calm management game
+in a harbour town on an isometric grid, with roads, workshops, warehouses, villagers who walk to work and carry goods
+along production chains, ships with orders, seasons and event cards, at pause, x1, x2 and x4. It was built like the
+other three, by game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs` and the public commands,
+with no engine change, in eight packages (planned 2026-10-26 against `9feccf2`, the top of the unpushed M29 stack):
+
+- P1 map, camera and building: the isometric map from a seed, the strategy camera (drag, screen edges, wheel zoom towards
+  the cursor, bounds), the cell under the mouse, roads laid by dragging, placing, rotating and demolishing with costs and
+  rules, undo and redo, the data tables and their validation (`project.validate_data`), the title screen, the HUD.
+- P2 villagers and the economy: houses and villagers, walkers on the roads, carriers between buildings and warehouses,
+  the production chains, the clock and its speeds, the seasons and their music, wages, upkeep and sales, a bot that grows
+  a town over a year from a fixed seed, and the stress scene (640 villagers).
+- P3 the interface: the build menu, the inspector, tooltips, the goods table (sorted, scrolling), charts of production and
+  money, notifications, overlays, drag and drop of workers, keyboard shortcuts and help.
+- P4 progress and saves: three slots with autosave, a thumbnail and play time, save format v2 with the migration of v1
+  saves (fixtures of both), cloud copies, four scenarios with goals and a win screen.
+- P5 ships and events: the pier and its ships, orders with deadlines, the order board, event cards with a choice in rich
+  text, a story per scenario, achievements and stats on the fake store.
+- P6 sound, options and accessibility: ambience that follows the camera, building and walker sounds under a voice cap, UI
+  sounds, five buses, the options screen (UI sizes, window, key rebinding, colour-blind safe signals, reduced motion,
+  hold-free controls) and a gamepad cursor.
+- P7 shipping: the icon, key art, capsules, store texts, six screenshots and a trailer rebuilt by scripts from the game's
+  own renders, the web export (12.2 MB, 6.1 MB zipped; played in the browser pane: new game, build, save, reload,
+  continue) and the macOS export, perf budgets for the title, the game and the stress town.
+- P8 languages: Spanish, French and Simplified Chinese (a 1190-character Noto Sans SC subset as a fallback font), one
+  formatting module for numbers, amounts, lists and dates, a language choice that applies at once, every screen laid out
+  at 100 % and 200 % text in every language.
+
+Assets are CC0 (Kenney's Isometric Roads, RPG Audio, Impact Sounds and Interface Sounds, cut and extended by
+`assets/src/make_atlas.py`; music and ambience from the project's own scripts) plus the OFL Noto Sans SC subset, all in
+`assets.json`. `factoria test` runs 252 tests; ctest runs the game as `example_tidewater-market_*` (validate, test,
+perf). Playing the web export found an engine bug, fixed on the way: the page downloaded the 8 MB wasm twice
+(`platforms/web/shell.html` now uses `instantiateWasm`, TM/FB-0070); it also found that the game's map tooltip stayed
+over the pause menu (fixed in the game).
+
+It reported 52 entries: one fixed on the way, one withdrawn, one duplicate, and 49 open (9 major, 27 minor, 13
+nice-to-have), none a blocker (the ranked list in [ROADMAP.md](ROADMAP.md)). The biggest are a dense mouse UI (no
+tooltips, drag and drop between widgets, charts, rich text or icon buttons; the wheel reaches the map under a panel; no UI
+scale, only a text scale; no UI hit test or virtual cursor for a gamepad), tile pathfinding that costs the whole grid on
+every call, and a web export that does not check its player against the engine build and has no players for a
+development build. Their triage is the next milestone.
+
+Acceptance: the bot grows a town over a year from a fixed seed and a test pins its hash; mouse-only, keyboard-only and
+gamepad tests drive building, the panels and the menus, and a test drives drag and drop; a v1 save fixture loads in the
+v2 game and every slot round-trips; the web export runs in the browser pane and the macOS export starts on this Mac (the
+Windows and Linux exports were refused: no player of this development build here, TM/FB-0051; left open in
+`SHIPPING.md`); the stress town (640 villagers, about 600 walking at once) stays under its draw-call budget headless;
+`factoria feedback collect` includes the game.
+
+## M31. Found by the fourth reference game — DONE (the `m31/*` branches)
+
+Planned 2026-10-26, against `cf2664d`, from the triage above: 26 packages, ranked by points (occurrences x severity
+weight) and size; a package that others build on comes just before the first of them (M31.4). Each ships with its
+doctest or JS test, its docs and the `"unreleased"` rows in `tools/common/api_since.json` for the API it adds. When one
+merges, its entries get a `Fixed in <commit>` note in the bookkeeping PR at the end, and Tidewater Market drops the
+workaround it no longer needs (its widget scan and focus sink for the pad cursor, its wheel flag, its tooltips, drag
+code and chart rectangles, its markup renderer and fake bold, its widget registry for the interface size, its own Rng,
+its distance fields, its ambience bus and voice list, its atlas and font subset scripts).
+Order of work: three builds at once at most, a rolling pool; a package starts when the packages it comes after have
+merged. Packages that only share a file run at once and the later one merges `origin/main` before its PR; packages that
+change the same function wait for each other (the "after" lines). First M31.1, M31.2 and M31.4; then M31.3, M31.6 and
+M31.7; then the rest in order, as their "after" packages merge.
+
+### M31.1 A UI hit test, a virtual pointer, the consumed wheel and an empty focus (M) — TM/FB-0043, 0013, 0044
+
+Done (branch `m31/hit-test`, `399e06d6`): `ui.widgetAt(x, y)` and `ui.pointerOverUi` cover every visible `UiBox`; `ui.setPointer(x, y, {down})` drives hover, press and click from the next frame on until `ui.setPointer(null)`; a `ScrollList` that scrolls keeps the wheel (`input.mouse.wheel` reads 0, `ui.wheelConsumed` is true); `ui.focus(null)` holds until an arrow or D-pad press. As planned. Tidewater Market dropped its widget scan, its focus sink and its panel-rectangle wheel flag (its stress scene has one entity less, 4979).
+
+- `widget_at(x, y)` comes out of the pointer code in `ui.cpp`, whose hit test covers interactable controls only, and
+  covers every visible `UiBox`: the topmost widget or Panel under a screen point, skipping what a `ScrollList` clips.
+  Scripts get `ui.widgetAt(x, y)` (an entity or null) and `ui.pointerOverUi`.
+- `ui.setPointer(x, y, {down})` drives hover, press and click like the mouse, for a gamepad cursor and for tests.
+- A `ScrollList` that scrolls marks the wheel consumed: `input.wheel()` reads 0 that frame and `ui.wheelConsumed` is
+  true (the UI runs before scripts, so both are current). A camera script skips the wheel when `ui.pointerOverUi`.
+- `ui.focus(null)` holds until the next navigation input: an open Panel's `autoFocus` no longer takes the focus back on
+  the next frame.
+- COMPONENTS.md and MENUS.md (hit testing, a gamepad cursor), SCRIPTING.md (the wheel).
+
+Acceptance: ui doctests: `widget_at` finds the topmost widget, a Panel, nothing over empty space and nothing for a row a
+ScrollList clips; JS tests: `setPointer` hovers and clicks a Button; the wheel over a ScrollList scrolls it and
+`input.wheel()` reads 0; `ui.focus(null)` stays null over frames until an arrow key. Tidewater Market's `pointer.js`
+scan and its focus sink go.
+
+### M31.2 Web and mobile players checked against the engine build (S) — TM/FB-0050
+
+Done (branch `m31/player-check`, `973e7e72`): `check_player_build` now runs for the web wasm and the prebuilt Android and iOS libraries, `looks_like_executable` recognises wasm and static archives, the web export prefers the player whose fingerprint matches (`build/web-release` before the installed one), and a script import or call the player lacks names the module or object and says the player may be older. As planned.
+
+- `check_player_build` (`export.cpp`) runs for the web, Android and iOS players too, not only the desktop ones; a wasm
+  player is recognised (`looks_like_executable` refuses it today); a player of another build stops the export and says
+  what to do (`factoria setup players`, the checkout's `build/web-release`, or `allowPlayerMismatch`).
+- The web export prefers a player whose fingerprint matches: the checkout's `build/web-release` before the installed one.
+- When a script's import or call fails because the player lacks it, the error names the module and the missing export
+  and says the player may be older than the game's engine, instead of QuickJS's generic message.
+- EXPORTING.md (web and mobile players).
+
+Acceptance: tooling tests: a web export with a player of another fingerprint fails with the hint and passes with
+`allowPlayerMismatch`; a script test that imports a missing export gets the new message.
+
+### M31.3 Docs for what is already there (S) — TM/FB-0016, 0063, 0014, 0035, 0046
+
+Done (branch `m31/docs`, `77f3acbf`): Docs for `active` and `activeInHierarchy`, `fa.call` in tests (`ui.state`, `ui.check_layout`, `i18n.state`), a screen-space line's `size.y`, a Panel's children and `game.tap("ui_submit")` against `game.press`; `ui.rectOf` returns null for a widget hidden by a parent. As planned; TM/FB-0063's second half (`ui.check_layout` on the current frame without reloading) stays out.
+
+- `Entity.active` and `activeInHierarchy` get doc strings (api.json, SCRIPTING.md): a child of a hidden Panel keeps
+  `active` true; ask `activeInHierarchy`. `ui.rectOf` returns null for an entity hidden by a parent, like `ui.state`.
+- SCRIPTING.md's test section uses `fa.call("ui.state")`, not `ui.state()` (a bug: scripts have no such function), and
+  shows `fa.call("ui.check_layout")` and `fa.call("i18n.state")` from a test; `ui.check_layout` reloads the scenes it
+  checks, so it does not see the current frame's state.
+- `Shape2D.size` says that in screen space a line's `size.y` points up, unlike Panels, Texts and Sprites; a chart bar is
+  a rectangle with pivot `[0, 1]`.
+- AI_GUIDE.md (screen space): a Panel's children are offset from the parent's `Transform.position`; the parent's anchor
+  and pivot do not move them.
+- MENUS.md: in a test, `game.tap("ui_submit")` presses the focused widget; `game.press` holds the action until
+  `release`, so pressing it again presses nothing.
+
+Acceptance: `factoria docs` shows each; a JS test: `ui.rectOf` of a child of a hidden Panel is null.
+
+### M31.4 Wrapped text measures its widest line; Toggles that fit (S) — TM/FB-0060, 0064, 0018
+
+Done (branch `m31/text-measure`, `cceb927e`): With a renderer a wrapped text now measures its widest line, like headless, and a UI label is aligned inside that width; a Toggle's box is one line of the label high (`fontSize` times 1.2, plus 4 px) and `Toggle.autoShrink` and `minFontSize` fit the label right of it. As planned, with one side effect the CHANGELOG records: a wrapped Text with a pivot or centre alignment is placed by its widest line, so it can sit a little differently than before.
+
+- The bug: with a renderer a wrapped text measures at least its `maxWidth` (`fonts.cpp` takes the larger of the two), so
+  `ui.overflowed` and `ui.check_layout` flag a short label and `autoShrink` shrinks it for nothing; headless,
+  `approx_text_size` (`bounds.cpp`) measures the widest line. Both now measure the widest line, so a layout test and the
+  window agree.
+- A Toggle's box follows the font size, not the widget's height (`ui2d.cpp`, `layout.cpp`, `text_fit.cpp`), so a wrapped
+  label no longer grows the box; Toggle gets `autoShrink` and `minFontSize` like Button.
+- COMPONENTS.md: `Button.autoShrink` and `minFontSize` next to `maxWidth` (TM/FB-0018 is already supported there), and
+  how a Toggle sizes its box and label.
+
+Acceptance: text doctests: "VSync" with `maxWidth` 440 measures its own width with a renderer and headless; ui doctests:
+a Toggle with a two-line label keeps its box size. Tidewater Market's options screen passes `ui.check_layout` at 200 %
+text in every language with toggles sized by their labels.
+
+### M31.5 An interface scale, Panel minimum and maximum sizes, a text-scale event (L) — TM/FB-0042, 0017, 0065
+
+Done (branch `m31/ui-scale`, `ff667322`): `ui.scale` (0.5 to 3; `"ui": {"scale"}` in `factoria.json`, the `ui.set_scale` command, `uiScale` in `ui.state`), `Panel.minSize` and `maxSize` (also held when `fit` is true), `ui.on("scale")` and `ui.on("textScale")`; `ui.check_layout` takes `uiScales`; the menu kit's Options has an "Interface size" button with only the sizes at which the panel fits. The plan differs in one fix found on the way: a Text with `maxWidth` and a centred or right-aligned `align` was drawn in a box of `maxWidth` but its bounds were its widest line, so a right-aligned note in an Arabic Panel was drawn off its rectangle (`bounds.cpp` now reports the drawn box; the `menus_ar.png` golden was regenerated). Screen-space particle emitters are not scaled. Tidewater Market dropped its widget registry and rule spacers and offers 100 % and 125 %.
+
+After M31.4 (both change `text_fit.cpp`).
+- `ui.scale` (a project default in `factoria.json`, and an interface size choice in the menu kit's Options) multiplies
+  the size, offset, padding, spacing, margins and font size of every screen-space widget, with `ui.textScale` on top;
+  `ui_rect`, `layout`, `text_fit`, the fixed margins of `ui2d`, `scene2d` and the hit test all read it.
+- `Panel.minSize` and `maxSize`, honoured when `fit` is true too.
+- `ui.on("scale")` and `ui.on("textScale")` when either changes, like `i18n.on("change")`.
+- COMPONENTS.md, MENUS.md (the Options tab) and AI_GUIDE.md (laying out for every interface size).
+
+Acceptance: ui doctests: at `ui.scale` 1.5 a Panel's rectangle, padding and fonts are 1.5 times as big and its children
+stay inside it; a fit Panel with `minSize` keeps it; JS tests: each event fires once per change. Tidewater Market drops
+its widget registry and its rule spacers.
+
+### M31.6 Script helpers: the rng state, running a module, did-you-mean, a shadowed method (M) — TM/FB-0032, 0004, 0003, 0036
+
+Done (branch `m31/script-helpers`, `88d1b741`): `rng.create` generators have a `state`, `script.eval` takes `module`, `call` and `args`, `didYouMean` is exported from `"factoria"` with an EXTENDING.md recipe for a project tool that validates data tables, and `instantiate` and `factoria validate` warn about a field that shadows `Behaviour.on`, `after`, `every` or `world`. As planned; of TM/FB-0003 only the validation recipe and the did-you-mean helper were built, the optional history (undo) helper stays out. Tidewater Market uses `rng.create` streams (old saves load: same algorithm and state).
+
+- Generators from `rng.create` get a `state` getter and setter (a 32-bit number), documented as stable like the
+  algorithm, so a saved game resumes its stream.
+- `script.eval` takes `module` (a project path) and `call` (an exported function) with `args`, and runs it without
+  loading a scene: `factoria call script.eval` runs a pure module. CLI.md says `factoria test FILE --filter` starts one
+  engine for the whole run.
+- `didYouMean(word, choices)` exported from `factoria.js` (the `closest` the engine already uses), and an EXTENDING.md
+  recipe: a project tool that validates the cross references of `data/*.json` with file, JSON pointer, hint and
+  did-you-mean (`ToolError`).
+- `instantiate` warns once per class when an instance field shadows a `Behaviour` method or getter (`on`, `after`,
+  `every`, `world`), naming the field; `factoria validate` reports it too.
+
+Acceptance: JS tests: a generator resumed from a saved `state` draws the same numbers; `didYouMean("woood", ["wood",
+"stone"])` is `"wood"`; a Behaviour with a field `on` logs the warning; `script.eval` with `module` and `call` returns the
+function's result. Tidewater Market drops its own Rng.
+
+### M31.7 Audio: project buses, voices, a listener zoom (M) — TM/FB-0041, 0045, 0040
+
+Done (branch `m31/audio-buses`, `51c723a0`): `audio.buses` in `factoria.json` declares buses with a parent (the mixer's fixed enum is a table; the built-ins are unchanged and `factoria validate` checks the names with a "did you mean"), `audio.activeVoices()`, `audio.play`'s `onEnded` (finish, stop or eviction; not `stopAll` or a scene load), `setVoiceVolume` entries in `game.audioLog()` and `AudioListener.zoom`. As planned. Tidewater Market got a real ambience bus and its voice book reads `audio.activeVoices()`.
+
+- `factoria.json` `audio.buses` declares buses with a parent (`{"ambience": {"parent": "sfx"}}`): the mixer's fixed
+  enum (sfx, music, ui and master, `audio.cpp`) becomes a table; playing, bus volumes, effects, ducking and snapshots
+  take the new names, and `factoria validate` checks them with did-you-mean.
+- `audio.activeVoices()`, an `onEnded` callback on `audio.play`, and `setVoiceVolume` entries in `game.audioLog()`.
+- `AudioListener.zoom` scales the distance positional sounds are heard at (`gain = 1 - d / (range * zoom)`), so a
+  zoomed-out 2D camera hears farther; a camera can drive it from its `orthoSize`.
+- SCRIPTING.md (audio) and COMPONENTS.md (`AudioListener`).
+
+Acceptance: audio doctests: a project bus scales the voices on it and its parent scales it; a voice's end calls
+`onEnded` once; a listener zoom of 2 doubles the distance a sound reaches. Tidewater Market drops its ambience bus and
+its voice list.
+
+### M31.8 Rich text and bold (L) — TM/FB-0010, 0031
+
+Done (branch `m31/rich-text`, `47e73975`): `Text.markup` reads `[b]`, `[c:colour]` and `[icon:region]`; the engine wraps (CJK too), aligns, measures and autoShrinks the runs, and a line's glyphs are one batch (each icon texture adds one). Beyond the plan, the labels of Toggle, Slider and TouchButton take markup as well as Button's, and `ui.markupProblems(text)` lists mistakes for a test (an unknown tag shows as written, with one warning per text). The `text` section of `factoria.json` holds `colors`, `icons` and `fonts` (the bold file of each font); a font without a bold face is emboldened by the engine and `factoria validate` suggests adding one. Tidewater Market dropped its markup parser, entity pool and fake bold.
+
+After M31.4 (both change `fonts.cpp`).
+- `Text.markup: true` reads `[b]`, `[c:<colour>]` and `[icon:<region>]` (a sprite region drawn inline at the line
+  height); wrapping (CJK too), alignment, `maxWidth` and `autoShrink` work on the runs, and a line draws as one batch.
+  Button labels take markup too, and `ui.measureText` measures it.
+- Bold: `[b]` and `Text.bold` use the project's bold face (a `bold` file next to each font in `factoria.json`); a font
+  with no bold face is emboldened by the engine, and `factoria validate` suggests adding one.
+- It touches `fonts.cpp`, `scene2d.cpp`, `text_fit.cpp` and the headless `bounds.cpp`; TEXT.md loses its one-colour
+  limit.
+
+Acceptance: text doctests: a markup line with two colours, a bold word and an icon wraps where plain text would,
+measures the same with a renderer and headless, and draws in one batch; a JS test: a Button label with an icon run.
+Tidewater Market drops its markup renderer and its fake bold.
+
+### M31.9 Tooling: feedback merges, perf files of several scenes, the fake's stats, recording progress (S) — TM/FB-0072, 0056, 0037, 0055 (part)
+
+Done (branch `m31/tooling`, `dc4dbb92`): `feedback collect` needs four shared tokens for the `contained` similarity, weighs the `missing` text and honours `distinctFrom`, and prints each merged entry's score; ctest runs every `<example>.perf.json` and `<example>-*.perf.json`; PLATFORM.md says a `stats.add` shows as a `stats.get` and a `stats.set`; `--record-video` prints its progress on stderr. As planned. Tidewater Market's title and game perf files say 2712 and 2965 entities, what this Mac measures (they said 2713 and 2966); draw calls are unchanged.
+
+- `feedback collect` (`feedback.cpp`): the `contained` similarity needs four shared tokens or more, the `missing` text
+  weighs in, an entry may list `distinctFrom` ids it never merges with (the schema and ENGINE_FEEDBACK.md), and the
+  report prints each merged group with its score.
+- The example tests in `tools/cli/CMakeLists.txt` run every `<example>.perf.json` and `<example>-*.perf.json` (not
+  `<example>*`, which would catch another example with the same prefix); PERFORMANCE.md says so.
+- PLATFORM.md's test section: `calls()` shows a `stats.add` as a `stats.get` and a `stats.set`.
+- `--record-video` prints its progress (frames written of the total) while it runs.
+
+Acceptance: `feedback_test.cpp`: TM/FB-0010's and TM/FB-0011's titles no longer merge, and `distinctFrom` keeps two
+similar ones apart; ctest runs Tidewater Market's title, game and stress perf files; a recording prints progress lines.
+
+### M31.10 The web export's report: big folders, download sizes, the icon (S) — TM/FB-0052, 0053, 0071
+
+Done (branch `m31/web-report`, `bcfb468e`): Every export names the five heaviest folders (`largestFolders` in `--json`) and warns when a `store/`, `screenshots/` or `src/` folder is packed, at any depth; a web export lists the raw and gzip size of each file and the download time of the total at 1, 5, 20 and 100 Mbit/s (`webFiles`, `webBytes`, `webGzipBytes`, `webDownloadSeconds`); the page links a 64x64 `favicon.png` made from the game's icon (a `{{favicon}}` placeholder in the template; a game without an icon keeps the empty one). As planned.
+
+After M31.2 (both change `export.cpp` and `export_web.cpp`).
+- The export prints the largest folders that went into the pak and warns when a `store/`, `screenshots/` or `src/`
+  folder is packed, pointing at `export.exclude`.
+- A web export prints the raw and gzip size of each file (`zip_web` already computes the deflate sizes) and the
+  download time of the total at a few connection speeds.
+- The page links a `favicon.png` made from the game's icon (`icons.cpp`) instead of `data:,`; EXPORTING.md loses that
+  limit.
+
+Acceptance: tooling tests: an export that packs a `store/` folder warns and names it; a web export's report has the
+gzip total; the exported `index.html` links a favicon that is in the zip.
+
+### M31.11 Players for a development build (M) — TM/FB-0051
+
+Done (branch `m31/dev-players`, `9f03b101`): `factoria setup webplayer` (and `setup.install {component: "webplayer"}`) builds the web player from the checkout `factoria` was built from, finding or fetching Emscripten 6.0.10 into `.cache/emsdk` and leaving it in `build/web-release/player`; `setup players` on a version with no release installs the newest release's players and warns that their fingerprint will not match (an export needs `allowPlayerMismatch`). A second commit (`6fb82020`) keeps the web player's build fingerprint and strips the quotes of the Emscripten version file. The plan differs in what stays open: Windows and Linux players from CI artifacts need a GitHub token and were always out of M31 (TM/FB-0051 stays open).
+
+After M31.2.
+- `factoria setup players` on a development build, whose version has no release, offers the latest release's players
+  and says that their fingerprint will not match (an export then needs `allowPlayerMismatch`).
+- One command builds the web player from the checkout: it fetches the pinned Emscripten (the CI version) into `.cache/`
+  when `emcc` is missing and runs the `web-release` preset; the web export finds it (M31.2).
+- EXPORTING.md's web section has the Emscripten setup (now only in BUILDING.md).
+
+Acceptance: a tooling test with a fake release list: a development version falls back to the latest release and prints
+the mismatch; on this Mac the command leaves a web player in `build/web-release`, and Tidewater Market's web export uses
+it.
+
+### M31.12 Tile paths on a reusable grid, and flow fields (M) — TM/FB-0006
+
+Done (branch `m31/nav-grid`, `cad41749`): `nav.createGrid` keeps a cost grid in the engine, `nav.findTilePath(grid, from, to)` reuses it, `nav.flowField(grid, goals)` gives `stepToward`, `distance` and `pathFrom`, and the stateless `nav.flow_field` command returns the distances. In a debug build 600 walkers on a 60x60 map for 75 ticks cost about 228 s with the array form, 8.2 s with the kept grid and 0.16 s with flow fields (a benchmark test prints it). A second commit (`8f00334f`) reserves the engine's JS class ids (the nav handle and the debugger frame) in a fixed order right after `JS_NewRuntime`, so the ids match in every runtime. Tidewater Market's own distance fields are now `nav.flowField` over a `nav.createGrid`.
+
+- `nav.createGrid({width, height, cost})` returns a handle kept natively; `grid.setCost(col, row, cost)` changes a cell;
+  `nav.findTilePath(grid, from, to)` reuses it, so a short route no longer costs the whole map (each call converts the
+  array four times and sweeps it for its `minCost` today).
+- `nav.flowField(grid, goals)` returns a distance field from one or more goal cells, and `field.stepToward(col, row)`
+  gives the next cell in O(1); a field built on a grid that changed is rebuilt.
+- The tile-path command (`commands.cpp`), NAVIGATION.md and PERFORMANCE.md (the costs) follow.
+
+Acceptance: nav doctests: a grid gives the same paths as the array form; a flow field's steps reach the nearest goal; a
+JS benchmark test: 600 walkers on a 60x60 grid for 75 ticks cost a fraction of the array form (Tidewater Market measured
+442 ms with its fields against 5978 ms). Tidewater Market's distance fields move to the engine.
+
+### M31.13 Tooltips (M) — TM/FB-0007
+
+Done (branch `m31/tooltips`, `ed67f982`): `tooltip` on any widget or Panel (a locale key, `{title, lines, args}`, or a function from `ui.setTooltip`) shows after `ui.tooltipDelay` of rest within 5 px, beside the pointer and flipped to stay on screen; the `"ui"` section of `factoria.json` styles it and it is off on touch unless `tooltipOnTouch`. `ui.showTooltip`, `hideTooltip`, `ui.setWorldTooltip`, `ui.tooltip` and `tooltip` in `ui.state`; `ui.check_layout` reports a `tooltip` issue. The tooltip is World state drawn by the renderer, not entities, and its delay counts UI dt. Tidewater Market dropped its Tooltips class; its perf budgets fell with the tooltip pool (drawCalls 19 to 18, entities 4978 to 4968 stress and 2964 to 2954 game).
+
+After M31.1 (it uses `widget_at`).
+- `tooltip` on any widget or Panel: a locale key or `{title, lines}`, or a script function that returns the text when
+  it shows; shown after `ui.tooltipDelay` of rest within a slop, next to the pointer and flipped to stay on screen,
+  styled by the UI theme; off on touch unless the project turns it on.
+- `ui.showTooltip(text, {x, y})` for what is not a widget (a building under the pointer on the map), with the same
+  placement.
+- COMPONENTS.md and MENUS.md.
+
+Acceptance: JS tests: a tooltip shows after the delay and not before, hides when the pointer moves away and stays inside
+a 1280x720 screen at each corner; `ui.check_layout` checks it. Tidewater Market drops its Tooltips class.
+
+### M31.14 Drag and drop (M) — TM/FB-0008
+
+Done (branch `m31/drag-drop`, `4b7da894`): `draggable` (`true` or `{payload, slop}`), `ui.on("dragStart" | "dragOver" | "drop" | "dragCancel")`, `ui.setDropTarget` and `ui.setWorldDropTarget`, `ui.setDragImage`, `ui.dragging`, `ui.cancelDrag` and `game.drag(from, to)`; the release makes no click, a tooltip hides when a drag starts, and `ui_cancel` cancels a drag instead of sending `ui.cancel`. As planned. Tidewater Market dropped its own drag code for the worker chips; its hold-free "carry" mode (two clicks) stays its own. Perf budgets unchanged.
+
+After M31.1 and M31.13 (all three change the pointer code in `ui.cpp`).
+- `draggable` on a widget, with a payload and a slop in pixels; `ui.on("dragStart" | "dragOver" | "drop" |
+  "dragCancel")` with the source, the target (a widget from `widget_at`, or null over the world) and the screen
+  position; a target says whether it accepts, and an optional drag image follows the pointer.
+- `ui.dragging` for the scripts that read the pointer; the click the release would produce is swallowed; a gamepad cursor
+  drags through `ui.setPointer` (M31.1).
+- `game.drag(from, to)` in the test API; COMPONENTS.md and the `UI_EVENTS` list.
+
+Acceptance: JS tests: a drag from a Button onto a Panel fires the events in order and no click; a drop over the world
+reports no target and the screen position; `game.drag` drives it. Tidewater Market drops its drag code in `ui_hud.js`.
+
+### M31.15 A chart widget (M) — TM/FB-0009
+
+Done (branch `m31/chart`, `666de009`): `Chart` (a UiBox) with `values`, `kind` bar or line, `colors`, automatic axis (always including the `baseline`), `min` and `max`, `marks`, axis labels in the language's number format, all in one UI batch; `ui.on("chartHover")` reports `index`, `series` and `value`, and `Chart.hoverIndex` and `hoverSeries` hold them. `slots` (beyond the plan) keeps each sample's width while a rolling series fills up. Tidewater Market's charts panel spawns one Chart per chart instead of about 80 rectangles: entities fell by 100 (game 2926 to 2826, stress 4940 to 4840), draw calls are unchanged. A follow-up commit (`232222e3`) regenerated docs and typings.
+
+After M31.1 (its hover uses `widget_at`).
+- A `Chart` component: `values` (one series or several), `kind` bar or line, colours, axis minimum and maximum (automatic
+  by default), a baseline and axis labels in the language's number format, drawn by the UI layer in one batch; the
+  sample under the pointer is reported (`ui.on("chartHover")`).
+- COMPONENTS.md.
+
+Acceptance: render doctests: bars scale to the maximum, a line passes through its points, automatic axes include zero;
+a JS test hovers a bar and gets its index. Tidewater Market drops its chart rectangles.
+
+### M31.16 The web's hide and close signals, and storage that scales (M) — TM/FB-0021, 0022
+
+Done (branch `m31/web-storage`, `e8b12dcc`): A web export raises `suspend` and `resume` on `visibilitychange` and `quit` on `pagehide`, and copies the save folder to IndexedDB right after the handlers run; `storage` writes one file per key in `<save folder>/storage/` (an old `storage.json` is split and renamed `storage.migrated.json`), with `storage.size(key)`, `storage.set(..., {compress: true})` and `storage.setAsync` (a worker thread; between frames on the web). A second commit (`bc764225`) writes the `setAsync` files still waiting right after the suspend and quit handlers. As planned. Tidewater Market autosaves off the frame with `setAsync` (compressed) and saves at once with `storage.set` on blur, suspend and quit.
+
+- Web: `visibilitychange` raises `suspend` and `resume`, and `pagehide` raises `quit` (it cannot be cancelled there);
+  IndexedDB is flushed after the handlers run, so a `storage.set` inside one is kept (today it only schedules the 500 ms
+  flush, `fs_web.cpp`). SCRIPTING.md, MOBILE.md and EXPORTING.md list which of blur, suspend and quit each platform
+  raises.
+- `storage` writes one file per key (an old `storage.json` is read and split), so a save rewrites its own key only;
+  `storage.size(key)`; `storage.set(key, value, {compress: true})`; `storage.setAsync` writes on a worker thread (after
+  the frame on the web).
+- SCRIPTING.md (storage).
+
+Acceptance: storage doctests: two keys are two files, a split `storage.json` keeps its keys, a compressed value
+round-trips smaller; a JS test: `setAsync` resolves and the value reads back. In the browser pane, a web export that
+saves on `quit` keeps the save after its tab is closed. Tidewater Market saves off the frame.
+
+### M31.17 Buttons with an icon (S) — TM/FB-0011
+
+Done (branch `m31/icon-buttons`, `90a88faa`): `Button.icon`, `iconRegion`, `iconSize` and `iconPosition` (`left`, `top`, `alone`), drawn inside the hit area, counted by `autoSize` and `autoShrink`. As planned. Tidewater Market's build menu items are icon Buttons: two entities fewer per item, 14 items, so its perf budgets drop by 28 entities (stress 4968 to 4940, game 2954 to 2926). A separate commit (`2ff48221`) records the new fields in `api_since.json`.
+
+After M31.4 (both change the label layout in `ui2d.cpp`).
+- `Button.icon` (a sprite or region), `iconSize` and `iconPosition` (left, top or alone), drawn inside the hit area; the
+  label sits beside or under it, and `autoSize` and `autoShrink` count it.
+- COMPONENTS.md.
+
+Acceptance: ui doctests: an icon-top Button's label sits under the icon and a click on the icon presses it; the fitted
+size includes the icon. Tidewater Market's build menu items become Buttons.
+
+### M31.18 Modifier chords in bindings (M) — TM/FB-0012
+
+Done (branch `m31/chords`, `47c076b1`): Bindings take modifiers (`"Ctrl+Z"`, `"Shift+MouseLeft"`, `"Ctrl+Shift+S"`) in `factoria.json`, `input.rebind` and `input.player(i).rebind`; `Ctrl`, `Shift`, `Alt` and `Super` name either side's key, also in `input.keyDown`; the chord wins over its plain key; a bad chord is an error with a "did you mean" (in `factoria validate` too). `input.lastPressed` returns the chord, and a modifier pressed alone is now reported when it is released, so a "press a key" screen can record `Ctrl+Z`; the menu kit's Controls tab records and shows chords. `game.keyDown("Shift")` and `game.tapKey("Ctrl+Z")` drive them in tests, and replay files accept the modifier names. Tidewater Market binds Ctrl+Z, Ctrl+Y and Shift+click.
+
+- A binding takes modifiers (`"Ctrl+Z"`, `"Shift+MouseLeft"`); `Ctrl`, `Shift`, `Alt` and `Super` name either side's key
+  in `input.keyDown` too. When one action binds `Z` and another `Ctrl+Z`, the chord wins: `Z` does not fire on it.
+- `rebind` and `lastPressed` record chords; per-player bindings, the `factoria.json` `input` schema, `factoria validate`
+  and the menu kit's Controls tab follow; test helpers can hold modifiers.
+- SCRIPTING.md (input).
+
+Acceptance: input doctests: `"Ctrl+Z"` parses and prints back; the action fires only with Ctrl held, and a plain `Z`
+action does not fire on the chord; a rebind records a chord. Tidewater Market binds Ctrl+Z, Ctrl+Y and Shift+click.
+
+### M31.19 A choice card in the menu kit, and modal panels (M) — TM/FB-0033
+
+Done (branch `m31/modal-card`, `dc5013d1`): `Panel.modal` makes the topmost modal Panel (highest `layer`) a focus scope for the pointer, the wheel and navigation: nothing under it gets hover, press, click, focus, tooltip or drop, and `ui.pointerOverUi` is true everywhere. The menu kit's `card` part (`scripts/ui/card.js`, `prefabs/ui/card.prefab.json`, `tests/card.test.js`) has a title, a wrapped rich-text body, choices with a detail line, a disabled choice with its reason, a result stage and a `holdClock` option. As planned. Tidewater Market's event and story cards are the kit's; draw calls and entities are the same.
+
+After M31.1 (modality uses the hit test).
+- `Panel.modal`: while it is open, the pointer, the wheel and navigation reach only its widgets (a focus scope), and
+  what is under it gets no hover or click.
+- The menu kit's card: a title, a wrapped body, choice buttons each with a detail line, a choice disabled with its
+  reason, a result stage, and an option to hold the game clock while it is open; mouse, keyboard and pad.
+- MENUS.md.
+
+Acceptance: JS tests: a modal card blocks a click on a button under it and keeps the focus inside; arrow keys move
+between its choices; a disabled choice does nothing and shows why. Tidewater Market's event card becomes the kit's.
+
+### M31.20 An AudioWorklet backend on the web (M) — TM/FB-0054
+
+Done (branch `m31/web-audio`, `df5c4392`): The web player's audio goes through an `AudioWorkletNode` fed from the main thread by messages (no pthreads or `SharedArrayBuffer`), with a `ScriptProcessorNode` only where worklets are missing; no deprecation warning in the console. Latency is measured in EXPORTING.md. As planned.
+
+- The web player's audio moves from `ScriptProcessorNode` (`sokol_audio.h`) to an `AudioWorkletNode` fed from the main
+  thread; the player has no pthreads and no SharedArrayBuffer without COOP/COEP, so Emscripten's `AUDIO_WORKLET` is out
+  and the samples go by messages. It is wrapped from engine code (`external/` is not edited), with ScriptProcessorNode
+  as the fallback where worklets are missing.
+- EXPORTING.md (web audio and its latency).
+
+Acceptance: in the browser pane a web export plays with no deprecation warning in the console and no gaps at 60 fps;
+the latency is measured and written in EXPORTING.md.
+
+### M31.21 A strategy camera (M) — TM/FB-0002
+
+Done (branch `m31/strategy-camera`, `3c69d82a`): `camera.zoomAt`, `panBy`, `clampTo`, `zoomOf`, `setZoom` and `orthoSizeFor`. The plan's `CameraRig` behaviour became the menu kit's `cameraRig` part (`scripts/camera_rig.js`; `project.add_menu_kit` adds its `camera_*` input actions), with drag pan, keys, edge pan, wheel zoom to the cursor, `zoomMin` and `zoomMax` and bounds from `entity.bounds()` (`boundsEntity`); it ignores the wheel and new drags over the UI. The recipe is AI_GUIDE.md section 9.6.1. Tidewater Market dropped `camera_math.js` and `camera_rig.js` (its `map_camera.js` adds the gamepad cursor and a latched drag); its perf budgets are unchanged. A follow-up commit (`d9e6e7ba`) regenerated docs and typings.
+
+After M31.1 (it reads `ui.pointerOverUi` and the consumed wheel).
+- Camera helpers: `camera.zoomAt(screenPoint, factor)` keeps the point under the cursor, `camera.panBy(screenDelta)`,
+  `camera.clampTo(rect)`, and `orthoSize` from a design height.
+- A `CameraRig` behaviour, added to a project like the menu kit: drag pan, edge pan, keys, wheel zoom to the cursor,
+  `zoomMin` and `zoomMax`, bounds from `entity.bounds()`; it ignores the wheel and drags over the UI.
+- An AI_GUIDE.md recipe next to the follow camera.
+
+Acceptance: JS tests: `zoomAt` keeps the world point under the cursor at zooms 0.4 to 2.5; the rig stays inside its
+bounds; a wheel over a ScrollList does not zoom. Tidewater Market drops `camera_math.js` and `camera_rig.js`.
+
+### M31.22 Atlas packing while developing (M) — TM/FB-0034
+
+Done (branch `m31/atlas-pack`, `6777c93b`): `assets.pack_atlas {folder, out, table, maxSize, padding}` packs a folder of images into one PNG and writes the frame table (`rect` and `pivot`); packing again keeps the frames whose size did not change where they were. As planned. Tidewater Market dropped `make_atlas.py`: its 107 frames are PNGs in `assets/src/frames` and the command packs them (frames and pivots identical; draw calls and entities unchanged; `textureMB` of the macOS runner entries 21.33 to 13.21, because the page is 1268x2048 instead of 2048x2048).
+
+- `assets.pack_atlas {folder, out, maxSize, padding}` packs a folder of images into one PNG and writes the frame table
+  (rectangle and pivot per frame) that a Sprite's `region` reads, reusing the export's packer (`export_textures.cpp`);
+  packing again keeps the frames that did not change where they were when they still fit.
+- ASSETS.md: when the export's atlas groups are enough (Sprites keep naming the source PNGs) and when an atlas while
+  developing is worth it.
+
+Acceptance: tooling tests: a folder of frames packs into one PNG whose table matches; adding an image keeps the others
+in place; a Sprite with a region from the table draws its frame. Tidewater Market drops `make_atlas.py`.
+
+### M31.23 The kit's loading line, and gendered strings (M) — TM/FB-0005, 0061
+
+Done (branch `m31/gender-strings`, `56053954`): A string table entry can carry a gender (`{text, gender}` with `f`, `m` or `n`) and a select entry (`f`, `m`, `n` and `other` forms) picks its form by `args.gender`; `i18n.gender(key)` is new; `i18n.t` falls back to `other` with one warning; `factoria validate` warns about missing forms and lost genders; `i18n.export` and `import` (CSV and XLIFF) carry the forms (`ship_the#f`) and a `key#gender` row; LOCALIZATION.md section 5c also says how to phrase around case. The menu kit's `loading.js` writes `i18n.t("loading.progress", {percent})` with a keyless Text (the CLI fixture's copy is the same). As planned, with `n` added to the genders.
+
+- The menu kit's `loading.js` writes `i18n.t("loading.progress", {percent})`, and its scene's Text has no key;
+  `loading.progress` is in the kit's tables and in the CLI fixture's copy of the kit.
+- A string table entry can carry a gender (`{"text": "Ligera", "gender": "f"}`) and a sentence picks its form by it (a
+  `select` entry with `f`, `m` and `other` forms, like plural entries with a count); `i18n.t`, `localization validate`
+  and `i18n.export` and `import` (XLIFF and CSV) follow.
+- LOCALIZATION.md: gender, and how to phrase around agreement where a language also needs case.
+
+Acceptance: i18n doctests: a gendered name picks its article in Spanish and French; a missing form falls back to `other`
+and `validate` warns; the kit's loading line is Spanish in Spanish.
+
+### M31.24 A picture of the running game as a texture (L) — TM/FB-0020
+
+Done (branch `m31/capture-texture`, `54565fbd`): `render.captureTexture({width, height, fit})` makes a run-time texture (`"runtime:N"`) of the frame the player sees, up to 2048 px a side (`fit` is `"cover"`, the default, or `"stretch"`); a capture at the game's size has exactly a screenshot's pixels. `Sprite.texture`, `Panel.texture` and `Button.icon` take the id; `texture.toPNG()` gives Base64 text, `render.textureFromPNG(text)` loads it, `texture.destroy()` frees it; 32 alive at most, reset per test file; without a renderer the texture is a flat placeholder of the size asked (`texture.placeholder`). Readback reuses the screenshot code of Metal, GL/GLES (WebGL2) and D3D11. The plan said `toPNG` gives bytes: it gives Base64 text, because `storage` keeps JSON. Tidewater Market's slots and autosaves store a 156 x 156 picture under `<slot>.pic` (taken before the pause menu opens, removed with its entry and when a cloud copy replaces it); the run-length map stays as the fallback for older saves. Perf budgets unchanged.
+
+After M31.16 (the picture is saved in `storage`).
+- `render.captureTexture({width, height})` renders the current frame offscreen into a texture with a runtime id that a
+  Sprite or Image takes; `texture.toPNG()` gives bytes for `storage`, and `render.textureFromPNG(bytes)` loads one back.
+  Readback on Metal, GL, D3D11 and WebGL2; headless runs get a placeholder of the right size.
+- SCRIPTING.md and COMPONENTS.md.
+
+Acceptance: render doctests where a renderer exists: a captured texture's pixels match a screenshot of the same frame;
+a PNG round-trips through `storage` and draws on a Sprite. Tidewater Market's save slots show a real picture.
+
+### M31.25 Isometric tilemaps and cell picking (L) — TM/FB-0001
+
+Done (branch `m31/iso-tilemap`, `ca5f3025`): `Tilemap.projection: "isometric"` (with `groundHeight` and `groundOffset`) draws diamond tiles as one batched mesh in depth order; `solidTiles` colliders, `occludesLight` shadows, `nav.findTilePath`, `entity.bounds()`, the editor's outline and click area, and the `scene.import_ascii` anchor follow the projection. `entity.tilemap.cellAt` and `cellToWorld` and the commands `tilemap.cell_at` and `tilemap.cell_to_world` work for both projections; the sprites section of AI_GUIDE.md states the draw order inside a layer. The plan said the editor's painting follows the projection: it does not, the editor has no tile painting tool. Tidewater Market's ground (terrain, trees, roads) is one Tilemap with a tileset PNG per season (`assets/src/make_terrain_tiles.py`): game 2826 to 246 entities, title 2712 to 112, stress 4840 to 1029; the title and stress scenes draw one call more (the tileset is a second texture), and the `maxEntities` budgets were lowered to 1500, 600 and 400 so they keep guarding against a sprite per cell.
+
+After M31.12 (both change `nav_tiles.cpp`) and M31.22 (an isometric map draws from one atlas).
+- `Tilemap.projection: "isometric"` (diamond tiles, 100x50 say) drawn as one batched mesh in depth order; colliders,
+  light occluders, tile paths and the editor's painting follow the projection.
+- `tilemap.cellAt(worldPoint)` and `cellToWorld(col, row)` for both projections (the diamond hit test for isometric).
+- COMPONENTS.md; AI_GUIDE.md's sprites section repeats the draw order inside a layer (lower y on top, then creation
+  order).
+
+Acceptance: render doctests: a 40x40 isometric map draws in a few draw calls in depth order; `cellAt(cellToWorld(c, r))`
+is `(c, r)` at zooms 0.4 to 2.5 through `camera.screenToWorld`; a tile path on an isometric map. Tidewater Market's 2655
+map entities become one Tilemap.
+
+### M31.26 A CJK font subset from the locales (M) — TM/FB-0062
+
+Done (branch `m31/cjk-subset`, `c5f926a3`): `assets.subset_font {source, locales, keep, out, axes}` keeps the characters of the locale tables (the ones `factoria validate`'s glyph check asks for) plus ASCII, Latin-1, full-width forms, CJK punctuation and `keep`, pins a variable font's axes (`wght` 400 by default), keeps the shaping tables and lists the characters the source lacks. HarfBuzz's subsetter and instancer (14.6.0) are vendored in `external/harfbuzz` and linked by `fa_tooling` only; TEXT.md and LOCALIZATION.md no longer send you to `pyftsubset`. Tidewater Market's Noto Sans SC subset is rebuilt by the command (340064 bytes) and `make_subset.py` is gone.
+
+- `assets.subset_font {source, locales, keep, out}` keeps the characters of the locale tables plus punctuation and Latin,
+  pins a variable font's axes (`wght` 400 by default) and keeps the shaping tables. HarfBuzz's subsetter (`hb-subset*.cc`
+  and the instancer) is vendored in `external/harfbuzz` from the same upstream version (VERSIONS.md), for the tools only.
+- It reuses the character collection of `factoria validate`'s glyph check; TEXT.md and LOCALIZATION.md replace the
+  `pyftsubset` advice.
+
+Acceptance: a tooling test: the subset of a test font for a small table has exactly those glyphs and passes `factoria
+validate`; Tidewater Market's Noto Sans SC subset is rebuilt by the command (about 340 KB) and `make_subset.py` goes.
+
+Out of M31: a Timeline or cut-scene component for trailers (camera keys, text cards, fades; the rest of TM/FB-0055, L,
+next to the editor's animation timeline in M20's "Left open"), Windows and Linux players of a development build from CI
+artifacts (they need a GitHub token; TM/FB-0051), grammatical case beyond gender (TM/FB-0061), brotli sizes in the web
+report, an undo history helper (TM/FB-0003 asks for it as optional) and `ui.check_layout` on the current frame without
+reloading (TM/FB-0063).
+
+## M32. A fifth reference game: a 3D narrative adventure for the closed stores, the iPad and the Steam Deck — DONE (the `m32/reference-game` branch)
+
+Planned 2026-10-27 against `0dac04e4` (`m31/integrated`, the top of the unpushed M29-M31 stack: GitHub is still
+suspended, so the branch starts there). Three Tidewater Market entries are open (TM/FB-0003, 0051, 0055), no other game
+has one. Lantern Keep is a 2D platformer, Clockwork Courier a 3D phone game, Burrow Brigade a 2D couch co-op game for
+pads and Tidewater Market a 2D management game for the mouse: none is 3D on a desktop or a tablet, none tells a story
+through branching dialogue and cut-scenes, none uses the engine's own save slots (M19: every game wrote its own), none
+ships to the Mac App Store or the Microsoft Store that M23 built, none is played on an iPad or a Steam Deck first, and
+none is translated into Hebrew (right to left in a text-heavy game), Korean or German (long lines). **Larkspur Lodge**
+(`examples/larkspur-lodge`, ids `LL/FB-n`) is that game: a short mystery in third person. The player is the new night
+porter of a mountain lodge cut off by snow; a guest has vanished, and over one night in five chapters the porter walks
+the lodge's rooms, talks to the six other guests and staff, picks up and combines items, inspects them in 3D, fills a
+notebook of clues and links them into deductions. Choices in dialogue change what the others say and which of three
+endings the night reaches. A playthrough lasts 60 to 90 minutes; the player saves anywhere in five slots, and the game
+autosaves at each chapter. Played with a mouse and keyboard (click to walk or WASD), a gamepad (direct control) or touch
+(tap to walk), and switches its prompts and glyphs to the device used last. Targets: the Mac App Store (macOS, sandboxed),
+the Microsoft Store (MSIX), the iPad (touch, and a trackpad or keyboard when attached) and the Steam Deck (Linux, a
+gamepad, 1280x800).
+
+Built like the other four: game-maker AIs (Sonnet workers) with the generated AGENTS.md, `factoria docs` and the public
+commands, no engine change. The game asks on purpose for what the engine may not have; each gap gets its workaround and
+an `ENGINE_FEEDBACK.json` entry, and those entries rank what comes next:
+- a third-person camera on a `CharacterController3D`: following, orbit on the right stick or mouse, collision with walls,
+  walls and furniture that fade when they hide the porter, click and tap to walk on the navmesh;
+- interaction: highlighting what can be used, prompts that show the key, button or touch of the device used last,
+  doors between rooms loaded with `scene.preload`;
+- branching dialogue: a data format for lines, choices, conditions on story flags and their effects, line ids that
+  localize, speaker names, text speed and skip, a backlog of past lines, validated (dangling ids, unreachable nodes,
+  missing translations) with teaching errors;
+- cut-scenes: camera keys, characters walking and playing `Animator` states, captions, fades and text cards, skippable,
+  driven by data rather than by a script per scene (the rest of TM/FB-0055);
+- an inventory whose items combine, and a 3D view of an item the player turns in the UI;
+- a notebook of clues in rich text and a board where the player links clues into deductions;
+- voice: English voice lines for the cut-scenes from `assets.generate_voice`, captions in time with them, ducking under
+  speech, reverb per room (M29's bus effects);
+- the engine's save slots (M19): five slots with a name, play time, chapter and a picture (M31.24), autosave, a versioned
+  format with a migration (the game changes it during the milestone), the sandbox container on the Mac App Store, cloud
+  saves, and undo of a deduction (the optional half of TM/FB-0003);
+- night interiors: many small lights, shadows, and the render and CPU budgets of the iPad and the Steam Deck;
+- the iPad: the screen sizes of Split View and Stage Manager, the safe areas, the pointer of a trackpad, the keyboard;
+- the Steam Deck: text readable at 1280x800 (Valve's minimum size), gamepad glyphs, the on-screen keyboard to name a
+  save slot, suspend and resume;
+- the closed stores: the Mac App Store's sandboxed `.pkg`, the MSIX, the age-rating questionnaires (IARC) and what each
+  store's page asks;
+- English, Spanish, German, Korean and Hebrew: a Noto Sans KR subset, right-to-left dialogue and notebook with names and
+  numbers inside, long German lines, every screen at 100 % and 200 % text; voice stays English with captions in every
+  language.
+
+Assets are CC0 only, imported with `assets.import` and recorded in `assets.json` (furniture and interiors, rigged and
+animated characters, UI and sounds from Kenney's and Quaternius's packs; P1 chooses them); voice lines are generated and
+recorded with their provenance.
+
+Packages, in this order: P1, P2, then P3-P5 at once, then P6, then P7 and P8 at once.
+- **P1 the lodge, the porter and the camera (L)**: the lodge's rooms (hall, dining room, kitchen, library, corridors and
+  four guest rooms, the cellar) from the CC0 kits, lit for the night; the porter on a `CharacterController3D` with its
+  `Animator`; the third-person camera; the three ways to move (WASD, click or tap to walk on the navmesh, the gamepad);
+  interaction and its prompts per device; doors between rooms; the title screen and the flow (title, game, pause); a
+  test room; and the contracts the other packages build on (story flags and their events, the interaction API, the item
+  catalogue, the dialogue runner's API, the cut-scene player's API, the save data).
+- **P2 dialogue and the story (L)**: the dialogue format in JSON tables and its validation as a project tool, the
+  dialogue UI (speaker, text speed, skip, choices, backlog), the six characters and their schedules through the night,
+  the five chapters and three endings, and a bot that plays the whole story through a fixed path of choices with the
+  same state hash every run (one per ending).
+- **P3 items, clues and puzzles (M)**: the inventory and combining, the 3D item view, the notebook in rich text, the
+  deduction board with undo, and four puzzles (a lock, a timetable, a torn letter, the cellar's fuse box).
+- **P4 cut-scenes and voice (M)**: the cut-scene data (camera keys, actors' moves and animations, captions, fades, text
+  cards) and its player, skipping, the cut-scenes of the five chapters and the three endings, the voice lines with
+  captions in time, ducking, reverb per room.
+- **P5 saves and progress (M)**: five save slots with name, play time, chapter and picture, autosave at each chapter,
+  save anywhere outside cut-scenes, a versioned format (v1 first, then v2 with the migration of v1 saves, fixtures of both
+  in the tests), cloud saves, chapter select after the first ending, achievements and stats on the fake store.
+- **P6 sound, options and accessibility (M)**: ambience per room (wind, fire, clocks), footsteps per floor, the music of
+  each chapter; options: text size, caption background and speaker names, text speed and auto-advance, camera
+  sensitivity and inversion, reduced motion (no head bob, cuts instead of camera moves), colour filter, key and button
+  rebinding, glyphs per device, the menus read aloud (`ui.speak`).
+- **P7 shipping (M)**: the icon, key art and store capsules, store texts and age-rating answers, store screenshots and a
+  trailer built from the game's own cut-scenes, the Mac App Store `.pkg` (sandboxed, signed ad hoc and run on this Mac),
+  the MSIX, the iPad build (run on the iOS Simulator at the iPad sizes), the Linux build for the Steam Deck and Valve's
+  Deck checklist, render and perf budgets on the busiest room at the iPad and Deck resolutions, `SHIPPING.md`.
+- **P8 languages (M)**: Spanish, German, Korean (a Noto Sans KR subset) and Hebrew (right to left, the menus mirrored
+  where the layout asks for it), the dialogue, notebook, captions and store texts, every screen at 100 % and 200 % text.
+
+Acceptance criteria:
+- ctest (`example_larkspur-lodge_*`) runs the story bot to each of the three endings and pins each state's hash; the
+  dialogue validation runs on every table and fails on a broken one in a test fixture.
+- Mouse-only, gamepad-only and touch-only tests walk the porter, talk, use an item and save; a test skips a cut-scene.
+- A v1 save fixture loads in the v2 game; a save in each slot round-trips, its picture included.
+- The macOS app starts sandboxed on this Mac and saves into its container; the iPad build runs on the iOS Simulator; the
+  MSIX and the Linux build are made (not run here).
+- The busiest room stays under its draw-call and frame budgets in a headless run at 1280x800 and at the iPad's size.
+- Every gap met is an `ENGINE_FEEDBACK.json` entry and `factoria feedback collect` includes the game; their triage is the
+  next milestone.
+
+How it went (merged into `m32/reference-game`, P1-P8, the last at `8fe80b55`): P1 built the lodge from Kenney's and
+Quaternius's CC0 kits, the porter, the camera, the three ways to move and the contracts; P2 the dialogue tables, their
+validation as a project tool, the dialogue view and the story bot (one pinned hash per ending); P3 the inventory, the 3D
+item view (a second camera over a stage, seen through a hole in the page), the notebook, the deduction board with undo and
+the four puzzles; P4 the cut-scenes as JSON data and their player, with captions on the step's seconds (no voice provider
+here, so no clips: LL/FB-0601); P5 five slots on top of `storage` with pictures, autosave, v1 and v2 formats with the
+migration and their fixtures, cloud copies, chapter select, achievements and stats; P6 synthesised ambience and music,
+footsteps per floor, the tabbed options (text size and speed, captions, camera, reduced motion, colour filter,
+rebinding) and glyphs per device; P7 the store art, texts and age-rating answers, the 25 s trailer from the intro
+cut-scene, the sandboxed `.pkg` (run on this Mac), the MSIX and the Linux build (made, not run), the iPad build on the
+iOS Simulator, the budgets at the Deck's and the iPad's sizes (`store/check_budgets.py`) and `SHIPPING.md`; P8 Spanish,
+German, Korean (a Noto Sans KR subset) and Hebrew (right to left, mirrored by the game's own `kit.mx`), the dialogue
+check for missing translations, a layout test per language at 100 % and 200 % text, and the store texts in each
+language. `factoria test` runs 340 tests; ctest runs the game as `example_larkspur-lodge_*` (validate, test, perf).
+
+It reported 36 entries (2 major, 25 minor, 9 nice-to-have, no blocker): a crash for a widget under a plain entity, a
+glyph atlas that clears and leaves texts blank, and gaps in text (typewriter reveal, Korean line breaking, right to
+left), the UI (a 3D view widget, input routing between the UI and the game), physics queries, the test harness, the
+menu kit (slots, text speed), audio assets and the shipping checks. Their triage is M33 (ROADMAP.md).
+
+Acceptance (checked 2026-10-27): met for the story bot and the dialogue validation, the save fixtures and slots, and the
+feedback; partly met for the device tests (per feature, no end-to-end test per device), the stores (the sandboxed app
+started and made its container, but no save was made in it; the iPad build ran the title screen only; the MSIX and the
+Linux build were made) and the budgets (the 1280x800 and iPad draw calls are checked by a script outside ctest). The
+details are in ROADMAP.md, M32, "Left open".
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.
@@ -1670,3 +2670,608 @@ the first try failed three ways, each fixed and covered by a test:
   download (today it needs the engine source and the SDKs, docs/MOBILE.md).~~ (`f63632a`, `5055f85`)
 - ~~A Linux AppImage (one file, no tar.gz) and a macOS x86_64 or universal build (the package is Apple Silicon only).~~
   (`fb53f30`)
+
+## M33. Found by the fifth reference game — DONE (the `m33/*` branches)
+
+Planned 2026-10-27 against `8fe80b55` (the top of `m32/reference-game`, itself on the unpushed M29-M31 stack), from the
+triage of Larkspur Lodge's 36 entries (`LL/FB-n`): 2 major, 25 minor, 9 nice-to-have, no blocker.
+- Already supported, docs only: LL/FB-0010 (`world.emit` reaches its listeners at the next `game.step`: SCRIPTING.md,
+  "Timing in a test", says so; the entry is closed with that note); LL/FB-0702's first half (a test calls any command with
+  `fa.call`, SCRIPTING.md; its second half, `ui.check_layout` with panels open, is the rest of TM/FB-0063, M33.8);
+  LL/FB-0803's first half (`display.scaleMode: "expand"` shows more world on a 4:3 screen; the game used `fit`, so the
+  iPad and MOBILE.md docs say to pick `expand` for a tablet, M33.15).
+- Duplicate: LL/FB-0804 is TM/FB-0051 (the players carry their fingerprint since BB/FB-0032; what is missing are Windows
+  and Linux players of a development build), ranked with it.
+- The other 34 are open (two of them half supported already) and become the 15 packages below, ranked by points (occurrences x severity weight) and size.
+
+Each package ships with its doctest or JS test, its docs and the `"unreleased"` rows in `tools/common/api_since.json` for
+the API it adds. When one merges, its entries get a `Fixed in <commit>` note in the bookkeeping branch at the end (`m33/bookkeeping`), and
+Larkspur Lodge drops the workaround it no longer needs (its transparent HUD root Panel, the re-cast loops of its camera
+and porter, the collider it removes for good, its typewriter padding, its hand-written Korean wrapping and `kit.mx`
+mirroring, the U+200F marks in `he.json`, its four-band "hole" for the item view, its `MenuStack.busy` routing, its
+serial id prefixes, its own text-speed row and slot code).
+Order of work: three builds at once at most, a rolling pool. First M33.1, M33.2 and M33.7; then M33.3, M33.4 (after
+M33.3: both change Text layout), M33.6; then the rest in order. M33.5 waits for M33.1 (both touch the UI tree walk).
+
+### M33.1 Widgets under a plain entity, and focus on a disabled widget (S) — LL/FB-0001 (major), 0017, 0703
+
+Done (merge `a7635bda`, `33130077`): `update_drag` skips an ancestor that is not a `UiBox` (the other walks up the UI tree already tolerated one, pinned by the `ui tree` doctest); `ui.focus(entity)` returns a boolean, false and no change for a widget with `interactable: false`, instead of throwing (documented in SCRIPTING.md and `api.json`); a fit Panel inside a `ScrollList` no longer warns "Panel is larger than the screen". Differs from the plan: `ui.focus` used to throw, so tests that expected the throw changed (`16683b96`, among them lantern-keep's `saves.test.js`). Larkspur's HUD prefab lost its transparent root Panel (225 draw calls and 331 entities unchanged).
+
+- `update_drag` (`engine/ui/src/drag.cpp`) walks the parents with `ui_box(w, a)->draggable` and crashes on an ancestor
+  that is not a widget: skip such ancestors, and check every other walk up the UI tree (hit test, scroll, modal, focus,
+  tooltip) for the same assumption.
+- `ui.focus(entity)` on a disabled (`interactable: false`) widget returns false instead of throwing; documented.
+- The "Panel is larger than the screen" warning skips a Panel inside a `ScrollList`.
+- Acceptance: ui doctests with a Button under a plain entity (click, drag, focus, hit test do not crash); a JS test that
+  focuses a disabled Button; no warning for a fit Panel in a ScrollList. Larkspur's transparent HUD root Panel goes.
+
+### M33.2 A glyph atlas that refills its texts (M) — LL/FB-0901 (major)
+
+Done (merge `d7f1facf`, `b2070e42`): the glyph atlas grows 1024, 2048, then 4096 pixels a side and only clears when 4096 is full; a frame that meets a growth or a clear gathers its glyphs again in the same frame, so no text stays blank, and `RenderStats` has `glyphAtlasSize` and `glyphAtlasResets`. The plan said every `Text` is marked dirty and laid out again, or the atlas grows; the engine does the second and, when it must clear, retries the gather in the same frame instead of marking texts dirty. Larkspur walks every screen in every language in one file (`tests/languages.test.js`).
+
+- When the glyph atlas is full and clears, every `Text` is marked dirty and laid out again, so no text stays blank; or
+  the atlas grows to a 4096 page before it clears. A log line says when it clears or grows.
+- Acceptance: a doctest fills the atlas with several scripts' glyphs (Latin, Hangul, Hebrew) and checks that a text set
+  before the clear still draws its glyphs; Larkspur's walk of every screen in every language runs in one test file.
+
+### M33.3 A typewriter reveal and keep-all line breaking (M) — LL/FB-0004, 0902
+
+Done (branch `m33/typewriter`, `ef505773`): `Text.visibleCharacters` (-1 for all) clips the laid-out text by grapheme clusters without laying it out again, so the box keeps its size; `Text.wordBreak` is `auto`, `normal` or `keepAll`. Differs from the plan: the plan had `normal` or `keepAll` with `keepAll` the default for Korean; the shipped default is `auto`, which keeps Hangul words whole and still lets CJK break anywhere. `ui.measureText` has no `wordBreak` option. Larkspur's dialogue box wraps with `Text.maxWidth` and reveals with `visibleCharacters` (no padding, no hand-written wrapping).
+
+- `Text.visibleCharacters` (-1 for all) clips the laid-out text without laying it out again, so a box keeps its size
+  while a line reveals; counted in grapheme clusters, right to left for a right-to-left line.
+- `Text.wordBreak`: `normal` or `keepAll` (Hangul, and CJK when asked, break at spaces only); `keepAll` is the default
+  for Korean.
+- Acceptance: text doctests for the reveal (size unchanged, glyph count) and for Korean breaking at spaces; Larkspur's
+  dialogue box drops its padding and its hand-written wrapping.
+
+### M33.4 Right to left: mirrored layouts and a Text's direction (M, after M33.3) — LL/FB-0903, 0904
+
+Done (branch `m33/rtl`, `ac018ecc`, plus `5ef0895c` for the `CameraView.mirror` docs and test): `ui.mirrorRtl` is a project setting (`factoria.json` `ui.mirrorRtl`, on by default; a script reads and sets it, and the `ui.set_mirror_rtl` command changes it at run time) that flips anchor.x, pivot.x and position.x of the screen-space UI and makes Toggle boxes and Sliders run right to left; `UiBox.mirror: false` opts a widget out; `Text.direction` is `auto`, `ltr` or `rtl` (a Text with a localization key takes the language's direction). Differs from the plan: a `CameraView`'s rectangle is mirrored but its image and u/v are not. Not covered: a screen `Text` or `Sprite` with no parent, the insides of a `TextField`, measuring a text with its direction, and the editor's drag gizmos. Larkspur dropped `kit.mx` and the U+200F marks in `he.json`.
+
+- `ui.mirrorRtl` (project and run time, on by default when `i18n.direction` is `rtl`): anchor.x, pivot.x and position.x
+  flip, and Toggle boxes and Sliders run right to left; a widget opts out with `mirror: false` (a map, a 3D view).
+- `Text.direction`: `auto` (first strong character, today's behaviour), `ltr` or `rtl`; a Text with a localization key
+  takes the language's direction by default.
+- Acceptance: ui doctests of a mirrored screen (positions, Slider value from a click, Toggle box side); a Hebrew line
+  that starts with a key lays out right to left without U+200F. Larkspur drops `kit.mx` and the marks in `he.json`.
+
+### M33.5 A 3D view inside the UI, with studio lighting (L, after M33.1) — LL/FB-0013, 0016, 0014
+
+Done (merge `7f93d492`, `da5c9dc1`): the `CameraView` widget draws a named Camera into an image the size of its rectangle (one extra render pass per view, cached per widget) and samples it as a UI quad one layer up, so the `ScrollList` clip, the layer order and a modal Panel apply as for any widget; `ui.viewPointer` sends down, drag, up and wheel with u, v, dx, dy for turning what it shows; `Camera.lighting: "studio"` with `studioIntensity` replaces the scene's lights, ambient, sky and fog with a camera-relative key, fill and rim; `Camera.viewportSpace` (`screen` or `design`) and the viewport doc say which rectangle the fractions count; `RenderStats.views`. Differs from the plan: only a named camera is a source, there is no render-texture variant. Only Metal ran the render tests, so the GL flip of the offscreen image is untested. Larkspur's item view is a `CameraView` on a studio camera: the four bands, the 0.45 colour factor and the stage lights are gone (budgets unchanged).
+
+- A viewport widget (or `Panel.camera`) that draws a named camera, or a render texture, inside its rectangle, clipped,
+  layered and mirrored like any widget, with pointer events for turning what it shows.
+- Studio lighting for such a view: a Camera option to ignore the scene's ambient and lights and use its own (a preset
+  key, fill and rim), so an item on a stage is lit the same wherever the stage is.
+- Camera.viewport: the docs say which rectangle the fractions count (the window), and a mode that follows the UI design
+  area (LL/FB-0014).
+- Acceptance: render tests of a widget showing a turning mesh (clipped by a ScrollList, under a modal Panel), of the
+  studio preset next to a bright scene; Larkspur's item view drops its four bands and its 0.45 colour factor.
+
+### M33.6 Input routing: a consumed action, text input mode and the wheel under a modal (M) — LL/FB-0008, 0503, 0012
+
+Done (branch `m33/input-routing`, `fe8d492d`, plus `cfdad035` so `action_pressed` and `action_released` copy no bindings when nothing is consumed or typed): `input.consume(action)`; `input.textInputMode` (a focused TextField or the on-screen keyboard turns printable-key actions off); `Panel.wheelPassThrough`. The UI consumes `ui_submit` when it clicks a focused Button or Toggle and `ui_cancel` when a drag takes it or a `ui.on("cancel")` handler returns true; `MenuStack.busy` resets in its constructor, so a scene that went away with it set no longer blocks the next one. Differs from the plan: `wheelPassThrough` is a bool, not a rectangle. Larkspur's `MenuStack.busy` routing is gone, with one consequence for the game: P opened the pause menu over the journal or a puzzle screen, so P was removed from Larkspur's `pause` action at the user's request (Escape and gamepad Start pause).
+
+- `input.consume(action)`: later readers in the same frame see the action as not pressed; the UI consumes `ui_cancel`
+  and `ui_submit` when a widget handles them, so a pause handler does not also fire.
+- Text input mode: while a TextField (or the on-screen keyboard) has the focus, game actions bound to printable keys
+  read as not pressed; `MenuStack.busy` resets on `scene.load`.
+- `Panel.wheelPassThrough` (or a rectangle) leaves the wheel to scripts under a modal Panel.
+- Acceptance: JS tests: Escape closes a dialog without opening pause; P typed in a TextField does not pause; the wheel
+  reaches a script under a pass-through modal. Larkspur's `MenuStack.busy` routing goes.
+
+### M33.7 Physics: every hit of a ray and colliders turned off (M) — LL/FB-0002, 0003
+
+Done (branch `m33/raycast-all`, `e56afda0`): `physics.raycast3dAll` and `raycast2dAll` return every hit nearest first, one hit per entity, up to `maxHits` (default 32); `Collider3D.enabled` and `Collider2D.enabled` are writable at run time, and a disabled collider is skipped by queries, contacts and the NavMesh bake. Differs from the plan: `enabled` takes effect at the next physics sync, not at once. Larkspur dropped its re-cast loops and `entity.remove('Collider3D')`.
+
+- `physics.raycast3dAll(origin, dir, maxDistance, opts)` (and `raycast2dAll`) returns every hit sorted by distance, up
+  to `maxHits`.
+- `Collider3D.enabled` and `Collider2D.enabled`, writable at run time; a disabled collider is skipped by queries and
+  contacts and kept out of the NavMesh bake.
+- Acceptance: physics doctests (hits in order, `maxHits`, a disabled collider let through and back); Larkspur's re-cast
+  loops and `entity.remove('Collider3D')` go.
+
+### M33.8 Tests that drive the UI like a player (S-M) — LL/FB-0009, 0702 (second half), 0704, 0502
+
+Done (merge `c66eea1b`, `6c596066`): `game.tap(action)` taps the first key or pad button bound to the action, so `game.tap("ui_submit")` presses the focused Button; `ui.check_layout` takes `current: true` and `game.checkLayout()` measures the running scene with the panels a test opened, loading nothing (the rest of TM/FB-0063); `game.resetState()` stops the music (persist included) and the voices (option `audio`, on by default); the fake store applies `stats.add` on the stored value when it serves the request, so two adds in a frame count twice. Differs from the plan: the fake's change made tidewater-market's `trade_ui` test expect the second add too. Larkspur's `tapKey('Space')` calls, its manual layout walk and its music reset are gone.
+
+- `game.tap(action)` goes through the UI like the key or button bound to it: `game.tap("ui_submit")` presses the
+  focused Button (today only `tapKey` and the pad do).
+- `ui.check_layout` measures the current frame, with the panels a test has opened, without reloading the scene (the
+  rest of TM/FB-0063).
+- `game.resetState()` stops the music and the voices.
+- The fake store applies `stats.add` on the stored value when it serves the request, so two adds in a frame count twice.
+- Acceptance: JS tests for each. Larkspur's `tapKey('Space')` calls, its manual layout walk and its music reset go.
+
+### M33.9 Entity and scene lifetime (S) — LL/FB-0015, 0602
+
+Done (branch `m33/lifetime`, `f8e557cd`): `world.entities()` skips an entity destroyed this frame (`find`, `findAll` and `findByTag` already did); `scene.generation` changes on every load, a reload of the same scene too; `Entity.destroy` says when the entity is gone. Differs from the plan: `alive` stays true until the end of the frame, so a script that must not touch a destroyed entity checks `scene.generation` or the lists, not `alive`. Larkspur's serial id prefix and its `porter.alive` check are gone.
+
+- `world.find` and `world.findAll` skip entities destroyed this frame; Entity.destroy says when it is removed.
+- `scene.generation`, a counter that changes on every load (a reload of the same scene too).
+- Acceptance: JS tests; Larkspur's serial id prefixes and its `porter.alive` check go.
+
+### M33.10 Listing data files (S) — LL/FB-0005
+
+Done (branch `m33/data-glob`, merge `5bd8bbf3`, `3010cb32`): the glob import `import tables from "../data/dialogue/*.json"` gives the parsed files as an object keyed by file name, sorted; editing a matched file reloads its importers, the export packs the files and the compiled script reads them from `game.pak`, and `*.json` module typings exist. Differs from the plan: the glob import was chosen over `project.list_files`. A file added while the game runs is seen on the next start. Larkspur's `dialogue_data.js` uses it; its cut-scene data still lists its imports one by one.
+
+- `import tables from "../data/dialogue/*.json"` (a glob import of JSON data, sorted, as an object keyed by file name)
+  or a `project.list_files` command a project tool can call; the export packs what a glob import names.
+- Acceptance: a script test that imports a glob; an export test that the files are packed.
+
+### M33.11 The menu kit: a text-speed row and save slots (M) — LL/FB-0011, 0501
+
+Done (branch `m33/menu-kit`, merge `a8bbc5e5`, `99c1e931`, plus `88c6f538` for Larkspur): `textSpeed` is its own kit part (a "Text speed" row in the Options audio tab, `settings.TEXT_SPEEDS`, `settings.revealedCharacters`) and `addOptionsRow()` adds a row of the game to any Options section; the `slots` part has `scripts/slots.js` (record, counter, cloud merge by counter, damaged slots), `scripts/ui/slot_screen.js` with the naming dialog and the on-screen keyboard, and two prefabs. Differs from the plan: the text speed is a part of its own, not a `textSpeed: true` option of the options part. Larkspur moved to the kit's slots (`saves.js` keeps only the lodge's side) but keeps its own Text speed row in `options.js`, which predates the part. 225 draw calls and 331 entities unchanged.
+
+- The options part takes `textSpeed: true` and a documented way to add a game row to a section.
+- A `slots` part of `project.add_menu_kit`: the slot record (name, chapter, play time, picture, counter), the cloud merge
+  by counter, and a slot screen prefab with the on-screen keyboard to name a slot (M19's save slots, made from what
+  Larkspur Lodge and Tidewater Market both wrote by hand).
+- Acceptance: tooling tests of the kit parts; Larkspur moves to the kit's slots and drops `saves.js`'s record code.
+
+### M33.12 Shipping checks: a sandboxed save, long recordings and the iPad (M) — LL/FB-0801, 0802, 0803 (second half)
+
+Done (merge `39864caf`, `f70d5c0e`): the exported player takes `--persist-storage` with `--frames`, `--input`, `--dump-state` and `--screenshot`, so a replay that saves leaves a real file (the ctest `cli_larkspur_ship` plays `tests/replays/save_slot1.json` on the exported Larkspur Lodge and finds `slot1.json`); the iOS player plays an `--input` replay in its window (`FA_INPUT_REPLAY`) and turns the screen (`FA_ORIENTATION`), driven by the new `player.run_ios_sim` command. Differs from the plan: the frames of `--record-video` were already spooled to disk; the memory was the Metal read-back (`readback_metal.mm`) keeping one frame of pixels per capture in an autoreleased command buffer, fixed with an autorelease pool (300 frames at 1.5 scale went from 2440 to 61 MB); the simulator is driven by the command `player.run_ios_sim`, not by `factoria run --ios-sim`. Never run on a real Simulator or iPad (see ROADMAP.md, M33 "Left open"); the command's steps are covered by a `dryRun` test.
+
+- The exported player accepts `--persist-storage` (and `--input` replays) like `factoria run`, so a replay that presses
+  Play and saves leaves a real file in the Mac App Store container.
+- `--record-video` streams its frames to the encoder instead of keeping them in memory.
+- The iOS Simulator: `factoria run --ios-sim` (or a command) plays an `--input` replay on the simulator's player, and
+  sets its orientation.
+- Acceptance: a CLI test of `--persist-storage` on the player; a recording whose memory stays flat; the replay on the
+  simulator where Xcode is installed. Then Larkspur's sandbox save and iPad checks go into ctest.
+
+### M33.13 Audio: voice without a provider, loops and OGG (M) — LL/FB-0601, 0701
+
+Done (merge `d9b5e997`, `3d6850d7`): `assets.generate_voice` names the provider keys (`ELEVENLABS_API_KEY`, `OPENAI_API_KEY`) when it has none and takes `silent: true` for a silent clip of the line's length; `assets.generate_loop` makes seamless seeded noise beds and drones (with `underNote` and `underLevel`); `assets.convert_audio` writes WAV to Ogg Vorbis with an encoder of its own (simple, no stereo coupling; none was vendored). Differs from the plan: there is no search of CC0 packs, because no source offers an API without a key. Larkspur's `make_sound.py` was removed; its sounds are `assets/src/sound/*.json` calls.
+
+- `assets.generate_voice` says which provider keys it needs, and the docs say how to test voice-dependent code without
+  a provider (a silent clip of the line's length).
+- `assets.generate_loop` (a seeded noise bed or drone, seamless) and `assets.convert_audio` (WAV to OGG); a search of
+  CC0 sound packs if a source offers an API.
+- Acceptance: tooling tests; Larkspur's `make_sound.py` goes.
+
+### M33.14 Hangul on the on-screen keyboard (M) — LL/FB-0905
+
+Done (branch `m33/hangul-ime`, `6da44ad9`): the kit keyboard (`scripts/ui/keyboard.js`) has an IME hook per language (`IME[language] = { compose(text, ch), decompose(text) }`, stateless: the state is the text) with Hangul built in: jamo keys, Shift for the doubled jamo, syllable composition and Delete that takes the last jamo away; the kit's slots test types a Korean slot name with the pad. Differs from the plan: the system-keyboard alternative was not done. Larkspur's Korean font subset now keeps the 2350 KS X 1001 syllables (193 to 518 KB).
+
+- An IME hook for the menu kit's on-screen keyboard (a composition callback per language), with Hangul composition
+  built in; or a platform request that opens the system keyboard on pad platforms (the Steam Deck's, M27).
+- Acceptance: a JS test that types a Korean slot name with the pad.
+
+### M33.15 Docs for what is already there (S) — LL/FB-0006, 0007, 0504, 0803 (first half)
+
+Done (branch `m33/docs-existing`, merge `2a7d60cb`, `905ee6fa`): a Button's `key` is documented as a translation key; MENUS.md has a picture of screen anchors (Y down) against widget pivots (Y up) and `factoria validate` warns about a screen widget wholly outside the design size; `display.scaleMode: "expand"` for tablets is in MOBILE.md; the timing of `platform.*` is documented and pinned by a test, and `fake.achievements` is documented as listing only the ids touched. Differs from the plan: `platform.*` answers arrive within the call and the promise resolves on the next microtask, one per await of a chain, so the docs were fixed, not the fake. The `expand` camera behaviour was described from the code, not seen on a screen.
+
+- A Button's `key` is a localization key, not a hotkey (COMPONENTS.md and the field's doc string).
+- Screen anchors count Y down and widget pivots Y up: one sentence and a picture in the ui doc, and a `validate` warning
+  for a screen widget wholly outside the design size.
+- When `platform.*` answers arrive (SCRIPTING.md says at once; Larkspur saw the next frames: find which is true and fix
+  the docs or the fake), and that `fake.achievements` lists only the ids touched.
+- `display.scaleMode: "expand"` for tablets (MOBILE.md, the iPad).
+
+Left out of M33: TM/FB-0051 with LL/FB-0804 (Windows and Linux players of a development build need CI artifacts, so a
+GitHub token), TM/FB-0055 (a Timeline component), TM/FB-0003 (an undo helper), all three still open in the ranked list of ROADMAP.md.
+
+## M34. Found by the user's own game, Roguestory — DONE (the `m34/*` branches)
+
+Planned 2026-10-28 against `f29ada6a` (on `release-0.3.0`), from Roguestory's first session: its 6 entries (`RS/FB-n`, 1 major,
+5 minor) and what its user saw: no wall-clock time in the console, and an orchestrator that delegated to its worker, said it
+would report later, and stayed silent until Claude Code dropped the call after 5 minutes.
+
+### M34.1 Wall-clock time on log lines (S) — the user
+
+Done (merge `ad8d4173`): every `LogEntry` carries `wallMs`; the editor Console starts each line with `HH:MM:SS.mmm` (the
+tooltip has the date, the frame and the seconds since start), `game.logs` and `newWarnings` give `wallTime` (ISO 8601), and the
+text and JSON stderr formats show it. The state dump's `recentLogs` stays without it, so dumps stay reproducible.
+
+### M34.2 The AI agent is never silent (L) — the user
+
+Done (merge `d893e2f8`): the MCP server sends `notifications/progress` with a heartbeat over stdio and the editor's HTTP
+endpoint, which resets Claude Code's inactivity timeout; `factoria new` writes a four-hour `timeout` into `.mcp.json`. The
+editor's AI panel streams the worker's steps, shows the run time and the last activity, warns after `limits.stuckAfterSeconds`
+(180) with **Stop** and **Check activity** (process, CPU, tool in flight, child processes, recent file changes), stops a run
+whose CLI process died, and when the orchestrator's turn ends before its worker it shows the worker's progress and continues
+the orchestrator once with the report. `factoria ai run` prints `  | worker > ...` lines and `.factoria/ai/progress.log`.
+
+### M34.3 Clicking like a player, docs that fit (S-M) — RS/FB-0004, 0005
+
+Done (merge `1cb87439`): `game.click` by widget `id`, screen `position` or `world` point (move, press, a frame, release, a
+frame); `docs.read` cuts at `maxBytes` (40000) with `contents`, `next` and `heading`; `docs.components` and `docs.commands`
+list one-line summaries unless given `name`, `filter` or `full`. RS/FB-0004 was not reproduced in the engine: `game.click` is
+the documented recipe.
+
+### M34.4 Shape2D corners, softness and gradients (M) — RS/FB-0003
+
+Done (merge `c7099ba3`): `cornerRadius`, `softness`, `gradient` (`linear` with `gradientAngle`, `radial`) and `color2`, through
+an SDF mode of the quad shader, dithered; plain shapes draw and batch as before. The 2D vertex grew from 32 to 48 bytes.
+
+### M34.5 Bundled fonts (M) — RS/FB-0002
+
+Done (merge `86ba8ed3`): `builtin:serif` (Crimson Text), `builtin:hand` (Kalam), `builtin:blackletter` (UnifrakturMaguntia)
+and `builtin:display` (IM Fell English), SIL OFL, with real bold and italic faces where the family has them; `[i]` in rich text
+and `text.fonts` `"italic"`. The fonts are files of the tools, not of the player: an export copies the families a game names to
+`builtin-fonts/` with their licenses.
+
+### M34.6 Art without an image provider (M) — RS/FB-0001
+
+Done (merge `c01d5ca9`): `assets.generate_texture` (paper, parchment, wood, planks, leather, fabric, stone, noises,
+gradients, vignette; seeded, tileable, normal maps; CC0 provenance) and `assets.rasterize_svg` (vendored nanosvg, zlib); the
+`no_provider` error lists which providers could make the kind, the keys that would enable one and the offline commands.
+Differs from the plan: the commands live in the tooling, next to `synth_sound` and `draw_icon`, so they work without the AI layer.
+
+### M34.7 Widgets from your own entities (L) — RS/FB-0006
+
+Done (merge `5734b287`): the `Interactable` component (`kind` button, toggle or slider with `knob` and `fill`) makes any
+entity composition a widget of the same focus, navigation, events and modal scopes as Button, in world space (hit through the
+camera, following moving parents) or on the screen; `InteractableVisual` children show, hide or tint per state; `ui_next` and
+`ui_previous` (Tab, Shift+Tab) are new default actions; `ui.on` gets `hover`, `blur`, `press` and `release`.
+
+### M34.8 The engine notices it was updated (L) — asked by the user after installing M34 by hand
+
+Done (merge `5d20cf2a`): the editor watches the `factoria` it was started from (size and time, confirmed by the build
+fingerprint and a new `FA-ENGINE-VERSION:` marker) and shows "FactorIA was updated on disk" with Restart, disabled while an
+AI run, play session, export or setup is going, and Not now. `factoria mcp` over stdio re-executes the new binary between
+messages on Linux and macOS, carrying the negotiated session (`--resume-session`), and sends `tools/list_changed`; the
+first tool result says what restarted and what was lost. On Windows it asks the client to reconnect. A `.mcp.json` newer
+than the client gets a notice, and a missing `timeout` is added. `engine.update_status` reports all of it.
+
+## M35. Asked by the user after building Roguestory in the editor — DONE (the `m35/*` branches)
+
+Planned 2026-10-28 against `07470548` (the top of M34), from what the user saw while making Roguestory with the editor's AI:
+no roles for art, audio or critique; one AI chat at a time; usage that jumped only when a run ended; panels that came back
+after closing them; fixed feedback that stayed in `ENGINE_FEEDBACK.json` forever.
+
+### M35.1 Art, audio, critic and reviewer roles; reviews on request (L) — the user
+
+Done (merge `3f1dde74`): four roles in `ai.json` (`artist`, `audio`, and the read-only `artCritic` and `reviewer`, which give
+an opinion with a score from 0 to 10 and sub-scores); a role left out follows the provider already in use. Reviews run only
+when the user asks (the **Art critique** and **Game review** buttons with 1-5 reviewers of different points of view and a
+focus, `factoria ai review art|game`, `ai.review`); the orchestrator cannot start them. Each is saved in
+`.factoria/ai/reviews/` (`ai.reviews`), the **AI reviews** window lists them and **Send to orchestrator** posts one into an
+orchestrator chat. Read-only is enforced per provider (the built-in loop's tool list, Claude Code's `--disallowedTools`,
+Codex's read-only sandbox with the new `factoria mcp --read-only`). A game's `REVIEW.md` tells reviewers how to play it; the
+AGENTS.md template and the AI guide ask for one and exports leave it out. A Claude Code orchestrator runs without Claude
+Code's own `Agent`/`Task` sub-agents and delegates with `ai_run` (seen in Roguestory). Editor autotest section V.
+
+### M35.2 Usage, cost and limits update live (M) — the user
+
+Done (merge `72c3f75c`): every Claude Code model call (and each Codex turn) adds its tokens while the agent works, the cost
+is estimated with the engine's price table until the CLI's total arrives, a delegated worker's spending shows live and is
+kept per agent (`RunUsage`), and `limits.maxCostUsd` / `limits.maxTotalTokens` stop a CLI run as it crosses them.
+
+### M35.3 The editor keeps its panels; closed feedback is archived (M) — the user
+
+Done (merge `bc47b50c`): which panels are open is saved with the layout (`[FactorIAEditor][Panels]` in
+`~/.factoria/editor_layout2.ini`), View > Reset layout reopens the defaults; editor autotest section U. Closed entries of
+`ENGINE_FEEDBACK.json` move to `ENGINE_FEEDBACK.archive.json` when the editor opens the project and with `feedback.archive`;
+ids stay unique, a report matching an archived fix reopens it as a possible regression, the Engine Feedback panel has
+"Show archive" and "Archive closed", and exports leave the archive out.
+
+### M35.4 Several AI chats at once (L) — the user
+
+Done (merge `58278dd0`): up to `limits.maxConcurrentRuns` (default 3) chats run at the same time, each with its own agent
+thread, MCP endpoint, Stop, status and live usage (`AiRun`); a review is one more run. When two chats change the same file
+both get a warning, and Revert of one run restores only its files (`checkpoint_restore` with a file list), asking first
+when another chat changed some of them. Editor autotest section W.
+
+## M36. More from Roguestory and the user's look at the AI panel — DONE (the `m36/*` branches)
+
+Planned 2026-10-28 against `f1d0bb5e`, from Roguestory's FB-0007-FB-0010 and what the user asked after using the AI panel.
+
+### M36.1 `scene.save` leaves out entities scripts spawned (M) — Roguestory FB-0007
+
+Done (merge `f743998b`): `world.spawn` and `world.spawnPrefab` mark what they create (`EntityInfo::scriptSpawned`, not
+saved); `scene.save` skips those entities and their children, lists them under `skippedSpawned` with a hint, and writes them
+with `includeSpawned: true`. The editor's Play/Stop snapshot and undo keep them. The duplicate-id warning at load names an
+older save as the likely cause.
+
+### M36.2 Shape2D gradient, late Entity references, focusOnHover (M) — Roguestory FB-0008, FB-0009, FB-0010
+
+Done (merge `082f82fd`): a `Shape2D` is skipped only when every colour it draws with is transparent (the vignette recipe
+draws); `world.spawn` leaves an Entity field naming an id not spawned yet empty with a warning and fills it when that id
+appears (given up after 600 syncs); `focusOnHover` acts once per new hover, also for a widget that appears under a resting
+pointer; `InteractableVisual.when: "highlighted"` (hovered or focused).
+
+### M36.3 AI panel and toolbar (S) — the user
+
+Done (`a856455a`): the roles line is gone (the **Roles...** tooltip lists them), the review buttons, reviewer count and
+focus sit next to **Roles...**, and **Art critique** / **Game review** open a confirmation with **Start**. The live cost
+estimate prices Claude Code's 1-hour cache writes at twice the input (`cache_creation.ephemeral_1h_input_tokens`), as its
+final total does. Select / Move / Rotate / Scale show only while an entity is selected.
+
+## M37. The FactorIA program icon — DONE (`m37/app-icon`)
+
+Done (`b866d960`, `cb39698f`, then the icon commits on `m38/integrated`): the icon (a white factory with an AI brain,
+sources in `tools/editor/icon/src`, regenerated with `make_icons.py`) shows in the editor's title bar and taskbar
+(Windows, Linux), the macOS Dock (`AppDesc::dockIcon`) and on `factoria.exe` / `FactorIA-Editor.exe`. The macOS tile has
+the size of the system's app icons (824 of 1024) with the drawing at 66% of it and no rim. The program is called FactorIA
+in the Dock and Cmd+Tab.
+
+## M38. Roles you can turn off, AI settings, Roguestory FB-0011-FB-0015 — DONE (`m38/integrated`)
+
+Planned 2026-10-29 against `m37/app-icon`, from what the user asked after using the AI panel and Roguestory's
+FB-0011-FB-0015.
+
+### M38.1 Roles in groups, readable names, Enabled (M) — the user
+
+Done (merge `ffb42865`): `role_display_name()` everywhere the editor names a role; the Roles window has three sections
+(Orchestration and code, Art and audio, Critics and reviewers) and an **Enabled** column (`roles.<role>.enabled` in
+`ai.json`, only `false` is written; the orchestrator cannot be turned off). The orchestrator's prompt lists only the roles
+that are on and does the work of the others itself (with the artist's or audio guide); with every delegable role off it
+gets no delegation tool. `agent_delegate`, `ai.run` and `factoria ai run --role` refuse a role that is off with `role_off`.
+The Art critic and the Reviewer still run from their buttons when off, on the orchestrator's model.
+
+### M38.2 AI settings window (M) — the user
+
+Done (merge `390d7e0e`): **AI settings...** (next to **Roles...**, and File > AI Settings...) chooses the provider, model,
+voice and API key of each asset kind, and lists the websites to look for images, models, audio and fonts (`assetSources`
+in `ai.json`) with **Use only these sites**, which holds Claude Code to them and is told to other providers.
+
+### M38.3 Storage, mid-session tools, input between tests (M) — Roguestory FB-0011, FB-0012, FB-0015
+
+Done (merge `6ece65fd`): `storage.list` / `storage.clear` (memory and the save folder; `project.test` sees only its own
+in-memory storage); `factoria mcp` checks `scripts/` and `tools/` before every request and `script.eval {module}`
+re-imports changed modules; `Input::reset_options()` puts the mouse at (0, 0) with no delta or wheel before every test.
+
+### M38.4 Planks options and painterly SVG styles (M) — Roguestory FB-0013, FB-0014
+
+Done (merge `beb3bf1d`): `planks` takes `plankCount`, `plankLength` (0 = boards from side to side), `gapWidth` and
+`gapDarkness`, with longer boards and a finer seam by default; `assets.rasterize_svg` takes `style` (`watercolor`, `ink`,
+`inkwash`, `paper`), `styleStrength` and `seed`, a seeded post-process in `assets_style.cpp`.
+
+### Launcher — the user
+
+Done (`77ef9380`): `factoria setup launcher` writes `~/Applications/FactorIA.app` on macOS (registered with Launch
+Services, the bundled `AppIcon.icns`) or a `.desktop` entry and icon on Linux; its status is partial when out of date,
+hand-made or opening another `factoria`, and the editor refreshes an out-of-date launcher that opens itself at startup.
+
+## M39. The AI panel's global controls, screenshots that do not fill the disk, Roguestory FB-0016-FB-0026 — DONE (`m39/integrated`)
+
+Planned 2026-10-29 against `m38/integrated`, from what the user asked after more work on Roguestory in the editor and
+Roguestory's FB-0016-FB-0026.
+
+### M39.1 Editor layout (M) — the user
+
+Done (merge `b2c34b47`): the menu bar is File, Edit, View, **AI** (AI Settings..., Roles...), Help and **Export Game**
+(the toolbar's Export is gone). The AI Settings window has a Roles tab (first) and an Assets tab and remembers the last
+one; Cancel is Revert. The no-provider box, the config error, the review row and the plan windows are above the chat tabs.
+The cost reads "API cost est. $X" with a tooltip that API prices do not apply to a subscription, plus "(not billed on a
+subscription)" when the orchestrator runs on a CLI. The Engine Feedback panel no longer grows: only its list scrolls.
+
+### M39.2 Screenshots for agents (L) — the user, Roguestory FB-0020, FB-0021, FB-0025
+
+Done (merge `22af33df`): `game.screenshot` without `path` returns `temporary: true` and the MCP server and the AI session
+delete the file once the image is sent; `Engine::init` prunes `frame_*.png` older than 3 days and beyond 200.
+`game.screenshot` takes `region` and `zoom` (0.25-32; re-rendered up to 4, nearest-neighbour above) and `frames` /
+`everyFrames` / `columns` for a filmstrip (up to 64 tiles). `render.inspect` gives a luminance profile along a line with
+its hard steps; `render.pick` names the entities under a point. Footprint picking moved to `engine/scene/src/bounds.cpp`
+and the editor reuses it.
+
+### M39.3 Scripts and checkpoints (M) — Roguestory FB-0017, FB-0024, FB-0025
+
+Done (merge `b282a7ce`): a tween whose entity or behaviour is destroyed, or that a scene reload drops, never settles its
+`finished` promise, so no script code runs after its owner is gone (an explicit cancel still resolves `false`).
+`tween.pauseAll` / `resumeAll` / `paused` / `timeScale`, `Tween.seek`, `Behaviour.tween` and `Behaviour.wait`.
+`checkpoint.read {id, path, out?}` and `checkpoint.restore {paths}`. The typings generator knows `kind: "namespace"`.
+
+### M39.4 2D rendering (L) — Roguestory FB-0019, FB-0022, FB-0026
+
+Done (merge `57a10717`): `Shape2D.gradientStops` (up to 8) and `gradientEase` (23 curves), baked into a gradient ramp
+texture read by `quad.glsl`; a `Tint` component that children inherit; `Sprite.skew` (up to 80 degrees) and
+`meshColumns` / `meshRows` / `vertexOffsets` for page curls and flags (up to 128 per side).
+
+### M39.5 Generated art (M) — Roguestory FB-0016, FB-0018, FB-0023
+
+Done (merge `08df5cf0`): `assets.rasterize_svg` supports `clipPath`, `mask` (luminance) and `pattern` fills
+(`assets_svg_layers.cpp`); `generate_texture` supersamples `fabric` so it shows no plaid, adds `linen`, and the paper
+vignette is narrow and irregular by default with `vignetteWidth` (0.005-0.5).
+
+## M40. The editor's menus in the macOS menu bar — DONE (`m40/integrated`, 0.5.0)
+
+Done (merge `7f8511bd`): `menu_model.{h,cpp}` describes the main menu (labels, platform-neutral shortcuts, enabled,
+checked, tooltips, autotest names, lazy submenus for Recent Projects and Open Scene); `main_menu.cpp` builds it every
+frame, `menu_imgui.cpp` draws it in the window on Windows and Linux (and in the autotest), and `native_menu_apple.mm`
+mirrors it into `NSApp.mainMenu`, updating items in place and queuing actions for the next frame. On macOS: the FactorIA
+menu (About with version and build, Settings... Cmd+,, Hide, Quit Cmd+Q through `sapp_request_quit`), an Export menu
+(Export Game... Cmd+E), a Window menu, Redo on Cmd+Shift+Z, and Save/Undo/Redo give their key to a focused text box.
+`FA_EDITOR_NATIVE_MENU=0` brings the in-window bar back. The version became 0.5.0; 0.4.0 (`2f62cefd`) closed M29-M39.
+
+## M41. Animations drawn with code, baked into sprite sheets — DONE (`m41/integrated`, 0.6.0)
+
+Done: the shared contract `a14ad3e6` (`provenance.recipe`, the sheet's `padding` and `pivot`, `make_recipe`), then
+M41.1 animate_svg (merge `bdb46b58`), M41.3 bake_sheet (`0e204977`), M41.2 recipes and `assets.regenerate`
+(`11b8e5a7`) and M41.4 clips by name and `assets.preview_sheet` (`5dd3b22f`). The pivot in the sheet is counted from
+the top-left of the cell; `SpriteAnimator` flips it to the Sprite's bottom-left (`[x, 1 - y]`). Both editor packages
+added an autotest section: recipes are Y, sprite sheets Z.
+
+The plan as it was written:
+
+Asked by the user, from what they did with another AI: draw each frame of an animation with code at a deterministic
+time `t = frame / fps`, on a transparent background, pack the frames into a sprite sheet with its manifest, check it,
+load it in the game and keep the source so the sheet can be made again. Then: "do all three" (the code-drawn sheet,
+the regenerable source and baking engine-drawn entities); the complete version, however long it takes.
+
+What already exists and is reused: `assets.rasterize_svg` (nanosvg on the CPU, deterministic, transparent, `style`,
+`seed`), `style.palette`, the `sheet` entry in assets.json (`columns, rows, frameWidth, frameHeight, frames`, clips
+`name, firstFrame, lastFrame, fps, loop`), `assets.slice_sheet`, `assets.pack_atlas` (pivots), `SpriteAnimator`
+(forward only), Aseprite import, the `game.screenshot` filmstrip, `Engine::capture_region` and the headless GPU.
+
+Shared contract (fixed before the packages start, so they can run in parallel): a made asset's provenance carries
+`recipe: {command, args, inputs: [{path, sha256}]}`: the command that made it, the arguments that make the same bytes
+again (paths project-relative, `seed` explicit) and the project files it read with their hashes. M41.1 and M41.3 write
+it; M41.2 reads it for every command that writes one, and adds it to the existing offline makers.
+
+Version: 0.6.0 when it lands.
+
+### M41.1 Code-drawn animations: assets.animate_svg (L)
+
+- `assets.animate_svg {path, source | svg, frames, fps, loop, columns, frameWidth, frameHeight, params, seed, clips,
+  pivot, palette, style, styleStrength, padding}` writes a PNG sprite sheet plus its `sheet` entry, in one call.
+- `source` is a project JS module (`art/coin_spin.anim.js`) whose default export is `frame({t, frame, frames, fps,
+  progress, params, rng}) => string`, an SVG for that frame. It runs in a sandboxed QuickJS context with no engine
+  bindings, no `Math.random` and no `Date` (both replaced by deterministic ones; `rng` is seeded from `seed` and the
+  frame), and a per-call time and memory limit. Errors point at the module's file and line and name the frame.
+- `svg` is one SVG with SMIL animation (`<animate>`, `<animateTransform>`, `<animateMotion>` on a path, `values`,
+  `keyTimes`, `keySplines`, `calcMode`, `begin`/`dur`/`repeatCount`), sampled at each `t`: the subset AIs write when
+  asked for an animated SVG. Unsupported features are warnings that name the element.
+- Every frame is rasterized with the `rasterize_svg` path (same `style`, `seed`, palette snapping), on a transparent
+  background, into cells of `frameWidth x frameHeight` with `padding` gutters (no bleed between frames when filtered).
+- `clips` makes several named clips from one module (`[{name: "idle", frames: 8, params: {...}}, {name: "hit", ...}]`):
+  each clip's frames follow the previous ones in the sheet and get their own `sheet` clip with `fps` and `loop`.
+- `pivot` ([x, y] 0..1, default [0.5, 0.5]) is recorded in the `sheet` entry (M41.4 reads it).
+- The result returns the sheet as an image (like `game.screenshot`), the layout, and warnings: empty frames, frames
+  whose shapes touch the cell edge (clipped), a loop whose last frame jumps from the first.
+- Provenance origin `generated`, `ai` true by default (`ai: false` + `author`, `license` like rasterize_svg), with the
+  recipe (the module and its hash in `inputs`).
+- Tests: a module and a SMIL SVG each give a byte-identical sheet twice; the layout and clips; a JS error with file,
+  line and frame; the time limit; `Math.random` is deterministic; palette snapping; padding.
+- Docs: ASSETS.md (a section with a worked example), AI_GUIDE.md (when to draw with code, when to bake, when to ask a
+  provider), the command doc strings, api_since.
+
+### M41.2 Recipes: make any made asset again (M)
+
+- `assets.regenerate {path}` re-runs the recorded recipe through the command registry and reports what changed
+  (pixels or bytes, size, layout). `{all: true}` does every asset with a recipe; `{stale: true}` only those whose
+  `inputs` hashes no longer match the files. `dryRun` lists what would run.
+- `factoria validate` warns about a stale asset (its source changed since it was made) and about a recipe whose input
+  is missing, with the regenerate command in the hint.
+- The offline makers that already record their arguments write a full recipe too: `rasterize_svg`, `draw_icon`,
+  `draw_capsules`, `generate_texture`, `synth_sound`, `generate_loop`, `pack_atlas`, `slice_sheet`. Provider-made
+  assets (`generate_image`...) are not regenerable (they would cost money and give a different picture): validate says
+  so only if someone asks to regenerate them.
+- Editor: the Assets panel shows a "Regenerate" button (and a stale badge) on an asset with a recipe; the file watcher
+  offers to regenerate when an `.anim.js` or `.svg` source is saved.
+- Tests: regenerate gives the same bytes; stale detection; a missing input; every listed maker writes a recipe that
+  regenerates its own output byte for byte.
+
+### M41.3 Bake an engine-drawn entity into a sprite sheet: assets.bake_sheet (L)
+
+- `assets.bake_sheet {path, prefab | scene + entity, frames, fps, columns, frameWidth, frameHeight, scale, pivot,
+  clips, warmup, seed, background}` instantiates the prefab (or the scene's entity with its children) alone in a
+  private world, steps it deterministically at the fixed step and captures a frame every `1 / fps` seconds, so
+  Shape2D (gradients, strokes), sprites, SpriteAnimator, Tint, tweens, particles and scripts all bake as they play.
+- The picture is drawn offscreen on the GPU with a transparent clear, and the premultiplied result is converted to
+  straight alpha with no dark fringes; the camera frames the union of the entity's bounds over all frames (plus a
+  margin), so nothing is cut and the pivot stays still between frames.
+- `clips` bakes several named clips, each starting from a script event or a call (`[{name: "explode", call:
+  "explode", frames: 24}]`, the call is a method of the entity's behaviour); `warmup` steps first (a particle system
+  that should start full).
+- Works with the headless GPU on every backend (Metal, D3D11, GL/EGL, and the editor's device); tests on the backend
+  of the machine running them, golden images with tolerance.
+- Writes the same `sheet` entry, provenance (origin `generated`, `ai` from the prefab's provenance) and recipe as M41.1,
+  and returns the sheet as an image.
+- Tests: a Shape2D with a tween bakes the same pixels twice; transparent edges have no dark fringe; the frame covers a
+  particle burst; clips through a behaviour call; a scripted error names the prefab.
+- Docs: ASSETS.md, AI_GUIDE.md (bake effects to save draw calls on mobile), doc strings, api_since.
+
+### M41.4 Sheets the game plays by name, and checking them (M)
+
+- `SpriteAnimator.clip` plays a clip of the sprite texture's `sheet` entry by name (`"run"`): columns, rows, frames,
+  fps and loop come from assets.json, so a scene names only the texture and the clip. The existing numeric fields stay
+  and override. `play(name)` from scripts, a `clipEnded` event, `mode` `forward | reverse | pingpong`.
+- The `sheet` entry's `pivot` sets `Sprite.pivot` when the sprite does not set its own; per-clip `pivot` too.
+- `assets.preview_sheet {path, clip}` returns a labelled grid of the clip's frames (frame numbers, cell edges, the
+  pivot marked, onion skin of the previous frame optional) and checks the sheet: empty frames, shapes cut by the cell
+  edge, the bounding box jumping between frames, a loop seam, a grid that does not match the image.
+- Editor: the inspector of a SpriteAnimator lists the clips of its texture, and the asset preview plays a sheet's clips.
+- An example: one of the 2D examples (neon-swarm or sky-hopper) gets a character or effect made with
+  `assets.animate_svg` from a module kept in the example, played by clip name, with a test that checks it animates.
+- Tests: clip by name, pingpong and reverse, the clipEnded event, pivot from the sheet, preview checks.
+- Docs: COMPONENTS (generated), ASSETS.md, the d.ts typings.
+
+## M42. 2D animation in parts: keyframed clips, 2D bones and a timeline — DONE (`m42/integrated`, 0.7.0)
+
+Done: M42.2 bones, skins and IK (merge `c3ef568c`) and M42.1 keyframed clips (`1a50930b`) at once, then M42.3 commands
+for AIs and clip validation (`540f7480`), M42.5 bake by clip name and the Sky Hopper character (`d134647a`) and M42.4
+the editor's Animation panel and bone tools (`0c7b9478`). IK2D runs at the marked point right after the Animator in
+`engine.cpp` ("clips, then IK, then drawing"). M42.5 ran next to M42.3 instead of last: it needed only M42.1 and M42.2.
+The editor sections are B2 (Animation panel) and C2 (bone tools).
+
+The plan as it was written:
+
+Asked by the user: build a character or an object in parts and animate each part on its own, not only with sprite
+sheets. What exists: the `Animator` plays glTF clips (3D, rigid parts too), `tween()` animates any field from code, and
+`Sprite.skew` and the 2D mesh (`meshColumns`, `meshRows`, `vertexOffsets`, M39.4) bend a sprite. What is missing: a
+clip saved as an asset with keys and curves, a component that plays it by name, 2D bones with skinned sprites and IK,
+and any animation panel in the editor (it has none). A part-built character can then ship as a sprite sheet with
+`assets.bake_sheet` (M41.3).
+
+Shared contract (M42.1 writes it first, the other packages build on it): a clip is a file `*.anim.json` (format
+`factoria.anim/1`, schemas/anim.schema.json) with `duration`, `loop`, `tracks` and `events`. A track is `{path,
+component, field, keys}`: `path` names a descendant of the entity that plays the clip by its EntityInfo names
+(`"body/arm_l/hand"`, `""` for the entity itself), `field` is a reflected field (`position`, `rotation.z`, `color.a`,
+`Sprite.region`). A key is `{t, value, interp}`; `interp` is `linear`, `step`, `bezier` (with `in`/`out` tangents) or an
+easing name of `tween()`. Numbers, vectors, colours and angles interpolate; bools, ints, enums and assets only step (a
+sprite swap: `Sprite.texture`, `Sprite.region`). An event is `{t, name, data}`.
+
+Version: 0.7.0 when it lands.
+
+### M42.1 Keyframed clips, played by the Animator (L)
+
+- The schema, a loader in fa_scene (no GPU) cached per path and modification time, and hot reload when a clip changes.
+- The `Animator` plays `.anim.json` clips when it has no glTF `model`: `clips: {"walk": "anim/hero_walk.anim.json"}`.
+  Everything it does today works the same with them: `play(name, fade)`, `speed`, `loop`, `time`, clip events,
+  `anim.finished`, the state machine. A cross-fade blends the field values (lerp; angles the short way round; stepped
+  fields switch at half the fade).
+- Layers: `layers: [{name, clip | states, weight, mode: override | additive, mask: ["body/arm_l"]}]`, so the arms
+  shoot while the legs walk (a mask keeps a layer to the parts under those paths).
+- Sampled at the fixed step with the other animators; the fields a clip drives are a runtime pose and `scene.save`
+  does not write them (like `SpriteAnimator` and `Sprite.region`). `animator.sample(clip, t)` poses without playing.
+- Errors name the file and the JSON pointer: a track path that names no descendant ("did you mean" over the names
+  under the entity), a field that cannot be animated, a key value of the wrong type, keys out of order or past
+  `duration`.
+- Tests: every `interp`, bezier tangents, events once per loop, cross-fade, layers with a mask and additive, the state
+  machine with file clips, determinism, hot reload.
+- Docs: ANIMATION.md (a section "2D clips"), COMPONENTS (generated), the d.ts typings, api_since.
+
+### M42.2 2D bones, skinned sprites and IK (L)
+
+- `Bone2D {length, minAngle, maxAngle}` on plain entities of the hierarchy, so clips animate bones through their
+  Transform; bones are drawn by the editor and by `debug.draw`.
+- `SpriteSkin {bones, weights}` deforms a Sprite's 2D mesh (the `meshColumns`/`meshRows` grid of M39.4, or `outline:
+  true`, a mesh traced from the texture's opaque pixels) with up to 4 bones per vertex from a bind pose recorded when it
+  is bound. `weights: "auto"` weighs by the distance to each bone segment (deterministic); explicit weights per vertex.
+- `IK2D {target, chainLength, bend, weight, solver: twoBone | ccd}` runs after the Animator and before drawing, within
+  the bones' angle limits: feet on the ground, a hand that reaches a lever.
+- Deformed on the CPU into the existing 2D vertex stream (no new shader); a skinned sprite batches like a mesh sprite.
+- Tests: auto weights, the deformation of a rotated bone, the bind pose, IK reaching, out of reach and bending either
+  way, angle limits, determinism, a perf case with 50 skinned sprites.
+- Docs: ANIMATION.md ("Bones and IK"), COMPONENTS (generated), typings, api_since.
+
+### M42.3 Commands for AIs: make clips and check them (M)
+
+- `anim.create_clip`, `anim.set_keys`, `anim.remove_keys`, `anim.list {entity}`, `anim.pose {entity, clip, t}` (puts a
+  pose in the paused game to look at), `anim.filmstrip {entity, clip, frames, onionSkin}` (a grid of the clip, like
+  the `game.screenshot` filmstrip) and `anim.check` (tracks that change nothing, a loop whose last pose jumps from the
+  first, a part that leaves the camera, an IK target out of reach).
+- `bones.create` (a chain from points), `skin.bind`, `skin.auto_weights`.
+- `factoria validate` checks every `.anim.json` and every clip an Animator names.
+- AI_GUIDE.md: how to build a character in parts (child Sprites with their pivots at the joints, layer order, bones,
+  clips, IK for the feet), with a worked example; the artist role's instructions point at it.
+- Tests: each command, undo through the command system, the errors.
+
+### M42.4 Editor: the timeline and the bone tools (L)
+
+- An Animation panel for the selected Animator: its clips, a dopesheet with one row per part and field, a curve view,
+  scrub, play, loop and speed, and a record mode: moving or rotating a part with the gizmo, or changing a field in the
+  inspector, writes a key at the playhead. Copy and paste keys, move and scale a selection of keys, an easing per key,
+  event markers, onion skin in the viewport.
+- Bone tools in the viewport: draw a bone chain, bind a sprite, view and paint weights, IK targets as handles.
+- Every edit is a command (undo and redo, AIs see it) and is saved to the `.anim.json`.
+- An editor autotest section for the panel (docs/EDITOR.md); EDITOR.md documents it.
+
+### M42.5 Bake, and an example (M)
+
+- `assets.bake_sheet` (M41.3) bakes Animator clips by name (`clips: [{name: "walk", clip: "walk", frames: 12}]`), so a
+  character built in parts ships as a sprite sheet where draw calls count (mobile).
+- An example: the 2D example M41.4 does not use gets a character built in parts with bones, idle / walk / jump clips, a
+  state machine and IK feet, with tests that check it animates and stays deterministic; its perf JSON updated.
+- Docs: the worked example in ANIMATION.md.
+
+Order: M42.1 and M42.2 at once (M42.2 only needs the hierarchy and the Sprite mesh); M42.3 after M42.1; M42.4 after
+M42.1 and M42.2; M42.5 last.
+
+Not in M42: importing Spine or DragonBones projects (Spine's runtime license, another data model); morph targets and
+root motion stay in ANIMATION.md, "Not there yet".

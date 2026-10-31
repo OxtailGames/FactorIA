@@ -24,17 +24,27 @@ paths in your project. The parts, in the order of `templates/menus/kit.json`:
 |---|---|---|
 | `core` | `scripts/settings.js`, `scripts/ui/menu_stack.js`, `scripts/ui/read_aloud.js` | `menu.*` |
 | `options` | `prefabs/ui/options.prefab.json`, `scripts/ui/options.js` | `options.*` |
+| `textSpeed` | none (a row of the options prefab) | `options.textSpeed`, `options.speed.*` |
 | `credits` | `scripts/ui/credits.js` | `credits.*` |
 | `shop` | `scripts/ui/shop.js`, `scripts/store_events.js` | `shop.*` |
 | `ageGate` | `prefabs/ui/age_gate.prefab.json`, `scripts/ui/age_gate.js`, `tests/age_gate.test.js` | `ageGate.*` |
+| `analyticsConsent` | `prefabs/ui/analytics_consent.prefab.json`, `scripts/ui/analytics_consent.js`, `tests/analytics_consent.test.js` | `analyticsConsent.*` |
 | `main-menu` | `scenes/menu.scene.json`, `scripts/main_menu.js`, `tests/recipe.test.js` | none of its own |
 | `pause` | `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js` | `pause.*` |
 | `loading` | `scenes/loading.scene.json`, `scripts/loading.js` | `loading.*` |
 | `keyboard` | `prefabs/ui/keyboard.prefab.json`, `scripts/ui/keyboard.js` | `keyboard.*` |
+| `slots` | `scripts/slots.js`, `scripts/ui/slot_screen.js`, `prefabs/ui/slots.prefab.json`, `prefabs/ui/slot_dialog.prefab.json`, `tests/slots.test.js` | `slots.*` |
 | `dialogue` | `scripts/dialogue.js` | `captions.*` (sample lines) |
+| `card` | `prefabs/ui/card.prefab.json`, `scripts/ui/card.js`, `tests/card.test.js` | `card.*` |
+| `cameraRig` | `scripts/camera_rig.js`, `tests/camera_rig.test.js` | none |
 
-A part brings the parts it needs: `pause` adds `core` and `options`, `ageGate` adds `core`, `main-menu` adds `core`, `options`, `credits`, `shop` and
-`ageGate` (the title screen's scene holds their panels). The result lists them in `requiredBy`.
+A part brings the parts it needs: `pause` adds `core` and `options`, `textSpeed` adds `core` and `options` (and without it `options.prefab.json` has no `text_speed` row), `slots` adds `core` and `keyboard`, `ageGate` and `analyticsConsent` add `core`, `card` needs nothing else, `main-menu` adds `core`, `options` and `credits`. `cameraRig` is not a menu: it is the strategy camera of AI_GUIDE.md section 9.6.1, shipped in the kit because it is added the same way (it adds its `camera_*` input actions to `factoria.json`). The result
+lists them in `requiredBy`. The shop, the age gate and the analytics question are optional for the main menu: with no `parts` (everything) it has the Shop button, the shop
+panel and the lines that open the age gate and the analytics question; `{"parts":["main-menu"]}` writes a main menu without them (no `shop_button`, `shop`,
+`age_gate` or `analytics_consent` in the scene, no import of `age_gate.js` or `analytics_consent.js` in `scripts/main_menu.js`), and
+`{"parts":["main-menu","shop"]}`, `["main-menu","ageGate"]` or `["main-menu","analyticsConsent"]` adds just that one.
+Adding a part to a game that already has the main menu changes `scenes/menu.scene.json` and `scripts/main_menu.js`: they are listed in `skipped`
+(the game's files are never touched) until you pass `overwrite: true` or add the button, panel and lines yourself, as in steps 7 and 8.
 
 - **Files.** A file the game does not have is `added`. One that is already the kit's file is `unchanged`, so running the
   command twice changes nothing. One the game has edited is left alone and listed in `skipped` with the reason, unless
@@ -62,26 +72,36 @@ What the command does, file by file; do it by hand when you want to see each fil
    `scripts/ui/menu_stack.js` opens panels over each other and goes back.
 3. **Main menu and credits.** `scenes/menu.scene.json`, `scripts/main_menu.js` and `scripts/ui/credits.js`. Put the
    game's name in the `title` Text and its first level in `MainMenu.firstScene`.
-4. **Options.** `prefabs/ui/options.prefab.json` and `scripts/ui/options.js`. `Options.actions` lists the actions the
-   player may rebind (their labels are the strings `options.action.<action>`): use your game's actions.
+4. **Options.** `prefabs/ui/options.prefab.json` and `scripts/ui/options.js`. The Controls tab lists every action the game has in
+   `input.actions` except the `ui_*` ones, labelled with the string `options.action.<action>` (the action's own name when the
+   game has no such string). To pick and order them, set the `actions` property of the prefab's Script:
+   `"Script": { "path": "scripts/ui/options.js", "props": { "actions": ["move", "dig", "place"] } }`; an action the game does
+   not have gets no row. A game with local multiplayer (several people on one machine, each on their own pad or key
+   block with `input.player(i)`) sets `"players": 2` (up to 4) in the same `props`: the Controls tab gets a "Player N" button
+   on top, and each player rebinds their own keys and pad buttons, saved by player.
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
    `{ "id": "pause_menu", "components": { "Script": { "path": "scripts/pause_menu.js" } } }`.
 7. **Shop (only when the game sells things).** `scripts/ui/shop.js` and the `shop` panel and `shop_button` of
    `scenes/menu.scene.json`, with the products declared in `factoria.json` `"platform"`
    ([PLATFORM.md](PLATFORM.md)). Without a store (the exported game before a store plugin is added) the button stays
-   hidden; a game with nothing to sell deletes the button, the panel and the script. One entity with
+   hidden; a game with nothing to sell leaves the `shop` part out (`parts` without it: the button, the panel and the script are not
+   written; by hand, delete them and the three `shop` lines of `main_menu.js`). One entity with
    `scripts/store_events.js` in every level pauses the game while the store's overlay is open.
 8. **Age gate (only for ads that reach children and adults).** `prefabs/ui/age_gate.prefab.json`, `scripts/ui/age_gate.js`, the
-   `age_gate` panel of `scenes/menu.scene.json`, and the line in `main_menu.js` that opens it. See "Age gate" below.
+   `age_gate` panel of `scenes/menu.scene.json`, and the line in `main_menu.js` that opens it; all of them come with the `ageGate` part, and a
+   game whose ads do not reach children and adults leaves it out. See "Age gate" below.
 9. **On-screen keyboard (only for a game with a TextField).** `prefabs/ui/keyboard.prefab.json` and
    `scripts/ui/keyboard.js`, and one entity with that script in every scene that has a TextField (`keyboard_host` in
    `scenes/name.scene.json`). See "On-screen keyboard" below.
-10. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
+10. **Analytics question (only for a game with an `"analytics"` section).** `prefabs/ui/analytics_consent.prefab.json`,
+   `scripts/ui/analytics_consent.js`, the `analytics_consent` panel of `scenes/menu.scene.json`, the line in `main_menu.js` that opens it and the
+   `analytics_toggle` switch of the options panel (that one comes with `options`); see "Analytics question" below and [ANALYTICS.md](ANALYTICS.md).
+11. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
    Text and widget the scenes and prefabs write (below; [LOCALIZATION.md](LOCALIZATION.md)). The scripts take their
    texts from the tables (`i18n.t`), so a game with one language keeps the section with that language and
    `locales/en.json`: `"localization": { "defaultLanguage": "en", "languages": ["en"] }`.
-11. **Check.** `factoria call scene.format '{"paths":["scenes","prefabs"]}'` (the files below are written short; it rewrites them in the canonical
+12. **Check.** `factoria call scene.format '{"paths":["scenes","prefabs"]}'` (the files below are written short; it rewrites them in the canonical
    layout), `factoria validate`, a screenshot of the menu (`factoria run --headless --frames 3 --screenshot-at 2`),
    and a test that drives the menus with the pad, such as `tests/recipe.test.js` and `tests/keyboard.test.js` at the end. `ui.state` lists every
    widget with its rectangle, focus and value.
@@ -182,13 +202,39 @@ What the command does, file by file; do it by hand when you want to see each fil
   exported game in `FACTORIA_NOTICES.txt`. Add your own lines (people, music, fonts) to `Credits.lines`.
 - **Audio.** One `Slider` per bus (`master`, `music`, `sfx`, `ui`); the defaults are `DEFAULTS.volume` in `settings.js`.
   `audio.getVolume(bus)` reads a volume back.
-- **Video.** `window.setFullscreen`, `setSize` (one of `window.resolutions()`), `setVsync` and `frameCap`. They throw
-  when there is no window (headless runs, tests): with `window.available` false the rows are greyed out and a note says
-  why.
+- **Video.** `window.setMode` (a button that cycles windowed, borderless and full screen; a platform without
+  borderless skips it), `window.setMonitor` (a button that cycles the monitors; the row is hidden unless
+  `window.supports("monitors")` and the computer has more than one), `setSize` (one of `window.resolutions()`),
+  `setVsync` and `frameCap`. They throw when there is no window (headless runs, tests): with `window.available` false
+  the rows are greyed out and a note says why. The mode and the monitor are saved in `settings.js` (`windowMode`, and
+  `monitor` as `{ index, name }`: the name finds the monitor again when the numbers change) and restored at start, the
+  monitor first so a full screen window covers the right one. A save from an older kit (`fullscreen: true`) is read as
+  `windowMode`.
+- **Interface size.** An "Interface size: 100%" button on the Video tab cycles through `UI_SCALES` in `options.js` (75, 100,
+  125, 150 and 200 %) and sets `ui.scale` (docs/TEXT.md, "Interface size"), which makes every screen-space widget, the
+  panel itself included, that many times as big at once. Only the sizes at which the panel (760 x 680 UI units) still fits
+  the screen are offered, plus the one in use: at the 1280 x 720 design size that is 75 % and 100 %, and the button is
+  greyed out when only one is left; a game with a smaller panel `size` in the prefab offers more sizes. The button's text is
+  the string `options.uiScale` ("Interface size: {percent}%").
+  The choice is saved in `settings.js` as `uiScale` (`null` keeps the `ui.scale` of `factoria.json`) and applied by
+  `apply()`; the button writes its percentage again on the `ui.on("scale")` event, so it stays right when a script changes
+  the size. The text size has no button in the kit: set `ui.textScale` from `textScale` of the settings the same way.
 - **Controls.** A click on an action's button waits for the next press (`input.lastPressed()`, skipping the frame of the
   click), then `input.rebind(action, [pressed, ...the other device's bindings])` and saves the list. While it waits,
-  `MenuStack.busy` keeps Escape and B from closing the panel. `input.buttonName(action)` names the button as the
+  `MenuStack.busy` keeps Escape and B from closing the panel (and `MenuStack.busy` is cleared whenever a scene builds a new `MenuStack`). `input.buttonName(action)` names the button as the
   player's pad shows it (Cross on a PlayStation pad, A on an Xbox pad); "Reset to defaults" is `input.resetBindings()`.
+  `input.lastPressed()` gives a chord when modifiers are held ("Ctrl+Z", "Shift+MouseLeft"), so the player records one by
+  holding the modifiers and pressing the key; a modifier pressed on its own is taken when it is let go ("LeftShift"), and
+  the button shows the chord as `input.buttonName` prints it ("Ctrl+Z"). The binding the kit writes is the chord itself.
+  With the `players` property above 1 (local multiplayer) the tab starts with a "Player N" button that cycles through the
+  players and every row shows the player's keys and its pad buttons (`input.player(i).bindings(action, "keys")` and
+  `"pad"`, which also work for a player with no device yet, as in a menu). A key replaces the keyboard list of the
+  action, a pad button the pad list: `input.player(i).rebind(action, [pressed], family)` for that player only, and the
+  other players keep theirs. The mouse and touch are not bindings there (they belong to every player), and a key outside
+  the player's key scheme is refused by the engine and logged. `player(i).export()` is saved in `settings.playerBindings`
+  (by player), "Reset to defaults" is `input.player(i).reset()` for the shown player, and `settings.apply` imports
+  them again at the next start, logging what `import()` skipped. Assigning the devices (`input.player(i).use(...)`)
+  stays with the game: the menu only edits bindings. With `players` at 1 (the default) nothing changes.
 - **Language.** The Language tab's button names the current language (`i18n.name`) and cycles through `i18n.languages`
   with `i18n.setLanguage`: every Text and widget with a `key` is rewritten at once. The choice is saved in `settings`
   (`language`); `settings.apply` restores it at the next start, and ignores, with a warning, a language the game no
@@ -206,8 +252,8 @@ What the command does, file by file; do it by hand when you want to see each fil
   `tests/platform.test.js` in the fixture: they drive the shop with the pad against the fake store.
 - **Age gate.** <a id="age-gate"></a>A game whose ads reach children and adults (`"platform": { "ads": { "audience": "mixed" } }`
   in factoria.json) must not request an ad, or show Google's consent form, before it knows whether the player is under the
-  age of consent ([PLATFORM.md](PLATFORM.md#children-and-consent)). The `ageGate` part is that question: `main_menu.js` opens
-  the `age_gate` panel over the title screen, the first time, when `platform.ads.audience` is `"mixed"` (any other audience
+  age of consent ([PLATFORM.md](PLATFORM.md#children-and-consent)). The `ageGate` part is that question: with it, `main_menu.js` (the
+  `main-menu` part without `ageGate` has no such line) opens the `age_gate` panel over the title screen, the first time, when `platform.ads.audience` is `"mixed"` (any other audience
   never sees it). The player picks a year of birth on a slider that starts at no particular year, or presses "I would rather
   not say"; the script computes `underAge` (born 16 or fewer years ago, or declined: the highest age of consent in Europe,
   and a year alone is off by one), calls `platform.ads.setUnderAge(underAge)`, and keeps **only that boolean** in
@@ -215,6 +261,17 @@ What the command does, file by file; do it by hand when you want to see each fil
   answer is sent again at start and the panel stays closed. A game that asks the age its own way calls
   `platform.ads.setUnderAge` itself and deletes this part. `tests/age_gate.test.js` drives the gate with the pad against the
   fake store.
+- **Analytics question.** <a id="analytics-question"></a>`analytics.event()` sends nothing until the player said yes
+  ([ANALYTICS.md](ANALYTICS.md)), so a game with an `"analytics"` section in factoria.json asks once. With the `analyticsConsent` part,
+  `main_menu.js` opens the `analytics_consent` panel over the title screen on the first run, when `analytics.consent()` is still `"unknown"`
+  (the age gate comes first when the audience is `"mixed"`; a game without the section, or whose ad consent already answered it with
+  `consentFromAds`, never sees the panel). "Allow" and "No thanks" both call `analytics.setConsent`, both are kept and the question does
+  not come back; Back and Escape cannot skip it. The options panel has the matching switch (`analytics_toggle`, shown only when
+  `analytics.configured`): the player changes the answer there at any time, and switching it off forgets what waited to be sent. Edit
+  `analyticsConsent.what` in `locales/*.json` so the text says what your game really sends ([LEGAL.md](LEGAL.md)).
+  `tests/analytics_consent.test.js` checks the question; in a game without the section it only checks that there is nothing to ask. A
+  game of your own that has no main menu calls `openAnalyticsConsent(menus)` from its first scene. A test of yours that loads the
+  main menu of a game with analytics sets the answer first, as `tests/recipe.test.js` does.
 - **Ad privacy button.** The options panel has a hidden "Ad privacy settings" button (`privacy_options`). `options.js` shows
   it only when the game has the `ads` service and `platform.ads.consent().privacyOptions` is `"required"`, and its click
   calls `platform.ads.privacyOptions()`, which opens Google's form where the player changes their ad choices.
@@ -248,6 +305,10 @@ What the command does, file by file; do it by hand when you want to see each fil
   says so once. In `factoria:test`, `game.captions()` returns `[{ text, speaker, key, source }]` (fixture
   `tests/captions.test.js`: a sound and a line, in English, Spanish and Arabic, and the toggle). The speaker name is plain
   text written when the line starts (use `i18n.t`).
+- **Paste and copy.** A focused `TextField` pastes the clipboard with Ctrl+V (Cmd+V on macOS) and copies its whole text
+  with Ctrl/Cmd+C. A paste is appended at the end, drops newlines and control characters, stops at `maxLength` and sends
+  `ui.change` once; the letter of the chord is not typed. Phones have no clipboard for games
+  (`window.supports("clipboard")`; docs/SCRIPTING.md "Clipboard").
 - **On-screen keyboard (gamepad players).** A `TextField` takes typed text from a keyboard, and a phone raises its own
   keyboard when one gets the focus (the engine does that, not the game: docs/MOBILE.md). A player with only a pad has
   neither, so `scripts/ui/keyboard.js` (a behaviour: put it on one entity of the scene) opens
@@ -264,11 +325,21 @@ What the command does, file by file; do it by hand when you want to see each fil
   for that field. It opens as above everywhere the platform shows none.
   *Layout and languages.* The keys follow `i18n.language`: Latin (a-z, the digits and the accented letters of Spanish,
   French, German, Portuguese, Italian, Polish, Turkish, Swedish, Danish, Norwegian and Czech: `EXTRA`), Cyrillic
-  (Russian, Ukrainian, Bulgarian, Serbian, Macedonian) and Greek. Every other language (Arabic, Hebrew, Chinese,
-  Japanese, Korean, Thai, Hindi...) gets the **Latin keys**: a pad cannot compose those scripts, so on a PC or phone the
-  player uses the system keyboard and IME, and a game that must take a name in such a script on a pad adds a layout:
-  `LAYOUTS.ja = "..."` and `SCRIPT_OF.ja = "ja"` (one character per key, lower case first). The labels of Space,
-  Delete and Done are the strings `keyboard.space`, `keyboard.delete` and `keyboard.done` of the locale tables.
+  (Russian, Ukrainian, Bulgarian, Serbian, Macedonian), Greek and Korean (Hangul jamo, below). Every other language (Arabic,
+  Hebrew, Chinese, Japanese, Thai, Hindi...) gets the **Latin keys**: on a PC or phone the player uses the system keyboard
+  and IME, and a game that must take a name in such a script on a pad adds a layout: `LAYOUTS.he = "..."` and
+  `SCRIPT_OF.he = "he"` (one character per key, lower case first). The labels of Space, Delete and Done are the strings
+  `keyboard.space`, `keyboard.delete` and `keyboard.done` of the locale tables.
+  *Input methods (IME).* A script whose letters are parts of characters needs more than one character per key. `IME` maps a
+  language code to `{ compose(text, ch), decompose(text) }`: `compose` returns the field's text after the key `ch` is typed (it
+  may change the last character) and `decompose` the text after Delete (it may take only a part of the last character away).
+  Both look at the text alone and keep no state; the field's `maxLength` counts the characters of the result. Korean's is built
+  in (`hangulIme`, for `ko` and `ko-KR`): the keys are the jamo of the two-set layout (consonants, then vowels; Shift gives the
+  doubled ones, `SHIFTED`), a vowel after a consonant makes a syllable (ㄱ + ㅏ = 가), a consonant after it is its final
+  (가 + ㄴ = 간, compound finals such as 닭 included), a vowel after a final takes that consonant to a new syllable
+  (간 + ㅏ = 가나), and Delete takes the last jamo away (간 -> 가 -> ㄱ -> nothing). A game with another such language sets
+  `IME.xx = { compose, decompose }`. The Text's font must have the jamo and the syllables a name can hold (docs/TEXT.md,
+  `assets.subset_font` with `keep`). `tests/slots.test.js` types a Korean slot name through the slot dialog with the pad.
 - **Add an option.** Add a widget to `options.prefab.json` (with a `key` for its label), read and write its value in
   `options.js`, and keep it in `settings.js` (`defaults()` and `apply`). The colour filter of the Video tab is such an
   option: it sets `Camera.colorFilter` on the scene's camera (the entity with the id `camera`), so `applyOnce()` sets it
@@ -276,8 +347,9 @@ What the command does, file by file; do it by hand when you want to see each fil
 - **Add a language.** Add its tag to `localization.languages`, copy `locales/en.json` to `locales/<tag>.json` and
   translate it (a missing key shows the default language's text and is listed by `factoria call i18n.state`). Put the
   language's own name in `"$name"`: it is what the Language button shows.
-  For a right-to-left language (Arabic, Hebrew, Persian, Urdu) the options panel mirrors itself: its tabs row has
-  `"direction": "auto"` and the panels and the wrapped note use `"align": "start"` (docs/LOCALIZATION.md, section 6).
+  For a right-to-left language (Arabic, Hebrew, Persian, Urdu) the options panel mirrors itself: the engine mirrors the
+  screen-space UI (`ui.mirrorRtl`, on by default), its tabs row has `"direction": "auto"` and the panels and the wrapped
+  note use `"align": "start"`; a widget that must stay put has `"mirror": false` (docs/LOCALIZATION.md, section 6).
 - **Restyle.** `color`, `textColor`, `accentColor`, or a `texture` with `slice` (9-slice) on any widget: AI guide
   section 9.22.
 - **Phones: notch and Back.** A panel or text pinned to a screen edge (a top bar, a corner button, the "Loading..." text)
@@ -290,6 +362,424 @@ What the command does, file by file; do it by hand when you want to see each fil
 - **Phones: playing without a pad.** The menus already work by touch. For the game itself, add a `TouchStick` and a few
   `TouchButton`s to the game scene: they press the same gamepad bindings a real pad does, show only while the player
   uses touch and sit in the safe area (docs/MOBILE.md, "On-screen gamepad").
+
+## Save slots
+
+The `slots` part is the save / load screen of a game with several saves: five named slots and an autosave, each a record
+`{ counter, name, chapter, playTime, pic, data }` in `storage` (key `slot1`..`slot5`, `slot_auto`), where `data` is whatever the game
+saves. `counter` goes up by one on every save, so with cloud saves (`platform.has("cloudSave")`) the copy with the higher counter wins
+when the screen opens (`slots.syncCloud()`); a delete removes the cloud copy too. A text in a slot that has no `data` is read as a bare
+save (a game can start with plain saves), and one that cannot be read or is from a version `upgrade` rejects is `damaged`: the row says
+so, with the reason, and the player can delete it. The game supplies two things: what is saved (`snapshot`, or `save` to write the slot
+yourself) and how a slot is loaded (`launch`). Everything else is the kit's: the screen builds `prefabs/ui/slots.prefab.json` and
+`slot_dialog.prefab.json`, a click on a slot in save mode opens the dialog with a TextField for the name (the on-screen keyboard opens
+by itself for a gamepad player), an empty name saves under `defaultName()`, and a delete asks first. `cannotSave()` returns a string-table
+key (`"slots.busy"`) while the game may not be saved (a cut-scene, a loading screen); the save rows are greyed out and the key is shown
+under the title. A cloud answer that arrives after the scene changed draws nothing (the screen compares `scene.generation`).
+
+```js
+const slots = new Slots({ upgrade: migrate, describe: (d) => ({ chapter: d.level, playTime: d.seconds }) });
+const screen = new SlotScreen(menus, {
+  slots,
+  launch: (data) => startFrom(data),                              // load
+  snapshot: () => ({ data: mySave(), chapter: 3, playTime: 3725 }), // save
+  cannotSave: () => (inCutscene ? "slots.busy" : ""),
+  getPic: () => pic,                                              // capturePic() taken before the menu opened
+});
+screen.open("save");                                             // or "load"; call screen.tick() every frame
+```
+
+The files are listed in "The files" below. `tests/slots.test.js` builds its own scene, so it passes in any game with the part.
+
+## Text speed
+
+`{"parts":["textSpeed"]}` (or the whole kit) adds a "Text speed" button to the Options Audio tab: slow, normal, fast and instant
+(`TEXT_SPEEDS` in `scripts/settings.js`), kept as `settings.load().textSpeed` in characters per second (0 = a whole line at once; the
+default is 45, or 0 when the system asks to reduce motion). The kit does not draw dialogue lines: the game's dialogue box sets
+`Text.visibleCharacters = settings.revealedCharacters(secondsSinceTheLineAppeared)`. For any other row of the game, call
+`addOptionsRow("audio", { id, text, click })` of `scripts/ui/options.js` before the panel is spawned (its comment says how).
+
+## Anchors and pivots
+
+A widget is placed by two points that count Y in opposite directions. `anchor` is a point of the screen as a fraction,
+counted from the top-left with Y DOWN (`[0, 0]` top-left, `[1, 1]` bottom-right). `pivot` is a point of the widget, counted
+with Y UP (`[0, 0]` its bottom-left corner, `[1, 1]` its top-right, `[0.5, 0.5]` its centre). The widget's pivot sits on
+the anchor point, moved by `position`. So a bar on the bottom edge is `anchor [0.5, 1]` with `pivot [0.5, 0]`: its bottom
+edge rests on the screen's bottom edge. With `pivot [0.5, 1]` the same bar would hang below the screen.
+
+```
+anchor Y (down)            pivot Y (up)
+
+(0,0)---------(1,0)        (0,1)---------(1,1)    pivot [0.5, 0] = middle of the
+  |   screen     |           |    widget    |      bottom edge, so with
+  |              |           |      x       |      anchor [0.5, 1] the widget
+(0,1)---------(1,1)        (0,0)---------(1,0)    stands ON the screen's bottom
+```
+
+`factoria validate` warns about a widget of a scene that lies completely outside the design size, which is what a wrong
+pivot Y usually does: the warning names the widget, the rectangle it covers and the fix.
+
+## Pressing the focused widget in a test
+
+`game.tap("ui_submit")` presses the focused widget, like Enter, Space or the pad's A: it holds the action for one frame,
+steps, releases it and steps again, so the widget gets one click (`ui.focus("play_button")` first to choose it).
+`game.press("ui_submit")` holds the action until `game.release("ui_submit")`; the UI reacts to the frame the action goes
+down, so pressing it again while it is still held presses nothing. Use `tap` for a click and `press`/`release` only to test a
+hold; after a `press`, `release` it before the next one.
+
+```js
+ui.focus("play_button");
+game.tap("ui_submit");          // one click on Play
+game.press("ui_submit");        // clicks the focused widget once, now held...
+game.step(3);
+game.press("ui_submit");        // ...so this presses nothing
+game.release("ui_submit");
+```
+
+## A gamepad cursor over the menus (and the game)
+
+A game played mostly with the mouse that also supports a pad moves a cursor with a stick. The UI needs no scan of the
+scene for it. Each frame: add the stick to the cursor position, then `ui.setPointer(x, y, { down: input.down("primary") })`
+(the UI takes the pointer and left button from there from the next frame on: `ui.hovered`, the press, the click on
+release, a Slider drag and the wheel's target all follow it); `ui.widgetAt(x, y)` answers what is under a point
+(the topmost visible widget or Panel, nothing for a row a ScrollList clips) and `ui.pointerOverUi` whether the cursor is
+over any. When the mouse moves again call `ui.setPointer(null)`. If the same button is also bound to `ui_submit`
+(`GamepadA` is, by default), a focused widget is clicked by that action as well, so either clear the focus while the
+cursor rests (`ui.focus(null)` stays empty until the next D-pad press, an open panel's `autoFocus` does not take it back)
+or move only the hover (`down: false`) and let `ui_submit` press the widget you focused under the cursor.
+
+## A choice card, and modal panels
+
+An event, a story beat or a decision in a management game is a card: a title, a body, two or three choices that each say
+what they cost, one choice greyed out because the player cannot pay for it, and then what happened. The `card` part is that
+card: `new Card(options)` spawns `prefabs/ui/card.prefab.json`, `card.ask(...)` shows the question and `card.answer(...)` the
+result with a Continue button, and `card.close()` removes it.
+
+```js
+import { Card } from "./ui/card.js";
+
+const card = new Card({
+  holdClock: true, // game.paused while the card is open (what was paused before stays paused)
+  onChoose: (id) => {
+    const result = resolve(id); // the game's own rules
+    card.answer({ body: result.text, effects: result.effects }); // "[c:#8fe38f]+4 wood[/c]"
+  },
+  onContinue: () => card.close(),
+});
+card.ask({
+  kind: "Event",
+  title: "A stranger at the gate",
+  body: "Asks for [b]shelter[/b].", // rich text: [b], [c:colour], [icon:name] (Text.markup)
+  choices: [
+    { id: "help", text: "Help", detail: "Costs 2 wood" },
+    { id: "buy", text: "Buy the map", disabled: "Needs 50 coins" }, // greyed out, and the line under it says why
+    { id: "leave", text: "Leave", detail: "Nothing happens" },
+  ],
+});
+```
+
+- **Modal.** The card's backdrop Panel has `modal: true` (`Panel.modal`, see `factoria docs read components`): while it is
+  active the mouse, the wheel, the arrows and the pad reach only the widgets inside it. A button under it gets no hover, no
+  press and no click, a tooltip does not show over it, nothing under it takes a drop, the focus leaves it for the card and
+  never goes back until the card closes, and `ui.pointerOverUi` is true everywhere, so a map camera or a click-to-build
+  handler stands down. It does not pause the game: that is `holdClock`, which sets `game.paused` (scripts that must keep
+  running meanwhile set `runWhilePaused`). A game with its own clock (a speed control) leaves `holdClock` off and holds
+  that clock itself, as Tidewater Market does.
+- **The wheel and Escape under a modal.** A modal consumes the mouse wheel (a ScrollList inside still scrolls); set
+  `wheelPassThrough: true` on it when a script should keep the wheel, such as a zoom in an inventory view. Escape is
+  `ui_cancel` and usually `pause`: a `ui.on("cancel", ...)` handler that closes the panel returns `true`, which consumes
+  the press (`input.consume("ui_cancel")`), so the pause handler of the same frame does not also open the pause menu. While
+  a TextField or the on-screen keyboard has the focus, actions bound to letters read as not pressed (`input.textInputMode`),
+  so typing P does not pause. The kit's `MenuStack` resets `MenuStack.busy` when a scene builds one.
+- **Mouse, keyboard, pad.** The choices are Buttons in a column: up and down (arrows, D-pad, left stick) move between the
+  ones that can be chosen, Enter, Space or gamepad A picks, a click picks. The first choice that can be chosen has the focus,
+  Continue has it on the result stage. A disabled choice is not focusable and a click on it does nothing: its `disabled`
+  text is drawn in its detail line (`reasonColor` changes the colour; `[c:...]` names the game's `text.colors`).
+  Escape and gamepad B do nothing: the card is answered with a choice.
+- **Looks.** Everything is laid out by the engine (column layouts, wrapped texts, fit panels), so a longer translation or a bigger
+  text size (`ui.textScale`, up to 125 % here) makes the card taller, not clipped. Copy the prefab to change the size, the
+  colours or the fonts; `new Card({ prefab })` takes the copy. Ids are stable (`card_title`, `card_body`, `choice_<id>`,
+  `choice_<id>_detail`, `card_effects`, `card_continue`) for tests.
+- **Test.** `tests/card.test.js` shows a click under the card doing nothing, the arrows skipping a disabled choice, the pad
+  and the result stage. `Panel.modal` alone works on any panel (a confirm dialog, the pause menu): set `"modal": true` on the
+  root Panel of a screen that must own the input.
+
+## Widgets from your own entities
+
+A shop sign you hit with the mouse, a book whose pages turn, a menu painted on a wall in a 3D-looking scene, a card hand,
+a map marker: these are not rectangles in a Panel. Give any entity the `Interactable` component and it is a widget of the same
+system as Button, Toggle and Slider, whatever it is made of (sprites, shapes, text, children), in world space or on the
+screen. There is no second UI behind it: it takes focus, arrow-key and pad navigation, `Tab`, `ui_submit` and `ui_cancel`,
+hover and press, `Panel.modal` scopes, `game.click`, `ui.widgetAt`, `ui.rectOf` and the `ui.*` commands exactly like a Button.
+
+```json
+{ "id": "start", "components": {
+    "Transform": { "position": [-60, 40] },
+    "Shape2D": { "size": [60, 20] },
+    "Interactable": { "autoFocus": true } },
+  "children": [
+    { "id": "start_glow", "components": {
+        "Shape2D": { "size": [64, 24], "color": [1, 1, 0, 1] },
+        "InteractableVisual": { "mode": "show", "when": "hover" } } } ] }
+```
+
+- **The hit area.** `size` and `offset` give a rectangle in the entity's own space (so it scales and turns with the entity and its
+  parents). With `size` `[0, 0]` the area is the box around the visuals of the entity and its active children (sprites, shapes,
+  text); not counted are a child that is an `InteractableVisual` which shows and hides with the state (a glow that
+  appears on hover must not make the area grow), a slider's `knob` and `fill`, and a child that is an Interactable itself (it
+  is a widget of its own). An entity with no area cannot be hit or clicked: `game.click` says so.
+- **World or screen.** `space: "auto"` is screen space when the entity or a child draws in screen space (a `Text` or `Sprite`
+  with `space: "screen"`), else world space; `"world"` and `"screen"` force it. A world-space area is projected through the
+  camera that draws at the pointer (several cameras with viewports work, each pointer position uses the one drawing there), so a
+  widget on a swaying sign or a page turning in 3D is hit where it is drawn, and follows parents that move, scale or rotate.
+  A screen-space widget wins over a world-space one under the same point, and a modal `Panel` blocks the Interactables
+  outside it like any other widget outside it. An Interactable on an entity that is also a Button, Toggle, Slider,
+  TextField, Panel or other UI-box component is ignored: the built-in widget wins. The hit test is the quad of the
+  area's four projected corners (exact under a perspective camera too); a slider drag measures how far along the projected
+  track the pointer is, which is only approximate under strong perspective.
+- **`kind`.** `button` sends `ui.click {id}` when the pointer is released over it after being pressed on it, or on `ui_submit`
+  while it has the focus. `toggle` flips `on` the same way and sends `ui.change {id, value}` (a boolean; a toggle sends no
+  `click`). `slider` keeps a number `value` between `min` and `max`, snapped to `step`: dragging along the area, or
+  left / right (down / up with `axis: "y"`) while focused, sets it and sends `ui.change {id, value}`. The track is the area along
+  `axis`. `knob` (a child of the Interactable) is moved along the track to the value, and `fill` (a child with its pivot at the
+  start of the track) is scaled along `axis` to the fraction; they are placed in world space, or in screen space when `size`
+  is set. Scripts may write `on` and `value`: no event is sent for a write (`game.setSlider(id, value)` and the
+  `ui.set_slider` command do send it, as a drag would). In a script, `knob` and `fill` may name children spawned after the slider: `world.spawn` leaves them empty with a warning and links them when an entity with that id appears (or put the children in the same call with `children`); a field set by hand in between wins, and an id that never appears is reported again after about 10 seconds of frames.
+- **States, without code.** `Interactable.state` is the one state the visuals show: `disabled` (`enabled` is false), else
+  `pressed`, else `hover`, else `focused`, else `normal`; `hovered`, `focused` and `pressed` are the flags (read-only, written by the
+  UI). Put `InteractableVisual` on a child of the Interactable (or set `target`): `mode: "show"` makes that entity active only while
+  `when` holds (`hover`, `pressed`, `focused`, `highlighted` = hovered OR focused, one look for the pointer and the keyboard / gamepad, `normal`, `disabled`, `on` / `off` for a toggle, `always`); `mode: "tint"` sets the colour
+  of its Sprite, Shape2D or Text from `normal`, `hover`, `pressed`, `focused` and `disabled`. A check mark that shows while a toggle is on
+  is a child with `when: "on"`. `InteractableVisual` on the Interactable's own entity does nothing in `show` mode.
+- **Focus and navigation.** The same rules as the built-in widgets (see SCRIPTING.md, "Focus and navigation"): nothing is
+  focused until an `autoFocus` widget takes it, the arrows and the d-pad move the focus to the nearest widget in that direction
+  among Buttons and Interactables alike (using their areas as seen on the screen), `ui_cancel` sends `ui.cancel`. `Tab` (`ui_next`) and
+  `Shift+Tab` (`ui_previous`) walk the focusable widgets in reading order, wrapping around (new default actions for every widget); like the arrows they need a focus
+  to start from (focus one with `autoFocus` or `ui.focus(entity)`). `focusOnHover: true` moves the focus to the widget when the
+  pointer enters it, once per entry (a widget that appears, or is switched on, under a resting pointer is an entry too, so a page turn leaves the focus and the hover tint on the same widget); the default, like a Button, moves it on a press. `enabled: false` makes it a greyed-out
+  widget: never hovered, focused or clicked, skipped by navigation.
+- **Events** (`ui.on`, or `this.on("ui.<type>", ...)`): `click`, `change`, `focus` and `cancel` as for the built-ins, plus
+  `hover` (`value` true when the pointer came over it, false when it left), `blur` (the focus left it), `press` (the pointer went down
+  on it) and `release` (the pointer went up; `value` is true when it was still over the widget, and then `click` follows). `hover`,
+  `blur`, `press` and `release` come from Interactables only; Button, Toggle and Slider do not send them.
+- **Finding it.** `ui.widgetAt(x, y)` returns it, `ui.rectOf(id)` is the box of its area on the screen (design pixels, y down), `ui.focus(id)` focuses it
+  (false when it is disabled), `ui.state` lists it with `kind: "Interactable"`, `interactableKind`, `state`, `world`, `value` (a toggle's or slider's)
+  and `text` (its accessibility label), and `game.click(id)` / `game.mouseMove(id)` / the `game.click` command aim at the centre of its area.
+  `label` is the accessibility label; empty, it is the first `Text` among the entity and its children; `key` and `keyArgs` translate it
+  like a Button's. There are no tooltips on an Interactable yet.
+- **A test plays it like a person.** Nothing in this menu is a Button, and the test only presses, moves and clicks:
+
+```js
+import { test, expect, game } from "factoria:test";
+import { ui } from "factoria";
+import menu from "../scenes/main.scene.json";
+
+test("the world menu works with the pointer and the keyboard", () => {
+  game.loadJson(menu);
+  game.step(1);
+  expect(ui.focused.id).toBe("start");                // autoFocus
+  game.mouseMove("music");                            // the centre of its area, as the camera shows it
+  game.step(1);
+  expect(ui.hovered.id).toBe("music");
+  game.click("music");                                // a toggle: press, release, ui.change
+  expect(game.find("music").get("Interactable").on).toBe(true);
+  expect(game.find("music_tick").active).toBe(true);  // an InteractableVisual child with when: "on"
+  game.tap("ui_down");                                // the arrows walk world widgets like Buttons
+  game.setSlider("volume", 0.5);                      // a slider Interactable: ui.change, and the knob moves
+  const track = ui.rectOf("volume");
+  game.drag("volume", [track.x + track.w, track.y + track.h / 2]);      // dragging to the end of the track
+  expect(game.find("volume").get("Interactable").value).toBe(1);
+});
+```
+
+The engine's own test of this (`engine/runtime/tests/ui_tests.cpp`, "a world-space menu of plain entities") runs a menu of a button with a
+hover glow, a toggle with a tick, a slider with a knob and a disabled card, next to a screen-space Button.
+
+## Tooltips
+
+A tooltip is a small box with a title and lines that shows beside the pointer after it rests on something. The engine
+keeps the timer, the placement and the drawing; the game says what it says.
+
+```json
+{ "id": "buy", "components": { "Button": { "text": "Buy", "tooltip": { "title": "tip.buy.title", "lines": ["tip.buy.cost"], "args": { "cost": 12 } } } } }
+```
+
+- **Content.** A string (one line), or `{ "title": text, "lines": [text | {"text", "color"}], "args": {...} }`. Every text
+  is a localization key when localization is on and the current language has that key (`args` fills its `{placeholders}`;
+  the box follows a language change while it shows), and plain text otherwise. Empty lines are skipped.
+- **Where it can be set.** The `tooltip` field of any widget or Panel. The pointer's widget is the topmost one
+  (`ui.widgetAt`); if it has no tooltip, its nearest ancestor with one is used, so a tooltip on a Panel covers its children.
+  A Panel that draws nothing (alpha 0, no texture) is not hit, so it shows none. `Text` is not hit either: put the tooltip on
+  a Panel around it, or use `ui.setWorldTooltip`.
+- **From a script.** `ui.setTooltip(entity, () => ({ title: "Wheat", lines: [`${n} in stock`] }))` calls the function
+  when the pointer has rested for the delay and again every frame while the box shows, so the numbers stay current;
+  returning `null` shows nothing. `ui.setTooltip(entity, content)` writes the field, `ui.setTooltip(entity, null)` clears
+  it. `ui.setWorldTooltip((x, y) => content | null)` is asked when the pointer rests over no widget. Registrations end
+  with the scene. A game that pauses its scripts returns null from its functions while paused.
+- **Not a widget.** `ui.showTooltip(content, { x, y })` shows at once, at `x, y` in design pixels (default the pointer),
+  and stays until `ui.hideTooltip()`, a pointer move of more than 5 pixels, or a scene load.
+- **When.** After `ui.tooltipDelay` seconds of rest (default 0.5; the pointer may drift 5 pixels), counted with the UI
+  clock, not wall time. Moving farther, reaching another target, pressing the pointer button or loading a scene hides it. On
+  a phone it stays off until the last input was not a touch, unless `"tooltipOnTouch": true`.
+- **Placement.** Down and right of the pointer by `gap`; if that crosses the screen edge (4 pixels margin) it flips to the
+  other side of the pointer, and in the end it is clamped inside the screen.
+- **Theme**, in `factoria.json`:
+
+```json
+"ui": {
+  "tooltipDelay": 0.4,
+  "tooltipOnTouch": false,
+  "tooltip": { "color": [0.03, 0.04, 0.07, 0.96], "textColor": [0.92, 0.94, 0.98, 1], "titleColor": [1, 0.82, 0.3, 1],
+               "font": "assets/fonts/ui.ttf", "fontSize": 18, "titleSize": 20, "maxWidth": 300, "spacing": 3,
+               "padding": [10, 8, 10, 8], "gap": 16, "layer": 1000, "texture": "assets/ui/tip.png", "slice": [8, 8, 8, 8] }
+}
+```
+
+  Sizes are UI units, so `ui.scale` and `ui.textScale` apply. A line longer than `maxWidth` wraps. `layer` is the draw
+  order (1000: above every widget). An unknown key or a wrong type is an error that names the key and what it accepts.
+- **Tests.** `ui.tooltip` is `null` or `{ title, lines, rect, source, widget }` (`source` is `"widget"`, `"script"`,
+  `"world"` or `"manual"`; `rect` is `[x, y, w, h]` in screen pixels). Move the pointer with `ui.setPointer(x, y)`,
+  `game.step` past `ui.tooltipDelay`, and assert. `ui.check_layout` reports a `tooltip` issue for a visible widget
+  whose static tooltip is invalid or whose box is larger than the screen in some language or size.
+
+## Drag and drop
+
+A widget with `draggable` can be picked up with the pointer and put down on another widget or on the world (the map). The
+engine does the press, the slop, the target under the pointer and the events; the game decides what a drop means.
+
+```json
+{ "id": "worker_3", "components": { "Button": { "text": "#3", "draggable": { "payload": { "worker": 3 }, "slop": 6 } } } }
+```
+
+```js
+ui.setDropTarget("farm_slot", (d) => canWork(d.payload.worker));   // true, false or a function; null removes the rule
+ui.on("dragStart", (e) => ui.setDragImage("drag_chip"));            // the chip follows the pointer
+ui.on("drop", (e) => assign(e.payload.worker, e.target ? e.target.id : mapCellAt(e.x, e.y)));
+ui.on("dragCancel", (e) => hideChip());                             // e.reason: "rejected" | "cancel" | "gone" | "script"
+```
+
+- **Starting.** `draggable` is `true` or `{ "payload": any JSON, "slop": pixels }` (slop 0 to 100, default 6). A press on
+  the widget, or on a child that is not draggable itself, followed by a move of `slop` pixels starts the drag: `dragStart`.
+  A press released before that is an ordinary click. A Slider or a TextField under the press keeps the pointer for itself.
+  When the drag starts the press is dropped, so the release makes no `click` and flips no Toggle, and a tooltip hides.
+- **Events** (`ui.on`): `dragStart`, `dragOver` (the pointer moved, or the thing under it or whether it accepts changed:
+  once per frame at most), `drop` and `dragCancel`. Each has `id` / `entity` / `source` (the dragged widget), `payload`,
+  `x`, `y` (the pointer, design pixels), `target` (an Entity, or `null` over the world) and `accepts`; `dragCancel` also has
+  `reason`. `ui.on("drop", widget, fn)` filters by the drop target, the other three by the dragged widget.
+- **Targets.** The target is the topmost widget under the pointer (`ui.widgetAt`, the drag image left out), moved up to the
+  nearest ancestor that has a rule when one does. A rule is set with `ui.setDropTarget(widget, true | false | fn | null)`;
+  a function gets `{ source, payload, x, y }` every frame the drag is over the widget, so it can also colour the target. A
+  widget with no rule refuses. The world (no widget under the pointer) accepts, unless `ui.setWorldDropTarget(false | fn)`
+  says otherwise. Rules end with the scene.
+- **Ending.** Releasing the button over a target that accepts sends `drop`. Anywhere else it sends `dragCancel` with
+  `reason: "rejected"`. `ui_cancel` (Escape, the pad's B) cancels with `"cancel"` and then does not send `ui.cancel`;
+  `ui.cancelDrag()` with `"script"`; a source that is destroyed or deactivated with `"gone"`. A scene load ends a drag
+  silently. After a `drop` or `dragCancel` the mouse button is still down for a while: nothing else reacts to it.
+- **The image.** `ui.setDragImage(widget)` (call it from `dragStart`) keeps that widget's centre under the pointer; it
+  is ignored by hover and by `widgetAt`. The engine only moves it: show it in `dragStart`, hide it in `drop` and
+  `dragCancel`. It moves the widget's own `position`, so keep it free of a layout parent.
+- **Reading it.** `ui.dragging` is `null`, or `{ source, payload, from: {x, y}, x, y, target, accepts }`. A script that
+  reads the mouse for the map skips while `ui.dragging` is set, and a press that began on the UI is already ignored by
+  `ui.pointerOverUi`.
+- **Gamepad and tests.** A drag follows the UI pointer, so a gamepad cursor drags by holding `ui.setPointer(x, y,
+  { down: true })` and moving it, and a touch drags like the mouse. `game.drag(from, to)` presses on a position or
+  widget, moves to the other in four frames and releases: `game.drag("worker_3", "farm_slot")`, or a position such as
+  `{ x: 640, y: 650 }` for a drop over the world. A press-and-click mode for players who cannot hold a button is the
+  game's own (two clicks); the engine's drag needs the held button.
+
+## Charts
+
+A `Chart` draws numbers as bars or lines inside its rectangle. It is a widget like a Panel: placed by `size`, `anchor`,
+`pivot` and `layer`, with `color` as the background, a `tooltip` of its own, and a child of a Panel or a ScrollList like
+the others. The UI layer draws all its bars or lines in one batch, so a chart of hundreds of samples costs one draw call
+more than its background.
+
+```json
+{ "id": "coins_chart", "components": { "Chart": { "size": [540, 110], "kind": "line", "colors": ["#ffd166"], "includeBaseline": false } } }
+```
+
+```js
+const chart = world.find("coins_chart").get("Chart");
+chart.values = history;                                  // [3, 5, 2, ...] or [[3, 5], [1, 4]] for two series
+ui.on("chartHover", "coins_chart", (e) => {              // e.index: -1 when the pointer left the chart
+  if (e.index >= 0) ui.showTooltip({ title: `Day ${e.index + 1}`, lines: [String(e.value)] });
+  else ui.hideTooltip();
+});
+```
+
+- **Data.** `values` is an array of numbers (one series) or an array of arrays (a series each, oldest value first). A
+  value that is not a number counts as 0. Write a whole new array when the data changes; the chart redraws every frame.
+- **Kinds.** `bar` (default) gives each sample a column, the series side by side in it, each bar growing from `baseline`
+  with `barGap` empty between columns; a bar is at least one unit tall. `line` draws one polyline per series through its
+  points, spanning the plot edge to edge with `lineWidth`.
+- **The axis.** Automatic: the lowest and highest value, always including `baseline` (0 unless you set it), so bars scale to
+  the maximum and start at zero. `includeBaseline: false` fits the data tightly (a line of coins that stays near 5000),
+  `min` and `max` fix a side. The maximum and minimum are written in the plot's top-left and bottom-left corners (`showLabels`,
+  `decimals`, `font`, `fontSize`, `textColor`) in the current language's number format: "1,234.5" in English, "1.234,5" in
+  Spanish. The rule at `baseline` is `showBaseline`; `marks` is a list of sample indexes that get a thin vertical rule (the
+  first day of a season).
+- **Slots.** A series shorter than `slots` is right-aligned: a chart that fills over time keeps each sample's width, the
+  empty room is on the left. With `slots` 0 the plot has room for the longest series.
+- **Hover.** The pointer over the plot is reported as the sample under it: for bars the column (and the bar of it, in
+  `series`), for lines the point closest horizontally (and the closest series vertically). `ui.on("chartHover", fn)` (or
+  `ui.on("chartHover", chart, fn)` for one chart) gets `{ id, entity, index, series, value }` each time that sample changes
+  and `index` and `series` -1, no `value`, when the pointer leaves the plot or the chart. `Chart.hoverIndex` and `hoverSeries`
+  hold the same. A chart is not focusable, but it counts as a widget for `ui.pointerOverUi` and `ui.widgetAt`, so a click on
+  it does not reach the world. `game.mouseMove([x, y])` and one `game.step()` hover it in a test; a chart is also listed in
+  `ui.state` as kind `Chart`.
+
+## A camera inside the UI
+
+A `CameraView` draws a `Camera` inside its rectangle: an item turning on a stage in an inventory, a character portrait, a
+minimap of a 3D level, a small second view of the world. It is a widget like a Panel (`size`, `anchor`, `pivot`, `layer`,
+`color` as the background, a child of a Panel or a ScrollList), so the picture is clipped by a ScrollList and is covered by
+a modal Panel or a Button with a higher layer, with no hole to leave in the page. The camera is drawn into an image the size of the rectangle (so its aspect follows the
+rectangle, whatever `Camera.viewport` says), before the frame's UI, and the UI then draws that image in the rectangle at
+`layer` + 1 (the background is at `layer`: a widget meant to sit on the picture needs a layer of at least `layer` + 2).
+
+```json
+{ "id": "item_stage", "components": {
+    "Transform": { "position": [0, 300, 4] },
+    "Camera": { "projection": "perspective", "fov": 35, "primary": false, "lighting": "studio", "clearColor": [0.09, 0.1, 0.15, 1] } } }
+{ "id": "item_view", "components": {
+    "CameraView": { "camera": "item_stage", "size": [400, 360], "layer": 305 } } }
+```
+
+```js
+const spin = { yaw: 0 };
+ui.on("viewPointer", "item_view", (e) => {               // e.phase: "down" | "drag" | "up" | "wheel"
+  if (e.phase === "drag") spin.yaw += e.dx * 0.7;        // e.dx, e.dy: pixels moved since the last event
+  if (e.phase === "wheel") zoom = Math.min(1.5, Math.max(0.45, zoom - e.wheel * 0.1));
+});
+```
+
+- **The camera.** `CameraView.camera` is an entity id (or a name). Give that Camera `primary: false`: a primary one also draws
+  in the main view. The camera and the widget both have to be active. A camera that is missing, inactive or not yet made draws
+  only the widget's `color` (the script may spawn it a frame later); nothing is logged. The same camera can be shown by several
+  views, each with its own image.
+- **Studio lighting.** `Camera.lighting: "studio"` ignores the scene's `Light`s, ambient, sky and fog and lights what the camera
+  sees with its own key, fill and rim lights (fixed directions relative to the camera) and a soft ambient, so a model looks
+  the same on a stage far from the level or in the middle of a bright scene. `Camera.studioIntensity` (default 1) scales the
+  rig. Add `emissive` to a part if it should glow. `lighting: "scene"` (default) uses the scene's lights, as any camera does.
+- **Pointer.** A press over the view, a move while it is held and the release send the game event `ui.viewPointer`
+  (`ui.on("viewPointer", fn)`, or with a target `ui.on("viewPointer", "item_view", fn)`): `{ id, entity, phase, x, y, u, v, dx,
+  dy, wheel }` where `x, y` is the pointer in design pixels, `u, v` its place in the view (0..1 from the top-left; outside that
+  while a drag leaves the view), `dx, dy` the move since the previous event and `wheel` the notches of a "wheel" phase. The
+  widget under the pointer decides: a Button above the view keeps its click, a view under a modal Panel hears nothing, a view
+  clipped by a ScrollList hears only the visible part. A drag ends with the release wherever the pointer is. A finger works like
+  the mouse. `pointerEvents: false` turns all of it off (the view still blocks clicks to the world). `captureWheel` (default true)
+  makes the wheel over the view a "wheel" event and keeps it from `input.mouse.wheel` and from the list under it.
+  The view is not focusable: keys and a pad turn what it shows from your own script (`input.axis`).
+- **Cost and limits.** Every view is one more render pass of its camera per frame and one image of its size (`resolution`, 1 by
+  default: 0.5 for a soft, cheap picture, up to 2). The images of views that went away are freed in the same frame. A view
+  draws the world its camera sees, not the UI or the `space: "screen"` items (so a CameraView cannot show another); `bloom`,
+  `colorFilter` and the debug draw belong to the main frame and are not applied in it; 2D lights are read per pixel, so a view
+  of a 2D scene with many lights costs more than the main frame does; a studio camera draws no sky. Only a camera can be shown, not a
+  texture. To put a camera's live picture on a `Panel.texture` or a `Button.icon` instead, give that camera a
+  `Camera.renderTarget` and use `"target:<name>"` there (docs/RENDERING.md, "Render targets"): the widget shows the picture and
+  forwards no pointer input to the world behind it, so use a CameraView when the player has to drag what the camera shows.
+- **Test.** `game.mouseMove`, `game.mouseDown`, `game.wheel` and `game.touchStart` over the rectangle send the events; a
+  render test compares pixels of the view (the engine's own tests do this with a cube on a stage).
 
 ## A studio intro: a video that any button skips
 
@@ -404,12 +894,24 @@ writes.
 
 ```js scripts/settings.js
 // @ts-check
-// The player's settings (volumes, video, colour filter, controls, language), kept in storage under "settings" and applied once per run.
+// The player's settings (volumes, video, interface size, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
 import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
+
+/**
+ * Speeds of the dialogue text, in characters per second (0 = a whole line at once): the choices of the options "Text speed" row
+ * (project.add_menu_kit with textSpeed: true) and the locale name `options.speed.<name>`. settings.load().textSpeed is the chosen
+ * speed; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds).
+ */
+export const TEXT_SPEEDS = [
+  { name: "slow", cps: 20 },
+  { name: "normal", cps: 45 },
+  { name: "fast", cps: 90 },
+  { name: "instant", cps: 0 },
+];
 
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
@@ -422,29 +924,50 @@ function defaults() {
   const system = game.accessibility;
   return {
     volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
-    fullscreen: null, // null: keep factoria.json display.fullscreen
+    windowMode: null, // "windowed" | "borderless" | "fullscreen", or null: keep factoria.json display.fullscreen
+    monitor: null, // { index, name } of the monitor the player chose (see monitorChoice), or null: where the OS opens the window
     resolution: null, // [width, height] of the window, or null: the factoria.json size
     vsync: null, // null: keep factoria.json display.vsync
     frameCap: 0, // 0 = no cap
     colorFilter: "none", // one of COLOR_FILTERS
     bindings: {}, // action -> binding names, only for actions the player rebound
+    playerBindings: {}, // player ("0"."3") -> input.player(i).export(), only for a game with several local players (options.js `players`)
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
+    uiScale: null, // the interface size (ui.scale), or null: keep the factoria.json ui.scale
     reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
+    textSpeed: system.reduceMotion ? 0 : 45, // dialogue text reveal in characters per second (TEXT_SPEEDS), 0 = a whole line at once
   };
 }
 
 /** The saved settings merged over the defaults (a fresh object each call). */
 export function load() {
   const saved = storage.get("settings", {});
+  if (saved.windowMode === undefined && typeof saved.fullscreen === "boolean") saved.windowMode = saved.fullscreen ? "fullscreen" : "windowed"; // saved by an older kit
   const base = defaults();
-  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings } };
+  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
+}
+
+/** The value for Text.visibleCharacters of a dialogue line `seconds` after it appeared, at the player's text speed: -1 (everything) when the speed is 0. */
+export function revealedCharacters(seconds, s = load()) {
+  return s.textSpeed > 0 ? Math.floor(seconds * s.textSpeed) : -1;
 }
 
 export function save(s) {
   storage.set("settings", s);
+}
+
+/** What save() stores for the monitor `index` of window.monitors(): its name too, because the numbers change when a monitor is unplugged. */
+export function monitorChoice(index) {
+  return { index, name: window.monitors()[index]?.name ?? "" };
+}
+
+/** The index in window.monitors() of the monitor the player chose: the same name (the same place when several share it), or -1 when it is not connected now. */
+function savedMonitorIndex(choice) {
+  const same = window.monitors().filter((m) => m.name === choice.name);
+  return same.length ? (same.find((m) => m.index === choice.index) ?? same[0]).index : -1;
 }
 
 /** Camera.colorFilter of the scene's camera (the entity with the id "camera"): every scene has its own camera, so each scene sets it again. */
@@ -465,11 +988,12 @@ export function applyScene(s = load()) {
   applySubtitles(s);
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, language, rebound controls and, when the game has a real window, the video settings. */
+/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
   applyScene(s);
   ui.textScale = s.textScale;
+  if (s.uiScale !== null) ui.scale = s.uiScale;
   if (s.language && s.language !== i18n.language) {
     try {
       i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once
@@ -484,6 +1008,11 @@ export function apply(s = load()) {
       console.warn(`settings: the saved controls of "${action}" were ignored: ${e.message}`);
     }
   }
+  for (const [player, rebound] of Object.entries(s.playerBindings)) {
+    const index = Number(player);
+    if (!Number.isInteger(index) || index < 0 || index > 3) continue;
+    for (const problem of input.player(index).import(rebound)) console.warn(`settings: the saved controls of player ${index + 1}: ${problem}`);
+  }
   if (!window.available) return; // headless runs and tests have no window
   const tryApply = (what, fn) => {
     try {
@@ -492,7 +1021,15 @@ export function apply(s = load()) {
       console.warn(`settings: ${what} was not applied: ${e.message}`);
     }
   };
-  if (s.fullscreen !== null) tryApply("full screen", () => window.setFullscreen(s.fullscreen));
+  // The monitor first: a full screen or borderless window covers the monitor it is on when it switches.
+  if (s.monitor && window.supports("monitors")) {
+    const index = savedMonitorIndex(s.monitor);
+    if (index >= 0 && index !== window.monitor) tryApply("monitor", () => window.setMonitor(index));
+  }
+  if (s.windowMode !== null) {
+    const mode = s.windowMode === "borderless" && !window.supports("borderless") ? "fullscreen" : s.windowMode;
+    tryApply("window mode", () => window.setMode(mode));
+  }
   if (s.resolution && !window.fullscreen) tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
   if (s.vsync !== null) tryApply("vsync", () => window.setVsync(s.vsync));
   if (s.frameCap) tryApply("frame cap", () => (window.frameCap = s.frameCap));
@@ -521,6 +1058,7 @@ export class MenuStack {
 
   /** @param {string | null} root the panel that is always there (the main menu), or null (gameplay: nothing open) */
   constructor(root) {
+    MenuStack.busy = false; // a new scene builds a new stack: a flag a scene that went left on must not block the next one
     this.root = root;
     /** @type {Array<{ id: string, focus: any }>} */
     this.open = root ? [{ id: root, focus: null }] : [];
@@ -584,6 +1122,7 @@ export class MenuStack {
       ] },
     { "id": "options", "active": false, "prefab": "prefabs/ui/options.prefab.json" },
     { "id": "age_gate", "active": false, "prefab": "prefabs/ui/age_gate.prefab.json" },
+    { "id": "analytics_consent", "active": false, "prefab": "prefabs/ui/analytics_consent.prefab.json" },
     { "id": "shop", "active": false,
       "components": {
         "Panel": { "size": [760, 520], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "spacing": 16, "padding": [24, 24, 24, 24] },
@@ -611,15 +1150,19 @@ export class MenuStack {
 
 ### `scripts/main_menu.js`
 
+A line that ends with `// @kit:<part>` belongs to that optional part: `project.add_menu_kit` leaves it out when the
+part is not added and removes the marker when it is, so the game's copy has no markers.
+
 ```js scripts/main_menu.js
 // @ts-check
-// The title screen (scenes/menu.scene.json): Play, Options, Credits, Shop, Quit. Panels open over each other with
-// MenuStack; a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel.
+// The title screen (scenes/menu.scene.json): Play, Options, Credits, Quit, and Shop when the shop part is in the game.
+// Panels open over each other with MenuStack; a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel.
 import { Behaviour, ui, game, scene, session, platform } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import { readMenusAloud } from "./ui/read_aloud.js";
-import { openAgeGate } from "./ui/age_gate.js";
+import { openAgeGate } from "./ui/age_gate.js"; // @kit:ageGate
+import { openAnalyticsConsent } from "./ui/analytics_consent.js"; // @kit:analyticsConsent
 
 export default class MainMenu extends Behaviour {
   /** Scene the Play button starts, through the loading screen. */
@@ -629,18 +1172,20 @@ export default class MainMenu extends Behaviour {
     applyOnce();
     readMenusAloud();
     this.menus = new MenuStack("main_menu");
-    // The Shop button is for games with in-app purchases: it appears when this run has a store (docs/PLATFORM.md).
-    if (platform.has("purchases")) this.world.find("shop_button").active = true;
+    // The Shop button is for games with in-app purchases: it appears when this run has a store (docs/PLATFORM.md).  // @kit:shop
+    if (platform.has("purchases")) this.world.find("shop_button").active = true; // @kit:shop
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
-    // A game for children and adults (platform.ads.audience "mixed") asks the birth year once, before any ad (docs/MENUS.md).
-    if (platform.ads.audience === "mixed") openAgeGate(this.menus);
+    // A game for children and adults (platform.ads.audience "mixed") asks the birth year once, before any ad (docs/MENUS.md).  // @kit:ageGate
+    if (platform.ads.audience === "mixed") openAgeGate(this.menus); // @kit:ageGate
+    // A game with an "analytics" section in factoria.json asks once whether it may count usage; nothing is sent before the answer (docs/ANALYTICS.md).  // @kit:analyticsConsent
+    else openAnalyticsConsent(this.menus); // @kit:analyticsConsent
     ui.on("click", "play", () => {
       session.nextScene = this.firstScene; // scenes/loading.scene.json shows the progress of reading it, then loads it
       scene.load("scenes/loading.scene.json");
     });
     ui.on("click", "options_button", () => this.menus.show("options"));
     ui.on("click", "credits_button", () => this.menus.show("credits"));
-    ui.on("click", "shop_button", () => this.menus.show("shop"));
+    ui.on("click", "shop_button", () => this.menus.show("shop")); // @kit:shop
     ui.on("click", "quit", () => game.quit());
     ui.on("click", (e) => e.entity.hasTag("back") && this.menus.back());
     ui.on("cancel", () => this.menus.back());
@@ -884,7 +1429,7 @@ export default class StoreEvents extends Behaviour {
     "name": "Options",
     "components": {
       "Panel": { "size": [760, 680], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "direction": "auto", "align": "start",
-        "spacing": 16, "padding": [24, 24, 24, 24] },
+        "spacing": 12, "padding": [20, 20, 20, 20] },
       "Script": { "path": "scripts/ui/options.js" }
     },
     "children": [
@@ -898,12 +1443,14 @@ export default class StoreEvents extends Behaviour {
           { "id": "tab_language", "components": { "Button": { "autoSize": true, "text": "Language", "key": "options.tab.language", "size": [160, 48], "layer": 302 } } }
         ] },
       { "id": "video_section",
-        "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "direction": "auto", "align": "start", "spacing": 12 } },
+        "components": { "Panel": { "size": [712, 424], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "direction": "auto", "align": "start", "spacing": 8 } },
         "children": [
-          { "id": "fullscreen", "components": { "Toggle": { "autoSize": true, "label": "Full screen", "key": "options.fullscreen", "size": [560, 44], "layer": 302 } } },
+          { "id": "window_mode", "components": { "Button": { "autoSize": true, "text": "Window mode", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
+          { "id": "monitor", "components": { "Button": { "autoSize": true, "text": "Monitor", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "resolution", "components": { "Button": { "autoSize": true, "text": "Window size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "vsync", "components": { "Toggle": { "autoSize": true, "label": "VSync", "key": "options.vsync", "size": [560, 44], "layer": 302 } } },
           { "id": "frame_cap", "components": { "Button": { "autoSize": true, "text": "Frame cap", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
+          { "id": "ui_scale", "components": { "Button": { "autoSize": true, "text": "Interface size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "color_filter", "components": { "Button": { "autoSize": true, "text": "Color filter", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "video_note", "components": { "Text": { "text": "Video settings apply when the game runs in its own window.", "key": "options.videoNote",
             "fontSize": 18, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "align": "start", "maxWidth": 560, "layer": 302 } } }
@@ -916,7 +1463,8 @@ export default class StoreEvents extends Behaviour {
           { "id": "sfx_volume", "components": { "Slider": { "autoSize": true, "label": "Effects", "key": "options.volume.effects", "size": [560, 44], "layer": 302 } } },
           { "id": "ui_volume", "components": { "Slider": { "autoSize": true, "label": "Interface", "key": "options.volume.interface", "size": [560, 44], "layer": 302 } } },
           { "id": "read_aloud", "components": { "Toggle": { "autoSize": true, "label": "Read menus aloud", "key": "options.readAloud", "size": [560, 44], "layer": 302 } } },
-          { "id": "subtitles", "components": { "Toggle": { "autoSize": true, "label": "Subtitles", "key": "options.subtitles", "value": true, "size": [560, 44], "layer": 302 } } }
+          { "id": "subtitles", "components": { "Toggle": { "autoSize": true, "label": "Subtitles", "key": "options.subtitles", "value": true, "size": [560, 44], "layer": 302 } } },
+          { "id": "text_speed", "components": { "Button": { "autoSize": true, "text": "Text speed", "size": [560, 44], "layer": 302, "fontSize": 22 } } }
         ] },
       { "id": "controls_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
@@ -929,6 +1477,7 @@ export default class StoreEvents extends Behaviour {
         "children": [
           { "id": "language", "components": { "Button": { "autoSize": true, "text": "Language: English", "size": [560, 44], "layer": 302 } } }
         ] },
+      { "id": "analytics_toggle", "active": false, "components": { "Toggle": { "autoSize": true, "label": "Share anonymous usage data", "key": "options.analytics", "size": [560, 44], "layer": 302 } } },
       { "id": "privacy_options", "active": false, "components": { "Button": { "autoSize": true, "text": "Ad privacy settings", "key": "options.privacyOptions", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
       { "id": "options_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 302 } } }
     ]
@@ -940,42 +1489,81 @@ export default class StoreEvents extends Behaviour {
 
 ```js scripts/ui/options.js
 // @ts-check
-// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
-// colour filter, an accessibility option that works without a window),
-// Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
-// applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
+// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
+// monitor, size, vsync, frame cap, the interface size and the colour filter, two accessibility options that work without a window),
+// Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
+// (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n, platform } from "factoria";
+import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics, screen } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
 const TABS = ["video", "audio", "controls", "language"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
 const FRAME_CAPS = [0, 30, 60, 120, 144];
+/** Interface sizes (ui.scale) the "Interface size" button cycles through; only the ones this panel still fits the screen at are offered. */
+const UI_SCALES = [0.75, 1, 1.25, 1.5, 2];
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
 const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
+/** @type {Array<{ section: string, id: string, text: () => string, click: () => void }>} */
+const gameRows = [];
+
+/**
+ * Adds a row of the GAME to a section of the options (a Button that the panel keeps in step with the language), without editing the
+ * panel's files. Call it before the panel is spawned: when the module that owns the game's setting loads, or in the host's onStart before
+ * it spawns prefabs/ui/options.prefab.json. `section` is "video", "audio", "controls" or "language". `text()` returns the label (use
+ * i18n.t; it is called again when the language changes and after every click), `click()` changes the setting (save it with
+ * settings.save, the panel does not know it). The section grows by one row; the panel is sized for its Video tab, so a section with more
+ * rows than that needs a taller prefab. A second call with the same id replaces the row.
+ *   addOptionsRow("audio", { id: "screen_shake", text: () => i18n.t("options.shake", { on: s.shake }), click: () => toggleShake() });
+ * @param {string} section
+ * @param {{ id: string, text: () => string, click: () => void }} row
+ */
+export function addOptionsRow(section, row) {
+  if (!TABS.includes(section)) throw new Error(`addOptionsRow: there is no options section "${section}". The sections are ${TABS.join(", ")}.`);
+  const at = gameRows.findIndex((r) => r.id === row.id);
+  if (at >= 0) gameRows.splice(at, 1);
+  gameRows.push({ section, ...row });
+}
+
 export default class Options extends Behaviour {
   runWhilePaused = true; // the pause menu opens it while game.paused
-  /** Actions the Controls tab lets the player rebind; their labels are the strings "options.action.<action>". */
-  actions = ["move_left", "move_right", "jump", "pause"];
+  /**
+   * Actions the Controls tab lets the player rebind, in this order. null (the default) lists every action the game has
+   * except the ui_* ones. Set it in the prefab: "Script": { "path": "scripts/ui/options.js", "props": { "actions": ["move", "dig"] } }.
+   * The labels are the strings "options.action.<action>"; an action without one is labelled with its name.
+   */
+  actions = null;
+  /**
+   * Local players that rebind their own controls (docs: scripting, input.player). 1 (the default) is a game with one set of
+   * bindings: the Controls tab changes the global input. Above 1 the tab gets a "Player N" button on top that cycles through the
+   * players, and each rebinds the keys and the gamepad buttons of input.player(i) only; what a player rebound is saved by player
+   * (settings.playerBindings) and put back by settings.apply(). Set it in the prefab: "Script": { "path": "scripts/ui/options.js", "props": { "players": 2 } }.
+   */
+  players = 1;
 
   onStart() {
     this.s = settings.load();
     this.waiting = null; // the action waiting for "press a key or button"
+    this.seat = 0; // the player the Controls tab shows (only when players > 1)
     this.release = false;
     for (const tab of TABS) ui.on("click", `tab_${tab}`, () => this.showTab(tab));
     this.showTab("video");
     this.setupVideo();
     this.setupAudio();
+    this.setupTextSpeed();
     this.setupControls();
     this.setupLanguage();
     this.setupPrivacy();
+    this.setupGameRows();
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
+      this.refreshTextSpeed();
       this.refreshControls();
       this.refreshLanguage();
+      this.refreshGameRows();
     });
   }
 
@@ -991,14 +1579,25 @@ export default class Options extends Behaviour {
     const s = this.s;
     const has = window.available; // false in headless runs and tests: the rows stay visible, greyed out
     world.find("video_note").active = !has;
-    const fullscreen = world.find("fullscreen").get("Toggle");
     const vsync = world.find("vsync").get("Toggle");
-    fullscreen.value = window.fullscreen;
     vsync.value = window.vsync;
-    fullscreen.interactable = vsync.interactable = world.find("frame_cap").get("Button").interactable = has;
+    vsync.interactable = world.find("frame_cap").get("Button").interactable = world.find("window_mode").get("Button").interactable = has;
+    // The monitor row only exists where the game can move between monitors and this computer has more than one.
+    world.find("monitor").active = window.supports("monitors") && window.monitors().length > 1;
     this.refreshVideo();
+    ui.on("scale", () => this.refreshVideo()); // the size changed (here, or a script): write the percentage again
 
-    ui.on("change", "fullscreen", (e) => this.video("full screen", () => { window.setFullscreen(e.value); s.fullscreen = e.value; }));
+    ui.on("click", "window_mode", () => {
+      // windowed -> borderless -> fullscreen -> windowed (macOS cannot go from fullscreen straight to borderless); a platform without borderless skips it.
+      const modes = window.supports("borderless") ? ["windowed", "borderless", "fullscreen"] : ["windowed", "fullscreen"];
+      const next = modes[(modes.indexOf(window.mode) + 1) % modes.length];
+      this.video("window mode", () => { window.setMode(next); s.windowMode = next; });
+    });
+    ui.on("click", "monitor", () => {
+      const count = window.monitors().length;
+      const next = (window.monitor + 1) % count;
+      this.video("monitor", () => { window.setMonitor(next); s.monitor = settings.monitorChoice(next); });
+    });
     ui.on("change", "vsync", (e) => this.video("vsync", () => { window.setVsync(e.value); s.vsync = e.value; }));
     ui.on("click", "resolution", () => {
       const sizes = window.resolutions();
@@ -1011,6 +1610,14 @@ export default class Options extends Behaviour {
       const next = FRAME_CAPS[(FRAME_CAPS.indexOf(window.frameCap) + 1) % FRAME_CAPS.length];
       this.video("frame cap", () => { window.frameCap = next; s.frameCap = next; });
     });
+    ui.on("click", "ui_scale", () => {
+      const sizes = this.uiScales();
+      const next = sizes.find((k) => k > ui.scale + 1e-3) ?? sizes[0];
+      ui.scale = next; // every widget of every screen, this panel included, at once (docs/TEXT.md, "Interface size")
+      s.uiScale = next;
+      settings.save(s);
+      this.refreshVideo();
+    });
     ui.on("click", "color_filter", () => {
       const all = settings.COLOR_FILTERS;
       s.colorFilter = all[(all.indexOf(s.colorFilter) + 1) % all.length];
@@ -1018,6 +1625,18 @@ export default class Options extends Behaviour {
       settings.save(s);
       this.refreshVideo();
     });
+  }
+
+  /**
+   * The interface sizes to offer: the ones where this panel, drawn ui.scale times as big, still fits the screen (a bigger one
+   * would leave the panel's edges and its Back button off screen), plus the size now in use, whatever it is.
+   */
+  uiScales() {
+    const panel = this.entity.get("Panel").size; // in UI units: the size before ui.scale
+    const screenSize = screen.size;
+    const fits = UI_SCALES.filter((k) => panel.x * k <= screenSize.x && panel.y * k <= screenSize.y);
+    if (!fits.includes(ui.scale)) fits.push(ui.scale);
+    return fits.sort((a, b) => a - b);
   }
 
   /** Runs a window change (which also updates this.s); saves it when it worked, shows why when it did not. */
@@ -1033,6 +1652,9 @@ export default class Options extends Behaviour {
 
   refreshVideo() {
     const size = window.size;
+    world.find("window_mode").get("Button").text = i18n.t("options.windowMode", { mode: i18n.t(`options.mode.${window.mode}`) });
+    const monitors = window.monitors();
+    world.find("monitor").get("Button").text = i18n.t("options.monitor", { n: window.monitor + 1, name: monitors[window.monitor]?.name ?? "" });
     const resolution = world.find("resolution").get("Button");
     resolution.text = window.fullscreen
       ? i18n.t("options.windowSizeFullscreen")
@@ -1041,6 +1663,9 @@ export default class Options extends Behaviour {
     world.find("frame_cap").get("Button").text = window.frameCap
       ? i18n.t("options.frameCap", { fps: window.frameCap })
       : i18n.t("options.frameCapOff");
+    const uiScale = world.find("ui_scale").get("Button");
+    uiScale.text = i18n.t("options.uiScale", { percent: Math.round(ui.scale * 100) });
+    uiScale.interactable = this.uiScales().length > 1; // nothing to choose when no other size fits
     world.find("color_filter").get("Button").text = i18n.t("options.colorFilter", { filter: i18n.t(`options.filter.${this.s.colorFilter}`) });
   }
 
@@ -1073,10 +1698,69 @@ export default class Options extends Behaviour {
     });
   }
 
+  // ------------------------------------------------------------------------------------------------------ text speed
+  /** The "Text speed" button (the textSpeed part; without it the prefab has no such row and this does nothing). */
+  setupTextSpeed() {
+    const row = world.find("text_speed");
+    if (!row) return;
+    const panel = world.find("audio_section")?.get("Panel"); // the prefab's panel is sized without the row: grow it by one row, as addOptionsRow() does
+    if (panel) panel.size = [panel.size.x, panel.size.y + 44 + panel.spacing];
+    ui.on("click", "text_speed", () => {
+      const all = settings.TEXT_SPEEDS;
+      const at = all.findIndex((x) => x.cps === this.s.textSpeed);
+      this.s.textSpeed = all[(at + 1) % all.length].cps;
+      settings.save(this.s);
+      this.refreshTextSpeed();
+    });
+    this.refreshTextSpeed();
+  }
+
+  refreshTextSpeed() {
+    const row = world.find("text_speed");
+    if (!row) return;
+    const speed = settings.TEXT_SPEEDS.find((x) => x.cps === this.s.textSpeed);
+    row.get("Button").text = i18n.t("options.textSpeed", { speed: i18n.t(`options.speed.${speed ? speed.name : "custom"}`) });
+  }
+
+  // ------------------------------------------------------------------------------------------------------- game rows
+  /** Builds the buttons of addOptionsRow(). */
+  setupGameRows() {
+    for (const row of gameRows) {
+      const section = world.find(`${row.section}_section`);
+      if (!section || world.find(row.id)) continue;
+      world.spawn({ id: row.id, components: { Button: { text: "", size: [560, 44], fontSize: 22, layer: 302, autoSize: true } } }, { parent: section });
+      const panel = section.get("Panel");
+      panel.size = [panel.size.x, panel.size.y + 44 + panel.spacing];
+      ui.on("click", row.id, () => {
+        row.click();
+        this.refreshGameRows();
+      });
+    }
+    this.refreshGameRows();
+  }
+
+  refreshGameRows() {
+    for (const row of gameRows) {
+      const entity = world.find(row.id);
+      if (entity) entity.get("Button").text = row.text();
+    }
+  }
+
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
-    this.actions = this.actions.filter((action) => input.actions().includes(action)); // an action the game does not have gets no row
+    this.players = Math.max(1, Math.min(4, Math.round(Number(this.players)) || 1));
+    if (this.players > 1) {
+      world.spawn({ id: "controls_player", components: { Button: { text: "Player 1", size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+      ui.on("click", "controls_player", () => {
+        if (this.waiting) return;
+        this.seat = (this.seat + 1) % this.players;
+        this.refreshControls();
+      });
+    }
+    const have = input.actions();
+    // An action the game does not have gets no row; without a list, every action but the menus' own ui_* ones.
+    this.actions = this.actions ? this.actions.filter((action) => have.includes(action)) : have.filter((action) => !action.startsWith("ui_"));
     for (const action of this.actions) {
       const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
@@ -1087,21 +1771,41 @@ export default class Options extends Behaviour {
       });
     }
     ui.on("click", "reset_controls", () => {
-      input.resetBindings();
-      this.s.bindings = {};
+      if (this.players > 1) {
+        input.player(this.seat).reset(); // this player only
+        delete this.s.playerBindings[String(this.seat)];
+      } else {
+        input.resetBindings();
+        this.s.bindings = {};
+      }
       settings.save(this.s);
       this.refreshControls();
     });
     this.refreshControls();
   }
 
+  /** The translated name of an action; the action's own name when the game has no "options.action.<action>" string. */
+  actionLabel(action) {
+    const key = `options.action.${action}`;
+    return i18n.has(key) ? i18n.t(key) : action;
+  }
+
+  /** The buttons bound to an action for one list of a player ("keys" or "pad") as the player reads them: "Space / J", or "-" for none. */
+  playerButtons(action, family) {
+    const player = input.player(this.seat);
+    const names = player.bindings(action, family);
+    return names.length ? names.map((name) => input.buttonName(name, Math.max(0, player.pad))).join(" / ") : "-";
+  }
+
   refreshControls() {
+    if (this.players > 1) world.find("controls_player").get("Button").text = i18n.t("options.player", { n: this.seat + 1 });
     for (const action of this.actions) {
-      const label = i18n.t(`options.action.${action}`);
-      world.find(`bind_${action}`).get("Button").text =
-        this.waiting?.action === action
-          ? i18n.t("options.pressKey", { action: label })
+      const label = this.actionLabel(action);
+      const text =
+        this.players > 1
+          ? i18n.t("options.playerBinding", { action: label, keys: this.playerButtons(action, "keys"), pad: this.playerButtons(action, "pad") })
           : i18n.t("options.binding", { action: label, button: input.buttonName(action) });
+      world.find(`bind_${action}`).get("Button").text = this.waiting?.action === action ? i18n.t("options.pressKey", { action: label }) : text;
     }
   }
 
@@ -1126,6 +1830,7 @@ export default class Options extends Behaviour {
   // ------------------------------------------------------------------------------------------------------- privacy
   /** The "Ad privacy settings" button: only where ads exist and the consent sheet says the player must be able to change their choice. */
   setupPrivacy() {
+    this.setupAnalytics();
     if (!platform.has("ads")) return;
     const button = world.find("privacy_options");
     platform.ads
@@ -1139,6 +1844,15 @@ export default class Options extends Behaviour {
     });
   }
 
+  /** The usage-data switch: only in a game whose factoria.json has an "analytics" section. It is the player's answer (analytics.setConsent); off forgets what waits to be sent. */
+  setupAnalytics() {
+    const row = world.find("analytics_toggle");
+    row.active = analytics.configured;
+    if (!analytics.configured) return;
+    row.get("Toggle").value = analytics.consent() === "granted";
+    ui.on("change", "analytics_toggle", (e) => row.alive && analytics.setConsent(e.value));
+  }
+
   onUpdate() {
     if (this.release) {
       // One frame after the capture, so the menus (and the pause key) ignored the press that was captured.
@@ -1150,7 +1864,20 @@ export default class Options extends Behaviour {
     const { action, button } = this.waiting;
     this.waiting = null;
     this.release = true;
-    if (pressed !== "Escape") {
+    if (pressed !== "Escape" && this.players > 1) {
+      // A key or a chord (Ctrl+Z) replaces the keyboard list of the action for this player and a gamepad button or stick replaces its gamepad list; the
+      // mouse and touch (also in a chord) belong to every player, so they are not bindings. The engine refuses a name the player's key scheme does not have.
+      const player = input.player(this.seat);
+      if (!/(^|\+)(Mouse|Touch)/.test(pressed)) {
+        try {
+          player.rebind(action, [pressed], pressed.startsWith("Gamepad") ? "pad" : "keys");
+          this.s.playerBindings[String(this.seat)] = player.export();
+          settings.save(this.s);
+        } catch (e) {
+          console.warn(`options: ${pressed} was not taken as a binding: ${e.message}`);
+        }
+      }
+    } else if (pressed !== "Escape") {
       // Replace the bindings of the device that was pressed and keep the other device's: rebinding the keyboard
       // does not take the gamepad's buttons away.
       const pad = (b) => b.startsWith("Gamepad");
@@ -1424,6 +2151,644 @@ test("the next run does not ask again and tells the network the saved answer", (
 });
 ```
 
+### `prefabs/ui/analytics_consent.prefab.json`
+
+```json prefabs/ui/analytics_consent.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "AnalyticsConsent",
+    "components": {
+      "Panel": {
+        "size": [760, 420],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 16,
+        "padding": [24, 24, 24, 24]
+      }
+    },
+    "children": [
+      {
+        "id": "analytics_title",
+        "components": {
+          "Text": { "text": "Help us improve the game?", "key": "analyticsConsent.title", "fontSize": 40, "space": "screen", "layer": 301 }
+        }
+      },
+      {
+        "id": "analytics_what",
+        "components": {
+          "Text": {
+            "text": "We would like to count which levels are played and how they end, and which game version you use. We never collect your name, your contacts or anything you type.",
+            "key": "analyticsConsent.what",
+            "fontSize": 24,
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "analytics_change",
+        "components": {
+          "Text": {
+            "text": "You can change your mind in Options at any time. If you say no, nothing is sent.",
+            "key": "analyticsConsent.change",
+            "fontSize": 18,
+            "color": [0.75, 0.8, 0.9, 1],
+            "space": "screen",
+            "align": "start",
+            "maxWidth": 700,
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "analytics_allow",
+        "components": {
+          "Button": { "autoSize": true, "text": "Allow", "key": "analyticsConsent.allow", "layer": 302, "autoFocus": true }
+        }
+      },
+      {
+        "id": "analytics_deny",
+        "components": {
+          "Button": { "autoSize": true, "text": "No thanks", "key": "analyticsConsent.deny", "layer": 302 }
+        }
+      }
+    ]
+  }
+}
+```
+
+### `scripts/ui/analytics_consent.js`
+
+```js scripts/ui/analytics_consent.js
+// @ts-check
+// The analytics question (prefabs/ui/analytics_consent.prefab.json), for a game whose factoria.json has an "analytics" section
+// (docs/ANALYTICS.md): analytics.event() sends nothing until the player said yes, so the game asks once, on its first screen.
+// Both answers are fine: "No thanks" is kept like "Allow" (analytics.setConsent in storage), the question does not come back, and
+// the player can change the answer in Options (the "analytics_consent" switch, scripts/ui/options.js). Say what is collected in your
+// privacy policy and edit the texts "analyticsConsent.what" in locales/*.json to match what your game sends (docs/LEGAL.md).
+import { ui, world, analytics } from "factoria";
+import { MenuStack } from "./menu_stack.js";
+
+/**
+ * From the scene that opens first (the main menu calls it only when analytics.configured): opens the question over the menu
+ * when the player has not answered yet. `menus` is the scene's MenuStack, `panel` the id of the entity of the prefab in the scene.
+ * Returns true when the question is open; false when the game has no analytics or the player already answered (the answer
+ * of an earlier run, or the ad consent when factoria.json says "consentFromAds"). The player cannot close it with Back.
+ */
+export function openAnalyticsConsent(menus, panel = "analytics_consent") {
+  if (!analytics.configured || analytics.consent() !== "unknown") return false;
+  const allow = world.find("analytics_allow");
+  const answer = (/** @type {boolean} */ yes) => {
+    analytics.setConsent(yes);
+    MenuStack.busy = false;
+    menus.back();
+  };
+  // A click reaches the handler of every question this scene opened; only the one that is still there answers.
+  ui.on("click", "analytics_allow", () => allow.alive && answer(true));
+  ui.on("click", "analytics_deny", () => allow.alive && answer(false));
+  menus.show(panel);
+  ui.focus(allow); // a widget under the question may hold the focus
+  MenuStack.busy = true; // Escape / gamepad B must not skip the question
+  return true;
+}
+```
+
+### `tests/analytics_consent.test.js`
+
+```js tests/analytics_consent.test.js
+// The analytics question (scripts/ui/analytics_consent.js): asked once, both answers are kept, it cannot be skipped with Back, and
+// nothing is queued until the player said yes. The prompt is spawned from its prefab into whatever scene the test starts in, so
+// this test passes in any game with the analyticsConsent part; a game without an "analytics" section in factoria.json has nothing
+// to ask and the tests only check that. The fake network plays the server (docs/ANALYTICS.md), driven with a gamepad.
+import { test, expect, game } from "factoria:test";
+import { world, ui, storage, analytics } from "factoria";
+import { MenuStack } from "../scripts/ui/menu_stack.js";
+import { openAnalyticsConsent } from "../scripts/ui/analytics_consent.js";
+
+const pad = game.gamepad(0);
+
+// An empty store, then the question over a menu stack of its own. Returns the stack.
+function open() {
+  storage.clear();
+  game.platform.reset();
+  game.analytics.restart();
+  world.find("analytics_consent")?.destroy(); // the panel of the test before
+  game.step(1);
+  const panel = world.spawnPrefab("prefabs/ui/analytics_consent.prefab.json");
+  panel.id = "analytics_consent"; // MenuStack shows panels by id
+  panel.active = false;
+  const menus = new MenuStack(null);
+  expect(openAnalyticsConsent(menus)).toBe(true);
+  game.step(2);
+  expect(menus.top).toBe("analytics_consent");
+  return menus;
+}
+
+function press(id) {
+  ui.focus(world.find(id)); // the menu under the question has widgets of its own: do not walk to the button
+  pad.tap("A");
+  game.step(2);
+}
+
+test("a game without analytics has nothing to ask", () => {
+  if (analytics.configured) return;
+  expect(openAnalyticsConsent(new MenuStack(null))).toBe(false);
+  expect(analytics.consent()).toBe("unknown");
+});
+
+test("before the answer no event is kept; Allow lets them through", () => {
+  if (!analytics.configured) return;
+  const menus = open();
+  expect(analytics.event("level_start", { level: 1 })).toBe(false);
+  expect(game.analytics.queued().length).toBe(0);
+  press("analytics_allow");
+  expect(analytics.consent()).toBe("granted");
+  expect(menus.top).toBe(null);
+  expect(MenuStack.busy).toBe(false);
+  expect(analytics.event("level_start", { level: 1 })).toBe(true);
+  expect(game.analytics.queued().map((e) => e.name)).toEqual(["level_start"]);
+});
+
+test("No thanks is an answer too: nothing is kept and it is not asked again", () => {
+  if (!analytics.configured) return;
+  open();
+  press("analytics_deny");
+  expect(analytics.consent()).toBe("denied");
+  expect(analytics.event("level_start")).toBe(false);
+  expect(openAnalyticsConsent(new MenuStack(null))).toBe(false); // the next run
+});
+
+test("Back does not skip the question", () => {
+  if (!analytics.configured) return;
+  const menus = open();
+  pad.tap("B");
+  game.step(1);
+  expect(menus.top).toBe("analytics_consent");
+  expect(analytics.consent()).toBe("unknown");
+  expect(MenuStack.busy).toBe(true);
+  press("analytics_allow");
+  expect(MenuStack.busy).toBe(false);
+});
+```
+
+### `prefabs/ui/card.prefab.json`
+
+```json prefabs/ui/card.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Card",
+    "components": {
+      "Panel": {
+        "size": [1280, 720],
+        "anchor": [0.5, 0.5],
+        "layer": 290,
+        "color": [0, 0, 0, 0.55],
+        "layout": "column",
+        "justify": "center",
+        "modal": true
+      }
+    },
+    "children": [
+      {
+        "id": "card_box",
+        "components": {
+          "Panel": {
+            "layer": 300,
+            "color": [0.08, 0.1, 0.14, 0.97],
+            "layout": "column",
+            "align": "start",
+            "spacing": 12,
+            "padding": [24, 16, 24, 24],
+            "fit": true,
+            "minSize": [640, 0],
+            "maxSize": [640, 0]
+          }
+        },
+        "children": [
+          {
+            "id": "card_kind",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 18,
+                "color": [0.66, 0.69, 0.75, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_title",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 32,
+                "color": [1, 0.82, 0.29, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_body",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 20,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_choices",
+            "components": {
+              "Panel": {
+                "layer": 301,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "align": "start",
+                "spacing": 8,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            }
+          },
+          {
+            "id": "card_effects",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 22,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 592,
+                "maxTextScale": 1.25,
+                "layer": 301
+              }
+            }
+          },
+          {
+            "id": "card_continue",
+            "components": {
+              "Button": {
+                "text": "Continue",
+                "key": "card.continue",
+                "size": [160, 44],
+                "autoSize": true,
+                "autoShrink": true,
+                "minFontSize": 10,
+                "maxTextScale": 1.25,
+                "layer": 302,
+                "autoFocus": true
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### `scripts/ui/card.js`
+
+```js scripts/ui/card.js
+// @ts-check
+// A choice card (prefabs/ui/card.prefab.json): a modal panel with a title, a wrapped body, choice buttons that each have a
+// detail line, a choice that is greyed out with the reason shown, and a result stage with a Continue button. It is the
+// event / story / dialogue card of a management game. The panel is `modal` (Panel.modal): while it is open only its widgets
+// get the mouse, the wheel, the arrows and the pad, so the game under it neither hovers nor clicks, and the focus stays on the
+// card. Mouse, keyboard and pad all work through the widgets: the arrows move between the choices that can be chosen, Enter,
+// Space or gamepad A picks one.
+import { world, ui, game, scene } from "factoria";
+
+/** One choice of the card. `text` and `detail` are rich text (Text.markup: [b], [c:colour], [icon:name]). */
+/** @typedef {{ id: string, text: string, detail?: string, disabled?: string | boolean }} CardChoice */
+
+/** The colour of a disabled choice's reason: a built-in colour name, a colour of factoria.json text.colors or #rrggbb. */
+const REASON_COLOR = "#ff8a80";
+const COLOR_CHOICE = [0.18, 0.26, 0.38, 1];
+const COLOR_DISABLED = [0.14, 0.16, 0.2, 1];
+
+export class Card {
+  /**
+   * Opens the card (spawns the prefab). Fill it with ask(), then answer(), and end it with close().
+   * @param {object} [options]
+   * @param {(id: string) => void} [options.onChoose] the player picked the choice `id` (mouse, key or pad); disabled choices never get here
+   * @param {() => void} [options.onContinue] the player pressed Continue on the result stage
+   * @param {boolean} [options.holdClock] true: game.paused is true while the card is open (what was paused before stays paused)
+   * @param {string} [options.reasonColor] colour of a disabled choice's reason (default a light red)
+   * @param {string} [options.prefab] the card's prefab, when the game keeps its own copy
+   */
+  constructor(options = {}) {
+    this.onChoose = options.onChoose || null;
+    this.onContinue = options.onContinue || null;
+    this.reasonColor = options.reasonColor || REASON_COLOR;
+    this.sceneId = scene.current;
+    this.root = world.spawnPrefab(options.prefab || "prefabs/ui/card.prefab.json");
+    this.root.id = "card";
+    /** @type {any[]} */ this.rows = [];
+    this.stage = "none";
+    this.heldPause = false;
+    if (options.holdClock && !game.paused) {
+      game.paused = true;
+      this.heldPause = true;
+    }
+    // Listeners end with the scene; a click that arrives after the card was closed or the scene changed does nothing.
+    this.off = ui.on("click", (e) => this.#click(e.id));
+  }
+
+  /** True while the card is on screen (not closed, and its scene is still the current one). */
+  get isOpen() {
+    return !!this.root && this.root.alive && scene.current === this.sceneId;
+  }
+
+  /**
+   * The question stage: a title, a body and the choices. A choice with `disabled` (a reason, or true) cannot be picked, and
+   * its detail line shows the reason; the first choice that can be picked has the focus.
+   * @param {object} spec
+   * @param {string} [spec.kind] small line over the title ("Event", "Story")
+   * @param {string} spec.title
+   * @param {string} [spec.body] rich text
+   * @param {CardChoice[]} spec.choices
+   */
+  ask(spec) {
+    if (!this.isOpen) return;
+    this.stage = "choose";
+    this.#text("card_kind", spec.kind || "");
+    this.#text("card_title", spec.title);
+    this.#text("card_body", spec.body || "");
+    this.#text("card_effects", "");
+    this.#clearRows();
+    const parent = world.find("card_choices");
+    parent.active = true;
+    let first = true;
+    for (const choice of spec.choices) {
+      const reason = typeof choice.disabled === "string" ? choice.disabled : "";
+      const disabled = !!choice.disabled;
+      const row = world.spawn(
+        { id: `choice_row_${choice.id}`, components: { Panel: { layer: 301, color: [0, 0, 0, 0], layout: "column", align: "start", spacing: 2, padding: [0, 0, 0, 0], fit: true } } },
+        { parent },
+      );
+      world.spawn(
+        {
+          id: `choice_${choice.id}`,
+          components: {
+            Button: {
+              text: choice.text,
+              size: [592, 44],
+              autoSize: true,
+              maxWidth: 570,
+              autoShrink: true,
+              minFontSize: 10,
+              maxTextScale: 1.25,
+              markup: true,
+              layer: 302,
+              interactable: !disabled,
+              color: disabled ? COLOR_DISABLED : COLOR_CHOICE,
+              autoFocus: !disabled && first,
+            },
+          },
+        },
+        { parent: row },
+      );
+      if (!disabled) first = false;
+      const detail = reason ? `[c:${this.reasonColor}]${reason}[/c]` : choice.detail || "";
+      if (detail)
+        world.spawn(
+          {
+            id: `choice_${choice.id}_detail`,
+            components: { Text: { text: detail, fontSize: 18, space: "screen", align: "start", maxWidth: 570, maxTextScale: 1.25, markup: true, color: [0.75, 0.8, 0.9, 1], layer: 301 } },
+          },
+          { parent: row },
+        );
+      this.rows.push(row);
+    }
+    world.find("card_continue").active = false;
+    this.#focusFirst();
+  }
+
+  /**
+   * The result stage: what happened, the effects line, and a Continue button (it has the focus).
+   * @param {object} spec
+   * @param {string} spec.body rich text
+   * @param {string} [spec.effects] rich text, drawn under the body in a larger size
+   * @param {string} [spec.continueText] replaces the Continue label (otherwise the card.continue string)
+   */
+  answer(spec) {
+    if (!this.isOpen) return;
+    this.stage = "result";
+    this.#text("card_body", spec.body);
+    this.#text("card_effects", spec.effects || "");
+    this.#clearRows();
+    world.find("card_choices").active = false;
+    const button = world.find("card_continue");
+    button.active = true;
+    if (spec.continueText) {
+      button.get("Button").key = ""; // a key would replace the text
+      button.get("Button").text = spec.continueText;
+    }
+    this.#focusFirst();
+  }
+
+  /** Closes the card: its panel goes, and the game goes on if the card paused it. Safe to call twice. */
+  close() {
+    this.off();
+    if (this.root && this.root.alive) this.root.destroy();
+    this.root = null;
+    this.stage = "none";
+    if (this.heldPause) {
+      this.heldPause = false;
+      game.paused = false;
+    }
+  }
+
+  /** @param {string} id @param {string} text */
+  #text(id, text) {
+    const e = world.find(id);
+    // Rich text is switched on here, not in the prefab: `factoria validate` warns about markup in a prefab of a game that has no bold font.
+    if (id === "card_body" || id === "card_effects") e.get("Text").markup = true;
+    e.get("Text").text = text;
+    e.active = text !== "";
+  }
+
+  #clearRows() {
+    for (const row of this.rows) {
+      if (!row.alive) continue;
+      row.active = false; // destroy() happens at the end of the frame: until then the old rows must not take room in the layout
+      row.destroy();
+    }
+    this.rows = [];
+  }
+
+  #focusFirst() {
+    const target = this.stage === "result" ? world.find("card_continue") : this.rows.map((r) => r.children[0]).find((b) => b.get("Button").interactable);
+    if (target) ui.focus(target);
+  }
+
+  /** @param {string} id */
+  #click(id) {
+    if (!this.isOpen || typeof id !== "string") return;
+    if (this.stage === "choose" && id.startsWith("choice_")) {
+      const button = world.find(id);
+      if (button?.get("Button")?.interactable) this.onChoose?.(id.slice("choice_".length));
+    } else if (this.stage === "result" && id === "card_continue") {
+      this.onContinue?.();
+    }
+  }
+}
+```
+
+### `tests/card.test.js`
+
+```js tests/card.test.js
+// The choice card (scripts/ui/card.js): a modal panel over the game. A click on a button under it does nothing and the
+// focus stays on the card; the arrows move between its choices (a disabled one is skipped and shows why); the pad picks;
+// the result stage ends with Continue; holdClock pauses the game while it is open. The scene is built here, so this test
+// passes in any game that has the card part.
+import { test, expect, game } from "factoria:test";
+import { world, ui } from "factoria";
+import { Card } from "../scripts/ui/card.js";
+
+const pad = game.gamepad(0);
+
+/** A scene with a button under where the card will be, then the card with three choices (the second cannot be chosen). */
+function open(options = {}) {
+  game.loadJson({
+    format: "factoria.scene/1",
+    entities: [{ id: "under", components: { Button: { text: "Under", size: [200, 60], anchor: [0.5, 0.5], layer: 10 } } }],
+  });
+  game.step(2);
+  const clicks = [];
+  ui.on("click", (e) => clicks.push(e.id));
+  const chosen = [];
+  const card = new Card({ onChoose: (id) => chosen.push(id), onContinue: () => chosen.push("continue"), ...options });
+  card.ask({
+    kind: "Event",
+    title: "A stranger at the gate",
+    body: "A long body of text that has to wrap onto several lines inside the card, because the card is only 640 pixels wide and this sentence is longer than that.",
+    choices: [
+      { id: "help", text: "Help", detail: "Costs 2 wood" },
+      { id: "buy", text: "Buy the map", detail: "Never shown", disabled: "Needs 50 coins" },
+      { id: "leave", text: "Leave", detail: "Nothing happens" },
+    ],
+  });
+  game.step(3);
+  return { card, clicks, chosen };
+}
+
+test("a click on a button under the card does nothing, and the focus stays on the card", () => {
+  const { card, clicks } = open();
+  expect(ui.focused.id).toBe("choice_help");
+  game.click("under");
+  game.step(2);
+  expect(clicks).not.toContain("under");
+  expect(ui.hovered?.id ?? null).not.toBe("under");
+  expect(ui.focused.id.startsWith("choice_")).toBe(true);
+  expect(ui.pointerOverUi).toBe(true);
+  card.close();
+  game.step(2);
+  game.click("under");
+  game.step(2);
+  expect(clicks).toContain("under");
+});
+
+test("the arrows move between the choices and skip the disabled one", () => {
+  const { chosen } = open();
+  expect(ui.focused.id).toBe("choice_help");
+  game.tap("ui_down");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_leave"); // choice_buy cannot be chosen: no focus
+  game.tap("ui_down");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_leave"); // the last one: the focus never leaves the card
+  game.tap("ui_up");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_help");
+  game.tap("ui_up");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_help");
+  game.tap("ui_submit");
+  game.step(2);
+  expect(chosen).toEqual(["help"]);
+});
+
+test("a disabled choice does nothing and shows why", () => {
+  const { chosen } = open();
+  const buy = world.find("choice_buy");
+  expect(buy.get("Button").interactable).toBe(false);
+  game.click("choice_buy");
+  game.step(2);
+  expect(chosen).toEqual([]);
+  expect(world.find("choice_buy_detail").get("Text").text).toContain("Needs 50 coins");
+  expect(world.find("choice_buy_detail").get("Text").text).not.toContain("Never shown");
+  expect(world.find("choice_help_detail").get("Text").text).toBe("Costs 2 wood");
+});
+
+test("the pad picks a choice, the result stage has Continue, and closing gives the game back", () => {
+  const { card, clicks, chosen } = open();
+  pad.tap("DpadDown");
+  game.step(2);
+  expect(ui.focused.id).toBe("choice_leave");
+  pad.tap("A");
+  game.step(2);
+  expect(chosen).toEqual(["leave"]);
+  card.answer({ body: "You walk away.", effects: "[b]Nothing changed[/b]" });
+  game.step(3);
+  expect(world.find("choice_leave")).toBe(null);
+  expect(world.find("card_continue").activeInHierarchy).toBe(true);
+  expect(ui.focused.id).toBe("card_continue");
+  game.click("under");
+  game.step(2);
+  expect(clicks).not.toContain("under");
+  pad.tap("A");
+  game.step(2);
+  expect(chosen).toEqual(["leave", "continue"]);
+  card.close();
+  game.step(2);
+  expect(world.find("card")).toBe(null);
+});
+
+test("holdClock pauses the game while the card is open; a game that was paused stays paused", () => {
+  game.paused = false;
+  const { card } = open({ holdClock: true });
+  expect(game.paused).toBe(true);
+  card.close();
+  expect(game.paused).toBe(false);
+  game.paused = true;
+  const again = open({ holdClock: true });
+  again.card.close();
+  expect(game.paused).toBe(true);
+  game.paused = false;
+});
+
+test("the card blocks the pointer by being modal, not only by its backdrop", () => {
+  const { card, clicks } = open();
+  world.find("card").get("Panel").color = [0, 0, 0, 0]; // a backdrop that draws nothing is not hit...
+  game.step(2);
+  game.click("under"); // ...but Panel.modal still keeps the pointer from every widget outside the card
+  game.step(2);
+  expect(clicks).not.toContain("under");
+  expect(ui.focused.id.startsWith("choice_")).toBe(true);
+  card.close();
+});
+```
+
 ### `scenes/loading.scene.json`
 
 ```json scenes/loading.scene.json
@@ -1434,7 +2799,7 @@ test("the next run does not ask again and tells the network the saved answer", (
     { "id": "loading",
       "components": {
         "Transform": { "position": [-48, -48, 0] },
-        "Text": { "text": "Loading...", "key": "loading.text", "fontSize": 36, "space": "screen", "anchor": [1, 1], "pivot": [1, 0] },
+        "Text": { "text": "Loading...", "fontSize": 36, "space": "screen", "anchor": [1, 1], "pivot": [1, 0] },
         "Script": { "path": "scripts/loading.js" } } }
   ]
 }
@@ -1447,7 +2812,7 @@ test("the next run does not ask again and tells the network the saved answer", (
 // scenes/loading.scene.json: reads the scene the main menu put in session.nextScene ahead of time, a few files every
 // frame, so this scene keeps running (and drawing) meanwhile; then loads it, which reads nothing from the disk.
 // A full recipe with a bar: set the width of a Shape2D from `job.progress` in onUpdate, like the text below.
-import { Behaviour, scene, session } from "factoria";
+import { Behaviour, i18n, scene, session } from "factoria";
 
 export default class Loading extends Behaviour {
   onStart() {
@@ -1467,7 +2832,8 @@ export default class Loading extends Behaviour {
   }
 
   onUpdate() {
-    this.entity.get("Text").text = `Loading... ${Math.round(this.job.progress * 100)}%`;
+    // No key on the Text: the line is built here, so the percentage sits inside the translated sentence.
+    this.entity.get("Text").text = i18n.t("loading.progress", { percent: Math.round(this.job.progress * 100) });
   }
 }
 ```
@@ -1696,7 +3062,7 @@ export default class PauseMenu extends Behaviour {
 // An on-screen keyboard for players with only a gamepad. Put this behaviour on one entity of every scene that has a
 // TextField. When a TextField takes the focus because the player used the pad (input.lastDevice is "gamepad"), or when
 // the player presses A on a focused TextField, the keyboard (prefabs/ui/keyboard.prefab.json) opens over the game: the
-// d-pad walks the keys, A types one, "Delete" removes the last character, "Done" closes it and sends ui.submit for the
+// d-pad walks the keys, A types one, "Delete" removes the last character (the last jamo of a Korean syllable), "Done" closes it and sends ui.submit for the
 // field (what Enter does), B closes it and keeps the text. Typing goes through the same events a real keyboard sends
 // (ui.change), so the game's code does not know the difference. Phones and keyboards use their own keyboard: the engine
 // raises the phone's when a TextField gets the focus, and this one stays closed unless the last input was a pad. A
@@ -1704,6 +3070,8 @@ export default class PauseMenu extends Behaviour {
 // input.platformKeyboard is true this one stays closed too.
 //
 // The keys follow the language (i18n.language): see LAYOUTS. A language whose script is not listed gets the Latin keys.
+// A language whose letters are made of parts (Korean: jamo make syllables) has an input method in IME: a pair of functions
+// that say what the text becomes when a key is typed and when Delete is pressed. Korean's is built in (hangulIme).
 import { Behaviour, ui, input, world, i18n } from "factoria";
 
 /** Lowercase letters of each script, then the digits are added. A game can add its own: LAYOUTS.ja = "...". */
@@ -1711,15 +3079,100 @@ export const LAYOUTS = {
   latin: "abcdefghijklmnopqrstuvwxyz",
   cyrillic: "абвгдежзийклмнопрстуфхцчшщъыьэюя",
   greek: "αβγδεζηθικλμνξοπρστυφχψω",
+  // Hangul jamo (the two-set layout's letters): the consonants, then the vowels. Shift gives the doubled ones: SHIFTED.
+  korean: "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎㅏㅑㅓㅕㅗㅛㅜㅠㅡㅣㅐㅔ",
 };
+/** What Shift shows on a key whose upper case is not the letter's own (Hangul: the doubled consonants and vowels). */
+export const SHIFTED = { "ㄱ": "ㄲ", "ㄷ": "ㄸ", "ㅂ": "ㅃ", "ㅅ": "ㅆ", "ㅈ": "ㅉ", "ㅐ": "ㅒ", "ㅔ": "ㅖ" };
 /** Language code -> script of LAYOUTS (languages not listed use "latin"). */
-export const SCRIPT_OF = { ru: "cyrillic", uk: "cyrillic", bg: "cyrillic", sr: "cyrillic", mk: "cyrillic", el: "greek" };
+export const SCRIPT_OF = { ru: "cyrillic", uk: "cyrillic", bg: "cyrillic", sr: "cyrillic", mk: "cyrillic", el: "greek", ko: "korean" };
 /** Extra letters a Latin language needs, after the digits. */
 export const EXTRA = {
   es: "ñáéíóúü", fr: "àâçèéêëîïôùûœ", de: "äöüß", pt: "ãõçáéíóúâê", it: "àèéìòù", pl: "ąćęłńóśźż",
   tr: "çğıişöü", sv: "åäö", da: "åæø", nb: "åæø", no: "åæø", cs: "áčďéěíňóřšťúůýž",
 };
 const DIGITS = "0123456789";
+
+// ---- Input methods -------------------------------------------------------------------------------------------------
+// An input method is { compose(text, ch) -> string, decompose(text) -> string }: compose returns the field's text after
+// the key `ch` is typed (it may change the last character: a vowel after a consonant makes a syllable), decompose the
+// text after Delete (it may take a part of the last character away instead of all of it). Both look only at the text,
+// so they need no state. A game adds one for another language: IME.ja = { compose, decompose }.
+
+const LEADS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+const VOWELS = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
+const TAILS = [
+  "", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ", "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ",
+  "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
+];
+const COMPOUND_VOWEL = { ㅗㅏ: "ㅘ", ㅗㅐ: "ㅙ", ㅗㅣ: "ㅚ", ㅜㅓ: "ㅝ", ㅜㅔ: "ㅞ", ㅜㅣ: "ㅟ", ㅡㅣ: "ㅢ" };
+const COMPOUND_TAIL = {
+  ㄱㅅ: "ㄳ", ㄴㅈ: "ㄵ", ㄴㅎ: "ㄶ", ㄹㄱ: "ㄺ", ㄹㅁ: "ㄻ", ㄹㅂ: "ㄼ", ㄹㅅ: "ㄽ", ㄹㅌ: "ㄾ", ㄹㅍ: "ㄿ", ㄹㅎ: "ㅀ", ㅂㅅ: "ㅄ",
+};
+const split = (table) => Object.fromEntries(Object.entries(table).map(([pair, whole]) => [whole, Array.from(pair)]));
+const VOWEL_PARTS = split(COMPOUND_VOWEL);
+const TAIL_PARTS = split(COMPOUND_TAIL);
+const SYLLABLE_FIRST = 0xac00;
+const SYLLABLE_LAST = 0xd7a3;
+const isSyllable = (c) => !!c && c.codePointAt(0) >= SYLLABLE_FIRST && c.codePointAt(0) <= SYLLABLE_LAST;
+const isVowel = (c) => !!c && VOWELS.includes(c);
+const isConsonant = (c) => !!c && (LEADS.includes(c) || TAILS.includes(c));
+const syllable = (lead, vowel, tail = "") =>
+  String.fromCodePoint(SYLLABLE_FIRST + (LEADS.indexOf(lead) * VOWELS.length + VOWELS.indexOf(vowel)) * TAILS.length + TAILS.indexOf(tail));
+/** [lead, vowel, tail] of a syllable character. */
+function parts(c) {
+  const n = c.codePointAt(0) - SYLLABLE_FIRST;
+  return [LEADS[Math.floor(n / (VOWELS.length * TAILS.length))], VOWELS[Math.floor(n / TAILS.length) % VOWELS.length], TAILS[n % TAILS.length]];
+}
+
+/** Hangul: jamo make syllables (ㄱ + ㅏ = 가, 가 + ㄴ = 간, 간 + ㅏ = 가나), and Delete takes the last jamo away (간 -> 가 -> ㄱ). */
+export const hangulIme = {
+  compose(text, ch) {
+    const chars = Array.from(text);
+    const last = chars[chars.length - 1];
+    const head = chars.slice(0, -1).join("");
+    if (!isVowel(ch) && !isConsonant(ch)) return text + ch;
+    if (isSyllable(last)) {
+      const [lead, vowel, tail] = parts(last);
+      if (isVowel(ch)) {
+        if (tail === "") {
+          const both = COMPOUND_VOWEL[vowel + ch];
+          return both ? head + syllable(lead, both) : text + ch;
+        }
+        // The last consonant of the syllable starts the next one: 각 + ㅏ = 가가, 닭 + ㅏ = 달가.
+        const pair = TAIL_PARTS[tail];
+        const keep = pair ? pair[0] : "";
+        const move = pair ? pair[1] : tail;
+        return head + syllable(lead, vowel, keep) + syllable(move, ch);
+      }
+      if (tail === "") return TAILS.includes(ch) ? head + syllable(lead, vowel, ch) : text + ch;
+      const both = COMPOUND_TAIL[tail + ch];
+      return both ? head + syllable(lead, vowel, both) : text + ch;
+    }
+    if (isVowel(ch) && last && LEADS.includes(last)) return head + syllable(last, ch);
+    return text + ch;
+  },
+  decompose(text) {
+    const chars = Array.from(text);
+    const last = chars.pop();
+    if (last === undefined) return "";
+    const head = chars.join("");
+    if (!isSyllable(last)) return head;
+    const [lead, vowel, tail] = parts(last);
+    if (tail) return head + syllable(lead, vowel, TAIL_PARTS[tail]?.[0] ?? "");
+    if (VOWEL_PARTS[vowel]) return head + syllable(lead, VOWEL_PARTS[vowel][0]);
+    return head + lead;
+  },
+};
+/** Language code -> input method (languages not listed type one character per key). */
+export const IME = { ko: hangulIme };
+const plainIme = { compose: (text, ch) => text + ch, decompose: (text) => Array.from(text).slice(0, -1).join("") };
+
+/** The input method of a language such as "ko" or "ko-KR". */
+export function imeFor(language) {
+  const base = String(language || "en").toLowerCase().split(/[-_]/)[0];
+  return IME[base] ?? plainIme;
+}
 
 /** The characters of the keyboard for a language such as "es" or "pt-BR". */
 export function keysFor(language) {
@@ -1736,6 +3189,7 @@ export default class OnScreenKeyboard extends Behaviour {
 
   onStart() {
     OnScreenKeyboard.isOpen = false;
+    input.textInputMode = false;
     this.panel = world.spawnPrefab("prefabs/ui/keyboard.prefab.json");
     this.panel.id = "keyboard";
     this.panel.active = false;
@@ -1747,7 +3201,11 @@ export default class OnScreenKeyboard extends Behaviour {
     this.ignoreAge = 0;
     ui.on("focus", (e) => this.onFocus(e.entity));
     ui.on("click", (e) => e.entity.hasTag("osk") && this.onClick(e.entity));
-    ui.on("cancel", () => this.field && this.close(false));
+    ui.on("cancel", () => {
+      if (!this.field) return false;
+      this.close(false);
+      return true; // B / Escape closed the keyboard: nothing else acts on this press (ui_cancel is consumed)
+    });
   }
 
   onDestroy() {
@@ -1782,7 +3240,9 @@ export default class OnScreenKeyboard extends Behaviour {
   open(field) {
     this.field = field;
     this.shift = false;
+    this.ime = imeFor(i18n.language);
     OnScreenKeyboard.isOpen = true;
+    input.textInputMode = true; // the typed keys belong to the keyboard: game actions on letters read as up meanwhile
     this.build(keysFor(i18n.language));
     this.holdOthers();
     this.panel.active = true;
@@ -1853,7 +3313,8 @@ export default class OnScreenKeyboard extends Behaviour {
   relabel() {
     this.base.forEach((ch, i) => {
       const up = ch.toUpperCase();
-      world.find("osk_key_" + i).get("Button").text = this.shift && Array.from(up).length === 1 ? up : ch;
+      const shifted = SHIFTED[ch] ?? (Array.from(up).length === 1 ? up : ch);
+      world.find("osk_key_" + i).get("Button").text = this.shift ? shifted : ch;
     });
   }
 
@@ -1863,7 +3324,7 @@ export default class OnScreenKeyboard extends Behaviour {
     switch (entity.id) {
       case "osk_done": return this.close(true);
       case "osk_space": return this.type(" ");
-      case "osk_delete": return this.set(Array.from(text).slice(0, -1).join(""));
+      case "osk_delete": return this.set(this.ime.decompose(text));
       case "osk_shift":
         this.shift = !this.shift;
         return this.relabel();
@@ -1872,11 +3333,12 @@ export default class OnScreenKeyboard extends Behaviour {
     }
   }
 
-  /** Adds one character, within the field's maxLength. */
+  /** Types one key through the language's input method, within the field's maxLength. */
   type(ch) {
     const f = this.field.get("TextField");
-    if (f.maxLength > 0 && Array.from(f.text).length >= f.maxLength) return;
-    this.set(f.text + ch);
+    const text = this.ime.compose(f.text, ch);
+    if (f.maxLength > 0 && Array.from(text).length > f.maxLength) return;
+    this.set(text);
   }
 
   /** Writes the field's text and sends ui.change, as a real keyboard's typing does. */
@@ -1986,33 +3448,51 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "quit": "Quit",
     "back": "Back"
   },
-  "loading": { "text": "Loading..." },
+  "loading": { "progress": "Loading... {percent}%" },
   "captions": { "welcome": "Welcome, traveller.", "hint": "Watch the edge!", "guide": "Guide" },
   "pause": { "title": "Paused", "resume": "Resume", "mainMenu": "Main menu" },
   "options": {
     "title": "Options",
     "tab": { "video": "Video", "audio": "Audio", "controls": "Controls", "language": "Language" },
-    "fullscreen": "Full screen",
+    "windowMode": "Window mode: {mode}",
+    "mode": {
+      "windowed": "windowed",
+      "borderless": "borderless",
+      "fullscreen": "full screen"
+    },
+    "monitor": "Monitor: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "Window size: {width} x {height}",
     "windowSizeFullscreen": "Window size: full screen",
     "frameCap": "Frame cap: {fps} fps",
     "frameCapOff": "Frame cap: off",
+    "uiScale": "Interface size: {percent}%",
     "colorFilter": "Color filter: {filter}",
     "filter": { "none": "off", "greyscale": "greyscale", "highContrast": "high contrast", "protanopia": "protanopia (red)", "deuteranopia": "deuteranopia (green)", "tritanopia": "tritanopia (blue)" },
     "videoNote": "Video settings apply when the game runs in its own window.",
     "volume": { "master": "Master", "music": "Music", "effects": "Effects", "interface": "Interface" },
     "action": { "move_left": "Move left", "move_right": "Move right", "jump": "Jump", "pause": "Pause" },
     "binding": "{action}: {button}",
+    "player": "Player {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
     "resetControls": "Reset to defaults",
     "language": "Language: {language}",
     "readAloud": "Read menus aloud",
     "subtitles": "Subtitles",
     "privacyOptions": "Ad privacy settings",
+    "analytics": "Share anonymous usage data",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent"
+    "percent": "{value} percent",
+    "textSpeed": "Text speed: {speed}",
+    "speed": {
+      "slow": "slow",
+      "normal": "normal",
+      "fast": "fast",
+      "instant": "instant",
+      "custom": "custom"
+    }
   },
   "credits": {
     "madeWith": "Made with FactorIA",
@@ -2043,6 +3523,40 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "year": "Birth year",
     "continue": "Continue",
     "skip": "I would rather not say"
+  },
+  "analyticsConsent": {
+    "title": "Help us improve the game?",
+    "what": "We would like to count which levels are played and how they end, and which game version you use. We never collect your name, your contacts or anything you type.",
+    "change": "You can change your mind in Options at any time. If you say no, nothing is sent.",
+    "allow": "Allow",
+    "deny": "No thanks"
+  },
+  "card": {
+    "continue": "Continue"
+  },
+  "slots": {
+    "titleSave": "Save game",
+    "titleLoad": "Load game",
+    "empty": "Slot {n}: empty",
+    "emptyAuto": "Autosave: empty",
+    "used": "Slot {n}: {name}\nChapter {chapter}, {time}",
+    "usedAuto": "Autosave: {name}\nChapter {chapter}, {time}",
+    "damaged": "Slot {n}: damaged (delete it to free the slot)",
+    "damagedAuto": "Autosave: damaged (delete it)",
+    "damagedNote": "A slot cannot be read. Delete it, or load another.",
+    "unnamed": "Unnamed",
+    "autoName": "autosave",
+    "delete": "Delete",
+    "nameTitle": "Name the save in slot {n}",
+    "namePlaceholder": "Name this save",
+    "confirmSave": "Save",
+    "cancel": "Cancel",
+    "deleteTitle": "Delete slot {n}?",
+    "confirmDelete": "Delete",
+    "saved": "Saved to slot {n}.",
+    "noGame": "There is no game to save yet.",
+    "busy": "You cannot save right now.",
+    "noSave": "Saving is not available here."
   }
 }
 ```
@@ -2064,33 +3578,51 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "quit": "Salir",
     "back": "Atrás"
   },
-  "loading": { "text": "Cargando..." },
+  "loading": { "progress": "Cargando... {percent}%" },
   "captions": { "welcome": "Bienvenido, viajero.", "hint": "¡Cuidado con el borde!", "guide": "Guía" },
   "pause": { "title": "En pausa", "resume": "Reanudar", "mainMenu": "Menú principal" },
   "options": {
     "title": "Opciones",
     "tab": { "video": "Vídeo", "audio": "Audio", "controls": "Controles", "language": "Idioma" },
-    "fullscreen": "Pantalla completa",
+    "windowMode": "Modo de ventana: {mode}",
+    "mode": {
+      "windowed": "ventana",
+      "borderless": "sin bordes",
+      "fullscreen": "pantalla completa"
+    },
+    "monitor": "Monitor: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "Tamaño de ventana: {width} x {height}",
     "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
     "frameCap": "Límite de fotogramas: {fps} fps",
     "frameCapOff": "Límite de fotogramas: sin límite",
+    "uiScale": "Tamaño de la interfaz: {percent}%",
     "colorFilter": "Filtro de color: {filter}",
     "filter": { "none": "desactivado", "greyscale": "escala de grises", "highContrast": "alto contraste", "protanopia": "protanopia (rojo)", "deuteranopia": "deuteranopia (verde)", "tritanopia": "tritanopia (azul)" },
     "videoNote": "Los ajustes de vídeo se aplican cuando el juego se ejecuta en su propia ventana.",
     "volume": { "master": "General", "music": "Música", "effects": "Efectos", "interface": "Interfaz" },
     "action": { "move_left": "Mover a la izquierda", "move_right": "Mover a la derecha", "jump": "Saltar", "pause": "Pausa" },
     "binding": "{action}: {button}",
+    "player": "Jugador {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
     "language": "Idioma: {language}",
     "readAloud": "Leer los menús en voz alta",
     "subtitles": "Subtítulos",
     "privacyOptions": "Privacidad de los anuncios",
+    "analytics": "Compartir datos de uso anónimos",
     "on": "activado",
     "off": "desactivado",
-    "percent": "{value} por ciento"
+    "percent": "{value} por ciento",
+    "textSpeed": "Velocidad del texto: {speed}",
+    "speed": {
+      "slow": "lenta",
+      "normal": "normal",
+      "fast": "rápida",
+      "instant": "instantánea",
+      "custom": "personalizada"
+    }
   },
   "credits": {
     "madeWith": "Hecho con FactorIA",
@@ -2121,6 +3653,40 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "year": "Año de nacimiento",
     "continue": "Continuar",
     "skip": "Prefiero no decirlo"
+  },
+  "analyticsConsent": {
+    "title": "¿Nos ayudas a mejorar el juego?",
+    "what": "Nos gustaría contar qué niveles se juegan y cómo terminan, y qué versión del juego usas. Nunca recogemos tu nombre, tus contactos ni nada de lo que escribes.",
+    "change": "Puedes cambiar de opinión en Opciones cuando quieras. Si dices que no, no se envía nada.",
+    "allow": "Permitir",
+    "deny": "No, gracias"
+  },
+  "card": {
+    "continue": "Continuar"
+  },
+  "slots": {
+    "titleSave": "Guardar partida",
+    "titleLoad": "Cargar partida",
+    "empty": "Ranura {n}: vacía",
+    "emptyAuto": "Autoguardado: vacío",
+    "used": "Ranura {n}: {name}\nCapítulo {chapter}, {time}",
+    "usedAuto": "Autoguardado: {name}\nCapítulo {chapter}, {time}",
+    "damaged": "Ranura {n}: dañada (bórrala para liberar la ranura)",
+    "damagedAuto": "Autoguardado: dañado (bórralo)",
+    "damagedNote": "No se puede leer una ranura. Bórrala o carga otra.",
+    "unnamed": "Sin nombre",
+    "autoName": "autoguardado",
+    "delete": "Borrar",
+    "nameTitle": "Nombre de la partida en la ranura {n}",
+    "namePlaceholder": "Ponle un nombre a la partida",
+    "confirmSave": "Guardar",
+    "cancel": "Cancelar",
+    "deleteTitle": "¿Borrar la ranura {n}?",
+    "confirmDelete": "Borrar",
+    "saved": "Guardado en la ranura {n}.",
+    "noGame": "Todavía no hay ninguna partida que guardar.",
+    "busy": "Ahora no se puede guardar.",
+    "noSave": "Aquí no se puede guardar."
   }
 }
 ```
@@ -2131,10 +3697,11 @@ third language by editing the values only (keep the keys and the `{placeholders}
 // The test that ships with the menu kit (project.add_menu_kit): it opens the kit's main menu itself, so it passes whatever the
 // game's mainScene is, and drives the menus with a gamepad only.
 import { test, expect, game } from "factoria:test";
-import { ui, storage, audio, scene } from "factoria";
+import { ui, storage, audio, scene, analytics } from "factoria";
 
 // Each test file starts on the project's mainScene with empty storage.
 test("gamepad only: main menu -> options -> music volume -> back, and the volume is saved", () => {
+  if (analytics.configured) analytics.setConsent(true); // a game with analytics: the question of the first run is answered (tests/analytics_consent.test.js)
   scene.load("scenes/menu.scene.json");
   const pad = game.gamepad(0);
   game.step(2);
@@ -2149,6 +3716,1278 @@ test("gamepad only: main menu -> options -> music volume -> back, and the volume
   expect(ui.focused.id).toBe("options_button");
   expect(audio.getVolume("music")).toBeCloseTo(0.7);
   expect(storage.get("settings").volume.music).toBeCloseTo(0.7);
+});
+```
+
+### `scripts/slots.js`
+
+The records: `Slots` reads and writes the slots in `storage` (and the cloud when the player is signed in), `formatTime` and `capturePic` help the screen. The game passes `upgrade` (migrate an older save, or say why it cannot be read) and `describe` (chapter and play time of a bare save).
+
+```js scripts/slots.js
+// @ts-check
+// Save slots: named slots and an autosave in `storage`, each a string of JSON text and, when the player is signed in to a store,
+// a copy in the cloud under the same key. A slot holds a RECORD:
+//
+//   { "counter": 7, "name": "Before the cellar", "chapter": 3, "playTime": 3725.5, "pic": "<base64 PNG>" | null, "data": <the game's save> }
+//
+// `data` is whatever the game saves (any JSON); the rest is what the slot screen (scripts/ui/slot_screen.js) shows without opening
+// the slot. `counter` goes up by one on every save (the wall clock is never read): when a cloud copy and a local one differ, the
+// higher counter wins (syncCloud). A text that is not a record (no "data" field) is read as a bare save: a record without a
+// name, picture or counter, so a game can start with plain saves and move to slots later.
+//
+//   const slots = new Slots({ upgrade: (data) => ({ ok: true, data }), describe: (data) => ({ chapter: data.chapter, playTime: data.playTime }) });
+//   slots.write(1, { name: "Before the cellar", data: mySave, chapter: 3, playTime: 3725.5, pic: capturePic() });
+//   const p = slots.peek(1);                  // { status: "used", record } | { status: "empty" } | { status: "damaged", reason, hint }
+//   if (p.status === "used") load(p.record.data);
+//   await slots.syncCloud();                  // when the slot screen opens, and again when the game starts
+//
+// The game decides WHEN it may save (a cut-scene or a loading screen may not) and what is in `data`; this file never looks inside it
+// except through `upgrade` (migrates an older save when it is read) and `describe` (chapter and play time of a bare save).
+import { storage, platform, render } from "factoria";
+
+/** Size of the picture kept with a slot (16:9, a few KB as PNG). */
+export const PIC = Object.freeze({ width: 192, height: 108 });
+
+/** "h:mm:ss" for a number of seconds. */
+export function formatTime(seconds) {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+}
+
+/**
+ * A picture of the game as the player sees it (render.captureTexture), as base64 PNG, or null when nothing real can be drawn (a
+ * headless run has no graphics). Take it before a menu covers the game.
+ * @param {{ width: number, height: number }} [size]
+ */
+export function capturePic(size = PIC) {
+  try {
+    const tex = render.captureTexture({ width: size.width, height: size.height });
+    const png = tex.placeholder ? null : tex.toPNG();
+    tex.destroy();
+    return png;
+  } catch (e) {
+    console.warn(`slots: no picture for the slot: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * @typedef {{ counter: number, name: string, chapter: number, playTime: number, pic: string | null, data: any }} SlotRecord
+ * @typedef {{ ok: true, data: any } | { ok: false, message: string, hint?: string }} Upgraded
+ */
+
+export class Slots {
+  /**
+   * @param {object} [options]
+   * @param {Array<number | string>} [options.ids] the manual slots, default 1 to 5. The slot screen's prefab has a row for each of 1..5 and "auto".
+   * @param {string | null} [options.auto] id of the autosave slot ("auto"); null = no autosave
+   * @param {string} [options.keyPrefix] storage (and cloud) key of slot N is `${keyPrefix}${N}`, "slot1"; the autosave is `${keyPrefix}_${auto}`
+   * @param {string} [options.counterKey] storage key of the highest counter handed out
+   * @param {string} [options.lastKey] storage key of the id of the slot saved last (for a "Continue" button)
+   * @param {(data: any) => Upgraded} [options.upgrade] migrates the data of a slot to the newest layout when it is read; a not-ok result makes the slot "damaged" with that message
+   * @param {(data: any) => { chapter?: number, playTime?: number }} [options.describe] chapter and play time of a bare save (a record's own fields win)
+   */
+  constructor(options = {}) {
+    this.SLOTS = Object.freeze([...(options.ids ?? [1, 2, 3, 4, 5])]);
+    this.AUTO = options.auto === undefined ? "auto" : options.auto;
+    /** Every slot the screen shows, the autosave first. */
+    this.ALL = Object.freeze(this.AUTO === null ? [...this.SLOTS] : [this.AUTO, ...this.SLOTS]);
+    this.keyPrefix = options.keyPrefix ?? "slot";
+    this.counterKey = options.counterKey ?? "saveCounter";
+    this.lastKey = options.lastKey ?? "lastSlot";
+    this.upgrade = options.upgrade ?? ((data) => ({ ok: true, data }));
+    this.describe = options.describe ?? (() => ({}));
+  }
+
+  /** The storage key (and cloud key) of a slot id. */
+  key(id) {
+    return id === this.AUTO ? `${this.keyPrefix}_${id}` : `${this.keyPrefix}${id}`;
+  }
+
+  /**
+   * Reads the text of a slot (or a cloud copy). `{ ok: true, record }` with the data in the newest layout, or `{ ok: false, reason, hint }`
+   * for text that is not JSON, not an object, or refused by `upgrade`. Never throws.
+   * @param {any} text
+   * @returns {{ ok: true, record: SlotRecord } | { ok: false, reason: string, hint: string }}
+   */
+  parse(text) {
+    let raw;
+    try {
+      raw = typeof text === "string" ? JSON.parse(text) : text;
+    } catch (e) {
+      return { ok: false, reason: `not valid JSON (${e.message})`, hint: "Delete the slot." };
+    }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, reason: "not a JSON object", hint: "Delete the slot." };
+    const bare = !Object.hasOwn(raw, "data");
+    let up;
+    try {
+      up = this.upgrade(bare ? raw : raw.data);
+    } catch (e) {
+      up = { ok: false, message: `the save could not be read (${e.message})` };
+    }
+    if (!up.ok) return { ok: false, reason: up.message, hint: up.hint ?? "Delete the slot." };
+    const info = this.describe(up.data) ?? {};
+    const number = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+    return {
+      ok: true,
+      record: {
+        counter: !bare && Number.isInteger(raw.counter) && raw.counter >= 0 ? raw.counter : 0,
+        name: !bare && typeof raw.name === "string" ? raw.name : "",
+        chapter: (bare ? undefined : number(raw.chapter)) || number(info.chapter) || 0,
+        playTime: (bare ? undefined : number(raw.playTime)) ?? number(info.playTime) ?? 0,
+        pic: !bare && typeof raw.pic === "string" && raw.pic !== "" ? raw.pic : null,
+        data: up.data,
+      },
+    };
+  }
+
+  /** What the slot screen shows: `{ status: "empty" | "used" | "damaged", reason?, hint?, record? }`. */
+  peek(id) {
+    const text = storage.get(this.key(id), null);
+    if (text === null) return { status: "empty" };
+    const r = this.parse(text);
+    if (!r.ok) return { status: "damaged", reason: r.reason, hint: r.hint };
+    return { status: "used", record: r.record };
+  }
+
+  /** The id of the slot that was saved last, if it still exists, else null. */
+  last() {
+    const id = storage.get(this.lastKey, null);
+    return id !== null && this.ALL.includes(id) && this.peek(id).status === "used" ? id : null;
+  }
+
+  nextCounter() {
+    let top = storage.get(this.counterKey, 0);
+    for (const id of this.ALL) {
+      const p = this.peek(id);
+      if (p.status === "used") top = Math.max(top, p.record.counter);
+    }
+    storage.set(this.counterKey, top + 1);
+    return top + 1;
+  }
+
+  /**
+   * Saves into slot `id`: the record gets the next counter, is written to storage and uploaded to the cloud when the player is signed in
+   * (a failed upload never matters: the local save stands). `name` is trimmed; empty stays empty (the screen shows "Unnamed").
+   * Returns the record.
+   * @param {number | string} id
+   * @param {{ data: any, name?: string, chapter?: number, playTime?: number, pic?: string | null }} save
+   * @returns {SlotRecord}
+   */
+  write(id, { data, name = "", chapter = 0, playTime = 0, pic = null }) {
+    const record = { counter: this.nextCounter(), name: String(name).trim(), chapter, playTime, pic, data };
+    const text = JSON.stringify(record);
+    storage.set(this.key(id), text);
+    storage.set(this.lastKey, id);
+    this.upload(id, text);
+    return record;
+  }
+
+  /** Empties slot `id` here and in the cloud (otherwise the next sync would bring it back). */
+  remove(id) {
+    storage.remove(this.key(id));
+    if (storage.get(this.lastKey, null) === id) storage.remove(this.lastKey);
+    if (platform.has("cloudSave")) platform.cloud.remove(this.key(id)).catch(() => {}); // a failed delete can come back at the next sync
+  }
+
+  upload(id, text) {
+    if (platform.has("cloudSave")) platform.cloud.save(this.key(id), text).catch(() => {}); // the local save stands whatever the store says
+  }
+
+  /**
+   * Compares every slot with its cloud copy: the one with the higher counter wins (a cloud copy replaces the local slot, a better
+   * local one is uploaded). A store that is down or a player who is not signed in changes nothing. Resolves with true when a local
+   * slot was replaced. The caller checks that its scene is still the current one before it draws the result.
+   */
+  async syncCloud() {
+    if (!platform.has("cloudSave")) return false;
+    let replaced = false;
+    for (const id of this.ALL) {
+      try {
+        const cloud = await platform.cloud.load(this.key(id));
+        const local = this.peek(id);
+        const remote = cloud === undefined || cloud === null ? null : this.parse(cloud);
+        if (remote?.ok && (local.status !== "used" || remote.record.counter > local.record.counter)) {
+          storage.set(this.key(id), JSON.stringify(remote.record));
+          replaced = true;
+        } else if (local.status === "used" && (!remote?.ok || local.record.counter > remote.record.counter)) {
+          this.upload(id, storage.get(this.key(id)));
+        }
+      } catch {
+        return replaced; // offline or signed out: keep what is here
+      }
+    }
+    return replaced;
+  }
+}
+```
+
+### `scripts/ui/slot_screen.js`
+
+The screen: the host (pause menu, title screen) builds one `SlotScreen` with its `MenuStack` and opens it in `"save"` or `"load"` mode.
+
+```js scripts/ui/slot_screen.js
+// @ts-check
+// The save / load screen (prefabs/ui/slots.prefab.json) and the small dialog that names a save or asks before a delete
+// (prefabs/ui/slot_dialog.prefab.json). Not a behaviour: the pause menu (save and load) and the title screen (load) each build one
+// with their MenuStack and call tick() every frame.
+//
+//   const slots = new Slots();                                 // scripts/slots.js: the records
+//   const screen = new SlotScreen(menus, {
+//     slots,
+//     launch: (data) => startGameFrom(data),                    // load: put the game back from a slot's data -> { ok, message?, hint? }
+//     snapshot: () => ({ data: mySave(), chapter: 3, playTime: 3725.5 }),   // save: what goes into the slot
+//     cannotSave: () => (cutscene ? "slots.busy" : ""),         // a string-table key saying why saving is not possible now, or ""
+//     defaultName: () => i18n.t("level.title"),                 // the name of a save the player left unnamed
+//     getPic: () => this.pic,                                   // the picture to keep with a save (capturePic() taken before the menu opened) or null
+//   });
+//   screen.open("save");  // or "load"
+//
+// Six rows: the autosave (never a save target) and the five slots, each with its picture, name, chapter and play time. Mouse, touch and
+// gamepad all use the same Buttons. Saving a slot opens the dialog with a TextField for the name (the on-screen keyboard of
+// scripts/ui/keyboard.js opens by itself for a gamepad player, and its entity is spawned here); Enter or Done saves, Cancel / Escape / B
+// goes back. The host's ui.on("cancel") handler returns screen.cancel() first, which closes the dialog and consumes the press (ui_cancel).
+// The cloud copies are compared when the screen opens (slots.syncCloud) and the rows are drawn again if one replaced a slot.
+import { ui, i18n, world, scene, render } from "factoria";
+import { MenuStack } from "./menu_stack.js";
+import OnScreenKeyboard from "./keyboard.js";
+import { formatTime } from "../slots.js";
+
+export class SlotScreen {
+  /**
+   * @param {MenuStack} menus the host's panel stack
+   * @param {object} opts
+   * @param {import("../slots.js").Slots} opts.slots the records
+   * @param {(data: any) => { ok: boolean, message?: string, hint?: string }} [opts.launch] load mode: starts playing from a slot's data; not ok = it shows `message` and `hint` on the screen. Without it the screen only saves.
+   * @param {() => { data: any, chapter?: number, playTime?: number }} [opts.snapshot] save mode: what goes into the slot (the screen adds the name and the picture). Without it (and without `save`) the screen only loads.
+   * @param {(id: number | string, save: { name: string, pic: string | null }) => (import("../slots.js").SlotRecord | null)} [opts.save] save mode, instead of `snapshot`: writes the slot yourself (slots.write) and returns the record, or null when the game cannot be saved now
+   * @param {() => string} [opts.cannotSave] a string-table key that says why saving is not possible now ("" = it is); the save rows are greyed out and the key is the note under the title
+   * @param {() => string} [opts.defaultName] the name offered for a new save (and used when the player clears the field)
+   * @param {() => (string | null)} [opts.getPic] the picture to keep with a save (base64 PNG) or null
+   */
+  constructor(menus, opts) {
+    this.menus = menus;
+    this.slots = opts.slots;
+    this.launch = opts.launch ?? null;
+    this.snapshot = opts.snapshot ?? null;
+    this.saveSlot = opts.save ?? null;
+    this.cannotSave = opts.cannotSave ?? (() => (this.saveSlot || this.snapshot ? "" : "slots.noSave"));
+    this.defaultName = opts.defaultName ?? (() => "");
+    this.getPic = opts.getPic ?? (() => null);
+    /** "save" | "load" */
+    this.mode = "load";
+    /** The line under the title: a result ("Saved to slot 2."), else why saving is not possible, else nothing. */
+    this.message = "";
+    /** @type {{ kind: "name" | "delete", id: any } | null} */
+    this.dialog = null;
+    /** Runtime textures of the pictures shown, freed before they are drawn again. */
+    this.pics = [];
+    this.kbWasOpen = false;
+    for (const id of ["slots", "slot_dialog"]) {
+      const panel = world.spawnPrefab(`prefabs/ui/${id}.prefab.json`);
+      panel.id = id; // MenuStack shows panels by id
+      panel.active = false;
+    }
+    // The on-screen keyboard for a gamepad player who names a save (it opens by itself on a TextField).
+    world.spawn({ id: "keyboard_host", components: { Script: { path: "scripts/ui/keyboard.js" } } });
+    for (const id of this.slots.ALL) {
+      ui.on("click", `slot_${id}`, () => this.pick(id));
+      ui.on("click", `delete_${id}`, () => this.openDialog("delete", id));
+    }
+    ui.on("click", "dialog_confirm", () => this.confirm());
+    ui.on("click", "dialog_cancel", () => this.closeDialog());
+    ui.on("submit", "save_name", () => this.confirm());
+    i18n.on("change", () => this.menus.top === "slots" && this.refresh());
+  }
+
+  /** Call every frame: remembers whether the on-screen keyboard was open before this frame's presses. */
+  tick() {
+    this.kbWasOpen = OnScreenKeyboard.isOpen;
+  }
+
+  /**
+   * The host calls this for Escape / the pad's B: while the dialog is on top it closes it (but not when the on-screen keyboard was open
+   * at the start of the frame: that press only closes the keyboard) and returns true, so the host does not also go back.
+   */
+  cancel() {
+    if (!this.dialogOpen) return false;
+    if (!this.kbWasOpen) this.closeDialog();
+    return true;
+  }
+
+  /** True while the dialog is the panel on top. */
+  get dialogOpen() {
+    return this.menus.top === "slot_dialog";
+  }
+
+  /** Shows the screen in mode "save" or "load". */
+  open(mode) {
+    this.mode = mode;
+    this.message = "";
+    this.menus.show("slots");
+    this.refresh();
+    this.focusFirst();
+    const generation = scene.generation; // a reload of the same scene counts too
+    this.slots
+      .syncCloud()
+      .then((changed) => {
+        if (changed && scene.generation === generation && this.menus.top === "slots") this.refresh(); // the scene may be gone by now
+      })
+      .catch(() => {});
+  }
+
+  focusFirst() {
+    let first = "slots_back";
+    if (this.mode === "save") {
+      if (!this.cannotSave()) first = "slot_1";
+    } else {
+      const id = this.slots.ALL.find((i) => this.slots.peek(i).status === "used");
+      if (id !== undefined) first = `slot_${id}`;
+    }
+    ui.focus(world.find(first));
+  }
+
+  /** Frees the runtime textures (the host calls it when the scene goes). */
+  dispose() {
+    for (const id of this.slots.ALL) {
+      const row = world.find(`pic_${id}`);
+      if (row) row.get("Panel").texture = "";
+    }
+    for (const tex of this.pics) tex.destroy();
+    this.pics = [];
+  }
+
+  /** Writes the rows from the slots. */
+  refresh() {
+    this.dispose();
+    const reason = this.mode === "save" ? this.cannotSave() : "";
+    let damaged = false;
+    for (const id of this.slots.ALL) {
+      const p = this.slots.peek(id);
+      const auto = id === this.slots.AUTO;
+      const button = world.find(`slot_${id}`).get("Button");
+      if (p.status === "used") {
+        const r = p.record;
+        button.text = i18n.t(auto ? "slots.usedAuto" : "slots.used", {
+          n: id,
+          name: r.name || i18n.t("slots.unnamed"),
+          chapter: r.chapter,
+          time: formatTime(r.playTime),
+        });
+      } else if (p.status === "damaged") {
+        button.text = i18n.t(auto ? "slots.damagedAuto" : "slots.damaged", { n: id });
+        damaged = true;
+      } else {
+        button.text = i18n.t(auto ? "slots.emptyAuto" : "slots.empty", { n: id });
+      }
+      button.interactable = this.mode === "save" ? !auto && !reason : p.status === "used";
+      world.find(`delete_${id}`).get("Button").interactable = p.status !== "empty";
+      const pic = world.find(`pic_${id}`).get("Panel");
+      if (p.status === "used" && p.record.pic) {
+        try {
+          const tex = render.textureFromPNG(p.record.pic);
+          this.pics.push(tex);
+          pic.texture = tex.id;
+          pic.color = [1, 1, 1, 1];
+        } catch (e) {
+          console.warn(`slots: the picture of slot ${id} is not an image: ${e.message}`);
+          pic.color = [0.08, 0.09, 0.12, 1];
+        }
+      } else pic.color = [0.08, 0.09, 0.12, 1];
+    }
+    world.find("slots_title").get("Text").text = i18n.t(this.mode === "save" ? "slots.titleSave" : "slots.titleLoad");
+    const note = this.message || (reason ? i18n.t(reason) : damaged ? i18n.t("slots.damagedNote") : "");
+    world.find("slots_note").get("Text").text = note;
+  }
+
+  pick(id) {
+    const p = this.slots.peek(id);
+    if (this.mode === "load") {
+      if (p.status !== "used") return;
+      this.dispose();
+      const r = this.launch ? this.launch(p.record.data) : { ok: false, message: "this screen has no launch()", hint: "pass launch to the SlotScreen" };
+      if (!r.ok) {
+        this.message = `${r.message}. ${r.hint ?? ""}`;
+        this.refresh();
+      }
+      return;
+    }
+    if (id === this.slots.AUTO || this.cannotSave()) return;
+    this.openDialog("name", id);
+  }
+
+  /** Writes slot `id`; null when the game cannot be saved now. */
+  write(id, typed) {
+    if (this.cannotSave()) return null;
+    const name = typed.trim() || this.defaultName();
+    const pic = this.getPic();
+    if (this.saveSlot) return this.saveSlot(id, { name, pic });
+    if (!this.snapshot) return null;
+    return this.slots.write(id, { ...this.snapshot(), name, pic });
+  }
+
+  openDialog(kind, id) {
+    this.dialog = { kind, id };
+    const name = world.find("save_name");
+    const field = name.get("TextField");
+    if (kind === "name") {
+      const p = this.slots.peek(id);
+      field.text = p.status === "used" ? p.record.name : this.defaultName();
+      world.find("dialog_title").get("Text").text = i18n.t("slots.nameTitle", { n: id });
+      world.find("dialog_confirm").get("Button").text = i18n.t("slots.confirmSave");
+    } else {
+      world.find("dialog_title").get("Text").text = i18n.t("slots.deleteTitle", { n: id === this.slots.AUTO ? i18n.t("slots.autoName") : id });
+      world.find("dialog_confirm").get("Button").text = i18n.t("slots.confirmDelete");
+    }
+    this.menus.show("slot_dialog");
+    name.active = kind === "name";
+    ui.focus(world.find(kind === "name" ? "save_name" : "dialog_cancel"));
+  }
+
+  closeDialog() {
+    this.dialog = null;
+    this.menus.back(); // gives the focus back to the button that opened the dialog
+    this.refresh();
+  }
+
+  confirm() {
+    const d = this.dialog;
+    if (!d || this.menus.top !== "slot_dialog") return;
+    if (d.kind === "name") {
+      const record = this.write(d.id, world.find("save_name").get("TextField").text);
+      this.message = record ? i18n.t("slots.saved", { n: d.id }) : i18n.t(this.cannotSave() || "slots.busy");
+    } else {
+      this.slots.remove(d.id);
+      this.message = "";
+    }
+    this.closeDialog();
+    if (d.kind === "name") ui.focus(world.find(`slot_${d.id}`));
+    else this.focusFirst();
+  }
+}
+```
+
+### `prefabs/ui/slots.prefab.json`
+
+The panel: a row per slot (picture, name, chapter and play time, a Delete button) and a Back button.
+
+```json prefabs/ui/slots.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Slots",
+    "components": {
+      "Panel": {
+        "size": [980, 640],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 10,
+        "padding": [20, 16, 20, 16],
+        "color": [0.06, 0.07, 0.1, 0.97]
+      }
+    },
+    "children": [
+      {
+        "id": "slots_title",
+        "components": {
+          "Text": {
+            "text": "Save game",
+            "fontSize": 36,
+            "space": "screen",
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "slots_note",
+        "components": {
+          "Text": {
+            "text": "",
+            "fontSize": 20,
+            "space": "screen",
+            "layer": 301,
+            "maxWidth": 900
+          }
+        }
+      },
+      {
+        "id": "slots_list",
+        "components": {
+          "ScrollList": {
+            "size": [940, 420],
+            "layer": 301,
+            "spacing": 8,
+            "padding": [6, 6, 6, 6],
+            "color": [0, 0, 0, 0.25]
+          }
+        },
+        "children": [
+          {
+            "id": "row_auto",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_auto",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_auto",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_auto",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_1",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_1",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_1",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_1",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_2",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_2",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_2",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_2",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_3",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_3",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_3",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_3",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_4",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_4",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_4",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_4",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "row_5",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "spacing": 10,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "pic_5",
+                "components": {
+                  "Panel": {
+                    "size": [128, 72],
+                    "layer": 303,
+                    "color": [0.08, 0.09, 0.12, 1]
+                  }
+                }
+              },
+              {
+                "id": "slot_5",
+                "components": {
+                  "Button": {
+                    "text": "Empty",
+                    "size": [560, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 10
+                  }
+                }
+              },
+              {
+                "id": "delete_5",
+                "components": {
+                  "Button": {
+                    "text": "Delete",
+                    "key": "slots.delete",
+                    "size": [150, 72],
+                    "layer": 303,
+                    "fontSize": 22,
+                    "autoShrink": true,
+                    "minFontSize": 14
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "slots_back",
+        "tags": ["back"],
+        "components": {
+          "Button": {
+            "text": "Back",
+            "key": "menu.back",
+            "autoSize": true,
+            "layer": 302
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+### `prefabs/ui/slot_dialog.prefab.json`
+
+The dialog that names a save or confirms a delete.
+
+```json prefabs/ui/slot_dialog.prefab.json
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "SlotDialog",
+    "components": {
+      "Panel": {
+        "anchor": [0.5, 0.5],
+        "layer": 310,
+        "layout": "column",
+        "spacing": 14,
+        "padding": [28, 24, 28, 24],
+        "fit": true,
+        "minSize": [560, 0],
+        "color": [0.06, 0.07, 0.1, 0.97]
+      }
+    },
+    "children": [
+      {
+        "id": "dialog_title",
+        "components": {
+          "Text": {
+            "text": "Name this save",
+            "fontSize": 30,
+            "space": "screen",
+            "layer": 311,
+            "maxWidth": 520
+          }
+        }
+      },
+      {
+        "id": "save_name",
+        "components": {
+          "TextField": {
+            "size": [500, 52],
+            "layer": 311,
+            "maxLength": 28,
+            "placeholder": "Name this save",
+            "key": "slots.namePlaceholder"
+          }
+        }
+      },
+      {
+        "id": "dialog_buttons",
+        "components": {
+          "Panel": {
+            "layer": 311,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 12,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "dialog_confirm",
+            "components": {
+              "Button": {
+                "text": "Save",
+                "key": "slots.confirmSave",
+                "autoSize": true,
+                "layer": 312
+              }
+            }
+          },
+          {
+            "id": "dialog_cancel",
+            "components": {
+              "Button": {
+                "text": "Cancel",
+                "key": "slots.cancel",
+                "autoSize": true,
+                "layer": 312
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### `tests/slots.test.js`
+
+The kit's test of the slots part: records, the cloud merge, the screen's save, load and delete, a Korean name typed with the pad, and a cloud answer that arrives after the scene is gone.
+
+```js tests/slots.test.js
+// The save slots (scripts/slots.js) and their screen (scripts/ui/slot_screen.js): the record, the counter, a bare save, a damaged
+// slot, the cloud merge by counter, the screen's save dialog (a name typed, the default name, cancel), loading, deleting (the cloud
+// copy too) and a game that cannot be saved right now. The scene is built here, so this test passes in any game that has the slots part.
+import { test, expect, game } from "factoria:test";
+import { world, ui, storage, platform, scene, i18n } from "factoria";
+import { MenuStack } from "../scripts/ui/menu_stack.js";
+import { Slots, formatTime } from "../scripts/slots.js";
+import { SlotScreen } from "../scripts/ui/slot_screen.js";
+import { keysFor, hangulIme, IME, imeFor } from "../scripts/ui/keyboard.js";
+
+// A 1x1 PNG: a picture that is certainly valid, whatever a headless renderer captures.
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+const label = (id) => world.find(id).get("Button").text;
+
+/** The slots of this test's imaginary game: its save is { level, gold } and a save with "old" in it is from a game version nobody can read. */
+function makeSlots() {
+  return new Slots({
+    upgrade: (data) => (data.old ? { ok: false, message: "this save is from an older version", hint: "Delete the slot." } : { ok: true, data }),
+    describe: (data) => ({ chapter: data.level, playTime: data.seconds }),
+  });
+}
+
+/** Lets the store's answers through (they are Promises). */
+async function settle() {
+  for (let frame = 0; frame < 12; frame++) {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    game.step(1);
+  }
+}
+
+/** A clean run: empty storage, a signed-in fake store, an empty scene. */
+function clean() {
+  storage.clear();
+  game.platform.reset();
+  game.loadJson({ format: "factoria.scene/1", entities: [] });
+  game.step(2);
+}
+
+/** The screen over a menu stack of its own, for a game that can always be saved except when `state.busy`. */
+function openScreen(mode, state = { busy: false, level: 3, loaded: [] }, seed = () => {}) {
+  clean();
+  const slots = makeSlots();
+  seed(slots);
+  const menus = new MenuStack(null);
+  const screen = new SlotScreen(menus, {
+    slots,
+    snapshot: () => ({ data: { level: state.level, gold: 40, seconds: 3725.5 }, chapter: state.level, playTime: 3725.5 }),
+    launch: (data) => {
+      state.loaded.push(data);
+      return { ok: true };
+    },
+    cannotSave: () => (state.busy ? "slots.busy" : ""),
+    defaultName: () => `Level ${state.level}`,
+    getPic: () => PNG,
+  });
+  screen.open(mode);
+  game.step(2);
+  return { slots, menus, screen, state };
+}
+
+test("a record: counter, name, chapter, play time, picture and data; the counter goes up by one on every save", () => {
+  clean();
+  const slots = makeSlots();
+  expect(slots.ALL).toEqual(["auto", 1, 2, 3, 4, 5]);
+  expect(slots.key(2)).toBe("slot2");
+  expect(slots.key("auto")).toBe("slot_auto");
+  expect(slots.peek(1).status).toBe("empty");
+  const a = slots.write(1, { data: { level: 2, gold: 5, seconds: 70 }, name: "  Before the cellar  ", chapter: 2, playTime: 70, pic: PNG });
+  const b = slots.write(2, { data: { level: 3, gold: 9, seconds: 80 }, chapter: 3, playTime: 80 });
+  expect([a.counter, b.counter]).toEqual([1, 2]);
+  const p = slots.peek(1);
+  expect(p.status).toBe("used");
+  expect(p.record).toEqual({ counter: 1, name: "Before the cellar", chapter: 2, playTime: 70, pic: PNG, data: { level: 2, gold: 5, seconds: 70 } });
+  expect(slots.peek(2).record.pic).toBe(null);
+  expect(slots.last()).toBe(2);
+  slots.remove(2);
+  expect(slots.peek(2).status).toBe("empty");
+  expect(slots.last()).toBe(null);
+  expect(slots.write(3, { data: { level: 1 } }).counter).toBe(3); // a removed slot's counter is not given again
+  expect(formatTime(3725.5)).toBe("1:02:05");
+  expect(formatTime(-4)).toBe("0:00:00");
+});
+
+test("a bare save is read as a record without a name; text that is not a save damages the slot with a reason", () => {
+  clean();
+  const slots = makeSlots();
+  storage.set("slot1", JSON.stringify({ level: 4, gold: 1, seconds: 125 })); // no "data" field: the game's save as it is
+  const bare = slots.peek(1);
+  expect(bare.status).toBe("used");
+  expect(bare.record).toEqual({ counter: 0, name: "", chapter: 4, playTime: 125, pic: null, data: { level: 4, gold: 1, seconds: 125 } });
+  storage.set("slot2", "{ not json");
+  storage.set("slot3", "[1, 2]");
+  storage.set("slot4", JSON.stringify({ counter: 3, name: "x", data: { old: true } }));
+  for (const id of [2, 3, 4]) {
+    const p = slots.peek(id);
+    expect(p.status).toBe("damaged");
+    expect(p.reason.length).toBeGreaterThan(0);
+    expect(p.hint).toBeTruthy();
+  }
+  expect(slots.peek(4).reason).toBe("this save is from an older version");
+  expect(slots.parse("{ not json").ok).toBe(false);
+  expect(slots.nextCounter()).toBe(1); // counters of readable slots only: the damaged slot 4 (counter 3) does not count
+});
+
+test("the cloud: a save is uploaded, a delete removes the copy, the higher counter wins, failures never lose the local save", async () => {
+  clean();
+  const slots = makeSlots();
+  slots.write(2, { data: { level: 1 }, name: "Cloudy" });
+  await settle();
+  expect(Object.keys(game.platform.state().fake.cloud)).toContain("slot2");
+  expect(JSON.parse(await platform.cloud.load("slot2")).name).toBe("Cloudy");
+  slots.remove(2);
+  await settle();
+  expect(Object.keys(game.platform.state().fake.cloud)).not.toContain("slot2");
+  expect(await slots.syncCloud()).toBe(false);
+  expect(slots.peek(2).status).toBe("empty");
+
+  const rec = (counter, name) => JSON.stringify({ counter, name, chapter: 1, playTime: 10, pic: null, data: { level: 1 } });
+  storage.set("slot1", rec(2, "local old"));
+  storage.set("slot2", rec(9, "local new"));
+  storage.set("slot3", "{ damaged");
+  await platform.cloud.save("slot1", rec(4, "cloud new"));
+  await platform.cloud.save("slot2", rec(3, "cloud old"));
+  await platform.cloud.save("slot3", rec(1, "cloud only"));
+  expect(await slots.syncCloud()).toBe(true);
+  expect(slots.peek(1).record.name).toBe("cloud new");
+  expect(slots.peek(2).record.name).toBe("local new");
+  expect(JSON.parse(await platform.cloud.load("slot2")).counter).toBe(9); // the better local one went up
+  expect(slots.peek(3).record.name).toBe("cloud only");
+
+  game.platform.respond("cloud.save", { error: "network" });
+  expect(slots.write(1, { data: { level: 1 }, name: "Offline" })).toBeTruthy();
+  await settle();
+  expect(slots.peek(1).record.name).toBe("Offline");
+  game.platform.set({ backend: "none" }); // no store: nothing to do
+  expect(await slots.syncCloud()).toBe(false);
+  expect(slots.write(2, { data: { level: 1 }, name: "No store" })).toBeTruthy();
+  game.platform.reset();
+});
+
+test("the screen saves: a click on a slot asks for a name; typing one and Save writes it with the picture", () => {
+  const { slots, menus } = openScreen("save");
+  expect(world.find("slots").active).toBe(true);
+  expect(world.find("slots_title").get("Text").text).toBe("Save game");
+  expect(world.find("slot_auto").get("Button").interactable).toBe(false); // the autosave is never a target
+  expect(label("slot_1")).toBe("Slot 1: empty");
+  expect(ui.focused.id).toBe("slot_1");
+  game.click(world.find("slot_1"));
+  game.step(2);
+  expect(menus.top).toBe("slot_dialog");
+  const field = world.find("save_name").get("TextField");
+  expect(field.text).toBe("Level 3"); // the default name
+  field.text = "";
+  game.typeText("Pale oil");
+  game.step(2);
+  game.click(world.find("dialog_confirm"));
+  game.step(2);
+  const r = slots.peek(1).record;
+  expect([r.name, r.chapter, r.playTime, r.pic]).toEqual(["Pale oil", 3, 3725.5, PNG]);
+  expect(r.data).toEqual({ level: 3, gold: 40, seconds: 3725.5 });
+  expect(menus.top).toBe("slots");
+  expect(label("slot_1")).toBe("Slot 1: Pale oil\nChapter 3, 1:02:05");
+  expect(world.find("slots_note").get("Text").text).toBe("Saved to slot 1.");
+  expect(world.find("pic_1").get("Panel").texture).not.toBe("");
+  expect(world.find("pic_2").get("Panel").texture).toBe("");
+});
+
+test("an empty name saves under the default one; cancel writes nothing and Escape closes the dialog before the screen", () => {
+  const { slots, menus, screen } = openScreen("save");
+  game.click(world.find("slot_2"));
+  game.step(2);
+  world.find("save_name").get("TextField").text = "   ";
+  game.click(world.find("dialog_confirm"));
+  game.step(2);
+  expect(slots.peek(2).record.name).toBe("Level 3");
+  game.click(world.find("slot_3"));
+  game.step(2);
+  expect(screen.dialogOpen).toBe(true);
+  expect(screen.cancel()).toBe(true); // what the host's ui.on("cancel") handler asks first
+  game.step(1);
+  expect(menus.top).toBe("slots");
+  expect(slots.peek(3).status).toBe("empty");
+  expect(screen.cancel()).toBe(false); // nothing to close: the host goes back itself
+});
+
+test("the screen loads: only used slots can be picked, and the slot's data reaches launch()", () => {
+  const state = { busy: false, level: 3, loaded: [] };
+  clean();
+  const first = makeSlots();
+  first.write(4, { data: { level: 2, gold: 7, seconds: 9 }, name: "Night 4", chapter: 2, playTime: 9 });
+  storage.set("slot5", "{ damaged");
+  const menus = new MenuStack(null);
+  const screen = new SlotScreen(menus, { slots: makeSlots(), launch: (data) => (state.loaded.push(data), { ok: true }) });
+  screen.open("load");
+  game.step(2);
+  expect(world.find("slots_title").get("Text").text).toBe("Load game");
+  expect(ui.focused.id).toBe("slot_4"); // the first used slot
+  expect(world.find("slot_1").get("Button").interactable).toBe(false);
+  expect(label("slot_5")).toContain("damaged");
+  expect(world.find("slots_note").get("Text").text).toContain("cannot be read");
+  game.click(world.find("slot_1"));
+  game.step(1);
+  expect(state.loaded.length).toBe(0);
+  game.click(world.find("slot_4"));
+  game.step(1);
+  expect(state.loaded).toEqual([{ level: 2, gold: 7, seconds: 9 }]);
+  screen.dispose();
+});
+
+test("a load that fails says why on the screen", () => {
+  clean();
+  const slots = makeSlots();
+  slots.write(1, { data: { level: 1 }, name: "Broken" });
+  const screen = new SlotScreen(new MenuStack(null), { slots, launch: () => ({ ok: false, message: "the level is gone", hint: "Start again." }) });
+  screen.open("load");
+  game.step(2);
+  game.click(world.find("slot_1"));
+  game.step(1);
+  expect(world.find("slots_note").get("Text").text).toBe("the level is gone. Start again.");
+});
+
+test("a delete asks first and removes the slot and its cloud copy", async () => {
+  const { slots } = openScreen("load", undefined, (slots) => slots.write(3, { data: { level: 1 }, name: "Under the stairs" }));
+  await settle();
+  expect(Object.keys(game.platform.state().fake.cloud)).toContain("slot3");
+  expect(label("slot_3")).toContain("Under the stairs");
+  game.click(world.find("delete_3"));
+  game.step(2);
+  expect(world.find("slot_dialog").active).toBe(true);
+  expect(world.find("save_name").active).toBe(false); // a delete asks, it does not name
+  game.click(world.find("dialog_confirm"));
+  game.step(2);
+  await settle();
+  expect(slots.peek(3).status).toBe("empty");
+  expect(label("slot_3")).toBe("Slot 3: empty");
+  expect(Object.keys(game.platform.state().fake.cloud)).not.toContain("slot3");
+});
+
+test("a game that cannot be saved right now greys the slots out and says why", () => {
+  const { slots, menus } = openScreen("save", { busy: true, level: 1, loaded: [] });
+  expect(world.find("slot_1").get("Button").interactable).toBe(false);
+  expect(world.find("slots_note").get("Text").text).toBe("You cannot save right now.");
+  game.click(world.find("slot_1"));
+  game.step(1);
+  expect(menus.top).toBe("slots"); // no dialog
+  expect(slots.peek(1).status).toBe("empty");
+});
+
+/** A screen opened while the cloud holds a better copy of slot 4; counts how often it draws its rows. */
+async function openWithCloudCopy() {
+  clean();
+  const slots = makeSlots();
+  await platform.cloud.save("slot4", JSON.stringify({ counter: 5, name: "From the cloud", chapter: 1, playTime: 1, pic: null, data: { level: 1 } }));
+  const screen = new SlotScreen(new MenuStack(null), { slots });
+  const counter = { draws: 0 };
+  const draw = screen.refresh.bind(screen);
+  screen.refresh = () => (counter.draws++, draw());
+  screen.open("load"); // draws the rows once; the store's answer comes later, not before this test lets a frame or a Promise through
+  return { slots, counter };
+}
+
+test("the cloud answer redraws the screen while its scene is current", async () => {
+  const { counter } = await openWithCloudCopy();
+  const before = counter.draws;
+  await settle();
+  expect(counter.draws).toBeGreaterThan(before);
+  expect(label("slot_4")).toContain("From the cloud");
+});
+
+test("the cloud answer draws nothing into a scene that replaced the screen's", async () => {
+  const { slots, counter } = await openWithCloudCopy();
+  const before = counter.draws;
+  const generation = scene.generation;
+  game.loadJson({ format: "factoria.scene/1", entities: [] });
+  game.step(2);
+  expect(scene.generation).not.toBe(generation);
+  await settle();
+  expect(counter.draws).toBe(before);
+  expect(slots.peek(4).record.name).toBe("From the cloud"); // the sync still stored the copy
+});
+
+test("Hangul: jamo make syllables, a final consonant moves to the next syllable, Delete takes the last jamo away", () => {
+  const type = (...keys) => keys.reduce((text, ch) => hangulIme.compose(text, ch), "");
+  expect(type("ㅎ", "ㅏ", "ㄴ", "ㄱ", "ㅡ", "ㄹ")).toBe("한글");
+  expect(type("ㄱ", "ㅏ", "ㄱ", "ㅏ")).toBe("가가"); // 각 + ㅏ
+  expect(type("ㄷ", "ㅏ", "ㄹ", "ㄱ", "ㅏ")).toBe("달가"); // 닭 + ㅏ: the second part of a compound final moves
+  expect(type("ㅇ", "ㅗ", "ㅏ")).toBe("와"); // ㅗ + ㅏ = ㅘ
+  expect(type("ㄱ", "ㅏ", "ㅃ")).toBe("가ㅃ"); // ㅃ cannot end a syllable
+  expect(type("ㄱ", "ㅏ", "1", "ㄴ")).toBe("가1ㄴ"); // a digit ends the composition
+  expect(type("ㅏ", "ㅏ")).toBe("ㅏㅏ");
+  let text = "읽";
+  const steps = [];
+  for (let i = 0; i < 4; i++) steps.push((text = hangulIme.decompose(text)));
+  expect(steps).toEqual(["일", "이", "ㅇ", ""]);
+  expect(hangulIme.decompose("과")).toBe("고");
+  expect(hangulIme.decompose("한글 ")).toBe("한글");
+  expect(imeFor("ko-KR")).toBe(IME.ko);
+  expect(imeFor("en").compose("a", "b")).toBe("ab");
+  expect(keysFor("ko")).toContain("ㅎ");
+  expect(keysFor("ko")).not.toContain("a");
+});
+
+test("the save dialog takes a Korean name from the pad: jamo become syllables, Delete takes one jamo away, Done saves", () => {
+  const pad = game.gamepad(0);
+  const { slots, menus } = openScreen("save");
+  // The keyboard follows i18n.language; this test has no Korean table, so the language is answered by hand.
+  const own = Object.getOwnPropertyDescriptor(i18n, "language");
+  Object.defineProperty(i18n, "language", { get: () => "ko", configurable: true });
+  try {
+    pad.tap("A"); // on slot 1: the dialog opens, its name field takes the focus, and the keyboard opens for a pad player
+    game.step(2);
+    expect(menus.top).toBe("slot_dialog");
+    const field = world.find("save_name").get("TextField");
+    field.text = "";
+    expect(world.find("keyboard").activeInHierarchy).toBe(true);
+    const chars = keysFor("ko");
+    const typeKey = (ch) => {
+      const target = chars.indexOf(ch);
+      const at = Number(ui.focused.id.slice("osk_key_".length));
+      for (let i = 0; i < Math.abs((target % 10) - (at % 10)); i++) pad.tap(target % 10 > at % 10 ? "DpadRight" : "DpadLeft");
+      for (let i = 0; i < Math.abs(Math.floor(target / 10) - Math.floor(at / 10)); i++) pad.tap(Math.floor(target / 10) > Math.floor(at / 10) ? "DpadDown" : "DpadUp");
+      expect(ui.focused.get("Button").text).toBe(ch);
+      pad.tap("A");
+    };
+    for (const ch of ["ㅎ", "ㅏ", "ㄴ", "ㄱ", "ㅡ", "ㄹ"]) typeKey(ch);
+    expect(field.text).toBe("한글");
+    expect(world.find("keyboard_preview").get("Text").text).toBe("한글_");
+    for (let i = 0; i < 8 && ui.focused.id.startsWith("osk_key_"); i++) pad.tap("DpadDown");
+    while (ui.focused.id !== "osk_delete") pad.tap("DpadRight");
+    pad.tap("A"); // 글 -> 그
+    expect(field.text).toBe("한그");
+    while (ui.focused.id !== "osk_done") pad.tap("DpadRight");
+    pad.tap("A");
+    game.step(3);
+    expect(slots.peek(1).record.name).toBe("한그");
+    expect(menus.top).toBe("slots");
+  } finally {
+    if (own) Object.defineProperty(i18n, "language", own);
+    else delete i18n.language;
+  }
 });
 ```
 

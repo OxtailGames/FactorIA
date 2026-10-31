@@ -12,8 +12,8 @@
 //   - A daily try is never written to a slot (`run.slot` is null) and there is no Continue for it.
 //   - `run.mode` is "daily" and `run.dailyKey` is the date; for every other run they are "normal" and null. P5 posts the daily
 //     board from these two fields.
-//   - The date is the one `game.today()` gives, which is the player's LOCAL calendar date (the engine gives no clock time, so the
-//     UTC date cannot be worked out: ENGINE_FEEDBACK). Players in other time zones therefore roll over at their own midnight.
+//   - The date is the UTC date `game.today().utc.iso`, so every player of the world meets the same mine and the same board at the
+//     same moment, and the daily dig rolls over at 00:00 UTC for everybody.
 import { game, storage } from "factoria";
 import { run, startRun, depthOf } from "./run_state.js";
 
@@ -21,7 +21,7 @@ const KEY = "burrow.daily";
 
 /** The date a daily dig started now belongs to: "YYYY-MM-DD". */
 export function todayKey() {
-  return game.today().iso;
+  return game.today().utc.iso;
 }
 
 /** True for a "YYYY-MM-DD" text. */

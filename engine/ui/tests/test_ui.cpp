@@ -12,79 +12,11 @@
 
 using namespace fa;
 
+#include "ui_fixture.h"
+
 namespace {
-
-// A world with the default ui_* actions, a UiSystem and helpers to build widgets and press things. The design size is
-// 320 x 180; widgets use pivot [0, 1] so their position is their top-left corner.
-struct Ui {
-    World w;
-    Input in;
-    UiSystem ui;
-    Vec2 design{320, 180};
-    float dt = 1.0f / 64.0f;  // exactly representable: repeat timings do not depend on rounding
-
-    Ui() {
-        ensure_builtin_components();
-        in.set_actions(ui_with_default_actions(Json::object()));
-    }
-
-    template <class T>
-    Entity add(const char* id, Vec2 pos, Vec2 size, Entity parent = kNullEntity) {
-        Entity e = w.create(id, id);
-        if (parent) w.set_parent(e, parent);
-        w.get<Transform>(e)->position = {pos.x, pos.y, 0};
-        T& c = w.add<T>(e);
-        c.size = size;
-        c.pivot = {0, 1};
-        return e;
-    }
-    Entity button(const char* id, Vec2 pos, Vec2 size = {80, 20}, Entity parent = kNullEntity) {
-        return add<Button>(id, pos, size, parent);
-    }
-    Rect rect(Entity e) { return *ui_rect(w, e, design); }
-
-    void frame(int n = 1) {
-        for (int i = 0; i < n; ++i) {
-            ui.update(w, in, design, dt, {});
-            in.begin_frame();
-        }
-    }
-    // The ui.* events since the last call, as "name:id" or "name:id=value".
-    std::vector<std::string> events() {
-        std::vector<std::string> out;
-        for (const GameEvent& e : w.events().game) {
-            std::string s = e.name + ":" + (e.data["id"].is_null() ? std::string("null") : e.data["id"].get<std::string>());
-            if (e.data.contains("value")) s += "=" + e.data["value"].dump();
-            CHECK((e.source == kNullEntity) == e.data["id"].is_null());
-            out.push_back(s);
-        }
-        w.events().game.clear();
-        return out;
-    }
-    // Presses a key / pad button / mouse button for one frame and releases it for another.
-    void tap_key(Key k) {
-        in.on_key(k, true);
-        frame();
-        in.on_key(k, false);
-        frame();
-    }
-    void tap_pad(GamepadButton b) {
-        in.on_gamepad_button(0, b, true);
-        frame();
-        in.on_gamepad_button(0, b, false);
-        frame();
-    }
-    void click(Vec2 p) {
-        in.on_mouse_move(p);
-        in.on_mouse_button(MouseButton::Left, true);
-        frame();
-        in.on_mouse_button(MouseButton::Left, false);
-        frame();
-    }
-};
-
-using V = std::vector<std::string>;
-
+using fa_ui_test::Ui;
+using fa_ui_test::V;
 }  // namespace
 
 // ------------------------------------------------------------------------------------------------------- layout --
@@ -704,7 +636,7 @@ TEST_CASE("ui actions: the defaults are installed unless the project defines the
     CHECK(merged["ui_submit"] == Json::parse(R"(["X"])"));  // the project wins
     CHECK(merged["ui_cancel"] == Json::parse(R"(["Escape", "GamepadB"])"));
     CHECK(merged["ui_up"].size() == 3);
-    CHECK(ui_with_default_actions(nullptr).size() == 6);
+    CHECK(ui_with_default_actions(nullptr).size() == 8);
     Input in;
     CHECK(in.set_actions(merged).empty());  // every default binding name is valid
     CHECK(in.has_action("ui_left"));
@@ -1046,9 +978,56 @@ TEST_CASE("ui layout: a fit panel larger than the screen logs one warning naming
     CHECK(warnings() == 1);
 }
 
+TEST_CASE("ui layout: a fit panel inside a ScrollList does not warn about the screen") {
+    Ui t;
+    clear_recent_logs();
+    Entity list = t.add<ScrollList>("rows_list", {0, 0}, {100, 100});
+    Entity col = t.add<Panel>("rows_panel", {0, 0}, {10, 10}, list);
+    Panel& p = *t.w.get<Panel>(col);
+    p.layout = UiLayout::Column;
+    p.fit = true;
+    for (int i = 0; i < 12; ++i) t.button(("r" + std::to_string(i)).c_str(), {0, 0}, {100, 30}, col);  // 360 > 180
+    for (int i = 0; i < 3; ++i) t.ui.layout(t.w, t.design, {});
+    CHECK(t.w.get<Panel>(col)->size.y > 180);
+    for (const LogEntry& e : recent_logs(200, LogLevel::Warn)) CHECK(e.message.find("rows_panel") == std::string::npos);
+}
+
+// ------------------------------------------------------------------------- widgets under a plain entity --
+TEST_CASE("ui tree: widgets under a plain entity click, drag, focus and hit-test without crashing") {
+    Ui t;
+    Entity root = t.w.create("hud_root", "hud_root");  // only a Transform: not a widget
+    Entity panel = t.add<Panel>("hud_panel", {0, 0}, {200, 100}, root);
+    Entity b = t.button("b", {10, 10}, {80, 20}, panel);
+    Entity d = t.button("d", {10, 50}, {80, 20}, root);  // a Button directly under the plain entity
+    t.w.get<Button>(d)->draggable = Json::object({{"payload", 1}});
+    t.frame();
+    CHECK(t.ui.set_focus(t.w, b));
+    CHECK(ui_widget_at(t.w, t.design, {20, 20}) == b);
+    t.events();
+    t.click({20, 20});
+    CHECK(t.events() == V{"ui.click:b"});
+    // a press that never becomes a drag, and one that does
+    t.click({20, 60});
+    t.events();
+    t.in.on_mouse_move({20, 60});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_move({120, 60});
+    t.frame();
+    CHECK(t.ui.dragging());
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame(2);
+    CHECK_FALSE(t.ui.dragging());
+    // a press on the panel, whose parent is the plain entity, and a tooltip walk over it
+    t.click({150, 90});
+    t.w.get<Button>(b)->interactable = false;
+    CHECK_FALSE(t.ui.set_focus(t.w, b));
+}
+
 // ------------------------------------------------------------------------------- right-to-left layouts --
 TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-left language only") {
     Ui t;
+    t.w.set_ui_mirror_rtl(false);  // these check the layout direction alone; the mirrored screen has its own tests below
     Entity p = t.add<Panel>("p", {0, 0}, {300, 100});
     Panel& panel = *t.w.get<Panel>(p);
     panel.layout = UiLayout::Row;
@@ -1082,6 +1061,7 @@ TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-
 
 TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in English and right in Arabic") {
     Ui t;
+    t.w.set_ui_mirror_rtl(false);  // these check the layout direction alone; the mirrored screen has its own tests below
     Entity p = t.add<Panel>("p", {0, 0}, {300, 200});
     Panel& panel = *t.w.get<Panel>(p);
     panel.layout = UiLayout::Column;
@@ -1105,6 +1085,132 @@ TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in
     const Rect ar = *ui_screen_rect(t.w, label, t.design);
     CHECK(ar.x + ar.w == doctest::Approx(290));  // the box ends at the right edge of the padded box
     CHECK(ar.w == doctest::Approx(en.w));
+}
+
+// ----------------------------------------------------------------------------------- mirrored screens --
+TEST_CASE("ui mirror: a right-to-left language flips the rectangles about the middle of the screen, mirror false stays") {
+    Ui t;
+    Entity a = t.button("a", {10, 20}, {100, 30});
+    Entity b = t.button("b", {10, 60}, {100, 30});
+    t.w.get<Button>(b)->mirror = false;
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(10));       // English: as authored
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.w.ui_mirror());
+    CHECK(t.rect(a).x == doctest::Approx(320 - 10 - 100));  // the mirror image: same size, other side
+    CHECK(t.rect(a).w == doctest::Approx(100));
+    CHECK(t.rect(a).y == doctest::Approx(20));       // only x flips
+    CHECK(t.rect(b).x == doctest::Approx(10));       // mirror false: where it is written
+    t.w.set_ui_mirror_rtl(false);                    // the option off: nothing is mirrored
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(10));
+    // anchor.x and pivot.x flip: a button anchored to the right edge sits at the left edge
+    t.w.set_ui_mirror_rtl(true);
+    Button& ba = *t.w.get<Button>(a);
+    ba.anchor = {1, 0};
+    ba.pivot = {1, 0};
+    t.w.get<Transform>(a)->position = {-8, 20, 0};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(8));
+    t.w.set_rtl(false);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(320 - 8 - 100));
+}
+
+TEST_CASE("ui mirror: a click on a mirrored button lands where it is drawn") {
+    Ui t;
+    Entity a = t.button("a", {10, 20}, {100, 30});
+    t.w.set_rtl(true);
+    t.frame();
+    t.events();
+    t.click({20, 30});  // the left side is empty now
+    CHECK(t.events().empty());
+    t.click({250, 30});
+    const auto ev = t.events();
+    CHECK(std::find(ev.begin(), ev.end(), "ui.click:a") != ev.end());
+    (void)a;
+}
+
+TEST_CASE("ui mirror: a Slider runs right to left, a click and the arrow keys follow") {
+    Ui t;
+    Entity e = t.add<Slider>("s", {0, 0}, {320, 40});
+    Slider& s = *t.w.get<Slider>(e);
+    s.autoFocus = true;
+    s.value = 0.5f;
+    t.w.set_rtl(true);
+    t.frame();
+    t.events();
+    const auto [left, right] = ui_slider_track(s, t.rect(e), true);
+    t.in.on_mouse_move({left + (right - left) * 0.2f, 20});  // near the left end: the large values
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(s.value == doctest::Approx(0.8f));
+    t.in.on_mouse_move({left + (right - left) * 0.9f, 20});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(s.value == doctest::Approx(0.1f));
+    t.tap_key(Key::Left);  // left grows the value in a mirrored slider: that is where the fill goes
+    CHECK(s.value == doctest::Approx(0.2f));
+    t.tap_key(Key::Right);
+    t.tap_key(Key::Right);
+    CHECK(s.value == doctest::Approx(0.0f));
+    t.w.set_rtl(false);  // English: the same click lands on the other end
+    t.frame();
+    const auto [l2, r2] = ui_slider_track(s, t.rect(e));
+    t.in.on_mouse_move({l2 + (r2 - l2) * 0.2f, 20});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(s.value == doctest::Approx(0.2f));
+}
+
+TEST_CASE("ui mirror: a Toggle's label sits left of its box and a Slider's label right of its track") {
+    Ui t;
+    Entity tg = t.add<Toggle>("t", {0, 0}, {200, 40});
+    Entity sl = t.add<Slider>("s", {0, 60}, {200, 40});
+    t.w.get<Slider>(sl)->label = "Volume";
+    t.ui.layout(t.w, t.design, {});
+    const Rect tr = t.rect(tg);
+    const Rect lt = ui_label(t.w, tg, tr)->zone;
+    CHECK(lt.x > tr.x);  // English: the label is right of the box, which is at the left edge
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    const Rect tm = t.rect(tg);
+    const Rect lm = ui_label(t.w, tg, tm)->zone;
+    CHECK(lm.x + lm.w <= tm.x + tm.w);
+    CHECK(lm.x - tm.x == doctest::Approx((tr.x + tr.w) - (lt.x + lt.w)));  // the zone is the mirror image of the English one
+    CHECK(lm.w == doctest::Approx(lt.w));
+    CHECK(ui_mirrored(t.w, tg));
+    t.w.get<Toggle>(tg)->mirror = false;
+    CHECK_FALSE(ui_mirrored(t.w, tg));
+}
+
+TEST_CASE("ui mirror: a Panel row in a mirrored screen keeps its children inside it, first child at the right") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {10, 10}, {200, 60});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Row;
+    panel.spacing = 10;
+    panel.padding = {0, 0, 0, 0};
+    panel.direction = UiDirection::Auto;
+    Entity a = t.button("a", {0, 0}, {50, 20}, p), b = t.button("b", {0, 0}, {50, 20}, p);
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    const Rect pr = t.rect(p);
+    CHECK(pr.x == doctest::Approx(320 - 10 - 200));  // the panel is mirrored
+    CHECK(t.rect(a).x + t.rect(a).w == doctest::Approx(pr.x + pr.w));  // the first child at the panel's right edge
+    CHECK(t.rect(b).x + t.rect(b).w == doctest::Approx(t.rect(a).x - 10));
+    CHECK(t.rect(b).x >= pr.x);
+    panel.mirror = false;  // a Panel that opts out takes its children with it
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(p).x == doctest::Approx(10));
+    CHECK(t.rect(a).x + t.rect(a).w == doctest::Approx(10 + 200));  // still right to left inside (direction auto)
 }
 
 TEST_CASE("ui Panel.uniformSize: autoSize widgets inside share the largest size and shrink back with it") {
@@ -1254,6 +1360,64 @@ TEST_CASE("ui fallbackLayout: a fill ScrollList in a column that became a row is
     CHECK(t.w.get<ScrollList>(list)->size.y == doctest::Approx(64));  // left as the column pass set it, not re-filled
 }
 
+// ---- Button.icon (M31.17) --------------------------------------------------------------------------------------------------
+
+TEST_CASE("ui button icon: an icon-top label sits under the icon, a click on the icon presses the button, the fitted size counts it") {
+    Ui t;
+    Entity b = t.button("b", {100, 100}, {200, 120});
+    Button& btn = *t.w.get<Button>(b);
+    btn.text = "Hola";
+    btn.icon = "assets/ico.png";
+    btn.iconSize = {40, 40};
+    btn.iconPosition = ButtonIconPosition::Top;
+    t.frame();
+    const Rect r = t.rect(b);
+    const Vec2 label{58.0f, 28.0f};
+    const UiButtonContent c = ui_button_content(btn, r, label);
+    CHECK(c.icon.w == doctest::Approx(40));
+    CHECK(c.icon.x + c.icon.w * 0.5f == doctest::Approx(r.x + r.w * 0.5f));  // centred across
+    CHECK(c.labelPos.y == doctest::Approx(c.icon.y + 40 + kUiButtonIconGap));  // the label under the icon
+    CHECK(c.labelPos.y + label.y <= r.y + r.h);
+    CHECK(c.icon.y >= r.y);
+    // the icon is inside the hit area: a click on it presses the button
+    t.click({c.icon.x + 20, c.icon.y + 20});
+    CHECK(t.events() == std::vector<std::string>{"ui.focus:b", "ui.click:b"});
+    // left: the icon is left of the label
+    btn.iconPosition = ButtonIconPosition::Left;
+    const UiButtonContent l = ui_button_content(btn, r, label);
+    CHECK(l.labelPos.x == doctest::Approx(l.icon.x + 40 + kUiButtonIconGap));
+    // the label zone (autoShrink) loses the icon's side
+    const std::optional<UiLabel> zone = ui_label(t.w, b, r);
+    REQUIRE(zone.has_value());
+    CHECK(zone->zone.w == doctest::Approx(r.w - 16 - 40 - kUiButtonIconGap));
+    // alone: no label
+    btn.iconPosition = ButtonIconPosition::Alone;
+    CHECK_FALSE(ui_label(t.w, b, r).has_value());
+}
+
+TEST_CASE("ui button icon: autoSize grows the button to hold the icon and the label") {
+    Ui t;
+    Entity b = t.button("b", {0, 0}, {10, 10});
+    Button& btn = *t.w.get<Button>(b);
+    btn.autoSize = true;
+    btn.text = "Hola";  // 4 x 14.4 = 57.6 wide, 28.8 tall at 24 px
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const Vec2 plain = btn.size;
+    btn.icon = "assets/ico.png";
+    btn.iconSize = {40, 50};
+    btn.iconPosition = ButtonIconPosition::Left;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(plain.x + 40 + kUiButtonIconGap).epsilon(0.02));
+    CHECK(btn.size.y == doctest::Approx(50 + 16));
+    btn.iconPosition = ButtonIconPosition::Top;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(plain.x));
+    CHECK(btn.size.y == doctest::Approx(std::ceil(28.8f + 50 + kUiButtonIconGap + 16)).epsilon(0.02));
+    btn.iconPosition = ButtonIconPosition::Alone;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(10 + 40 + 6).epsilon(0.5));  // design 10 x 10 -> the icon plus margins
+}
+
 // ---- text that fits (M26.6) ------------------------------------------------------------------------------------------------
 
 TEST_CASE("text fit: a German label in a fixed button shrinks at 200 % text, stays inside and never goes under minFontSize") {
@@ -1380,6 +1544,46 @@ TEST_CASE("text fit: a long Toggle label wraps at maxWidth and the toggle grows 
     CHECK_FALSE(fit->fit.overflow);
 }
 
+TEST_CASE("text fit: a Toggle's box follows the font size, so a two-line label keeps the box and autoShrink fits the label") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity tg = t.add<Toggle>("tg", {10, 10}, {240, 40});
+    Toggle& toggle = *t.w.get<Toggle>(tg);
+    const float box = ui_toggle_box_side(toggle, 40.0f, 1.0f);
+    CHECK(box == doctest::Approx(28.0f));  // the old height - 12 at the default size
+    toggle.autoSize = true;
+    toggle.label = "Reduce flashing";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const float oneLineBox = ui_toggle_box_side(toggle, toggle.size.y, 1.0f);
+    toggle.label = "Reduce screen shake and flashing lights during combat";
+    toggle.maxWidth = 200;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(toggle.size.y > 60);  // several lines
+    CHECK(ui_toggle_box_side(toggle, toggle.size.y, 1.0f) == doctest::Approx(oneLineBox));
+    CHECK(ui_toggle_box_side(toggle, toggle.size.y, 2.0f) > oneLineBox);  // it grows with the text size
+    CHECK(ui_toggle_box_side(toggle, 20.0f, 1.0f) == doctest::Approx(8.0f));  // never past the height minus 12
+    // a short word in a roomy maxWidth: measured by its own width, not overflowed
+    toggle.autoSize = false;
+    toggle.label = "VSync";
+    toggle.maxWidth = 440;
+    toggle.size = {560, 40};
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const auto fit = ui_label_fit(t.w, tg, t.rect(tg), 1.0f, text_extent_of(measure_at(1.0f)));
+    REQUIRE(fit.has_value());
+    CHECK(fit->fit.size.x < 100);
+    CHECK_FALSE(fit->fit.overflow);
+    // autoShrink on a Toggle shrinks the label into the room beside the box
+    toggle.label = "A long label that cannot fit in a narrow toggle";
+    toggle.maxWidth = 0;
+    toggle.size = {200, 40};
+    CHECK(ui_text_overflowed(t.w, tg, t.design, measure_at(1.0f)));
+    toggle.autoShrink = true;
+    const auto shrunk = ui_label_fit(t.w, tg, t.rect(tg), 1.0f, text_extent_of(measure_at(1.0f)));
+    REQUIRE(shrunk.has_value());
+    CHECK(shrunk->fit.shrunk);
+    CHECK(shrunk->fit.px < toggle.fontSize);
+}
+
 TEST_CASE("text fit: Slider labelAbove gives the track the whole width and maxWidth wraps the label") {
     Ui t;
     t.design = {1280, 720};
@@ -1450,4 +1654,814 @@ TEST_CASE("ui textfield: the phone's keyboard goes up with the focus and down wi
     t.ui.set_focus(t.w, f);
     t.frame();
     CHECK(t.in.keyboard_shown());
+}
+
+TEST_CASE("ui textfield: Ctrl+V pastes (no newlines or control characters, maxLength, at the end), Ctrl+C copies") {
+    Ui t;
+    MemoryClipboard clip;
+    t.ui.set_clipboard(&clip);
+    Entity e = t.add<TextField>("f", {0, 0}, {200, 30});
+    TextField& f = *t.w.get<TextField>(e);
+    f.autoFocus = true;
+    f.maxLength = 8;
+    t.frame();
+    t.events();
+    f.text = "ab";
+    clip.set("cd\r\nef\tg\x01h");
+    t.in.on_key(Key::LeftControl, true);
+    t.in.on_text(U'v');  // some platforms also send the letter of the chord: it is not typed
+    t.in.on_key(Key::V, true);
+    t.frame();
+    CHECK(f.text == "abcdefgh");  // CR, LF, tab and the control character are dropped; 8 code points fit
+    CHECK(t.events() == V{"ui.change:f=\"abcdefgh\""});
+    t.in.on_key(Key::V, false);
+    t.frame();
+    t.in.on_key(Key::V, true);  // full: nothing more is taken
+    t.frame();
+    CHECK(f.text == "abcdefgh");
+    t.in.on_key(Key::V, false);
+    f.maxLength = 0;
+    clip.set("\xC3\xA9");  // a code point of two bytes
+    t.in.on_key(Key::V, true);
+    t.frame();
+    CHECK(f.text == "abcdefgh\xC3\xA9");
+    t.in.on_key(Key::V, false);
+    t.frame();
+    t.in.on_key(Key::C, true);  // copy
+    t.frame();
+    CHECK(clip.get() == "abcdefgh\xC3\xA9");
+    t.in.on_key(Key::C, false);
+    t.in.on_key(Key::LeftControl, false);
+    // Without Ctrl, V pastes nothing.
+    clip.set("zzz");
+    t.in.on_key(Key::V, true);
+    t.frame();
+    CHECK(f.text == "abcdefgh\xC3\xA9");
+    t.in.on_key(Key::V, false);
+}
+
+TEST_CASE("ui textfield: the web pastes on the paste event, not on the V key") {
+    Ui t;
+    MemoryClipboard clip;
+    t.ui.set_clipboard(&clip);
+    t.in.set_paste_from_events(true);
+    Entity e = t.add<TextField>("f", {0, 0}, {200, 30});
+    TextField& f = *t.w.get<TextField>(e);
+    f.autoFocus = true;
+    t.frame();
+    clip.set("hi");
+    t.in.on_key(Key::LeftSuper, true);
+    t.in.on_key(Key::V, true);
+    t.frame();
+    CHECK(f.text.empty());
+    t.in.on_paste();
+    t.frame();
+    CHECK(f.text == "hi");
+}
+
+// ------------------------------------------------------------------------------- hit test, pointer, wheel, focus --
+TEST_CASE("ui widget_at: the topmost widget, a Panel, nothing over empty space or a row a ScrollList clips") {
+    Ui t;
+    Entity panel = t.add<Panel>("panel", {10, 10}, {200, 100});
+    Entity under = t.button("under", {20, 20}, {60, 30}, panel);
+    Entity over = t.button("over", {50, 20}, {60, 30}, panel);  // made later: wins where they overlap
+    t.w.get<Button>(over)->layer = t.w.get<Button>(under)->layer;
+    auto at = [&](float x, float y) { return ui_widget_at(t.w, t.design, {x, y}); };
+    CHECK(at(30, 30) == under);
+    CHECK(at(60, 30) == over);
+    CHECK(at(100, 30) == over);
+    CHECK(at(150, 90) == panel);  // the Panel itself
+    CHECK(at(300, 170) == kNullEntity);
+    t.w.get<Button>(under)->layer = 500;  // a higher layer wins over a later entity
+    CHECK(at(60, 30) == under);
+    t.w.get<Button>(under)->interactable = false;  // still a widget
+    CHECK(at(30, 30) == under);
+    t.w.set_active(under, false);
+    CHECK(at(30, 30) == panel);
+    t.w.get<Panel>(panel)->color.a = 0.0f;  // a Panel that draws nothing is not hit
+    CHECK(at(150, 90) == kNullEntity);
+
+    Entity list = t.add<ScrollList>("list", {0, 120}, {100, 50});
+    ScrollList& sl = *t.w.get<ScrollList>(list);
+    sl.padding = {0, 0, 0, 0};
+    sl.spacing = 0;
+    std::vector<Entity> rows;
+    for (int i = 0; i < 4; ++i) rows.push_back(t.button(("row" + std::to_string(i)).c_str(), {0, 0}, {100, 20}, list));
+    t.ui.layout(t.w, t.design, {});
+    CHECK(at(50, 130) == rows[0]);
+    CHECK(at(50, 175) == kNullEntity);  // row 3 is at y 180 and below the list: clipped, and the list ends at 170
+    CHECK(at(50, 169) == rows[2]);
+    sl.scroll = 30;
+    t.ui.layout(t.w, t.design, {});
+    CHECK(at(50, 125) == rows[1]);  // the part of row 0 above the list is clipped; row 1 spans 110..130 and shows from 120
+    CHECK(at(50, 100) == kNullEntity);
+}
+
+TEST_CASE("ui pointer: set_pointer hovers, presses and clicks like the mouse, until it is cleared") {
+    Ui t;
+    Entity a = t.button("a", {10, 10}), b = t.button("b", {150, 10});
+    t.in.on_mouse_move({20, 20});  // the real mouse is over a, but a virtual pointer takes over
+    t.ui.set_pointer({160, 20}, false);
+    t.frame();
+    CHECK(t.ui.hovered() == b);
+    CHECK(t.ui.pointer_over_ui());
+    CHECK(t.events().empty());
+    t.ui.set_pointer({160, 20}, true);
+    t.frame();
+    CHECK(t.ui.focused() == b);
+    CHECK(t.w.get<Button>(b)->pressed);
+    t.ui.set_pointer({160, 20}, false);
+    t.frame();
+    CHECK(t.events() == V{"ui.focus:b", "ui.click:b"});
+    // released away from the button: no click
+    t.ui.set_pointer({160, 20}, true);
+    t.frame();
+    t.ui.set_pointer({100, 100}, false);
+    t.frame();
+    CHECK(t.events() == V{});
+    CHECK(!t.ui.pointer_over_ui());
+    t.ui.clear_pointer();
+    t.frame();
+    CHECK(t.ui.hovered() == a);  // the mouse again
+    CHECK(t.ui.pointer_over_ui());
+    (void)a;
+}
+
+TEST_CASE("ui wheel: a list with more to show consumes it; a short list, a bare spot and the end of the range differ") {
+    Ui t;
+    Entity list = t.add<ScrollList>("list", {0, 0}, {100, 50});
+    ScrollList& sl = *t.w.get<ScrollList>(list);
+    sl.padding = {0, 0, 0, 0};
+    sl.spacing = 0;
+    for (int i = 0; i < 4; ++i) t.button(("i" + std::to_string(i)).c_str(), {0, 0}, {100, 20}, list);
+    Entity shortList = t.add<ScrollList>("short", {150, 0}, {100, 100});
+    t.w.get<ScrollList>(shortList)->padding = {0, 0, 0, 0};
+    t.button("only", {0, 0}, {100, 20}, shortList);
+    t.ui.layout(t.w, t.design, {});
+    t.in.on_mouse_move({50, 25});
+    t.in.on_mouse_wheel(-1);
+    t.frame();
+    CHECK(t.ui.wheel_consumed());
+    CHECK(sl.scroll > 0);
+    // the wheel is spent for the rest of this frame
+    t.in.on_mouse_wheel(-1);
+    t.in.on_mouse_move({50, 25});
+    float seen = -1;
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    seen = t.in.mouse_wheel();
+    CHECK(seen == 0.0f);
+    t.in.begin_frame();
+    // the end of the range: still consumed (the page must not zoom there)
+    sl.scroll = 30;
+    t.ui.layout(t.w, t.design, {});
+    t.in.on_mouse_wheel(-1);
+    t.frame();
+    CHECK(t.ui.wheel_consumed());
+    // a list that fits its content, empty space: the wheel passes through
+    t.in.on_mouse_move({200, 20});
+    t.in.on_mouse_wheel(-1);
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    CHECK(!t.ui.wheel_consumed());
+    CHECK(t.in.mouse_wheel() == -1.0f);
+    t.in.begin_frame();
+    t.in.on_mouse_move({300, 170});
+    t.in.on_mouse_wheel(-1);
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    CHECK(!t.ui.wheel_consumed());
+    CHECK(t.in.mouse_wheel() == -1.0f);
+    t.in.begin_frame();
+    t.frame();
+    CHECK(!t.ui.wheel_consumed());
+}
+
+TEST_CASE("ui focus: set_focus(null) holds over frames until a navigation press, which only wakes autoFocus") {
+    Ui t;
+    Entity a = t.button("a", {10, 10}), b = t.button("b", {10, 60});
+    t.w.get<Button>(a)->autoFocus = true;
+    t.frame();
+    CHECK(t.ui.focused() == a);
+    CHECK(t.ui.set_focus(t.w, kNullEntity));
+    t.frame(5);
+    CHECK(t.ui.focused() == kNullEntity);
+    CHECK(!t.w.get<Button>(a)->focused);
+    t.tap_key(Key::Down);  // wakes autoFocus: the press is spent on that
+    CHECK(t.ui.focused() == a);
+    t.tap_key(Key::Down);
+    CHECK(t.ui.focused() == b);
+    // a pointer press focuses and ends the hold too
+    t.ui.set_focus(t.w, kNullEntity);
+    t.frame(2);
+    CHECK(t.ui.focused() == kNullEntity);
+    t.click({20, 20});
+    CHECK(t.ui.focused() == a);
+}
+
+// ------------------------------------------------------------------------------------------------ interface scale --
+// ui.scale (World::set_ui_scale, ui_rect.h): the UI is laid out in a screen of design size / k and drawn k times as big, so
+// the anchor does not move, every size, offset, padding and spacing is k times as big and the children stay inside.
+TEST_CASE("ui scale: at 1.5 a panel's rectangle, padding and spacing are 1.5 times as big and its children stay inside") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {20, 10}, {200, 120});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Column;
+    panel.spacing = 10;
+    panel.padding = {10, 12, 10, 12};
+    panel.align = UiAlign::Start;
+    Entity a = t.button("a", {0, 0}, {100, 20}, p), b = t.button("b", {0, 0}, {60, 30}, p);
+    t.ui.layout(t.w, t.design, {});
+    const Rect p1 = t.rect(p), a1 = t.rect(a), b1 = t.rect(b);
+    CHECK(a1.x - p1.x == doctest::Approx(10));
+    CHECK(a1.y - p1.y == doctest::Approx(12));
+    CHECK(b1.y - (a1.y + a1.h) == doctest::Approx(10));
+
+    t.w.set_ui_scale(1.5f);
+    t.ui.layout(t.w, t.design, {});
+    const Rect p2 = t.rect(p), a2 = t.rect(a), b2 = t.rect(b);
+    CHECK(p2.x == doctest::Approx(1.5f * p1.x)); CHECK(p2.y == doctest::Approx(1.5f * p1.y));
+    CHECK(p2.w == doctest::Approx(1.5f * p1.w)); CHECK(p2.h == doctest::Approx(1.5f * p1.h));
+    CHECK(a2.x - p2.x == doctest::Approx(1.5f * 10));          // padding
+    CHECK(a2.y - p2.y == doctest::Approx(1.5f * 12));
+    CHECK(b2.y - (a2.y + a2.h) == doctest::Approx(1.5f * 10)); // spacing
+    CHECK(a2.w == doctest::Approx(1.5f * 100)); CHECK(a2.h == doctest::Approx(1.5f * 20));
+    CHECK(b2.w == doctest::Approx(1.5f * 60));  CHECK(b2.h == doctest::Approx(1.5f * 30));
+    for (const Rect& child : {a2, b2}) {                       // the children stay inside the panel
+        CHECK(child.x >= p2.x - 0.01f); CHECK(child.y >= p2.y - 0.01f);
+        CHECK(child.x + child.w <= p2.x + p2.w + 0.01f); CHECK(child.y + child.h <= p2.y + p2.h + 0.01f);
+    }
+    // the layout rectangles, in UI units, did not change
+    CHECK(ui_layout_rect(t.w, a, t.design)->w == doctest::Approx(100));
+    // the stored sizes are the authored ones
+    CHECK(panel.size.x == doctest::Approx(200));
+    // 0.5 shrinks the same way, and back to 1 gives the first rectangles
+    t.w.set_ui_scale(0.5f);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).w == doctest::Approx(50)); CHECK(t.rect(a).x - t.rect(p).x == doctest::Approx(5));
+    t.w.set_ui_scale(1.0f);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(b).y == doctest::Approx(b1.y));
+    // an out-of-range or NaN scale is read as the nearest valid one (the commands refuse it before it gets here)
+    t.w.set_ui_scale(10.0f);
+    CHECK(t.w.ui_scale() == doctest::Approx(10.0f));
+    CHECK(ui_scale_clamped(t.w.ui_scale()) == kMaxUiScale);
+    CHECK(ui_scale_clamped(std::nanf("")) == 1.0f);
+}
+
+TEST_CASE("ui scale: an anchored panel keeps its place; the hit test, ui.state and a slider drag follow the scale") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {0, 0}, {120, 60});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.anchor = {1, 1};
+    panel.pivot = {1, 0};  // its bottom-right corner on the screen's
+    panel.layout = UiLayout::Column;
+    panel.align = UiAlign::Start;
+    panel.padding = {10, 10, 10, 10};
+    Entity b = t.button("b", {0, 0}, {80, 30}, p);
+    t.w.get<Button>(b)->autoFocus = true;
+    t.w.set_ui_scale(2.0f);
+    t.ui.layout(t.w, t.design, {});
+    // the bottom-right corner of the panel stays on the bottom-right corner of the screen
+    CHECK(t.rect(p).x + t.rect(p).w == doctest::Approx(320));
+    CHECK(t.rect(p).y + t.rect(p).h == doctest::Approx(180));
+    CHECK(t.rect(p).w == doctest::Approx(240));
+    CHECK(t.rect(b).w == doctest::Approx(160));
+    CHECK(t.rect(b).x == doctest::Approx(320 - 240 + 20));  // panel left + padding
+    // a click on the doubled button reaches it; a click where it used to be does not
+    t.frame();
+    t.events();
+    t.click({t.rect(b).x + 5, t.rect(b).y + 5});
+    CHECK(t.events() == V{"ui.click:b"});
+    t.click({285, 155});  // where the button was at scale 1: now below it, on the panel
+    CHECK(t.events().empty());
+    // ui.state reports the rectangle on screen
+    const Json st = t.ui.state(t.w, t.design);
+    CHECK(st["uiScale"] == 2.0);
+    const Rect br = t.rect(b);
+    for (const Json& wj : st["widgets"])
+        if (wj["id"] == "b") CHECK(wj["rect"] == Json::array({br.x, br.y, br.w, br.h}));
+
+    // a slider: the drag maps the mouse to the track in UI units
+    Ui s;
+    Entity e = s.add<Slider>("s", {0, 0}, {120, 20});
+    Slider& sl = *s.w.get<Slider>(e);
+    sl.value = 0.5f;
+    sl.step = 0;
+    s.w.set_ui_scale(2.0f);
+    s.frame();
+    const Rect screenRect = s.rect(e);
+    CHECK(screenRect.w == doctest::Approx(240));
+    const auto [left, right] = ui_slider_track(sl, *ui_layout_rect(s.w, e, s.design));  // UI units
+    s.in.on_mouse_move({2 * (left + (right - left) * 0.25f), 10});
+    s.in.on_mouse_button(MouseButton::Left, true);
+    s.frame();
+    CHECK(sl.value == doctest::Approx(0.25f).epsilon(0.02));
+    s.in.on_mouse_button(MouseButton::Left, false);
+    s.frame();
+}
+
+TEST_CASE("ui scale: Panel.minSize and maxSize bound a fit panel and a fixed one, in UI units, min last") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {10, 10}, {10, 10});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Column;
+    panel.fit = true;
+    panel.spacing = 10;
+    panel.padding = {10, 10, 10, 10};
+    panel.align = UiAlign::Start;
+    t.button("a", {0, 0}, {100, 20}, p);
+    t.button("b", {0, 0}, {60, 30}, p);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(120));  // 100 + 2 * 10
+    CHECK(panel.size.y == doctest::Approx(80));   // 20 + 10 + 30 + 2 * 10
+    // minSize keeps a fit panel from shrinking below it (its content is smaller on x and taller on y)
+    panel.minSize = {200, 50};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(200));
+    CHECK(panel.size.y == doctest::Approx(80));
+    // maxSize caps it
+    panel.minSize = {0, 0};
+    panel.maxSize = {100, 60};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(100));
+    CHECK(panel.size.y == doctest::Approx(60));
+    // 0 on an axis means no bound there
+    panel.maxSize = {0, 70};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(120));
+    CHECK(panel.size.y == doctest::Approx(70));
+    // min wins over max
+    panel.minSize = {150, 0};
+    panel.maxSize = {100, 0};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(panel.size.x == doctest::Approx(150));
+    // a panel that is not fit is clamped too, and the clamped size is what is stored
+    Entity q = t.add<Panel>("q", {0, 100}, {300, 20});
+    t.w.get<Panel>(q)->maxSize = {250, 0};
+    t.w.get<Panel>(q)->minSize = {0, 40};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.w.get<Panel>(q)->size.x == doctest::Approx(250));
+    CHECK(t.w.get<Panel>(q)->size.y == doctest::Approx(40));
+    // at ui.scale 1.5 the bounds are UI units too: the rectangle on screen is 1.5 times as big
+    t.w.set_ui_scale(1.5f);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(q).w == doctest::Approx(1.5f * 250));
+    CHECK(t.rect(p).w == doctest::Approx(1.5f * 150));
+}
+
+TEST_CASE("ui scale: a fit Panel with minSize keeps it at ui.scale 1.5 and the children stay inside") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity p = t.add<Panel>("p", {100, 100}, {10, 10});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Row;
+    panel.fit = true;
+    panel.spacing = 8;
+    panel.padding = {16, 16, 16, 16};
+    panel.minSize = {400, 0};
+    Entity a = t.button("a", {0, 0}, {80, 40}, p), b = t.button("b", {0, 0}, {80, 40}, p);
+    t.w.set_ui_scale(1.5f);
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(panel.size.x == doctest::Approx(400));  // the content is 8 + 80 + 80 + 32 = 200 wide
+    CHECK(panel.size.y == doctest::Approx(72));
+    const Rect pr = t.rect(p);
+    CHECK(pr.w == doctest::Approx(600));
+    for (Entity c : {a, b}) {
+        const Rect r = t.rect(c);
+        CHECK(r.x >= pr.x - 0.01f); CHECK(r.x + r.w <= pr.x + pr.w + 0.01f);
+        CHECK(r.y >= pr.y - 0.01f); CHECK(r.y + r.h <= pr.y + pr.h + 0.01f);
+    }
+}
+
+TEST_CASE("ui scale: autoSize and text overflow are measured in UI units, so a label's box grows with k and still fits") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity b = t.button("b", {10, 10}, {240, 56});
+    Button& btn = *t.w.get<Button>(b);
+    btn.autoSize = true;
+    btn.text = "Volver al menu principal";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const float width = btn.size.x;
+    const Rect r1 = t.rect(b);
+    t.w.set_ui_scale(2.0f);
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(width));  // the authored size: unchanged
+    CHECK(t.rect(b).w == doctest::Approx(2 * r1.w));
+    CHECK(t.rect(b).h == doctest::Approx(2 * r1.h));
+    CHECK(!ui_text_overflowed(t.w, b, t.design, measure_at(1.0f)));
+}
+
+// ------------------------------------------------------------------------------------------------------ tooltips --
+TEST_CASE("tooltip placement: below and right of the pointer, flipped and pushed to stay inside the screen") {
+    const Vec2 screen{1280, 720}, size{300, 80};
+    auto inside = [&](Vec2 at) { return at.x >= 4 && at.y >= 4 && at.x + size.x <= screen.x - 4 + 0.01f && at.y + size.y <= screen.y - 4 + 0.01f; };
+    const Vec2 mid = ui_tooltip_place({640, 360}, size, screen, 16);
+    CHECK(mid.x == doctest::Approx(656));
+    CHECK(mid.y == doctest::Approx(382));
+    for (Vec2 corner : {Vec2{0, 0}, Vec2{1279, 0}, Vec2{0, 719}, Vec2{1279, 719}, Vec2{1270, 360}, Vec2{640, 715}}) {
+        const Vec2 at = ui_tooltip_place(corner, size, screen, 16);
+        CHECK_MESSAGE(inside(at), "pointer " << corner.x << "," << corner.y << " -> " << at.x << "," << at.y);
+    }
+    // flipped: left of the pointer at the right edge, above it at the bottom edge
+    const Vec2 br = ui_tooltip_place({1279, 719}, size, screen, 16);
+    CHECK(br.x + size.x < 1279);
+    CHECK(br.y + size.y < 719);
+    // a box bigger than the screen keeps its top-left corner on screen
+    const Vec2 big = ui_tooltip_place({600, 300}, {2000, 2000}, screen, 16);
+    CHECK(big.x == doctest::Approx(4));
+    CHECK(big.y == doctest::Approx(4));
+}
+
+TEST_CASE("tooltip content: a string, or {title, lines}; an empty line is skipped; mistakes say what to write") {
+    std::string err;
+    auto plain = ui_tooltip_text(Json("Gold: 120"), nullptr, &err);
+    REQUIRE(plain);
+    CHECK(plain->title.empty());
+    REQUIRE(plain->lines.size() == 1);
+    CHECK(plain->lines[0].text == "Gold: 120");
+    auto rich = ui_tooltip_text(Json::parse(R"({"title":"Mill","lines":["Makes flour","",{"text":"low stock","color":"#ff0000"}]})"), nullptr, &err);
+    REQUIRE(rich);
+    CHECK(rich->title == "Mill");
+    REQUIRE(rich->lines.size() == 2);
+    CHECK(rich->lines[1].color.has_value());
+    CHECK(ui_tooltip_text(Json(nullptr), nullptr)->empty());
+    CHECK_FALSE(ui_tooltip_text(Json(12), nullptr, &err));
+    CHECK(err.find("string") != std::string::npos);
+    CHECK_FALSE(ui_tooltip_text(Json::parse(R"({"lines":"no"})"), nullptr, &err));
+    CHECK(err.find("array") != std::string::npos);
+    // a locale key is translated, with {placeholders} from args
+    I18n i18n;
+    i18n.configure("en", {"en"});
+    auto table = parse_string_table(Json::parse(R"({"tip":{"gold":"Gold: {n}"}})"), "en", "locales/en.json");
+    REQUIRE(table.ok());
+    REQUIRE(i18n.add_table(std::move(table.value())).ok());
+    auto keyed = ui_tooltip_text(Json::parse(R"({"title":"tip.gold","args":{"n":5}})"), &i18n, &err);
+    REQUIRE(keyed);
+    CHECK(keyed->title == "Gold: 5");
+}
+
+TEST_CASE("tooltips show after the rest delay, hide when the pointer leaves, and stay on screen") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity a = t.button("a", {1100, 600}, {160, 60});
+    t.w.get<Button>(a)->tooltip = Json("Hello");
+    UiTooltipSettings cfg;
+    cfg.delay = 0.5f;
+    t.w.set_ui_tooltip_settings(cfg);
+    t.ui.layout(t.w, t.design, {});
+    const Vec2 c = t.rect(a).center();
+    t.in.on_mouse_move(c);
+    t.frame(20);  // 20 / 64 s: not yet
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    t.frame(20);  // 40 / 64 s = 0.625 s
+    REQUIRE(t.w.ui_tooltip().shown);
+    CHECK(t.w.ui_tooltip().widget == "a");
+    CHECK(t.w.ui_tooltip().source == "widget");
+    const Rect r = t.w.ui_tooltip().rect;
+    CHECK(r.x >= 4);
+    CHECK(r.y >= 4);
+    CHECK(r.x + r.w <= 1280);
+    CHECK(r.y + r.h <= 720);
+    t.in.on_mouse_move(c + Vec2{3, 2});  // within the slop
+    t.frame();
+    CHECK(t.w.ui_tooltip().shown);
+    t.in.on_mouse_move({100, 100});  // away
+    t.frame();
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    t.in.on_mouse_move(c);
+    t.frame(10);  // the timer starts over
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    // a pressed button hides it
+    t.frame(40);
+    CHECK(t.w.ui_tooltip().shown);
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+}
+
+TEST_CASE("tooltips: a script function can give the text, and showTooltip stays until the pointer moves away") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity a = t.button("a", {100, 100}, {160, 60});
+    t.ui.layout(t.w, t.design, {});
+    const Vec2 c = t.rect(a).center();
+    int asked = 0;
+    UiTooltipHooks hooks;
+    hooks.widget = [&](Entity) { ++asked; return Json::parse(R"({"title":"T","lines":["x"]})"); };
+    hooks.world = [&](Vec2 p) { return p.x > 600 ? Json("world") : Json(nullptr); };
+    t.ui.set_tooltip_hooks(hooks);
+    t.ui.set_script_tooltip(a, true);
+    t.ui.set_world_tooltip(true);
+    UiTooltipSettings cfg;
+    cfg.delay = 0.0f;
+    t.w.set_ui_tooltip_settings(cfg);
+    t.in.on_mouse_move(c);
+    t.frame(2);
+    REQUIRE(t.w.ui_tooltip().shown);
+    CHECK(t.w.ui_tooltip().source == "script");
+    CHECK(asked > 0);
+    t.in.on_mouse_move({900, 400});  // over nothing: the world function
+    t.frame(2);
+    REQUIRE(t.w.ui_tooltip().shown);
+    CHECK(t.w.ui_tooltip().source == "world");
+    t.in.on_mouse_move({500, 400});  // the world function says null
+    t.frame(2);
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    // manual
+    REQUIRE(t.ui.show_tooltip(t.w, Json("here"), {1279, 719}, t.design, {}).ok());
+    CHECK(t.w.ui_tooltip().shown);
+    CHECK(t.w.ui_tooltip().source == "manual");
+    t.frame(2);
+    CHECK(t.w.ui_tooltip().shown);
+    t.in.on_mouse_move({20, 400});
+    t.frame();
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+    CHECK_FALSE(t.ui.show_tooltip(t.w, Json(5), {0, 0}, t.design, {}).ok());
+    // reset (a scene load) forgets the functions
+    t.ui.reset();
+    t.in.on_mouse_move(c);
+    t.frame(2);
+    CHECK_FALSE(t.w.ui_tooltip().shown);
+}
+
+// ----------------------------------------------------------------------------------------------------- modal Panel --
+TEST_CASE("ui Panel.modal: only its widgets get the pointer, the focus and the wheel while it is active") {
+    Ui t;
+    Entity under = t.button("under", {10, 10}, {80, 20});
+    t.w.get<Button>(under)->autoFocus = true;
+    t.frame();
+    CHECK(t.ui.focused() == under);
+
+    Entity modal = t.add<Panel>("modal", {100, 40}, {200, 100});
+    t.w.get<Panel>(modal)->modal = true;
+    t.w.get<Panel>(modal)->layer = 100;
+    Entity yes = t.button("yes", {110, 50}, {80, 20}, modal);
+    Entity no = t.button("no", {110, 80}, {80, 20}, modal);
+    t.w.get<Button>(yes)->layer = 101;
+    t.w.get<Button>(no)->layer = 101;
+    CHECK(ui_modal_panel(t.w) == modal);
+    t.frame();
+    CHECK(t.ui.focused() == yes);  // the focus left the widget outside, into the modal (its first widget)
+    t.events();
+    t.in.on_mouse_move({20, 20});          // over the button under the modal
+    t.frame();
+    CHECK(t.ui.hovered() == kNullEntity);
+    CHECK(t.ui.pointer_over_ui());
+    CHECK(ui_widget_at(t.w, t.design, {20, 20}) == kNullEntity);
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    for (const std::string& e : t.events()) CHECK(e.find("under") == std::string::npos);
+
+    t.ui.set_focus(t.w, yes);
+    CHECK(t.ui.focused() == yes);
+    t.in.on_key(Key::Down, true);
+    t.frame();
+    CHECK(t.ui.focused() == no);
+    t.in.on_key(Key::Down, false);
+    t.frame();
+    t.in.on_key(Key::Up, true);
+    t.frame();
+    t.in.on_key(Key::Up, false);
+    t.frame();
+    t.in.on_key(Key::Up, true);
+    t.frame();
+    CHECK(t.ui.focused() == yes);  // never the button outside
+
+    t.w.set_active(modal, false);  // closed: everything is reachable again
+    CHECK(ui_modal_panel(t.w) == kNullEntity);
+    t.in.on_key(Key::Up, false);
+    t.frame();
+    t.in.on_mouse_move({21, 21});
+    t.frame();
+    CHECK(t.ui.hovered() == under);
+}
+
+TEST_CASE("Chart: the sample under the pointer is written to the component and sent as ui.chartHover when it changes") {
+    Ui t;
+    Entity e = t.add<Chart>("sales", {10, 10}, {200, 100});
+    Chart& c = *t.w.get<Chart>(e);
+    c.values = Json::array({10, 20, 40, 30});  // four bars of 47 units each in the 188 wide plot (padding 6)
+    c.padding = 6;
+    auto chart_events = [&] {
+        std::vector<Json> out;
+        for (const GameEvent& g : t.w.events().game)
+            if (g.name == "ui.chartHover") out.push_back(g.data);
+        t.w.events().game.clear();
+        return out;
+    };
+    t.ui.set_pointer({20, 60}, false);  // plot x = 16 .. 204: the first slot is 16 .. 63
+    t.frame();
+    std::vector<Json> ev = chart_events();
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["id"] == "sales");
+    CHECK(ev[0]["index"] == 0);
+    CHECK(ev[0]["series"] == 0);
+    CHECK(ev[0]["value"].get<double>() == 10.0);
+    CHECK(c.hoverIndex == 0);
+    t.frame();
+    CHECK(chart_events().empty());  // the same sample: nothing new
+    t.ui.set_pointer({100, 60}, false);  // slot 1 (63 .. 110)... x = 100 is in slot 1
+    t.frame();
+    ev = chart_events();
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["index"] == 1);
+    CHECK(c.hoverIndex == 1);
+    t.ui.set_pointer({300, 60}, false);  // off the chart
+    t.frame();
+    ev = chart_events();
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["index"] == -1);
+    CHECK(ev[0]["series"] == -1);
+    CHECK(!ev[0].contains("value"));
+    CHECK(c.hoverIndex == -1);
+    CHECK(t.ui.hovered() == kNullEntity);  // a Chart is not focusable or hoverable like a control
+    t.ui.set_pointer({20, 60}, false);
+    t.frame();
+    chart_events();
+    t.ui.reset();  // a scene load forgets the state (and the virtual pointer): the next frame reports the sample again
+    t.ui.set_pointer({20, 60}, false);
+    t.frame();
+    CHECK(chart_events().size() == 1);
+}
+
+// ------------------------------------------------------------------------------- CameraView: ui.viewPointer --
+namespace {
+
+// The ui.viewPointer events since the last call (the other ui.* events are dropped).
+std::vector<Json> view_events(Ui& t) {
+    std::vector<Json> out;
+    for (const GameEvent& e : t.w.events().game)
+        if (e.name == "ui.viewPointer") {
+            CHECK(e.source != kNullEntity);
+            out.push_back(e.data);
+        }
+    t.w.events().game.clear();
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("CameraView: press, drag and release send ui.viewPointer with the pointer, u/v and the delta") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.in.on_mouse_move({40, 40});
+    t.frame();
+    CHECK(view_events(t).empty());  // hovering alone says nothing
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    auto ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["phase"] == "down");
+    CHECK(ev[0]["id"] == "view");
+    CHECK(ev[0]["x"].get<float>() == 40.0f);
+    CHECK(ev[0]["u"].get<float>() == doctest::Approx(0.2f));   // 20 of 100 px from the left
+    CHECK(ev[0]["v"].get<float>() == doctest::Approx(0.25f));  // 20 of 80 px from the top
+    t.in.on_mouse_move({55, 36});
+    t.frame();
+    ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["phase"] == "drag");
+    CHECK(ev[0]["dx"].get<float>() == 15.0f);
+    CHECK(ev[0]["dy"].get<float>() == -4.0f);
+    t.frame();
+    CHECK(view_events(t).empty());  // no move, no event
+    t.in.on_mouse_move({300, 150});  // the drag goes on outside the view: u and v leave 0..1
+    t.frame();
+    ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["u"].get<float>() > 1.0f);
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["phase"] == "up");
+    CHECK(ev[0]["id"] == "view");
+    t.frame();
+    CHECK(view_events(t).empty());
+    (void)view;
+}
+
+TEST_CASE("CameraView: a press outside, pointerEvents off or an inactive view send nothing; a press elsewhere never drags it") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.in.on_mouse_move({200, 150});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_move({60, 60});  // dragged into the view from outside: not a drag of the view
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(view_events(t).empty());
+
+    t.w.get<CameraView>(view)->pointerEvents = false;
+    t.click({60, 60});
+    CHECK(view_events(t).empty());
+    t.w.get<CameraView>(view)->pointerEvents = true;
+    t.w.set_active(view, false);
+    t.click({60, 60});
+    CHECK(view_events(t).empty());
+}
+
+TEST_CASE("CameraView: a Button over it keeps the click, a view under a modal Panel hears nothing, a ScrollList clips it") {
+    Ui t;
+    t.add<CameraView>("view", {20, 20}, {100, 80});
+    Entity over = t.button("over", {30, 30}, {40, 20});
+    t.w.get<Button>(over)->layer = 500;
+    t.click({40, 40});
+    CHECK(view_events(t).empty());
+    t.click({100, 90});  // the part of the view the button does not cover
+    CHECK(view_events(t).size() == 2);  // down and up
+    t.w.events().game.clear();
+
+    Entity modal = t.add<Panel>("modal", {0, 0}, {320, 180});
+    t.w.get<Panel>(modal)->modal = true;
+    t.w.get<Panel>(modal)->layer = 600;
+    t.click({100, 90});
+    CHECK(view_events(t).empty());
+    t.w.set_active(modal, false);
+
+    Entity list = t.add<ScrollList>("list", {150, 20}, {100, 40});
+    t.add<CameraView>("inlist", {0, 0}, {100, 120}, list);
+    t.click({200, 40});
+    CHECK(view_events(t).size() == 2);
+    t.click({200, 100});  // below the list's bottom edge: clipped away
+    CHECK(view_events(t).empty());
+}
+
+TEST_CASE("CameraView: the wheel over it is sent and consumed (captureWheel); off, it scrolls the list under it as before") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.in.on_mouse_move({60, 60});
+    t.frame();
+    t.in.on_mouse_wheel(-2);
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    auto ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["phase"] == "wheel");
+    CHECK(ev[0]["wheel"].get<float>() == -2.0f);
+    CHECK(t.ui.wheel_consumed());
+    CHECK(t.in.mouse_wheel() == 0.0f);
+    t.in.begin_frame();
+
+    t.w.get<CameraView>(view)->captureWheel = false;
+    t.in.on_mouse_wheel(-2);
+    t.ui.update(t.w, t.in, t.design, t.dt, {});
+    CHECK(view_events(t).empty());
+    CHECK(!t.ui.wheel_consumed());
+    CHECK(t.in.mouse_wheel() == -2.0f);
+}
+
+TEST_CASE("CameraView: a view destroyed or hidden in the middle of a drag ends the drag quietly") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.in.on_mouse_move({40, 40});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    CHECK(view_events(t).size() == 1);
+    t.w.destroy(view);
+    t.in.on_mouse_move({50, 50});
+    t.frame();
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(view_events(t).empty());
+
+    Entity second = t.add<CameraView>("second", {20, 20}, {100, 80});
+    t.in.on_mouse_move({40, 40});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    CHECK(view_events(t).size() == 1);
+    t.w.set_active(second, false);
+    t.in.on_mouse_move({60, 50});
+    t.frame();
+    CHECK(view_events(t).empty());
+    t.w.set_active(second, true);
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    CHECK(view_events(t).empty());  // the drag was dropped when the view went away; a late release is not an "up"
+}
+
+TEST_CASE("ui mirror: a CameraView's rectangle flips with the layout but its picture and u/v are not mirrored") {
+    Ui t;
+    Entity view = t.add<CameraView>("view", {20, 20}, {100, 80});
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(view).x == doctest::Approx(320 - 20 - 100));  // the rectangle is on the other side (200 .. 300)
+    t.in.on_mouse_move({200 + 20, 40});  // 20 px from the view's left edge, which is on screen
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    auto ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["u"].get<float>() == doctest::Approx(0.2f));  // u still counts from the picture's own left edge
+    CHECK(ev[0]["v"].get<float>() == doctest::Approx(0.25f));
+    t.in.on_mouse_move({235, 36});
+    t.frame();
+    ev = view_events(t);
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0]["dx"].get<float>() == 15.0f);  // a drag to the right is still a positive dx
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame();
+    view_events(t);
+    t.w.get<CameraView>(view)->mirror = false;  // mirror false keeps even the rectangle where it is written
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(view).x == doctest::Approx(20));
 }

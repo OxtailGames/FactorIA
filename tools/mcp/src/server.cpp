@@ -2,12 +2,18 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <condition_variable>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
+#include <thread>
 
+#include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/api_export.h"
 
@@ -23,6 +29,89 @@ constexpr int kMethodNotFound = -32601;
 constexpr int kInvalidParams = -32602;
 constexpr int kInternalError = -32603;
 constexpr int kResourceNotFound = -32002;
+
+// "42s", "3m 05s", "1h 02m": the elapsed time that ends every progress message.
+std::string elapsed_label(std::chrono::seconds s) {
+    const long long n = s.count();
+    if (n < 60) return std::to_string(n) + "s";
+    char buf[32];
+    if (n < 3600) std::snprintf(buf, sizeof buf, "%lldm %02llds", n / 60, n % 60);
+    else std::snprintf(buf, sizeof buf, "%lldh %02lldm", n / 3600, (n / 60) % 60);
+    return buf;
+}
+
+// Sends notifications/progress for one tools/call: what the command reports (throttled), plus a heartbeat while it is
+// silent. report() runs on the calling thread, the heartbeat on a thread of its own; `send` must be thread-safe.
+class ProgressPump {
+public:
+    ProgressPump(Json token, std::function<void(const Json&)> send, std::chrono::milliseconds throttle,
+                 std::chrono::milliseconds heartbeat)
+        : token_(std::move(token)),
+          send_(std::move(send)),
+          throttle_(throttle),
+          heartbeat_(heartbeat),
+          start_(std::chrono::steady_clock::now()),
+          lastSent_(start_),
+          message_("working"),
+          thread_([this] { run(); }) {}
+    ~ProgressPump() {
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            done_ = true;
+        }
+        cv_.notify_all();
+        thread_.join();
+    }
+    ProgressPump(const ProgressPump&) = delete;
+    ProgressPump& operator=(const ProgressPump&) = delete;
+
+    bool report(std::string_view message) {
+        std::lock_guard<std::mutex> lock(mu_);
+        message_ = std::string(message);
+        fresh_ = true;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastSent_ >= throttle_) send_locked(now);  // else the thread sends it when the throttle is over
+        return true;
+    }
+
+private:
+    void send_locked(std::chrono::steady_clock::time_point now) {
+        lastSent_ = now;
+        fresh_ = false;
+        const auto secs = std::chrono::duration_cast<std::chrono::seconds>(now - start_);
+        send_(Json::object(
+            {{"jsonrpc", "2.0"},
+             {"method", "notifications/progress"},
+             {"params", Json::object({{"progressToken", token_},
+                                      {"progress", ++counter_},
+                                      {"message", message_ + " [" + elapsed_label(secs) + "]"}})}}));
+    }
+    void run() {
+        std::unique_lock<std::mutex> lock(mu_);
+        while (!done_) {
+            const auto now = std::chrono::steady_clock::now();
+            auto due = lastSent_ + heartbeat_;
+            if (fresh_) due = std::min(due, lastSent_ + throttle_);
+            if (now >= due) {
+                send_locked(now);
+                continue;
+            }
+            cv_.wait_until(lock, due);
+        }
+    }
+
+    Json token_;
+    std::function<void(const Json&)> send_;
+    std::chrono::milliseconds throttle_, heartbeat_;
+    std::chrono::steady_clock::time_point start_, lastSent_;
+    std::string message_;
+    bool fresh_ = false;  // a message that has not been sent yet
+    bool done_ = false;
+    double counter_ = 0;
+    std::mutex mu_;
+    std::condition_variable cv_;
+    std::thread thread_;  // last: starts when everything above exists
+};
 
 std::string dump_line(const Json& j) { return j.dump(-1, ' ', false, Json::error_handler_t::replace); }
 std::string dump_pretty(const Json& j) { return j.dump(2, ' ', false, Json::error_handler_t::replace); }
@@ -94,6 +183,11 @@ void McpServer::emit(const Json& message) {
     else queued_.push_back(std::move(line));
 }
 
+void McpServer::set_progress_timing(std::chrono::milliseconds throttle, std::chrono::milliseconds heartbeat) {
+    progressThrottle_ = throttle;
+    progressHeartbeat_ = heartbeat;
+}
+
 void McpServer::notify_tools_changed() {
     emit(Json::object({{"jsonrpc", "2.0"}, {"method", "notifications/tools/list_changed"}}));
 }
@@ -113,6 +207,7 @@ Json McpServer::tools_json() const {
     Json tools = Json::array();
     std::set<std::string> seen;
     for (const CommandInfo* c : host_.commands().list()) {
+        if (filter_ && !filter_(*c)) continue;
         std::string name = mcp_tool_name(c->name);
         if (!seen.insert(name).second) continue;  // name collision after mapping: first wins
         Json t = Json::object();
@@ -136,7 +231,58 @@ Json McpServer::tools_json() const {
     return tools;
 }
 
+Json McpServer::session_state() const {
+    return Json::object({{"protocolVersion", protocol_},
+                         {"clientInfo", clientInfo_},
+                         {"clientCapabilities", clientCapabilities_},
+                         {"logLevel", logLevel_}});
+}
+
+bool McpServer::restore_session(const Json& state) {
+    if (!state.is_object() || !state.contains("protocolVersion") || !state["protocolVersion"].is_string()) return false;
+    protocol_ = state["protocolVersion"].get<std::string>();
+    clientInfo_ = state.contains("clientInfo") && state["clientInfo"].is_object() ? state["clientInfo"] : Json::object();
+    clientName_ = clientInfo_.value("name", std::string());
+    clientCapabilities_ =
+        state.contains("clientCapabilities") && state["clientCapabilities"].is_object() ? state["clientCapabilities"] : Json::object();
+    if (state.contains("logLevel") && state["logLevel"].is_string() && level_rank(state["logLevel"].get<std::string>()) >= 0)
+        logLevel_ = state["logLevel"].get<std::string>();
+    initialized_ = true;
+    return true;
+}
+
+void McpServer::add_tool_notice(const std::string& key, const std::string& text) {
+    std::lock_guard<std::mutex> lock(noticeMutex_);
+    for (auto& n : notices_)
+        if (n.first == key) {
+            n.second = text;
+            return;
+        }
+    notices_.emplace_back(key, text);
+}
+
+std::vector<std::string> McpServer::pending_tool_notices() const {
+    std::lock_guard<std::mutex> lock(noticeMutex_);
+    std::vector<std::string> out;
+    for (const auto& n : notices_) out.push_back(n.second);
+    return out;
+}
+
+// The result of a tools/call, with the notices that wait for one added as a last text block.
 Json McpServer::call_tool(const Json& params) {
+    Json out = run_tool(params);
+    std::string text;
+    {
+        std::lock_guard<std::mutex> lock(noticeMutex_);
+        for (const auto& n : notices_) text += (text.empty() ? "" : "\n\n") + n.second;
+        notices_.clear();
+    }
+    if (!text.empty() && out.contains("content") && out["content"].is_array())
+        out["content"].push_back(Json::object({{"type", "text"}, {"text", "[FactorIA notice] " + text}}));
+    return out;
+}
+
+Json McpServer::run_tool(const Json& params) {
     if (!params.is_object() || !params.contains("name") || !params["name"].is_string())
         throw CommandError("invalid_params", "tools/call needs params.name (string).");
     const std::string toolName = params["name"].get<std::string>();
@@ -147,6 +293,7 @@ Json McpServer::call_tool(const Json& params) {
     std::string command;
     std::vector<std::string> toolNames;
     for (const CommandInfo* c : host_.commands().list()) {
+        if (filter_ && !filter_(*c)) continue;
         std::string n = mcp_tool_name(c->name);
         if (n == toolName && command.empty()) command = c->name;
         toolNames.push_back(n);
@@ -157,7 +304,18 @@ Json McpServer::call_tool(const Json& params) {
     if (command.empty())
         return textResult("unknown_tool: " + did_you_mean(toolName, toolNames) + "\nhint: call tools/list to see the available tools.", true);
 
+    // Progress: only when the client asked for it with a progressToken. The pump's thread sends the heartbeats; the
+    // scope lets the command report what it does (this thread only: see CommandProgressScope).
+    std::unique_ptr<ProgressPump> pump;
+    if (params.contains("_meta") && params["_meta"].is_object() && params["_meta"].contains("progressToken") &&
+        (params["_meta"]["progressToken"].is_string() || params["_meta"]["progressToken"].is_number()))
+        pump = std::make_unique<ProgressPump>(params["_meta"]["progressToken"], [this](const Json& m) { emit(m); },
+                                              progressThrottle_, progressHeartbeat_);
+    std::optional<CommandProgressScope> scope;
+    if (pump) scope.emplace([p = pump.get()](std::string_view message) { return p->report(message); });
     CommandResult r = host_.commands().call(command, args);
+    scope.reset();
+    pump.reset();  // no progress after the reply
     if (!r.ok) {
         std::string code = r.error.is_object() ? r.error.value("code", "failed") : "failed";
         std::string message = r.error.is_object() ? r.error.value("message", "") : r.error.dump();
@@ -188,6 +346,13 @@ Json McpServer::call_tool(const Json& params) {
                 ss << in.rdbuf();
                 std::string bytes = ss.str();
                 b64 = base64_encode(bytes.data(), bytes.size());
+                in.close();
+                // A screenshot without `path` is temporary: now that its bytes are in the reply the file can go.
+                if (!b64.empty() && discard_temporary_image(spec, host_.project_dir())) {
+                    spec.erase("path");
+                    spec["note"] = "Attached to this reply as an image; the temporary file was deleted. Pass `path` to keep a screenshot.";
+                    result["$image"] = spec;
+                }
             } else {
                 note = "image file not found: " + p.string();
             }
@@ -212,8 +377,12 @@ Json McpServer::handle_request(const std::string& method, const Json& params, co
         std::string requested = params.is_object() ? params.value("protocolVersion", std::string()) : std::string();
         const auto& sup = mcp_supported_protocols();
         protocol_ = std::find(sup.begin(), sup.end(), requested) != sup.end() ? requested : std::string(kMcpLatestProtocol);
-        if (params.is_object() && params.contains("clientInfo") && params["clientInfo"].is_object())
-            clientName_ = params["clientInfo"].value("name", std::string());
+        if (params.is_object() && params.contains("clientInfo") && params["clientInfo"].is_object()) {
+            clientInfo_ = params["clientInfo"];
+            clientName_ = clientInfo_.value("name", std::string());
+        }
+        clientCapabilities_ =
+            params.is_object() && params.contains("capabilities") && params["capabilities"].is_object() ? params["capabilities"] : Json::object();
         initialized_ = true;
         Json caps = Json::object({{"tools", Json::object({{"listChanged", true}})},
                                   {"resources", Json::object({{"listChanged", true}})},

@@ -738,3 +738,636 @@ TEST_CASE("cursor and on-screen keyboard state is kept for the window to apply")
     in.release_all();  // losing focus does not forget what the game asked for
     CHECK(in.mouse_locked());
 }
+
+TEST_CASE("pads announce connect, disconnect and reconnect and keep a stable id") {
+    Input in;
+    GamepadInfo a;
+    a.name = "Wireless Controller";
+    a.vendor = 0x054c;
+    a.product = 0x09cc;
+    a.type = GamepadType::PlayStation;
+    a.id = make_gamepad_id(a.vendor, a.product, a.name, "aa:bb");
+    CHECK(a.id == "054c:09cc:Wireless Controller#aa:bb");
+    CHECK(make_gamepad_id(1, 2, "X", "") == "0001:0002:X");
+
+    in.set_gamepad_info(2, a);
+    in.on_gamepad_connected(2, true);
+    in.on_gamepad_connected(2, true);  // a backend repeats it every poll: one event
+    in.on_gamepad_button(2, GamepadButton::A, true);
+    auto events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].connected);
+    CHECK(events[0].slot == 2);
+    CHECK(events[0].info.id == a.id);
+    CHECK(events[0].info.name == "Wireless Controller");
+    CHECK(events[0].info.type == GamepadType::PlayStation);
+    CHECK(in.take_gamepad_events().empty());
+
+    in.on_gamepad_connected(2, false);
+    in.on_gamepad_connected(2, false);  // a free slot is reported every poll too: one event
+    events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK_FALSE(events[0].connected);
+    CHECK(events[0].info.id == a.id);  // the id outlives the pad
+    CHECK(in.gamepad_info(2).id == a.id);
+
+    // Back again: announced again, with the same id.
+    in.set_gamepad_info(2, a);
+    in.on_gamepad_connected(2, true);
+    events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].connected);
+    CHECK(events[0].info.id == a.id);
+}
+
+TEST_CASE("losing the focus does not announce a pad that is still plugged in") {
+    Input in;
+    in.on_gamepad_connected(0, true);
+    in.take_gamepad_events();
+    in.release_all();  // focus lost: disconnects quietly
+    CHECK_FALSE(in.gamepad_connected(0));
+    in.on_gamepad_connected(0, true);  // the next poll finds it again
+    CHECK(in.gamepad_connected(0));
+    CHECK(in.take_gamepad_events().empty());
+    in.release_all();
+    in.on_gamepad_connected(0, false);  // unplugged while the window was unfocused
+    auto events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK_FALSE(events[0].connected);
+}
+
+TEST_CASE("a pad that comes back gets its old slot when it is free") {
+    Input in;
+    GamepadInfo red, blue;
+    red.id = "red";
+    blue.id = "blue";
+    in.set_gamepad_info(0, red);
+    in.on_gamepad_connected(0, true);
+    in.set_gamepad_info(1, blue);
+    in.on_gamepad_connected(1, true);
+    in.on_gamepad_connected(0, false);  // red leaves; blue stays in slot 1
+    in.on_gamepad_connected(1, false);
+    bool occupied[kMaxGamepads] = {};
+    CHECK(in.choose_gamepad_slot("blue", occupied) == 1);
+    CHECK(in.choose_gamepad_slot("red", occupied) == 0);
+    CHECK(in.choose_gamepad_slot("green", occupied) == 0);  // a stranger takes the first free one
+    occupied[1] = true;                                      // someone sits in blue's old slot
+    CHECK(in.choose_gamepad_slot("blue", occupied) == 0);
+    occupied[0] = occupied[2] = occupied[3] = true;
+    CHECK(in.choose_gamepad_slot("blue", occupied) == -1);  // full
+    CHECK(in.choose_gamepad_slot("blue", std::span<const bool>()) == 1);  // nothing occupied
+    in.reset_options();  // a new test forgets the pads
+    CHECK(in.choose_gamepad_slot("blue", std::span<const bool>()) == 0);
+}
+
+TEST_CASE("a pad nobody described gets an id from its slot; reset_options starts clean") {
+    Input in;
+    in.on_gamepad_button(3, GamepadButton::B, true);  // a button connects the pad
+    auto events = in.take_gamepad_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].info.id.find("slot 3") != std::string::npos);
+    CHECK(events[0].info.name == "Gamepad");
+    in.reset_options();
+    in.on_gamepad_button(3, GamepadButton::B, true);  // still plugged in the test's eyes, but a new test: announced again
+    CHECK(in.take_gamepad_events().size() == 1);
+}
+
+// ---------------------------------------------------------------------------
+// Players: one device each
+// ---------------------------------------------------------------------------
+namespace {
+const char* const kPlayerActions = R"({
+    "left": ["A", "Left", "GamepadDpadLeft", "GamepadLeftStickLeft"],
+    "right": ["D", "Right", "GamepadDpadRight", "GamepadLeftStickRight"],
+    "up": ["W", "Up", "GamepadDpadUp", "GamepadLeftStickUp"],
+    "down": ["S", "Down", "GamepadDpadDown", "GamepadLeftStickDown"],
+    "jump": ["Space", "Enter", "GamepadA"],
+    "pause": ["Escape", "MouseRight"]
+})";
+
+std::string join_lines(const std::vector<std::string>& v) {
+    std::string s;
+    for (const auto& p : v) s += p + "\n";
+    return s;
+}
+}  // namespace
+
+TEST_CASE("two pads drive two players' move independently, and the global actions hear both") {
+    Input in;
+    REQUIRE(in.set_actions(Json::parse(kPlayerActions)).empty());
+    REQUIRE(in.use_player_device(0, PlayerDevice{0, "", ""}).empty());
+    REQUIRE(in.use_player_device(1, PlayerDevice{1, "", ""}).empty());
+    in.on_gamepad_connected(0, true);
+    in.on_gamepad_connected(1, true);
+    in.begin_frame();
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, 1.0f);
+    in.on_gamepad_button(1, GamepadButton::DpadLeft, true);
+    CHECK(in.player_action_down(0, "right"));
+    CHECK_FALSE(in.player_action_down(0, "left"));
+    CHECK(in.player_action_down(1, "left"));
+    CHECK_FALSE(in.player_action_down(1, "right"));
+    CHECK(in.player_axis(0, "left", "right") == doctest::Approx(1.0f));
+    CHECK(in.player_axis(1, "left", "right") == doctest::Approx(-1.0f));
+    CHECK(in.player_vector(0, "left", "right", "down", "up").x == doctest::Approx(1.0f));
+    CHECK(in.player_vector(1, "left", "right", "down", "up").x == doctest::Approx(-1.0f));
+    CHECK(in.player_action_pressed(1, "left"));
+    CHECK_FALSE(in.player_action_pressed(0, "left"));
+    // the global actions are unchanged: every device
+    CHECK(in.action_down("left"));
+    CHECK(in.action_down("right"));
+    in.begin_frame();
+    in.on_gamepad_button(1, GamepadButton::DpadLeft, false);
+    CHECK(in.player_action_released(1, "left"));
+    CHECK_FALSE(in.player_action_released(0, "right"));
+    CHECK_FALSE(in.player_action_pressed(1, "left"));
+}
+
+TEST_CASE("a player with no device reads nothing; the pointer is not shared") {
+    Input in;
+    REQUIRE(in.set_actions(Json::parse(kPlayerActions)).empty());
+    in.on_gamepad_connected(0, true);
+    in.begin_frame();
+    in.on_key(Key::A, true);
+    in.on_mouse_button(MouseButton::Right, true);
+    in.on_gamepad_button(0, GamepadButton::A, true);
+    CHECK_FALSE(in.player_action_down(0, "left"));
+    CHECK_FALSE(in.player_action_down(0, "jump"));
+    CHECK_FALSE(in.player_action_pressed(0, "jump"));
+    CHECK(in.player_axis(0, "left", "right") == 0.0f);
+    // a pad-only player does not read the keyboard; a keys player does not read pads
+    REQUIRE(in.use_player_device(0, PlayerDevice{0, "", ""}).empty());
+    CHECK_FALSE(in.player_action_down(0, "left"));
+    CHECK(in.player_action_down(0, "jump"));
+    REQUIRE(in.use_player_device(0, PlayerDevice{-1, "", "all"}).empty());
+    CHECK(in.player_action_down(0, "left"));
+    CHECK_FALSE(in.player_action_down(0, "jump"));
+    CHECK_FALSE(in.player_action_down(0, "pause"));  // MouseRight: the shared pointer, not a player's
+    CHECK(in.action_down("pause"));
+    // out of range reads nothing and ignores changes
+    CHECK_FALSE(in.player_action_down(-1, "left"));
+    CHECK_FALSE(in.player_action_down(kMaxPlayers, "left"));
+    CHECK_FALSE(in.use_player_device(kMaxPlayers, PlayerDevice{}).empty());
+    // an unknown action reads nothing
+    CHECK_FALSE(in.player_action_down(0, "nonsense"));
+}
+
+TEST_CASE("the keyboard halves: two players on one keyboard read their own keys") {
+    Input in;
+    REQUIRE(in.set_actions(Json::parse(kPlayerActions)).empty());
+    REQUIRE(in.use_player_device(0, PlayerDevice{-1, "", "left"}).empty());
+    REQUIRE(in.use_player_device(1, PlayerDevice{-1, "", "right"}).empty());
+    in.begin_frame();
+    in.on_key(Key::A, true);
+    in.on_key(Key::Right, true);
+    in.on_key(Key::Space, true);
+    CHECK(in.player_action_down(0, "left"));
+    CHECK_FALSE(in.player_action_down(0, "right"));
+    CHECK(in.player_action_down(1, "right"));
+    CHECK_FALSE(in.player_action_down(1, "left"));
+    CHECK(in.player_action_down(0, "jump"));  // Space is the left half's
+    CHECK_FALSE(in.player_action_down(1, "jump"));
+    CHECK(in.player_bindings(0, "jump") == std::vector<std::string>{"Space"});
+    CHECK(in.player_bindings(1, "jump") == std::vector<std::string>{"Enter"});
+    CHECK(in.player_bindings(1, "left") == std::vector<std::string>{"Left"});
+    CHECK(in.player_last_pressed(0) == "A");
+    CHECK(in.player_last_pressed(1) == "Right");
+}
+
+TEST_CASE("rebinding player 2 leaves player 1 alone, and the global bindings too") {
+    Input in;
+    REQUIRE(in.set_actions(Json::parse(kPlayerActions)).empty());
+    REQUIRE(in.use_player_device(0, PlayerDevice{0, "", "left"}).empty());
+    REQUIRE(in.use_player_device(1, PlayerDevice{1, "", "right"}).empty());
+    const auto before0 = in.player_bindings(0, "jump");
+    REQUIRE(in.player_rebind(1, "jump", {"Backspace"}).empty());
+    CHECK(in.player_bindings(1, "jump", "keys") == std::vector<std::string>{"Backspace"});
+    CHECK(in.player_bindings(1, "jump", "pad") == std::vector<std::string>{"GamepadA"});  // the other family is untouched
+    REQUIRE(in.player_rebind(1, "jump", {"GamepadX"}).empty());
+    CHECK(in.player_bindings(1, "jump") == (std::vector<std::string>{"Backspace", "GamepadX"}));
+    CHECK(in.player_bindings(0, "jump") == before0);
+    CHECK(in.bindings("jump") == (std::vector<std::string>{"Space", "Enter", "GamepadA"}));
+    in.begin_frame();
+    in.on_key(Key::Backspace, true);
+    CHECK(in.player_action_down(1, "jump"));
+    CHECK_FALSE(in.player_action_down(0, "jump"));
+    CHECK_FALSE(in.action_down("jump"));  // global bindings unchanged
+    // reset one action, then all
+    REQUIRE(in.player_rebind(1, "left", {"Period"}).empty());
+    REQUIRE(in.player_reset(1, "jump").empty());
+    CHECK(in.player_bindings(1, "jump") == (std::vector<std::string>{"Enter", "GamepadA"}));
+    CHECK(in.player_bindings(1, "left", "keys") == std::vector<std::string>{"Period"});
+    REQUIRE(in.player_reset(1).empty());
+    CHECK(in.player_bindings(1, "left", "keys") == std::vector<std::string>{"Left"});
+}
+
+TEST_CASE("player rebind validates: did you mean, scheme keys, pointer, family") {
+    Input in;
+    REQUIRE(in.set_actions(Json::parse(kPlayerActions)).empty());
+    REQUIRE(in.use_player_device(0, PlayerDevice{0, "", "left"}).empty());
+    auto p = in.player_rebind(0, "jmp", {"Space"});
+    REQUIRE(p.size() == 1);
+    CHECK(join_lines(p).find("jump") != std::string::npos);
+    p = in.player_rebind(0, "jump", {"Spce"});
+    REQUIRE(p.size() == 1);
+    CHECK(join_lines(p).find("Space") != std::string::npos);
+    p = in.player_rebind(0, "jump", {"Enter"});  // a key of the right half
+    REQUIRE(p.size() == 1);
+    CHECK(join_lines(p).find("scheme 'left'") != std::string::npos);
+    p = in.player_rebind(0, "jump", {"MouseLeft"});
+    REQUIRE(p.size() == 1);
+    CHECK(join_lines(p).find("pointer") != std::string::npos);
+    p = in.player_rebind(0, "jump", {"GamepadB"}, "keys");
+    CHECK(p.size() == 1);
+    p = in.player_rebind(0, "jump", {"Z", "GamepadB"});
+    CHECK(p.size() == 1);
+    p = in.player_rebind(0, "jump", {"Z"}, "hands");
+    CHECK(p.size() == 1);
+    // all or nothing: nothing changed
+    CHECK(in.player_bindings(0, "jump", "keys") == std::vector<std::string>{"Space"});
+    CHECK_FALSE(in.player_rebind(7, "jump", {"Z"}).empty());
+}
+
+TEST_CASE("use_player_device validates and a player follows its pad id to another slot") {
+    Input in;
+    REQUIRE(in.set_actions(Json::parse(kPlayerActions)).empty());
+    auto p = in.use_player_device(0, PlayerDevice{9, "", ""});
+    CHECK(p.size() == 1);
+    p = in.use_player_device(0, PlayerDevice{0, "x", ""});
+    CHECK(p.size() == 1);
+    p = in.use_player_device(0, PlayerDevice{-1, "", "lefft"});
+    REQUIRE(p.size() == 1);
+    CHECK(p[0].find("left") != std::string::npos);
+    CHECK(in.player_device(0) == PlayerDevice{});  // nothing changed
+
+    GamepadInfo red;
+    red.name = "Red";
+    red.id = make_gamepad_id(1, 1, "Red", "r");
+    GamepadInfo blue;
+    blue.name = "Blue";
+    blue.id = make_gamepad_id(1, 2, "Blue", "b");
+    in.set_gamepad_info(0, red);
+    in.on_gamepad_connected(0, true);
+    in.set_gamepad_info(1, blue);
+    in.on_gamepad_connected(1, true);
+    REQUIRE(in.use_player_device(0, PlayerDevice{-1, red.id, ""}).empty());
+    REQUIRE(in.use_player_device(1, PlayerDevice{-1, blue.id, ""}).empty());
+    CHECK(in.player_pad(0) == 0);
+    CHECK(in.player_pad(1) == 1);
+    in.on_gamepad_connected(0, false);  // both unplug: their players read nothing
+    in.on_gamepad_connected(1, false);
+    CHECK(in.player_pad(0) == -1);
+    in.set_gamepad_info(0, blue);  // blue comes back first, in slot 0
+    in.on_gamepad_connected(0, true);
+    in.set_gamepad_info(1, red);
+    in.on_gamepad_connected(1, true);
+    CHECK(in.player_pad(0) == 1);  // follows red
+    CHECK(in.player_pad(1) == 0);
+    in.begin_frame();
+    in.on_gamepad_button(1, GamepadButton::A, true);
+    CHECK(in.player_action_down(0, "jump"));
+    CHECK_FALSE(in.player_action_down(1, "jump"));
+}
+
+TEST_CASE("project key schemes: extends, keys, actions, and errors that teach") {
+    Input in;
+    REQUIRE(in.set_actions(Json::parse(kPlayerActions)).empty());
+    auto p = in.set_key_schemes(Json::parse(R"({
+        "pad1": {"extends": "left", "actions": {"jump": ["Z"]}},
+        "ijkl": ["I", "J", "K", "L"]
+    })"));
+    CHECK(p.empty());
+    CHECK(in.key_scheme_names() == (std::vector<std::string>{"all", "left", "right", "ijkl", "pad1"}));
+    REQUIRE(in.use_player_device(0, PlayerDevice{-1, "", "pad1"}).empty());
+    CHECK(in.player_bindings(0, "jump") == std::vector<std::string>{"Z"});
+    CHECK(in.player_bindings(0, "left") == std::vector<std::string>{"A"});
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.player_action_down(0, "jump"));
+    in.on_key(Key::Z, false);
+    in.on_key(Key::Space, true);  // in the scheme (left half) but not bound to jump there
+    CHECK_FALSE(in.player_action_down(0, "jump"));
+
+    auto bad = in.set_key_schemes(Json::parse(R"({
+        "left": ["A"],
+        "x": {"extends": "lefft"},
+        "y": {"keys": ["Spce"]},
+        "z": {"extends": "left", "actions": {"jmp": ["A"]}},
+        "w": {"extend": "left"},
+        "v": {}
+    })"));
+    const std::string all = join_lines(bad);
+    INFO(all);
+    CHECK(bad.size() == 6);  // one problem per scheme; "w" only reports its unknown field
+    CHECK(all.find("built-in scheme") != std::string::npos);
+    CHECK(all.find("left") != std::string::npos);
+    CHECK(all.find("Space") != std::string::npos);
+    CHECK(all.find("jump") != std::string::npos);
+    CHECK(all.find("extends") != std::string::npos);
+    CHECK(in.key_scheme_names().size() == 3);  // none of them was accepted
+}
+
+TEST_CASE("player bindings export and import: only what differs, bad entries skipped and reported") {
+    Input in;
+    REQUIRE(in.set_actions(Json::parse(kPlayerActions)).empty());
+    REQUIRE(in.use_player_device(0, PlayerDevice{0, "", "left"}).empty());
+    CHECK(in.player_export(0) == Json::object());
+    REQUIRE(in.player_rebind(0, "jump", {"X"}).empty());
+    REQUIRE(in.player_rebind(0, "jump", {"GamepadY"}).empty());
+    Json saved = in.player_export(0);
+    CHECK(saved == Json::parse(R"({"keys": {"jump": ["X"]}, "pad": {"jump": ["GamepadY"]}})"));
+    REQUIRE(in.player_reset(0).empty());
+    CHECK(in.player_export(0) == Json::object());
+    CHECK(in.player_import(0, saved).empty());
+    CHECK(in.player_bindings(0, "jump") == (std::vector<std::string>{"X", "GamepadY"}));
+    auto p = in.player_import(0, Json::parse(R"({"keys": {"jump": ["Q"], "gone": ["A"], "left": ["Nope"]}, "pad": {"jump": ["Q"]}})"));
+    CHECK(p.size() == 3);
+    CHECK(in.player_bindings(0, "jump", "keys") == std::vector<std::string>{"Q"});
+    CHECK(in.player_bindings(0, "jump", "pad") == std::vector<std::string>{"GamepadA"});  // defaults again
+    CHECK(in.player_bindings(0, "left", "keys") == std::vector<std::string>{"A"});
+}
+
+TEST_CASE("reset_options forgets players; snapshot lists players with a device") {
+    Input in;
+    REQUIRE(in.set_actions(Json::parse(kPlayerActions)).empty());
+    CHECK_FALSE(in.snapshot().contains("players"));
+    REQUIRE(in.use_player_device(2, PlayerDevice{-1, "", "right"}).empty());
+    in.begin_frame();
+    in.on_key(Key::Right, true);
+    Json snap = in.snapshot();
+    REQUIRE(snap.contains("players"));
+    CHECK(snap["players"][0]["player"] == 2);
+    CHECK(snap["players"][0]["keys"] == "right");
+    CHECK(snap["players"][0]["actionsDown"] == Json::parse(R"(["right"])"));
+    in.reset_options();
+    CHECK(in.player_device(2) == PlayerDevice{});
+    CHECK_FALSE(in.snapshot().contains("players"));
+}
+
+// ---------------------------------------------------------------------------
+// Modifier chords (M31.18)
+// ---------------------------------------------------------------------------
+TEST_CASE("chords: names parse and print back in the canonical order") {
+    Input in;
+    in.set_actions(Json::parse(R"({"undo": ["Ctrl+Z"], "multi": ["shift + mouseleft"], "all": ["Shift+Ctrl+alt+S"], "mod": ["Shift"]})"));
+    CHECK(in.bindings("undo") == std::vector<std::string>{"Ctrl+Z"});
+    CHECK(in.bindings("multi") == std::vector<std::string>{"Shift+MouseLeft"});
+    CHECK(in.bindings("all") == std::vector<std::string>{"Ctrl+Alt+Shift+S"});
+    CHECK(in.bindings("mod") == std::vector<std::string>{"Shift"});
+    CHECK(Input::is_binding_name("Control+Z"));
+    CHECK(Input::is_binding_name("Cmd+Touch"));
+    CHECK_FALSE(Input::is_binding_name("Ctrl+"));
+    CHECK_FALSE(Input::is_binding_name("Ctrl+Ctrl+Z"));
+    CHECK_FALSE(Input::is_binding_name("Ctrl+GamepadA"));
+    CHECK_FALSE(Input::is_binding_name("LeftShift+Z"));
+    CHECK(Input::binding_label("Ctrl+Shift+MouseLeft", GamepadType::Generic) == "Ctrl+Shift+Left Click");
+    CHECK(modifier_from_name("ctrl") == modifier::Ctrl);
+    CHECK(modifier_from_name("LeftShift") == 0);
+}
+
+TEST_CASE("chords: bad ones are reported where they are, with what to write instead") {
+    Input in;
+    auto problems = in.set_actions(Json::parse(
+        R"({"a": ["Cntrl+Z"], "b": ["Ctrl+Zz"], "c": ["Ctrl+"], "d": ["Ctrl+GamepadA"], "e": ["LeftShift+Z"], "f": ["Ctrl+Ctrl+Z"]})"));
+    REQUIRE(problems.size() == 6);
+    auto all = [&] { std::string t; for (auto& p : problems) t += p + "\n"; return t; }();
+    CHECK(all.find("input.actions.a: unknown binding 'Cntrl+Z'") != std::string::npos);
+    CHECK(all.find("'Cntrl' is not a modifier. Did you mean 'Ctrl'?") != std::string::npos);
+    CHECK(all.find("Write it as \"Ctrl+Z\"") != std::string::npos);
+    CHECK(all.find("'Zz' is not an input") != std::string::npos);
+    CHECK(all.find("empty part") != std::string::npos);
+    CHECK(all.find("not with the gamepad binding 'GamepadA'") != std::string::npos);
+    CHECK(all.find("names one side's key") != std::string::npos);
+    CHECK(all.find("appears twice") != std::string::npos);
+}
+
+TEST_CASE("chords: an action fires only with its modifiers held, and Z does not fire on Ctrl+Z") {
+    Input in;
+    in.set_actions(Json::parse(R"({"z": ["Z"], "undo": ["Ctrl+Z"], "ctrl": ["Ctrl"]})"));
+    // Z alone: only the plain action
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.action_pressed("z"));
+    CHECK_FALSE(in.action_pressed("undo"));
+    in.begin_frame();
+    in.on_key(Key::Z, false);
+    in.begin_frame();
+    // Ctrl first, then Z: the chord only
+    in.on_key(Key::RightControl, true);
+    CHECK(in.action_down("ctrl"));
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.action_pressed("undo"));
+    CHECK(in.action_down("undo"));
+    CHECK_FALSE(in.action_down("z"));
+    CHECK_FALSE(in.action_pressed("z"));
+    CHECK(in.action_value("z") == 0.0f);
+    in.begin_frame();
+    CHECK(in.action_down("undo"));
+    CHECK_FALSE(in.action_pressed("undo"));
+    // Z up: the chord is released, Z never was down
+    in.on_key(Key::Z, false);
+    CHECK(in.action_released("undo"));
+    CHECK_FALSE(in.action_released("z"));
+    in.begin_frame();
+    in.on_key(Key::RightControl, false);
+    in.begin_frame();
+    CHECK_FALSE(in.action_down("ctrl"));
+    // the chord does not fire without Ctrl, either side counts
+    in.on_key(Key::Z, true);
+    CHECK_FALSE(in.action_pressed("undo"));
+    in.begin_frame();
+    in.on_key(Key::Z, false);
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.action_pressed("undo"));
+}
+
+TEST_CASE("chords: a longer chord shadows a shorter one, and a plain binding with no chord elsewhere is unchanged") {
+    Input in;
+    in.set_actions(Json::parse(R"({"save": ["Ctrl+S"], "saveAs": ["Ctrl+Shift+S"], "s": ["S"], "other": ["Shift+S"]})"));
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    in.on_key(Key::LeftShift, true);
+    in.begin_frame();
+    in.on_key(Key::S, true);
+    CHECK(in.action_pressed("saveAs"));
+    CHECK_FALSE(in.action_down("save"));
+    CHECK_FALSE(in.action_down("s"));
+    CHECK_FALSE(in.action_down("other"));  // Shift+S is shorter than the held Ctrl+Shift+S too
+    in.begin_frame();
+    in.on_key(Key::LeftShift, false);
+    CHECK(in.action_down("save"));
+    CHECK(in.action_pressed("save"));  // its modifier set became exactly the held one
+    CHECK_FALSE(in.action_down("saveAs"));
+    CHECK_FALSE(in.action_down("s"));
+}
+
+TEST_CASE("chords: Shift+click, and the click without Shift stays the plain action") {
+    Input in;
+    in.set_actions(Json::parse(R"({"primary": ["MouseLeft"], "multi": ["Shift+MouseLeft"], "touchy": ["Touch"]})"));
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, true);
+    CHECK(in.action_pressed("primary"));
+    CHECK_FALSE(in.action_pressed("multi"));
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, false);
+    in.begin_frame();
+    in.on_key(Key::RightShift, true);
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, true);
+    CHECK(in.action_pressed("multi"));
+    CHECK_FALSE(in.action_down("primary"));
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, false);
+    CHECK(in.action_released("multi"));
+    // a click and release within one frame keeps both edges
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, true);
+    in.on_mouse_button(MouseButton::Left, false);
+    CHECK(in.action_pressed("multi"));
+    CHECK(in.action_released("multi"));
+}
+
+TEST_CASE("chords: rebind records and validates chords; input.modifiers_down sees either side") {
+    Input in;
+    in.set_actions(Json::parse(R"({"undo": ["Z"]})"));
+    CHECK(in.rebind("undo", {"ctrl+z", "Z"}).empty());
+    CHECK(in.bindings("undo") == std::vector<std::string>{"Ctrl+Z", "Z"});
+    auto bad = in.rebind("undo", {"Ctl+Z"});
+    REQUIRE(bad.size() == 1);
+    CHECK(bad[0].find("Did you mean 'Ctrl'?") != std::string::npos);
+    CHECK(in.bindings("undo") == std::vector<std::string>{"Ctrl+Z", "Z"});
+    in.begin_frame();
+    in.on_key(Key::RightAlt, true);
+    in.on_key(Key::LeftShift, true);
+    CHECK(in.modifiers_down() == (modifier::Alt | modifier::Shift));
+}
+
+TEST_CASE("chords: last_pressed reports the chord, a lone modifier on release") {
+    Input in;
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    CHECK(in.last_pressed().empty());  // Ctrl is on its way to a chord
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.last_pressed() == "Ctrl+Z");
+    in.begin_frame();
+    in.on_key(Key::Z, false);
+    in.on_key(Key::LeftControl, false);
+    CHECK(in.last_pressed().empty());  // Ctrl was used for a chord
+    in.begin_frame();
+    in.on_key(Key::LeftShift, true);
+    in.on_key(Key::LeftControl, true);
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, true);
+    CHECK(in.last_pressed() == "Ctrl+Shift+MouseLeft");
+    in.begin_frame();
+    in.on_mouse_button(MouseButton::Left, false);
+    in.on_key(Key::LeftShift, false);
+    in.on_key(Key::LeftControl, false);
+    in.begin_frame();
+    // tapped on its own: reported when released
+    in.on_key(Key::RightShift, true);
+    CHECK(in.last_pressed().empty());
+    in.begin_frame();
+    in.on_key(Key::RightShift, false);
+    CHECK(in.last_pressed() == "RightShift");
+    // a quick Ctrl+Z inside one frame is still the chord
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    in.on_key(Key::Z, true);
+    in.on_key(Key::Z, false);
+    in.on_key(Key::LeftControl, false);
+    CHECK(in.last_pressed() == "Ctrl+Z");
+}
+
+TEST_CASE("chords: per-player bindings follow the player's scheme and keep the shadow rule") {
+    Input in;
+    in.set_actions(Json::parse(R"({"undo": ["Ctrl+Z"], "z": ["Z"], "jump": ["Space"]})"));
+    PlayerDevice d;
+    d.keys = "left";  // Z, LeftControl, LeftShift are on the left half
+    REQUIRE(in.use_player_device(0, d).empty());
+    CHECK(in.player_bindings(0, "undo", "keys") == std::vector<std::string>{"Ctrl+Z"});
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    in.begin_frame();
+    in.on_key(Key::Z, true);
+    CHECK(in.player_action_pressed(0, "undo"));
+    CHECK_FALSE(in.player_action_down(0, "z"));
+    // a player on the right half has no Z: the chord is not among its bindings
+    PlayerDevice r;
+    r.keys = "right";
+    REQUIRE(in.use_player_device(1, r).empty());
+    CHECK(in.player_bindings(1, "undo", "keys").empty());
+    CHECK_FALSE(in.player_action_down(1, "undo"));
+    // rebind with a chord of the scheme; a key the scheme lacks in the chord is refused
+    CHECK(in.player_rebind(0, "jump", {"Shift+Q"}, "keys").empty());
+    CHECK(in.player_bindings(0, "jump", "keys") == std::vector<std::string>{"Shift+Q"});
+    CHECK_FALSE(in.player_rebind(1, "jump", {"Shift+Q"}, "keys").empty());
+    CHECK_FALSE(in.player_rebind(0, "jump", {"Shift+MouseLeft"}, "keys").empty());
+    auto exported = in.player_export(0);
+    CHECK(exported["keys"]["jump"][0] == "Shift+Q");
+    CHECK(in.player_import(2, exported).empty());
+    CHECK(in.player_bindings(2, "jump", "keys") == std::vector<std::string>{"Shift+Q"});
+    // last_pressed on the player's own keys
+    in.begin_frame();
+    in.on_key(Key::Z, false);
+    in.on_key(Key::Z, true);
+    CHECK(in.player_last_pressed(0) == "Ctrl+Z");
+    CHECK(in.player_last_pressed(1).empty());
+}
+
+TEST_CASE("consume_action takes the press from the action and from every action on the same key, for the frame") {
+    Input in;
+    in.set_actions(Json::parse(R"({"pause":["P","Escape","GamepadStart"],"ui_cancel":["Escape","GamepadB"],"other":["Q"]})"));
+    in.begin_frame();
+    in.on_key(Key::Escape, true);
+    in.on_key(Key::Q, true);
+    CHECK(in.action_pressed("pause"));
+    CHECK(in.action_pressed("ui_cancel"));
+    in.consume_action("ui_cancel");
+    CHECK_FALSE(in.action_pressed("ui_cancel"));
+    CHECK_FALSE(in.action_pressed("pause"));  // Escape is bound to it too
+    CHECK(in.action_pressed("other"));          // an unrelated key is untouched
+    CHECK(in.action_down("pause"));             // only the press is taken
+    in.begin_frame();
+    in.on_key(Key::Escape, false);
+    in.begin_frame();
+    in.on_key(Key::Escape, true);
+    CHECK(in.action_pressed("pause"));  // the next press is a new one
+    in.consume_action("unknown");       // ignored
+}
+
+TEST_CASE("text input mode: printable keys stop reading as actions, other keys do not") {
+    Input in;
+    in.set_actions(Json::parse(
+        R"({"pause":["P","Escape"],"jump":["Space"],"save":["Ctrl+S"],"shout":["Shift+H"],"confirm":["Enter"],"left":["Left"]})"));
+    in.set_ui_text_input(true);
+    CHECK(in.text_input_mode());
+    in.begin_frame();
+    in.on_key(Key::P, true);
+    in.on_key(Key::Space, true);
+    in.on_key(Key::Enter, true);
+    in.on_key(Key::Left, true);
+    CHECK_FALSE(in.action_pressed("pause"));
+    CHECK_FALSE(in.action_down("pause"));
+    CHECK_FALSE(in.action_pressed("jump"));
+    CHECK(in.action_pressed("confirm"));
+    CHECK(in.action_pressed("left"));
+    in.begin_frame();
+    in.on_key(Key::Escape, true);
+    CHECK(in.action_pressed("pause"));  // Escape is no printable key
+    in.set_ui_text_input(false);
+    in.set_script_text_input(true);
+    CHECK(in.text_input_mode());
+    in.set_script_text_input(false);
+    CHECK_FALSE(in.text_input_mode());
+    in.begin_frame();
+    in.on_key(Key::P, false);
+    in.on_key(Key::Escape, false);
+    in.begin_frame();
+    in.on_key(Key::P, true);
+    CHECK(in.action_pressed("pause"));
+}

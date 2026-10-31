@@ -116,7 +116,13 @@ TEST_CASE("tool loop: batched results, errors flagged, append-only history") {
     CHECK(lines >= 5);
     for (std::size_t pos = 0; pos < tr.size();) {
         auto nl = tr.find('\n', pos);
-        CHECK_FALSE(Json::parse(tr.substr(pos, nl - pos), nullptr, false).is_discarded());
+        Json line = Json::parse(tr.substr(pos, nl - pos), nullptr, false);
+        CHECK_FALSE(line.is_discarded());
+        CHECK_MESSAGE(line.contains("t"), "every transcript line has a time");
+        if (line.value("kind", "") == "assistant") CHECK(line.contains("ms"));
+        if (line.value("kind", "") == "tool_results") {
+            for (const auto& entry : line["results"]) CHECK(entry.contains("ms"));
+        }
         pos = nl + 1;
     }
 }
@@ -264,6 +270,34 @@ TEST_CASE("limits: max turns, cost budget, cancellation, provider errors") {
         CHECK(r.stopReason == "cancelled");
         CHECK(h.provider->calls == 0);
     }
+    {  // the cause of a cancel reaches the result, the error text and the transcript's end event
+        Harness h;
+        h.provider->script = {text_response("never")};
+        CancelFlag cancel{true};
+        SessionOptions so;
+        so.projectDir = h.dir.str();
+        AgentSession s(h.registry, h.cfg, so);
+        s.set_provider_factory([&](const ProviderConfig&) -> Result<std::shared_ptr<ChatProvider>> {
+            return std::static_pointer_cast<ChatProvider>(h.provider);
+        });
+        s.set_cancel_flag(&cancel);
+        s.set_cancel_cause([] { return std::string("watchdog_process_gone"); });
+        auto r = s.run("x");
+        CHECK(r.stopReason == "cancelled");
+        CHECK(r.cancelCause == "watchdog_process_gone");
+        CHECK(r.error == "cancelled: the editor's watchdog thought the agent process was gone");
+        REQUIRE_FALSE(r.transcriptPath.empty());
+        std::ifstream in(r.transcriptPath);
+        std::string line, last;
+        while (std::getline(in, line))
+            if (!line.empty()) last = line;
+        const Json end = Json::parse(last);
+        CHECK(end["kind"].get<std::string>() == "end");
+        CHECK(end["cause"].get<std::string>() == "watchdog_process_gone");
+        CHECK(end["error"].get<std::string>() == r.error);
+    }
+    CHECK(cancelled_message("") == "cancelled");
+    CHECK(cancelled_message("user_stop") == "cancelled: the user pressed Stop");
     {
         Harness h;  // script exhausted -> provider error propagates with message
         auto r = h.run("x");

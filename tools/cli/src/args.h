@@ -31,6 +31,7 @@ struct FlagSpec {
     std::string value;  // placeholder for the value ("PATH"); empty = boolean flag
     std::string help;
     bool repeatable = false;
+    bool hidden = false;  // accepted, but not listed in --help (a hand-over between factoria processes, not for people)
 };
 
 class Args {

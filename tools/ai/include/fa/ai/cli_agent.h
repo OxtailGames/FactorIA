@@ -5,11 +5,19 @@
 // FactorIA never touches subscription credentials.
 #pragma once
 
+#include <functional>
 #include "fa/ai/config.h"
 #include "fa/ai/process.h"
 #include "fa/ai/types.h"
+#include "fa/tooling/mcp_config.h"
 
 namespace fa::ai {
+
+// Where a CLI agent's executable is: PATH first, then the folders its installers use (~/.local/bin, ~/.claude/local,
+// npm / bun / volta / nvm bins, Homebrew, %APPDATA%\npm). An editor opened from Finder or the Dock gets a short PATH
+// without them, so a CLI that works in a terminal would look missing. `home` is $HOME (%USERPROFILE% on Windows);
+// "" when not found. A command with a slash is a path and is only checked as given.
+std::string find_cli(const std::string& command, const EnvLookup& env = system_env());
 
 struct CliRunRequest {
     std::string prompt;      // full prompt (task + rules), or just the task when resuming a session
@@ -21,6 +29,27 @@ struct CliRunRequest {
     // An MCP endpoint already serving this project (the editor's, fa/mcp/http_server.h): the {mcp_config} file points
     // there, so the CLI's tool calls run on that process's world. Empty = the config starts `factoria mcp --project`.
     std::string mcpUrl;
+    // Tools to switch off, Claude Code names (`--disallowedTools`, appended to the argv of a claude-code provider): its own
+    // sub-agent tools so that it delegates only through ai_run, and for the read-only roles the tools that edit.
+    std::vector<std::string> disallowedTools;
+    // Claude Code: the hosts of the sites the user listed for assets ("assetSources" in ai.json; asset_source_hosts). Each becomes
+    // an allow rule `WebFetch(domain:<host>)` (and its "www." twin: the rule matches the exact host) so the agent can read
+    // those pages without asking. With webOnlyListed also WebSearch is switched off, so the agent can only fetch from them.
+    std::vector<std::string> webDomains;
+    bool webOnlyListed = false;
+    // A read-only role (artCritic, reviewer). Claude Code is covered by disallowedTools. Codex (default argv): its read-only
+    // sandbox (`--sandbox read-only`) and the FactorIA MCP server started with `--read-only`, which offers only
+    // is_read_only_tool commands.
+    bool readOnly = false;
+    // The user's external tool servers (ai.json "mcpServers") this run's role may use, with their keys filled in. Claude Code
+    // gets them in the {mcp_config} file and `mcp__<name>` in --allowedTools; Codex (default argv) gets `-c mcp_servers.<name>.*`
+    // arguments; any other CLI finds them in the {mcp_config} file if its argv has that placeholder.
+    std::vector<ResolvedToolServer> toolServers;
+    // Called once with the CLI process's pid when it started (ProcessOptions::onStart).
+    std::function<void(long long pid)> onStart;
+    // Asked after every parsed line with the usage so far (tokens, cost and whether the cost is an estimate); true kills
+    // the CLI (the run's budget is spent). The result is `cancelled`.
+    std::function<bool(const Usage& usage, double costUsd, bool costIsEstimate)> stopWhen;
 };
 
 struct CliRunResult {
@@ -28,6 +57,7 @@ struct CliRunResult {
     std::string finalText;
     Usage usage;             // tokens of THIS run
     double costUsd = 0;      // when the CLI reports it. Claude Code reports the running total of a resumed session.
+    bool costIsEstimate = false;  // the CLI never reported a total (cancelled, crashed): costUsd is the engine's estimate
     int exitCode = 0;
     int turns = 0;
     std::string sessionId;
@@ -43,6 +73,16 @@ struct CliRunResult {
 // A template without {prompt} gets the prompt on standard input (the built-in ones do).
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
                                          const std::string& mcpConfigPath, const std::string& factoriaCommand);
+
+// The permission rules for the sites in `domains`, as Claude Code names them: `WebFetch(domain:host)` and the same for the host
+// with or without "www." (the rule matches the exact host).
+std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains);
+
+// Adds what `req` restricts to an expanded argv: Claude Code gets `--disallowedTools <comma separated>` (with WebSearch when
+// `webOnlyListed`) and the WebFetch rules of `webDomains` added to its `--allowedTools` list; Codex with its
+// built-in argv and a read-only role gets `--sandbox read-only` and `--read-only` for the FactorIA MCP server it starts.
+// Other CLIs are left alone.
+void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv);
 
 // True when the template of this provider (its "argv", else the built-in one) has a {session} placeholder: the CLI can
 // continue an earlier session, so a follow-up message needs only the new task.
@@ -64,8 +104,23 @@ std::vector<LimitWindow> parse_codex_rate_limits(const Json& rateLimits, i64 now
 void merge_limit_windows(std::vector<LimitWindow>& into, const std::vector<LimitWindow>& from);
 
 // JSON for `claude --mcp-config`: {"type": "http", "url": mcpUrl} when there is one, else a `factoria mcp --project`
-// stdio server.
-Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl = {});
+// stdio server. Both carry "timeout": kMcpToolTimeoutMs, Claude Code's per-server limit (milliseconds) on one tool call.
+// Without it Claude Code aborts a call that sends no sign of life for 300 s; an ai_run that hands a whole task to
+// the worker runs far longer. The server also sends progress while such a call runs (notifications/progress), so this
+// is only the ceiling for a call that really never ends.
+inline constexpr long long kMcpToolTimeoutMs = kClaudeCodeMcpToolTimeoutMs;  // 4 hours
+// `servers` (the user's tool servers) are added next to "factoria", each as Claude Code's .mcp.json writes a server:
+// {"type": "http", "url", "headers"} or {"command", "args", "env"}, with the same "timeout" from timeoutSeconds. The result then
+// holds keys: write it where only the user can read it, and delete it when the run ends.
+Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl = {},
+                     const std::vector<ResolvedToolServer>& servers = {});
+
+// Codex (default argv): the `-c key=value` arguments that add `servers` as MCP servers (mcp_servers.<name>.url, .command,
+// .args, .tool_timeout_sec, .startup_timeout_sec). Header values and the env of a stdio server are secrets and stay out of the
+// argument list (anyone can read it with `ps`): headers go through .env_http_headers and `env`, which name environment
+// variables, and `env` receives those variables for the Codex process. Arguments of a server ({key} in "args") are in the list.
+std::vector<std::string> codex_tool_server_args(const std::vector<ResolvedToolServer>& servers,
+                                                std::map<std::string, std::string>& env);
 
 // Install/login instructions per CLI.
 std::string cli_install_hint(const ProviderConfig& cfg);
@@ -82,7 +137,12 @@ public:
 
     const std::string& final_text() const { return finalText_; }
     const Usage& usage() const { return usage_; }
+    // Tokens and cost are live: every assistant message adds its usage (also a sub-agent's), the cost is estimated with
+    // the price table until the `result` brings the CLI's own totals, which replace them.
     double cost_usd() const { return costUsd_; }
+    bool cost_is_estimate() const { return !costFinal_; }
+    // The price of a model that has none in the table (ProviderConfig::pricing); the model of each message is looked up first.
+    void set_pricing(Pricing p) { pricing_ = p; }
     bool saw_result() const { return sawResult_; }
     bool result_is_error() const { return resultIsError_; }
     const std::string& error_text() const { return errorText_; }
@@ -96,6 +156,12 @@ private:
     std::string finalText_, errorText_, sessionId_;
     Usage usage_;
     double costUsd_ = 0;
+    bool costFinal_ = false;  // costUsd_ is the CLI's total
+    Pricing pricing_;
+    struct MessageUsage { Usage usage; u64 cacheWrite1h = 0; double cost = 0; bool seen = false; };
+    std::map<std::string, MessageUsage> messages_;  // Claude: by message id (one assistant event per content block)
+    int anonMessages_ = 0;
+    bool count_message(const Json& msg);  // true when the totals changed
     int turns_ = 0;
     bool sawResult_ = false, resultIsError_ = false;
     std::map<std::string, std::string> toolNames_;  // tool_use id -> name

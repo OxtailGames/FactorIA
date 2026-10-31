@@ -6,6 +6,7 @@
 #include <format>
 
 #include "assets_internal.h"
+#include "fa/audio/analysis.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/asset_import.h"
@@ -17,6 +18,7 @@ namespace {
 
 constexpr int kSampleRate = 44100;
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kTargetLufs = -18.0;  // where every preset lands: the loudness of a quiet sound effect
 
 enum class Wave { Sine, Square, Saw, Triangle };
 
@@ -94,6 +96,8 @@ double oscillator(Wave wave, double phase, double duty) {
     return 0.0;
 }
 
+std::string wav_bytes(const std::vector<std::int16_t>& pcm);
+
 std::vector<std::int16_t> synthesize(const Preset& preset, std::uint64_t seed, double seconds) {
     Rng rng{seed * 0x2545F4914F6CDD1Dull + 0x1234567ull};
     // The seed moves pitch, length of the envelope and the noise a little, so two seeds are two takes of the same sound.
@@ -125,16 +129,29 @@ std::vector<std::int16_t> synthesize(const Preset& preset, std::uint64_t seed, d
         }
         samples[std::size_t(i)] = v * env;
     }
-    // Gentle low-pass for rough tones so the saws do not hiss, then normalize the peak to -3 dBFS.
+    // Gentle low-pass for rough tones so the saws do not hiss, then level it by loudness (below).
     double prev = 0.0, peak = 0.0;
     for (double& s : samples) {
         prev += 0.55 * (s - prev);
         s = std::tanh(1.4 * prev);
         peak = std::max(peak, std::fabs(s));
     }
-    std::vector<std::int16_t> out(samples.size());
+    auto quantize = [&](double scale) {
+        std::vector<std::int16_t> out(samples.size());
+        for (std::size_t i = 0; i < samples.size(); ++i) out[i] = std::int16_t(std::lround(std::clamp(samples[i] * scale, -1.0, 1.0) * 32767.0));
+        return out;
+    };
+    // Level it by loudness, not by peak: a square or a saw at the same peak is 5 to 10 dB louder than a sine, and
+    // `factoria validate` warns above -9 LUFS. Measure the sound at a peak of -3 dBFS, then play it at kTargetLufs (the
+    // gain never takes the peak past -1 dBFS, normalization_gain_db). Digital silence stays silent.
     const double scale = peak > 1e-9 ? 0.708 / peak : 0.0;
-    for (std::size_t i = 0; i < samples.size(); ++i) out[i] = std::int16_t(std::lround(std::clamp(samples[i] * scale, -1.0, 1.0) * 32767.0));
+    std::vector<std::int16_t> out = quantize(scale);
+    const std::string probe = wav_bytes(out);
+    auto loudness = measure_loudness({reinterpret_cast<const std::uint8_t*>(probe.data()), probe.size()}, ".wav");
+    if (loudness) {
+        const double gainDb = normalization_gain_db(*loudness, kTargetLufs);
+        out = quantize(scale * std::pow(10.0, gainDb / 20.0));
+    }
     return out;
 }
 
@@ -189,7 +206,8 @@ Json synth_sound(const std::string& projectDir, const Json& a) {
                                     {"license", "CC0-1.0"},
                                     {"author", "factoria"},
                                     {"notes", "preset " + presetName + ", " + std::format("{:.2f}", seconds) + " s, seed " + std::to_string(seed)},
-                                    {"date", assets::today()}});
+                                    {"date", assets::today()},
+                                    {"recipe", make_recipe(projectDir, "assets.synth_sound", recipe_args(a, {{"path", *norm}, {"preset", presetName}, {"seed", seed}, {"seconds", seconds}}), {})}});
     {
         ProjectRootGuard root(projectDir);
         auto r = assets::update_entry(*norm, [&](Json& e) {
@@ -216,7 +234,7 @@ void register_synth_sound_command(CommandRegistry& registry, const std::string& 
     info.description =
         "Synthesizes a short mono 16-bit 44.1 kHz WAV at `path` (under assets/, ending in .wav) from `preset`, with no AI provider and no "
         "key. The same preset, seed and seconds always give the same bytes; another `seed` is another take of the same sound "
-        "(pitch and timing move a little). Peaks at -3 dBFS. Records provenance in assets.json (origin original, ai false, license "
+        "(pitch and timing move a little). Levelled to about -18 LUFS (peak under -1 dBFS), so no preset trips validate's loudness warning. Records provenance in assets.json (origin original, ai false, license "
         "CC0, the preset and the seed). Presets:" + presets +
         "\nGood for placeholders and simple effects; for richer sounds import a CC0 kit (docs/ASSETS.md) or use assets.generate_sound. "
         "Example: {\"path\":\"assets/audio/dog_bark.wav\",\"preset\":\"bark\",\"seed\":3}";

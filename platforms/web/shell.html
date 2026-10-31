@@ -5,6 +5,7 @@
     {{title}}      the game's name, HTML-escaped
     {{wasmBytes}}  size of factoria_player.wasm in bytes (progress when the server sends no Content-Length)
     {{pakBytes}}   size of game.pak in bytes (same)
+    {{favicon}}    favicon.png (made from the game's icon), or data:, when the game has none
   Next to it: factoria_player.js (Emscripten, MODULARIZE=1, EXPORT_NAME=createFactoriaPlayer), factoria_player.wasm and
   game.pak. The page downloads the wasm and the pack with progress, writes the pack to /game.pak in the module's file
   system and starts the player, which loads /game.pak.
@@ -14,7 +15,8 @@
 
   What the page and the player agree on (docs/MOBILE.md, "Web"):
     Module.canvas      the <canvas id="canvas"> that fills the window (sokol_app follows its CSS size and devicePixelRatio)
-    Module.wasmBinary  the downloaded wasm, so the page shows its progress
+    Module.instantiateWasm  compiles the wasm the page downloaded (with progress). Not Module.wasmBinary: Emscripten 6
+                       no longer reads it and fetched the 8 MB file a second time
     Module.preRun      writes the pack to /game.pak before main() runs
     Module.faFatal     the player calls it with a message when the game cannot start (missing pack, broken project)
     Module.faReady     the player calls it when the game starts drawing: the loading screen goes away
@@ -26,7 +28,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>{{title}}</title>
-<link rel="icon" href="data:,"><!-- no favicon request: a host without one logs a 404 in every player's console -->
+<link rel="icon" href="{{favicon}}"><!-- favicon.png from the game's icon; data:, without one, so that a host without a favicon logs no 404 -->
 
 <style>
   :root { color-scheme: dark; }
@@ -163,7 +165,15 @@
       fillEl.style.width = '100%';
       return createFactoriaPlayer({
         canvas: canvas,
-        wasmBinary: wasm,
+        instantiateWasm: function (imports, done) {
+          WebAssembly.instantiate(wasm, imports).then(function (r) {
+            wasm = null;
+            done(r.instance, r.module);
+          }, function (e) {
+            showError('Could not start the game: its code did not compile in this browser.\n' + (e && e.message ? e.message : e));
+          });
+          return {};  // the exports come later, through done()
+        },
         // The pack goes into the module's in-memory file system before main() runs. writeFile hands the array over
         // without a second copy, so the page holds the game once.
         preRun: [function (mod) {

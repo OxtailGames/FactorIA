@@ -1,0 +1,1091 @@
+{
+ "meta": {
+  "slot": 2,
+  "kind": "manual",
+  "name": "Old harbour",
+  "scenario": "sandbox",
+  "day": 14,
+  "year": 1,
+  "season": "summer",
+  "dayOfSeason": 5,
+  "playSeconds": 754,
+  "savedOn": "2026-01-01",
+  "coins": 141,
+  "population": 20,
+  "revision": 7,
+  "version": 1,
+  "hash": "b51c9ef8",
+  "thumb": {
+   "w": 12,
+   "h": 10,
+   "rows": [
+    "w12",
+    "w1s1b3x1b2f2w2",
+    "w1h1b3x1b2f3w1",
+    "w1x8f2w1",
+    "w1b2h2x1h1b2r2w1",
+    "w1b4x1h1b2r2w1",
+    "w1b1g1b2x1b4x1w1",
+    "w1b1h1b2x1b4x1w1",
+    "w1x10w1",
+    "w12"
+   ]
+  }
+ },
+ "save": {
+  "format": "tidewater.save",
+  "version": 1,
+  "scenario": "sandbox",
+  "map": {
+   "width": 12,
+   "height": 10,
+   "seed": 0,
+   "terrain": "000000000000011122223300012222223330012222222330012222222440022222222440022222222220012222222220011222222110000000000000",
+   "hash": "9a6f4505"
+  },
+  "clock": {
+   "day": 14,
+   "dayTick": 0,
+   "speed": 0,
+   "pending": 0,
+   "ticks": 2100
+  },
+  "economy": {
+   "coins": 141,
+   "stock": {
+    "fish": 70,
+    "grain": 64,
+    "wood": 76,
+    "stone": 20,
+    "planks": 48,
+    "bread": 18,
+    "tools": 0,
+    "flour": 0,
+    "smoked_fish": 0
+   }
+  },
+  "nextId": 41,
+  "buildings": [
+   {
+    "id": 1,
+    "type": "road",
+    "x": 5,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 2,
+    "type": "road",
+    "x": 6,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 3,
+    "type": "road",
+    "x": 4,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 4,
+    "type": "road",
+    "x": 5,
+    "y": 7,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 5,
+    "type": "warehouse",
+    "x": 3,
+    "y": 5,
+    "rot": 1,
+    "w": 2,
+    "h": 3
+   },
+   {
+    "id": 6,
+    "type": "lumber_camp",
+    "x": 6,
+    "y": 6,
+    "rot": 1,
+    "w": 2,
+    "h": 2
+   },
+   {
+    "id": 7,
+    "type": "road",
+    "x": 7,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 8,
+    "type": "road",
+    "x": 3,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 9,
+    "type": "road",
+    "x": 5,
+    "y": 6,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 10,
+    "type": "road",
+    "x": 8,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 11,
+    "type": "sawmill",
+    "x": 8,
+    "y": 6,
+    "rot": 1,
+    "w": 2,
+    "h": 2
+   },
+   {
+    "id": 12,
+    "type": "road",
+    "x": 2,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 13,
+    "type": "road",
+    "x": 5,
+    "y": 5,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 14,
+    "type": "road",
+    "x": 9,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 15,
+    "type": "road",
+    "x": 1,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 16,
+    "type": "house",
+    "x": 6,
+    "y": 5,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 17,
+    "type": "house",
+    "x": 2,
+    "y": 7,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 18,
+    "type": "fisher_dock",
+    "x": 1,
+    "y": 6,
+    "rot": 1,
+    "w": 1,
+    "h": 2
+   },
+   {
+    "id": 19,
+    "type": "road",
+    "x": 5,
+    "y": 4,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 20,
+    "type": "road",
+    "x": 10,
+    "y": 8,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 21,
+    "type": "road",
+    "x": 5,
+    "y": 3,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 22,
+    "type": "road",
+    "x": 10,
+    "y": 7,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 23,
+    "type": "house",
+    "x": 4,
+    "y": 4,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 24,
+    "type": "road",
+    "x": 6,
+    "y": 3,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 25,
+    "type": "road",
+    "x": 4,
+    "y": 3,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 26,
+    "type": "road",
+    "x": 5,
+    "y": 2,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 27,
+    "type": "road",
+    "x": 10,
+    "y": 6,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 28,
+    "type": "farm",
+    "x": 6,
+    "y": 1,
+    "rot": 1,
+    "w": 2,
+    "h": 2
+   },
+   {
+    "id": 29,
+    "type": "market",
+    "x": 2,
+    "y": 1,
+    "rot": 0,
+    "w": 3,
+    "h": 2
+   },
+   {
+    "id": 30,
+    "type": "road",
+    "x": 7,
+    "y": 3,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 31,
+    "type": "road",
+    "x": 3,
+    "y": 3,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 32,
+    "type": "road",
+    "x": 5,
+    "y": 1,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 33,
+    "type": "road",
+    "x": 8,
+    "y": 3,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 34,
+    "type": "bakery",
+    "x": 7,
+    "y": 4,
+    "rot": 3,
+    "w": 2,
+    "h": 2
+   },
+   {
+    "id": 35,
+    "type": "road",
+    "x": 2,
+    "y": 3,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 36,
+    "type": "road",
+    "x": 1,
+    "y": 3,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 37,
+    "type": "smokehouse",
+    "x": 1,
+    "y": 4,
+    "rot": 3,
+    "w": 2,
+    "h": 2
+   },
+   {
+    "id": 38,
+    "type": "house",
+    "x": 6,
+    "y": 4,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 39,
+    "type": "house",
+    "x": 3,
+    "y": 4,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   },
+   {
+    "id": 40,
+    "type": "house",
+    "x": 1,
+    "y": 2,
+    "rot": 0,
+    "w": 1,
+    "h": 1
+   }
+  ],
+  "sim": {
+   "ticks": 2100,
+   "broke": false,
+   "ledger": {
+    "produced": {
+     "fish": 156,
+     "grain": 96,
+     "wood": 136,
+     "stone": 0,
+     "planks": 64,
+     "bread": 42,
+     "tools": 0,
+     "flour": 0,
+     "smoked_fish": 12
+    },
+    "consumed": {
+     "fish": 14,
+     "grain": 28,
+     "wood": 66,
+     "stone": 0,
+     "planks": 0,
+     "bread": 0,
+     "tools": 0,
+     "flour": 0,
+     "smoked_fish": 0
+    },
+    "eaten": {
+     "fish": 56,
+     "grain": 0,
+     "wood": 0,
+     "stone": 0,
+     "planks": 0,
+     "bread": 8,
+     "tools": 0,
+     "flour": 0,
+     "smoked_fish": 1
+    },
+    "lost": {
+     "fish": 0,
+     "grain": 0,
+     "wood": 0,
+     "stone": 0,
+     "planks": 0,
+     "bread": 0,
+     "tools": 0,
+     "flour": 0,
+     "smoked_fish": 0
+    },
+    "sales": 604,
+    "wages": 151,
+    "upkeep": 110,
+    "wagesShort": 0
+   },
+   "logistics": {
+    "timer": 0,
+    "errands": 166
+   },
+   "walkerStats": {
+    "rerouted": 0,
+    "gaveUp": 0
+   },
+   "people": {
+    "nextId": 21,
+    "lostCount": 0,
+    "dirty": false,
+    "roadsStale": false
+   },
+   "rt": [
+    {
+     "id": 5,
+     "present": 0,
+     "staff": [
+      3,
+      6,
+      7
+     ],
+     "inbox": {},
+     "outbox": {},
+     "inRes": {},
+     "outRes": {},
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [],
+     "timer": 0,
+     "arrivals": 0,
+     "cur": null,
+     "progress": 0,
+     "stall": "no_staff",
+     "cycles": 0
+    },
+    {
+     "id": 6,
+     "present": 0,
+     "staff": [
+      2,
+      8
+     ],
+     "inbox": {},
+     "outbox": {
+      "wood": 4
+     },
+     "inRes": {},
+     "outRes": {
+      "wood": 0
+     },
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [],
+     "timer": 0,
+     "arrivals": 0,
+     "cur": "cut_wood",
+     "progress": 1.4000000000000001,
+     "stall": "closed",
+     "cycles": 34
+    },
+    {
+     "id": 11,
+     "present": 0,
+     "staff": [
+      9,
+      13
+     ],
+     "inbox": {
+      "wood": 2
+     },
+     "outbox": {
+      "planks": 0
+     },
+     "inRes": {
+      "wood": 0
+     },
+     "outRes": {
+      "planks": 0
+     },
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [],
+     "timer": 0,
+     "arrivals": 0,
+     "cur": "saw_planks",
+     "progress": 11.899999999999997,
+     "stall": "closed",
+     "cycles": 32
+    },
+    {
+     "id": 16,
+     "present": 0,
+     "staff": [],
+     "inbox": {},
+     "outbox": {},
+     "inRes": {},
+     "outRes": {},
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [
+      1,
+      2,
+      3,
+      5
+     ],
+     "timer": 0,
+     "arrivals": 4,
+     "cur": null,
+     "progress": 0,
+     "stall": "no_staff",
+     "cycles": 0
+    },
+    {
+     "id": 17,
+     "present": 0,
+     "staff": [],
+     "inbox": {},
+     "outbox": {},
+     "inRes": {},
+     "outRes": {},
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [
+      4,
+      6,
+      7,
+      9
+     ],
+     "timer": 0,
+     "arrivals": 4,
+     "cur": null,
+     "progress": 0,
+     "stall": "no_staff",
+     "cycles": 0
+    },
+    {
+     "id": 18,
+     "present": 0,
+     "staff": [
+      10,
+      14
+     ],
+     "inbox": {},
+     "outbox": {
+      "fish": 0
+     },
+     "inRes": {},
+     "outRes": {
+      "fish": 0
+     },
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [],
+     "timer": 0,
+     "arrivals": 0,
+     "cur": "catch_fish",
+     "progress": 14.28,
+     "stall": "closed",
+     "cycles": 26
+    },
+    {
+     "id": 23,
+     "present": 0,
+     "staff": [],
+     "inbox": {},
+     "outbox": {},
+     "inRes": {},
+     "outRes": {},
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [
+      8,
+      10,
+      11,
+      12
+     ],
+     "timer": 0,
+     "arrivals": 4,
+     "cur": null,
+     "progress": 0,
+     "stall": "no_staff",
+     "cycles": 0
+    },
+    {
+     "id": 28,
+     "present": 0,
+     "staff": [
+      1,
+      15
+     ],
+     "inbox": {},
+     "outbox": {
+      "grain": 0
+     },
+     "inRes": {},
+     "outRes": {
+      "grain": 0
+     },
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [],
+     "timer": 0,
+     "arrivals": 0,
+     "cur": "harvest_grain",
+     "progress": 18.89999999999999,
+     "stall": "closed",
+     "cycles": 12
+    },
+    {
+     "id": 29,
+     "present": 0,
+     "staff": [
+      11,
+      12
+     ],
+     "inbox": {},
+     "outbox": {},
+     "inRes": {},
+     "outRes": {},
+     "shelf": {
+      "fish": 14,
+      "bread": 16,
+      "smoked_fish": 9
+     },
+     "shelfRes": {
+      "fish": 0,
+      "bread": 0,
+      "smoked_fish": 0
+     },
+     "residents": [],
+     "timer": 0,
+     "arrivals": 0,
+     "cur": null,
+     "progress": 0,
+     "stall": "no_staff",
+     "cycles": 0
+    },
+    {
+     "id": 34,
+     "present": 0,
+     "staff": [
+      5,
+      16
+     ],
+     "inbox": {
+      "grain": 4
+     },
+     "outbox": {
+      "bread": 0
+     },
+     "inRes": {
+      "grain": 0
+     },
+     "outRes": {
+      "bread": 0
+     },
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [],
+     "timer": 0,
+     "arrivals": 0,
+     "cur": null,
+     "progress": 0,
+     "stall": "closed",
+     "cycles": 14
+    },
+    {
+     "id": 37,
+     "present": 0,
+     "staff": [
+      4,
+      17
+     ],
+     "inbox": {
+      "fish": 2
+     },
+     "outbox": {
+      "smoked_fish": 2
+     },
+     "inRes": {
+      "fish": 0
+     },
+     "outRes": {
+      "smoked_fish": 0
+     },
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [],
+     "timer": 0,
+     "arrivals": 0,
+     "cur": "smoke_fish",
+     "progress": 16.799999999999994,
+     "stall": "closed",
+     "cycles": 6
+    },
+    {
+     "id": 38,
+     "present": 0,
+     "staff": [],
+     "inbox": {},
+     "outbox": {},
+     "inRes": {},
+     "outRes": {},
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [
+      13,
+      14,
+      15,
+      17
+     ],
+     "timer": 0,
+     "arrivals": 4,
+     "cur": null,
+     "progress": 0,
+     "stall": "no_staff",
+     "cycles": 0
+    },
+    {
+     "id": 39,
+     "present": 0,
+     "staff": [],
+     "inbox": {},
+     "outbox": {},
+     "inRes": {},
+     "outRes": {},
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [
+      16,
+      18,
+      19
+     ],
+     "timer": 12,
+     "arrivals": 3,
+     "cur": null,
+     "progress": 0,
+     "stall": "no_staff",
+     "cycles": 0
+    },
+    {
+     "id": 40,
+     "present": 0,
+     "staff": [],
+     "inbox": {},
+     "outbox": {},
+     "inRes": {},
+     "outRes": {},
+     "shelf": {},
+     "shelfRes": {},
+     "residents": [
+      20
+     ],
+     "timer": 12,
+     "arrivals": 1,
+     "cur": null,
+     "progress": 0,
+     "stall": "no_staff",
+     "cycles": 0
+    }
+   ],
+   "villagers": [
+    {
+     "id": 1,
+     "home": 16,
+     "job": 28,
+     "at": 16,
+     "state": "inside",
+     "purpose": "home",
+     "food": 1.4759999999999995,
+     "hunger": 0,
+     "lastShop": 9,
+     "trip": null
+    },
+    {
+     "id": 2,
+     "home": 16,
+     "job": 6,
+     "at": 16,
+     "state": "inside",
+     "purpose": "home",
+     "food": 1.7200000000000228,
+     "hunger": 0,
+     "lastShop": 9,
+     "trip": null
+    },
+    {
+     "id": 3,
+     "home": 16,
+     "job": 5,
+     "at": 16,
+     "state": "inside",
+     "purpose": "home",
+     "food": 1.7639999999999936,
+     "hunger": 0,
+     "lastShop": 10,
+     "trip": null
+    },
+    {
+     "id": 4,
+     "home": 17,
+     "job": 37,
+     "at": 17,
+     "state": "inside",
+     "purpose": "home",
+     "food": 1.8759999999999937,
+     "hunger": 0,
+     "lastShop": 10,
+     "trip": null
+    },
+    {
+     "id": 5,
+     "home": 16,
+     "job": 34,
+     "at": 16,
+     "state": "inside",
+     "purpose": "home",
+     "food": 2.007999999999994,
+     "hunger": 0,
+     "lastShop": 10,
+     "trip": null
+    },
+    {
+     "id": 6,
+     "home": 17,
+     "job": 5,
+     "at": 17,
+     "state": "inside",
+     "purpose": "home",
+     "food": 2.3199999999999954,
+     "hunger": 0,
+     "lastShop": 12,
+     "trip": null
+    },
+    {
+     "id": 7,
+     "home": 17,
+     "job": 5,
+     "at": 17,
+     "state": "inside",
+     "purpose": "home",
+     "food": 2.5999999999999943,
+     "hunger": 0,
+     "lastShop": 11,
+     "trip": null
+    },
+    {
+     "id": 8,
+     "home": 23,
+     "job": 6,
+     "at": 23,
+     "state": "inside",
+     "purpose": "home",
+     "food": 2.5999999999999943,
+     "hunger": 0,
+     "lastShop": 11,
+     "trip": null
+    },
+    {
+     "id": 9,
+     "home": 17,
+     "job": 11,
+     "at": 17,
+     "state": "inside",
+     "purpose": "home",
+     "food": 1.8439999999999945,
+     "hunger": 0,
+     "lastShop": 10,
+     "trip": null
+    },
+    {
+     "id": 10,
+     "home": 23,
+     "job": 18,
+     "at": 23,
+     "state": "inside",
+     "purpose": "home",
+     "food": 2.844000000000077,
+     "hunger": 0,
+     "lastShop": 10,
+     "trip": null
+    },
+    {
+     "id": 11,
+     "home": 23,
+     "job": 29,
+     "at": 23,
+     "state": "inside",
+     "purpose": "home",
+     "food": 3.0879999999999947,
+     "hunger": 0,
+     "lastShop": 13,
+     "trip": null
+    },
+    {
+     "id": 12,
+     "home": 23,
+     "job": 29,
+     "at": 23,
+     "state": "inside",
+     "purpose": "home",
+     "food": 2.5320000000000396,
+     "hunger": 0,
+     "lastShop": 12,
+     "trip": null
+    },
+    {
+     "id": 13,
+     "home": 38,
+     "job": 11,
+     "at": 38,
+     "state": "inside",
+     "purpose": "home",
+     "food": 1.2759999999999985,
+     "hunger": 0,
+     "lastShop": -1,
+     "trip": null
+    },
+    {
+     "id": 14,
+     "home": 38,
+     "job": 18,
+     "at": 38,
+     "state": "inside",
+     "purpose": "home",
+     "food": 1.5199999999999987,
+     "hunger": 0,
+     "lastShop": -1,
+     "trip": null
+    },
+    {
+     "id": 15,
+     "home": 38,
+     "job": 28,
+     "at": 38,
+     "state": "inside",
+     "purpose": "home",
+     "food": 1.763999999999999,
+     "hunger": 0,
+     "lastShop": -1,
+     "trip": null
+    },
+    {
+     "id": 16,
+     "home": 39,
+     "job": 34,
+     "at": 39,
+     "state": "inside",
+     "purpose": "home",
+     "food": 1.875999999999999,
+     "hunger": 0,
+     "lastShop": -1,
+     "trip": null
+    },
+    {
+     "id": 17,
+     "home": 38,
+     "job": 37,
+     "at": 38,
+     "state": "inside",
+     "purpose": "home",
+     "food": 2.007999999999999,
+     "hunger": 0,
+     "lastShop": -1,
+     "trip": null
+    },
+    {
+     "id": 18,
+     "home": 39,
+     "job": 0,
+     "at": 39,
+     "state": "inside",
+     "purpose": "",
+     "food": 2.119999999999999,
+     "hunger": 0,
+     "lastShop": -1,
+     "trip": null
+    },
+    {
+     "id": 19,
+     "home": 39,
+     "job": 0,
+     "at": 39,
+     "state": "inside",
+     "purpose": "",
+     "food": 2.3639999999999994,
+     "hunger": 0,
+     "lastShop": -1,
+     "trip": null
+    },
+    {
+     "id": 20,
+     "home": 40,
+     "job": 0,
+     "at": 40,
+     "state": "inside",
+     "purpose": "",
+     "food": 2.4759999999999995,
+     "hunger": 0,
+     "lastShop": -1,
+     "trip": null
+    }
+   ],
+   "walkers": []
+  }
+ }
+}

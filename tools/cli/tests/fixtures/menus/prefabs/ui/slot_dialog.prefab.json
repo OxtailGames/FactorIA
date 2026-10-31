@@ -1,0 +1,81 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "SlotDialog",
+    "components": {
+      "Panel": {
+        "anchor": [0.5, 0.5],
+        "layer": 310,
+        "layout": "column",
+        "spacing": 14,
+        "padding": [28, 24, 28, 24],
+        "fit": true,
+        "minSize": [560, 0],
+        "color": [0.06, 0.07, 0.1, 0.97]
+      }
+    },
+    "children": [
+      {
+        "id": "dialog_title",
+        "components": {
+          "Text": {
+            "text": "Name this save",
+            "fontSize": 30,
+            "space": "screen",
+            "layer": 311,
+            "maxWidth": 520
+          }
+        }
+      },
+      {
+        "id": "save_name",
+        "components": {
+          "TextField": {
+            "size": [500, 52],
+            "layer": 311,
+            "maxLength": 28,
+            "placeholder": "Name this save",
+            "key": "slots.namePlaceholder"
+          }
+        }
+      },
+      {
+        "id": "dialog_buttons",
+        "components": {
+          "Panel": {
+            "layer": 311,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 12,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "dialog_confirm",
+            "components": {
+              "Button": {
+                "text": "Save",
+                "key": "slots.confirmSave",
+                "autoSize": true,
+                "layer": 312
+              }
+            }
+          },
+          {
+            "id": "dialog_cancel",
+            "components": {
+              "Button": {
+                "text": "Cancel",
+                "key": "slots.cancel",
+                "autoSize": true,
+                "layer": 312
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

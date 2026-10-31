@@ -3,12 +3,18 @@
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
 import { storage, window, input, session, i18n, world, ui, game } from "factoria";
 import * as mix from "./game/mix.js";
+import * as controls from "./game/controls.js"; // controls.js reads and saves the settings too: each uses the other only inside functions
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
 
-/** Window modes of the Video tab. The engine has full screen and windowed only: its full screen is the window covering the monitor (borderless), and it has no exclusive mode or monitor choice to offer (FB-0027). */
-export const DISPLAY_MODES = ["windowed", "fullscreen"];
+/**
+ * Window modes of the Video tab (window.setMode): a window, a borderless window covering the monitor, and full screen (macOS's
+ * own full screen; on Windows and Linux the same frameless window as borderless, docs/SCRIPTING.md "window").
+ * Where the platform has no borderless mode (`window.supports("borderless")` is false) the Options row cycles windowed and
+ * fullscreen only, and a saved "borderless" is applied as "fullscreen".
+ */
+export const DISPLAY_MODES = ["windowed", "borderless", "fullscreen"];
 
 /** Game speeds of the assist option (1 = normal). A slower game does not post to the boards (scripts/game/boards.js). */
 export const GAME_SPEEDS = [1, 0.8, 0.6];
@@ -27,14 +33,15 @@ function defaults() {
   const system = game.accessibility;
   return {
     volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
-    fullscreen: null, // null: keep factoria.json display.fullscreen (kept in step with displayMode)
-    displayMode: null, // null, "windowed" or "fullscreen" (DISPLAY_MODES); null: keep factoria.json
+    fullscreen: null, // null: keep factoria.json display.fullscreen (what an older save stored; kept in step with displayMode)
+    displayMode: null, // null, "windowed", "borderless" or "fullscreen" (DISPLAY_MODES); null: keep factoria.json
+    monitor: null, // { index, name } of the monitor the player chose (see monitorChoice), or null: where the OS opens the window
     resolution: null, // [width, height] of the window, or null: the factoria.json size
     vsync: null, // null: keep factoria.json display.vsync
     frameCap: 0, // 0 = no cap
     colorFilter: "none", // one of COLOR_FILTERS
     bindings: {}, // action -> binding names, only for actions the player rebound
-    playerBindings: {}, // seat ("0".."3") -> { keys: {action: names}, pad: {action: names} }, only what each player rebound (scripts/game/controls.js)
+    playerBindings: {}, // seat ("0".."3") -> input.player(seat).export(): { keys: {project action: names}, pad: {...} }, only what each player rebound (scripts/game/controls.js)
     language: null, // null: the language the game started in (the player's system language, else the default one)
     readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
     textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
@@ -43,6 +50,7 @@ function defaults() {
     soundCaptions: false, // short captions for important sounds in a shift (the "sound_captions" entity; scripts/game/sound.js)
     holdMode: {}, // seat ("0".."3") -> "hold" | "toggle": how the dig button is read (scripts/game/miner_input.js)
     gameSpeed: 1, // 1, 0.8 or 0.6: the speed of a shift (GAME_SPEEDS)
+    splitScreen: false, // true: miners may part and the screen splits into one view each (scripts/game/camera_views.js); false: a leash keeps them together
   };
 }
 
@@ -61,10 +69,13 @@ export function current() {
 export function save(s) {
   storage.set("settings", s);
   flashStamp = -1;
+  splitStamp = -1;
 }
 
 let flashStamp = -1;
 let flashValue = false;
+let splitStamp = -1;
+let splitValue = false;
 
 /**
  * True when the player asked for reduced flashing (Options > Access; the system's "reduce motion" until they choose). Effects code
@@ -79,6 +90,19 @@ export function reducedFlashing() {
   return flashValue;
 }
 
+/**
+ * True when the player chose a split screen (Options > Video): the miners may walk apart and the camera splits (camera_views.js).
+ * The miners' steps ask every frame, so this is cached like `reducedFlashing`.
+ */
+export function splitScreenOn() {
+  const frame = world.frame;
+  if (splitStamp < 0 || frame < splitStamp || frame - splitStamp >= 15) {
+    splitValue = load().splitScreen === true;
+    splitStamp = frame;
+  }
+  return splitValue;
+}
+
 /** How the dig button of a seat is read: "hold" or "toggle". */
 export function holdModeOf(seat, s = current()) {
   return s.holdMode[String(seat)] === "toggle" ? "toggle" : "hold";
@@ -90,6 +114,19 @@ export function displayModeOf(s = current()) {
   if (s.fullscreen === true) return "fullscreen";
   if (s.fullscreen === false) return "windowed";
   return null;
+}
+
+/** What save() stores for the monitor `index` of window.monitors(): its name too, because the numbers change when a monitor is unplugged. */
+export function monitorChoice(index) {
+  return { index, name: window.monitors()[index]?.name ?? "" };
+}
+
+/** The index in window.monitors() of the monitor the player chose: the one with the same name (the same place when several share it), or -1 when it is not connected now. */
+export function savedMonitorIndex(choice) {
+  const monitors = window.monitors();
+  const same = monitors.map((m, i) => ({ m, i })).filter((x) => x.m.name === choice.name);
+  if (same.length === 0) return -1;
+  return (same.find((x) => x.i === choice.index) ?? same[0]).i;
 }
 
 /** The game speed in force (a saved value that is not one of GAME_SPEEDS counts as 1). */
@@ -136,6 +173,7 @@ export function apply(s = load()) {
       console.warn(`settings: the saved controls of "${action}" were ignored: ${e.message}`);
     }
   }
+  controls.applySaved(s); // each seat's own controls, kept by the engine (input.player)
   if (!window.available) return; // headless runs and tests have no window
   const tryApply = (what, fn) => {
     try {
@@ -144,9 +182,17 @@ export function apply(s = load()) {
       console.warn(`settings: ${what} was not applied: ${e.message}`);
     }
   };
-  const mode = displayModeOf(s);
-  if (mode !== null) tryApply("window mode", () => window.setFullscreen(mode !== "windowed"));
-  if (s.resolution && !window.fullscreen) tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
+  // The monitor first: a full screen or borderless window covers the monitor it is on when it switches.
+  if (s.monitor && window.supports("monitors")) {
+    const index = savedMonitorIndex(s.monitor);
+    if (index >= 0 && index !== window.monitor) tryApply("monitor", () => window.setMonitor(index));
+  }
+  const saved = displayModeOf(s);
+  if (saved !== null) {
+    const mode = saved === "borderless" && !window.supports("borderless") ? "fullscreen" : saved;
+    tryApply("window mode", () => window.setMode(mode));
+  }
+  if (s.resolution && window.mode === "windowed") tryApply("window size", () => window.setSize(s.resolution[0], s.resolution[1]));
   if (s.vsync !== null) tryApply("vsync", () => window.setVsync(s.vsync));
   if (s.frameCap) tryApply("frame cap", () => (window.frameCap = s.frameCap));
 }

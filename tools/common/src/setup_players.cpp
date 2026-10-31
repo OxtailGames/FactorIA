@@ -237,26 +237,36 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
     ctx.say("Looking up the release " + tag + " of " + kSetupReleaseRepo + "...");
     std::string text;
     int status = 0;
+    bool fellBack = false;  // a development build: the players are the newest release's, not this build's
+    std::optional<ReleaseInfo> release;
     if (auto f = fetch_text(ctx, api + "/releases/tags/" + tag, "the release " + tag, in.staging(), text, &status, headers)) {
-        if (status == 404) {
-            std::string latest, newestTag;
-            if (!fetch_text(ctx, api + "/releases/latest", "the newest release", in.staging(), latest, nullptr, headers)) {
-                if (auto j = parse_json(latest, "latest release"); j.ok()) {
-                    if (auto r = parse_github_release(*j); r.ok()) newestTag = r->tag;
-                }
+        if (status != 404) return in.fail(*f);
+        // This version was never released: a development build ahead of the last release. Its players cannot exist, so the
+        // newest release's are offered (they run, but their build fingerprint is not this factoria's).
+        std::string latest;
+        if (!fetch_text(ctx, api + "/releases/latest", "the newest release", in.staging(), latest, nullptr, headers)) {
+            if (auto j = parse_json(latest, "latest release"); j.ok()) {
+                if (auto r = parse_github_release(*j); r.ok()) release = *r;
             }
+        }
+        if (!release)
             return in.fail("no_release",
-                           make_error("This factoria (" + version + ") has no release " + tag + " on GitHub (a development build ahead of the last release), so there are no players to download for it." +
-                                          (newestTag.empty() ? std::string() : " The newest published release is " + newestTag + "."),
+                           make_error("This factoria (" + version + ") has no release " + tag + " on GitHub (a development build ahead of the last release), so there are no players to download for it.",
                                       "Build the player on the other OS (see docs/BUILDING.md) and pass it with `factoria export --player <path>`, or use a factoria downloaded from https://github.com/" +
                                           std::string(kSetupReleaseRepo) + "/releases."));
-        }
-        return in.fail(*f);
+        fellBack = true;
+        const std::string note = "This factoria (" + version + ") is a development build with no release " + tag + ": the players come from the newest release, " + release->tag +
+                                 ". Their build fingerprint will not match this factoria's, so an export that uses them needs allowPlayerMismatch (--allow-player-mismatch)"
+                                 " until you build the players from this checkout (`factoria setup webplayer` for the web; docs/BUILDING.md for the others).";
+        ctx.say(note);
+        in.report.warnings.push_back(note);
+    } else {
+        auto json = parse_json(text, api);
+        if (!json.ok()) return in.fail("failed", make_error("GitHub's answer for " + tag + " is not JSON: " + json.error().message, "Try again later."));
+        auto parsed = parse_github_release(*json);
+        if (!parsed.ok()) return in.fail("failed", parsed.error());
+        release = *parsed;
     }
-    auto json = parse_json(text, api);
-    if (!json.ok()) return in.fail("failed", make_error("GitHub's answer for " + tag + " is not JSON: " + json.error().message, "Try again later."));
-    auto release = parse_github_release(*json);
-    if (!release.ok()) return in.fail("failed", release.error());
 
     // ---- one package per OS: the OSes asked for, plus the macOS one for the mobile libraries (the only package with the iOS ones)
     std::vector<std::string> packages = needDesktop;
@@ -347,6 +357,8 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
     if (needMobile) in.report.paths.emplace_back("mobile", (root / "mobile").string());
     if (needWeb) in.report.paths.emplace_back("web", (root / "web").string());
     in.report.nextSteps.push_back("`factoria export --platform <windows|linux|macos|android|ios>` now finds these players without --player or --mobile-dir.");
+    if (fellBack)
+        in.report.nextSteps.push_back("These players are from " + release->tag + ", not from this development build: pass allowPlayerMismatch (--allow-player-mismatch) to `factoria export`.");
     return in.finish();
 }
 

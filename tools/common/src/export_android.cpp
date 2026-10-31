@@ -16,6 +16,7 @@
 #include "fa/core/process.h"
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
+#include "fa/services/network.h"
 #include "fa/tooling/ads_release.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/setup_parse.h"
@@ -346,6 +347,14 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
     for (const std::string& perm : s.permissions)
         if (perm != "android.permission.VIBRATE")  // the manifest template always has it (input.vibrate)
             permissions.push_back("<uses-permission android:name=\"" + xml_escape(perm) + "\" />");
+    // A game that declares network hosts (factoria.json "network", http.fetch) needs INTERNET; without them the app asks for nothing.
+    const std::string internet = "android.permission.INTERNET";
+    if (std::find(s.permissions.begin(), s.permissions.end(), internet) == s.permissions.end()) {
+        std::ifstream projectFile(p.dir / "factoria.json", std::ios::binary);
+        const Json projectJson = Json::parse(projectFile, nullptr, false);
+        const NetworkParse network = parse_network(projectJson.is_object() && projectJson.contains(kNetworkKey) ? projectJson[kNetworkKey] : Json());
+        if (network.ok() && !network.policy.hosts.empty()) permissions.push_back("<uses-permission android:name=\"" + internet + "\" />");
+    }
     std::string signingProperties;
     if (!a.keystore.empty())
         signingProperties = "# Release signing (export.android.signing in factoria.json). The passwords are NOT stored here: set the environment\n"

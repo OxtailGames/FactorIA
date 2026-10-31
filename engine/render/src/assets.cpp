@@ -301,13 +301,15 @@ private:
 
     bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
                         std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx) {
-        const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr;
+        const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr, *col = nullptr;
         for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
             const cgltf_attribute& at = prim.attributes[a];
             if (at.type == cgltf_attribute_type_position && at.index == 0) pos = at.data;
             else if (at.type == cgltf_attribute_type_normal && at.index == 0) nrm = at.data;
             else if (at.type == cgltf_attribute_type_texcoord && at.index == 0) uv = at.data;
             else if (at.type == cgltf_attribute_type_tangent && at.index == 0 && at.data->type == cgltf_type_vec4) tng = at.data;
+            else if (at.type == cgltf_attribute_type_color && at.index == 0 && (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
+                col = at.data;  // COLOR_0: multiplies the base color (rgb or rgba, floats or normalized integers)
         }
         if (!pos) return false;
         verts.resize(pos->count);
@@ -328,6 +330,11 @@ private:
             if (tng) cgltf_accessor_read_float(tng, i, tn, 4);
             Vec3 wt = normalize(world.transform_dir({tn[0], tn[1], tn[2]}));
             v.tx = wt.x; v.ty = wt.y; v.tz = wt.z; v.tw = tn[3] < 0.0f ? -1.0f : 1.0f;
+            if (col) {
+                float c[4] = {1, 1, 1, 1};
+                cgltf_accessor_read_float(col, i, c, col->type == cgltf_type_vec3 ? 3 : 4);
+                v.color = pack_vertex_color(c[0], c[1], c[2], c[3]);
+            }
         }
         if (prim.indices) {
             idx.resize(prim.indices->count);
@@ -474,6 +481,8 @@ Assets::Assets(Gpu& gpu) : gpu_(gpu) {
 
 Assets::~Assets() {
     clear();
+    for (auto& [k, t] : runtime_) destroy_texture(*t);
+    runtime_.clear();
     destroy_texture(*white_);
     destroy_texture(*placeholderTex_);
     destroy_mesh(*placeholderMesh_);
@@ -507,6 +516,10 @@ void Assets::clear() {
     anonymous_.clear();
     for (auto& [k, m] : meshes_) destroy_mesh(*m);
     meshes_.clear();
+    for (auto& [k, pm] : procedural_) destroy_procedural(pm);
+    procedural_.clear();
+    meshStore_ = nullptr;
+    meshStoreSerial_ = 0;
     for (auto& [k, m] : materials_)
         for (MaterialProgram& p : m->programs)
             if (p.shader.id) gpu_.destroy_shader(p.shader);
@@ -595,6 +608,25 @@ TextureAsset* Assets::make_texture(const std::string& name, const Image& img, bo
     upload_texture(*t, img, mips);
     anonymous_.push_back(std::move(t));
     return anonymous_.back().get();
+}
+
+std::string Assets::make_runtime_texture(const Image& img) {
+    const std::string id = "runtime:" + std::to_string(nextRuntime_++);
+    auto t = std::make_unique<TextureAsset>();
+    t->path = id;
+    upload_texture(*t, img, true);
+    runtime_[id] = std::move(t);
+    return id;
+}
+
+bool Assets::destroy_runtime_texture(const std::string& id) {
+    auto it = runtime_.find(id);
+    if (it == runtime_.end()) return false;
+    destroy_texture(*it->second);
+    runtime_.erase(it);
+    // A Sprite that still names the id drew the placeholder from now on: forget a stale lookup made before.
+    textures_.erase(id);
+    return true;
 }
 
 TextureAsset* Assets::video_texture(const std::shared_ptr<VideoDecoder>& decoder) {
@@ -745,6 +777,36 @@ TextureAsset* Assets::load_texture(const std::string& path) {
 
 TextureAsset* Assets::texture(const std::string& path) {
     if (path.empty()) return white_.get();
+    if (is_runtime_id(path)) {  // before fs::normalize: the id is not a file path
+        if (auto r = runtime_.find(path); r != runtime_.end()) return r->second.get();
+        auto& slot = textures_[path];
+        if (!slot) {
+            slot = std::make_unique<TextureAsset>();
+            slot->path = path;
+            note_failure("texture", path,
+                         std::format("'{}' is not a texture file but a run-time texture id, and no such texture exists now (it was "
+                                     "destroyed with texture.destroy(), or it was made by an earlier run of the game).", path),
+                         "Make the texture again with render.captureTexture() or render.textureFromPNG() and use its `id`.");
+            use_placeholder(*slot);
+        }
+        return slot.get();
+    }
+    if (is_target_id(path)) {  // a render target: live, never cached (its image is remade when the camera's size changes)
+        TextureAsset* t = targetResolver_ ? targetResolver_(path.substr(7)) : nullptr;
+        if (t) {
+            if (!failures_.empty())  // a camera renders into it now: an older "nobody renders into it" record is stale
+                failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                               [&](const Failure& f) { return f.kind == "texture" && f.path == path; }),
+                                failures_.end());
+            return t;
+        }
+        if (drawing_) note_failure("texture", path,
+                     std::format("'{}' is a render target id but no active Camera renders into it now (Camera.renderTarget = '{}'). "
+                                 "Until one does, the missing-texture checker is drawn.", path, path.substr(7)),
+                     "Add a Camera entity with \"renderTarget\": \"" + path.substr(7) + "\" (and a renderTargetSize), keep it active, "
+                     "and check the name against the camera's.");
+        return placeholderTex_.get();
+    }
     std::string key = fs::normalize(path);
     if (key.empty()) key = path;
     auto it = textures_.find(key);
@@ -817,10 +879,194 @@ MeshAsset* Assets::load_mesh(const std::string& name) {
 }
 
 MeshAsset* Assets::mesh(const std::string& name) {
+    if (MeshStore::is_id(name)) return procedural_mesh(name);
     std::string key = name.empty() ? std::string("cube") : name;
     auto it = meshes_.find(key);
     if (it != meshes_.end()) return it->second.get();
     return load_mesh(key);
+}
+
+// ---------------------------------------------------------------------------
+// Procedural meshes
+// ---------------------------------------------------------------------------
+void Assets::destroy_procedural(ProceduralMesh& pm) {
+    for (sg_buffer* b : {&pm.vb, &pm.ib, &pm.vbStage, &pm.ibStage}) {
+        if (b->id) sg_destroy_buffer(*b);
+        *b = {};
+    }
+    pm.vbCap = pm.ibCap = 0;
+    pm.stagedFrame = 0;
+    if (pm.asset) pm.asset->parts.clear();
+}
+
+void Assets::set_mesh_store(const MeshStore* store) {
+    if (!store || store->serial() != meshStoreSerial_) {
+        for (auto& [id, pm] : procedural_) destroy_procedural(pm);
+        procedural_.clear();
+    }
+    meshStore_ = store;
+    meshStoreSerial_ = store ? store->serial() : 0;
+    for (auto it = procedural_.begin(); it != procedural_.end();) {
+        if (!store || !store->find(it->first)) {
+            destroy_procedural(it->second);
+            it = procedural_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+MeshAsset* Assets::procedural_mesh(const std::string& id) {
+    const MeshStore::Entry* e = meshStore_ ? meshStore_->find(id) : nullptr;
+    if (!e) {
+        std::string message = std::format("MeshRenderer.mesh '{}' is not a mesh that exists", id), hint;
+        if (meshStore_) {
+            const Error err = meshStore_->get(id).error();
+            message = "MeshRenderer.mesh: " + err.message;
+            hint = err.hint;
+        }
+        note_failure("mesh", id, message,
+                     hint.empty() ? "Make the mesh with mesh.create() in a script of the scene that shows it, and set MeshRenderer.mesh to its `id`."
+                                  : hint);
+        return placeholderMesh_.get();
+    }
+    ProceduralMesh& pm = procedural_[id];
+    if (!pm.asset) {
+        pm.asset = std::make_unique<MeshAsset>();
+        pm.asset->key = id;
+    }
+    if (pm.version != e->version || pm.asset->parts.empty()) {
+        upload_procedural(pm, *e);
+        pm.version = e->version;
+    }
+    // Textures are looked up on every use: a run-time texture can be destroyed and a file can be reloaded under the part.
+    for (std::size_t i = 0; i < pm.asset->parts.size() && i < pm.partTextures.size(); ++i)
+        pm.asset->parts[i].texture = pm.partTextures[i].empty() ? nullptr : texture(pm.partTextures[i]);
+    return pm.asset.get();
+}
+
+void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
+    const MeshData& d = e.data;
+    const std::size_t n = d.vertex_count();
+    std::vector<MeshVertex> verts(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        MeshVertex& v = verts[i];
+        v.px = d.positions[i * 3]; v.py = d.positions[i * 3 + 1]; v.pz = d.positions[i * 3 + 2];
+        v.nx = d.normals[i * 3]; v.ny = d.normals[i * 3 + 1]; v.nz = d.normals[i * 3 + 2];
+        v.u = d.uvs[i * 2]; v.v = d.uvs[i * 2 + 1];
+        v.tx = d.tangents[i * 4]; v.ty = d.tangents[i * 4 + 1]; v.tz = d.tangents[i * 4 + 2]; v.tw = d.tangents[i * 4 + 3];
+        if (!d.colors.empty()) v.color = pack_vertex_color(d.colors[i * 4], d.colors[i * 4 + 1], d.colors[i * 4 + 2], d.colors[i * 4 + 3]);
+    }
+    const std::size_t vbBytes = n * sizeof(MeshVertex), ibBytes = d.indices.size() * sizeof(std::uint32_t);
+
+    // Outside a pass the buffers are written through staging buffers and kept while the data fits (a mesh deformed every frame
+    // costs two copies, no allocation). Inside a pass (a copy cannot run there) or when the staging buffers were already written
+    // this frame (a transient write after a copy is not allowed), new buffers are made.
+    const bool canCopy = sg_query_pass_state() == SG_PASSSTATE_NONE;
+    const std::uint64_t frameTag = gpu_.frame() + 1;
+    if (canCopy) {
+        const bool fits = pm.vbStage.id && vbBytes <= pm.vbCap && ibBytes <= pm.ibCap && pm.stagedFrame != frameTag;
+        if (!fits) {
+            const bool grow = pm.vb.id && (vbBytes > pm.vbCap || ibBytes > pm.ibCap);
+            std::size_t vbCap = std::max(vbBytes, pm.vbCap), ibCap = std::max(ibBytes, pm.ibCap);
+            if (grow) {  // headroom for a mesh that keeps growing
+                vbCap = std::max(vbCap, vbBytes + vbBytes / 2);
+                ibCap = std::max(ibCap, ibBytes + ibBytes / 2);
+            }
+            vbCap = (vbCap + 3) & ~std::size_t(3);
+            ibCap = (ibCap + 3) & ~std::size_t(3);
+            destroy_procedural(pm);
+            pm.vbCap = vbCap;
+            pm.ibCap = ibCap;
+            sg_buffer_desc bd{};
+            bd.size = vbCap;
+            bd.usage.vertex_buffer = true;
+            bd.usage.copy_dst = true;
+            bd.label = "procedural-vb";
+            pm.vb = sg_make_buffer(&bd);
+            bd = {};
+            bd.size = ibCap;
+            bd.usage.vertex_buffer = false;
+            bd.usage.index_buffer = true;
+            bd.usage.copy_dst = true;
+            bd.label = "procedural-ib";
+            pm.ib = sg_make_buffer(&bd);
+            bd = {};
+            bd.size = vbCap;
+            bd.usage.vertex_buffer = false;
+            bd.usage.staging_buffer = true;
+            bd.usage.write_transient = true;
+            bd.usage.copy_src = true;
+            bd.label = "procedural-vb-staging";
+            pm.vbStage = sg_make_buffer(&bd);
+            bd.size = ibCap;
+            bd.usage.staging_buffer = !sg_query_features().separate_buffer_types;
+            bd.usage.staging_index_buffer = sg_query_features().separate_buffer_types;
+            bd.label = "procedural-ib-staging";
+            pm.ibStage = sg_make_buffer(&bd);
+        }
+        sg_write_buffer_desc w{};
+        w.src.data = {verts.data(), vbBytes};
+        w.dst.buffer = pm.vbStage;
+        sg_write_buffer_transient(&w);
+        sg_copy_buffer_to_buffer_desc c{};
+        c.src.buffer = pm.vbStage;
+        c.dst.buffer = pm.vb;
+        c.size = vbBytes;
+        sg_copy_buffer_to_buffer(&c);
+        w = {};
+        w.src.data = {d.indices.data(), ibBytes};
+        w.dst.buffer = pm.ibStage;
+        sg_write_buffer_transient(&w);
+        c = {};
+        c.src.buffer = pm.ibStage;
+        c.dst.buffer = pm.ib;
+        c.size = ibBytes;
+        sg_copy_buffer_to_buffer(&c);
+        pm.stagedFrame = frameTag;
+    } else {
+        destroy_procedural(pm);
+        sg_buffer_desc bd{};
+        bd.data = {verts.data(), vbBytes};
+        bd.label = "procedural-vb";
+        pm.vb = sg_make_buffer(&bd);
+        bd = {};
+        bd.usage.vertex_buffer = false;
+        bd.usage.index_buffer = true;
+        bd.data = {d.indices.data(), ibBytes};
+        bd.label = "procedural-ib";
+        pm.ib = sg_make_buffer(&bd);
+        pm.vbCap = vbBytes;
+        pm.ibCap = ibBytes;
+    }
+
+    MeshAsset& a = *pm.asset;
+    a.parts.clear();
+    a.placeholder = false;
+    a.bmin = d.bmin;
+    a.bmax = d.bmax;
+    pm.partTextures.clear();
+    for (const MeshSubmesh& s : d.submeshes) {
+        SubMesh sm;
+        sm.vb = pm.vb;
+        sm.ib = pm.ib;
+        sm.ibOffset = int(s.start * sizeof(std::uint32_t));
+        sm.vertexCount = int(n);
+        sm.indexCount = int(s.count);
+        sm.bmin = d.bmin;
+        sm.bmax = d.bmax;
+        const MeshMaterial& m = s.material;
+        sm.materialName = m.name;
+        sm.baseColor = m.color;
+        sm.hasPbr = m.metallic.has_value() || m.roughness.has_value();
+        sm.metallic = m.metallic.value_or(0.0f);
+        sm.roughness = m.roughness.value_or(0.6f);
+        sm.emissiveFactor = Color{m.emissive.r, m.emissive.g, m.emissive.b, 1.0f};
+        sm.doubleSided = m.doubleSided;
+        sm.blended = m.blend;
+        a.parts.push_back(sm);
+        pm.partTextures.push_back(m.texture);
+    }
 }
 
 void Assets::reload(const std::string& pathIn) {
@@ -858,6 +1104,7 @@ std::size_t Assets::texture_bytes() const {
     for (const auto& [k, t] : textures_)
         if (!t->placeholder && !t->atlas) total += t->bytes;
     for (const auto& [k, v] : videoTextures_) total += v.tex->bytes;
+    for (const auto& [k, t] : runtime_) total += t->bytes;
     return total;
 }
 
@@ -870,12 +1117,21 @@ Json Assets::report() const {
         if (t->atlas) entry["atlas"] = t->atlas->path;  // packed: the bytes are the atlas's
         tex.push_back(std::move(entry));
     }
+    for (const auto& [k, t] : runtime_)
+        tex.push_back({{"path", k}, {"width", t->width}, {"height", t->height}, {"format", pixel_format_name(t->format)},
+                       {"bytes", t->bytes}, {"runtime", true}});
     Json meshes = Json::array();
     for (const auto& [k, m] : meshes_) {
         if (m->placeholder) continue;
         int tris = 0;
         for (const auto& p : m->parts) tris += p.indexCount / 3;
         meshes.push_back({{"mesh", k}, {"triangles", tris}, {"parts", m->parts.size()}});
+    }
+    for (const auto& [k, pm] : procedural_) {
+        int tris = 0;
+        for (const auto& p : pm.asset->parts) tris += p.indexCount / 3;
+        meshes.push_back({{"mesh", k}, {"triangles", tris}, {"parts", pm.asset->parts.size()}, {"procedural", true},
+                          {"version", pm.version}, {"bytes", pm.vbCap + pm.ibCap}});
     }
     Json fails = Json::array();
     for (const auto& f : failures_) fails.push_back({{"kind", f.kind}, {"path", f.path}, {"message", f.message}, {"hint", f.hint}});

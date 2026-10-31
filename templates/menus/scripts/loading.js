@@ -2,7 +2,7 @@
 // scenes/loading.scene.json: reads the scene the main menu put in session.nextScene ahead of time, a few files every
 // frame, so this scene keeps running (and drawing) meanwhile; then loads it, which reads nothing from the disk.
 // A full recipe with a bar: set the width of a Shape2D from `job.progress` in onUpdate, like the text below.
-import { Behaviour, scene, session } from "factoria";
+import { Behaviour, i18n, scene, session } from "factoria";
 
 export default class Loading extends Behaviour {
   onStart() {
@@ -22,6 +22,7 @@ export default class Loading extends Behaviour {
   }
 
   onUpdate() {
-    this.entity.get("Text").text = `Loading... ${Math.round(this.job.progress * 100)}%`;
+    // No key on the Text: the line is built here, so the percentage sits inside the translated sentence.
+    this.entity.get("Text").text = i18n.t("loading.progress", { percent: Math.round(this.job.progress * 100) });
   }
 }

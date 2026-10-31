@@ -9,6 +9,7 @@
 
 #include "export_internal.h"
 #include "export_zip.h"
+#include "fa/core/build_info.h"
 #include "fa/core/pack.h"
 #include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/bundle.h"
@@ -88,19 +89,30 @@ Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sou
         }
         return player_in(given, "explicit");
     }
+    // Every web player there is, in the order of preference when they all match: the download's web/ next to factoria, a web
+    // build of the engine source (Emscripten, preset web-release) in the checkout factoria was built from, then the one
+    // `factoria setup players` installed. The first whose build fingerprint is this factoria's wins, so a checkout's fresh
+    // build is used before an installed player of an older release; when none matches the first found is returned and the
+    // export then stops on the mismatch (check_player_build).
     std::vector<std::string> searched;
+    std::vector<WebPlayer> found;
     const stdfs::path exeDir = executable_dir();
-    // The download carries web/ next to factoria, like mobile/.
-    if (has_player(exeDir / "web")) return player_in(exeDir / "web", "package");
+    if (has_player(exeDir / "web"))
+        if (auto w = player_in(exeDir / "web", "package"); w.ok()) found.push_back(*w);
     searched.push_back(generic(exeDir / "web"));
-    if (const std::string installed = installed_player("web"); !installed.empty()) return player_in(stdfs::path(installed).parent_path(), "installed");
-    searched.push_back("<FactorIA home>/players/<version>/web (`factoria setup players --platforms web`)");
-    // A web build of the engine source (Emscripten, preset web-release) in the checkout factoria was built from.
     if (!sourceRoot.empty())
         for (const char* build : {"web-release", "web"})
             if (const stdfs::path dir = stdfs::path(sourceRoot) / "build" / build / "player"; has_player(dir))
-                return player_in(dir, "build");
+                if (auto w = player_in(dir, "build"); w.ok()) found.push_back(*w);
+    if (const std::string installed = installed_player("web"); !installed.empty())
+        if (auto w = player_in(stdfs::path(installed).parent_path(), "installed"); w.ok()) found.push_back(*w);
+    searched.push_back("<FactorIA home>/players/<version>/web (`factoria setup players --platforms web`)");
     searched.push_back(generic(stdfs::path(sourceRoot) / "build" / "web-release" / "player") + " (a web build of the engine source)");
+    const std::string mine = build_fingerprint();
+    if (mine != "unknown")
+        for (const WebPlayer& w : found)
+            if (const auto data = read_file(w.wasm); data && find_build_fingerprint(*data) == mine) return w;
+    if (!found.empty()) return found.front();
     return err("export: no web player found: factoria_player.js and factoria_player.wasm are not in " + join(searched, ", "),
                "run `factoria setup players --platforms web` (the editor: Set up in the Export window) to install the web player of this FactorIA "
                "version, or build it with Emscripten (docs/BUILDING.md, preset web-release) and pass its player/ folder with --player <folder>");
@@ -120,9 +132,32 @@ Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::
     if (!shell)
         return err(std::string("export: the page template ") + kShellPath + " is not in this factoria",
                    "this build of factoria lacks the platforms/ folder: build it from a complete checkout, or use the FactorIA download");
+    // The tab's icon: the game's icon (factoria.json "icon") as a 64x64 favicon.png. Without one, or with an icon that cannot be read
+    // (the warning says why), the page keeps an empty icon, so that a host without a favicon logs no 404.
+    std::string favicon = "data:,";
+    {
+        std::vector<std::string> ignored;  // load_icon_image's remarks (not square, under 512 px) are about app icons
+        auto icon = load_platform_icon(p, "web", ignored);
+        if (!icon.ok()) {
+            report.warnings.push_back(icon.error().message + (icon.error().hint.empty() ? "" : ". " + icon.error().hint) +
+                                      ". The page has no icon in the browser tab");
+        } else if (!icon->empty()) {
+            const Image small = fit_image(*icon, 64, 1.0f, Color{0, 0, 0, 0});
+            const std::vector<std::uint8_t> png = encode_png(small);
+            if (png.empty()) {
+                report.warnings.push_back("The game's icon could not be written as favicon.png, so the page has no icon in the browser tab");
+            } else {
+                std::string why;
+                if (!write_file(outRoot / "favicon.png", std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &why))
+                    return err("export: cannot write " + generic(outRoot / "favicon.png") + (why.empty() ? "" : ": " + why));
+                favicon = "favicon.png";
+            }
+        }
+    }
     std::vector<std::string> unknown;
     const std::string page = fill_page(*shell,
                                        {{"title", xml_escape(p.name)},
+                                        {"favicon", favicon},
                                         {"wasmBytes", std::to_string(file_size_of(player.wasm))},
                                         {"pakBytes", std::to_string(file_size_of(outRoot / kPackFileName))}},
                                        unknown);
@@ -169,6 +204,23 @@ Result<void> zip_web(const stdfs::path& outRoot, const stdfs::path& zipFile, Exp
     }
     if (auto r = zip.finish(); !r.ok()) return r;
     const std::vector<ZipEntry>& entries = zip.entries();
+    // The size of each file as a browser downloads it: a host that gzips sends the deflate stream in an 18-byte gzip frame (never more
+    // than the raw file plus the frame). Biggest first.
+    report.webBytes = report.webGzipBytes = 0;
+    report.webFiles.clear();
+    for (const ZipEntry& e : entries) {
+        ExportSize row;
+        row.name = e.name;
+        row.files = 1;
+        row.bytes = e.size;
+        row.gzipBytes = std::min<std::uint64_t>(e.compressedSize, e.size) + 18;
+        report.webBytes += row.bytes;
+        report.webGzipBytes += row.gzipBytes;
+        report.webFiles.push_back(std::move(row));
+    }
+    std::sort(report.webFiles.begin(), report.webFiles.end(), [](const ExportSize& a, const ExportSize& b) {
+        return std::make_pair(b.bytes, a.name) < std::make_pair(a.bytes, b.name);
+    });
 
     // What itch.io documents for an HTML5 game (https://itch.io/docs/creators/html5).
     constexpr std::uint64_t kMiB = 1024 * 1024;

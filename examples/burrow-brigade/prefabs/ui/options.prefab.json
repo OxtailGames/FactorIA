@@ -169,11 +169,12 @@
               {
                 "id": "monitor",
                 "components": {
-                  "Text": {
+                  "Button": {
+                    "autoSize": true,
                     "text": "Monitor",
-                    "fontSize": 22,
-                    "space": "screen",
-                    "layer": 302
+                    "size": [560, 40],
+                    "layer": 302,
+                    "fontSize": 22
                   }
                 }
               },
@@ -210,6 +211,18 @@
                     "size": [560, 40],
                     "layer": 302,
                     "fontSize": 22
+                  }
+                }
+              },
+              {
+                "id": "split_screen",
+                "components": {
+                  "Toggle": {
+                    "autoSize": true,
+                    "label": "Split screen when players part",
+                    "key": "options.splitScreen",
+                    "size": [560, 40],
+                    "layer": 302
                   }
                 }
               },

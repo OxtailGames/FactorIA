@@ -10,8 +10,8 @@
         "layout": "column",
         "direction": "auto",
         "align": "start",
-        "spacing": 16,
-        "padding": [24, 24, 24, 24]
+        "spacing": 12,
+        "padding": [20, 20, 20, 20]
       },
       "Script": {
         "path": "scripts/ui/options.js"
@@ -98,25 +98,37 @@
         "id": "video_section",
         "components": {
           "Panel": {
-            "size": [712, 340],
+            "size": [712, 424],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
             "direction": "auto",
             "align": "start",
-            "spacing": 12
+            "spacing": 8
           }
         },
         "children": [
           {
-            "id": "fullscreen",
+            "id": "window_mode",
             "components": {
-              "Toggle": {
+              "Button": {
                 "autoSize": true,
-                "label": "Full screen",
-                "key": "options.fullscreen",
+                "text": "Window mode",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "monitor",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Monitor",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
               }
             }
           },
@@ -150,6 +162,18 @@
               "Button": {
                 "autoSize": true,
                 "text": "Frame cap",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "ui_scale",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Interface size",
                 "size": [560, 44],
                 "layer": 302,
                 "fontSize": 22
@@ -269,6 +293,18 @@
                 "layer": 302
               }
             }
+          },
+          {
+            "id": "text_speed",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Text speed",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
           }
         ]
       },
@@ -335,6 +371,19 @@
             }
           }
         ]
+      },
+      {
+        "id": "analytics_toggle",
+        "active": false,
+        "components": {
+          "Toggle": {
+            "autoSize": true,
+            "label": "Share anonymous usage data",
+            "key": "options.analytics",
+            "size": [560, 44],
+            "layer": 302
+          }
+        }
       },
       {
         "id": "privacy_options",

@@ -11,13 +11,15 @@
 //                "fullscreen": false, "vsync": true, "orientation": "landscape",
 //                "pixelArt": false },
 //   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
-//   "input": { "actions": { "jump": ["Space", "W"] }, "deadzone": 0.2 },   // deadzone: gamepad sticks and triggers
+//   "input": { "actions": { "jump": ["Space", "W"] }, "deadzone": 0.2 },   // deadzone: gamepad sticks and triggers; "schemes": key sets of local players
 //   "platforms": ["windows", "macos", "linux", "ios", "android"],
 //   "feedbackFile": "ENGINE_FEEDBACK.json",
 //   "icon": "assets/icon.png",                // the game icon; export.<platform>.icon replaces it for one platform
 //   "localization": { "defaultLanguage": "en", "languages": ["en", "es", "ja"],       // BCP 47 tags; locales/<language>.json
 //                     "fallbackFonts": ["assets/fonts/NotoSansArabic-Regular.ttf"],   // fonts for what the main font lacks
 //                     "languageFonts": { "zh-Hans": ["assets/fonts/NotoSansSC-Regular.ttf"] } },   // docs/LOCALIZATION.md
+//   "text": { "colors": { "good": "#80dc80" }, "icons": { "fish": { "texture": "assets/atlas.png", "region": [0, 0, 32, 32] } },
+//             "fonts": { "assets/fonts/Body.ttf": { "bold": "assets/fonts/Body-Bold.ttf" } } },   // rich text: fa/scene/rich_text.h
 //   "plugins": { "example": { "path": "plugins/example", "platforms": ["windows"] } },   // native plugins: fa/runtime/plugins.h
 //   "export": { ... }                         // per-platform export settings: fa/tooling/export_settings.h, docs/EXPORTING.md
 // }
@@ -30,6 +32,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/types.h"
+#include "fa/scene/ui_tooltip.h"
 #include "fa/render/renderer.h"
 
 namespace fa {
@@ -95,6 +98,10 @@ struct ProjectSettings {
     double fixedHz = 60.0;
     float pixelsPerMeter = 100.0f;
     Json inputActions = Json::object();
+    Json inputSchemes = Json::object();  // "input.schemes": the key sets local players can use (Input::set_key_schemes checks them at start)
+    bool uiMirrorRtl = true;  // "ui": {"mirrorRtl"}: mirror the screen-space UI in a right-to-left language (ui.mirrorRtl)
+    float uiScale = 1.0f;  // "ui": {"scale"}: the interface scale a run starts with (ui.scale, 0.5 .. 3; ui_rect.h)
+    UiTooltipSettings uiTooltip;  // "ui": {"tooltipDelay", "tooltipOnTouch", "tooltip"}: when a tooltip shows and how it looks (ui_tooltip.h)
     double inputDeadzone = 0.2;  // gamepad sticks (radial) and triggers; 0 <= value < 1 (see Input::set_gamepad_deadzone)
     std::vector<std::string> platforms;
     std::string feedbackFile = kFeedbackFileName;

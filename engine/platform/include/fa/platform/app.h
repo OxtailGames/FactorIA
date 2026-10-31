@@ -39,6 +39,9 @@ struct AppEvent {
     enum class Type { Resized, FocusLost, FocusGained, Suspended, Resumed, QuitRequested, FilesDropped };
     Type type;
     int width = 0, height = 0;  // Resized: framebuffer pixels
+    // QuitRequested: true when the app itself asked (app_request_quit(): game.quit(), a failed start, --frames): the window
+    // must close then, so hosts do not offer it to the game as the player's close request.
+    bool fromApp = false;
 };
 
 // One candidate image of the window icon: width * height RGBA8 pixels, row 0 = top.
@@ -61,6 +64,14 @@ struct AppDesc {
     // none here. Empty = the platform's default icon. At most 8 images are used. to_sapp_desc keeps the pixels alive in
     // the copy of this AppDesc it owns, like `title`.
     std::vector<AppIconImage> icon;
+    // macOS: the Dock icon while the app runs, for a program that is not an app bundle (the editor, started from the
+    // `factoria` executable, would show the generic one). Draw it on Apple's icon grid: the tile covers the middle ~80%
+    // of the image. Empty = the bundle's icon. The other platforms ignore it.
+    AppIconImage dockIcon;
+    // Linux: the window's class (WM_CLASS), the name docks and window switchers group the window under and match with
+    // a .desktop file's StartupWMClass. Empty = none set. Windows takes the program's name from the exe's version
+    // resource and macOS from the app bundle.
+    std::string appName;
     // Input is fed into this object; positions are converted with to_design_coords. Physical gamepads are polled into
     // it once per frame, before `frame` runs (fa/platform/gamepad.h; not while the window is unfocused).
     Input* input = nullptr;
@@ -91,6 +102,15 @@ int app_framebuffer_width();
 int app_framebuffer_height();
 float app_dpi_scale();
 void app_request_quit();
+// Keeps the window open after a QuitRequested event that did not come from the app (the close button, Cmd+Q, Alt+F4).
+// Only meaningful while that event is handled (inside AppDesc::event); no effect anywhere else.
+void app_cancel_quit();
+// The system clipboard (Windows, macOS, Linux, web; the app descriptor enables it). Mobile has none: the getter answers ""
+// and the setter does nothing (app_clipboard_supported() is false). The web lets a page read only inside a paste, so the
+// getter answers the text of the last paste there.
+bool app_clipboard_supported();
+std::string app_clipboard_get();
+void app_clipboard_set(const std::string& text);
 void app_set_title(const std::string& title);
 void app_show_mouse(bool show);
 bool app_is_mobile();
@@ -102,6 +122,31 @@ bool app_is_fullscreen();
 // Enters or leaves full screen when the state differs (desktop). app_is_fullscreen() follows the request at once, even
 // where the window manager (X11) takes a moment to resize the window. Does nothing on mobile.
 void app_set_fullscreen(bool on);
+// The three ways a desktop window can be shown. Windowed has a frame and a size of its own; Borderless and Fullscreen cover
+// the whole monitor. They differ only where the OS has two kinds: macOS runs Fullscreen as its native full screen (a Space
+// of its own, the menu bar slides in) and Borderless as a frameless window over the monitor that hides the menu bar and the
+// Dock; Windows and Linux have one full screen window (a frameless window over the monitor, no exclusive mode), so the two
+// modes look the same there and only app_window_mode() remembers which one was asked for. Phones and tablets are Fullscreen.
+enum class WindowMode { Windowed, Borderless, Fullscreen };
+// false: this platform has no window modes to choose from (phones, tablets and the web).
+bool app_has_window_modes();
+WindowMode app_window_mode();
+// "" when done, else the reason it was refused (macOS cannot go from its native full screen straight to Borderless).
+std::string app_set_window_mode(WindowMode mode);
+
+// One monitor, in logical pixels. `x`, `y` is its corner in the desktop space.
+struct MonitorInfo {
+    std::string name;
+    int x = 0, y = 0, width = 0, height = 0;
+    bool primary = false;
+    bool current = false;  // the window is on it
+};
+// The monitors, primary first. Empty: this platform cannot list them (phones, tablets, web).
+std::vector<MonitorInfo> app_monitors();
+// Moves the window to monitor `index` of app_monitors(): centred when windowed, covering it when full screen. false: no such
+// monitor, or not possible now (a macOS window in its native full screen stays where it is).
+bool app_move_to_monitor(int index);
+
 // The client size of the window now.
 void app_window_size(int& width, int& height);
 // The size of the monitor the window is on. false: unknown on this platform (width and height are left alone).

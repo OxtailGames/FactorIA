@@ -218,6 +218,11 @@ project's `scaleMode`.
   handlers run first, so a game that opens its own pause menu there (`game.paused = true`) stays paused after resume,
   waiting for the player. Set `false` for a game that must keep running (a timer, a server clock).
 - Tests: `game.suspend()`, `game.resume()`, `game.blur()` and `game.focus()` in `factoria:test` do what the OS does.
+- Which of `blur`, `suspend` and `quit` a platform raises: phones raise `suspend` and `resume` when the app leaves and
+  returns to the foreground and `blur` and `focus` for system dialogs; they never raise `quit`. A browser tab raises `suspend`
+  when it is hidden (a phone browser: when the player switches apps), `resume` when it is shown, `blur` and `focus` with the
+  page's focus, and `quit` on `pagehide`; desktop windows raise `blur` and `quit` but not `suspend`. The table is in
+  SCRIPTING.md ("Window close"). The web copies the save folder to IndexedDB right after those handlers run.
 - Configuration changes the manifest lists (orientation, screen size, density, dark mode, locale, font size, the SIM's
   `mcc`/`mnc` and the others in `android:configChanges`) are handled in place: the game keeps running.
 - A change of the app's assets paths cannot be listed: a new wallpaper colour palette or theme (Android 12+), a system
@@ -227,8 +232,9 @@ project's `scaleMode`.
   scene, as after a cold start.
 - Back and closing the game destroy the activity too; the process ends and the game is not started again.
 - When the process ends this way it ends at once (`_exit`, see `engine/platform/src/sokol_impl.c`): the engine is not
-  shut down and no script callback runs. Save progress while the game runs: `storage` writes go to `storage.json` in the
-  app's internal folder immediately.
+  shut down and no script callback runs. Save progress while the game runs: `storage.set` writes the key's file in the
+  app's internal folder immediately. The `storage.setAsync` writes still waiting are made right after the `suspend`
+  handlers run, so a save in the `suspend` handler (with `set` or `setAsync`) is on disk before the process can end.
 
 ### Native plugins on Android
 
@@ -325,6 +331,25 @@ FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run     # the same on the conn
 `--run` installs the app and starts it with its console (stdout and stderr, so the engine log) in the terminal; Ctrl+C
 ends the game. Simulator builds need no team: they are built unsigned and signed ad hoc. In Xcode instead: choose the
 `factoria_player` scheme, set Team under Signing & Capabilities and press Run.
+
+#### Play a replay on the Simulator
+
+`simctl` can neither tap nor rotate, so the player does both itself when the Simulator starts it with two environment
+variables: `FA_INPUT_REPLAY=<replay.json>` (the file `input.record` writes, the one `factoria run --input` plays; the
+Simulator reads the Mac's disk) and `FA_ORIENTATION=portrait|landscape`. The command `player.run_ios_sim` sets both, boots a
+simulator (an iPhone, or an iPad with `device`), installs the `.app`, waits for the player's `player: replay done after N
+frames` line, takes a screenshot and stops the app:
+
+```bash
+factoria call player.run_ios_sim '{"app":"build/export/my-game-ios/build/Debug-iphonesimulator/factoria_player.app",
+  "input":"replays/play.json","device":"iPad Pro 13-inch","orientation":"landscape","screenshot":"build/ipad.png"}'
+```
+
+`dryRun: true` prints the `simctl` commands and runs nothing, on any computer. The replay's presses, keys, mouse, touch and
+gamepad entries are applied by frame number to the frames the window runs, which last as long as the screen takes (not the
+fixed step of a headless run), so a game that moves by `dt` may end up elsewhere than in the recording: look at the screenshot.
+iOS only turns the screen to an orientation the Info.plist allows (`display.orientation`, `export.ios`). Only a Mac with Xcode
+runs it; a real iPad is a different check (`./build_ios.sh --run`), and so is a real touch.
 
 The export fills in what `factoria.json` says (`icon`, `export.ios`; [EXPORTING.md](EXPORTING.md#platform-settings)):
 `export.ios.teamId` is the default of `FA_IOS_DEVELOPMENT_TEAM` inside `build_ios.sh` (the environment variable still
@@ -455,10 +480,11 @@ Both stores ask what your app does with user data before they accept an upload, 
 answers depend on the whole game (its plugins, its scripts, your servers), so these are the facts about the engine to
 build them from, not a form already filled in. Check the store's current help pages too: the forms change.
 
-**What the engine itself does.** Nothing leaves the device: no analytics, no advertising id, no accounts, no network
-connection of its own. Saves (`storage`) and `log.txt` are files in the app's private folder, and crash reports are
-written next to them; nothing sends them anywhere. A game that adds its own networking, an ads or analytics SDK, or a store
-plugin changes the answers, as below.
+**What the engine itself does.** Nothing leaves the device by itself: no analytics, no advertising id, no accounts, no
+connection the game's scripts did not ask for. Saves (`storage`) and `log.txt` are files in the app's private folder, and
+crash reports are written next to them; nothing sends them anywhere. A game whose scripts call `http.fetch` talks only to
+the hosts it declares in `factoria.json` `"network"` ([NETWORKING.md](NETWORKING.md)). A game that declares hosts, adds an ads
+or analytics SDK, or a store plugin changes the answers, as below.
 
 ### App Store (iOS)
 
@@ -526,7 +552,8 @@ manifest:
 
 | Your game | What to answer |
 |---|---|
-| Engine only, saves on the device | "Data Not Collected" |
+| Engine only, saves on the device, no `"network"` hosts | "Data Not Collected" |
+| `"network"` hosts and `http.fetch` | Answer for what **your** server receives from the requests (a player name, a score, the IP address): collected, and linked to the user when it can identify the player. The engine adds no identifier of its own; `http.fetch` allows `https://` only, so App Transport Security needs no exception ([NETWORKING.md](NETWORKING.md)) |
 | Apple plugin: purchases (StoreKit 2), Game Center, iCloud key-value saves | Apple processes these inside its own services and the data is not sent to you, so they do not add a "collected" entry. If your own server receives receipts or Game Center player ids, add Purchase History and/or User ID, linked to the user, purpose App Functionality |
 | `admob` plugin on iOS: rewarded ads, Google's consent form (UMP) and, with `platform.ads.trackingPrompt`, the "Allow tracking" sheet (ATT) | Google's Mobile Ads SDK collects the advertising id, device and ad interaction data: answer Device ID, Advertising Data and Product Interaction as collected and linked to the user, purpose Third-Party Advertising, and "Data Used to Track You" if you ask for tracking, following Google's AdMob App Store privacy help. Keep the privacy manifest in line: with `trackingPrompt`, set `export.ios.privacy.tracking` to `true` and list the ad network's domains in `export.ios.privacy.trackingDomains` (the export warns when `trackingPrompt` is on and `tracking` is not). Google's XCFrameworks carry their own privacy manifests (PrivacyInfo.xcprivacy). A game for children must follow Apple's Kids Category rules for ads |
 | An ads, attribution or analytics SDK | Whatever the SDK documents (Device ID, Advertising Data, Product Interaction, ...), and `tracking` plus the ATT prompt if it tracks |
@@ -535,17 +562,18 @@ manifest:
 ### Google Play (Android)
 
 **Data safety** (Play Console > App content > Data safety) is also filled in by hand; Play compares it with the app. The
-engine adds no permissions of its own to `AndroidManifest.xml` (add some with `export.android.permissions`). The answers:
+engine adds only what a feature needs to `AndroidManifest.xml`: `INTERNET` when `factoria.json` declares `"network"` hosts (nothing otherwise), and `VIBRATE` (add others with `export.android.permissions`). The answers:
 
 | Your game | What to declare |
 |---|---|
-| Engine only, saves on the device | "No data collected" and "No data shared". `log.txt`, crash reports and saves stay in the app's private folder; no network library is linked |
+| Engine only, saves on the device, no `"network"` hosts | "No data collected" and "No data shared". `log.txt`, crash reports and saves stay in the app's private folder; the game makes no request |
+| `"network"` hosts and `http.fetch` | Declare what your server receives from the requests (often a player name or id, a score, the IP address that every request reveals); the engine adds no identifier of its own. Data in transit is encrypted: the engine only allows `https://` (plain `http://` to `localhost` is for development) |
 | `googleplay` plugin: purchases (Play Billing) | Play Billing handles the payment and shows the purchase history to the game on the device; the Billing library adds the `com.android.vending.BILLING` permission to the manifest. Declare Purchase history (Financial info) only if your own server receives or stores purchase tokens or receipts |
 | `googleplay` plugin: Play Games Services (when `playGamesId` is set) | The Play Games SDK signs the player in and keeps achievements, leaderboard scores and Saved Games in the player's Google account. Declare a player id (User IDs under Personal info) and the game data (App activity) when your own backend receives them; where only Google's services hold them, follow Google's definition of "collected" in the Data safety help |
 | `googleplay` plugin: Play Integrity | The request and the verdict go through Google; the token goes to your server. Declare what your server keeps of it (device or app integrity information) |
 | `admob` plugin: rewarded ads and Google's consent form (UMP) | Google's Mobile Ads SDK collects the advertising id, the device and ad interaction data and shares them with the ad network; declare Device or other IDs and App interactions as shared, and Advertising or marketing as the purpose, following Google's AdMob Data safety help. The merged manifest carries the AD_ID permission when the SDK asks for it: check it in the built APK (`aapt2 dump permissions`). A game for children must follow Google's families policy for ads. [Ads](PLATFORM.md#8-ads-google-admob-and-consent-on-android-and-ios) |
 | An ads SDK | Advertising ID (`com.google.android.gms.permission.AD_ID` in `export.android.permissions`), plus what the SDK documents; apps that target Android 13+ without it get a zeroed ad id |
-| Your own backend, accounts, analytics | The data you send, whether you share it, whether it is encrypted in transit and whether players can ask for deletion |
+| Accounts, analytics (your own backend beyond `http.fetch`) | The data you send, whether you share it, whether it is encrypted in transit and whether players can ask for deletion |
 
 Play also asks for a **privacy policy** link on the store listing of every app, and for the "Data deletion" answers when you
 have accounts. Go through the form again whenever you add a plugin or SDK.
@@ -587,6 +615,12 @@ The platform layer maps touches to the same `Input` object scripts use:
   on a device: the decisions are unit tested on every OS, the JNI glue is only built by CI.
 - Losing focus or backgrounding releases all inputs and fires `Suspended`/`Resumed`; pads that are still connected
   report their real state again afterwards.
+
+### Device and pads
+
+`game.device.handheld` is true on a phone or tablet (and on a Steam Deck); `game.on("gamepadConnected" | "gamepadDisconnected")`
+reports Bluetooth pads on Android and iOS, with an id that is stable per pad (Android: the InputDevice descriptor). See
+docs/SCRIPTING.md, "Pads plugged in and out".
 
 ### On-screen gamepad
 
@@ -632,6 +666,19 @@ position and use the centre of its laid-out rectangle, safe area included; `ui.r
 gives the rectangle itself. Controls anchored to the safe area move with it, so never tap fixed coordinates under a
 notch. The rectangles follow `game.setSafeArea` / `screen.set_safe_area` one step later: take a `game.step(1)` after
 changing the safe area and before reading a rectangle or touching a control.
+
+### Tablets and the iPad: `display.scaleMode: "expand"`
+
+A tablet is closer to 4:3 than a phone is (an iPad Pro 13-inch is 4:3, a 16:9 design on it shows black bars with the
+default `"fit"`, about a quarter of the screen). Set `"display": { "scaleMode": "expand" }` in `factoria.json` to keep
+the design's scale and show more world instead: the visible area grows on the long axis (a 1280 x 720 design on a 4:3
+landscape screen becomes 1280 x 960), with no bars. The UI follows the grown
+screen: widgets with `anchor` at an edge or corner (`[1, 0]`, `[0.5, 1]`) stay on the screen's edges, so a HUD anchored to
+them fits any tablet, a phone and a window of any shape. A widget placed from the top-left corner with a large `position` is
+not moved. The world a 2D camera shows grows on the long axis; with an `orthoSize` the design's height (its width, on a screen
+taller than the design) stays fixed.
+`"fit"` stays the right choice when the level is built to the exact frame (a puzzle board, pixel art that must not show
+what is outside the room); the bars are then the price.
 
 ## Phone features
 
@@ -743,7 +790,9 @@ player uses **no threads**, so the page needs no `SharedArrayBuffer` and no COOP
   The log shows `audio: output device open` when the device is created and `audio: stream running` when it really plays.
 - **Saves** (`storage`, anything the game writes in its save folder) live in the browser's **IndexedDB**, one database per
   game id (`/save/<game id>`), loaded before the game starts and copied back half a second after a write (several writes
-  become one copy; a closing tab flushes it). They belong to the site: they survive reloads and visits, they are lost when
+  become one copy). The tab being hidden or closed raises `suspend` or `quit` (`visibilitychange`, `pagehide`) and the
+  copy starts right after the handlers have run, so a `storage.set` made in one is kept (the browser can still drop a page
+  before the copy ends). Each `storage` key is its own file in that folder. They belong to the site: they survive reloads and visits, they are lost when
   the player clears the site's data, and a private window keeps them only until it closes. `log.txt` and crash reports are
   not written: the log goes to the browser console (`console.log`, `console.warn` and `console.error` by level), which is
   where a player or a developer looks.

@@ -5,7 +5,7 @@ if(POLICY CMP0141)
 endif()
 
 project(FactorIA
-    VERSION 0.2.0
+    VERSION 0.9.0
     DESCRIPTION "AI-native 2D/3D game engine"
     LANGUAGES C CXX)
 
@@ -78,6 +78,13 @@ option(FA_LINUX_STATIC_LIBSTDCXX "Linux: link libstdc++ and libgcc statically (p
 if(FA_LINUX_STATIC_LIBSTDCXX AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_link_options(-static-libstdc++ -static-libgcc)
     message(STATUS "FactorIA: libstdc++ and libgcc are linked statically (FA_LINUX_STATIC_LIBSTDCXX)")
+endif()
+
+# Linux: one section per function and per data object, so the player's --gc-sections (player/CMakeLists.txt) can drop what
+# no game calls. Set for every target (the engine archives and external/ too) because the linker only removes whole sections.
+# The Android NDK toolchain already sets both flags, Apple's -dead_strip needs neither, MSVC Release has /OPT:REF.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-ffunction-sections -fdata-sections)
 endif()
 
 if(FA_BUILD_TESTS)

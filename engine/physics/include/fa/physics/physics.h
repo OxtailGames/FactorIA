@@ -35,6 +35,9 @@
 //     collider area (meters^2) * density.
 //   * RAYCASTS: a collider that contains the ray origin is skipped (see RaycastOptions); `ignore` skips an entity and
 //     its children; triggers are skipped unless ignoreTriggers=false.
+//   * Collider2D/3D.enabled=false: the collider is dropped at the next sync() exactly as if the component were absent
+//     (the body is swept or rebuilt without a shape), so queries, contacts and the NavMesh bake ignore it.
+//   * raycast2d_all/raycast3d_all: every hit sorted by distance, at most RaycastOptions.maxHits, one per entity.
 //   * SHAPE CASTS (2D): b2World_CastShape with proxies built to stop ON the surface (raw Box2D stops a box 0.5 cm
 //     short of a wall and a circle 0.5 cm inside it). A collider the shape penetrates by more than 1 cm at `from` is
 //     skipped; one it only touches (resting contact) blocks the cast, at distance 0, only when the shape moves towards
@@ -63,7 +66,8 @@
 //     overlaps. Impulse = approach speed (m/s). Kinematic bodies follow RigidBody3D.velocity and push dynamic bodies.
 //   * 3D SHAPES (Collider3D.shape): Box, Sphere, CAPSULE (radius + height tip to tip along the entity's local Y, so it
 //     rotates with the entity), CONVEX (the convex hull of the vertices of Collider3D.mesh: a primitive name or a
-//     .gltf/.glb path, read without the GPU by fa_scene's load_mesh_geometry, cached by name; clouds over 256 points are
+//     .gltf/.glb path, read without the GPU by fa_scene's load_mesh_geometry, cached by name, or the "mesh:N" id of a
+//     procedural mesh (fa_scene mesh_store.h: rebuilt when the mesh is updated); clouds over 256 points are
 //     reduced to the 256 extreme points of well-spread directions) and MESH (the triangles of Collider3D.mesh, STATIC
 //     ONLY: a dynamic or kinematic body with a mesh collider is reported as a teaching problem, logged once, shown in
 //     debug_state["problem"] and Physics::problems3d(), and its collider is ignored). Box and Sphere keep their exact
@@ -207,12 +211,14 @@ struct PhysicsSettings {
 //   * mask: layers the ray can hit (-1 = all).
 //   * ignore: entity whose colliders (and its descendants' colliders) are skipped; use the caster itself.
 //   * ignoreTriggers: trigger colliders are skipped (default); set false to hit them too.
+//   * maxHits: only raycast2d_all / raycast3d_all: at most this many hits are returned (the nearest ones).
 // Colliders that CONTAIN the ray origin are always skipped (a ray cast from inside the caster does not hit it);
 // a ray starting inside the ground ignores the ground.
 struct RaycastOptions {
     std::int32_t mask = -1;
     Entity ignore;  // default = none
     bool ignoreTriggers = true;
+    std::int32_t maxHits = 32;
 };
 
 struct RaycastHit {
@@ -281,6 +287,11 @@ public:
     std::optional<RaycastHit> raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance, std::int32_t mask = -1);
     std::optional<RaycastHit> raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance,
                                         const RaycastOptions& options);
+    // Every collider the segment/ray crosses, nearest first, at most options.maxHits (one hit per entity, even for a
+    // body with several shapes). Same filters as raycast2d/raycast3d; a collider with enabled=false is never reported.
+    std::vector<RaycastHit> raycast2d_all(World& world, Vec2 from, Vec2 to, const RaycastOptions& options = {});
+    std::vector<RaycastHit> raycast3d_all(World& world, Vec3 origin, Vec3 dir, float maxDistance,
+                                          const RaycastOptions& options = {});
     std::vector<Entity> overlap_sphere3d(World& world, Vec3 center, float radius, std::int32_t mask = -1);
     // Sweep `shape` with its centre moving from `from` to `to` and return the first collider it would touch:
     // distance = how far the centre travels before contact, point = contact point, normal = the hit surface's normal

@@ -473,13 +473,15 @@ bool Physics3D::sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3
 }
 
 void Physics3D::sync(World& world) {
-    const std::uint64_t stamp = stepCounter_;
+    prune_procedural_shapes(world);
+    const std::uint64_t stamp = ++syncCounter_;  // one per sync: two syncs between steps still sweep removed colliders
     std::unordered_set<std::uint64_t> joinTargets;  // bodies another entity's Joint3D is attached to: they turn too
     for (Entity e : world.entities())
         if (const Joint3D* j = world.get<Joint3D>(e); j && !j->connected.is_null()) joinTargets.insert(j->connected.bits());
     for (Entity e : world.entities()) {
         RigidBody3D* rb = world.get<RigidBody3D>(e);
         Collider3D* col = world.get<Collider3D>(e);
+        if (col && !col->enabled) col = nullptr;  // a disabled collider is as good as absent: no queries, contacts or bake
         CharacterController3D* cc = world.get<CharacterController3D>(e);
         Joint3D* jt = world.get<Joint3D>(e);
         if ((!rb && !col && !cc) || world.pending_destroy(e)) continue;  // pending destroy: never seen -> swept below
@@ -535,7 +537,7 @@ void Physics3D::sync(World& world) {
                     world.id_of(e), rb->type == BodyType::Dynamic ? "dynamic" : "kinematic");
             else if (col->shape == ColliderShape3D::Convex || col->shape == ColliderShape3D::Mesh) {
                 std::string why;
-                shapeData = shape_data(col->mesh, col->shape == ColliderShape3D::Mesh, why);
+                shapeData = shape_data(world, col->mesh, col->shape == ColliderShape3D::Mesh, why);
                 if (!shapeData) problem = std::format("entity '{}': Collider3D shape \"{}\": {}", world.id_of(e),
                                                       col->shape == ColliderShape3D::Mesh ? "mesh" : "convex", why);
             }
@@ -1499,6 +1501,83 @@ void Physics3D::step(World& world, float dt) {
 }
 
 // ------------------------------------------------------------- queries ----
+// One body against a ray (origin, unit direction d): true with the entry distance and normal when it is hit within
+// `limit`. Shared by raycast (limit shrinks to the best hit so far) and raycast_all (limit = maxDistance).
+bool Physics3D::ray_vs_body(const Body& b, Vec3 origin, Vec3 d, float limit, float& tOut, Vec3& nOut) {
+    if (b.general()) {  // capsule / convex / mesh
+        float t = 0.0f;
+        Vec3 gn;
+        if (ray_body(b, origin, d, limit, t, gn) && t <= limit) {
+            tOut = t;
+            nOut = gn;
+            return true;
+        }
+        return false;
+    }
+    // A turned box is tested in its own frame (same distances); an unturned one in world space, exactly as before.
+    Vec3 lo = b.center - b.half, hi = b.center + b.half, org = origin, od = d;
+    if (b.rotated) {
+        lo = -b.half;
+        hi = b.half;
+        org = world_to_frame(b.ax, origin - b.center);
+        od = world_to_frame(b.ax, d);
+    }
+    {   // origin inside this collider: skip it
+        bool inside = b.kind == Body::Kind::Box ? (org.x > lo.x && org.x < hi.x && org.y > lo.y && org.y < hi.y &&
+                               org.z > lo.z && org.z < hi.z)
+                            : length_sq(origin - b.center) < b.radius * b.radius;
+        if (inside) return false;
+    }
+    float t = 0.0f;
+    Vec3 nrm;
+    if (b.kind == Body::Kind::Box) {
+        float tmin = 0.0f, tmax = limit;
+        int axisHit = -1;
+        float sgnHit = 0.0f;
+        bool miss = false;
+        for (int i = 0; i < 3 && !miss; ++i) {
+            if (std::fabs(od[i]) < 1e-9f) {
+                if (org[i] < lo[i] || org[i] > hi[i]) miss = true;
+            } else {
+                float t1 = (lo[i] - org[i]) / od[i], t2 = (hi[i] - org[i]) / od[i];
+                float sgn = -1.0f;  // entering through the low face -> normal points to -axis
+                if (t1 > t2) { std::swap(t1, t2); sgn = 1.0f; }
+                if (t1 > tmin) { tmin = t1; axisHit = i; sgnHit = sgn; }
+                tmax = std::min(tmax, t2);
+                if (tmin > tmax) miss = true;
+            }
+        }
+        if (miss) return false;
+        t = tmin;
+        if (axisHit >= 0) {
+            nrm = {};
+            nrm[axisHit] = sgnHit;
+            if (b.rotated) nrm = frame_to_world(b.ax, nrm);
+        } else {
+            nrm = -d;  // origin inside the box
+        }
+    } else {
+        Vec3 m = origin - b.center;
+        float bb = dot(m, d), cc = dot(m, m) - b.radius * b.radius;
+        if (cc > 0.0f && bb > 0.0f) return false;
+        float disc = bb * bb - cc;
+        if (disc < 0.0f) return false;
+        t = std::max(-bb - std::sqrt(disc), 0.0f);
+        Vec3 p = origin + d * t;
+        nrm = cc <= 0.0f ? -d : normalize(p - b.center);
+    }
+    if (t > limit) return false;
+    tOut = t;
+    nOut = nrm;
+    return true;
+}
+
+bool Physics3D::ray_candidate(const World& world, const Body& b, const RaycastOptions& opt, std::uint64_t qmask) {
+    if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !live(world, b.e)) return false;
+    if ((category_bits(b.layer) & qmask) == 0) return false;
+    return !entity_or_ancestor_is(world, b.e, opt.ignore);
+}
+
 std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir, float maxDistance, const RaycastOptions& opt) {
     Vec3 d = normalize(dir);
     if (length_sq(d) < 0.5f) return std::nullopt;
@@ -1507,75 +1586,13 @@ std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir
     const Body* best = nullptr;
     Vec3 bestN;
     for (const Body& b : bodies_) {
-        if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !live(world, b.e)) continue;
-        if ((category_bits(b.layer) & qmask) == 0) continue;
-        if (entity_or_ancestor_is(world, b.e, opt.ignore)) continue;
-        if (b.general()) {  // capsule / convex / mesh
-            float t = 0.0f;
-            Vec3 gn;
-            if (ray_body(b, origin, d, bestT, t, gn) && t <= bestT) {
-                bestT = t;
-                best = &b;
-                bestN = gn;
-            }
-            continue;
-        }
-        // A turned box is tested in its own frame (same distances); an unturned one in world space, exactly as before.
-        Vec3 lo = b.center - b.half, hi = b.center + b.half, org = origin, od = d;
-        if (b.rotated) {
-            lo = -b.half;
-            hi = b.half;
-            org = world_to_frame(b.ax, origin - b.center);
-            od = world_to_frame(b.ax, d);
-        }
-        {   // origin inside this collider: skip it
-            bool inside = b.kind == Body::Kind::Box ? (org.x > lo.x && org.x < hi.x && org.y > lo.y && org.y < hi.y &&
-                                   org.z > lo.z && org.z < hi.z)
-                                : length_sq(origin - b.center) < b.radius * b.radius;
-            if (inside) continue;
-        }
+        if (!ray_candidate(world, b, opt, qmask)) continue;
         float t = 0.0f;
-        Vec3 nrm;
-        if (b.kind == Body::Kind::Box) {
-            float tmin = 0.0f, tmax = bestT;
-            int axisHit = -1;
-            float sgnHit = 0.0f;
-            bool miss = false;
-            for (int i = 0; i < 3 && !miss; ++i) {
-                if (std::fabs(od[i]) < 1e-9f) {
-                    if (org[i] < lo[i] || org[i] > hi[i]) miss = true;
-                } else {
-                    float t1 = (lo[i] - org[i]) / od[i], t2 = (hi[i] - org[i]) / od[i];
-                    float sgn = -1.0f;  // entering through the low face -> normal points to -axis
-                    if (t1 > t2) { std::swap(t1, t2); sgn = 1.0f; }
-                    if (t1 > tmin) { tmin = t1; axisHit = i; sgnHit = sgn; }
-                    tmax = std::min(tmax, t2);
-                    if (tmin > tmax) miss = true;
-                }
-            }
-            if (miss) continue;
-            t = tmin;
-            if (axisHit >= 0) {
-                nrm = {};
-                nrm[axisHit] = sgnHit;
-                if (b.rotated) nrm = frame_to_world(b.ax, nrm);
-            } else {
-                nrm = -d;  // origin inside the box
-            }
-        } else {
-            Vec3 m = origin - b.center;
-            float bb = dot(m, d), cc = dot(m, m) - b.radius * b.radius;
-            if (cc > 0.0f && bb > 0.0f) continue;
-            float disc = bb * bb - cc;
-            if (disc < 0.0f) continue;
-            t = std::max(-bb - std::sqrt(disc), 0.0f);
-            Vec3 p = origin + d * t;
-            nrm = cc <= 0.0f ? -d : normalize(p - b.center);
-        }
-        if (t <= bestT) {
+        Vec3 n;
+        if (ray_vs_body(b, origin, d, bestT, t, n)) {
             bestT = t;
             best = &b;
-            bestN = nrm;
+            bestN = n;
         }
     }
     if (!best) return std::nullopt;
@@ -1585,6 +1602,29 @@ std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir
     h.normal = bestN;
     h.distance = bestT;
     return h;
+}
+
+std::vector<RaycastHit> Physics3D::raycast_all(World& world, Vec3 origin, Vec3 dir, float maxDistance,
+                                               const RaycastOptions& opt) {
+    std::vector<RaycastHit> out;
+    Vec3 d = normalize(dir);
+    if (length_sq(d) < 0.5f || opt.maxHits <= 0) return out;
+    const std::uint64_t qmask = mask_bits(opt.mask);
+    for (const Body& b : bodies_) {
+        if (!ray_candidate(world, b, opt, qmask)) continue;
+        float t = 0.0f;
+        Vec3 n;
+        if (!ray_vs_body(b, origin, d, maxDistance, t, n)) continue;
+        RaycastHit h;
+        h.entity = b.e;
+        h.point = origin + d * t;
+        h.normal = n;
+        h.distance = t;
+        out.push_back(h);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const RaycastHit& a, const RaycastHit& b) { return a.distance < b.distance; });
+    if (out.size() > static_cast<std::size_t>(opt.maxHits)) out.resize(static_cast<std::size_t>(opt.maxHits));
+    return out;
 }
 
 std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& shape, Vec3 from, Vec3 to,

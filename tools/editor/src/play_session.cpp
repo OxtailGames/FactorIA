@@ -13,9 +13,7 @@ void Editor::session_begin() {
     run_.active = true;
     run_.startFrame = engine_->frame_index();
     run_.logSeq = log_last_seq();  // wall clock: only for the folder name
-    run_.rec.start(run_.startFrame);
-    const CalendarDate today = engine_->scripts().today();
-    run_.rec.set_date(today.iso(), today.utcOffsetMinutes);
+    engine_->start_input_recording();  // the engine hears the keys, mouse, pads, frame times and clipboard reads of the game
     PlaySession& s = run_.session;
     s.name = play_session_name(std::time(nullptr));
     s.scene = scenePath_;
@@ -61,7 +59,7 @@ void Editor::session_end() {
     for (const LogEntry& l : recent_logs(200, LogLevel::Warn, run_.logSeq))
         s.logs.push_back(Json::object({{"seq", l.seq}, {"frame", l.frame >= run_.startFrame ? l.frame - run_.startFrame : 0},
                                        {"level", log_level_name(l.level)}, {"category", l.category}, {"message", l.message}}));
-    s.input = run_.rec.input();
+    s.input = engine_->stop_input_recording();
     auto w = write_play_session(std::string(kPlaySessionsDir) + "/" + s.name, s);
     if (!w.ok()) {
         notify("Could not save the play session: " + w.error().to_string(), 2);

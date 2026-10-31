@@ -1,0 +1,1312 @@
+{
+ "$comment": "Made by `factoria call assets.pack_atlas '{\"folder\":\"assets/src/frames\",\"out\":\"assets/atlas.png\",\"table\":\"data/atlas.json\"}'` from the pictures in assets/src/frames - do not edit; edit the pictures or assets/src/frames/pivots.json and pack again. frames.<name>.rect = [x, y, w, h] in atlas pixels (top-left origin); pivot = Sprite.pivot (+Y up) that puts the frame's anchor (ground diamond centre, tree foot, building's bottom vertex) on the entity. roadFrames is the game's own: road mask -> frame.",
+ "roadFrames": {
+  "0": "road.road",
+  "1": "road.roadNS",
+  "2": "road.roadEW",
+  "3": "road.roadNE",
+  "4": "road.roadNS",
+  "5": "road.roadNS",
+  "6": "road.roadES",
+  "7": "road.crossroadNES",
+  "8": "road.roadEW",
+  "9": "road.roadNW",
+  "10": "road.roadEW",
+  "11": "road.crossroadNEW",
+  "12": "road.roadSW",
+  "13": "road.crossroadNSW",
+  "14": "road.crossroadESW",
+  "15": "road.crossroad"
+ },
+ "texture": "assets/atlas.png",
+ "size": [
+  1268,
+  2048
+ ],
+ "frames": {
+  "building.bakery.0": {
+   "rect": [
+    410,
+    832,
+    200,
+    192
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.bakery.1": {
+   "rect": [
+    410,
+    1028,
+    200,
+    192
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.bakery.2": {
+   "rect": [
+    410,
+    1224,
+    200,
+    192
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.bakery.3": {
+   "rect": [
+    460,
+    1420,
+    200,
+    192
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.farm.0": {
+   "rect": [
+    714,
+    1820,
+    200,
+    156
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.farm.1": {
+   "rect": [
+    460,
+    2,
+    200,
+    156
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.farm.2": {
+   "rect": [
+    460,
+    162,
+    200,
+    156
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.farm.3": {
+   "rect": [
+    460,
+    322,
+    200,
+    156
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.fisher_dock.0": {
+   "rect": [
+    460,
+    482,
+    150,
+    137
+   ],
+   "pivot": [
+    0.6667,
+    0.0
+   ]
+  },
+  "building.fisher_dock.1": {
+   "rect": [
+    664,
+    626,
+    150,
+    137
+   ],
+   "pivot": [
+    0.3333,
+    0.0
+   ]
+  },
+  "building.fisher_dock.2": {
+   "rect": [
+    818,
+    626,
+    150,
+    137
+   ],
+   "pivot": [
+    0.6667,
+    0.0
+   ]
+  },
+  "building.fisher_dock.3": {
+   "rect": [
+    818,
+    767,
+    150,
+    137
+   ],
+   "pivot": [
+    0.3333,
+    0.0
+   ]
+  },
+  "building.house.0": {
+   "rect": [
+    2,
+    1925,
+    100,
+    114
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.house.1": {
+   "rect": [
+    106,
+    1925,
+    100,
+    114
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.house.2": {
+   "rect": [
+    918,
+    1468,
+    100,
+    114
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.house.3": {
+   "rect": [
+    918,
+    1586,
+    100,
+    114
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.lumber_camp.0": {
+   "rect": [
+    664,
+    2,
+    200,
+    152
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.lumber_camp.1": {
+   "rect": [
+    664,
+    158,
+    200,
+    152
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.lumber_camp.2": {
+   "rect": [
+    664,
+    314,
+    200,
+    152
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.lumber_camp.3": {
+   "rect": [
+    664,
+    470,
+    200,
+    152
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.market.0": {
+   "rect": [
+    206,
+    1435,
+    250,
+    193
+   ],
+   "pivot": [
+    0.6,
+    0.0
+   ]
+  },
+  "building.market.1": {
+   "rect": [
+    256,
+    1632,
+    250,
+    193
+   ],
+   "pivot": [
+    0.4,
+    0.0
+   ]
+  },
+  "building.market.2": {
+   "rect": [
+    256,
+    1829,
+    250,
+    193
+   ],
+   "pivot": [
+    0.6,
+    0.0
+   ]
+  },
+  "building.market.3": {
+   "rect": [
+    410,
+    635,
+    250,
+    193
+   ],
+   "pivot": [
+    0.4,
+    0.0
+   ]
+  },
+  "building.mill.0": {
+   "rect": [
+    2,
+    2,
+    200,
+    212
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.mill.1": {
+   "rect": [
+    2,
+    218,
+    200,
+    212
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.mill.2": {
+   "rect": [
+    2,
+    434,
+    200,
+    212
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.mill.3": {
+   "rect": [
+    2,
+    650,
+    200,
+    212
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.pier.0": {
+   "rect": [
+    818,
+    908,
+    200,
+    136
+   ],
+   "pivot": [
+    0.75,
+    0.0
+   ]
+  },
+  "building.pier.1": {
+   "rect": [
+    818,
+    1048,
+    200,
+    136
+   ],
+   "pivot": [
+    0.25,
+    0.0
+   ]
+  },
+  "building.pier.2": {
+   "rect": [
+    818,
+    1188,
+    200,
+    136
+   ],
+   "pivot": [
+    0.75,
+    0.0
+   ]
+  },
+  "building.pier.3": {
+   "rect": [
+    868,
+    1328,
+    200,
+    136
+   ],
+   "pivot": [
+    0.25,
+    0.0
+   ]
+  },
+  "building.quarry.0": {
+   "rect": [
+    510,
+    1616,
+    200,
+    166
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.quarry.1": {
+   "rect": [
+    510,
+    1786,
+    200,
+    166
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.quarry.2": {
+   "rect": [
+    614,
+    832,
+    200,
+    166
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.quarry.3": {
+   "rect": [
+    614,
+    1002,
+    200,
+    166
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.sawmill.0": {
+   "rect": [
+    614,
+    1172,
+    200,
+    158
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.sawmill.1": {
+   "rect": [
+    664,
+    1334,
+    200,
+    158
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.sawmill.2": {
+   "rect": [
+    714,
+    1496,
+    200,
+    158
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.sawmill.3": {
+   "rect": [
+    714,
+    1658,
+    200,
+    158
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.smokehouse.0": {
+   "rect": [
+    2,
+    866,
+    200,
+    208
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.smokehouse.1": {
+   "rect": [
+    2,
+    1078,
+    200,
+    208
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.smokehouse.2": {
+   "rect": [
+    2,
+    1290,
+    200,
+    208
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.smokehouse.3": {
+   "rect": [
+    2,
+    1502,
+    200,
+    208
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.warehouse.0": {
+   "rect": [
+    2,
+    1714,
+    250,
+    207
+   ],
+   "pivot": [
+    0.6,
+    0.0
+   ]
+  },
+  "building.warehouse.1": {
+   "rect": [
+    206,
+    2,
+    250,
+    207
+   ],
+   "pivot": [
+    0.4,
+    0.0
+   ]
+  },
+  "building.warehouse.2": {
+   "rect": [
+    206,
+    213,
+    250,
+    207
+   ],
+   "pivot": [
+    0.6,
+    0.0
+   ]
+  },
+  "building.warehouse.3": {
+   "rect": [
+    206,
+    424,
+    250,
+    207
+   ],
+   "pivot": [
+    0.4,
+    0.0
+   ]
+  },
+  "building.workshop.0": {
+   "rect": [
+    206,
+    635,
+    200,
+    196
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.workshop.1": {
+   "rect": [
+    206,
+    835,
+    200,
+    196
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.workshop.2": {
+   "rect": [
+    206,
+    1035,
+    200,
+    196
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "building.workshop.3": {
+   "rect": [
+    206,
+    1235,
+    200,
+    196
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "icon.bread": {
+   "rect": [
+    210,
+    1925,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.coin": {
+   "rect": [
+    210,
+    1957,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.fish": {
+   "rect": [
+    210,
+    1989,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.flour": {
+   "rect": [
+    1006,
+    2004,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.grain": {
+   "rect": [
+    614,
+    482,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.planks": {
+   "rect": [
+    614,
+    514,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.pop": {
+   "rect": [
+    614,
+    546,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.ship": {
+   "rect": [
+    614,
+    578,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.smoked_fish": {
+   "rect": [
+    768,
+    767,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.star": {
+   "rect": [
+    768,
+    799,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.stone": {
+   "rect": [
+    614,
+    1334,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.tools": {
+   "rect": [
+    614,
+    1366,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "icon.wood": {
+   "rect": [
+    664,
+    1496,
+    28,
+    28
+   ],
+   "pivot": [
+    0.5,
+    0.5
+   ]
+  },
+  "road.crossroad": {
+   "rect": [
+    510,
+    1980,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.crossroadESW": {
+   "rect": [
+    614,
+    1980,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.crossroadNES": {
+   "rect": [
+    718,
+    1980,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.crossroadNEW": {
+   "rect": [
+    1062,
+    1968,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.crossroadNSW": {
+   "rect": [
+    1166,
+    1968,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.road": {
+   "rect": [
+    868,
+    402,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.roadES": {
+   "rect": [
+    868,
+    471,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.roadEW": {
+   "rect": [
+    868,
+    540,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.roadNE": {
+   "rect": [
+    972,
+    402,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.roadNS": {
+   "rect": [
+    1012,
+    2,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.roadNW": {
+   "rect": [
+    1012,
+    71,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "road.roadSW": {
+   "rect": [
+    1012,
+    140,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "ship.carrack.0": {
+   "rect": [
+    918,
+    1704,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.carrack.1": {
+   "rect": [
+    1022,
+    1468,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.carrack.2": {
+   "rect": [
+    1022,
+    1568,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.carrack.3": {
+   "rect": [
+    918,
+    1804,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.cog.0": {
+   "rect": [
+    918,
+    1904,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.cog.1": {
+   "rect": [
+    1062,
+    1668,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.cog.2": {
+   "rect": [
+    1062,
+    1768,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.cog.3": {
+   "rect": [
+    1062,
+    1868,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.skiff.0": {
+   "rect": [
+    868,
+    2,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.skiff.1": {
+   "rect": [
+    868,
+    102,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.skiff.2": {
+   "rect": [
+    868,
+    202,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "ship.skiff.3": {
+   "rect": [
+    868,
+    302,
+    140,
+    96
+   ],
+   "pivot": [
+    0.5,
+    0.2292
+   ]
+  },
+  "terrain.grass": {
+   "rect": [
+    1012,
+    209,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "terrain.rock": {
+   "rect": [
+    1012,
+    278,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "terrain.sand": {
+   "rect": [
+    972,
+    471,
+    100,
+    65
+   ],
+   "pivot": [
+    0.5,
+    0.6154
+   ]
+  },
+  "terrain.water": {
+   "rect": [
+    664,
+    767,
+    100,
+    58
+   ],
+   "pivot": [
+    0.5,
+    0.569
+   ]
+  },
+  "tree.0": {
+   "rect": [
+    1012,
+    347,
+    19,
+    48
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "tree.1": {
+   "rect": [
+    838,
+    2004,
+    14,
+    36
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "tree.2": {
+   "rect": [
+    1035,
+    347,
+    19,
+    48
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "tree.3": {
+   "rect": [
+    856,
+    2004,
+    14,
+    36
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "tree.4": {
+   "rect": [
+    822,
+    2004,
+    12,
+    41
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "tree.5": {
+   "rect": [
+    1022,
+    1668,
+    11,
+    32
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "walker.carrier.0": {
+   "rect": [
+    1037,
+    1668,
+    18,
+    30
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "walker.carrier.1": {
+   "rect": [
+    874,
+    2004,
+    18,
+    30
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "walker.carrier.2": {
+   "rect": [
+    896,
+    1980,
+    18,
+    30
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "walker.carrier.3": {
+   "rect": [
+    896,
+    2014,
+    18,
+    30
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "walker.villager.0": {
+   "rect": [
+    918,
+    2004,
+    18,
+    30
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "walker.villager.1": {
+   "rect": [
+    940,
+    2004,
+    18,
+    30
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "walker.villager.2": {
+   "rect": [
+    962,
+    2004,
+    18,
+    30
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  },
+  "walker.villager.3": {
+   "rect": [
+    984,
+    2004,
+    18,
+    30
+   ],
+   "pivot": [
+    0.5,
+    0.0
+   ]
+  }
+ }
+}

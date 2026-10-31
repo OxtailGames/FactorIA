@@ -18,12 +18,19 @@
 #include "fa/core/video.h"
 #include "fa/physics/physics.h"
 #include "fa/platform/input.h"
+#include "fa/render/builtin_fonts.h"
+#include "fa/scene/components.h"
 #include "fa/runtime/plugins.h"
 #include "fa/runtime/project.h"
 #include "fa/scene/mesh_geometry.h"
+#include "fa/scene/mesh_store.h"
+#include "fa/scene/rich_text.h"
+#include "fa/scene/sprite_animator.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
+#include "fa/scene/ui_rect.h"
 #include "fa/scene/world.h"
+#include "fa/services/network.h"
 #include "fa/services/platform.h"
 #include "fa/tooling/ads_release.h"
 #include "fa/tooling/audio_analysis.h"
@@ -34,7 +41,9 @@
 #include "fa/tooling/shaders.h"
 #include "fa/ui/ui.h"
 #include "assets_internal.h"
+#include "validate_anim.h"
 #include "localization_check.h"
+#include "fa/audio/snapshots.h"
 #include "util.h"
 
 namespace fa {
@@ -54,8 +63,12 @@ struct Ctx {
     std::map<std::string, Error> videoProblems;  // video path -> why the decoder refuses it (empty message = fine), each file is opened once
     std::vector<localization_detail::SceneText> sceneTexts;  // what scenes and prefabs show, for the string-table and glyph checks
     LocalizationParse localization;                           // the "localization" section of factoria.json
+    bool analyticsDeclared = false;                           // factoria.json "analytics" has an endpoint
+    bool networkDeclared = false;                             // factoria.json "network" lists at least one host
     std::vector<PlatformCatalog::TextKeyRef> catalogKeys;    // locale keys the "platform" catalog names, checked with the string tables
     bool projectFileRead = false;                             // factoria.json parsed as an object
+    RichTextStyle richStyle;                                  // the "text" section of factoria.json, for the markup checks
+    std::set<std::string> boldSuggested;                      // fonts already told to get a bold face (one warning per font)
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
         report.errors.push_back({std::move(file), std::move(pointer), std::move(msg), std::move(hint)});
@@ -83,6 +96,35 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
     std::string path = value.get<std::string>();
     if (path.empty()) return;
     if (f.assetType == "mesh" && is_builtin_mesh(path)) return;
+    // "target:<name>" is the live picture of the Camera whose renderTarget is <name>, not a file (docs/RENDERING.md, "Render targets").
+    if (f.assetType == "texture" && path.rfind("target:", 0) == 0) {
+        Camera probe;
+        probe.renderTarget = path.substr(7);
+        const std::string problem = probe.renderTarget.empty() ? "it has no name after \"target:\"" : camera_render_target_problem(probe);
+        if (!problem.empty())
+            c.error(file, pointer, "The texture '" + path + "' names a render target, but " + problem + ".",
+                    "Write \"target:\" and the name of a Camera.renderTarget: letters, digits, '_', '-' and '.', up to 64 characters, e.g. \"target:book\".");
+        return;
+    }
+    if (f.assetType == "mesh" && MeshStore::is_id(path)) {
+        // The ids of procedural meshes live in the World of a running scene only: a file that names one points to nothing.
+        c.error(file, pointer, "'" + path + "' is a procedural mesh id: it exists only while the scene that built it runs.",
+                "Set the mesh from a script (MeshRenderer.mesh = the id mesh.create returned), or write the mesh to a file with "
+                "mesh.save(m, \"assets/models/name.glb\") (or the mesh.save command) and use that path here.");
+        return;
+    }
+    // A built-in font ("builtin:serif", or one face of it, "builtin:serif#bold") is a file of the engine, not of the project.
+    if (f.assetType == "font" && (path == "builtin" || path.rfind("builtin:", 0) == 0)) {
+        const std::string family = path.substr(0, path.find('#'));
+        if (find_builtin_font(family)) return;
+        std::vector<std::string> names;
+        for (const BuiltinFont& b : builtin_fonts()) names.push_back(b.name);
+        const std::string m = closest_match(family, names);
+        c.error(file, pointer, "Unknown built-in font '" + path + "'.",
+                (m.empty() ? std::string() : "Did you mean '" + m + "'? ") + "The built-in fonts are " + builtin_font_list() +
+                    "; or use a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.");
+        return;
+    }
     if (!stdfs::exists(stdfs::path(c.dir) / path)) {
         // Suggest a similar file in the same folder.
         std::string hint = "Create the file or fix the path (project-relative, forward slashes).";
@@ -136,6 +178,8 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
         fields["tileSize"][0].is_number() && fields["tileSize"][1].is_number())
         tm.tileSize = {fields["tileSize"][0].get<float>(), fields["tileSize"][1].get<float>()};
     if (fields.contains("columns") && fields["columns"].is_number_integer()) tm.columns = fields["columns"].get<int>();
+    if (fields.contains("margin") && fields["margin"].is_number_integer()) tm.margin = fields["margin"].get<int>();
+    if (fields.contains("spacing") && fields["spacing"].is_number_integer()) tm.spacing = fields["spacing"].get<int>();
     const int count = tileset_tile_count(tm, img->width, img->height);
     if (count <= 0) return;
     // First offending tile (flat or rows form) and how many there are.
@@ -159,7 +203,8 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
     }
     if (offenders == 0) return;
     // `columns` unset (0) is derived from the image, so a mismatch can only come from an explicit value.
-    const int tilesX = std::max(0, int(float(img->width) / tm.tileSize.x));
+    const Tilemap packed = [&] { Tilemap p = tm; p.columns = 0; return p; }();
+    const int tilesX = tileset_columns(packed, img->width);
     const int columns = tileset_columns(tm, img->width);
     std::string hint = "Tile indices count from 0, left-to-right then top-to-bottom, so valid indices are 0.." + std::to_string(count - 1) + ".";
     if (tm.columns > 0 && tm.columns != tilesX && tilesX > 0)
@@ -216,6 +261,7 @@ void check_material_colors(Ctx& c, const std::string& file, const std::string& p
     }
     if (colors.empty()) return;
     const std::string mesh = fields.contains("mesh") && fields["mesh"].is_string() ? fields["mesh"].get<std::string>() : "cube";
+    if (MeshStore::is_id(mesh)) return;  // a procedural mesh: its submesh material names are known at run time (reported as an id error)
     const std::string lower = to_lower(mesh);
     if (!lower.ends_with(".gltf") && !lower.ends_with(".glb")) {
         c.warn(file, base, "materialColors only applies to a glTF model, and mesh '" + mesh + "' is a built-in shape: it is ignored.",
@@ -253,6 +299,45 @@ void check_fit_panels(Ctx& c, const std::string& file, World& world) {
     }
 }
 
+// A screen widget whose whole rectangle lies outside the design size: the player sees nothing of it. The usual cause is
+// the two Y directions: `anchor` counts Y down from the top-left, `pivot` counts Y up (pivot [0.5, 1] is the top edge).
+// Widgets inside a ScrollList are left out: scrolling brings them in. The rectangle is the one the layout gives at the
+// design size, without a notch (`safeArea` insets are 0).
+void check_offscreen_widgets(Ctx& c, const std::string& file, World& world) {
+    if (!c.projectFileRead) return;
+    bool any = false;
+    for (Entity e : world.entities()) any = any || ui_box(world, e);
+    if (!any) return;
+    auto project = load_project(c.dir);
+    const Vec2 design = project.ok() ? Vec2{float(project->width), float(project->height)} : Vec2{1280, 720};
+    UiSystem ui;
+    ui.layout(world, design, {});
+    auto num = [](float v) { return std::to_string(int(std::lround(v))); };
+    auto pair = [](Vec2 v) {
+        std::ostringstream o;
+        o << "[" << v.x << ", " << v.y << "]";
+        return o.str();
+    };
+    for (Entity e : world.entities()) {
+        const UiBox* b = ui_box(world, e);
+        if (!b || !world.active_in_hierarchy(e) || !(b->size.x > 0.0f) || !(b->size.y > 0.0f)) continue;
+        bool scrolled = false;
+        for (Entity a = world.parent(e); a && !scrolled; a = world.parent(a)) scrolled = world.has<ScrollList>(a);
+        if (scrolled) continue;
+        const std::optional<Rect> r = ui_rect(world, e, design);
+        if (!r) continue;
+        if (r->x + r->w > 0.0f && r->y + r->h > 0.0f && r->x < design.x && r->y < design.y) continue;
+        c.warn(file, "",
+               std::string(ui_kind_name(ui_kind(world, e))) + " '" + world.info(e).id + "' lies completely outside the screen: it covers x " +
+                   num(r->x) + " to " + num(r->x + r->w) + ", y " + num(r->y) + " to " + num(r->y + r->h) + " (anchor " + pair(b->anchor) +
+                   ", pivot " + pair(b->pivot) + ", size " + pair(b->size) + "), and the screen at the design size is " + num(design.x) +
+                   " x " + num(design.y) + " px.",
+               "Anchor Y counts down from the top-left (0 top, 1 bottom) but pivot Y counts up (0 is the widget's bottom edge, 1 its top "
+               "edge): anchor [0.5, 1] with pivot [0.5, 0] sits on the bottom edge, with pivot [0.5, 1] it hangs below it. Fix the pivot "
+               "or the position, or turn `active` off if the widget is meant to be hidden (docs/MENUS.md, \"Anchors and pivots\").");
+    }
+}
+
 // A dynamic 3D body that starts inside a static collider: the first step pushes it out (or it sticks), which is never what
 // the scene meant. The same check the first physics step warns about, run on the loaded scene.
 void check_start_overlaps(Ctx& c, const std::string& file, World& world) {
@@ -265,6 +350,25 @@ void check_start_overlaps(Ctx& c, const std::string& file, World& world) {
     }
 }
 
+void check_rich_text_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields);
+
+// SpriteAnimator.clip must be a clip of the `sheet` entry of the texture of the Sprite on the same entity. An entity that
+// gets its Sprite from a prefab is not checked here (the prefab file is). The VFS root is the project.
+void check_animator_clip(Ctx& c, const std::string& file, const std::string& pointer, const Json& components) {
+    const auto anim = components.find("SpriteAnimator");
+    const auto sprite = components.find("Sprite");
+    if (anim == components.end() || sprite == components.end() || !anim->is_object() || !sprite->is_object()) return;
+    if (!anim->contains("clip") || !(*anim)["clip"].is_string() || (*anim)["clip"].get<std::string>().empty()) return;
+    if (!sprite->contains("texture") || !(*sprite)["texture"].is_string() || (*sprite)["texture"].get<std::string>().empty()) return;
+    const std::string texture = (*sprite)["texture"].get<std::string>(), clip = (*anim)["clip"].get<std::string>();
+    const auto sheet = assets::sheet(texture);
+    if (sheet && sheet->find(clip)) return;
+    if (!stdfs::exists(stdfs::path(c.dir) / texture)) return;  // reported as a missing asset
+    c.error(file, pointer + "/components/SpriteAnimator/clip", sprite_clip_error(texture, clip, sheet),
+            sheet ? "Use one of the clips of the sheet, or empty the field to play the numeric firstFrame/lastFrame."
+                  : "Record the sheet with assets.slice_sheet, assets.animate_svg or assets.bake_sheet, or drop `clip` and set columns, rows, firstFrame, lastFrame and fps.");
+}
+
 void check_entity_assets(Ctx& c, const std::string& file, const std::string& pointer, const Json& entity,
                          std::set<std::string>& scripts) {
     if (!entity.is_object()) return;
@@ -274,9 +378,11 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
             c.error(file, pointer + "/prefab", "Prefab '" + pf + "' does not exist.", "Create it under prefabs/ or fix the path.");
     }
     if (entity.contains("components") && entity["components"].is_object()) {
+        check_animator_clip(c, file, pointer, entity["components"]);
         for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) {
             check_component_assets(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
             check_atlas_use(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
+            check_rich_text_use(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
             if (it.key() == "Sprite" && it.value().is_object() && it.value().contains("texture") && it.value()["texture"].is_string() &&
                 !it.value()["texture"].get<std::string>().empty())
                 c.spriteTextures.insert(it.value()["texture"].get<std::string>());
@@ -346,7 +452,7 @@ void check_prefab_loads(Ctx& c, const std::string& rel) {
 
 void check_binding(Ctx& c, const std::string& pointer, const std::string& binding) {
     if (Input::is_binding_name(binding)) return;
-    c.error(kProjectFileName, pointer, "Unknown input binding '" + binding + "'.", did_you_mean(binding, Input::binding_names()));
+    c.error(kProjectFileName, pointer, "Unknown input binding '" + binding + "'.", Input::binding_problem(binding));
 }
 
 // An icon file named by factoria.json (`pointer` says which setting): it must exist and decode; a size or shape that
@@ -445,6 +551,29 @@ void check_platform(Ctx& c, const Json& pj, const PlatformCatalogParse& parsed) 
     }
 }
 
+// The "network" section (the hosts http.fetch may call): every problem of parse_network with its pointer and fix. The schema
+// checks the shape too; where the section has errors its messages replace the schema's.
+void check_network(Ctx& c, const NetworkParse& parsed) {
+    for (const NetworkIssue& i : parsed.issues) {
+        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    }
+    c.networkDeclared = parsed.ok() && !parsed.policy.hosts.empty();
+}
+
+// The "analytics" and "remoteConfig" sections (docs/ANALYTICS.md): their URLs must be https and their hosts declared in "network".
+void check_services(Ctx& c, const AnalyticsParse& analytics, const RemoteConfigParse& remote) {
+    for (const NetworkIssue& i : analytics.issues) {
+        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    }
+    for (const NetworkIssue& i : remote.issues) {
+        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    }
+    c.analyticsDeclared = analytics.settings.configured;
+}
+
 // The "localization" section (languages, default language, fonts): every problem of parse_localization with its pointer and fix.
 // What the string tables (locales/<language>.json) and the texts of scenes hold is checked once the scenes are read
 // (check_localization_content, validate_localization.cpp).
@@ -452,6 +581,57 @@ void check_localization(Ctx& c, const LocalizationParse& parsed) {
     for (const LocalizationIssue& i : parsed.issues) c.error(kProjectFileName, i.pointer, i.message, i.hint);
     for (const LocalizationIssue& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
     c.localization = parsed;
+}
+
+// The "audio" section (the snapshot catalog): every problem of parse_audio_settings with its pointer and fix.
+void check_audio(Ctx& c, const AudioSettingsParse& parsed) {
+    for (const AudioIssue& i : parsed.issues) c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    for (const AudioIssue& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
+}
+
+// The "text" section (rich text colours, icons and bold faces): its mistakes, and the files it names.
+void check_text_settings(Ctx& c, const TextSettingsParse& parsed) {
+    for (const TextSettingsIssue& i : parsed.issues) c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    for (const TextSettingsIssue& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
+    if (!parsed.ok()) return;
+    for (const auto& [name, icon] : parsed.style.icons)
+        if (!stdfs::exists(stdfs::path(c.dir) / icon.texture))
+            c.error(kProjectFileName, "/text/icons/" + name + "/texture", "The texture '" + icon.texture + "' of icon '" + name + "' does not exist.",
+                    "Fix the path or add the image to the project: [icon:" + name + "] draws nothing without it.");
+    for (const auto& [font, bold] : parsed.style.boldFonts)
+        if (bold.rfind("builtin:", 0) != 0 && !stdfs::exists(stdfs::path(c.dir) / bold))
+            c.error(kProjectFileName, "/text/fonts/" + font + "/bold", "The bold font '" + bold + "' does not exist.",
+                    "Fix the path or add the .ttf to the project; until then [b] and Text.bold emulate bold from the regular face.");
+    for (const auto& [font, italic] : parsed.style.italicFonts)
+        if (italic.rfind("builtin:", 0) != 0 && !stdfs::exists(stdfs::path(c.dir) / italic))
+            c.error(kProjectFileName, "/text/fonts/" + font + "/italic", "The italic font '" + italic + "' does not exist.",
+                    "Fix the path or add the .ttf to the project; until then [i] text stays upright.");
+}
+
+// A Text, Button, Toggle, Slider or TouchButton that asks for markup or bold: the markup of its text must be clean, and a font
+// without a bold face in "text.fonts" is emboldened by the engine (it works, it looks worse than a drawn bold face).
+void check_rich_text_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields) {
+    static const std::map<std::string, std::string> textField = {
+        {"Text", "text"}, {"Button", "text"}, {"Toggle", "label"}, {"Slider", "label"}, {"TouchButton", "text"}};
+    const auto field = textField.find(typeName);
+    if (field == textField.end() || !fields.is_object()) return;
+    const bool markup = fields.value("markup", false), bold = fields.value("bold", false);
+    if (!markup && !bold) return;
+    if (markup)
+        if (const auto t = fields.find(field->second); t != fields.end() && t->is_string())
+            for (const std::string& problem : markup_problems(t->get<std::string>(), &c.richStyle))
+                c.warn(file, pointer + "/" + field->second, "markup: " + problem,
+                       "Write [[ for a literal '['. Tags: [b]..[/b], [i]..[/i], [c:name]..[/c], [icon:name]; colours and icons are declared in factoria.json \"text\".");
+    std::string font = fields.contains("font") && fields["font"].is_string() ? fields["font"].get<std::string>() : std::string();
+    if (font == "builtin") font.clear();
+    if (c.richStyle.boldFonts.count(font) || c.boldSuggested.count(font)) return;
+    if (const BuiltinFont* family = font.rfind("builtin:", 0) == 0 ? find_builtin_font(font) : nullptr; family && family->hasBold) return;  // its own bold face
+    c.boldSuggested.insert(font);
+    const std::string shown = font.empty() ? "the built-in font" : "font '" + font + "'";
+    c.warn(file, pointer + (markup ? "/markup" : "/bold"),
+           std::string(markup ? "markup" : "bold") + " is used with " + shown + ", which has no bold face in factoria.json \"text.fonts\": [b] and Text.bold "
+               "emulate it by thickening the regular glyphs.",
+           "Add a bold file for it: \"text\": {\"fonts\": {\"" + font + "\": {\"bold\": \"assets/fonts/<Name>-Bold.ttf\"}}}.");
 }
 
 void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFile) {
@@ -471,12 +651,24 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     const PublishSettingsParse publish = parse_publish_settings(pj);
     const PlatformCatalogParse platform =
         parse_platform_catalog(pj.is_object() && pj.contains(kPlatformKey) ? pj[kPlatformKey] : Json());
+    const NetworkParse network = parse_network(pj.is_object() && pj.contains(kNetworkKey) ? pj[kNetworkKey] : Json());
+    const AnalyticsParse analytics = parse_analytics(pj.is_object() && pj.contains(kAnalyticsKey) ? pj[kAnalyticsKey] : Json(), network.policy);
+    const RemoteConfigParse remoteConfig =
+        parse_remote_config(pj.is_object() && pj.contains(kRemoteConfigKey) ? pj[kRemoteConfigKey] : Json(), network.policy);
     const LocalizationParse localization = parse_localization(pj.is_object() && pj.contains("localization") ? pj["localization"] : Json());
+    const AudioSettingsParse audio = parse_audio_settings(pj.is_object() && pj.contains("audio") ? pj["audio"] : Json());
+    const TextSettingsParse textSettings = parse_text_settings(pj.is_object() && pj.contains("text") ? pj["text"] : Json());
+    if (textSettings.ok()) c.richStyle = textSettings.style;
     Json schema = tooling_detail::load_schema("schemas/project.schema.json");
     if (!schema.is_null())
         for (const auto& e : validate_json(schema, pj)) {
             if (!platform.ok() && (e.pointer == "/platform" || e.pointer.rfind("/platform/", 0) == 0)) continue;  // check_platform says it better
+            if (!network.ok() && (e.pointer == "/network" || e.pointer.rfind("/network/", 0) == 0)) continue;  // check_network says it better
+            if (!analytics.ok() && (e.pointer == "/analytics" || e.pointer.rfind("/analytics/", 0) == 0)) continue;  // check_services says it better
+            if (!remoteConfig.ok() && (e.pointer == "/remoteConfig" || e.pointer.rfind("/remoteConfig/", 0) == 0)) continue;
             if (!localization.ok() && (e.pointer == "/localization" || e.pointer.rfind("/localization/", 0) == 0)) continue;  // check_localization too
+            if (!audio.ok() && (e.pointer == "/audio" || e.pointer.rfind("/audio/", 0) == 0)) continue;  // check_audio too
+            if (!textSettings.ok() && (e.pointer == "/text" || e.pointer.rfind("/text/", 0) == 0)) continue;  // check_text_settings too
             // `icon` / `export` problems are reported once, by check_export_settings, with a fix that names the setting.
             const auto sameSpot = [&](const ExportSettingsIssue& i) { return i.pointer == e.pointer; };
             const bool reportedBySettings = std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(), sameSpot) ||
@@ -491,7 +683,11 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     if (platform.ok())
         for (const AdsIssue& i : check_ads(c.dir)) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
     c.catalogKeys = platform.catalog.textKeyRefs;
+    check_network(c, network);
+    check_services(c, analytics, remoteConfig);
     check_localization(c, localization);
+    check_audio(c, audio);
+    check_text_settings(c, textSettings);
     c.projectFileRead = true;
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
     feedbackFile = pj.value("feedbackFile", std::string(kFeedbackFileName));
@@ -632,6 +828,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     for (ValidationIssue& w : check_audio_loudness(c.dir)) c.report.warnings.push_back(std::move(w));
     assets_detail::check_shipped_assets(c.dir, c.report.warnings);
     assets_detail::check_model_files(c.dir, c.report.errors);
+    assets_detail::check_recipes(c.dir, c.report.warnings);
 
     std::set<std::string> scripts;
     if (options.checkScenes) {
@@ -639,6 +836,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         // Every scene and prefab of the project, wherever it lives (scenes/, prefabs/, levels/...): the same files
         // scene.format formats (hidden folders, node_modules and a top-level build/ are skipped).
         std::vector<std::string> sceneFiles, prefabFiles, handFormatted;
+        std::set<std::string> namedClips;  // the clip files Animators name (checked with the project's *.anim.json)
         for (const std::string& rel : project_scene_files())
             (ends_with(to_lower(rel), ".scene.json") ? sceneFiles : prefabFiles).push_back(rel);
         for (const auto& rel : sceneFiles) {
@@ -653,12 +851,14 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             }
             collect_if_not_canonical(handFormatted, rel);
             check_fit_panels(c, rel, world);
+            check_offscreen_widgets(c, rel, world);
             check_start_overlaps(c, rel, world);
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / rel);
             if (!text) continue;
             auto parsed = parse_json(*text, rel);
             if (!parsed.ok()) continue;  // load_scene_file already reported it
             const Json& j = parsed.value();
+            validate_detail::check_animator_clips(rel, world, j, namedClips, c.report);
             if (j.is_object() && j.contains("settings"))
                 check_component_assets(c, rel, "/settings", "SceneSettings", j["settings"]);
             if (j.is_object() && j.contains("entities") && j["entities"].is_array()) {
@@ -672,10 +872,17 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             if (!parsed.ok()) { c.error(rel, "", parsed.error().message, "Fix the JSON syntax."); continue; }
             collect_if_not_canonical(handFormatted, rel);
             check_prefab_loads(c, rel);
+            {
+                World prefabWorld;
+                LoadReport ignored;
+                instantiate_prefab(prefabWorld, rel, kNullEntity, ignored);
+                validate_detail::check_animator_clips(rel, prefabWorld, parsed.value(), namedClips, c.report);
+            }
             if (parsed.value().is_object() && parsed.value().contains("entity"))
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
         }
         note_hand_formatted(c.report, handFormatted);
+        validate_detail::check_clip_files(namedClips, c.report);
         assets_detail::check_sprite_textures(c.dir, c.spriteTextures, c.report.warnings);
         if (sceneFiles.empty())
             c.warn("scenes", "", "No scenes found (scenes/*.scene.json).", "Create scenes/main.scene.json.");
@@ -713,6 +920,26 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 return o.file == issue.file && o.pointer == issue.pointer && o.message == issue.message;
             };
             if (std::none_of(c.report.errors.begin(), c.report.errors.end(), same)) c.report.errors.push_back(std::move(issue));
+        }
+    }
+    if (!c.networkDeclared) {
+        // A script that calls http.fetch in a game that declares no host: every call throws (tests included).
+        for (const auto& s : scripts) {
+            auto text = tooling_detail::read_file(stdfs::path(c.dir) / s);
+            if (!text || text->find("http.fetch") == std::string::npos) continue;
+            c.warn(s, "", "this script calls http.fetch, but factoria.json declares no \"network\" hosts: every call throws",
+                   "Add \"network\": {\"hosts\": [\"api.example.com\"], \"purpose\": \"...\"} to factoria.json (docs/NETWORKING.md).");
+            break;  // once per project is enough
+        }
+    }
+    if (!c.analyticsDeclared) {
+        // A script that queues analytics events in a game without the section: every call throws.
+        for (const auto& s : scripts) {
+            auto text = tooling_detail::read_file(stdfs::path(c.dir) / s);
+            if (!text || text->find("analytics.event(") == std::string::npos) continue;
+            c.warn(s, "", "this script calls analytics.event, but factoria.json has no \"analytics\" section with an endpoint: every call throws",
+                   "Add \"analytics\": {\"endpoint\": \"https://stats.example.com/events\"} and the host to \"network\".\"hosts\" (docs/ANALYTICS.md).");
+            break;
         }
     }
     if (options.propsCheck) {

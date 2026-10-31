@@ -18,6 +18,9 @@ CalendarDate local_calendar_date() {
     c.year = local.tm_year + 1900;
     c.month = local.tm_mon + 1;
     c.day = local.tm_mday;
+    c.hour = local.tm_hour;
+    c.minute = local.tm_min;
+    c.second = local.tm_sec < 60 ? local.tm_sec : 59;  // a leap second reads as :59
     // The offset: the local wall-clock reading minus the UTC one, both as plain calendar arithmetic (no mktime, whose
     // daylight-saving guesses would be wrong twice a year).
     auto seconds = [](const std::tm& t) {

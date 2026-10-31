@@ -133,6 +133,7 @@ export default class Game extends Behaviour {
     this.score += d.points * this.multiplier;
     if (this.score > this.highScore) this.highScore = this.score;
     this.explode(d.x, d.y, d.color, d.big ? 50 : 24);
+    this.shockwave(d.x, d.y, d.color, d.big);
     this.shake = Math.max(this.shake, d.big ? 9 : 4);
     audio.play("assets/sfx/explode.wav", { volume: 0.5, pitch: d.big ? 0.7 : 1 });
   }
@@ -150,6 +151,20 @@ export default class Game extends Behaviour {
       },
     });
     this.after(1.2, () => e.destroy());
+  }
+
+  // The ring behind the sparks: a sprite whose frames come from the baked sheet assets/art/shockwave.png (art/shockwave.anim.js,
+  // tools/make_shockwave.sh). It plays the clip "pop" or "boom" by NAME and removes itself when the clip ends.
+  shockwave(x, y, c, big) {
+    const fx = world.spawn({
+      name: "Shockwave",
+      components: {
+        Transform: { position: [x, y, 0] },
+        Sprite: { texture: "assets/art/shockwave.png", size: big ? [190, 190] : [120, 120], color: [c[0], c[1], c[2], 1], blend: "additive", layer: 19, pixelArt: false },
+        SpriteAnimator: { clip: big ? "boom" : "pop" },
+      },
+    });
+    fx.spriteAnimator.on("clipEnded", () => fx.destroy());
   }
 
   gameOver() {

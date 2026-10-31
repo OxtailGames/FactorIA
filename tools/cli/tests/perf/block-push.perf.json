@@ -4,13 +4,16 @@
   "runners": {
     "windows-msvc-d3d11-warp": {
       "frames": 300,
-      "cpuMsAvg": 2.892,
-      "cpuMsP95": 3.579,
-      "cpuMsMax": 11.135,
-      "peakMemoryMB": 47.3,
+      "cpuMsAvg": 3.516,
+      "cpuMsP95": 4.253,
+      "cpuMsMax": 16.813,
+      "peakMemoryMB": 55.5,
       "drawCalls": 2,
       "entities": 45,
-      "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)"
+      "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)",
+      "triangles": 0,
+      "lights": 0,
+      "textureMB": 0.0
     },
     "linux-gcc-llvmpipe": {
       "frames": 300,
@@ -34,4 +37,3 @@
     }
   }
 }
-

@@ -1,0 +1,5 @@
+// The engine version for factoria.rc (configured by tools/cli/CMakeLists.txt from the project() version).
+#define FA_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define FA_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define FA_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define FA_VERSION_STRING "@PROJECT_VERSION@"

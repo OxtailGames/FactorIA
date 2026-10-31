@@ -1,11 +1,15 @@
 #include "fa/ai/session.h"
 
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 
+#include "fa/core/date.h"
 #include "fa/core/log.h"
+#include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "util.h"
 
@@ -30,20 +34,63 @@ public:
         f_.open(path_, std::ios::binary | std::ios::app);
         if (!f_) path_.clear();
     }
+    // Every line gets "t", the UTC time it was written ("2026-10-30T14:03:22.481Z"), unless the caller set one.
     void write(Json line) {
         if (!f_.is_open()) return;
+        const std::int64_t now = unix_time_ms_now();
+        if (!line.contains("t")) line["t"] = iso_utc_ms(now);
         f_ << dump(line) << "\n";
         f_.flush();
+        lastMs_ = now;
+    }
+    // An event of a CLI agent. Adds "ms": a thinking event, the time since the line before it (the model was thinking
+    // that long, also when the text is hidden and the event has none); a tool_end, the time since its tool_start (the
+    // tool's own duration, matched by the tool call id, else the oldest running tool of that name).
+    void write_event(const AgentEvent& ev, Json line) {
+        if (!f_.is_open()) return;
+        const std::int64_t now = unix_time_ms_now();
+        if (ev.type == AgentEvent::Type::ThinkingDelta && lastMs_ > 0) line["ms"] = std::max<std::int64_t>(0, now - lastMs_);
+        if (ev.type == AgentEvent::Type::ToolStart) {
+            running_.push_back({ev.toolId, ev.toolName, now});
+        } else if (ev.type == AgentEvent::Type::ToolEnd) {
+            for (auto it = running_.begin(); it != running_.end(); ++it) {
+                if (ev.toolId.empty() ? it->name == ev.toolName : it->id == ev.toolId) {
+                    line["ms"] = std::max<std::int64_t>(0, now - it->startMs);
+                    running_.erase(it);
+                    break;
+                }
+            }
+        }
+        if (!ev.toolId.empty()) line["id"] = ev.toolId;
+        write(std::move(line));
     }
     const std::string& path() const { return path_; }
 
 private:
+    struct Running {
+        std::string id, name;
+        std::int64_t startMs = 0;
+    };
     std::ofstream f_;
     std::string path_;
+    std::int64_t lastMs_ = 0;
+    std::vector<Running> running_;
 };
 
+// "20261014-153012", with "-2", "-3"... when another session of this process already took that second: several runs started
+// together (the editor runs more than one chat at a time) must not append to one transcript file.
 std::string make_stamp() {
+    static std::mutex mu;
+    static std::time_t lastSecond = 0;
+    static int sameSecond = 0;
     auto t = std::time(nullptr);
+    int sequence = 0;
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        sameSecond = (t == lastSecond) ? sameSecond + 1 : 0;
+        lastSecond = t;
+        sequence = sameSecond;
+    }
     std::tm tm{};
 #ifdef _WIN32
     localtime_s(&tm, &t);
@@ -52,7 +99,7 @@ std::string make_stamp() {
 #endif
     char buf[32];
     std::strftime(buf, sizeof buf, "%Y%m%d-%H%M%S", &tm);
-    return buf;
+    return sequence == 0 ? std::string(buf) : std::string(buf) + "-" + std::to_string(sequence + 1);
 }
 
 std::string clip_text(std::string s, std::size_t n) {
@@ -106,10 +153,44 @@ std::string tool_name_for_command(std::string_view name) {
     return out;
 }
 
-std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate) {
+bool is_read_only_tool(const CommandInfo& info) {
+    if (info.readOnly) return true;
+    // Playing the game changes the running session, not the project's files.
+    static const char* const kPlay[] = {"game.step",         "game.input",       "game.click",     "game.pause",
+                                        "game.resume",       "game.screenshot",  "scene.load",     "scene.reload",
+                                        "ui.set_text_scale", "ui.set_scale",     "ui.set_slider",  "ui.check_layout",
+                                        "i18n.set_language", "screen.set_safe_area"};
+    for (const char* name : kPlay) {
+        if (info.name == name) return true;
+    }
+    return false;
+}
+
+std::string mcp_tool_name_for(std::string_view commandName) {
+    std::string out = tool_name_for_command(commandName);
+    if (out.size() > 64) out.resize(64);
+    return out;
+}
+
+std::vector<std::string> cli_disallowed_tools(const CommandRegistry& registry, std::string_view role, bool canDelegate) {
+    std::vector<std::string> out = {"Agent", "Task"};
+    if (!canDelegate) out.push_back("mcp__factoria__ai_run");
+    out.push_back("mcp__factoria__ai_review");
+    if (is_review_role(role)) {
+        for (const char* t : {"Edit", "MultiEdit", "Write", "NotebookEdit", "Bash"}) out.push_back(t);
+        for (const CommandInfo* info : registry.list()) {
+            if (info->name == "ai.run" || info->name == "ai.review") continue;  // already listed
+            if (!is_read_only_tool(*info)) out.push_back("mcp__factoria__" + mcp_tool_name_for(info->name));
+        }
+    }
+    return out;
+}
+
+std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate, bool readOnly) {
     std::vector<ToolDef> tools;
     for (const CommandInfo* info : registry.list()) {  // sorted by name
         if (is_agent_tool_excluded(info->name)) continue;
+        if (readOnly && !is_read_only_tool(*info)) continue;
         ToolDef t;
         t.name = tool_name_for_command(info->name);
         t.description = info->description.empty() ? info->summary : info->summary + "\n\n" + info->description;
@@ -121,16 +202,37 @@ std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool w
         d.name = kDelegateTool;
         d.description =
             "Delegate a self-contained task to a sub-agent with its own context and a cheaper model. role \"worker\" "
-            "implements features and fixes; role \"fast\" does small mechanical edits. The sub-agent has the same tools "
-            "but cannot delegate and does not see this conversation: include all needed context in `task`. Returns the "
-            "sub-agent's final report.";
-        d.inputSchema = Json::parse(R"({"type":"object","properties":{"role":{"type":"string","enum":["worker","fast"],
+            "implements features and fixes; role \"fast\" does small mechanical edits; role \"artist\" makes the game's "
+            "art (images, textures, sprites, models, the look); role \"audio\" makes its sound effects, music, voice "
+            "and mixing. The sub-agent has the same tools but cannot delegate and does not see this conversation: include "
+            "all needed context in `task`. Returns the sub-agent's final report. (Art critics and game reviewers are not "
+            "available here: the user asks for reviews.)";
+        d.inputSchema = Json::parse(R"({"type":"object","properties":{"role":{"type":"string","enum":["worker","fast","artist","audio"],
             "description":"Which sub-agent runs the task."},"task":{"type":"string","description":"Complete task description with file paths and acceptance criteria."}},
             "required":["role","task"],"additionalProperties":false})");
         tools.push_back(std::move(d));
     }
     std::stable_sort(tools.begin(), tools.end(), [](const ToolDef& a, const ToolDef& b) { return a.name < b.name; });
     return tools;
+}
+
+std::string cancel_cause_text(const std::string& cause) {
+    static const std::map<std::string, std::string> words = {
+        {"user_stop", "the user pressed Stop"},
+        {"stuck_stop", "the user pressed Stop on the no-activity warning"},
+        {"watchdog_process_gone", "the editor's watchdog thought the agent process was gone"},
+        {"activity_check_process_gone", "Check activity found the agent process gone"},
+        {"project_closed", "the project was closed"},
+        {"editor_closing", "the editor was closing"},
+        {"editor_restart", "the editor was restarting"},
+        {"run_ended", "the run had already ended"},
+    };
+    auto it = words.find(cause);
+    return it != words.end() ? it->second : cause;
+}
+
+std::string cancelled_message(const std::string& cause) {
+    return cause.empty() ? std::string("cancelled") : "cancelled: " + cancel_cause_text(cause);
 }
 
 AgentSession::AgentSession(CommandRegistry& registry, AiConfig config, SessionOptions options)
@@ -149,15 +251,17 @@ void AgentSession::add_usage(const Usage& u, double cost) {
     totalCost_ += cost;
 }
 
-bool AgentSession::over_budget(std::string& why) const {
+bool AgentSession::over_budget(std::string& why) const { return over_budget(totalUsage_, totalCost_, why); }
+
+bool AgentSession::over_budget(const Usage& usageNow, double costNow, std::string& why) const {
     double maxCost = opt_.maxCostUsd >= 0 ? opt_.maxCostUsd : config_.limits.maxCostUsd;
     u64 maxTokens = opt_.maxTotalTokens > 0 ? opt_.maxTotalTokens : config_.limits.maxTotalTokens;
-    if (maxCost > 0 && totalCost_ >= maxCost) {
-        why = "Cost budget reached ($" + std::to_string(totalCost_) + " >= $" + std::to_string(maxCost) + ")";
+    if (maxCost > 0 && costNow >= maxCost) {
+        why = "Cost budget reached ($" + std::to_string(costNow) + " >= $" + std::to_string(maxCost) + ")";
         return true;
     }
-    if (maxTokens > 0 && totalUsage_.total() >= maxTokens) {
-        why = "Token budget reached (" + std::to_string(totalUsage_.total()) + " >= " + std::to_string(maxTokens) + ")";
+    if (maxTokens > 0 && usageNow.total() >= maxTokens) {
+        why = "Token budget reached (" + std::to_string(usageNow.total()) + " >= " + std::to_string(maxTokens) + ")";
         return true;
     }
     return false;
@@ -198,7 +302,7 @@ SessionResult AgentSession::run(const std::string& task, const std::vector<std::
 }
 
 SessionResult AgentSession::run_role(const std::string& role, const std::string& task, int depth) {
-    RoleConfig rc = config_.role(role);
+    RoleConfig rc = config_.effective_role(role);  // a review role that is off runs on the orchestrator's model
     if (depth == 0) {
         if (!opt_.providerOverride.empty()) {
             rc.provider = opt_.providerOverride;
@@ -206,7 +310,7 @@ SessionResult AgentSession::run_role(const std::string& role, const std::string&
                 const ProviderConfig* p = config_.provider(rc.provider);
                 rc.model = p ? p->defaultModel : "";
                 if (p && p->kind == ProviderKind::Anthropic) {
-                    rc.model = config_.role(role).model;
+                    rc.model = config_.effective_role(role).model;
                 }
             }
         }
@@ -229,8 +333,35 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
                                     const std::string& task, int depth) {
     SessionResult res;
     // A CLI orchestrator delegates through the FactorIA MCP server it is attached to: ai.run starts the role from ai.json.
-    const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation;
-    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "ai_run"};
+    const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation && config_.can_delegate_to_anyone();
+    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "ai_run", config_.assetSources, config_.disabled_delegable_roles()};
+    // The user's external tool servers for this role: the CLI connects to them itself (Claude Code through the MCP config
+    // file, Codex through -c arguments, a generic CLI through {mcp_config}). A server whose key is missing is left out.
+    std::vector<ResolvedToolServer> resolvedServers;
+    std::vector<std::string> serverNotes;
+    {
+        const auto servers = config_.tool_servers_for(role);
+        const bool takesServers = pc.kind == ProviderKind::ClaudeCode || (pc.kind == ProviderKind::Codex && pc.argv.empty()) ||
+                                  std::any_of(pc.argv.begin(), pc.argv.end(),
+                                              [](const std::string& a) { return a.find("{mcp_config}") != std::string::npos; });
+        if (!servers.empty() && !takesServers) {
+            serverNotes.push_back("External tool servers are not passed to provider '" + pc.name +
+                                  "': its \"argv\" has no {mcp_config} placeholder, so it cannot be given an MCP config. Use "
+                                  "Claude Code, Codex (default argv) or the built-in agent to use them.");
+        } else {
+            const EnvLookup env = opt_.env ? opt_.env : system_env();
+            for (const ToolServer* s : servers) {
+                auto r = resolve_tool_server(*s, env);
+                if (!r) {
+                    serverNotes.push_back("External tool server '" + s->name + "' skipped: " + r.error().message +
+                                          (r.error().hint.empty() ? "" : " (" + r.error().hint + ")"));
+                    continue;
+                }
+                pctx.toolServers.push_back({s->name, s->note, pc.kind == ProviderKind::ClaudeCode ? "mcp__" + s->name + "__" : ""});
+                resolvedServers.push_back(std::move(*r));
+            }
+        }
+    }
     const std::string fullPrompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
     // A follow-up message continues the CLI's session: the system prompt is already part of it, so only the task is sent.
     const bool canResume = depth == 0 && cli_supports_resume(pc);
@@ -246,11 +377,25 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     req.model = rc.model == kPlaceholderModel ? std::string() : rc.model;
     req.projectDir = opt_.projectDir;
     req.mcpUrl = opt_.mcpUrl;
+    // The agent delegates only through ai_run (and the read-only roles change nothing): its own sub-agent tools and, for
+    // artCritic and reviewer, the tools that edit, are switched off (cli_disallowed_tools).
+    req.disallowedTools = cli_disallowed_tools(registry_, role, canDelegate);
+    req.readOnly = is_review_role(role);
+    req.webDomains = asset_source_hosts(config_.assetSources);  // Claude Code: WebFetch for these sites, only these with onlyListed
+    req.webOnlyListed = config_.assetSources.onlyListed;
+    req.toolServers = resolvedServers;
+    if (opt_.onProcessStart) req.onStart = [this, role](long long pid) { opt_.onProcessStart(pid, role); };
 
     AgentEvent start;
     start.type = AgentEvent::Type::SessionStart;
     start.text = pc.name + (req.model.empty() ? "" : "/" + req.model) + " (CLI agent, runs its own loop)";
     emit(start, depth, role);
+    for (const std::string& note : serverNotes) {
+        AgentEvent info;
+        info.type = AgentEvent::Type::Info;
+        info.text = note;
+        emit(info, depth, role);
+    }
 
     Transcript tr;
     if (opt_.saveTranscript) tr.open(opt_.projectDir, stamp_ + "-" + role + (depth ? "-" + std::to_string(++delegateCount_) : ""));
@@ -267,13 +412,22 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     double costBase = resuming ? prev.cliCostUsd : 0;
     const auto onEvent = [&](const AgentEvent& ev) {
         AgentEvent copy = ev;
-        if (ev.type == AgentEvent::Type::Usage && copy.costUsd >= costBase) copy.costUsd -= costBase;
+        // The CLI's own total counts the whole resumed session; the engine's estimate counts this run only.
+        if (ev.type == AgentEvent::Type::Usage && !ev.costIsEstimate && copy.costUsd >= costBase) copy.costUsd -= costBase;
         if (ev.type == AgentEvent::Type::Usage && window > 0 && (copy.contextWindow == 0 || copy.contextWindow > window)) {
             copy.contextWindow = window;
         }
-        tr.write(Json::object({{"kind", event_type_name(ev.type)}, {"text", ev.text}, {"tool", ev.toolName},
-                               {"input", ev.toolInput}, {"result", ev.toolResult}}));
+        tr.write_event(ev, Json::object({{"kind", event_type_name(ev.type)}, {"text", ev.text}, {"tool", ev.toolName},
+                                         {"input", ev.toolInput}, {"result", ev.toolResult}}));
         emit(copy, depth, "cli");
+    };
+    // The run's limits see the live numbers: the CLI is killed as soon as its tokens or cost cross them.
+    std::string budgetWhy;
+    req.stopWhen = [&](const Usage& u, double cliCost, bool isEstimate) {
+        Usage soFar = totalUsage_;
+        soFar += u;
+        double c = totalCost_ + ((!isEstimate && cliCost >= costBase) ? cliCost - costBase : cliCost);
+        return over_budget(soFar, c, budgetWhy);
     };
     auto run = agent.run(req, onEvent, cancel_);
     if (resuming && run && !run->ok && !run->cancelled &&
@@ -286,6 +440,7 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
         req.sessionId.clear();
         req.prompt = fullPrompt;
         costBase = 0;
+        budgetWhy.clear();
         run = agent.run(req, onEvent, cancel_);
     }
     if (!run) {
@@ -294,13 +449,13 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
         res.hint = run.error().hint;
         return res;
     }
-    double cost = run->costUsd >= costBase ? run->costUsd - costBase : run->costUsd;
+    double cost = !run->costIsEstimate && run->costUsd >= costBase ? run->costUsd - costBase : run->costUsd;
     if (depth == 0 && canResume) {
         res.conversation = prev.key == pc.name ? prev : Conversation{};
         res.conversation.key = pc.name;
         if (!run->sessionId.empty()) {
             res.conversation.cliSessionId = run->sessionId;
-            res.conversation.cliCostUsd = run->costUsd;
+            res.conversation.cliCostUsd = run->costIsEstimate ? costBase + run->costUsd : run->costUsd;
         }
     }
     add_usage(run->usage, cost);
@@ -310,11 +465,22 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     res.stopReason = run->cancelled ? "cancelled" : (run->ok ? "cli" : "error");
     res.error = run->error;
     res.hint = run->hint;
-    tr.write(Json::object({{"kind", "end"}, {"ok", res.ok}, {"text", res.finalText}, {"error", res.error}}));
+    if (run->cancelled && is_cancelled(cancel_)) {
+        res.cancelCause = cancelCause_ ? cancelCause_() : std::string();
+        res.error = cancelled_message(res.cancelCause);
+    }
+    if (!budgetWhy.empty() && run->cancelled && !is_cancelled(cancel_)) {
+        res.stopReason = "budget";
+        res.error = budgetWhy;
+        res.hint = "Raise limits in ~/.factoria/ai.json or ai.run options.";
+    }
+    Json endEvent = Json::object({{"kind", "end"}, {"ok", res.ok}, {"text", res.finalText}, {"error", res.error}});
+    if (!res.cancelCause.empty()) endEvent["cause"] = res.cancelCause;
+    tr.write(endEvent);
     return res;
 }
 
-ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& role, int depth) {
+ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& role, int depth, McpToolSet* toolServers) {
     ToolResult tr;
     tr.toolUseId = call.id;
     AgentEvent start;
@@ -347,8 +513,17 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
     if (call.name == kDelegateTool && depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation) {
         std::string r = str(call.input, "role");
         std::string task = str(call.input, "task");
-        if ((r != kRoleWorker && r != kRoleFast) || task.empty()) {
-            return fail("invalid_arguments", "agent_delegate needs role (\"worker\" or \"fast\") and a non-empty task", "");
+        if (is_review_role(r)) {
+            return fail("not_delegable", "Role '" + r + "' cannot be delegated to: critics and reviewers run only when the user asks",
+                        "The user starts reviews with the review buttons of the editor's AI panel (or `factoria ai review`). "
+                        "When they send you a review, act on it. Delegate with role worker, fast, artist or audio.");
+        }
+        if (!is_delegable_role(r) || task.empty()) {
+            return fail("invalid_arguments",
+                        "agent_delegate needs role (\"worker\", \"fast\", \"artist\" or \"audio\") and a non-empty task", "");
+        }
+        if (!config_.role_enabled(r)) {
+            return fail("role_off", role_off_message(r), role_off_hint(r));
         }
         AgentEvent info;
         info.type = AgentEvent::Type::Info;
@@ -365,6 +540,11 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
         }
         tr.content = sub.finalText.empty() ? "(sub-agent finished without a report)" : sub.finalText;
         return finish(tr, Json(tr.content));
+    }
+    if (toolServers && toolServers->owns(call.name)) {  // a tool of one of the user's external tool servers
+        ToolResult r = toolServers->call(call);
+        r.content = clip_text(r.content, kMaxToolResultChars);
+        return finish(r, Json(r.content));
     }
     auto it = toolToCommand_.find(call.name);
     if (it == toolToCommand_.end()) {
@@ -397,6 +577,9 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
                     if (in) {
                         std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
                         data = fa::base64_encode(bytes.data(), bytes.size());
+                        in.close();
+                        // A screenshot without `path` is temporary: its bytes are in the message now, the file can go.
+                        if (!data.empty()) fa::discard_temporary_image(*img, opt_.projectDir);
                     }
                 }
             }
@@ -431,25 +614,53 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         provider = *made;
     }
 
-    const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation;
-    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem};
+    const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation && config_.can_delegate_to_anyone();
+    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "", config_.assetSources, config_.disabled_delegable_roles()};
+    // The user's external tool servers for this role: connect now (a program is started, a service is asked for its tools);
+    // the ones that fail only give a note, the run goes on without them. They close when this function returns.
+    McpToolSet toolServers;
+    std::vector<std::string> serverNotes;
+    if (const auto servers = config_.tool_servers_for(role); !servers.empty()) {
+        McpOptions mo;
+        mo.transport = opt_.toolServerTransport;
+        mo.cancel = cancel_;
+        toolServers.connect(servers, opt_.env ? opt_.env : system_env(), mo, serverNotes);
+        for (const auto& client : toolServers.clients()) {
+            const ToolServer* s = nullptr;
+            for (const ToolServer* c : servers) if (c->name == client->name()) s = c;
+            pctx.toolServers.push_back({client->name(), s ? s->note : std::string(), client->name() + "__"});
+        }
+    }
     ChatRequest req;
     req.model = rc.model;
     req.effort = rc.effort;
     req.maxTokens = rc.maxTokens;
     req.maxContextTokens = rc.maxContextTokens;  // only the Anthropic provider sends it (server-side compaction)
     req.system = build_system_prompt(pctx);
-    req.tools = tools_from_registry(registry_, canDelegate);
+    const bool readOnly = is_review_role(role);  // critics and reviewers observe and play, they change nothing
+    req.tools = tools_from_registry(registry_, canDelegate, readOnly);
+    if (!toolServers.empty()) {
+        for (ToolDef& d : toolServers.tool_defs()) req.tools.push_back(std::move(d));
+        std::sort(req.tools.begin(), req.tools.end(), [](const ToolDef& a, const ToolDef& b) { return a.name < b.name; });
+    }
     req.stream = opt_.stream;
     toolToCommand_.clear();
     for (const CommandInfo* info : registry_.list()) {
-        if (!is_agent_tool_excluded(info->name)) toolToCommand_[tool_name_for_command(info->name)] = info->name;
+        if (is_agent_tool_excluded(info->name)) continue;
+        if (readOnly && !is_read_only_tool(*info)) continue;  // not offered, and not callable either
+        toolToCommand_[tool_name_for_command(info->name)] = info->name;
     }
 
     AgentEvent start;
     start.type = AgentEvent::Type::SessionStart;
     start.text = pc.name + "/" + rc.model + (rc.effort.empty() ? "" : " effort=" + rc.effort);
     emit(start, depth, role);
+    for (const std::string& note : serverNotes) {
+        AgentEvent info;
+        info.type = AgentEvent::Type::Info;
+        info.text = note;
+        emit(info, depth, role);
+    }
 
     Transcript tr;
     if (opt_.saveTranscript) tr.open(opt_.projectDir, stamp_ + "-" + role + (depth ? "-" + std::to_string(++delegateCount_) : ""));
@@ -501,7 +712,14 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             res.conversation.key = convKey;
             res.conversation.history = history;
         }
-        tr.write(Json::object({{"kind", "end"}, {"ok", ok}, {"stopReason", stop}, {"text", text}, {"error", error}}));
+        Json endEvent = Json::object({{"kind", "end"}, {"ok", ok}, {"stopReason", stop}, {"text", text}, {"error", error}});
+        if (stop == "cancelled") {
+            res.cancelCause = cancelCause_ ? cancelCause_() : std::string();
+            res.error = cancelled_message(res.cancelCause);
+            endEvent["error"] = res.error;
+            if (!res.cancelCause.empty()) endEvent["cause"] = res.cancelCause;
+        }
+        tr.write(endEvent);
         return res;
     };
 
@@ -517,7 +735,9 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         }
         res.turns = turn;
         req.messages = history;
+        const std::int64_t chatStartMs = unix_time_ms_now();
         auto resp = provider->chat(req, hooks, cancel_);
+        const std::int64_t chatMs = unix_time_ms_now() - chatStartMs;
         if (!resp) {
             if (is_cancelled(cancel_)) return finish_with(false, "cancelled", res.finalText, "cancelled", "");
             return finish_with(false, "error", res.finalText, resp.error().message, resp.error().hint);
@@ -536,7 +756,8 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         }
         history.push_back(resp->message);  // APPEND the assistant message unchanged (raw content kept)
         tr.write(Json::object({{"kind", "assistant"}, {"stopReason", resp->rawStopReason}, {"text", resp->message.text},
-                               {"content", resp->message.raw}, {"usage", resp->usage.to_json()}, {"costUsd", cost}}));
+                               {"content", resp->message.raw}, {"usage", resp->usage.to_json()}, {"costUsd", cost},
+                               {"ms", chatMs}}));
         if (!resp->message.text.empty()) res.finalText = resp->message.text;
 
         switch (resp->stopReason) {
@@ -567,6 +788,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
 
         // Execute ALL tool calls of this assistant turn and answer them in ONE user message.
         std::vector<ToolResult> results;
+        std::vector<std::int64_t> toolMs;
         const bool truncated = resp->stopReason == StopReason::MaxTokens;
         for (const auto& call : resp->message.toolCalls) {
             if (is_cancelled(cancel_)) break;
@@ -579,9 +801,12 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
                      {"message", "Your response hit the output token limit before this tool call could be trusted; it was not run."},
                      {"hint", "Repeat the call with smaller content (e.g. write big files in several steps)."}}));
                 results.push_back(std::move(r));
+                toolMs.push_back(0);
                 continue;
             }
-            results.push_back(execute_tool(call, role, depth));
+            const std::int64_t toolStartMs = unix_time_ms_now();
+            results.push_back(execute_tool(call, role, depth, &toolServers));
+            toolMs.push_back(unix_time_ms_now() - toolStartMs);
         }
         if (is_cancelled(cancel_)) {
             // Still answer every tool_use so the transcript stays valid.
@@ -596,8 +821,14 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             return finish_with(false, "cancelled", res.finalText, "cancelled", "");
         }
         Json trJson = Json::array();
-        for (const auto& r : results) {
-            trJson.push_back(Json::object({{"toolUseId", r.toolUseId}, {"isError", r.isError}, {"content", clip_text(r.content, 4000)}}));
+        for (std::size_t i = 0; i < results.size(); ++i) {
+            const ToolResult& r = results[i];
+            Json entry = Json::object({{"toolUseId", r.toolUseId}, {"isError", r.isError}, {"content", clip_text(r.content, 4000)}});
+            if (i < toolMs.size() && i < resp->message.toolCalls.size()) {
+                entry["tool"] = resp->message.toolCalls[i].name;
+                entry["ms"] = toolMs[i];  // how long the tool ran
+            }
+            trJson.push_back(std::move(entry));
         }
         tr.write(Json::object({{"kind", "tool_results"}, {"results", trJson}}));
         history.push_back(Message::tool_results(std::move(results)));

@@ -1,0 +1,478 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/crawler_sheet.png": {
+      "sheet": {
+        "columns": 4,
+        "rows": 3,
+        "frameWidth": 80,
+        "frameHeight": 60,
+        "frames": 10,
+        "clips": [
+          {
+            "name": "crawl",
+            "firstFrame": 0,
+            "lastFrame": 5,
+            "fps": 12.0,
+            "loop": true
+          },
+          {
+            "name": "alert",
+            "firstFrame": 6,
+            "lastFrame": 9,
+            "fps": 12.0,
+            "loop": true
+          }
+        ],
+        "padding": 2,
+        "pivot": [
+          0.5,
+          0.5
+        ]
+      },
+      "provenance": {
+        "origin": "generated",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.bake_sheet",
+        "license": "CC0-1.0",
+        "notes": "Baked from prefab 'prefabs/crawler_rig.prefab.json': 10 frames at 12 fps, 80x60 px each, scale 2, seed 1.",
+        "date": "2026-10-29",
+        "source": "prefabs/crawler_rig.prefab.json",
+        "author": "factoria",
+        "recipe": {
+          "command": "assets.bake_sheet",
+          "args": {
+            "path": "assets/crawler_sheet.png",
+            "prefab": "prefabs/crawler_rig.prefab.json",
+            "frames": 12,
+            "fps": 12.0,
+            "frameWidth": 80,
+            "frameHeight": 60,
+            "scale": 2.0,
+            "clips": [
+              {
+                "name": "crawl",
+                "clip": "crawl",
+                "fps": 12
+              },
+              {
+                "name": "alert",
+                "clip": "alert",
+                "fps": 12
+              }
+            ],
+            "warmup": 0.0,
+            "seed": 1,
+            "padding": 2,
+            "margin": 2,
+            "overwrite": true
+          },
+          "inputs": [
+            {
+              "path": "anim/crawler_alert.anim.json",
+              "sha256": "98e663147fbe26508a53e04fa74bf9f228bfc941b87a151a5d969fd1db9dc545"
+            },
+            {
+              "path": "anim/crawler_crawl.anim.json",
+              "sha256": "27f8f13fa4d5f1a069854d524fd4cc2e1c8dc1352f218d339cbb7e83687590b4"
+            },
+            {
+              "path": "assets/parts_atlas.png",
+              "sha256": "e42abe048c18a03ce5674bbe3f11209f0c5977ca593abb5cf168f6fb3766280a"
+            },
+            {
+              "path": "prefabs/crawler_rig.prefab.json",
+              "sha256": "b5f1ba1aef16d8203da9c55ca1c854ccc7b4992ed60cc8bdc29643c97c262336"
+            }
+          ]
+        }
+      }
+    },
+    "assets/parts_atlas.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-29",
+        "notes": "Packed from the images of assets/src/parts by assets.pack_atlas; the frame table is data/parts_atlas.json.",
+        "recipe": {
+          "command": "assets.pack_atlas",
+          "args": {
+            "folder": "assets/src/parts",
+            "out": "assets/parts_atlas.png",
+            "table": "data/parts_atlas.json",
+            "maxSize": 2048,
+            "padding": 2
+          },
+          "inputs": [
+            {
+              "path": "assets/src/parts/crawler/body.png",
+              "sha256": "ed7a095aa99184d0620394a5b10ec33d89d45e634e4894c8a4b335867ecbe765"
+            },
+            {
+              "path": "assets/src/parts/crawler/eye.png",
+              "sha256": "a60dbc0c88b25a0e43d07df7ea3c943f36cbb80ab819622565b4a0f5a8bbb539"
+            },
+            {
+              "path": "assets/src/parts/crawler/foot.png",
+              "sha256": "b0a23f485a4dd826bccc776764d35b5a8f4c72eef3a9981a408d4b368e48e243"
+            },
+            {
+              "path": "assets/src/parts/hero/arm.png",
+              "sha256": "bab93f9a7b0e3be30404b78f161061491b8b8ab6cfcc703265406503a9a6a42e"
+            },
+            {
+              "path": "assets/src/parts/hero/body.png",
+              "sha256": "d7a51795ef9ab658228d0a72faf4b9ddff1a544ee2d5c435912427891419fd13"
+            },
+            {
+              "path": "assets/src/parts/hero/foot.png",
+              "sha256": "71a71949cc8ff13fcb9dc9358136c8004909f860e7f7a357e30a77e20792d702"
+            },
+            {
+              "path": "assets/src/parts/hero/head.png",
+              "sha256": "d1bbb2aee0f5332f08c9c393a01b82e28fc2f80cc8be1cfdbdd0a1d2dc475ebd"
+            },
+            {
+              "path": "assets/src/parts/hero/scarf.png",
+              "sha256": "4d90e4dc33d6280c0c7a17bee88fc93754388e6ac4ea5821ec50f2d7776d261c"
+            },
+            {
+              "path": "assets/src/parts/hero/shin.png",
+              "sha256": "442fa251b57b7ed5481d27b0e272a4595d22a16cf22c34af2149a7917f95e6d2"
+            },
+            {
+              "path": "assets/src/parts/hero/thigh.png",
+              "sha256": "9d89eeed2a32641f42438a18774d7f3680481d64243a87d530476ed6f15daba6"
+            },
+            {
+              "path": "assets/src/parts/pivots.json",
+              "sha256": "2a02973162f56b3d9692627e6bb752534be381c3ec6c772eeebbb814d9136d6a"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/crawler/body.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/crawler/body.svg' at 72x44.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/crawler/body.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/crawler/body.png",
+            "source": "assets/src/svg/crawler/body.svg",
+            "width": 72,
+            "height": 44,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/crawler/body.svg",
+              "sha256": "cf64c3170e11632f2e192efe82569884000edd296cd9941a47009781cacfa41b"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/crawler/eye.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/crawler/eye.svg' at 16x16.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/crawler/eye.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/crawler/eye.png",
+            "source": "assets/src/svg/crawler/eye.svg",
+            "width": 16,
+            "height": 16,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/crawler/eye.svg",
+              "sha256": "b53be5fd49dd86e1e495dbb119f5c1904f724b06a2a62a31a2d66c99a17d288d"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/crawler/foot.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/crawler/foot.svg' at 20x12.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/crawler/foot.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/crawler/foot.png",
+            "source": "assets/src/svg/crawler/foot.svg",
+            "width": 20,
+            "height": 12,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/crawler/foot.svg",
+              "sha256": "069249fc8c1a7e05a81e63dc98c9f5362e019d4ea5b41a71d349a1f582a6cddb"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/hero/arm.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/hero/arm.svg' at 10x24.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/hero/arm.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/hero/arm.png",
+            "source": "assets/src/svg/hero/arm.svg",
+            "width": 10,
+            "height": 24,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/hero/arm.svg",
+              "sha256": "247510c60cacabf9b2aba302d20dc94796f7d01cc22e2b549c7ba92c4c4f210c"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/hero/body.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/hero/body.svg' at 32x28.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/hero/body.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/hero/body.png",
+            "source": "assets/src/svg/hero/body.svg",
+            "width": 32,
+            "height": 28,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/hero/body.svg",
+              "sha256": "e636c8f62b42251dc03a2bd632a2defce52bf3d3175ba8e172ee1f1112edecab"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/hero/foot.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/hero/foot.svg' at 16x10.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/hero/foot.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/hero/foot.png",
+            "source": "assets/src/svg/hero/foot.svg",
+            "width": 16,
+            "height": 10,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/hero/foot.svg",
+              "sha256": "84e2f61eada8f2347836279be6045fb5b1caedcc7d710b537d12674a9ad01b30"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/hero/head.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/hero/head.svg' at 36x32.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/hero/head.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/hero/head.png",
+            "source": "assets/src/svg/hero/head.svg",
+            "width": 36,
+            "height": 32,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/hero/head.svg",
+              "sha256": "3d57c7a1c632d7388e8baa7c82e3dee9d88d989edbf003bb60c962b83599d220"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/hero/scarf.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/hero/scarf.svg' at 36x10.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/hero/scarf.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/hero/scarf.png",
+            "source": "assets/src/svg/hero/scarf.svg",
+            "width": 36,
+            "height": 10,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/hero/scarf.svg",
+              "sha256": "04a7a5f31ffb1ed05058f9f36c357ad6d4aca35cf7a9afef0fd32f319d6555e5"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/hero/shin.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/hero/shin.svg' at 20x12.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/hero/shin.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/hero/shin.png",
+            "source": "assets/src/svg/hero/shin.svg",
+            "width": 20,
+            "height": 12,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/hero/shin.svg",
+              "sha256": "8fa4a0c6d3e922852690624b1f00d2b81e061f52dfbbfc3a5aa8c74ad9cafd40"
+            }
+          ]
+        }
+      }
+    },
+    "assets/src/parts/hero/thigh.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria assets.rasterize_svg",
+        "license": "CC0-1.0",
+        "notes": "Rasterized from SVG 'assets/src/svg/hero/thigh.svg' at 22x14.",
+        "date": "2026-10-29",
+        "author": "FactorIA",
+        "source": "assets/src/svg/hero/thigh.svg",
+        "recipe": {
+          "command": "assets.rasterize_svg",
+          "args": {
+            "path": "assets/src/parts/hero/thigh.png",
+            "source": "assets/src/svg/hero/thigh.svg",
+            "width": 22,
+            "height": 14,
+            "ai": false,
+            "author": "FactorIA",
+            "license": "CC0-1.0",
+            "seed": 0
+          },
+          "inputs": [
+            {
+              "path": "assets/src/svg/hero/thigh.svg",
+              "sha256": "b97673a06f9f507032728a5142ae5ce5f13581a2ded4358ad7057cbdc2eed8fc"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

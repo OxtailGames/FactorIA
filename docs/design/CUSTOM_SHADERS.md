@@ -100,6 +100,7 @@ struct SurfaceInput {           // read-only, per fragment
     vec3 world_normal;          // interpolated geometric normal, normalized, flipped on back faces
     vec4 world_tangent;         // xyz tangent, w handedness
     vec2 uv;                    // after MeshRenderer.uvScale
+    vec4 vertex_color;          // interpolated vertex color (glTF COLOR_0), white without; already in the standard surface
     vec3 view_dir;              // surface -> camera, normalized
     bool front_facing;
 };
@@ -111,6 +112,7 @@ struct Surface {                // what the lighting reads
 };
 struct VertexData {             // vertex(): world space, after instancing and skinning
     vec3 world_pos; vec3 world_normal; vec4 world_tangent; vec2 uv;
+    vec4 color;                 // the vertex color (white without)
     vec3 object_pos;            // the model-space position (read-only by convention)
 };
 // Engine values a snippet may read (all start with fa_):

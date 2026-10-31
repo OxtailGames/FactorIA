@@ -141,11 +141,6 @@ Json load_messages_json(const LoadReport& r) {
     return a;
 }
 
-std::string abs_path(const std::string& p) {
-    if (fs::is_absolute(p)) return p;
-    return fs::resolve(p).generic_string();
-}
-
 Json brief_state(Engine::Impl& I, std::uint64_t errorsBefore, std::uint64_t lastSeq) {
     Json j = Json::object();
     j["frame"] = I.frame;
@@ -157,7 +152,8 @@ Json brief_state(Engine::Impl& I, std::uint64_t errorsBefore, std::uint64_t last
     j["newLogErrors"] = error_count() - errorsBefore;
     Json logs = Json::array();
     for (const LogEntry& l : recent_logs(10, LogLevel::Warn, lastSeq))
-        logs.push_back(Json::object({{"level", log_level_name(l.level)}, {"category", l.category}, {"message", l.message}}));
+        logs.push_back(Json::object({{"wallTime", log_wall_iso(l.wallMs)}, {"level", log_level_name(l.level)},
+                                     {"category", l.category}, {"message", l.message}}));
     if (!logs.empty()) j["newWarnings"] = logs;
     if (I.quit) j["quitRequested"] = true;
     return j;
@@ -451,9 +447,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"scene.load", "Replace the running scene with a scene file.",
            "Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules "
            "and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in "
-           "`messages`. Example: scene.load {\"path\":\"scenes/level2.scene.json\"}",
+           "`messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first "
+           "start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. "
+           "Example: scene.load {\"path\":\"scenes/level2.scene.json\",\"props\":{\"difficulty\":\"hard\"}}",
            parse_schema(R"({"type":"object","required":["path"],"properties":{
-               "path":{"type":"string","description":"Project-relative scene path."}}})"),
+               "path":{"type":"string","description":"Project-relative scene path."},
+               "props":{"type":"object","description":"Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {})."}}})"),
            false, "scene"},
           [&engine, &I](const Json& a) {
               std::string path = a["path"].get<std::string>();
@@ -462,10 +461,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   throw CommandError("not_found", "Scene file '" + path + "' not found. " + did_you_mean(path, scenes),
                                      "Use project.info to list scenes.");
               }
+              const bool hasProps = a.contains("props") && a["props"].is_object();
               if (I.inFrame) {
-                  engine.request_scene_change(path);
+                  if (hasProps) engine.request_scene_change_with_props(path, a["props"]);
+                  else engine.request_scene_change(path);
                   return Json::object({{"scheduled", true}, {"path", path}});
               }
+              if (hasProps) I.nextProps = a["props"];
               std::string err;
               bool ok = I.load_scene_impl(path, &err);
               return Json::object({{"ok", ok}, {"path", path}, {"entityCount", I.world.entity_count()}, {"messages", I.sceneIssues}});
@@ -476,30 +478,43 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: "
            "only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a "
            "scene FILE without touching the running world use scene.import_ascii with `path`. Example: "
-           "scene.save {\"path\":\"scenes/snapshot.scene.json\"}",
+           "scene.save {\"path\":\"scenes/snapshot.scene.json\"}. Entities a script created at runtime (world.spawn, "
+           "world.spawnPrefab) and their children are NOT written: the script builds them again when the scene loads, so saving "
+           "them would duplicate them. The result lists them under `skippedSpawned` (count, first ids) with a hint; pass "
+           "includeSpawned:true only to bake them into the file on purpose (then the script must not spawn them again). Entities "
+           "made with scene.spawn, the editor or other authoring commands are always saved.",
            parse_schema(R"({"type":"object","properties":{
-               "path":{"type":"string","description":"Project-relative output path. Default: the current scene."}}})"),
+               "path":{"type":"string","description":"Project-relative output path. Default: the current scene."},
+               "includeSpawned":{"type":"boolean","default":false,"description":"Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load."}}})"),
            false, "scene"},
           [&engine, &I](const Json& a) {
               std::string path = a.value("path", I.currentScene);
               if (path.empty())
                   throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
               if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
-              auto r = save_scene_file(I.world, path);
+              SpawnedSkip skip;
+              auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip);
               if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
               if (I.watchSeeded) I.watched[path] = fs::modified_time(path);
               if (I.currentScene.empty()) I.currentScene = path;
-              return Json::object({{"saved", path}, {"entityCount", I.world.entity_count()}});
+              Json out = Json::object({{"saved", path}, {"entityCount", I.world.entity_count() - skip.count}});
+              if (skip.count > 0) {
+                  out["skippedSpawned"] = Json::object({{"count", skip.count}, {"first", skip.labels}});
+                  out["hint"] = "Left out " + std::to_string(skip.count) + " entities a script spawned at runtime (the script "
+                                "creates them again when the scene loads, so saving them would duplicate them). To bake them "
+                                "into the file on purpose pass {\"includeSpawned\":true}, and then stop the script spawning them.";
+              }
+              return out;
           });
 
     I.commands.add({"scene.reload", "Reload the current scene from disk (discards runtime changes).",
            "Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing "
-           "them), factoria.json input actions, fixedHz and deadzone; script errors are cleared. Example: scene.reload {}",
+           "them), factoria.json input actions, fixedHz, deadzone and ui.scale; script errors are cleared. Example: scene.reload {}",
            parse_schema(R"({"type":"object","properties":{}})"), false, "scene"},
           [&engine, &I](const Json&) {
               if (I.currentScene.empty()) throw CommandError("unavailable", "No scene is loaded.", "Use scene.load first.");
               std::string err;
-              bool ok = I.load_scene_impl(I.currentScene, &err);
+              bool ok = I.load_scene_impl(I.currentScene, &err, true);  // the same scene starts again with its props
               return Json::object({{"ok", ok}, {"scene", I.currentScene}, {"messages", I.sceneIssues}});
           });
 
@@ -508,6 +523,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_play_session_commands(engine, I);  // play.sessions, play.report
     register_i18n_commands(engine, I);          // i18n.state, i18n.set_language
     register_ui_check_commands(engine, I);      // ui.check_layout
+    register_shot_commands(engine, I);          // game.screenshot, render.inspect, render.pick
+    register_anim_commands(engine, I);          // anim.create_clip, anim.set_keys, anim.list, anim.check, ...
+    register_mesh_commands(engine, I);          // mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+    register_bones_commands(engine, I);         // bones.create, skin.bind, skin.auto_weights, skin.set_weights
     register_platform_commands(I.commands, I.platform);  // platform.state, platform.respond, ... (fa/services)
 
     // --------------------------------------------------------------------- game
@@ -526,6 +545,41 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               apply_input_lists(I, a);
               engine.step(a.value("frames", 1));
               return brief_state(I, errs, seq);
+          });
+
+    I.commands.add({"input.record", "Record the input the game receives as an input replay (start / stop).",
+           "`start` begins recording every key, mouse, touch, gamepad and Back event the game receives (from a window, a test, "
+           "game.input or a replay), the dt and fixed steps of each frame, the clipboard reads, the answers of http.fetch and the "
+           "calendar date; what is held "
+           "at that moment (keys, buttons, pads) is part of it. `stop` ends it and returns the replay in `replay`: the JSON that "
+           "`factoria run --headless --input <file>` plays (frame numbers count from the start; typed text, the mouse wheel and "
+           "locked-mouse movement have no field in the format and are not recorded). `path` (with stop) also writes the replay to "
+           "that project-relative file. A replay run from the same scene, seed and props reaches the same state. Start and stop "
+           "between frames. Starting while recording begins again. Example: input.record {\"action\":\"start\"} ... "
+           "input.record {\"action\":\"stop\",\"path\":\"replays/run1.json\"}",
+           parse_schema(R"({"type":"object","required":["action"],"properties":{
+               "action":{"type":"string","enum":["start","stop"],"description":"start: begin recording now. stop: end it and return the replay."},
+               "path":{"type":"string","description":"stop only: also write the replay to this project-relative file (e.g. replays/run1.json)."}}})"),
+           false, "game"},
+          [&engine, &I](const Json& a) {
+              const std::string action = a["action"].get<std::string>();
+              if (action == "start") {
+                  const bool restarted = engine.input_recording();
+                  engine.start_input_recording();
+                  return Json::object({{"recording", true}, {"startFrame", I.frame}, {"restarted", restarted}});
+              }
+              if (!engine.input_recording())
+                  throw CommandError("unavailable", "Nothing is being recorded.", "Start with input.record {\"action\":\"start\"}.");
+              const std::size_t frames = engine.input_recording_frames();
+              Json replay = engine.stop_input_recording();
+              Json out = Json::object({{"recording", false}, {"frames", frames}, {"replay", replay}});
+              if (a.contains("path") && a["path"].is_string()) {
+                  const std::string path = a["path"].get<std::string>();
+                  if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
+                  if (auto r = fs::write_text(path, replay.dump(1)); !r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
+                  out["path"] = path;
+              }
+              return out;
           });
 
     I.commands.add({"game.input", "Inject input: press/release actions or keys, or set an action state, mouse position/buttons, "
@@ -584,41 +638,85 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return I.input.snapshot();
           });
 
-    I.commands.add({"game.screenshot", "Capture the game view as a PNG and show it.",
-           "Draws the game view as it is now (design resolution), saves it and returns the path; clients display the "
-           "image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. "
-           "Default path .factoria/screenshots/frame_<n>.png. `scale` (0.25 to 4, default 1) draws the same frame into an image "
-           "scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, "
-           "so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG. `simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the saved "
-           "PNG to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; "
-           "greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons "
-           "read without their colour. Example: game.screenshot {\"path\":\"shots/start.png\",\"scale\":1.5} or "
-           "game.screenshot {\"path\":\"shots/deut.png\",\"simulate\":\"deuteranopia\"}",
+    I.commands.add({"game.click", "Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.",
+           "Give one target: `id` (a UI widget, an Interactable or a screen-space Text: its centre is clicked), `position` ([x, y] in design pixels, "
+           "top-left origin, +Y down) or `world` ([x, y] or [x, y, z] in world units, projected through the main camera). "
+           "It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, "
+           "a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more "
+           "frame (input.mouse.released, the ui \"click\" event). The same sequence as game.click in a test, so it runs hold + 1 frames. "
+           "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList) is an error that says why. "
+           "game.input {\"mouse\":{\"position\":[x,y],\"left\":true}} only sets the state for the next frame and leaves the button "
+           "held; a click is move + press + frame + release + frame, which this command does in one call. Returns "
+           "{position, button, frames, widget, frame}: `widget` is the id of the topmost UI widget or Interactable under the click (null over the "
+           "world). Examples: game.click {\"id\":\"play\"}, game.click {\"position\":[640,360]}, "
+           "game.click {\"world\":[3,-2],\"button\":\"right\"}",
            parse_schema(R"({"type":"object","properties":{
-               "path":{"type":"string","description":"Output PNG (project-relative or absolute)."},
-               "scale":{"type":"number","default":1,"minimum":0.25,"maximum":4,"description":"Render scale: image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080."},
-               "simulate":{"type":"string","enum":["none","greyscale","protanopia","deuteranopia","tritanopia"],"default":"none","description":"Convert the saved PNG to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged."}}})"),
-           true, "game"},
+               "id":{"type":"string","description":"Entity id (or name) of a UI widget, an Interactable (also in world space) or a screen-space Text; its centre is clicked."},
+               "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"Screen position [x, y] in design pixels (top-left origin, +Y down)."},
+               "world":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"description":"World position [x, y] or [x, y, z], projected through the main camera (needs a renderer)."},
+               "button":{"type":"string","enum":["left","right","middle"],"default":"left","description":"Mouse button."},
+               "hold":{"type":"integer","default":1,"minimum":1,"maximum":10000,"description":"Frames the button stays down before the release (1 = a tap)."}}})"),
+           false, "game"},
           [&engine, &I](const Json& a) {
-              std::string path = a.value("path", ".factoria/screenshots/frame_" + std::to_string(I.frame) + ".png");
-              std::string err;
-              const double scale = a.value("scale", 1.0);
-              if (!(scale >= 0.25 && scale <= 4.0))
-                  throw CommandError("invalid_argument", "scale " + std::to_string(scale) + " is out of range.",
-                                     "scale must be between 0.25 and 4: the image is design size * scale. Example: 1.5 on a 1280x720 game gives 1920x1080.");
-              const std::string simulate = a.value("simulate", std::string("none"));
-              if (auto parsed = parse_color_simulation(simulate); !parsed.ok())
-                  throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
-              if (!engine.screenshot_simulated(path, scale, simulate, &err))
-                  throw CommandError("unavailable", err, "Screenshots need graphics (headless needs Mesa/EGL).");
-              std::string abs = abs_path(path);
-              Json j = Json::object();
-              j["path"] = abs;
-              j["width"] = int(std::lround(I.renderer->target_width() * scale));
-              j["height"] = int(std::lround(I.renderer->target_height() * scale));
-              j["frame"] = I.frame;
-              j["$image"] = Json::object({{"path", abs}, {"mimeType", "image/png"}});
-              return j;
+              const int targets = int(a.contains("id")) + int(a.contains("position")) + int(a.contains("world"));
+              if (targets != 1)
+                  throw CommandError("invalid_argument", "game.click needs exactly one of id, position or world; got " + std::to_string(targets) + ".",
+                                     "Examples: {\"id\":\"play\"}, {\"position\":[640,360]}, {\"world\":[3,-2]}.");
+              MouseButton button = MouseButton::Left;
+              const std::string bname = a.value("button", std::string("left"));
+              if (bname == "right") button = MouseButton::Right;
+              else if (bname == "middle") button = MouseButton::Middle;
+              else if (bname != "left") throw CommandError("invalid_argument", "Unknown mouse button '" + bname + "'.", "Use left, right or middle.");
+              const int hold = std::max(1, a.value("hold", 1));
+              const Vec2 design = I.design_size();
+              Vec2 p;
+              if (a.contains("id")) {
+                  const Entity e = need_entity(I.world, a, "id");
+                  const std::string id = I.world.id_of(e);
+                  I.ui.layout(I.world, design, I.measure(), false);  // a panel opened since the last step has no rectangle yet
+                  std::string why;
+                  const bool custom = ui_is_interactable(I.world, e);
+                  if (custom) {
+                      if (!I.world.active_in_hierarchy(e)) why = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
+                      else if (!I.ui.interactable_rect(I.world, e, design, I.measure()))
+                          why = "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from";
+                  } else if (ui_kind(I.world, e) != UiKind::None) {
+                      const std::optional<Rect> r = ui_rect(I.world, e, design);
+                      const std::optional<Rect> clip = ui_clip_rect(I.world, e, design);
+                      if (!I.world.active_in_hierarchy(e)) why = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
+                      else if (!r || !(r->w > 0) || !(r->h > 0)) why = "it has no area (its size is 0), so it was never laid out: give it a size, or make it a child of a Panel with a layout";
+                      else if (clip && (!(clip->w > 0) || !(clip->h > 0) || !clip->overlaps(*r)))
+                          why = "it is scrolled out of its ScrollList, so it is clipped away: scroll it into view first (ui.focus scrolls to it)";
+                  }
+                  if (!why.empty()) throw CommandError("invalid_argument", "'" + id + "' cannot be clicked: " + why + ".", "ui.state lists the widgets you can click.");
+                  const std::optional<Rect> box = !I.world.active_in_hierarchy(e) ? std::nullopt
+                                                  : custom ? I.ui.interactable_rect(I.world, e, design, I.measure())
+                                                           : ui_screen_rect(I.world, e, design, I.measure());
+                  if (!box)
+                      throw CommandError("invalid_argument", "'" + id + "' has no screen rectangle.",
+                                         "Pass a UI widget or a screen-space Text id, or a position/world target.");
+                  p = {box->x + box->w / 2, box->y + box->h / 2};
+              } else if (a.contains("position")) {
+                  std::string perr;
+                  if (!json_to(a["position"], p, &perr)) throw CommandError("invalid_argument", "position: " + perr, "Use [x, y] in design pixels.");
+              } else {
+                  const Json& w = a["world"];
+                  if (!I.renderer || !I.renderer->initialized())
+                      throw CommandError("unavailable", "world needs a renderer to project the point through the camera.",
+                                         "Run with graphics, or click a screen `position` (design pixels) instead.");
+                  p = I.renderer->world_to_screen(Vec3{w[0].get<float>(), w[1].get<float>(), w.size() > 2 ? w[2].get<float>() : 0.0f});
+              }
+              I.input.on_mouse_move(p);
+              I.input.on_mouse_button(button, true);
+              engine.step(1);
+              const Entity under = I.ui.widget_at(I.world, design, p, I.measure());
+              if (hold > 1) engine.step(hold - 1);
+              I.input.on_mouse_button(button, false);
+              engine.step(1);
+              Json out = Json::object({{"position", Json::array({p.x, p.y})}, {"button", bname}, {"frames", hold + 1}});
+              out["widget"] = under != kNullEntity && I.world.alive(under) ? Json(I.world.id_of(under)) : Json();
+              out["frame"] = I.frame;
+              return out;
           });
 
     I.commands.add({"game.state", "Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.",
@@ -635,8 +733,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"game.render_stats", "What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory.",
            "Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have "
            "drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, "
-           "triangles, shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale}. "
-           "width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() "
+           "triangles, views, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialFallbacks, textureMB, "
+           "width, height, renderScale}. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d "
+           "and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). "
+           "views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() "
            "in tests. Needs graphics. Example: game.render_stats {}",
            parse_schema(R"({"type":"object","properties":{}})"),
            true, "game"},
@@ -649,7 +749,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"game.logs", "Read recent log lines (engine, scripts, assets...).",
-           "Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {\"minLevel\":\"warn\",\"max\":50}",
+           "Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {\"minLevel\":\"warn\",\"max\":50}",
            parse_schema(R"({"type":"object","properties":{
                "minLevel":{"type":"string","enum":["trace","debug","info","warn","error"],"default":"info"},
                "after":{"type":"integer","default":0,"description":"Only entries with seq greater than this."},
@@ -662,14 +762,14 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               auto entries = recent_logs(std::size_t(a.value("max", 100)), lv, a.value("after", std::uint64_t(0)));
               Json list = Json::array();
               for (const LogEntry& l : entries)
-                  list.push_back(Json::object({{"seq", l.seq}, {"frame", l.frame}, {"level", log_level_name(l.level)},
+                  list.push_back(Json::object({{"seq", l.seq}, {"frame", l.frame}, {"wallTime", log_wall_iso(l.wallMs)}, {"level", log_level_name(l.level)},
                                                {"category", l.category}, {"message", l.message}}));
               return Json::object({{"count", list.size()}, {"lastSeq", entries.empty() ? a.value("after", std::uint64_t(0)) : entries.back().seq},
                                    {"logs", list}});
           });
 
     I.commands.add({"ui.state", "List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.",
-           "Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, "
+           "Returns {focused, hovered, tooltip, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, "
            "value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy "
            "are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {\"mouse\": "
            "{\"position\": [x, y], \"left\": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and "
@@ -678,11 +778,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "`value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton "
            "is a finger holding it (drive one with game.input {\"touch\": ...}); `text` is a Button's or TouchButton's text, a "
            "Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space \"screen\") follow the widgets as "
-           "{id, kind: \"Text\", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}",
+           "{id, kind: \"Text\", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale) and `uiScale` the interface scale (ui.set_scale); every rect already includes both. `tooltip` is the tooltip on screen now ({title, lines, rect, source, widget}, rect in pixels) or null (docs/MENUS.md, \"Tooltips\"). Example: ui.state {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "ui"},
           [&engine, &I](const Json&) {
               Json state = I.ui.state(I.world, I.design_size(), I.measure());
               state["textScale"] = engine.text_scale();
+              state["uiScale"] = engine.ui_scale();
               return state;
           });
 
@@ -690,21 +791,26 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "For tests and tools (game.setSlider(id, value) in a test calls it). The slider takes focus, `value` is clamped to "
            "[min, max] and snapped to `step` exactly as dragging the track does, and the \"ui.change\" event {id, value} is sent "
            "when the number changed (not when it was already there). Writing Slider.value from a script sends no event: that "
-           "is the difference. Needs an active, interactable Slider. Returns {id, value, changed}. Example: ui.set_slider "
+           "is the difference. Needs an active, interactable Slider, or an enabled Interactable of kind \"slider\". Returns {id, value, changed}. Example: ui.set_slider "
            "{\"id\":\"music_volume\",\"value\":0.5}",
            parse_schema(R"({"type":"object","required":["id","value"],"properties":{
-               "id":{"type":"string","description":"Entity id (or name) of the Slider."},
+               "id":{"type":"string","description":"Entity id (or name) of the Slider or of the slider Interactable."},
                "value":{"type":"number","description":"The wanted value; clamped to [min, max] and snapped to step."}}})"),
            false, "ui"},
           [&I](const Json& a) {
               const Entity e = need_entity(I.world, a, "id");
               const std::string id = I.world.id_of(e);
               const Slider* s = I.world.get<Slider>(e);
-              if (!s) throw CommandError("invalid_argument", "'" + id + "' has no Slider component.", "Use the id of a Slider (ui.state lists them).");
-              if (!I.world.active_in_hierarchy(e) || !s->interactable)
-                  throw CommandError("invalid_argument", "Slider '" + id + "' cannot be dragged: it is " + (s->interactable ? "inactive" : "not interactable") + ".",
-                                     "A player cannot drag it either; activate it or set interactable true first.");
-              const float before = s->value;
+              const Interactable* ia = ui_is_interactable(I.world, e) ? I.world.get<Interactable>(e) : nullptr;
+              if (ia && ia->kind != InteractableKind::Slider) ia = nullptr;
+              if (!s && !ia)
+                  throw CommandError("invalid_argument", "'" + id + "' has no Slider component and is no slider Interactable.",
+                                     "Use the id of a Slider or of an Interactable with kind \"slider\" (ui.state lists them).");
+              const bool usable = s ? s->interactable : ia->enabled;
+              if (!I.world.active_in_hierarchy(e) || !usable)
+                  throw CommandError("invalid_argument", "Slider '" + id + "' cannot be dragged: it is " + (usable ? "inactive" : s ? "not interactable" : "disabled") + ".",
+                                     "A player cannot drag it either; activate it or set interactable (enabled for an Interactable) true first.");
+              const float before = s ? s->value : ia->value;
               const float now = I.ui.set_slider(I.world, e, a.at("value").get<float>());
               return Json::object({{"id", id}, {"value", now}, {"changed", now != before}});
           });
@@ -723,6 +829,38 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine](const Json& a) {  // the schema has already checked the range
               engine.set_text_scale(a.at("scale").get<float>());
               return Json::object({{"textScale", engine.text_scale()}});
+          });
+
+    I.commands.add({"ui.set_scale", "Set the interface scale: every screen-space widget and Text gets bigger or smaller.",
+           "The same as `ui.scale = value` in a script (docs/TEXT.md, \"Interface size\"): the size, offset, padding, spacing, "
+           "margins and font size of every screen-space widget (Panel, Button, Label, Slider..., Text with space \"screen\") are "
+           "multiplied by `scale`, on top of the text size option (ui.set_text_scale); the layout, ui.state rectangles, clicks and "
+           "the drawing all follow. The widgets are laid out in a screen of design size / scale, so a Panel with anchors keeps its "
+           "place and its children stay inside it. World-space Text and entities are not scaled. 1 is as authored; the range is "
+           "0.5 to 3. The project default is the \"ui\": {\"scale\"} of factoria.json. A change sends the game event `ui.scale` "
+           "{value, previous}. The engine does not save the option: the game stores it (storage) and sets it at start. Look at the "
+           "result with game.screenshot, and check every size you offer with ui.check_layout {\"uiScales\": [...]}. "
+           "Example: ui.set_scale {\"scale\":1.5}",
+           parse_schema(R"({"type":"object","required":["scale"],"properties":{
+               "scale":{"type":"number","minimum":0.5,"maximum":3,"description":"Interface multiplier: 1 = as authored, 1.5 = 50% bigger, 0.5 = half."}}})"),
+           false, "ui"},
+          [&engine](const Json& a) {  // the schema has already checked the range
+              engine.set_ui_scale(a.at("scale").get<float>());
+              return Json::object({{"uiScale", engine.ui_scale()}});
+          });
+
+    I.commands.add({"ui.set_mirror_rtl", "Turn the mirroring of the screen-space UI in a right-to-left language on or off.",
+           "The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, \"Right to left\"). On (the default, or the "
+           "\"ui\": {\"mirrorRtl\"} of factoria.json) and with i18n.direction \"rtl\", the screen-space widgets and the Text, Sprite "
+           "and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run "
+           "right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is "
+           "mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {\"value\":false}",
+           parse_schema(R"({"type":"object","required":["value"],"properties":{
+               "value":{"type":"boolean","description":"true mirrors the UI in a right-to-left language, false never does."}}})"),
+           false, "ui"},
+          [&I](const Json& a) {
+              I.world.set_ui_mirror_rtl(a.at("value").get<bool>());
+              return Json::object({{"mirrorRtl", I.world.ui_mirror_rtl()}, {"mirrored", I.world.ui_mirror()}});
           });
 
     I.commands.add({"ui.speak", "Say a line aloud with the system's text to speech (or record it, headless).",
@@ -824,7 +962,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"audio.log", "List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.",
            "Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene "
-           "music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock "
+           "music (`music: true`; `layer` names the stem of audio.musicLayers), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock "
            "(time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq "
            "from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with "
            "/<path>. Example: audio.log {\"path\":\"jump.wav\"}",
@@ -856,6 +994,84 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return out;
           });
 
+    I.commands.add({"audio.bus", "Set a bus's volume and effects (low-pass, reverb, ducking), or read its state.",
+           "Buses are \"sfx\", \"music\", \"ui\", \"master\" (the master has no ducking) and the project's own (factoria.json \"audio\".\"buses\"). Every voice of a bus, "
+           "and the buses declared under it, is summed into its own buffer; "
+           "the effects run on that sum in this order: low-pass, reverb, volume, ducking. `volume` is the player's volume (what "
+           "audio.setVolume sets); `lowpass` is a 12 dB per octave cutoff in Hz (0 or null = off); `reverb` is the wet mix 0..1 "
+           "(0 = off); `duck` lowers the bus by `amount` (the fraction removed) while the bus `by` is louder than -40 dBFS, with "
+           "`attack` and `release` time constants in seconds (63% of the way in that time; null = off). `fade` (seconds) makes volume, lowpass and reverb slide instead of "
+           "jumping (a volume change always ramps over about 10 ms so it does not click). Only the keys you pass change; with just "
+           "`bus` it returns the state. Returns volume, snapshotVolume, lowpass, reverb and duck. A bus with no effect does no effect "
+           "work. Example: audio.bus {\"bus\":\"music\",\"lowpass\":800,\"fade\":0.5}",
+           parse_schema(R"({"type":"object","required":["bus"],"properties":{
+               "bus":{"type":"string","description":"The bus: sfx, music, ui, master or a bus of factoria.json audio.buses."},
+               "volume":{"type":"number","minimum":0,"maximum":4,"description":"The bus volume, 1 = as recorded."},
+               "lowpass":{"type":["number","null"],"minimum":0,"maximum":20000,"description":"Low-pass cutoff in Hz; 0 or null = off."},
+               "reverb":{"type":"number","minimum":0,"maximum":1,"description":"Reverb wet mix; 0 = off."},
+               "duck":{"type":["object","null"],"description":"Ducking by another bus; null = off.","properties":{
+                   "by":{"type":"string","description":"The bus that triggers it (any bus but the master)."},
+                   "amount":{"type":"number","minimum":0,"maximum":1,"default":0.5,"description":"Fraction of the volume removed while `by` plays."},
+                   "attack":{"type":"number","minimum":0,"default":0.05,"description":"Attack time constant in seconds: 63% of the way down in this time, about 95% in three times it."},
+                   "release":{"type":"number","minimum":0,"default":0.5,"description":"Release time constant in seconds: 63% of the way back up in this time."}}},
+               "fade":{"type":"number","minimum":0,"default":0,"description":"Seconds volume, lowpass and reverb take to move."}}})"),
+           false, "audio"},
+          [&I](const Json& a) {
+              const std::string bus = a.value("bus", std::string());
+              const float fade = a.value("fade", 0.0f);
+              if (I.audio.bus_volume(bus) < 0) {
+                  const auto names = I.audio.bus_names();
+                  throw CommandError("invalid_argument", "audio.bus: unknown bus '" + bus + "'. " + did_you_mean(bus, names),
+                                     "The buses are " + join(names, ", ") + " (project buses: factoria.json \"audio\".\"buses\").");
+              }
+              const auto check = [](const Result<void>& r) {
+                  if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
+              };
+              if (a.contains("volume")) I.audio.set_bus_volume(bus, a["volume"].get<float>(), fade);
+              if (a.contains("lowpass")) check(I.audio.set_bus_lowpass(bus, a["lowpass"].is_null() ? 0.0f : a["lowpass"].get<float>(), fade));
+              if (a.contains("reverb")) check(I.audio.set_bus_reverb(bus, a["reverb"].get<float>(), fade));
+              if (a.contains("duck")) {
+                  DuckSettings d;
+                  if (!a["duck"].is_null()) {
+                      const Json& dj = a["duck"];
+                      if (!dj.contains("by"))
+                          throw CommandError("invalid_argument", "audio.bus: duck needs \"by\", the bus that ducks this one",
+                                             "Example: \"duck\": {\"by\": \"sfx\", \"amount\": 0.5}; null turns ducking off.");
+                      d.by = dj["by"].get<std::string>();
+                      d.amount = dj.value("amount", 0.5f);
+                      d.attack = dj.value("attack", 0.05f);
+                      d.release = dj.value("release", 0.5f);
+                  }
+                  check(I.audio.set_bus_duck(bus, d));
+              }
+              Json state = I.audio.bus_state(bus);
+              state["bus"] = bus;
+              return state;
+          });
+
+    I.commands.add({"audio.snapshot", "Apply a named mixer snapshot from factoria.json, or list the snapshots.",
+           "A snapshot is a named set of bus settings (volume scale, low-pass, reverb, ducking) from factoria.json "
+           "\"audio\".\"snapshots\". Applying one moves every bus to the snapshot's state over `fade` seconds (default: the "
+           "snapshot's own \"fade\", 0.5 when it has none): a bus the snapshot does not list goes back to neutral, so a snapshot "
+           "is the whole picture and a snapshot with no buses is the way back. The volumes the player set are not touched. "
+           "Without `name` it lists the snapshots and the one applied last. An unknown name fails with a \"did you mean\". "
+           "Example: audio.snapshot {\"name\":\"underwater\",\"fade\":1}",
+           parse_schema(R"({"type":"object","properties":{
+               "name":{"type":"string","description":"The snapshot to apply; omit to list them."},
+               "fade":{"type":"number","minimum":0,"description":"Seconds the move takes; default the snapshot's own."}}})"),
+           false, "audio"},
+          [&I](const Json& a) {
+              if (!a.contains("name")) {
+                  Json names = Json::array();
+                  for (const std::string& n : I.audio.snapshot_names()) names.push_back(n);
+                  return Json::object({{"snapshots", names}, {"current", I.audio.current_snapshot()}});
+              }
+              const std::string name = a["name"].get<std::string>();
+              auto r = I.audio.apply_snapshot(name, a.contains("fade") ? a["fade"].get<float>() : -1.0f);
+              if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
+              return Json::object({{"snapshot", name}, {"current", I.audio.current_snapshot()}});
+          });
+
     I.commands.add({"game.pause", "Pause the simulation (frame() stops simulating; game.step still works).",
            "Example: game.pause {}", parse_schema(R"({"type":"object","properties":{}})"), false, "game"},
           [&engine, &I](const Json&) {
@@ -870,15 +1086,100 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     // ------------------------------------------------------------------- script
-    I.commands.add({"script.eval", "Evaluate JavaScript in the running game context (REPL) and return the value.",
-           "The last expression is returned as JSON. Example: script.eval {\"code\":\"world.find('player').get('Transform').position\"}",
-           parse_schema(R"({"type":"object","required":["code"],"properties":{
-               "code":{"type":"string","description":"JavaScript source."}}})"),
+    I.commands.add({"script.eval", "Evaluate JavaScript in the running game context (REPL) and return the value, or call an exported function of a module.",
+           "The last expression is returned as JSON. Example: script.eval {\"code\":\"world.find('player').get('Transform').position\"}. "
+           "With `module` (a project path such as scripts/game/rules.js) and `call` (the name of an exported function, \"default\" "
+           "for the default export) it imports the module and returns what the function returns, passing `args` (a JSON array) "
+           "as its arguments; it needs no scene, so a pure module (no engine state) can be run on its own. An async function is "
+           "awaited if it settles without time passing. Before the import, every loaded module whose file changed on disk is re-imported "
+           "(like script.reload), so an edit shows at once. Example: script.eval {\"module\":\"scripts/game/rules.js\","
+           "\"call\":\"price\",\"args\":[\"wood\",3]}",
+           parse_schema(R"({"type":"object","properties":{
+               "code":{"type":"string","description":"JavaScript source. Required unless `module` is given."},
+               "module":{"type":"string","description":"Project path of a script module to import (scripts/game/rules.js); use with `call`."},
+               "call":{"type":"string","description":"Name of the exported function of `module` to call (\"default\" for the default export)."},
+               "args":{"type":"array","description":"Arguments (JSON values) for the call.","items":{}}}})"),
            false, "script"},
           [&engine, &I](const Json& a) {
-              auto r = I.scripts.eval(a["code"].get<std::string>());
+              std::string code;
+              if (a.contains("module")) {
+                  if (a.contains("code"))
+                      throw CommandError("invalid_args", "script.eval takes either `code` or `module` with `call`, not both",
+                                         "Drop `code`, or drop `module`, `call` and `args`.");
+                  const std::string module = a["module"].get<std::string>();
+                  if (!a.contains("call") || !a["call"].is_string() || a["call"].get<std::string>().empty())
+                      throw CommandError("invalid_args", "script.eval with `module` needs `call`, the exported function to run",
+                                         "Example: {\"module\":\"" + module + "\",\"call\":\"myFunction\",\"args\":[1,2]}");
+                  auto norm = fs::normalize_checked(module);
+                  if (!norm) throw CommandError("invalid_args", "script.eval module '" + module + "': " + norm.error().message, norm.error().hint);
+                  std::string path = *norm;
+                  if (!fs::exists(path) && fs::extension(path).empty() && fs::exists(path + ".js")) path += ".js";
+                  if (!fs::exists(path))
+                      throw CommandError("not_found", "script.eval module '" + module + "' does not exist",
+                                         did_you_mean(path, fs::list("", true, ".js")));
+                  I.scripts.reload_changed_modules();  // a module edited since its import runs with its new code (no scene.reload needed)
+                  Json args = a.contains("args") ? a["args"] : Json::array();
+                  if (!args.is_array())
+                      throw CommandError("invalid_args", "script.eval `args` must be a JSON array of arguments", "Example: \"args\":[\"wood\", 3]");
+                  // The REPL scope is "factoria": didYouMean is the engine's helper to name the exports when `call` is wrong.
+                  code = "import(" + Json(path).dump() + ").then((m) => { const f = m[" + a["call"].dump() + "]; "
+                         "if (typeof f !== 'function') { const names = Object.keys(m).filter((k) => typeof m[k] === 'function'); "
+                         "const near = didYouMean(" + a["call"].dump() + ", names); "
+                         "throw new Error(`module " + path + " has no exported function '${" + a["call"].dump() + "}'. ` + "
+                         "(near ? `Did you mean '${near}'?` : names.length ? `Exported functions: ${names.join(', ')}.` : "
+                         "'The module exports no function.')); } return f(...(" + args.dump() + ")); })";
+              } else if (a.contains("code")) {
+                  code = a["code"].get<std::string>();
+              } else {
+                  throw CommandError("invalid_args", "script.eval needs `code`, or `module` and `call`",
+                                     "Example: {\"code\":\"1 + 2\"} or {\"module\":\"scripts/game/rules.js\",\"call\":\"price\",\"args\":[\"wood\"]}");
+              }
+              auto r = I.scripts.eval(code);
               if (!r.ok()) throw CommandError("script_error", r.error().message, r.error().hint);
               return Json::object({{"value", r.value()}});
+          });
+
+    I.commands.add({"storage.list", "List the keys of the game's save storage (storage.set): the ones the running game holds and the key files in the save folder.",
+           "Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, `compressed` and `bytes`, the "
+           "storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and `factoria run` write to. "
+           "`factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), but this command "
+           "still lists the key files on disk, so a stale save left by the editor or a play run (a \"Continue\" button that "
+           "should not be there) is visible. `project.test` runs every test file on its own fresh in-memory storage and never "
+           "reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key files that do not "
+           "parse. Example: storage.list {}",
+           parse_schema(R"({"type":"object","properties":{}})"), true, "script"},
+          [&I](const Json&) { return I.scripts.storage_list(); });
+
+    I.commands.add({"storage.clear", "Delete one storage key (`key`) or all of them (`all`) from the game's memory and from the save folder.",
+           "Use it to reset a game to a first run without a shell `rm` (fs.delete refuses .factoria/). `key` is the key as the game "
+           "wrote it (\"run.current\", see storage.list); `all: true` removes every key and every key file, including damaged ones. "
+           "Give exactly one of them. The key files in the save folder go whatever the storage mode is. Returns the removed keys. "
+           "A scene that already read the key keeps its own copy: scene.reload afterwards. During project.test it only clears the "
+           "test's in-memory storage. Example: storage.clear {\"key\":\"run.current\"}",
+           parse_schema(R"({"type":"object","properties":{
+               "key":{"type":"string","description":"The storage key to remove (see storage.list)."},
+               "all":{"type":"boolean","default":false,"description":"Remove every key instead of one."}}})"),
+           false, "script"},
+          [&I](const Json& a) {
+              const bool all = a.value("all", false);
+              const bool hasKey = a.contains("key") && a["key"].is_string() && !a["key"].get<std::string>().empty();
+              if (all == hasKey)
+                  throw CommandError("invalid_args", "storage.clear needs exactly one of `key` or `all`",
+                                     "Example: {\"key\":\"run.current\"} or {\"all\":true}. storage.list shows the keys.");
+              if (hasKey) {
+                  const std::string key = a["key"].get<std::string>();
+                  std::vector<std::string> names;
+                  bool found = false;
+                  const Json listing = I.scripts.storage_list();  // a named value: a range-for over a temporary's member would dangle
+                  for (const Json& k : listing["keys"]) {
+                      names.push_back(k["key"].get<std::string>());
+                      found = found || names.back() == key;
+                  }
+                  if (!found)
+                      throw CommandError("not_found", "storage has no key '" + key + "'", did_you_mean(key, names));
+                  return I.scripts.storage_clear(key, false);
+              }
+              return I.scripts.storage_clear("", true);
           });
 
     I.commands.add({"script.reload", "Re-import script modules edited on disk and restart the behaviours (the world is kept).",
@@ -966,6 +1267,49 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   hit = I.physics.raycast2d(I.world, f, t, opt);
               }
               return hit_json(I.world, hit);
+          });
+
+    I.commands.add({"physics.raycast_all",
+           "Cast a ray against colliders (2D segment or 3D ray) and return EVERY hit, nearest first.",
+           "Same arguments and options as physics.raycast, plus maxHits (default 32, the nearest ones are kept). Use it to see "
+           "everything between two points (what hides a character from the camera), or to click through colliders that only "
+           "exist to be faded. A collider with enabled=false is never reported. Result: {count, hits:[{entity, point, normal, "
+           "distance}]} sorted by distance. Example: physics.raycast_all {\"dimension\":\"3d\",\"origin\":[0,2,0],"
+           "\"direction\":[0,0,-1],\"maxDistance\":20,\"maxHits\":4}",
+           with_cast_options(parse_schema(R"({"type":"object","properties":{
+               "dimension":{"type":"string","enum":["2d","3d"],"default":"2d"},
+               "from":{"type":"array","description":"2D start [x,y]."},"to":{"type":"array","description":"2D end [x,y]."},
+               "origin":{"type":"array","description":"3D origin [x,y,z]."},"direction":{"type":"array","description":"3D direction."},
+               "maxDistance":{"type":"number","default":1000},
+               "maxHits":{"type":"integer","default":32,"description":"At most this many hits (the nearest)."}}})")),
+           true, "physics"},
+          [&I](const Json& a) {
+              std::string err;
+              std::vector<RaycastHit> hits;
+              auto need = [&](const char* key, auto& out) {
+                  if (!a.contains(key)) throw CommandError("invalid_argument", std::string("Missing '") + key + "'.", "See the command description for the 2D/3D forms.");
+                  if (!json_to(a[key], out, &err)) throw CommandError("invalid_argument", std::string(key) + ": " + err);
+              };
+              RaycastOptions opt = cast_options(I.world, a);
+              opt.maxHits = a.value("maxHits", 32);
+              if (a.value("dimension", std::string("2d")) == "3d") {
+                  Vec3 o, d;
+                  need("origin", o);
+                  need("direction", d);
+                  hits = I.physics.raycast3d_all(I.world, o, d, a.value("maxDistance", 1000.0f), opt);
+              } else {
+                  Vec2 f, t;
+                  need("from", f);
+                  need("to", t);
+                  hits = I.physics.raycast2d_all(I.world, f, t, opt);
+              }
+              Json arr = Json::array();
+              for (const RaycastHit& h : hits) {
+                  Json j = hit_json(I.world, h);
+                  j.erase("hit");
+                  arr.push_back(std::move(j));
+              }
+              return Json::object({{"count", static_cast<std::int64_t>(hits.size())}, {"hits", std::move(arr)}});
           });
 
     I.commands.add({"physics.shape_cast",
@@ -1073,6 +1417,63 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               auto r = I.physics.nav_find_path(I.world, from, to, o);
               if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
               return r.value().to_json();
+          });
+
+    I.commands.add({"nav.find_tile_path",
+           "Find a path over the cells of a Tilemap (or a plain cost grid) with A*.",
+           "Cells are (col, row), 0-based, row 0 = the top row. Pass `tilemap` (id of an entity with a Tilemap: tiles in "
+           "solidTiles block, every other cell costs 1, `costs` {\"<tile index>\": cost | null} overrides per tile, null = "
+           "blocked, key \"-1\" = empty cells) OR `grid` {width, height, cost: [..row-major..], origin?, cellSize?} (cost = the "
+           "cost of entering a cell, >= 0; null or negative = blocked). Steps are 4-way; diagonals=true allows 8-way and a "
+           "diagonal never cuts a corner (both cells it passes between must be open). The start cell is always allowed; a "
+           "blocked goal fails with goal_blocked unless allowBlockedGoal=true (it is then entered at cost 1) or closest=true. "
+           "closest=true returns the path to the reachable cell nearest the goal (complete=false) when the goal cannot be "
+           "reached; maxNodes bounds the search (reason too_far). Result {found, complete, cells:[[col,row]..], points:[[x,y]..] "
+           "(cell centres: WORLD positions for a tilemap, origin + (col+0.5, -(row+0.5)) * cellSize for a grid), cost, length} "
+           "or {found:false, reason: start_off_map | goal_off_map | goal_blocked | blocked | too_far, message, hint}. "
+           "Deterministic. Scripts: nav.findTilePath(map, from, to, opts); a script that asks many times on one map keeps it with "
+           "nav.createGrid (the command is stateless: it reads the map you give it on every call). nav.flow_field is the "
+           "one-to-many form. Example: nav.find_tile_path "
+           "{\"tilemap\":\"ground\",\"from\":[0,0],\"to\":[5,3],\"diagonals\":true}",
+           parse_schema(R"({"type":"object","required":["from","to"],"properties":{
+               "tilemap":{"type":"string","description":"Id of the entity with the Tilemap. Give this or `grid`."},
+               "grid":{"type":"object","description":"A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y] top-left corner, cellSize?: number | [w,h]}."},
+               "from":{"type":"array","items":{"type":"number"},"description":"Start cell [col,row]."},
+               "to":{"type":"array","items":{"type":"number"},"description":"Goal cell [col,row]."},
+               "costs":{"type":"object","description":"Tilemap only: cost of entering a cell by tile index, {\"3\": 2.5, \"7\": null}; null or negative blocks, a solid tile listed here is walkable."},
+               "diagonals":{"type":"boolean","description":"Allow 8-way steps (no corner cutting). Default false."},
+               "maxNodes":{"type":"integer","description":"Most cells the search expands before it gives up (too_far). Default 100000."},
+               "closest":{"type":"boolean","description":"Goal unreachable: return the path to the nearest reachable cell (complete=false)."},
+               "allowBlockedGoal":{"type":"boolean","description":"A blocked goal cell can still be entered (cost 1)."}}})"),
+           true, "physics"},
+          [&I](const Json& a) {
+              auto r = nav_tile_query(I.world, a);
+              if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
+              return r.value();
+          });
+
+    I.commands.add({"nav.flow_field",
+           "Distance field over the cells of a Tilemap (or a plain cost grid) from one or more goal cells.",
+           "The cost of the cheapest route from every cell to the nearest goal, with the same rules as nav.find_tile_path "
+           "(entering a cell costs its cost, 4-way or diagonals=true, no corner cutting, null or negative blocks). A blocked goal "
+           "is entered at cost 1. Pass `tilemap` or `grid` like nav.find_tile_path, `goals` [[col,row],...] and optionally "
+           "`from`. Result {width, height, distance: [width*height numbers, row-major, row 0 = top; null where no goal can be "
+           "reached]} and, with `from`: {reachable, cost, next: [col,row] | null (the cell to walk to; null at a goal or when "
+           "unreachable), path: [[col,row]...] (from `from` to the goal it reaches)}. Deterministic. Scripts: "
+           "nav.flowField(grid, goals) keeps the field and answers field.stepToward(col, row) in O(1). Example: nav.flow_field "
+           "{\"tilemap\":\"ground\",\"goals\":[[9,4]],\"from\":[0,0]}",
+           parse_schema(R"({"type":"object","required":["goals"],"properties":{
+               "tilemap":{"type":"string","description":"Id of the entity with the Tilemap. Give this or `grid`."},
+               "grid":{"type":"object","description":"A plain grid: {width, height, cost: [width*height numbers, row-major, row 0 = top; null or negative = blocked], origin?: [x,y], cellSize?: number | [w,h]}."},
+               "goals":{"type":"array","items":{"type":"array","items":{"type":"number"}},"description":"Goal cells [[col,row],...]; at least one."},
+               "from":{"type":"array","items":{"type":"number"},"description":"A cell to read the next step and the path for."},
+               "costs":{"type":"object","description":"Tilemap only: cost of entering a cell by tile index, {\"3\": 2.5, \"7\": null}; null or negative blocks."},
+               "diagonals":{"type":"boolean","description":"Allow 8-way steps (no corner cutting). Default false."}}})"),
+           true, "physics"},
+          [&I](const Json& a) {
+              auto r = nav_flow_query(I.world, a);
+              if (!r.ok()) throw CommandError("nav_error", r.error().message, r.error().hint);
+              return r.value();
           });
 
     I.commands.add({"nav.info",

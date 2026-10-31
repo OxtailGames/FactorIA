@@ -1,0 +1,34 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [640, 360, 0]
+        },
+        "Camera": {
+          "clearColor": [0.1, 0.12, 0.18, 1]
+        }
+      }
+    },
+    {
+      "id": "loading",
+      "components": {
+        "Transform": {
+          "position": [-48, -48, 0]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 36,
+          "space": "screen",
+          "anchor": [1, 1],
+          "pivot": [1, 0]
+        },
+        "Script": {
+          "path": "scripts/loading.js"
+        }
+      }
+    }
+  ]
+}

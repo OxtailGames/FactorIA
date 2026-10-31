@@ -69,16 +69,15 @@ export default class Shift extends Behaviour {
 
     this.mapEntity = world.find(this.mineEntity);
     if (!this.mapEntity) throw new Error(`shift: no entity with id '${this.mineEntity}' (the Tilemap that shows the mine). Add one to the scene, or set the Shift script's 'mineEntity' prop.`);
-    this.tiles = new Array(this.mine.width * this.mine.height);
+    const tiles = new Array(this.mine.width * this.mine.height);
     for (let ty = 0; ty < this.mine.height; ty++) {
-      for (let tx = 0; tx < this.mine.width; tx++) this.tiles[ty * this.mine.width + tx] = tileIndex(this.map.kindAt(tx, ty), tx, ty);
+      for (let tx = 0; tx < this.mine.width; tx++) tiles[ty * this.mine.width + tx] = tileIndex(this.map.kindAt(tx, ty), tx, ty);
     }
-    this.mapEntity.set("Tilemap", { tileset: tilesetOf(run.stratum), tileSize: [TILE, TILE], width: this.mine.width, height: this.mine.height, tiles: this.tiles });
+    this.mapEntity.set("Tilemap", { tileset: tilesetOf(run.stratum), tileSize: [TILE, TILE], width: this.mine.width, height: this.mine.height, tiles });
     this.mapEntity.position = [0, 0, 0];
-    this.dirty = false;
     this.unsubscribe = this.map.onChange((c) => {
-      this.tiles[c.ty * this.mine.width + c.tx] = tileIndex(c.to, c.tx, c.ty);
-      this.dirty = true; // several tiles may change in one frame: the Tilemap is rewritten once, in onLateUpdate
+      // one tile in place: the renderer and the physics do not look at the rest of the grid
+      if (this.mapEntity?.alive) this.mapEntity.tilemap.setTile(c.tx, c.ty, tileIndex(c.to, c.tx, c.ty));
     });
 
     const list = players.all();
@@ -126,13 +125,6 @@ export default class Shift extends Behaviour {
       if (this.darkFor >= DARK_GRACE) this.finish("dark");
     } else {
       this.darkFor = 0;
-    }
-  }
-
-  onLateUpdate() {
-    if (this.dirty && this.mapEntity?.alive) {
-      this.dirty = false;
-      this.mapEntity.set("Tilemap", { tiles: this.tiles });
     }
   }
 

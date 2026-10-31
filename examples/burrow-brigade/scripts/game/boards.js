@@ -3,11 +3,11 @@
 // "platform.leaderboards"), so the store layer keeps them: the fake store in tests, Steam in the shipped game.
 //
 //   BOARDS.allTime  "best_run_cash"   descending, never resets.
-//   BOARDS.daily    "daily_run_cash"  descending, period "daily": the store starts it over each calendar day (`game.today()`).
+//   BOARDS.daily    "daily_run_cash"  descending, period "daily": one board per UTC day (`{day}`).
 //
 // The score of a run is the cash it has earned: the sum of what its lifts banked (`shiftEnded.banked`), not the cash in hand, so
 // spending at the camp (P4) cannot lower it. It is posted every time a shift ends on the lift, to the all-time board always and to
-// the daily board when `run.mode === "daily"` (P4 sets `run.mode` and `run.dailyKey`, the local "YYYY-MM-DD" of the daily seed). A run
+// the daily board when `run.mode === "daily"` (P4 sets `run.mode` and `run.dailyKey`, the UTC "YYYY-MM-DD" of the daily seed). A run
 // with no `mode` is a normal one. The store keeps each player's best, so posting after every shift is safe.
 //
 // ASSISTED RUNS. A run played at a game speed under 100 % (Options > Access, `shiftStarted.speed`) is not posted: a board compares
@@ -16,17 +16,16 @@
 // (`status().assisted`). The flag is kept from the first shift of a run, so a run continued from a save (Continue) starts a fresh
 // count: it is assisted only when a shift played after the continue was slow.
 //
-// The daily board is the store's board of TODAY (the engine cannot post to another day). P4's `dailyKey` is the local date the try
-// began on, so a try that crosses midnight is keyed by yesterday while the store posts to today: a daily run is posted while
-// `run.dailyKey` is at most one day away from today's date, and nothing is posted to the daily board for an older one
-// (`lastPost.daily.skipped === "otherDay"`, the boards screen says why).
+// The daily board is the one of the run's `dailyKey` (the UTC date the try began on): `submit(board, score, { day: dailyKey })`, so
+// a try that crosses midnight UTC still posts to the day it was the dig of, and `top()` reads the board of today's UTC day.
 //
 //   start() / stop()          subscribe / unsubscribe to the events (events.keep). start is idempotent.
 //   idle()                    resolves when every post made so far has been answered.
 //   top(board, count = 10)    [{ rank, name, score, isPlayer }] of the board's current period; [] when the store has no boards.
 //   status()                  { runScore, mode, dailyKey, today, dailyOpen, assisted, lastPost }
-import { platform, game } from "factoria";
+import { platform } from "factoria";
 import * as events from "./events.js";
+import { todayKey } from "./daily.js";
 import { run } from "./run_state.js";
 
 export const BOARDS = Object.freeze({ allTime: "best_run_cash", daily: "daily_run_cash" });
@@ -37,7 +36,7 @@ let chain = Promise.resolve();
 const state = {
   runScore: 0,
   lastNumber: 0,
-  /** @type {{allTime?: {score: number, best: number}, daily?: {score: number, best: number} | {skipped: string}}} */
+  /** @type {{allTime?: {score: number, best: number}, daily?: {score: number, best: number}}} */
   lastPost: {},
   /** True when a shift of this run was played slower than 100 %: nothing is posted. */
   assisted: false,
@@ -62,16 +61,9 @@ export function dailyKeyOf() {
   return typeof k === "string" && /^\d{4}-\d{2}-\d{2}$/.test(k) ? k : null;
 }
 
-/** Days since 1970-01-01 of a "YYYY-MM-DD" (no clock, no time zone). @param {string} iso */
-function dayNumber(iso) {
-  const [y, m, d] = iso.split("-").map(Number);
-  return Math.round(Date.UTC(y, m - 1, d) / 86400000);
-}
-
-/** Whether the store's daily board (today's) can take this run's score: a daily run whose key is today's date or the day next to it. */
+/** Whether this run's score goes to a daily board: a daily run with a valid key. */
 export function dailyOpen() {
-  const key = dailyKeyOf();
-  return modeOf() === "daily" && key !== null && Math.abs(dayNumber(key) - dayNumber(game.today().iso)) <= 1;
+  return modeOf() === "daily" && dailyKeyOf() !== null;
 }
 
 /** @param {any} d */
@@ -94,22 +86,17 @@ function onShiftEnded(d) {
   state.runScore += d.banked ?? 0;
   const score = Math.max(0, Math.floor(state.runScore));
   if (score <= 0 || state.assisted || !platform.has("leaderboards")) return;
-  const daily = modeOf() === "daily";
-  const open = daily && dailyOpen();
+  const open = dailyOpen();
   const key = dailyKeyOf();
   chain = chain
     .then(async () => {
       const a = await platform.leaderboards.submit(BOARDS.allTime, score);
       state.lastPost.allTime = { score, best: a.best };
       events.emit("boardPosted", { board: BOARDS.allTime, score, period: "allTime" });
-      if (!daily) return;
-      if (open) {
-        const b = await platform.leaderboards.submit(BOARDS.daily, score);
-        state.lastPost.daily = { score, best: b.best };
-        events.emit("boardPosted", { board: BOARDS.daily, score, period: key });
-      } else {
-        state.lastPost.daily = { skipped: "otherDay" };
-      }
+      if (!open) return;
+      const b = await platform.leaderboards.submit(BOARDS.daily, score, { day: key });
+      state.lastPost.daily = { score, best: b.best };
+      events.emit("boardPosted", { board: BOARDS.daily, score, period: key });
     })
     .catch((e) => console.warn(`boards: the score was not posted: ${e && e.message ? e.message : e}`));
 }
@@ -136,7 +123,8 @@ export function stop() {
  */
 export async function top(board, count = 10) {
   if (!platform.has("leaderboards")) return [];
-  const rows = await platform.leaderboards.entries(board, { range: "top", count });
+  const opts = board === BOARDS.daily ? { range: "top", count, day: todayKey() } : { range: "top", count };
+  const rows = await platform.leaderboards.entries(board, opts);
   return rows.map((r) => ({ rank: r.rank, name: r.name, score: r.score, isPlayer: !!r.isPlayer }));
 }
 
@@ -145,7 +133,7 @@ export function status() {
     runScore: state.runScore,
     mode: modeOf(),
     dailyKey: dailyKeyOf(),
-    today: game.today().iso,
+    today: todayKey(),
     dailyOpen: dailyOpen(),
     assisted: state.assisted,
     lastPost: state.lastPost,

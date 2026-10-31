@@ -1,6 +1,7 @@
 #include "render_internal.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 #include "fa/core/log.h"
@@ -9,6 +10,7 @@
 #include "shaders/bloom.glsl.h"
 #include "shaders/colorfilter.glsl.h"
 #include "shaders/blit.glsl.h"
+#include "shaders/light.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
 #include "shaders/sky.glsl.h"
@@ -61,6 +63,19 @@ bool Gpu::init(int sampleCount, std::string* error) {
     zeroToOne_ = !isGl_;
     sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
     shadowsSupported_ = r32.render && r32.sample;
+    {
+        const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+        const sg_pixelformat_info eight = sg_query_pixelformat(SG_PIXELFORMAT_RGBA8);
+        const bool halfOk = half.render && half.blend && half.filter;
+        const bool eightOk = eight.render && eight.blend && eight.filter;
+        lightFormat_ = halfOk ? SG_PIXELFORMAT_RGBA16F : eightOk ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE;
+        if (const char* want = std::getenv("FA_LIGHT_FORMAT")) {
+            const std::string w = want;
+            if (w == "rgba8") lightFormat_ = eightOk ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE;
+            else if (w == "none") lightFormat_ = SG_PIXELFORMAT_NONE;
+            else if (w == "rgba16f") lightFormat_ = halfOk ? SG_PIXELFORMAT_RGBA16F : lightFormat_;
+        }
+    }
 
     quad_shader_ = sg_make_shader(quad_quad_shader_desc(backend));
     quadPlainShader_ = sg_make_shader(quad_quad_plain_shader_desc(backend));
@@ -134,6 +149,9 @@ void Gpu::shutdown() {
     if (colorfilter_shader_.id) sg_destroy_shader(colorfilter_shader_);
     colorfilter_shader_ = {};
     colorfilterState_ = 0;
+    if (light_shader_.id) sg_destroy_shader(light_shader_);
+    light_shader_ = {};
+    lightState_ = 0;
 }
 
 void Gpu::destroy_shader(sg_shader shader) {
@@ -168,6 +186,9 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool
     d.layout.attrs[ATTR_quad_quad_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_color0].format = SG_VERTEXFORMAT_UBYTE4N;
     d.layout.attrs[ATTR_quad_quad_params0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_quad_quad_color2_0].format = SG_VERTEXFORMAT_UBYTE4N;
+    d.layout.attrs[ATTR_quad_quad_shape_half0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_quad_quad_shape_rs0].format = SG_VERTEXFORMAT_HALF2;
     d.primitive_type = lines ? SG_PRIMITIVETYPE_LINES : SG_PRIMITIVETYPE_TRIANGLES;
     d.index_type = lines ? SG_INDEXTYPE_NONE : SG_INDEXTYPE_UINT16;
     d.depth.pixel_format = kDepthFormat;
@@ -211,6 +232,7 @@ sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned, sg_
     d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+    d.layout.attrs[ATTR_mesh_mesh_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;  // vertex color, white without (MeshVertex::color)
     set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
     d.index_type = SG_INDEXTYPE_UINT32;
@@ -258,6 +280,7 @@ sg_pipeline Gpu::shadow_pipeline(bool skinned, sg_shader shader, bool fullVertex
         d.layout.attrs[first].format = SG_VERTEXFORMAT_FLOAT3;      // normal
         d.layout.attrs[first + 1].format = SG_VERTEXFORMAT_FLOAT2;  // texcoord0
         d.layout.attrs[first + 2].format = SG_VERTEXFORMAT_FLOAT4;  // tangent
+        d.layout.attrs[first + 3].format = SG_VERTEXFORMAT_UBYTE4N; // vertex color
     }
     set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_shadow_skin_fa_joints, ATTR_mesh_shadow_skin_fa_weights);
@@ -369,6 +392,52 @@ sg_pipeline Gpu::colorfilter_pipeline() {
     d.sample_count = 1;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "colorfilter";
+    return find_or_make(key, d);
+}
+
+bool Gpu::light_ready() {
+    if (lightState_ != 0) return lightState_ > 0;
+    if (lightFormat_ == SG_PIXELFORMAT_NONE) {
+        lightState_ = -1;
+        return false;
+    }
+    light_shader_ = sg_make_shader(light_light_shader_desc(sg_query_backend()));
+    if (sg_query_shader_state(light_shader_) != SG_RESOURCESTATE_VALID) {
+        sg_destroy_shader(light_shader_);
+        light_shader_ = {};
+        lightState_ = -1;
+        FA_ERROR("render", "The 2D light buffer is unavailable: its shader failed to compile for this graphics backend (see the "
+                           "sokol log lines above). Lit visuals are shaded per pixel by the first {} lights only. Hint: update "
+                           "the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).", kDirectLights2D);
+        return false;
+    }
+    lightState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::light_pipeline() {
+    PipelineKey key{0x800u | (std::uint32_t(lightFormat_) << 12)};
+    sg_pipeline_desc d{};
+    d.shader = light_shader_;
+    d.layout.attrs[ATTR_light_light_corner] = {.buffer_index = 0, .offset = 0, .format = SG_VERTEXFORMAT_FLOAT2};
+    d.layout.attrs[ATTR_light_light_pos] = {.buffer_index = 0, .offset = 8, .format = SG_VERTEXFORMAT_FLOAT4};
+    d.layout.attrs[ATTR_light_light_color] = {.buffer_index = 0, .offset = 24, .format = SG_VERTEXFORMAT_FLOAT4};
+    d.layout.attrs[ATTR_light_light_shadow] = {.buffer_index = 0, .offset = 40, .format = SG_VERTEXFORMAT_FLOAT4};
+    d.layout.buffers[0].stride = int(sizeof(LightVertex));
+    d.index_type = SG_INDEXTYPE_UINT16;
+    d.depth.pixel_format = SG_PIXELFORMAT_NONE;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.colors[0].pixel_format = lightFormat_;
+    d.colors[0].blend.enabled = true;  // dst + src: the lights add up
+    d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_ONE;
+    d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE;
+    d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
+    d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+    d.cull_mode = SG_CULLMODE_NONE;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.sample_count = 1;
+    d.label = "light-buffer";
     return find_or_make(key, d);
 }
 

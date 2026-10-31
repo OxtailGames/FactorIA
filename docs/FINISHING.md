@@ -10,7 +10,8 @@ suspend, Android Back, a Japanese font cut to the game's characters (`assets/fon
 checked at 200 % text. For a desktop game for several players at one screen, **Burrow Brigade**
 (`examples/burrow-brigade`) is the third: a join screen, per-player rebinding, save slots whose format changed once
 (with the migration and fixtures of both versions), a game speed and hold-or-toggle for assist, a Thai fallback font
-(its `tools/thai_spaces.py` puts spaces between Thai words, since lines break only at spaces), and `SHIPPING.md` for
+(its `tools/thai_spaces.py` puts real spaces between Thai words; a line also breaks after U+200B, which takes no width, so
+a translation can mark word boundaries with that instead), and `SHIPPING.md` for
 Steam and the desktop exports.
 
 Do the sections in order: the menu comes first because options, saves and languages all live behind it; tests come last
@@ -59,6 +60,7 @@ const DEFAULTS = {
   bindings: {},          // action -> binding names, only for actions the player rebound
   language: null,        // null: the language the game started in
   textScale: 1,          // ui.textScale, 1 to 2 in steps
+  uiScale: null,         // ui.scale (the interface size); null: the factoria.json "ui": {"scale"}
   assist: { speed: 1, invincible: false },
   shake: true, reducedEffects: false,
 };
@@ -70,6 +72,7 @@ What `apply()` does for each (all of it is in the kit; keep it when you change t
 |---|---|
 | Volumes | `audio.setVolume(bus, value)` for `master`, `music`, `sfx`, `ui` |
 | Text size | `ui.textScale = math.clamp(s.textScale, 0.5, 3)` (the engine never saves it: you do) |
+| Interface size | `ui.scale = math.clamp(s.uiScale, 0.5, 3)` when `s.uiScale` is not null (the engine never saves it either) |
 | Language | `i18n.setLanguage(tag)` (rewrites every Text and widget with a `key` at once) |
 | Controls | `input.rebind(action, bindingNames)` for each saved action |
 | Video | `window.setFullscreen`, `window.setSize`, `window.setVsync`, `window.frameCap`, only when `window.available` (not in headless runs and tests) |
@@ -101,10 +104,10 @@ applied when the game starts again and the tab shows them").
 
 ## 3. Saves
 
-The engine part: `storage` (JSON values in `<save folder>/storage.json`) saves through a temporary file and a rename, so a
-crash during a save leaves the previous file intact. A `storage.json` that does not parse is **kept** as
+The engine part: `storage` (JSON values, one file per key in `<save folder>/storage/`) saves each key through a temporary file and a
+rename, so a crash during a save leaves the previous file intact. A storage file that does not parse is **kept** as
 `storage.corrupt.json` (then `storage.corrupt.2.json`...) with a warning, `storage.corrupt` is `true` and the game starts
-with empty data; the kept file is never overwritten ([SCRIPTING.md](SCRIPTING.md), "storage"). That protects the file as
+without that key (the others load); the kept file is never overwritten ([SCRIPTING.md](SCRIPTING.md), "storage"). That protects the file as
 a whole. Everything below is the game's part, and Lantern Keep's recipe for it is `scripts/saves.js`:
 
 **A version field, one migration step per old version.** A slot is a string of JSON text under `slot1`, `slot2`, `slot3`
@@ -171,7 +174,7 @@ delete can bring it back at the next sync (a known limit).
 | macOS | `~/Library/Application Support/<game id>` |
 | Android | the app's private folder (`internalDataPath`) |
 | iOS | the app's `Documents/` |
-| Web | the browser's **IndexedDB**, one database per game id: loaded before the game starts, copied back half a second after a write (a closing tab flushes it). It belongs to the site: it survives reloads, is lost when the player clears the site's data, and a private window keeps it only until it closes |
+| Web | the browser's **IndexedDB**, one database per game id: loaded before the game starts, copied back half a second after a write (a tab being hidden or closed raises `suspend` or `quit`, and the copy starts right after those handlers). It belongs to the site: it survives reloads, is lost when the player clears the site's data, and a private window keeps it only until it closes |
 
 ([EXPORTING.md](EXPORTING.md), [MOBILE.md](MOBILE.md).) Consequences for the game: do not tell a web player a save is
 permanent (offer cloud saves where a store exists), keep the save small (it is one JSON file on every platform), and do not

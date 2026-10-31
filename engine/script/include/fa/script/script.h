@@ -25,16 +25,19 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "fa/core/command.h"
 #include "fa/core/date.h"
+#include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/core/log.h"
 #include "fa/platform/speech.h"
 #include "fa/scene/captions.h"
+#include "fa/scene/rich_text.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -44,23 +47,35 @@ class Audio;
 class Physics;
 class Renderer;
 class UiSystem;
+class Clipboard;
 class PlatformServices;
 class I18n;
 
 // The game's own window, as `window.*` in scripts reaches it. Only a game that owns a real window has one (factoria run,
 // an exported game, a phone or tablet player); headless runs, tests, the MCP server and the editor's game view have none,
 // and ScriptHost::window() is nullptr there. Sizes are logical pixels (see fa/platform/app.h).
+struct WindowMonitor {
+    std::string name;
+    int width = 0, height = 0;  // logical pixels
+    bool primary = false;
+    bool current = false;  // the window is on it
+};
+
 class WindowControl {
 public:
     virtual ~WindowControl() = default;
-    virtual bool fullscreen() const = 0;
+    virtual std::string mode() const = 0;  // "windowed", "borderless" or "fullscreen"
+    virtual bool supports_modes() const = 0;     // a desktop window: windowed / borderless / fullscreen can be chosen
+    virtual bool supports_monitors() const = 0;  // the monitors can be listed and one chosen
+    virtual std::vector<WindowMonitor> monitors() const = 0;  // primary first; one entry when the platform cannot list them
     virtual void size(int& width, int& height) const = 0;          // client size now
     virtual void display_size(int& width, int& height) const = 0;  // the monitor the window is on (the window size if unknown)
     virtual bool vsync() const = 0;
     virtual int frame_cap() const = 0;  // frames per second, 0 = unlimited
     // The setters return "" when done, else a sentence that says why not and what to do instead (the script layer puts
     // `window.<function>: ` in front and throws it).
-    virtual std::string set_fullscreen(bool on) = 0;
+    virtual std::string set_mode(const std::string& mode) = 0;  // "windowed" | "borderless" | "fullscreen"
+    virtual std::string set_monitor(int index) = 0;             // an index of monitors()
     virtual std::string set_size(int width, int height) = 0;
     virtual std::string set_vsync(bool on) = 0;
     virtual std::string set_frame_cap(int fps) = 0;  // 0 or 15..1000, already checked by the script layer
@@ -92,11 +107,16 @@ public:
     }
     // The game window, or nullptr when this run has none (the default): `window.available` in scripts.
     virtual WindowControl* window() { return nullptr; }
+    // The clipboard `clipboard.*` reads and writes (the system's in a game window, an in-memory one in headless runs and tests).
+    // nullptr: none, and clipboard.supports is false.
+    virtual Clipboard* clipboard() { return nullptr; }
     // The store services behind `platform.*` in scripts (fa/services/platform.h); nullptr when the host has none, and
     // `platform` then reports the "none" backend.
     virtual PlatformServices* platform_services() { return nullptr; }
     // The string tables and the current language behind `i18n.*` in scripts (fa/core/i18n.h); nullptr when the host has none.
     virtual const I18n* i18n() { return nullptr; }
+    // The project's "text" section (markup colours, icons, bold faces): ui.markupProblems checks tags against it. May be null.
+    virtual const RichTextStyle* rich_text_style() { return nullptr; }
     // Switches the language of the game now: every Text and widget with a `key` is rewritten at once and an "i18n.change" game
     // event is sent. Returns "" when done (also when it already was that language), else a sentence saying why not.
     virtual std::string set_language(std::string_view language) {
@@ -109,6 +129,23 @@ public:
     virtual double preload_time_budget_ms() const { return 0.0; }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
+    // Scene props (scene.load(path, { props }), game.sceneProps()): plain JSON the new scene's scripts read from their first
+    // start(). `props` becomes the props of the loaded scene; scene_props() answers the current scene's (an empty object when
+    // it has none). request_scene_reload restarts the current scene KEEPING its props. Hosts without props keep the
+    // defaults: the props are dropped and scene_props() is empty.
+    virtual void request_scene_change_with_props(std::string_view scenePath, const Json& props) {
+        (void)props;
+        request_scene_change(scenePath);
+    }
+    virtual void request_scene_reload(std::string_view scenePath) { request_scene_change(scenePath); }
+    virtual const Json& scene_props() const {
+        static const Json none = Json::object();
+        return none;
+    }
+    virtual std::string load_scene_now_with_props(std::string_view scenePath, const Json& props) {
+        (void)props;
+        return load_scene_now(scenePath);
+    }
     virtual void request_quit() = 0;
     // Test runner only: synchronously simulate n frames (input -> fixed -> update -> render).
     virtual void step_frames(int n) = 0;
@@ -120,6 +157,11 @@ public:
         (void)scene;
         (void)sourceName;
         return "not supported by this host (load_scene_json_now is not implemented)";
+    }
+    // The props of game.loadJson(scene, props); hosts without props ignore them.
+    virtual std::string load_scene_json_now_with_props(const Json& scene, std::string_view sourceName, const Json& props) {
+        (void)props;
+        return load_scene_json_now(scene, sourceName);
     }
     virtual bool screenshot(std::string_view path, std::string* error) = 0;
     // Same at `scale` times the design size (render scale: the same frame drawn sharper, 1.5 on 1280x720 = 1920x1080 PNG).
@@ -139,6 +181,14 @@ public:
         }
         return screenshot_scaled(path, scale, error);
     }
+    // The picture the player sees now as pixels (row 0 = top), at the size the game target has (design size * render scale):
+    // what render.captureTexture shows. Draws the frame first when none has been drawn since the last change, like a
+    // screenshot. Hosts without a renderer keep the default, which fails with a sentence saying so.
+    virtual bool capture_frame(Image& out, std::string* error) {
+        (void)out;
+        if (error) *error = "this host has no renderer";
+        return false;
+    }
     // The player's render scale option (`window.renderScale`, 0.5 .. 1): the game target is drawn at design size * scale.
     // set_render_scale returns "" when done, else a sentence saying why not. The default only remembers the value, for
     // hosts without a renderer; Engine hands it to the renderer too.
@@ -148,10 +198,12 @@ public:
         return {};
     }
     // The device the game runs on (`game.device`): {formFactor: "desktop"|"phone"|"tablet", gpuBackend, memoryGB, tier:
-    // "low"|"medium"|"high"}. The default is what headless runs and tests report (fixed, so output never depends on the
-    // machine): desktop, "headless", 8 GB, "high".
+    // "low"|"medium"|"high", steamDeck, handheld}. The default is what headless runs and tests report (fixed, so output never
+    // depends on the machine): desktop, "headless", 8 GB, "high", not a Steam Deck, not handheld. steamDeck: the game runs on a
+    // Steam Deck; handheld: a Steam Deck, a phone or a tablet.
     virtual Json device_info() const {
-        return Json::object({{"formFactor", "desktop"}, {"gpuBackend", "headless"}, {"memoryGB", 8}, {"tier", "high"}});
+        return Json::object({{"formFactor", "desktop"}, {"gpuBackend", "headless"}, {"memoryGB", 8}, {"tier", "high"},
+                                {"steamDeck", false}, {"handheld", false}});
     }
     // The renderer's stats of the picture now (RenderStats::to_json plus the target size), drawing a frame first when none
     // has been drawn since the last change (`game.renderStats()` in tests, the `game.render_stats` command). Null without
@@ -161,8 +213,31 @@ public:
     // are drawn and measured at their font size times this (Renderer::set_text_scale, 0.5 .. 3, 1 = normal). The default
     // implementation only remembers it, for hosts without a renderer; Engine hands it to the renderer too. It is not saved:
     // the game stores its options.
+    // A change sends the game event `ui.textScale` {value, previous} (scripts: `ui.on("textScale", ...)`), like i18n.change; setting
+    // the same value again sends nothing.
     float text_scale() const { return textScale_; }
-    virtual void set_text_scale(float scale) { textScale_ = scale; }
+    virtual void set_text_scale(float scale) {
+        const float previous = textScale_;
+        textScale_ = scale;
+        if (scale != previous) push_scale_event("ui.textScale", scale, previous);
+    }
+    // The interface scale (`ui.scale`, the `ui.set_scale` command, ui_rect.h): the size, offset, padding, spacing, margins and
+    // font size of every screen-space widget are multiplied by it (0.5 .. 3, 1 = as authored). The game's default is the
+    // `ui.scale` of factoria.json (default_ui_scale()); a script or the Options menu changes it. The default implementation only
+    // remembers it (and tells the world, whose layout and drawing read it); Engine hands it to the renderer too. A change sends
+    // the game event `ui.scale` {value, previous}. It is not saved: the game stores its options.
+    float ui_scale() const { return uiScale_; }
+    virtual void set_ui_scale(float scale) {
+        const float previous = uiScale_;
+        uiScale_ = scale;
+        world().set_ui_scale(scale);
+        if (scale != previous) push_scale_event("ui.scale", scale, previous);
+    }
+    // The `ui.scale` of the project's factoria.json (1 when it has none): what a test starts from.
+    virtual float default_ui_scale() const { return 1.0f; }
+    // The `ui.mirrorRtl` of factoria.json (true when it has none): what a test starts from. The option itself lives in the World
+    // (World::ui_mirror_rtl): a script or a command sets it there.
+    virtual bool default_ui_mirror_rtl() const { return true; }
 
     // Text to speech (`ui.speak`, the `ui.speak` command). Records every line; a game with its own window also gets the
     // system's speech (set_backend_factory), headless runs and tests only record (`game.spoken()`).
@@ -173,7 +248,11 @@ public:
     CaptionList& captions() { return captions_; }
 
 private:
+    void push_scale_event(const char* name, float value, float previous) {
+        world().events().game.push_back(GameEvent{name, Json::object({{"value", value}, {"previous", previous}}), kNullEntity});
+    }
     float textScale_ = 1.0f;
+    float uiScale_ = 1.0f;
     double renderScale_ = 1.0;
     Speech speech_;
     CaptionList captions_;
@@ -267,6 +346,11 @@ public:
     // and, when none consumes it (or there are none), asks the host to quit, which is what Back did before the event
     // existed. Once per frame, with dispatch_platform().
     void dispatch_back();
+    // The pads that were plugged in or out since the last frame (Input::take_gamepad_events): the game events
+    // "app.gamepadConnected" / "app.gamepadDisconnected" with {slot, id, name, type}, which game.on() listens to. Once per
+    // frame, with dispatch_platform(). Events that arrive before the scripts are initialised are dropped (a script reads the pads
+    // already there with input.gamepad(i).connected).
+    void dispatch_gamepads();
 
     // Developer tools.
     Result<Json> eval(std::string_view code);  // REPL in the game context; returns the value as JSON
@@ -281,6 +365,10 @@ public:
     // importing them, for re-import on next use; reloads tools if affected; clears script errors. Behaviours are NOT
     // touched (the caller recreates them, e.g. on_scene_loaded). Returns the stale files.
     std::vector<std::string> refresh_modules(bool force = false);
+    // Hot reload of every loaded module whose file changed on disk since it was imported (by modification time), as
+    // reload_module does for each: the modules that import it are re-imported, behaviours recreated, tools registered
+    // again. Returns the changed files. script.eval {module} calls it so an edited module never runs with its old code.
+    std::vector<std::string> reload_changed_modules();
     void reload_module(std::string_view modulePath);  // hot reload: re-import + recreate affected behaviours
     // (Re)loads every tools/*.js of the project and registers them as "project.<name>" commands (also done by init()).
     void reload_tools();
@@ -290,21 +378,33 @@ public:
     // was loaded in memory; Memory never writes to disk).
     void set_storage_mode(StorageMode mode);
     StorageMode storage_mode() const;
+    // storage.list: {mode, dir, keys: [{key, inMemory, onDisk, compressed, bytes?}], damaged: [{file, problem}]}. The keys the
+    // running game holds plus the key files in the save folder (what the editor or a play run left), whatever the mode.
+    // A test run only sees its own in-memory storage.
+    Json storage_list();
+    // storage.clear: removes one key (`key`) or every key (`all`) from memory and from the save folder. Returns {removed: [keys]}.
+    Json storage_clear(const std::string& key, bool all);
     // Validates Script.props against a behaviour module WITHOUT side effects on the scene: constructs a throw-away
     // instance and returns one message per prop that is not an own field of it (with "did you mean"). Returns an
     // error entry too when the module cannot be loaded. Empty = all good. Used by `factoria validate`.
     std::vector<std::string> check_props(std::string_view modulePath, const Json& props);
     // Methods of a behaviour module's class that look like misspelled lifecycle hooks (`update()`, `onupdate()`,
-    // `onStrat()`), which the engine never calls: one message per method with "did you mean". Empty when all is fine,
+    // `onStrat()`), which the engine never calls: one message per method with "did you mean"; plus one per instance field
+    // that shadows a Behaviour method or getter (`on`, `after`, `every`, `world`; found on a throw-away instance). Empty when all is fine,
     // or when the module is not a behaviour or does not load (check_syntax reports that). Used by `factoria validate`;
     // a running game logs the same warning once per class when the first behaviour of it is created.
     std::vector<std::string> check_hooks(std::string_view modulePath);
 
     Json api_manifest() const;               // machine-readable API (modules, classes, functions, docs)
-    // Contents of types/factoria.d.ts. `since` (optional) maps "Component" or "Component.field" to the version that
-    // added it ("0.1.3", "unreleased", or "" for nothing to say); non-empty answers become a JSDoc @since tag.
-    using SinceFn = std::function<std::string(const std::string&)>;
+    // Contents of types/factoria.d.ts. `since` (optional) maps (section, key) to the version that added the thing:
+    // section "components" with "Component" or "Component.field", section "script" with a key of script_api_keys()
+    // ("0.1.3", "unreleased", or "" for nothing to say); non-empty answers become a JSDoc @since tag.
+    using SinceFn = std::function<std::string(const std::string& section, const std::string& key)>;
     std::string typescript_declarations(const SinceFn& since = {}) const;
+    // Every key the "script" section of tools/common/api_since.json needs, sorted: the name of each export of the
+    // "factoria" module (functions, consts, classes, interfaces, aliases), "Type.member" for each member and static
+    // of a class or interface, and the same with a "test:" prefix for the "factoria:test" module.
+    std::vector<std::string> script_api_keys() const;
     Json stats() const;                      // behaviours alive, modules loaded, memory
     // time.scale as scripts set it (game.paused sets 0): the engine scales physics steps, particles and sprite
     // animators by it, so 0 freezes gameplay while the UI and runWhilePaused behaviours keep running.
@@ -315,8 +415,12 @@ public:
     // set_date (game.setDate) and every test starts from the start date again. Nothing here reads the clock.
     CalendarDate today() const;
     void set_start_date(const CalendarDate& date);
-    // game.setDate: "" when done, else the teaching error of parse_calendar_date.
-    std::string set_date(std::string_view iso);
+    // game.setDate: "" when done, else the teaching error of parse_calendar_date. `iso` may carry a time ("2026-03-14T23:59:30");
+    // utcOffsetMinutes keeps the current offset unless one is given. Moving to another local day sends "app.dayChanged".
+    std::string set_date(std::string_view iso, std::optional<int> utcOffsetMinutes = std::nullopt);
+    // The host read the clock again (the windowed runner, about once a minute and on focus or resume): game.today() follows it and,
+    // when the local calendar day is not the one it was, the game event "app.dayChanged" goes to the scripts at once.
+    void set_clock_date(const CalendarDate& now);
 
     // What happened to the app: the window gained or lost focus, or the app went to the background (mobile) or came back.
     // Sends the game event "app.<name>" to the scripts at once. Suspend, then, when factoria.json "pauseOnSuspend" is not false
@@ -325,6 +429,10 @@ public:
     // events; tests through game.suspend() / resume() / blur() / focus().
     enum class AppLifecycle { Suspend, Resume, Focus, Blur };
     void app_event(AppLifecycle event);
+    // The player asked to close the window (the close button, Cmd+Q, Alt+F4): sends the game event "app.quit" to the scripts at
+    // once. A handler may call event.cancel(). Returns false when one did (the window stays open), true when the window
+    // may close. A quit the game asked for itself (game.quit()) must not come here: hosts check AppEvent::fromApp.
+    bool close_requested();
     bool app_focused() const;
     bool app_suspended() const;
     // A new test: focus, no suspend (the audio and time.scale are put back by the test reset), the date back to the start date.

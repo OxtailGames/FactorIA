@@ -1,0 +1,926 @@
+{
+  "format": "factoria.feedback/1",
+  "project": "Larkspur Lodge",
+  "engineVersion": "0.2.0",
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "Crash when a widget has a parent without a UI component",
+      "missing": "Pressing the mouse (or a tap) over any Panel, Button or other widget whose parent entity has no UI component (a plain HUD root with a Transform and a Script) crashes the engine with a segmentation fault (UiSystem::update_drag, engine/ui/src/drag.cpp: ui_box(w, a)->draggable is read for every ancestor while looking for a draggable one, and ui_box is null for an ancestor that is not a widget). Minimal repro: a Panel with a Text child inside an entity that has only a Transform, then game.click on the Panel in a test. Found by clicking the prompt panel of the HUD prefab.",
+      "workaround": "The HUD prefab root (prefabs/ui/hud.prefab.json) carries a fully transparent 1x1 Panel with layout none, which is a widget and is never hit, so every widget below it has only widget ancestors. (removed in M33.1)",
+      "workaroundFiles": [
+        "prefabs/ui/hud.prefab.json"
+      ],
+      "suggestion": "In update_drag skip an ancestor for which ui_box is null (or stop the walk at the first non-widget), and add a test with a widget under a plain entity. Also worth a validate warning for a widget under a non-widget parent if that layout is not meant to be supported.",
+      "effort": "small",
+      "occurrences": 2,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 33130077 (M33.1): update_drag skips an ancestor that is not a widget (the other walks up the UI tree already tolerated one); doctest 'ui tree' in engine/ui/tests. The HUD prefab lost its transparent Panel."
+      ]
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "No raycast that returns every hit",
+      "missing": "physics.raycast3d returns only the first collider along the ray. The camera needs everything between the lens and the porter (every wall and piece of furniture that hides him) to fade it, and the click-to-walk ray must skip the walls that are only there to fade and reach the object behind them.",
+      "workaround": "scripts/lodge_camera.js and scripts/porter.js cast again from just past each hit, up to 8 times per ray, with the hit entity in the ignore list. Up to 8 queries per ray, several rays per frame, plus overlapSphere around the lens.",
+      "workaroundFiles": [
+        "scripts/lodge_camera.js",
+        "scripts/porter.js"
+      ],
+      "suggestion": "physics.raycast3dAll(origin, dir, maxDistance, opts) returning the hits sorted by distance (with a max count), or an option on raycast3d.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP_DONE.md.",
+        "Fixed in e56afda0 (M33.7): physics.raycast3dAll / raycast2dAll return every hit nearest first, up to opts.maxHits; the camera and the porter use them."
+      ],
+      "engineIssue": "e56afda0 (M33.7)"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "Collider3D has no enabled field",
+      "missing": "A door that has been opened must stop blocking the porter, the camera sweep, the click rays and the NavMesh, but stay in the scene (its open/closed state is saved and the mesh stays visible). Collider3D has isTrigger, layer and mask but nothing to switch it off.",
+      "workaround": "scripts/interactable.js removes the component with entity.remove('Collider3D') when the door opens, and a scene that loads with the flag already set does the same. The collider is gone for good, so closing it again would have to add it back.",
+      "workaroundFiles": [
+        "scripts/interactable.js"
+      ],
+      "suggestion": "Collider3D.enabled (and Collider2D.enabled), writable at run time, kept out of the NavMesh bake when false; or a documented way to move a collider to a layer that nothing hits.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.7 in feedback/ROADMAP_DONE.md.",
+        "Fixed in e56afda0 (M33.7): Collider3D.enabled / Collider2D.enabled, writable at run time; interactable.js now sets enabled = false."
+      ],
+      "engineIssue": "e56afda0 (M33.7)"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No typewriter reveal for a Text",
+      "missing": "A dialogue box shows a line letter by letter. Text has no 'visible characters' field, and a markup colour with alpha 0 does not hide the rest of the line, so there is no way to reveal part of a line while the box keeps the size of the whole line.",
+      "workaround": "scripts/dialogue_view.js sets the Text to the first n characters followed by one blank line per line break still to come, so the box height does not change while it reveals. The line is wrapped first by wrap() with ui.measureText so it never re-wraps while it grows, and in a headless run ui.measureText only approximates the real width, so the break positions are checked in screenshots.",
+      "workaroundFiles": [
+        "scripts/dialogue_view.js"
+      ],
+      "suggestion": "A Text.visibleCharacters field (or a 'reveal' fraction 0..1) that clips the laid-out text without re-laying it out.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP_DONE.md.",
+        "Fixed in ef505773 (M33.3): Text.visibleCharacters (-1 = all) clips the laid-out text by grapheme clusters without laying it out again; scripts/dialogue_view.js no longer wraps by hand or pads the box with blank lines."
+      ]
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "No glob import or file listing for data files",
+      "missing": "The story is one JSON table per chapter (data/dialogue/ch1..5.json) and the game and the validator tool must read all of them. A script can import a JSON file by a literal path only, and there is no fs listing for a project folder, so a new table file has to be added to an import list by hand.",
+      "workaround": "scripts/dialogue_data.js imports the five files and builds TABLES from them; tools/validate_dialogue.js uses that module, so the list lives in one place. tests/dialogue_data.test.js checks the tables, the story registry and the cast together.",
+      "workaroundFiles": [
+        "scripts/dialogue_data.js",
+        "tools/validate_dialogue.js"
+      ],
+      "suggestion": "import.meta.glob-like support for JSON data (import tables from \"../data/dialogue/*.json\"), or a project.list_files command a tool can call.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.10 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 3010cb32 (M33.10): import tables from \"../data/dialogue/*.json\" gives the parsed files as an object keyed by file name, sorted; scripts/dialogue_data.js uses it and a new chapter file needs no edit."
+      ]
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "A Button's key field is a locale key, not a hotkey",
+      "missing": "The field name 'key' on Button, Text, Toggle and Slider is the localization key. The choice buttons also answer to the keys 1..4, and nothing on the Button says how to do that: it is an input action that the script reads.",
+      "workaround": "Choices answer to the input actions choice_1..choice_4 declared in factoria.json, read in scripts/dialogue_view.js with input.pressed.",
+      "workaroundFiles": [
+        "factoria.json",
+        "scripts/dialogue_view.js"
+      ],
+      "suggestion": "Say it in the ui doc next to the Button fields (and in the field's doc string), or rename the field in a future format version.",
+      "effort": "small",
+      "occurrences": 2,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 905ee6fa (M33.15): the doc string of UiControl.key (docs/COMPONENTS.md) says it is a translation key, not a hotkey, and where a key press goes instead (an input action read with input.pressed)."
+      ]
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Screen anchor goes down but a widget pivot goes up",
+      "missing": "A Panel with anchor [0.5, 1] and pivot [0.5, 0] does not sit on the bottom edge: anchors count Y downwards from the top-left while the pivot of a widget counts Y upwards, so the first version of the dialogue box hung off the bottom of the screen. Only a screenshot showed it, validate did not.",
+      "workaround": "The dialogue and ending prefabs use pivot values found by looking at screenshots (prefabs/ui/dialogue.prefab.json).",
+      "workaroundFiles": [
+        "prefabs/ui/dialogue.prefab.json",
+        "prefabs/ui/ending.prefab.json"
+      ],
+      "suggestion": "One sentence and a small picture in the ui doc, and a validate warning when a screen widget lies completely outside the design size.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 905ee6fa (M33.15): docs/MENUS.md 'Anchors and pivots' (a picture) and the pivot doc string; factoria validate warns about a scene widget completely outside the design size, with its rectangle and the fix."
+      ]
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "Escape is both ui_cancel and pause",
+      "missing": "In the default bindings Escape is bound to the 'pause' action and to ui_cancel. A panel that closes on cancel (the dialogue backlog) closes and, in the same frame, the pause menu of the kit opens, as pause_menu.js reads input.pressed('pause'). A test showed it (tests/dialogue_ui.test.js, 'Escape closes the log').",
+      "workaround": "The dialogue view sets MenuStack.busy while its log is open and for two frames after it closes, which makes the kit's pause menu wait. This works only because the kit exposes MenuStack.busy.",
+      "workaroundFiles": [
+        "scripts/dialogue_view.js"
+      ],
+      "suggestion": "input.consume(action) or an event that tells the other readers that ui_cancel handled the press, or document in the menus doc that a cancel handler must set MenuStack.busy.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP_DONE.md.",
+        "Fixed in fe8d492d (M33.6): input.consume(action); a ui.on(\"cancel\") handler that returns true consumes ui_cancel, so \"pause\" does not read the same Escape. The dialogue log and the screens no longer set MenuStack.busy."
+      ]
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "game.tap(action) does not press a focused Button",
+      "missing": "In a test, game.tap('interact') does not click the Button that has the focus, while a real keyboard or gamepad press of the confirm key does. The first dialogue UI tests passed the action name and nothing happened.",
+      "workaround": "The tests use game.tapKey('Space') or a pad button (tests/dialogue_ui.test.js, complete()).",
+      "workaroundFiles": [
+        "tests/dialogue_ui.test.js"
+      ],
+      "suggestion": "Say in the testing doc which one drives the UI focus (the physical key or pad button), or let game.tap(action) go through the same path.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 6c596066 (M33.8): game.tap(action) taps the first key or pad button bound to the action, so game.tap(\"ui_submit\") presses the focused Button; tests use it for the dialogue and the cut-scene skip (tapKey('Space') calls removed)."
+      ]
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scene",
+      "severity": "minor",
+      "title": "Events emitted in a frame reach listeners one step later",
+      "missing": "world.emit in a script reaches world.on listeners only after the next game.step in a test, so a test that emits and asserts in the same frame sees nothing. It is not in the testing doc.",
+      "workaround": "tests step two frames (game.step(2)) before asserting on an event (tests/dialogue_runner.test.js).",
+      "workaroundFiles": [
+        "tests/dialogue_runner.test.js"
+      ],
+      "suggestion": "Document the delivery time of world.emit in the scripting doc.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: already supported and documented (SCRIPTING.md, 'Timing in a test': world.emit is queued and its listeners run at the next game.step)."
+      ]
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "The menu kit options have no row for dialogue text speed",
+      "missing": "A game with dialogue needs a text speed setting. The kit's options prefab and options.js have audio rows only, and settings.js keeps a fixed list of fields.",
+      "workaround": "Added a text_speed Button to the audio section of prefabs/ui/options.prefab.json, a TEXT_SPEEDS list in scripts/settings.js and the cycling code in scripts/ui/options.js. The audio panel is taller for it.",
+      "workaroundFiles": [
+        "prefabs/ui/options.prefab.json",
+        "scripts/settings.js",
+        "scripts/ui/options.js"
+      ],
+      "suggestion": "A project.add_menu_kit option (for example 'textSpeed': true) that adds the row, or a documented way to add a game row to the options menu.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.11 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 99c1e931 (M33.11): the menu kit part textSpeed adds the Text speed row (settings.TEXT_SPEEDS, settings.revealedCharacters), and addOptionsRow() of scripts/ui/options.js adds a row of the game to any section; docs/MENUS.md, Text speed. Larkspur keeps its own, older Text speed row in its options.js (it predates the part)."
+      ]
+    },
+    {
+      "id": "FB-0501",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "other",
+      "severity": "nice-to-have",
+      "title": "No save-slot helper: slots are written by hand on top of storage",
+      "missing": "A game with five named slots, an autosave, a picture and a play time needs the same code every time: the key names, a revision counter to settle cloud copies, damaged-text handling and the delete that also removes the cloud copy. The engine offers storage and platform.cloud only.",
+      "workaround": "scripts/saves.js writes each slot as one JSON text under slotN / slot_auto with a counter, name, chapter, play time and base64 picture, and scripts/ui/slot_screen.js draws them.",
+      "workaroundFiles": [
+        "scripts/saves.js",
+        "scripts/ui/slot_screen.js"
+      ],
+      "suggestion": "A slots module in the menu kit (project.add_menu_kit part 'slots') with the record, the cloud merge by counter and a slot screen prefab, like the keyboard part.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.11 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 99c1e931 (M33.11): the menu kit part slots (scripts/slots.js: record, counter, cloud merge by counter, damaged slots; scripts/ui/slot_screen.js with its prefabs and the on-screen keyboard dialog; tests/slots.test.js); docs/MENUS.md, Save slots. Larkspur moved to it: scripts/slots.js, scripts/ui/slot_screen.js and the slots and slot_dialog prefabs are the kit's copies, and scripts/saves.js keeps only the lodge's side (save layout, cannotSave, chapter autosave, launch)."
+      ]
+    },
+    {
+      "id": "FB-0502",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "The fake store's stats.add is not atomic: two calls in one frame count once",
+      "missing": "platform.stats.add reads the value (stats.get) and writes it (stats.set). Two adds made before the first answer arrives both read the old value, so the second one is lost. A real store (Steam) adds atomically.",
+      "workaround": "tests/saves.test.js lets the first answer through (settle()) before the second save. The game itself makes at most one add per player action, so nothing else changed.",
+      "workaroundFiles": [
+        "tests/saves.test.js"
+      ],
+      "suggestion": "Make the fake apply add() on the stored value when the request is served, or document that stats.add calls must be awaited one after another.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 6c596066 (M33.8): The fake store applies stats.add on the stored value when it serves the request, so two adds in one frame count twice; tests/saves.test.js no longer settles between its two saves."
+      ]
+    },
+    {
+      "id": "FB-0503",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A TextField and the pause action share Escape and P: the game must route them by hand",
+      "missing": "Typing a save name in a TextField while the pause menu is open: P is a letter but also the pause key, and Escape is ui_cancel and pause at once (see FB-0008). MenuStack.busy is a static flag that survives scene loads, so a scene that goes while a dialog is open leaves the pause key blocked.",
+      "workaround": "pause_menu.js ignores the pause key while MenuStack.busy, routes ui_cancel to SlotScreen.cancel() first (it closes the dialog, and the on-screen keyboard's own close is told apart by the state at the start of the frame), and SlotScreen resets busy when it is built.",
+      "workaroundFiles": [
+        "scripts/pause_menu.js",
+        "scripts/ui/slot_screen.js"
+      ],
+      "suggestion": "input.pressed('pause') could be false while a TextField has the focus (text input mode), and MenuStack.busy should reset on scene.load.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP_DONE.md.",
+        "Fixed in fe8d492d (M33.6): input.textInputMode (a focused TextField, or the on-screen keyboard) turns printable-key actions off; MenuStack.busy resets when a scene builds a MenuStack. SlotScreen no longer sets busy to type a name."
+      ]
+    },
+    {
+      "id": "FB-0504",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Store answers arrive on the next frames, not at once: nothing says so for a request made inside a frame",
+      "missing": "docs/PLATFORM.md says platform.* answers are ready at once, but a request made from an event handler (world.on) during game.step is answered only after the following steps: a test that awaits microtasks right after sees fake.achievements without the new entry, and the fake lists only the unlocked achievements.",
+      "workaround": "tests/saves.test.js settle() awaits microtasks, steps two frames and awaits again.",
+      "workaroundFiles": [
+        "tests/saves.test.js"
+      ],
+      "suggestion": "State in docs/PLATFORM.md when a request is answered (same call vs. next frame) and that fake.achievements only has the ids that were touched.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.15 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 905ee6fa (M33.15): the fake answers inside the call (also from an event handler); the Promise settles in the next microtask, one per await of a chain. docs/PLATFORM.md and SCRIPTING.md say so, a test pins it (test_platform_api.cpp), and fake.achievements is documented as listing only the touched ids."
+      ]
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "The mouse wheel never reaches a script while a modal Panel is up",
+      "missing": "The item view of the inventory wanted the mouse wheel to zoom. The screen is a modal Panel (so clicks and the pad stay inside it) and a modal consumes the wheel unless a ScrollList scrolls, so input.mouse.wheel reads 0 on it. There is no way to ask for the wheel over one rectangle.",
+      "workaround": "Zoom is on + and - buttons in the corner of the view, R / V, the gamepad triggers and a pinch; the wheel code was removed.",
+      "workaroundFiles": [
+        "scripts/screens.js",
+        "factoria.json"
+      ],
+      "suggestion": "A Panel option (for example wheelPassThrough) or a rectangle in which a modal leaves the wheel to the game.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.6 in feedback/ROADMAP_DONE.md.",
+        "Fixed in fe8d492d (M33.6): Panel.wheelPassThrough leaves the wheel to scripts under a modal Panel. The inventory item view can read input.mouse.wheel again."
+      ]
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No UI widget that shows a 3D view",
+      "missing": "The inventory shows the selected item turning in 3D inside a window of the page. The UI draws over every camera, so a Camera viewport behind the UI is hidden by any panel that covers it, and no widget draws a camera or a render target.",
+      "workaround": "A second perspective Camera (viewport = the window) looks at a stage 300 m above the lodge, and the page is four opaque bands and a frame around a clear rectangle (the hole). (removed in M33.5)",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "A viewport widget (or Panel.camera) that draws a named camera or a render texture inside its rectangle, clipped and layered like any widget.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP_DONE.md.",
+        "Fixed in da5c9dc1 (M33.5): the CameraView widget draws a named camera inside its rectangle (clipped, layered, modal-aware) and sends ui.viewPointer; docs/MENUS.md, 'A camera inside the UI'. screens.js lost its four bands. Only named cameras: a render texture as the source is not built."
+      ]
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "Camera viewport fractions are not documented as fractions of the window",
+      "missing": "The item view camera has viewport fractions of the design area. As far as I could tell they count the whole window, so the view would not match the hole of a UI laid out in a fit design area when the window is not 16:9. Only 16:9 was checked.",
+      "workaround": "The game is designed and tested at 16:9 only. (removed in M33.5)",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "Say in the Camera.viewport doc which rectangle the fractions count, and offer a mode that follows the UI design area.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP_DONE.md.",
+        "Fixed in da5c9dc1 (M33.5): the Camera.viewport doc says the fractions count the game target (the design resolution grown by Expand), and Camera.viewportSpace 'design' counts them on the design area. A CameraView needs no viewport at all."
+      ]
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "A destroyed entity is still found until the end of the frame",
+      "missing": "entity.destroy() takes effect at the end of the frame. A screen that rebuilt its UI with the same ids in the same frame had two entities of one id and clicks went to the old build.",
+      "workaround": "Every build of the screen uses a serial id prefix (scr<N>_); click handlers are keyed by the name without the prefix.",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "Document it on Entity.destroy and let world.find skip entities that are being destroyed.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.9 in feedback/ROADMAP_DONE.md.",
+        "Fixed in f8e557cd (M33.9): world.find/findAll/findByTag already skipped a destroyed entity, world.entities() now does too; Entity.destroy says when the entity is gone; scripts/screens.js lost its serial id prefix."
+      ],
+      "engineIssue": "f8e557cd (M33.9)"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-3d",
+      "severity": "nice-to-have",
+      "title": "Lights of a scene overexpose objects on a stage far from it",
+      "missing": "The item view stage has two point lights of its own, but ambient light and tone mapping made pale parts a white blot, so the colours of data/items.json came out far too bright.",
+      "workaround": "The two lights are weak, the camera sits further back and the part colours are multiplied by 0.45. (removed in M33.5)",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "An option on Camera or MeshRenderer to ignore the scene ambient (a studio lighting preset for product views).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.5 in feedback/ROADMAP_DONE.md.",
+        "Fixed in da5c9dc1 (M33.5): Camera.lighting 'studio' (with studioIntensity) ignores the scene's lights and ambient and lights with its own key, fill and rim. screens.js lost its two stage lights and its 0.45 colour factor."
+      ]
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A greyed-out Button cannot take ui.focus",
+      "missing": "ui.focus on a Button whose interactable is false throws, so a screen that restores focus after a rebuild fails when the remembered button became disabled.",
+      "workaround": "build() checks interactable and falls back to the first enabled button.",
+      "workaroundFiles": [
+        "scripts/screens.js"
+      ],
+      "suggestion": "Make ui.focus return false on a disabled widget instead of throwing, or document it.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 33130077 (M33.1): ui.focus returns true, and false (changing nothing) for a widget with interactable false; documented in SCRIPTING.md and api.json; test in engine/runtime/tests/ui_tests.cpp."
+      ]
+    },
+    {
+      "id": "FB-0601",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "assets.generate_voice has no provider in this setup",
+      "missing": "P4 wanted English voice lines for the cut-scenes through assets.generate_voice. No voice provider was available, so no clip was generated and no provenance entry written.",
+      "workaround": "The 24 lines are listed in data/cutscenes/voice_script.json (text, speaker, step); data/cutscenes/voice.json has an empty clips map and the captions run on the step's seconds. When a clip is added to voice.json the caption lasts as long as the clip, the voiceover bus ducks the music and the validator checks the file and its length. Tests use tests/fixtures/test_voice.wav.",
+      "workaroundFiles": [
+        "data/cutscenes/voice_script.json",
+        "data/cutscenes/voice.json",
+        "scripts/cutscene.js"
+      ],
+      "suggestion": "Say in the assets.generate_voice error which provider keys are needed, and document how to test voice-dependent code without a provider.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 3d6850d7 (M33.13): the no-provider error names ELEVENLABS_API_KEY and OPENAI_API_KEY, and assets.generate_voice {silent: true} writes a silent clip of the line's length (docs/ASSETS.md, Voice without a provider)."
+      ],
+      "engineIssue": "3d6850d7 (M33.13)"
+    },
+    {
+      "id": "FB-0602",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "scene.current cannot tell a reload of the same scene from the scene itself",
+      "missing": "A script that awaits something (a cut-scene timeline) checks scene.current to see whether its scene is still the current one. A reload of the same scene path leaves scene.current equal, so a result of the old scene looks current although its entities are gone.",
+      "workaround": "scripts/cutscene.js also checks that the porter entity it holds is still alive (run.porter.alive) and drops its run otherwise.",
+      "workaroundFiles": [
+        "scripts/cutscene.js"
+      ],
+      "suggestion": "Expose a scene load counter (scene.generation) that changes on every load, or make handles of a previous load compare unequal.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.9 in feedback/ROADMAP_DONE.md.",
+        "Fixed in f8e557cd (M33.9): scene.generation changes on every load; scripts/cutscene.js and cutscene_view.js compare it and the porter.alive check is gone."
+      ],
+      "engineIssue": "f8e557cd (M33.9)"
+    },
+    {
+      "id": "FB-0701",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "assets",
+      "severity": "minor",
+      "title": "No way to get or make ambience and music clips from inside the project",
+      "missing": "Ambience beds (wind, fire, clocks) and a score per chapter were needed as CC0 loops. assets.import takes a URL of a known pack (footsteps came from Kenney), but there is no search for sound packs and no audio tooling (no ffmpeg, sox or oggenc, no numpy) to convert or synthesise.",
+      "workaround": "assets/src/make_sound.py synthesises seamless loops in pure Python (seeded) and writes WAVs recorded as origin 'original' in assets.json. Footsteps are the Kenney CC0 imports.",
+      "workaroundFiles": [
+        "assets/src/make_sound.py",
+        "assets.json"
+      ],
+      "suggestion": "A command that generates simple loops (noise beds, drones) or searches CC0 sound packs, and one that converts WAV to OGG.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.13 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 3d6850d7 (M33.13): assets.generate_loop (seeded noise beds and drones) and assets.convert_audio (WAV to Ogg Vorbis, own encoder). assets/src/make_sound.py is gone; the calls are assets/src/sound/*.json. No CC0 pack search: no source offers an API without a key."
+      ],
+      "engineIssue": "3d6850d7 (M33.13)"
+    },
+    {
+      "id": "FB-0702",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "A test cannot run project or engine commands such as ui.check_layout",
+      "missing": "ui.check_layout is the way to find text that overflows at 200 %, but the test game object has no way to call a command, so a test cannot assert 'no layout issues'. It also does not open hidden panels (options is a prefab spawned by a script).",
+      "workaround": "tests/options.test.js opens each options tab and walks its widgets with ui.overflowed(entity) at ui.textScale 1 and 2; menu and ground were checked with the CLI command by hand.",
+      "workaroundFiles": [
+        "tests/options.test.js"
+      ],
+      "suggestion": "Expose game.call(command, args) in factoria:test, and let ui.check_layout take a script to open panels before measuring.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP_DONE.md. Its first half is already supported: a test calls any command with fa.call (SCRIPTING.md); the package makes ui.check_layout measure the current frame with open panels (the rest of TM/FB-0063).",
+        "Fixed in 6c596066 (M33.8): game.checkLayout() (ui.check_layout with current: true) measures the running scene with the panels a test opened, without reloading; tests/options.test.js uses it instead of its manual walk."
+      ]
+    },
+    {
+      "id": "FB-0703",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Warning 'Panel is larger than the screen' for a fit Panel inside a ScrollList",
+      "missing": "The rebinding rows are spawned into a Panel that sits in a ScrollList (so it is clipped and scrolls). The engine still warns that the Panel (fit) is 740 x 1369 px, larger than the screen, as if part of it were lost.",
+      "workaround": "None: the warning is harmless here, the list scrolls; tests print it.",
+      "workaroundFiles": [
+        "scripts/ui/options.js"
+      ],
+      "suggestion": "Do not warn for a Panel whose ancestor is a ScrollList.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.1 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 33130077 (M33.1): no 'Panel is larger than the screen' warning for a Panel inside a ScrollList; doctest in engine/ui/tests."
+      ]
+    },
+    {
+      "id": "FB-0704",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Music started with persist: true survives game.resetState between tests",
+      "missing": "audio.music(path, {persist: true}) keeps playing from one test to the next, and an identical track is only retuned, so a later test that expects the play in game.audioLog() sees nothing. session also survives resetState.",
+      "workaround": "tests/sound.test.js calls audio.stopMusic() and clears session.musicTrack before each new game.",
+      "workaroundFiles": [
+        "tests/sound.test.js",
+        "scripts/sound.js"
+      ],
+      "suggestion": "game.resetState() should stop the music and the voices, or the docs say it does not.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.8 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 6c596066 (M33.8): game.resetState() stops the music (persist included) and the voices (option audio, on by default); scripts/sound.js asks the audio module whether a track plays instead of keeping session.musicTrack, and the tests' manual music reset is gone."
+      ]
+    },
+    {
+      "id": "FB-0801",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "The exported player cannot be driven or made to save in a sandbox check",
+      "missing": "To prove a Mac App Store build saves into ~/Library/Containers/<bundle id>/ the exported player has to write a save. Its headless flags (--frames, --input, --dump-state) keep storage in memory, as factoria run does, and a windowed run needs a real click on Play: osascript and CGEvent both need an Accessibility permission that a script cannot grant.",
+      "workaround": "The sandboxed player was started and run (the container was created, log.txt, the replay, a state dump and a screenshot were written into it) but no save file could be produced; the click is in the by-hand list of SHIPPING.md.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Accept --persist-storage (as factoria run does) on the exported player, so an --input replay that presses Play and saves leaves a real file in the container.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP_DONE.md.",
+        "Fixed in f70d5c0e (M33.12): factoria_player takes --persist-storage with --frames/--input/--dump-state/--screenshot; tools/cli/tests/player_replay_test.py checks the save file and tools/cli/tests/larkspur_ship_test.py (ctest cli_larkspur_ship) plays tests/replays/save_slot1.json on the exported Larkspur Lodge and finds slot1.json. Inside the signed sandbox container itself it was not run (that needs the by-hand step of SHIPPING.md section 4, or the same command from the sandboxed app)."
+      ],
+      "engineIssue": "f70d5c0e (M33.12)"
+    },
+    {
+      "id": "FB-0802",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "--record-video holds every frame in memory (4.4 GB for 25 s at 1080p)",
+      "missing": "factoria run --record-video with --render-scale 1.5 for 1480 frames reported a peak memory of 4434 MB, against 66 MB for a run without it. A longer trailer would not fit on a small machine.",
+      "workaround": "The trailer is only the 25 s intro cut-scene (assets/src/make_store.py trailer); a longer cut would have to be recorded in pieces and joined with ffmpeg.",
+      "workaroundFiles": [
+        "assets/src/make_store.py"
+      ],
+      "suggestion": "Stream the frames to the encoder as they are drawn instead of keeping them, or give the memory per second of video in docs/CLI.md.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP_DONE.md.",
+        "Fixed in f70d5c0e (M33.12): the frames were already spooled to disk by AviWriter; the memory was the Metal read-back (engine/render/src/readback_metal.mm) keeping its autoreleased command buffer, one frame of pixels, until the process ended. It now has its own autorelease pool; video_tests.cpp 'keeps memory flat' fails without the fix (113 -> 572 MB) and passes with it, and 300 frames at 1.5 scale went from 2.4 GB to 61 MB."
+      ],
+      "engineIssue": "f70d5c0e (M33.12)"
+    },
+    {
+      "id": "FB-0803",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "A 16:9 design on a 4:3 iPad is letterboxed, and simctl cannot rotate or tap",
+      "missing": "On the iPad Pro 13-inch simulator the 1280x720 design shows with black bars (scaleMode fit): the iPad shows about a quarter less picture than its screen, and an iPad App Store screenshot (2752x2064) cannot come from a 16:9 render without bars. xcrun simctl has no tap or rotate, so the title could be shown but the game not played.",
+      "workaround": "The iPad run is the title screen only (looked at; the PNG is a build output, not committed); the iPad App Store capsules come from the 16:9 key art with assets.draw_capsules. Playing it on an iPad is in the by-hand list.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "A scale mode that shows more world on 4:3 screens (the HUD anchored to the screen edges), and a way to send touches to the simulator or to play a replay on iOS.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.12 in feedback/ROADMAP_DONE.md. Its first half is already supported: display.scaleMode \"expand\" shows more world on a 4:3 screen (the game uses \"fit\"); M33.15 documents it for tablets, M33.12 takes the simulator input.",
+        "Fixed in f70d5c0e (M33.12) (second half): the iOS player plays an --input replay in its window (FA_INPUT_REPLAY) and turns the screen (FA_ORIENTATION), and the command player.run_ios_sim drives a Simulator build with them and takes a screenshot (docs/MOBILE.md, 'Play a replay on the Simulator'). Not run on a Simulator or an iPad in this task: it needs a Simulator build of the player; the command's steps are covered by a dryRun test and the player's windowed replay was checked on the desktop.",
+        "Fixed in 905ee6fa (M33.15) (first half): docs/MOBILE.md 'Tablets and the iPad' documents display.scaleMode \"expand\" for 4:3 screens."
+      ]
+    },
+    {
+      "id": "FB-0804",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Installed players carry no build fingerprint, so Windows and Linux exports need --allow-player-mismatch",
+      "missing": "factoria export --platform windows|linux --release stops with 'no build fingerprint' for the installed 0.2.0 players (the same gap as Burrow Brigade's FB-0032).",
+      "workaround": "Both exports were made with --allow-player-mismatch; the MSIX and the Linux folder were built, not run (no such machine here).",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Publish players with fingerprints, or let factoria setup build the player of this checkout.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "duplicate",
+      "notes": [
+        "2026-10-27 triage: duplicate of TM/FB-0051. Players carry a build fingerprint since BB/FB-0032; what is missing are Windows and Linux players of this development build (from CI artifacts). Ranked with TM/FB-0051, out of M33."
+      ]
+    },
+    {
+      "id": "FB-0901",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "The glyph atlas clears when it is full and unchanged texts stay blank",
+      "missing": "Text at many sizes in five languages (Latin, Hangul, Hebrew, at 100 % and 200 %) fills the 2048 x 2048 glyph atlas. The engine logs a warning and clears it, but the texts that did not change afterwards are not redrawn: they show nothing until their text or size changes. A player who flips the language option at 200 % text could meet it.",
+      "workaround": "tests/lang_<tag>.test.js, one file per language (each test file has its own engine and atlas), so a walk never fills it. Gone: tests/languages.test.js walks every language in one file.",
+      "suggestion": "After clearing the atlas, mark every Text dirty so it is laid out again; or grow the atlas to 4096 when a second page is needed.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.2 in feedback/ROADMAP_DONE.md.",
+        "Fixed in b2070e42 (M33.2): the glyph atlas grows 1024 -> 2048 -> 4096 and, only when 4096 is full, clears; a frame that meets a growth or a clear gathers its glyphs again in the same frame, so no text stays blank (RenderStats.glyphAtlasSize and glyphAtlasResets). tests/languages.test.js walks every screen in every language in one file."
+      ]
+    },
+    {
+      "id": "FB-0902",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Korean text wraps between any two syllables (no word-keeping line breaking)",
+      "missing": "A Korean line wrapped by Text.maxWidth breaks inside a word, between any two syllables, because the engine breaks Hangul like CJK ideographs. Korean written for screens separates words with spaces and readers expect the break there (word-break: keep-all).",
+      "workaround": "The dialogue box wraps by hand at spaces (scripts/dialogue_view.js), so Korean keeps its words there; other texts fit on one line or accept the engine break.",
+      "workaroundFiles": [
+        "scripts/dialogue_view.js",
+        "locales/ko.json"
+      ],
+      "suggestion": "A Text.wordBreak option (normal | keepAll) or break Hangul only at spaces by default.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.3 in feedback/ROADMAP_DONE.md.",
+        "Fixed in ef505773 (M33.3): Text.wordBreak (auto, normal, keepAll); auto keeps Korean words whole, so the dialogue box wraps with Text.maxWidth."
+      ]
+    },
+    {
+      "id": "FB-0903",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Right-to-left mirrors text and Panel rows only: anchors, pivots, Toggle boxes and Sliders stay left-to-right",
+      "missing": "In Hebrew the Panel with direction auto and Text.align start/end mirror, but the position of an anchored widget, a Toggle's box and a Slider's fill do not, so a screen that mixes them reads half left-to-right.",
+      "workaround": "scripts/ui/kit.js mirrors the x of every widget it places (kit.mx) when i18n.direction is rtl, and the 3D item view hole is mirrored in screens.js. (kit.mx removed in M33.4; the hole is still placed by hand because a camera viewport is not a widget)",
+      "workaroundFiles": [
+        "scripts/ui/kit.js",
+        "scripts/screens.js"
+      ],
+      "suggestion": "A Panel.mirrorRtl (or a global ui.mirrorRtl) that flips anchor.x, pivot.x and the Toggle / Slider direction when the language is right-to-left.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.4 in feedback/ROADMAP_DONE.md.",
+        "Fixed in ac018ecc (M33.4): ui.mirrorRtl (factoria.json ui.mirrorRtl, ui.mirrorRtl in scripts, ui.set_mirror_rtl; on by default) mirrors the screen-space UI in a right-to-left language: anchor.x, pivot.x and position.x flip, Toggle boxes and Sliders run right to left, UiBox.mirror false opts a widget out. kit.mx is gone."
+      ]
+    },
+    {
+      "id": "FB-0904",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Text takes its base direction from the first strong character, so a line that starts with a Latin key is laid out left-to-right",
+      "missing": "A Hebrew string that starts with a key name such as '[F] ...' or a {placeholder} filled with Latin text is a left-to-right paragraph under Unicode bidi, and renders with the Hebrew in the wrong order. Text has no way to say 'this paragraph is right-to-left'.",
+      "workaround": "The Hebrew strings that start with a key or a placeholder begin with U+200F (right-to-left mark): locales/he.json hintItems, hintJournal, hintPuzzle, prompt.format and cutscene.hint. (removed in M33.4)",
+      "workaroundFiles": [
+        "locales/he.json"
+      ],
+      "suggestion": "Text.direction (auto | ltr | rtl), defaulting to the language's direction for a Text that has a localization key.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.4 in feedback/ROADMAP_DONE.md.",
+        "Fixed in ac018ecc (M33.4): Text.direction (auto, ltr, rtl); auto with a localization key is the language's direction. The hints are labels with direction rtl, the prompt Text gets it from the HUD and the Skip button has a key; he.json has no U+200F."
+      ]
+    },
+    {
+      "id": "FB-0905",
+      "date": "2026-10-27",
+      "reporter": {
+        "kind": "ai",
+        "agent": "larkspur-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "No way to type Hangul on the on-screen keyboard",
+      "missing": "Korean syllables are composed from jamo by an input method; an on-screen keyboard that sends one character per key cannot make them, and the subset font has no stand-alone jamo.",
+      "workaround": "scripts/ui/keyboard.js gives Hebrew its own letters and leaves Korean on the Latin keys; a Korean player with a pad names a save in Latin letters, and a keyboard player uses the system input method.",
+      "workaroundFiles": [
+        "scripts/ui/keyboard.js"
+      ],
+      "suggestion": "An IME hook for the on-screen keyboard (a composition callback per language), or a platform text-input request that opens the system keyboard on pad platforms.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "2026-10-27 triage: work package M33.14 in feedback/ROADMAP_DONE.md.",
+        "Fixed in 6da44ad9 (M33.14): the menu kit's scripts/ui/keyboard.js has an IME hook (IME[language] = { compose(text, ch), decompose(text) }) with Hangul built in: Korean keys are jamo (Shift: the doubled ones), jamo make syllables and Delete takes the last jamo away. tests/slots.test.js of the kit types a Korean slot name with the pad. Larkspur's keyboard.js is the kit's plus the Hebrew layout, and build_fonts.py keeps the jamo and the 2350 KS X 1001 syllables."
+      ]
+    }
+  ]
+}

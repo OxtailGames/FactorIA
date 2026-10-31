@@ -2,10 +2,13 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 
 #include "common.h"
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
+#include "fa/ai/progress_file.h"
+#include "fa/ai/review.h"
 #include "fa/ai/session.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/validate.h"
@@ -24,7 +27,7 @@ ai::AiConfig load_config_or_throw() {
 
 Json roles_json(const ai::AiConfig& cfg) {
     Json roles = Json::object();
-    for (const char* r : {ai::kRoleOrchestrator, ai::kRoleWorker, ai::kRoleFast}) {
+    for (const char* r : ai::kAllRoles) {
         ai::RoleConfig rc = cfg.role(r);
         roles[r] = Json::object({{"provider", rc.provider}, {"model", rc.model}, {"effort", rc.effort}});
     }
@@ -38,11 +41,14 @@ Json providers_report(const ai::AiConfig& cfg, bool probe) {
     for (const auto& s : ai::detect_providers(cfg, dopt)) providers.push_back(s.to_json());
     Json warnings = Json::array();
     for (const auto& w : cfg.warnings) warnings.push_back(w);
+    Json toolServers = Json::array();
+    for (const auto& t : ai::tool_server_statuses(cfg)) toolServers.push_back(t.to_json());
     return Json::object({{"configPath", ai::default_config_path()},
                          {"configLoadedFrom", cfg.sourcePath},
                          {"defaultProvider", cfg.defaultProvider},
                          {"roles", roles_json(cfg)},
                          {"providers", providers},
+                         {"toolServers", toolServers},
                          {"warnings", warnings}});
 }
 
@@ -117,7 +123,8 @@ Command make_ai_command() {
   "roles": {
     "orchestrator": { "provider": "claude-code", "model": "opus" },
     "worker":       { "provider": "anthropic",   "model": "claude-sonnet-5-5" },
-    "fast":         { "provider": "anthropic",   "model": "claude-haiku-4-5" }
+    "fast":         { "provider": "anthropic",   "model": "claude-haiku-4-5" },
+    "artist":       { "provider": "claude-code", "model": "opus", "effort": "high" }
   },
   "limits": { "maxTurns": 40, "maxCostUsd": 5 }
 })";
@@ -144,7 +151,7 @@ Command make_ai_command() {
     run.maxPositional = 2;
     run.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                  {"provider", "NAME", "Use this provider instead of the role's (see 'factoria ai providers')."},
-                 {"role", "ROLE", "orchestrator (default), worker or fast."},
+                 {"role", "ROLE", "orchestrator (default), worker, fast, artist or audio. Critics and reviewers: factoria ai review."},
                  {"model", "MODEL", "Model override."},
                  {"max-turns", "N", "Turn limit (default from config limits)."},
                  {"max-cost", "USD", "Cost limit in USD (0 = unlimited)."},
@@ -169,9 +176,14 @@ Command make_ai_command() {
         if (trim(task).empty()) throw UsageError("The task is empty.");
 
         std::string role = a.str("role", ai::kRoleOrchestrator);
-        if (role != ai::kRoleOrchestrator && role != ai::kRoleWorker && role != ai::kRoleFast)
-            throw UsageError("Unknown role '" + role + "'.", "Valid roles: orchestrator, worker, fast.");
+        if (ai::is_review_role(role))
+            throw UsageError("The role '" + role + "' only runs as a review.",
+                             "Use 'factoria ai review " + ai::review_kind_for_role(role) + "' (docs/AI_PROVIDERS.md, \"Reviews\").");
+        if (role != ai::kRoleOrchestrator && !ai::is_delegable_role(role))
+            throw UsageError("Unknown role '" + role + "'.",
+                             "Valid roles: orchestrator, worker, fast, artist, audio (reviews: 'factoria ai review').");
         ai::AiConfig cfg = load_config_or_throw();
+        if (!cfg.role_enabled(role)) throw UsageError(ai::role_off_message(role) + ".", ai::role_off_hint(role));
         std::string provider = a.str("provider");
         if (!provider.empty() && !cfg.provider(provider)) {
             std::vector<std::string> names;
@@ -206,8 +218,10 @@ Command make_ai_command() {
 
         const bool asJson = a.has("json");
         bool midLine = false;
+        std::mutex outMu;  // the progress thread below prints too
         auto handler = [&](const ai::AgentEvent& e) {
             using T = ai::AgentEvent::Type;
+            std::lock_guard<std::mutex> lock(outMu);
             if (asJson) {
                 Json j = Json::object({{"event", ai::event_type_name(e.type)}, {"depth", e.depth}, {"role", e.role}});
                 if (!e.text.empty()) j["text"] = e.text;
@@ -239,7 +253,21 @@ Command make_ai_command() {
 
         ai::AgentSession agent(session->registry(), cfg, ao);
         agent.set_event_handler(handler);
-        ai::SessionResult res = agent.run(task);
+        ai::SessionResult res;
+        {
+            // A CLI orchestrator delegates with ai_run to `factoria mcp`, a process of its own: its sub-agents' steps come
+            // through the project's progress file, and are printed here as "  | worker > running Bash (...)" lines so a
+            // long delegation is not a silent terminal.
+            ai::ProgressTail tail(dir, [&](const std::string& line) {
+                std::lock_guard<std::mutex> lock(outMu);
+                if (midLine) ctx.out << "\n";
+                midLine = false;
+                if (asJson) ctx.out << Json::object({{"event", "progress"}, {"text", line}}).dump() << "\n";
+                else ctx.out << "  | " << line << "\n";
+                ctx.out.flush();
+            });
+            res = agent.run(task);
+        }
         if (midLine) ctx.out << "\n";
         if (asJson) {
             print_json(ctx.out, res.to_json());
@@ -254,7 +282,115 @@ Command make_ai_command() {
         return 0;
     };
 
-    g.subs = {doctor, providers, config, run};
+    Command review;
+    review.name = "review";
+    review.summary = "Ask for an art critique (kind art) or a game review (kind game): read-only agents play the build and score it.";
+    review.usage = "art|game [project] [--count N] [--focus TEXT] [--provider P] [--model M] [--max-cost USD] [--json]";
+    review.details =
+        "Starts N critics (art, role artCritic) or reviewers (game, role reviewer), one after another, each with its own point\n"
+        "of view. They can look and play (screenshots, game_step/input/click, bot play) but not change anything. Each report\n"
+        "ends in a score from 0 to 10 with sub-scores and is saved in <project>/.factoria/ai/reviews/ (list them with\n"
+        "'factoria ai reviews'). Reviews only run when you ask: no agent starts them. They read REVIEW.md first\n"
+        "(docs/AI_PROVIDERS.md, \"Reviews\").";
+    review.maxPositional = 2;
+    review.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
+                    {"count", "N", "How many reviewers (1 to 5, default 1), each with a different point of view."},
+                    {"focus", "TEXT", "What to look at (default: everything), e.g. \"the shop screen\"."},
+                    {"provider", "NAME", "Use this provider instead of the role's."},
+                    {"model", "MODEL", "Model override."},
+                    {"max-turns", "N", "Turn limit per reviewer."},
+                    {"max-cost", "USD", "Cost limit in USD per reviewer (0 = unlimited)."},
+                    {"json", "", "Print the result as JSON."}};
+    review.examples = {"factoria ai review game", "factoria ai review art --count 3 --focus \"the main menu\""};
+    review.run = [](Context& ctx) {
+        const Args& a = ctx.args;
+        if (a.positional().empty()) throw UsageError("Missing kind.", "Usage: factoria ai review art|game [project]");
+        const std::string kind = a.pos(0);
+        if (kind != "art" && kind != "game")
+            throw UsageError("Unknown kind '" + kind + "'.", "Valid kinds: art (art critic), game (game reviewer).");
+        std::string projectArg = a.positional().size() == 2 ? a.pos(1) : "";
+        std::string dir;
+        if (!projectArg.empty()) {
+            std::string abs = absolute_path(projectArg);
+            if (!fsys::exists(fsys::path(abs) / kProjectFileName))
+                throw CliError("'" + abs + "' is not a FactorIA project: " + kProjectFileName + " not found.");
+            dir = abs;
+        } else {
+            dir = resolve_project_dir(ctx, 99);
+        }
+        Json args = Json::object({{"kind", kind}, {"count", a.integer("count", 1)}});
+        if (a.has("focus")) args["focus"] = a.str("focus");
+        if (a.has("provider")) args["provider"] = a.str("provider");
+        if (a.has("model")) args["model"] = a.str("model");
+        if (a.has("max-turns")) args["maxTurns"] = a.integer("max-turns", 0);
+        if (a.has("max-cost")) args["maxCostUsd"] = a.number("max-cost", 0);
+
+        SessionOptions so;
+        so.gfx = Gfx::Auto;
+        auto session = Session::open(dir, so);
+        register_cli_commands(session->registry(), dir, &session->engine());
+        CommandResult r = session->registry().call("ai.review", args);
+        if (!r.ok) {
+            return report_failure(ctx, r.error.value("message", std::string("The review failed.")),
+                                  r.error.value("hint", std::string()));
+        }
+        if (a.has("json")) {
+            print_json(ctx.out, r.result);
+            return 0;
+        }
+        for (const Json& rv : r.result.value("reviews", Json::array())) {
+            ctx.out << "=== " << rv.value("role", std::string()) << " (" << rv.value("persona", std::string()) << ")  score: ";
+            if (rv.contains("score") && rv["score"].is_number()) ctx.out << rv["score"].get<double>() << "/10";
+            else ctx.out << "none";
+            ctx.out << " ===\n" << rv.value("text", std::string()) << "\n";
+            if (!rv.value("path", std::string()).empty()) ctx.out << "saved: " << rv.value("path", std::string()) << "\n";
+            ctx.out << "\n";
+        }
+        for (const Json& e : r.result.value("errors", Json::array())) ctx.out << "[error] " << e.get<std::string>() << "\n";
+        if (r.result.contains("averageScore") && r.result["averageScore"].is_number())
+            ctx.out << "average score: " << r.result["averageScore"].get<double>() << "/10\n";
+        return 0;
+    };
+
+    Command reviews;
+    reviews.name = "reviews";
+    reviews.summary = "List the saved art critiques and game reviews with their scores, newest first.";
+    reviews.usage = "[project] [--kind art|game] [--limit N] [--json]";
+    reviews.maxPositional = 1;
+    reviews.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
+                     {"kind", "KIND", "Only art or game reviews."},
+                     {"limit", "N", "At most N reviews (default 20)."},
+                     {"json", "", "Machine-readable output (with the full text)."}};
+    reviews.examples = {"factoria ai reviews", "factoria ai reviews --kind game --limit 5"};
+    reviews.run = [](Context& ctx) {
+        const Args& a = ctx.args;
+        std::string dir = a.positional().empty() ? resolve_project_dir(ctx, 99) : absolute_path(a.pos(0));
+        const std::string kind = a.str("kind");
+        if (!kind.empty() && kind != "art" && kind != "game")
+            throw UsageError("Unknown kind '" + kind + "'.", "Valid kinds: art, game.");
+        const std::size_t limit = static_cast<std::size_t>(a.integer("limit", 20));
+        const std::string role = kind.empty() ? std::string() : ai::review_role_for_kind(kind);
+        std::vector<ai::Review> list = ai::list_reviews(dir, role, limit);
+        if (a.has("json")) {
+            Json out = Json::array();
+            for (const ai::Review& r : list) out.push_back(r.to_json());
+            print_json(ctx.out, Json::object({{"reviews", out}}));
+            return 0;
+        }
+        if (list.empty()) {
+            ctx.out << "No reviews yet. Ask for one with 'factoria ai review game' or 'factoria ai review art'.\n";
+            return 0;
+        }
+        for (const ai::Review& r : list) {
+            ctx.out << r.time << "  " << ai::review_kind_for_role(r.role) << "  ";
+            if (r.score >= 0) ctx.out << r.score << "/10";
+            else ctx.out << "  -  ";
+            ctx.out << "  " << r.persona << "  v" << r.gameVersion << "  " << clip(r.summary, 80) << "\n";
+        }
+        return 0;
+    };
+
+    g.subs = {doctor, providers, config, run, review, reviews};
     return g;
 }
 

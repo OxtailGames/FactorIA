@@ -93,10 +93,12 @@
     "displayMode": "Режим окна: {mode}",
     "mode": {
       "windowed": "в окне",
+      "borderless": "окно без рамки",
       "fullscreen": "во весь экран"
     },
-    "monitor": "Монитор: {width} x {height}",
+    "monitor": "Монитор {n}: {name} (нажмите для следующего)",
     "soundCaptions": "Подписи к звукам",
+    "splitScreen": "Разделять экран, когда игроки расходятся",
     "holdMode": "Копать: {mode}",
     "holdModeHold": "удерживать",
     "holdModeToggle": "нажать, чтобы начать, и ещё раз, чтобы остановить",

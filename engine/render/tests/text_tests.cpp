@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "fa/render/fonts.h"
+#include "fa/scene/bounds.h"
 #include "text_shaper.h"
 
 using namespace fa;
@@ -23,6 +24,7 @@ namespace {
 const char* const kJp = "assets/fonts/NotoSansJP-Regular-subset.ttf";
 const char* const kKr = "assets/fonts/NotoSansKR-Regular-subset.ttf";
 const char* const kAr = "assets/fonts/NotoSansArabic-Regular-subset.ttf";
+const char* const kTh = "assets/fonts/NotoSansThai-Regular-subset.ttf";
 
 // The test project with the fixture fonts copied into assets/fonts (once), so Text.font, the fallback chain and the
 // coverage check can name them like a game would.
@@ -31,7 +33,8 @@ Gfx& with_fonts() {
     static const bool installed = [&] {
         const std::filesystem::path to = g.projectDir / "assets" / "fonts";
         std::filesystem::create_directories(to);
-        for (const char* name : {"NotoSansJP-Regular-subset.ttf", "NotoSansKR-Regular-subset.ttf", "NotoSansArabic-Regular-subset.ttf"})
+        for (const char* name : {"NotoSansJP-Regular-subset.ttf", "NotoSansKR-Regular-subset.ttf", "NotoSansArabic-Regular-subset.ttf",
+                                  "NotoSansThai-Regular-subset.ttf"})
             std::filesystem::copy_file(std::filesystem::path(FA_RENDER_DATA_DIR) / "fonts" / name, to / name,
                                        std::filesystem::copy_options::overwrite_existing);
         return true;
@@ -58,8 +61,9 @@ struct Faces {
             REQUIRE_MESSAGE(faces.back()->ok, faces.back()->error);
         }
     }
-    fr::ShapedText shape(std::string_view text, int px = 20, float maxW = 0) {
-        return fr::shape_text(text, px, maxW, faces.size(), [&](std::size_t i) { return faces[i].get(); });
+    fr::ShapedText shape(std::string_view text, int px = 20, float maxW = 0, WordBreak wb = WordBreak::Auto,
+                         TextDirection dir = TextDirection::Auto) {
+        return fr::shape_text(text, px, maxW, faces.size(), [&](std::size_t i) { return faces[i].get(); }, wb, dir);
     }
     // The advance of a code point drawn on its own, without shaping, in pixels.
     float nominal_advance(std::size_t font, char32_t cp, int px) const {
@@ -213,13 +217,52 @@ TEST_CASE("text: Japanese, Chinese and Korean wrap at maxWidth without any space
         }
         CHECK(all == fr::decode_text(*s));  // nothing lost, nothing added: the breaks fall between characters
     }
-    // Korean breaks between words at spaces, and inside a long word between syllables
+    // Korean breaks between words at spaces; WordBreak::Normal also breaks inside a word, between syllables
     const fr::ShapedText ko = f.shape(kKorean, 14, 90);
     CHECK(ko.missing.empty());
     CHECK(ko.lines.size() >= 3);
-    const fr::ShapedText longWord = f.shape("한국어는띄어쓰기없이도줄바꿈됩니다", 14, 60);
+    const fr::ShapedText longWord = f.shape("한국어는띄어쓰기없이도줄바꿈됩니다", 14, 60, WordBreak::Normal);
     CHECK(longWord.lines.size() >= 3);
     for (const fr::ShapedLine& l : longWord.lines) CHECK(l.width <= 60.01f);
+}
+
+TEST_CASE("text: Korean keeps its words (wordBreak auto and keepAll), normal and a language without spaces do not") {
+    with_fonts();
+    Faces f({"builtin", kJp, kKr});
+    const std::string s = kKorean;
+    const std::u32string all = fr::decode_text(s);
+    for (WordBreak wb : {WordBreak::Auto, WordBreak::KeepAll}) {
+        const fr::ShapedText t = f.shape(s, 14, 60, wb);
+        CHECK(t.missing.empty());
+        REQUIRE(t.lines.size() >= 3);
+        std::size_t at = 0;
+        for (const fr::ShapedLine& l : t.lines) {  // every line is whole words: it ends where the text has a space or ends
+            at += l.text.size();
+            CHECK((at == all.size() || all[at] == U' '));
+            CHECK(l.width <= 60.01f);
+            while (at < all.size() && all[at] == U' ') ++at;
+        }
+    }
+    bool splitsAWord = false;  // wordBreak normal is the old behaviour: some line ends inside a word
+    {
+        const fr::ShapedText t = f.shape(s, 14, 60, WordBreak::Normal);
+        std::size_t at = 0;
+        for (const fr::ShapedLine& l : t.lines) {
+            at += l.text.size();
+            if (at < all.size() && all[at] != U' ') splitsAWord = true;
+            while (at < all.size() && all[at] == U' ') ++at;
+        }
+    }
+    CHECK(splitsAWord);
+    // Japanese is not Korean: auto still breaks it between characters, keepAll does not
+    CHECK(f.shape(kJapanese, 16, 100, WordBreak::Auto).lines.size() >= 3);
+    const fr::ShapedText kept = f.shape(kJapanese, 16, 100, WordBreak::KeepAll);
+    CHECK(kept.lines.size() == 1);
+    CHECK(kept.lines[0].text == fr::decode_text(kJapanese));
+    // a word longer than the line overflows it instead of being cut
+    const fr::ShapedText longWord = f.shape("한국어는띄어쓰기없이도줄바꿈됩니다", 14, 60);
+    CHECK(longWord.lines.size() == 1);
+    CHECK(longWord.lines[0].width > 60);
 }
 
 TEST_CASE("text: kinsoku keeps closing punctuation off the start of a line and opening brackets off the end") {
@@ -256,6 +299,82 @@ TEST_CASE("text: Latin text still breaks only at spaces") {
         rebuilt += (rebuilt.empty() ? U"" : U" ") + l.text;
     }
     CHECK(rebuilt == fr::decode_text(s));  // every break was a space: no word was cut
+}
+
+TEST_CASE("text: a line breaks after U+200B and the UAX 14 spaces, which draw nothing, and never inside a word") {
+    with_fonts();
+    Faces f({"builtin", kTh});
+    // Thai words (hello, thank you, goodbye) with U+200B between them, as a translator marks the boundaries
+    const std::string word1 = "\xE0\xB8\xAA\xE0\xB8\xA7\xE0\xB8\xB1\xE0\xB8\xAA\xE0\xB8\x94\xE0\xB8\xB5";
+    const std::string word2 = "\xE0\xB8\x82\xE0\xB8\xAD\xE0\xB8\x9A\xE0\xB8\x84\xE0\xB8\xB8\xE0\xB8\x93";
+    const std::string zw = "\xE2\x80\x8B";
+    const std::string marked = word1 + zw + word2 + zw + word1 + zw + word2;
+    const fr::ShapedText one = f.shape(word1, 16, 0);
+    REQUIRE(one.missing.empty());
+    const float w1 = one.lines[0].width;
+    const fr::ShapedText unwrapped = f.shape(marked, 16, 0);
+    CHECK(unwrapped.lines.size() == 1);
+    CHECK(unwrapped.missing.empty());
+    // U+200B takes no width: the marked text is as wide as the same words side by side
+    CHECK(unwrapped.lines[0].width == doctest::Approx(f.shape(word1 + word2 + word1 + word2, 16, 0).lines[0].width));
+    const fr::ShapedText t = f.shape(marked, 16, w1 * 1.5f);
+    CHECK(t.missing.empty());
+    REQUIRE(t.lines.size() >= 3);
+    for (const fr::ShapedLine& l : t.lines) {
+        CHECK(l.width <= w1 * 1.5f + 0.01f);
+        // each line is whole words: it starts at a word start and ends at a word end, so no word was cut
+        const std::u32string w1c = fr::decode_text(word1), w2c = fr::decode_text(word2);
+        const bool startsAtWord = l.text.compare(0, w1c.size(), w1c) == 0 || l.text.compare(0, w2c.size(), w2c) == 0;
+        CHECK(startsAtWord);
+        const bool endsAtWord = (l.text.size() >= w1c.size() && l.text.compare(l.text.size() - w1c.size(), w1c.size(), w1c) == 0) ||
+                                (l.text.size() >= w2c.size() && l.text.compare(l.text.size() - w2c.size(), w2c.size(), w2c) == 0);
+        CHECK(endsAtWord);
+    }
+    // the mark the line broke at is dropped from the end of the line
+    for (const fr::ShapedLine& l : t.lines) CHECK(l.text.back() != 0x200B);
+    // without the marks nothing may break inside the text
+    CHECK(f.shape(word1 + word2 + word1, 16, w1 * 1.5f).lines.size() == 1);
+}
+
+TEST_CASE("text: a thin space and the other break spaces are line break opportunities; a no-break space is not") {
+    with_fonts();
+    Faces f({"builtin"});
+    const std::string thin = "\xE2\x80\x89";  // U+2009
+    const fr::ShapedText t = f.shape("alpha" + thin + "beta" + thin + "gamma", 20, 90);
+    REQUIRE(t.lines.size() >= 2);
+    std::u32string all;
+    for (const fr::ShapedLine& l : t.lines) {
+        CHECK(l.width <= 90.01f);
+        CHECK(l.text.back() != 0x2009);  // dropped at the end of a wrapped line
+        all += l.text;
+    }
+    CHECK(all.find(U"alpha") != std::u32string::npos);
+    for (const char* sp : {"\xE2\x80\x8B", "\xE1\x9A\x80", "\xE2\x80\x80", "\xE2\x80\x8A", "\xE2\x81\x9F"})
+        CHECK(f.shape(std::string("alpha") + sp + "beta", 20, 85).lines.size() == 2);
+    CHECK(f.shape("alpha\xC2\xA0" "beta", 20, 85).lines.size() == 1);  // no-break space: the line cannot break there
+    // a hyphen ends a line; a minus sign before a digit does not
+    CHECK(f.shape("well-known", 20, 90).lines.size() == 2);
+    CHECK(f.shape("value-5", 20, 90).lines.size() == 1);
+}
+
+TEST_CASE("fonts: SARA AM needs U+0E4D and U+0E32, whether or not the font has U+0E33") {
+    with_fonts();
+    const std::vector<std::uint32_t> parts = {0x0E4D, 0x0E32};
+    // the built-in fonts have no Thai at all: the parts are named, in order, and not the composed vowel itself
+    auto cov = FontCoverage::load({"builtin:pixel"});
+    REQUIRE(cov.ok());
+    CHECK(cov->missing("\xE0\xB8\xB3") == parts);
+    CHECK(fr::composed_parts(0x0EB3) == std::u32string_view(U"\u0ECD\u0EB2"));  // Lao AM (DejaVu covers Lao: no font to miss it)
+    CHECK(fr::composed_parts(U'a').empty());
+    // a Thai font that has them covers the vowel
+    auto th = FontCoverage::load({kTh});
+    REQUIRE(th.ok());
+    CHECK(th->missing("\xE0\xB8\x99\xE0\xB9\x89\xE0\xB8\xB3").empty());
+    // the render-time warning list names the parts too
+    Faces f({"builtin"});
+    const fr::ShapedText t = f.shape("\xE0\xB8\xB3", 16, 0);
+    CHECK(std::find(t.missing.begin(), t.missing.end(), char32_t(0x0E4D)) != t.missing.end());
+    CHECK(std::find(t.missing.begin(), t.missing.end(), char32_t(0x0E32)) != t.missing.end());
 }
 
 // ---- the fallback chain ---------------------------------------------------------------------------------------------------
@@ -358,6 +477,21 @@ TEST_CASE("text: DejaVu Sans is the last font of every chain, and the missing-gl
 
 // ---- one measurement for every kind of text -----------------------------------------------------------------------------------
 
+TEST_CASE("text: a wrapped text measures its widest line, not its maxWidth, with a renderer and headless") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    const Vec2 free = g.renderer.measure_text("VSync", 20);
+    const Vec2 roomy = g.renderer.measure_text("VSync", 20, "", 440);
+    CHECK(roomy.x == doctest::Approx(free.x).epsilon(0.001));
+    CHECK(roomy.x < 100);
+    Text t;
+    t.text = "VSync"; t.fontSize = 20; t.maxWidth = 440;
+    CHECK(fa::approx_text_size(t, 1.0f).x < 440);  // headless: the widest line too
+    const Vec2 wrapped = g.renderer.measure_text("Hello wrapped world of text", 20, "", 100);
+    CHECK(wrapped.x <= 100.5f);
+    CHECK(wrapped.x > 50);
+}
+
 TEST_CASE("text: measure_text is the box Text drawing lays out, wrapped or not, and the ink stays inside it") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
@@ -380,7 +514,7 @@ TEST_CASE("text: measure_text is the box Text drawing lays out, wrapped or not, 
         float widest = 0;
         for (const fr::ShapedLine& l : shaped.lines) widest = std::max(widest, l.width);
         const Vec2 m = g.renderer.measure_text(c.text, c.size, "", c.maxW);
-        CHECK(m.x == doctest::Approx(c.maxW > 0 ? std::max(widest, c.maxW) : widest).epsilon(0.001));
+        CHECK(m.x == doctest::Approx(widest).epsilon(0.001));
         CHECK(m.y == doctest::Approx(lineH * float(shaped.lines.size())).epsilon(0.001));
         // drawn: the ink is inside the measured rectangle (top-left of the Text is world (-120, 70) = pixel (40, 20))
         World w; add_black_camera(w);
@@ -544,6 +678,69 @@ TEST_CASE("text: Japanese, Chinese, Korean and Arabic draw together through the 
     CHECK(g.renderer.stats().textGlyphs > 60);
 }
 
+TEST_CASE("text: visibleCharacters clips the laid-out text: the box and the wrapping do not change, the glyph count follows") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    g.renderer.set_fallback_fonts({kKr});
+    World w; add_black_camera(w);
+    Entity e = put_text(w, "Hello brave world of typewriters", {-150, 60, 0}, 20, "", Align::Left, 150);
+    Text& t = *w.get<Text>(e);
+    const Vec2 whole = g.renderer.measure_text(t);
+    REQUIRE(whole.y > 30);  // it wraps
+    auto glyphs = [&](int visible) {
+        t.visibleCharacters = visible;
+        const Image img = g.render(w);
+        (void)img;
+        return g.renderer.stats().textGlyphs;
+    };
+    const int all = glyphs(-1);
+    CHECK(all == 28);  // the letters; spaces draw nothing
+    CHECK(glyphs(0) == 0);
+    CHECK(glyphs(5) == 5);                      // "Hello"
+    CHECK(glyphs(7) == 6);                      // "Hello b"
+    CHECK(glyphs(1000) == all);                 // more than the text has shows all of it
+    CHECK(glyphs(-1) == all);
+    for (int n : {0, 1, 6, 12, 1000, -1}) {  // the size never depends on the reveal, nor does the layout of what is drawn
+        t.visibleCharacters = n;
+        const Vec2 s = g.renderer.measure_text(t);
+        CHECK(s.x == doctest::Approx(whole.x));
+        CHECK(s.y == doctest::Approx(whole.y));
+    }
+    // what is shown stays where it is when the rest appears
+    t.visibleCharacters = 5;
+    const Image fiveImg = g.render(w);
+    const Ink five = ink(fiveImg);
+    t.visibleCharacters = -1;
+    const Image fullImg = g.render(w);
+    const Ink full = ink(fullImg);
+    REQUIRE(five.any());
+    CHECK(five.y0 == full.y0);
+    bool same = true;
+    for (int y = five.y0; y <= five.y1; ++y)
+        for (int x = five.x0; x <= five.x1; ++x) same = same && fiveImg.pixel(x, y).r == fullImg.pixel(x, y).r;
+    CHECK(same);
+    CHECK(five.w() < full.w());
+    CHECK(five.h() < full.h());
+    // a letter with its accent is one character; a Hangul syllable is one
+    t.text = "e\xCC\x81x";
+    t.maxWidth = 0;
+    const int accented = glyphs(-1);
+    CHECK(glyphs(1) == accented - 1);  // e + combining acute, without the x
+    CHECK(glyphs(2) == accented);
+    t.text = "\xED\x95\x9C\xEA\xB5\xAD\xEC\x96\xB4";  // han-gug-eo
+    CHECK(glyphs(2) == 2);
+    // a right-to-left line reveals from its right end
+    t.text = "\xD7\x90\xD7\x91\xD7\x92\xD7\x93";  // alef bet gimel dalet
+    t.visibleCharacters = -1;
+    const Ink line = ink(g.render(w));
+    t.visibleCharacters = 1;
+    const Ink first = ink(g.render(w));
+    REQUIRE(first.any());
+    CHECK(first.x1 == line.x1);
+    CHECK(first.x0 > line.x0);
+}
+
 TEST_CASE("text: Align is explicit: Left stays at the left edge for right-to-left text too") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
@@ -558,6 +755,67 @@ TEST_CASE("text: Align is explicit: Left stays at the left edge for right-to-lef
     CHECK(left.x0 < 60 + 8);
     CHECK(right.x1 > 260 - 8);
     CHECK(std::abs((center.x0 + center.x1) / 2 - 160) < 8);
+}
+
+TEST_CASE("text: a Hebrew line that starts with a key name is a right-to-left paragraph with Text.direction rtl or a localization key") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    // "Tab" then Hebrew words (alef bet, gimel dalet), no U+200F in front.
+    const std::string line = "Tab \xD7\x90\xD7\x91 \xD7\x92\xD7\x93";
+    {  // shaping: the first strong character is Latin, so auto reads left to right; rtl puts "Tab" at the right end
+        Faces f({""});
+        const fr::ShapedText autoDir = f.shape(line);
+        const fr::ShapedText rtlDir = f.shape(line, 20, 0, WordBreak::Auto, TextDirection::Rtl);
+        const fr::ShapedText ltrDir = f.shape(line, 20, 0, WordBreak::Auto, TextDirection::Ltr);
+        CHECK(screen_order(autoDir) == std::vector<std::uint32_t>{0, 1, 2, 3, 8, 7, 6, 5, 4});  // Tab, then the Hebrew words from the right
+        CHECK(screen_order(ltrDir) == screen_order(autoDir));
+        CHECK(screen_order(rtlDir) == std::vector<std::uint32_t>{8, 7, 6, 5, 4, 3, 0, 1, 2});  // the Hebrew words, then Tab at the right end
+    }
+    auto drawn = [&](bool keyed, bool languageRtl, TextDirection dir) {
+        World w; add_black_camera(w);
+        w.set_rtl(languageRtl);
+        w.set_language(languageRtl ? "he" : "en");
+        Entity e = put_text(w, line, {-100, 40, 0}, 24, "", Align::Start, 200);
+        Text& t = *w.get<Text>(e);
+        t.direction = dir;
+        if (keyed) t.key = "hint";  // the text stays as it is: this test draws, it does not translate
+        return ink(g.render(w));
+    };
+    // The same Hebrew line in a box 200 px wide, Align::Start: at the right edge when the paragraph is right to left.
+    const Ink autoLtr = drawn(false, true, TextDirection::Auto);   // no key, starts with a Latin letter: left to right, so start = left?
+    const Ink keyed = drawn(true, true, TextDirection::Auto);      // a key in a right-to-left language: right to left
+    const Ink explicitRtl = drawn(false, true, TextDirection::Rtl);
+    REQUIRE((autoLtr.any() && keyed.any() && explicitRtl.any()));
+    CHECK(keyed.x1 > 260 - 8);                // start is the right edge of the 200 px box that begins at pixel 60
+    CHECK(explicitRtl.x1 > 260 - 8);
+    CHECK(keyed.w() == explicitRtl.w());      // the same line, laid out the same way
+    // and in English a keyed Text is left to right
+    const Ink keyedEn = drawn(true, false, TextDirection::Auto);
+    REQUIRE(keyedEn.any());
+    CHECK(keyedEn.x0 < 60 + 8);
+}
+
+TEST_CASE("text: visibleCharacters reveals a right-to-left paragraph in text order, from the first character") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    World w; add_black_camera(w);
+    const std::string line = "Tab \xD7\x90\xD7\x91\xD7\x92\xD7\x93";
+    Entity e = put_text(w, line, {-100, 40, 0}, 24, "", Align::Start, 200);
+    Text& t = *w.get<Text>(e);
+    t.direction = TextDirection::Rtl;
+    t.visibleCharacters = -1;
+    const Ink full = ink(g.render(w));
+    t.visibleCharacters = 3;  // "Tab": the first characters of the text, drawn at the right end of the line
+    const Ink tab = ink(g.render(w));
+    REQUIRE((full.any() && tab.any()));
+    CHECK(tab.x1 == full.x1);
+    CHECK(tab.x0 > full.x0 + full.w() / 3);
+    t.visibleCharacters = 5;  // plus the space and the first Hebrew letter: it grows to the left
+    const Ink more = ink(g.render(w));
+    CHECK(more.x1 == full.x1);
+    CHECK(more.x0 < tab.x0);
 }
 
 TEST_CASE("text: Align start / end are the left / right edge in English and the right / left edge in Arabic") {
@@ -638,4 +896,50 @@ TEST_CASE("fonts: a font that cannot be loaded is an error that says which file 
     auto load = FontCoverage::load({"assets/fonts/bogus.ttf"});
     CHECK_FALSE(load.ok());
     (void)g;
+}
+
+TEST_CASE("fonts: a glyph atlas that grows and then clears draws again the texts it held (Latin, Hangul, Hebrew)") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    g.renderer.set_fallback_fonts({kKr});
+    const std::string hello = "Hello \xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D \xED\x95\x9C\xEA\xB5\xAD\xEC\x96\xB4";  // Hello shalom hangug-eo
+    const std::string hebrew = "\xD7\x90\xD7\x91\xD7\x92\xD7\x93\xD7\x94\xD7\x95\xD7\x96\xD7\x97\xD7\x98\xD7\x99\xD7\x9B\xD7\x9C\xD7\x9E\xD7\xA0";
+    const std::string filler = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 " + hebrew +
+                               " \xED\x95\x9C\xEA\xB5\xAD\xEC\x96\xB4\xEB\x8F\x84 \xEA\xB8\x80\xEC\x9E\x90 \xEC\x82\xAC\xEC\x9D\xB4\xEC\x97\x90\xEC\x84\x9C";
+    auto scene = [&](int fillers, int round) {
+        World w; add_black_camera(w);
+        put_text(w, hello, {-150, 80, 0}, 24);
+        // Fillers are laid out (their glyphs fill the atlas) but too faint to leave ink. Each round has other sizes, so
+        // the glyphs of the rounds before stay in the atlas until it is full.
+        for (int i = 0; i < fillers; ++i) {
+            Entity e = put_text(w, filler, {-150, 0, 0}, 60.0f + 0.37f * float(round * fillers + i), "", Align::Left, 300);
+            w.get<Text>(e)->color.a = 0.003f;
+        }
+        return g.render(w);
+    };
+    const Image alone = scene(0, 0);
+    const Ink before = ink(alone);
+    REQUIRE(before.any());
+    const int start = g.renderer.stats().glyphAtlasResets;
+    int rounds = 0, differing = 0, clears = 0;
+    int lastSize = g.renderer.stats().glyphAtlasSize, lastResets = start;
+    for (; rounds < 120 && clears < 2; ++rounds) {
+        const Image img = scene(10, rounds);
+        const RenderStats st = g.renderer.stats();
+        if (st.glyphAtlasSize == 4096 && st.glyphAtlasResets > lastResets && lastSize == 4096) ++clears;
+        lastSize = st.glyphAtlasSize;
+        lastResets = st.glyphAtlasResets;
+        for (int y = 0; y < alone.height; ++y)
+            for (int x = 0; x < alone.width; ++x)
+                if (std::fabs(alone.pixel(x, y).r - img.pixel(x, y).r) > 0.4f) ++differing;  // the faint fillers stay below
+    }
+    // the atlas grew to its largest page and cleared, at some point halfway through a frame, and no frame lost a glyph
+    CHECK(lastSize == 4096);
+    CHECK(clears >= 2);
+    CHECK(differing == 0);
+    // and a text set before the clear still draws the next frame
+    const Ink next = ink(scene(0, 0));
+    CHECK(next.x0 == before.x0);
+    CHECK(next.x1 == before.x1);
 }

@@ -42,14 +42,13 @@ export class Fog {
     this.height = map.height;
     /** @type {Uint8Array} */
     this.state = new Uint8Array(map.width * map.height);
-    this.tiles = new Array(map.width * map.height).fill(0);
     this.sinceUpdate = 99;
     this.dirty = true;
     this.started = false;
     this.entity = world.spawn({
       components: {
         Transform: { position: [0, 0, 0] },
-        Tilemap: { tileset: "assets/fog.png", tileSize: [TILE, TILE], width: map.width, height: map.height, tiles: this.tiles, lit: false, layer: 15 },
+        Tilemap: { tileset: "assets/fog.png", tileSize: [TILE, TILE], width: map.width, height: map.height, tiles: new Array(map.width * map.height).fill(0), lit: false, layer: 15 },
       },
     });
     this.off = map.onChange(() => {
@@ -130,24 +129,22 @@ export class Fog {
       this.look(now, m.tx, m.ty, r);
     }
     for (const t of opts.torches ?? []) this.look(now, t.tx, t.ty, TORCH_RADIUS);
-    let changed = false;
     for (let i = 0; i < now.length; i++) {
       const next = now[i] === VISIBLE ? VISIBLE : this.state[i] === UNSEEN ? UNSEEN : SEEN;
       if (next !== this.state[i]) {
         this.state[i] = next;
-        this.tiles[i] = TILE_OF[next];
-        changed = true;
+        if (this.entity.alive) this.entity.tilemap.setTile(i % this.width, Math.floor(i / this.width), TILE_OF[next]);
       }
     }
-    if (changed && this.entity.alive) this.entity.set("Tilemap", { tiles: this.tiles });
   }
 
   /** Shows the whole mine as seen (a debug aid and a test helper). */
   revealAll() {
     this.state.fill(SEEN);
-    this.tiles.fill(TILE_OF[SEEN]);
     this.dirty = true;
-    if (this.entity.alive) this.entity.set("Tilemap", { tiles: this.tiles });
+    if (!this.entity.alive) return;
+    const tilemap = this.entity.tilemap;
+    for (let i = 0; i < this.state.length; i++) tilemap.setTile(i % this.width, Math.floor(i / this.width), TILE_OF[SEEN]);
   }
 
   dispose() {

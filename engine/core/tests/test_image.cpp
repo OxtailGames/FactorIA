@@ -325,3 +325,26 @@ TEST_CASE("color simulation: an image is converted in place and None leaves it a
     CHECK(copy.rgba != img.rgba);
     CHECK(copy.rgba[3] == 255);
 }
+
+TEST_CASE("cover_image: the middle part with the target's aspect ratio is cut out, nothing is distorted") {
+    // 8 x 4: left half red, right half blue.
+    Image wide = solid(8, 4, 255, 0, 0, 255);
+    for (int y = 0; y < 4; ++y)
+        for (int x = 4; x < 8; ++x) put(wide, x, y, 0, 0, 255, 255);
+    // Into a square: the middle 4 x 4 (columns 2..5) is two red and two blue columns.
+    Image sq = cover_image(wide, 4, 4);
+    REQUIRE(sq.width == 4);
+    REQUIRE(sq.height == 4);
+    CHECK(px(sq, 0, 1) == std::array<int, 4>{255, 0, 0, 255});
+    CHECK(px(sq, 1, 1) == std::array<int, 4>{255, 0, 0, 255});
+    CHECK(px(sq, 2, 1) == std::array<int, 4>{0, 0, 255, 255});
+    CHECK(px(sq, 3, 1) == std::array<int, 4>{0, 0, 255, 255});
+    // The same aspect ratio is a plain resize; a tall target cuts the rows instead.
+    CHECK(cover_image(wide, 4, 2).width == 4);
+    Image tall = cover_image(solid(4, 8, 9, 8, 7, 255), 2, 2);
+    CHECK(tall.width == 2);
+    CHECK(px(tall, 1, 1) == std::array<int, 4>{9, 8, 7, 255});
+    // Bad sizes and an empty image give an empty image.
+    CHECK(cover_image(wide, 0, 4).empty());
+    CHECK(cover_image(Image{}, 4, 4).empty());
+}

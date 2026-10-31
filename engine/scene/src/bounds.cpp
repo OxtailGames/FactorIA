@@ -1,8 +1,12 @@
 #include "fa/scene/bounds.h"
+#include "fa/scene/bones2d.h"
+#include "fa/scene/sprite_animator.h"
 
 #include <algorithm>
 #include <cmath>
 
+#include "fa/core/utf8.h"
+#include "fa/scene/rich_text.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
 
@@ -30,7 +34,84 @@ VisualFootprint make(const char* component, RenderSpace space, std::int32_t laye
 
 }  // namespace
 
-Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth) {
+Mat4 sprite_shear_matrix(Vec2 skew) {
+    Mat4 m = Mat4::identity();
+    const float tx = std::tan(radians(std::clamp(std::isfinite(skew.x) ? skew.x : 0.0f, -80.0f, 80.0f)));
+    const float ty = std::tan(radians(std::clamp(std::isfinite(skew.y) ? skew.y : 0.0f, -80.0f, 80.0f)));
+    m.at(1, 0) = tx;  // column 1 (the y axis) gets an x part
+    m.at(0, 1) = ty;  // column 0 (the x axis) gets a y part
+    return m;
+}
+
+Vec2 sprite_shear_point(Vec2 p, Vec2 skew) {
+    if (skew.x == 0.0f && skew.y == 0.0f) return p;
+    const float tx = std::tan(radians(std::clamp(std::isfinite(skew.x) ? skew.x : 0.0f, -80.0f, 80.0f)));
+    const float ty = std::tan(radians(std::clamp(std::isfinite(skew.y) ? skew.y : 0.0f, -80.0f, 80.0f)));
+    return {p.x + p.y * tx, p.y + p.x * ty};
+}
+
+bool sprite_mesh_grid(const Sprite& s, int& columns, int& rows) {
+    columns = std::clamp(s.meshColumns, 0, kMaxSpriteMeshSide);
+    rows = std::clamp(s.meshRows, 0, kMaxSpriteMeshSide);
+    return columns > 0 && rows > 0 && columns * rows <= kMaxSpriteMeshCells;
+}
+
+std::vector<float> sprite_vertex_offsets(const Sprite& s, int columns, int rows) {
+    std::vector<float> out;
+    if (!s.vertexOffsets.is_array() || s.vertexOffsets.empty()) return out;
+    out.assign(std::size_t(columns + 1) * std::size_t(rows + 1) * 2, 0.0f);
+    std::size_t i = 0;
+    for (const Json& v : s.vertexOffsets) {
+        if (i >= out.size()) break;
+        if (v.is_number()) {
+            const float f = float(v.get<double>());
+            out[i] = std::isfinite(f) ? f : 0.0f;
+        }
+        ++i;
+    }
+    return out;
+}
+
+std::string sprite_vertex_colors_problem(const Sprite& s) {
+    if (s.vertexColors.is_null() || (s.vertexColors.is_array() && s.vertexColors.empty())) return {};
+    if (!s.vertexColors.is_array())
+        return "Sprite.vertexColors must be an array of numbers [r, g, b, a, ...], one RGBA per grid vertex, got " +
+               std::string(s.vertexColors.type_name()) + ". Example for a 2 x 1 grid: [1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1, 1,1,1,1, 0.6,0.6,0.6,1, 1,1,1,1]";
+    int columns = 0, rows = 0;
+    if (!sprite_mesh_grid(s, columns, rows))
+        return "Sprite.vertexColors is set but the sprite is not deformable (meshColumns " + std::to_string(s.meshColumns) + ", meshRows " +
+               std::to_string(s.meshRows) + "). Set meshColumns and meshRows above 0 (e.g. 16 and 1 for a page), or clear vertexColors";
+    const std::size_t need = std::size_t(columns + 1) * std::size_t(rows + 1) * 4;
+    if (s.vertexColors.size() == need) return {};
+    return "Sprite.vertexColors has " + std::to_string(s.vertexColors.size()) + " numbers but the " + std::to_string(columns) + " x " +
+           std::to_string(rows) + " grid (meshColumns x meshRows) has " + std::to_string((columns + 1) * (rows + 1)) + " vertices and needs " +
+           std::to_string(need) + " (4 per vertex: r, g, b, a, row by row from the top row, left to right). Write exactly " +
+           std::to_string(need) + " numbers, or change meshColumns / meshRows to match";
+}
+
+std::vector<float> sprite_vertex_colors(const Sprite& s, int columns, int rows) {
+    std::vector<float> out;
+    if (!s.vertexColors.is_array() || s.vertexColors.empty()) return out;
+    const std::size_t need = std::size_t(columns + 1) * std::size_t(rows + 1) * 4;
+    if (s.vertexColors.size() != need) return out;
+    out.reserve(need);
+    for (const Json& v : s.vertexColors) {
+        float f = v.is_number() ? float(v.get<double>()) : 1.0f;
+        out.push_back(std::isfinite(f) ? f : 1.0f);
+    }
+    return out;
+}
+
+Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth, bool markup) {
+    if (markup) {  // the visible characters: tags take no room, an icon is two characters (1.2 em: as tall as the line)
+        const MarkupText m = parse_markup(utf8_decode(text));
+        std::string visible;
+        for (std::size_t i = 0; i < m.text.size(); ++i) {
+            if (m.attrs[i].icon >= 0) visible += "ii";
+            else utf8_append(visible, m.text[i]);
+        }
+        return approx_text_size(visible, fontSize, maxWidth, false);
+    }
     float lineW = 0, maxLine = 0;
     int lines = 1;
     for (char c : text) {
@@ -57,14 +138,18 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
 
     if (const Tilemap* tm = W.get<Tilemap>(e)) {
         const TilemapSize size = tilemap_size(*tm);
-        // What the renderer draws: local x right, y DOWN from the top-left corner.
-        if (!size.empty() && tm->tileSize.x > 0 && tm->tileSize.y > 0)
-            out.push_back(make("Tilemap", RenderSpace::World, tm->layer, Vec2{0, 0}, false,
-                               rect_quad(0.0f, -static_cast<float>(size.height) * tm->tileSize.y,
-                                         static_cast<float>(size.width) * tm->tileSize.x, 0.0f)));
+        // What the renderer draws: local x right, y DOWN from the top-left corner (an isometric map: the box of its diamonds).
+        if (!size.empty() && tm->tileSize.x > 0 && tm->tileSize.y > 0) {
+            const Rect b = tilemap_local_bounds(*tm, size);
+            out.push_back(make("Tilemap", RenderSpace::World, tm->layer, Vec2{0, 0}, false, rect_quad(b.x, b.y, b.x + b.w, b.y + b.h)));
+        }
     }
 
     if (const Sprite* s = W.get<Sprite>(e); s && (includeScreenSpace || s->space == RenderSpace::World)) {
+        const SpriteAnimator* animator = W.get<SpriteAnimator>(e);
+        SpriteAnimPlan plan;
+        if (animator) plan = sprite_animator_plan(*animator, s->texture);
+        const Vec2 pivot = animator ? sprite_effective_pivot(*s, *animator, plan) : s->pivot;
         Vec2 size = s->size;
         if (size.x <= 0 || size.y <= 0) {  // 0 = the region, else the whole texture; 32 for a plain colour quad
             Vec2 base{32.0f, 32.0f};
@@ -73,21 +158,54 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
                     base = {s->region.w, s->region.h};
                 } else {
                     if (measure.textureSize) base = measure.textureSize(s->texture);
-                    if (const SpriteAnimator* a = W.get<SpriteAnimator>(e))  // the renderer sets the region to one frame of the sheet
-                        base = {base.x / static_cast<float>(std::max(1, a->columns)), base.y / static_cast<float>(std::max(1, a->rows))};
+                    if (animator) {  // the renderer sets the region to one frame of the sheet
+                        const Rect cell = sprite_frame_rect(plan, 0, int(base.x), int(base.y));
+                        base = {cell.w, cell.h};
+                    }
                 }
             }
             size = {size.x > 0 ? size.x : base.x, size.y > 0 ? size.y : base.y};
         }
-        out.push_back(make("Sprite", s->space, s->layer, s->anchor, s->safeArea,
-                           rect_quad(-s->pivot.x * size.x, -s->pivot.y * size.y, (1.0f - s->pivot.x) * size.x,
-                                     (1.0f - s->pivot.y) * size.y)));
+        const float x0 = -pivot.x * size.x, y0 = -pivot.y * size.y, x1 = (1.0f - pivot.x) * size.x, y1 = (1.0f - pivot.y) * size.y;
+        std::array<Vec2, 4> box = rect_quad(x0, y0, x1, y1);
+        int cols = 0, rows = 0;
+        const std::vector<float> offsets = sprite_mesh_grid(*s, cols, rows) ? sprite_vertex_offsets(*s, cols, rows) : std::vector<float>();
+        SkinMesh skinMesh;
+        const bool skinned = W.has<SpriteSkin>(e) && build_skin_mesh(W, e, *s, SkinBox{x0, y0, x1, y1}, skinMesh, nullptr) && !skinMesh.position.empty();
+        if (skinned) {  // a skinned sprite: the rectangle around its bone-driven, sheared vertices
+            float lox = 1e30f, loy = 1e30f, hix = -1e30f, hiy = -1e30f;
+            for (const Vec2& v : skinMesh.position) {
+                const Vec2 p = sprite_shear_point(v, s->skew);
+                lox = std::min(lox, p.x); hix = std::max(hix, p.x);
+                loy = std::min(loy, p.y); hiy = std::max(hiy, p.y);
+            }
+            box = rect_quad(lox, loy, hix, hiy);
+        } else if (!offsets.empty()) {  // a deformed grid: the rectangle around its moved, sheared vertices
+            float lox = 1e30f, loy = 1e30f, hix = -1e30f, hiy = -1e30f;
+            for (int j = 0; j <= rows; ++j)
+                for (int i = 0; i <= cols; ++i) {
+                    const std::size_t k = (std::size_t(j) * std::size_t(cols + 1) + std::size_t(i)) * 2;
+                    const Vec2 p = sprite_shear_point({x0 + (x1 - x0) * float(i) / float(cols) + offsets[k],
+                                                       y1 + (y0 - y1) * float(j) / float(rows) + offsets[k + 1]}, s->skew);
+                    lox = std::min(lox, p.x); hix = std::max(hix, p.x);
+                    loy = std::min(loy, p.y); hiy = std::max(hiy, p.y);
+                }
+            box = rect_quad(lox, loy, hix, hiy);
+        } else if (s->skew.x != 0.0f || s->skew.y != 0.0f) {
+            for (Vec2& c : box) c = sprite_shear_point(c, s->skew);
+        }
+        out.push_back(make("Sprite", s->space, s->layer, s->anchor, s->safeArea, box));
     }
 
     if (const Shape2D* s = W.get<Shape2D>(e); s && (includeScreenSpace || s->space == RenderSpace::World)) {
         const float bx0 = -s->pivot.x * s->size.x, by0 = -s->pivot.y * s->size.y;
         switch (s->shape) {
-            case ShapeType::Rectangle:
+            case ShapeType::Rectangle: {  // a soft edge reaches softness / 2 beyond the box
+                const float g = std::max(s->softness, 0.0f) * 0.5f;
+                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea,
+                                   rect_quad(bx0 - g, by0 - g, bx0 + s->size.x + g, by0 + s->size.y + g)));
+                break;
+            }
             case ShapeType::Triangle:
             case ShapeType::Polygon:  // a polygon's or star's vertices lie inside the size box; the box is its footprint
             case ShapeType::Star:
@@ -101,8 +219,9 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
                 break;
             }
             case ShapeType::Circle: {  // size.x is the diameter and the pivot refers to the circle's bounding square
-                const float cy0 = -s->pivot.y * s->size.x;
-                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea, rect_quad(bx0, cy0, bx0 + s->size.x, cy0 + s->size.x)));
+                const float cy0 = -s->pivot.y * s->size.x, g = std::max(s->softness, 0.0f) * 0.5f;
+                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea,
+                                   rect_quad(bx0 - g, cy0 - g, bx0 + s->size.x + g, cy0 + s->size.x + g)));
                 break;
             }
             case ShapeType::Line: {  // from the origin to `size`, as thick as the stroke
@@ -120,7 +239,12 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
 
     if (const Text* t = W.get<Text>(e);
         t && (includeScreenSpace || t->space == RenderSpace::World) && !t->text.empty() && t->fontSize > 0.0f) {
-        const Vec2 size = measure.textSize ? measure.textSize(*t) : approx_text_size(*t, measure.textScale);
+        Vec2 size = measure.textSize ? measure.textSize(*t) : approx_text_size(*t, measure.textScale);
+        // A centred or right-aligned Text with a maxWidth is drawn in a box of that width (the renderer aligns inside it), so
+        // that is the box layout and ui.state must see: a short note aligned to the end of a wrap box stays in its rectangle.
+        const bool startIsRight = text_starts_right(*t, W.rtl());
+        const bool left = t->align == Align::Left || (t->align == Align::Start && !startIsRight) || (t->align == Align::End && startIsRight);
+        if (t->maxWidth > 0.0f && !left) size.x = std::max(size.x, t->maxWidth);
         out.push_back(make("Text", t->space, t->layer, t->anchor, t->safeArea,
                            rect_quad(-t->pivot.x * size.x, -t->pivot.y * size.y, (1.0f - t->pivot.x) * size.x,
                                      (1.0f - t->pivot.y) * size.y)));
@@ -130,6 +254,14 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
         out.push_back(make(ui_kind_name(ui_kind(W, e)), RenderSpace::Screen, b->layer, b->anchor, b->safeArea,
                            rect_quad(-b->pivot.x * b->size.x, -b->pivot.y * b->size.y, (1.0f - b->pivot.x) * b->size.x,
                                      (1.0f - b->pivot.y) * b->size.y)));
+    if (includeScreenSpace && ui_mirrored(W, e))  // the mirror image of what is drawn in screen space: x flips about the origin
+        for (VisualFootprint& v : out) {
+            if (v.space != RenderSpace::Screen) continue;
+            v.mirrored = true;
+            v.anchor.x = 1.0f - v.anchor.x;
+            for (Vec2& p : v.box) p.x = -p.x;
+            for (Vec2& p : v.hull) p.x = -p.x;
+        }
     return out;
 }
 
@@ -164,6 +296,26 @@ std::optional<Rect> entity_world_rect(const World& W, Entity e, const VisualMeas
     }
     if (!any) return std::nullopt;
     return Rect{x0, y0, x1 - x0, y1 - y0};
+}
+
+Mat4 footprint_matrix(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize) {
+    Mat4 m = part.space == RenderSpace::Screen ? w.world_matrix(e) : visual_world_matrix(w, e);  // world parts: moved by Parallax
+    if (part.space == RenderSpace::Screen) {
+        const float k = ui_scale_clamped(w.ui_scale());
+        m = Mat4::scale({k, k, 1.0f}) * m;
+        if (part.mirrored) m.at(3, 0) = -m.at(3, 0);  // a mirrored part: its box and anchor are flipped already
+        const Vec2 a = anchor_point(part.anchor, part.safeArea, designSize, w.safe_insets());
+        m.at(3, 0) += a.x;
+        m.at(3, 1) += a.y;
+    }
+    return m;
+}
+
+bool footprint_hit(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize, Vec2 point) {
+    const Mat4 m = footprint_matrix(w, e, part, designSize);
+    // Into the part's local space (y up): rotation and scale of the entity are undone, so the box is the oriented one.
+    const Vec3 p = m.inverse().transform_point({point.x, point.y, 0.0f});
+    return point_in_quad({p.x, part.space == RenderSpace::Screen ? -p.y : p.y}, part.box);
 }
 
 bool point_in_quad(Vec2 p, const std::array<Vec2, 4>& q) {

@@ -28,7 +28,23 @@ struct DetectOptions {
 };
 
 std::vector<ProviderStatus> detect_providers(const AiConfig& cfg, const DetectOptions& options = {});
-// Text report for the terminal.
-std::string format_doctor_report(const AiConfig& cfg, const std::vector<ProviderStatus>& status);
+
+// One external tool server (ai.json "mcpServers") as `factoria ai doctor`, ai.tool_servers and the editor show it. Never holds a key.
+struct ToolServerStatus {
+    std::string name;
+    std::string type;                  // "http" | "stdio"
+    std::string target;                // the URL without its query string, or the program
+    bool enabled = true;
+    std::vector<std::string> roles;    // the roles that get it (defaults filled in)
+    bool usesKey = false;              // the server's headers/args/env use {key}
+    std::string keySource;             // "env:SCENARIO_API_KEY" | "config" | "" (none found, or no key used)
+    std::string problem;               // what stops the server from being used ("" = ready): a missing key or variable
+    Json to_json() const;
+};
+std::vector<ToolServerStatus> tool_server_statuses(const AiConfig& cfg, const EnvLookup& env = system_env());
+
+// Text report for the terminal. `env` is where the tool servers' keys are looked up.
+std::string format_doctor_report(const AiConfig& cfg, const std::vector<ProviderStatus>& status,
+                                 const EnvLookup& env = system_env());
 
 }  // namespace fa::ai

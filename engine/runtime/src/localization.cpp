@@ -56,6 +56,7 @@ void Engine::Impl::reload_localization() {
 
 void Engine::Impl::apply_localization() {
     world.set_rtl(i18n.rtl());
+    world.set_language(i18n.language());
     localize_world(world, i18n);
     // The captions follow the language too, and end with their sound (or seconds): the Captions components get the lines to draw.
     // Called every frame before drawing, after a scene load and on a language change, so game.captions() is always current.

@@ -1,0 +1,15 @@
+{
+  "$comment": "Goods the economy moves. Money is not a good (it is `coins`). icon = atlas frame; basePrice = coins a unit sells for at normal demand (seasons.json demand multiplies it; P3 moves prices around it); hud = shown in the top bar; nutrition > 0 = villagers eat it: the market stocks and sells exactly the goods that have a nutrition, and a villager's hunger drops by it per unit bought. The name is the locale string good.<id>.",
+  "format": "tidewater.goods/2",
+  "goods": {
+    "fish":        { "icon": "icon.fish",        "basePrice": 9,  "category": "food",     "hud": true,  "nutrition": 1 },
+    "grain":       { "icon": "icon.grain",       "basePrice": 4,  "category": "food",     "hud": true },
+    "wood":        { "icon": "icon.wood",        "basePrice": 5,  "category": "material", "hud": true },
+    "stone":       { "icon": "icon.stone",       "basePrice": 7,  "category": "material", "hud": true },
+    "planks":      { "icon": "icon.planks",      "basePrice": 12, "category": "material", "hud": true },
+    "bread":       { "icon": "icon.bread",       "basePrice": 14, "category": "food",     "hud": true,  "nutrition": 1.6 },
+    "tools":       { "icon": "icon.tools",       "basePrice": 24, "category": "goods",    "hud": false },
+    "flour":       { "icon": "icon.flour",       "basePrice": 6,  "category": "food",     "hud": false },
+    "smoked_fish": { "icon": "icon.smoked_fish", "basePrice": 18, "category": "food",     "hud": false, "nutrition": 2 }
+  }
+}

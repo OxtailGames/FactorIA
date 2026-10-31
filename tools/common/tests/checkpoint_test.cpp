@@ -111,6 +111,34 @@ TEST_CASE("checkpoint: restore puts files back, removes added ones and makes a s
     CHECK_FALSE(stdfs::exists(p.dir.path / "scenes/main.scene.json"));
 }
 
+TEST_CASE("checkpoint: restore with `only` touches just those files") {
+    Project p;
+    auto cp = p.make("before run A");
+    REQUIRE(cp.ok());
+    // Run A changed the script and added a file; run B (at the same time) changed the scene, deleted a picture and added one.
+    write_all(p.dir.path / "scripts/player.js", "let a = 2;\n");
+    write_all(p.dir.path / "scripts/a_new.js", "a\n");
+    write_all(p.dir.path / "scenes/main.scene.json", "{\"b\":1}\n");
+    write_all(p.dir.path / "scripts/b_new.js", "b\n");
+    stdfs::remove(p.dir.path / "assets/hero.png");
+
+    auto r = checkpoint_restore(p.dir.str(), cp.value().info.id,
+                                std::vector<std::string>{"scripts/player.js", "scripts/a_new.js", "does/not/differ.js"});
+    REQUIRE(r.ok());
+    CHECK(r.value().changes.modified == std::vector<std::string>{"scripts/player.js"});
+    CHECK(r.value().changes.added == std::vector<std::string>{"scripts/a_new.js"});
+    CHECK(r.value().changes.deleted.empty());
+    CHECK(read_all(p.dir.path / "scripts/player.js") == "let a = 1;\n");
+    CHECK_FALSE(stdfs::exists(p.dir.path / "scripts/a_new.js"));
+    CHECK(read_all(p.dir.path / "scenes/main.scene.json") == "{\"b\":1}\n");  // run B's files stay
+    CHECK(stdfs::exists(p.dir.path / "scripts/b_new.js"));
+    CHECK_FALSE(stdfs::exists(p.dir.path / "assets/hero.png"));
+    // The safety checkpoint still holds the whole project as it was: restoring it brings run A's files back.
+    REQUIRE(checkpoint_restore(p.dir.str(), r.value().safetyId).ok());
+    CHECK(read_all(p.dir.path / "scripts/player.js") == "let a = 2;\n");
+    CHECK(stdfs::exists(p.dir.path / "scripts/a_new.js"));
+}
+
 TEST_CASE("checkpoint: unchanged content is stored once") {
     Project p;
     auto a = p.make();
@@ -209,7 +237,7 @@ TEST_CASE("checkpoint: the commands") {
     Project p;
     CommandRegistry reg;
     register_tooling_commands(reg, p.dir.str());
-    for (const char* name : {"checkpoint.create", "checkpoint.list", "checkpoint.diff", "checkpoint.restore"}) {
+    for (const char* name : {"checkpoint.create", "checkpoint.list", "checkpoint.diff", "checkpoint.read", "checkpoint.restore"}) {
         REQUIRE(reg.has(name));
         CHECK(reg.info(name)->description.size() > 40);
     }
@@ -228,4 +256,71 @@ TEST_CASE("checkpoint: the commands") {
     auto bad = reg.call("checkpoint.restore", Json::object({{"id", "zzz"}}));
     CHECK_FALSE(bad.ok);
     CHECK_FALSE(bad.error["hint"].get<std::string>().empty());
+}
+
+TEST_CASE("checkpoint.read: text inline, binary as base64 or into a file, errors that teach") {
+    Project p;
+    CommandRegistry reg;
+    register_tooling_commands(reg, p.dir.str());
+    const std::string id = reg.call("checkpoint.create", Json::object({{"label", "r"}})).result["id"];
+    write_all(p.dir.path / "scripts/player.js", "changed\n");
+    stdfs::remove(p.dir.path / "assets/hero.png");
+
+    auto t = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "scripts/player.js"}}));
+    REQUIRE(t.ok);
+    CHECK(t.result["text"] == "let a = 1;\n");
+    CHECK(t.result["binary"] == false);
+    CHECK(read_all(p.dir.path / "scripts/player.js") == "changed\n");  // read restores nothing
+
+    auto b = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "assets/hero.png"}}));
+    REQUIRE(b.ok);
+    CHECK(b.result["binary"] == true);
+    CHECK(b.result["size"] == 7);
+    CHECK(b.result["base64"] == "iVBORwABAg==");
+    CHECK_FALSE(stdfs::exists(p.dir.path / "assets/hero.png"));
+
+    auto o = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "assets/hero.png"}, {"out", "old/hero.png"}}));
+    REQUIRE(o.ok);
+    CHECK_FALSE(o.result.contains("base64"));
+    CHECK(read_all(p.dir.path / "old/hero.png") == std::string("\x89PNG\0\1\2", 7));
+
+    auto badOut = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "scripts/player.js"}, {"out", "../x"}}));
+    CHECK_FALSE(badOut.ok);
+    auto badPath = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "scripts/playr.js"}}));
+    REQUIRE_FALSE(badPath.ok);
+    CHECK(badPath.error["message"].get<std::string>().find("scripts/player.js") != std::string::npos);
+    auto badId = reg.call("checkpoint.read", Json::object({{"id", "zzz"}, {"path", "scripts/player.js"}}));
+    CHECK_FALSE(badId.ok);
+
+    write_all(p.dir.path / "big.txt", std::string(300 * 1024, 'a'));
+    const std::string id2 = reg.call("checkpoint.create").result["id"];
+    auto big = reg.call("checkpoint.read", Json::object({{"id", id2}, {"path", "big.txt"}}));
+    REQUIRE_FALSE(big.ok);
+    CHECK(big.error["hint"].get<std::string>().find("out") != std::string::npos);
+    CHECK(reg.call("checkpoint.read", Json::object({{"id", id2}, {"path", "big.txt"}, {"out", "copy.txt"}})).ok);
+    CHECK(read_all(p.dir.path / "copy.txt").size() == 300 * 1024);
+}
+
+TEST_CASE("checkpoint.restore with paths touches only the listed files") {
+    Project p;
+    CommandRegistry reg;
+    register_tooling_commands(reg, p.dir.str());
+    const std::string id = reg.call("checkpoint.create").result["id"];
+    write_all(p.dir.path / "scripts/player.js", "changed\n");
+    write_all(p.dir.path / "scenes/main.scene.json", "{\"x\":1}\n");
+    write_all(p.dir.path / "scripts/new.js", "n\n");
+
+    auto bad = reg.call("checkpoint.restore", Json::object({{"id", id}, {"paths", Json::array({"scripts/playr.js"})}}));
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("scripts/player.js") != std::string::npos);
+    CHECK(read_all(p.dir.path / "scripts/player.js") == "changed\n");  // nothing changed on error
+    CHECK(reg.call("checkpoint.list").result["checkpoints"].size() == 1);
+    CHECK_FALSE(reg.call("checkpoint.restore", Json::object({{"id", id}, {"paths", Json::array()}})).ok);
+
+    auto r = reg.call("checkpoint.restore", Json::object({{"id", id}, {"paths", Json::array({"scripts/player.js", "scripts/new.js"})}}));
+    REQUIRE(r.ok);
+    CHECK(read_all(p.dir.path / "scripts/player.js") == "let a = 1;\n");
+    CHECK_FALSE(stdfs::exists(p.dir.path / "scripts/new.js"));
+    CHECK(read_all(p.dir.path / "scenes/main.scene.json") == "{\"x\":1}\n");  // not listed: untouched
+    CHECK(r.result.contains("safetyCheckpointId"));
 }

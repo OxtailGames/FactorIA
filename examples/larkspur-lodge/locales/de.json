@@ -1,0 +1,889 @@
+{
+  "$name": "Deutsch",
+  "credits": {
+    "madeWith": "Entwickelt mit FactorIA",
+    "software": "Dieses Spiel verwendet folgende Software:",
+    "licenses": "Die vollständigen Lizenztexte stehen in FACTORIA_NOTICES.txt, die dem Spiel beiliegt."
+  },
+  "loading": {
+    "progress": "Lädt ... {percent} %"
+  },
+  "menu": {
+    "title": "Larkspur Lodge",
+    "play": "Spielen",
+    "options": "Optionen",
+    "credits": "Mitwirkende",
+    "shop": "Shop",
+    "quit": "Beenden",
+    "back": "Zurück",
+    "load": "Spiel laden",
+    "chapters": "Kapitel wählen"
+  },
+  "options": {
+    "title": "Optionen",
+    "tab": {
+      "video": "Bild",
+      "audio": "Ton",
+      "controls": "Steuerung",
+      "language": "Sprache",
+      "access": "Barrierefreiheit"
+    },
+    "windowMode": "Fenstermodus: {mode}",
+    "mode": {
+      "windowed": "Fenster",
+      "borderless": "rahmenlos",
+      "fullscreen": "Vollbild"
+    },
+    "monitor": "Monitor: {n} - {name}",
+    "vsync": "Vertikale Synchronisation",
+    "windowSize": "Fenstergröße: {width} x {height}",
+    "windowSizeFullscreen": "Fenstergröße: Vollbild",
+    "frameCap": "Bildrate: {fps} pro Sekunde",
+    "frameCapOff": "Bildrate: unbegrenzt",
+    "uiScale": "Oberflächengröße: {percent} %",
+    "colorFilter": "Farbfilter: {filter}",
+    "filter": {
+      "none": "aus",
+      "greyscale": "Graustufen",
+      "highContrast": "hoher Kontrast",
+      "protanopia": "Protanopie (Rot)",
+      "deuteranopia": "Deuteranopie (Grün)",
+      "tritanopia": "Tritanopie (Blau)"
+    },
+    "videoNote": "Die Bildeinstellungen gelten, wenn das Spiel in einem eigenen Fenster läuft.",
+    "volume": {
+      "master": "Gesamt",
+      "music": "Musik",
+      "effects": "Effekte",
+      "interface": "Oberfläche",
+      "ambience": "Umgebung",
+      "voiceover": "Stimmen"
+    },
+    "action": {
+      "move_forward": "Vorwärts",
+      "move_back": "Rückwärts",
+      "move_left": "Nach links",
+      "move_right": "Nach rechts",
+      "run": "Rennen",
+      "interact": "Benutzen / Sprechen / Nehmen",
+      "camera_left": "Kamera nach links drehen",
+      "camera_right": "Kamera nach rechts drehen",
+      "camera_up": "Kamera nach oben neigen",
+      "camera_down": "Kamera nach unten neigen",
+      "zoom_in": "Kamera heranzoomen",
+      "zoom_out": "Kamera wegzoomen",
+      "pause": "Pause",
+      "inventory": "Gegenstände öffnen",
+      "notebook": "Notizbuch öffnen",
+      "dialogue_log": "Gesprächsverlauf",
+      "skip_cutscene": "Zwischensequenz überspringen"
+    },
+    "binding": "{action}: {button}",
+    "player": "Spieler {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
+    "pressKey": "{action}: Taste oder Knopf drücken (Esc bricht ab)",
+    "resetControls": "Zurücksetzen",
+    "language": "Sprache: {language}",
+    "readAloud": "Menüs vorlesen",
+    "subtitles": "Untertitel",
+    "textSpeed": "Textgeschwindigkeit: {speed}",
+    "speed": {
+      "slow": "langsam",
+      "normal": "normal",
+      "fast": "schnell",
+      "instant": "sofort",
+      "custom": "eigene"
+    },
+    "privacyOptions": "Datenschutz bei Werbung",
+    "analytics": "Anonyme Nutzungsdaten teilen",
+    "on": "an",
+    "off": "aus",
+    "percent": "{value} Prozent",
+    "reducedMotion": "Weniger Bewegung",
+    "captionSpeakers": "Namen der Sprechenden zeigen",
+    "cameraSensitivity": "Kameraempfindlichkeit",
+    "cameraInvertX": "Kamera links/rechts umkehren",
+    "cameraInvertY": "Kamera oben/unten umkehren",
+    "textScale": "Textgröße: {percent} %",
+    "captionBg": "Untertitelhintergrund: {mode}",
+    "captionBgMode": {
+      "clear": "keiner",
+      "dark": "dunkel",
+      "solid": "schwarz"
+    },
+    "autoAdvance": "Dialog automatisch weiter: {mode}",
+    "autoAdvanceMode": {
+      "off": "aus",
+      "slow": "langsam",
+      "normal": "normal",
+      "fast": "schnell"
+    },
+    "glyphs": "Tastensymbole: {mode}",
+    "glyphsMode": {
+      "auto": "je nach letztem Gerät",
+      "keyboard": "Tastatur",
+      "gamepad": "Controller",
+      "touch": "Touchscreen"
+    }
+  },
+  "pause": {
+    "title": "Pause",
+    "resume": "Weiter",
+    "mainMenu": "Hauptmenü",
+    "save": "Spiel speichern",
+    "load": "Spiel laden"
+  },
+  "prompt": {
+    "format": "[{key}] {verb} {name}",
+    "click": "Klick",
+    "tap": "Tippen"
+  },
+  "interact": {
+    "verb": {
+      "open": "Öffnen:",
+      "enter": "Durchgehen:",
+      "climb": "Hinaufgehen:",
+      "descend": "Hinabgehen:",
+      "examine": "Ansehen:",
+      "take": "Durchsuchen:",
+      "talk": "Sprechen mit",
+      "read": "Lesen:",
+      "mend": "Hineinsehen:"
+    }
+  },
+  "area": {
+    "ground": "Das Erdgeschoss",
+    "upstairs": "Die Zimmer",
+    "cellar": "Der Keller",
+    "testRoom": "Der Testraum"
+  },
+  "door": {
+    "opened": "Du öffnest die Tür.",
+    "locked": "Sie ist abgeschlossen.",
+    "libraryLocked": "Die Bibliothekstür ist abgeschlossen. Der Schlüssel muss irgendwo im Haus sein.",
+    "frontLocked": "Draußen tobt der Sturm weiter. Heute Nacht geht niemand hinaus.",
+    "guestLocked": "Dieses Zimmer ist abgeschlossen.",
+    "testLocked": "Abgeschlossen. Der Testschlüssel liegt in der Kiste in der Ecke."
+  },
+  "object": {
+    "library_door": "die Bibliothekstür",
+    "cellar_door": "die Kellertür",
+    "front_door": "die Haustür",
+    "test_door": "die Schranktür",
+    "guest_door_a": "die Tür von Zimmer A",
+    "guest_door_b": "die Tür von Zimmer B",
+    "guest_door_c": "die Tür von Zimmer C",
+    "guest_door_d": "die Tür von Zimmer D",
+    "stairs_up": "die Treppe",
+    "stairs_down": "die Treppe",
+    "hall_bench": "die Bank",
+    "hall_bear": "der ausgestopfte Bär",
+    "reception": "der Empfangstresen",
+    "radio": "das Radio",
+    "library_desk": "der Schreibtisch",
+    "wine_rack": "die Weinregale",
+    "kitchen_box": "die Pappkiste",
+    "cellar_box": "die Pappkiste",
+    "cellar_lantern_box": "die Pappkiste",
+    "dining_box": "die Pappkiste",
+    "guest_box": "die Pappkiste",
+    "test_box": "die Pappkiste",
+    "fuse_box": "der Sicherungskasten",
+    "cartridge_box": "die Pappkiste"
+  },
+  "examine": {
+    "nothing": "Nichts Besonderes.",
+    "hallBench": "Eine Bank, um die schlammigen Stiefel auszuziehen. Seit Beginn des Sturms hat sich niemand darauf gesetzt.",
+    "hallBear": "Ein ausgestopfter Bär mit Glasaugen. Er scheint dir durch die Halle nachzusehen.",
+    "reception": "Das Gästebuch liegt aufgeschlagen da. Der letzte Eintrag ist vom Regen verwischt.",
+    "radio": "Nur Rauschen. Der Sturm hat das Signal verschluckt.",
+    "libraryDesk": "Ein aufgeräumter Schreibtisch. Eine Schublade steht offen und ist leer.",
+    "wineRack": "Verstaubte Flaschen, fast alle älter als der letzte Besitzer der Lodge."
+  },
+  "item": {
+    "taken": "Du nimmst: {name}.",
+    "library_key": {
+      "name": "Bibliotheksschlüssel",
+      "description": "Ein schwerer Messingschlüssel mit einem Anhänger: BIBLIOTHEK."
+    },
+    "room_c_key": {
+      "name": "Schlüssel zu Zimmer C",
+      "description": "Ein kleiner Silberschlüssel mit eingraviertem C."
+    },
+    "room_d_key": {
+      "name": "Schlüssel zu Zimmer D",
+      "description": "Ein Kupferschlüssel mit eingraviertem D."
+    },
+    "lamp_oil": {
+      "name": "Lampenöl",
+      "description": "Eine Flasche Lampenöl, noch halb voll."
+    },
+    "guest_ledger": {
+      "name": "Gästebuch",
+      "description": "Namen und Daten in sauberer Schrift. Eine Seite fehlt, herausgerissen.",
+      "read": "[b]Gästebuch, vor acht Wintern[/b]\nDrei Eisenbahnangestellte wohnten in jener Woche hier: Pell am 3. März, Rudd am 4. März, Kerr am 5. März.\nAm Rand, mit Bleistift: [c:#c8b890]Steine versetzt - Rudd[/c]."
+    },
+    "torn_letter": {
+      "name": "Zerrissener Brief",
+      "description": "Ein Brief in vier Streifen zerrissen. Die erste Zeile lautet: Trau dem Besitzer nicht.",
+      "read": "[b]Vier Streifen[/b], in der Reihenfolge, in der sie aus der Kiste kamen:\n[c:#c8b890]{strips}[/c]",
+      "readWhole": "[b]Der Brief, wieder zusammengesetzt[/b]\n[c:#c8b890]{strips}[/c]"
+    },
+    "cellar_lantern": {
+      "name": "Kellerlaterne",
+      "description": "Eine Handlaterne. Sie hat noch ein wenig Licht."
+    },
+    "test_key": {
+      "name": "Testschlüssel",
+      "description": "Ein Schlüssel, der nur den Testraum öffnet."
+    },
+    "fuse_wire": {
+      "name": "Schmelzdraht",
+      "description": "Eine kleine Rolle dünner Schmelzdraht, für eine Nacht wie diese in einer Schublade aufbewahrt."
+    },
+    "fuse_cartridge": {
+      "name": "Sicherungspatrone",
+      "description": "Eine Porzellanpatrone mit durchgebranntem Draht."
+    },
+    "fuse_mended": {
+      "name": "Reparierte Sicherung",
+      "description": "Die Patrone mit neuem Draht. Sie wird den Kellerstromkreis wieder halten."
+    },
+    "view": {
+      "hint": "Zum Drehen ziehen. Die Tasten + und -, Zwicken, R / V oder die Trigger zoomen."
+    }
+  },
+  "puzzle": {
+    "again": "Hier gibt es nichts mehr zu tun.",
+    "drawer": {
+      "title": "Die verschlossene Schublade",
+      "intro": "Die untere Schreibtischschublade ist mit einem Messingschloss mit vier Rädchen verschlossen. Jedes Rädchen zeigt eine Ziffer.",
+      "try": "Schloss ausprobieren",
+      "wrong": "Die Rädchen drehen sich, aber nichts gibt nach.",
+      "open": "Das Schloss springt mit einem Klick auf. In der Schublade: eine Rolle Schmelzdraht und eine Karte in Emils Handschrift.",
+      "done": "Die Schublade ist offen. Mehr ist nicht darin.",
+      "hint": "Vier Ziffern. Vielleicht ein Datum: Monat und Tag."
+    },
+    "timetable": {
+      "title": "Der Fahrplan der Bahn",
+      "intro": "Die Verbindungen des Passes hängen ungeordnet an der Wand. Bring sie in die Reihenfolge, in der sie fahren, die erste am Morgen oben.",
+      "notes": "Daneben angeheftete Notizen:",
+      "note1": "Der Postzug ist die erste Verbindung des Tages.",
+      "note2": "Die Milchwagen werden direkt vor den Güterwagen angehängt.",
+      "note3": "Die Bergpost fährt nach dem Güterzug.",
+      "check": "Reihenfolge prüfen",
+      "wrong": "Das kann nicht stimmen. Eine der Notizen passt nicht.",
+      "solved": "Der Fahrplan ist klar: Post, Milch, Güter, Bergpost.",
+      "done": "Du kennst die Reihenfolge der Verbindungen.",
+      "up": "Früher",
+      "down": "Später"
+    },
+    "service": {
+      "mail": "Postzug",
+      "milk": "Milchzug",
+      "goods": "Güterzug",
+      "coach": "Bergpost"
+    },
+    "letter": {
+      "title": "Der zerrissene Brief",
+      "intro": "Vier Streifen desselben Briefs. Wähle zwei Streifen und tausche sie, bis die Sätze der Reihe nach gelesen werden können.",
+      "solved": "Der Brief ist vollständig. Er wurde geschrieben, um Doktor Vale hierherzulocken.",
+      "done": "Der Brief ist schon wieder zusammengesetzt.",
+      "wrong": "Es liest sich noch nicht richtig.",
+      "noItem": "Du hast keinen zerrissenen Brief, den du zusammensetzen könntest.",
+      "strip1": "Trau dem Besitzer nicht, Doktor Vale.",
+      "strip2": "Vor acht Wintern versetzte Emil Lindqvist nachts die Grenzsteine,",
+      "strip3": "und was er in jener Woche vergrub, liegt unter Verschluss in seinem Schreibtisch, unter dem Datum, das er gewählt hat.",
+      "strip4": "Frag, wer im Haus war. Verbrenn dies. - Eine Freundin"
+    },
+    "fuse": {
+      "title": "Der Sicherungskasten im Keller",
+      "intro": "Der Kasten ist offen, seine Patrone fehlt. Darunter warten vier Schalter, jeder mit einer Verbindung des Passes beschriftet.",
+      "fit": "Sicherung einsetzen",
+      "noFuse": "Du hast keine funktionierende Sicherung zum Einsetzen.",
+      "fitted": "Die reparierte Sicherung rastet mit einem Klick ein. Die Schalter warten.",
+      "needFuse": "Setze zuerst eine Sicherung ein.",
+      "thrown": "Schalter umgelegt.",
+      "trip": "Die Schalter springen mit einem Knall alle zurück. Fang von vorn an.",
+      "fixed": "Das Licht geht an, und weit oben lässt der Wind nach.",
+      "noPower": "Das Licht brennt. Hier unten gibt es nichts zu reparieren.",
+      "status": "Sicherung: {state}",
+      "stateMissing": "fehlt",
+      "stateFitted": "eingesetzt",
+      "done": "Die Lodge hat wieder Strom."
+    }
+  },
+  "combo": {
+    "fuse_mended": "Du wickelst den Draht um die Patrone. Es ist wieder eine Sicherung.",
+    "refuse": "Diese beiden passen nicht zusammen.",
+    "pick": "Wähle den Gegenstand, den du mit {name} kombinieren willst."
+  },
+  "screens": {
+    "items": "Gegenstände",
+    "notebook": "Notizbuch",
+    "board": "Tafel",
+    "close": "Schließen",
+    "hudItems": "Gegenstände  [I]",
+    "hudNotebook": "Notizbuch  [N]",
+    "empty": "Du trägst noch nichts bei dir.",
+    "noClues": "Noch keine Hinweise. Sprich mit den Leuten im Haus und sieh dich um.",
+    "combine": "Kombinieren",
+    "cancel": "Abbrechen",
+    "pieceTogether": "Zusammensetzen",
+    "useOnBoard": "Auf der Tafel wählen",
+    "undo": "Rückgängig",
+    "redo": "Wiederholen",
+    "hintItems": "Tab oder die oberen Tasten: nächste Seite.   Esc oder B: schließen.",
+    "hintBoard": "Wähle zwei Hinweise, um sie zu verknüpfen.   Z: rückgängig   Y: wiederholen   Esc oder B: schließen.",
+    "kindKey": "Schlüssel",
+    "kindClue": "Hinweis",
+    "kindTool": "Werkzeug",
+    "deductions": "Schlussfolgerungen",
+    "clues": "Hinweise",
+    "hintJournal": "Tab, Bild auf / Bild ab oder die oberen Tasten: Seite wechseln.   Esc oder B: schließen.",
+    "hintPuzzle": "Esc oder B: zurück.",
+    "itemDetail": "{kind}",
+    "try": "Versuchen",
+    "state": "Zustand"
+  },
+  "board": {
+    "picked": "Gewählt: {name}. Wähle einen zweiten Hinweis, um sie zu verknüpfen.",
+    "made": "Schlussfolgerung gezogen: {name}.",
+    "nothing": "Diese beiden führen noch zu nichts.",
+    "already": "Diese beiden hast du schon verknüpft.",
+    "same": "Wähle einen anderen Hinweis.",
+    "undone": "Rückgängig gemacht: {name}.",
+    "redone": "Wiederhergestellt: {name}.",
+    "cannotRedo": "Die Hinweise dieser Schlussfolgerung sind nicht mehr bekannt."
+  },
+  "notebook": {
+    "clue": {
+      "oil": {
+        "title": "Laterne und Öl",
+        "text": "Doktor Vale hat eine Laterne und Lampenöl mit in den Keller genommen."
+      },
+      "cellar": {
+        "title": "Der längere Keller",
+        "text": "Der Keller reicht über seine Regale hinaus."
+      },
+      "page": {
+        "title": "Die fehlende Seite",
+        "text": "Doktor Vale kam wegen einer fehlenden Seite des Lageplans."
+      },
+      "argument": {
+        "title": "Streit beim Abendessen",
+        "text": "Mara und Doktor Vale haben sich beim Abendessen gestritten."
+      },
+      "survey": {
+        "title": "Die Grenzsteine",
+        "text": "Im Plan geht es um die Grenzsteine, und Seite vierzig ist der Beweis."
+      },
+      "hedda": {
+        "title": "Heddas Brief",
+        "text": "Hedda gibt zu, den zerrissenen Brief geschrieben zu haben."
+      },
+      "adit": {
+        "title": "Der Stollen",
+        "text": "Hauptmann Haas gibt zu, dass hinter dem dritten Weinregal ein Stollen liegt."
+      },
+      "ledger": {
+        "title": "Gästebuch",
+        "text": "Drei Eisenbahnangestellte wohnten vor acht Wintern hier: Pell am 3. März, Rudd am 4. März, Kerr am 5. März. Am Rand steht: Steine versetzt - Rudd."
+      },
+      "letter": {
+        "title": "Zerrissener Brief",
+        "text": "Ein in vier Streifen zerrissener Brief aus Zimmer B."
+      },
+      "letter_whole": {
+        "title": "Der ganze Brief",
+        "text": "Emil hat nachts die Grenzsteine versetzt, und was er vergrub, liegt unter Verschluss in seinem Schreibtisch, unter dem Datum, das er gewählt hat."
+      },
+      "timetable": {
+        "title": "Reihenfolge der Verbindungen",
+        "text": "Post, Milch, Güter, Bergpost."
+      },
+      "card": {
+        "title": "Karte am Sicherungskasten",
+        "text": "Leg die Schalter in der Reihenfolge der Verbindungen des Tages um, von der ersten bis zur letzten."
+      },
+      "power": {
+        "title": "Stromausfall",
+        "text": "Das Licht ist ausgegangen. Der Sicherungskasten im Keller braucht eine reparierte Sicherung."
+      }
+    },
+    "ded": {
+      "d_date": {
+        "title": "Das Datum, das er gewählt hat",
+        "text": "Rudds Nacht war der 4. März. Der Code der Schublade ist 0403."
+      },
+      "d_order": {
+        "title": "Reihenfolge der Schalter",
+        "text": "Leg die Schalter in dieser Reihenfolge um: Post, Milch, Güter, Bergpost."
+      },
+      "d_trail": {
+        "title": "Wohin Vale ging",
+        "text": "Doktor Vale hat Licht und Öl in den längeren Keller getragen."
+      },
+      "d_motive": {
+        "title": "Warum Vale kam",
+        "text": "Vale kam wegen der fehlenden Seite, und Mara hat sich deshalb mit ihm gestritten."
+      },
+      "d_author": {
+        "title": "Wer ihn schrieb",
+        "text": "Hedda hat den Brief geschrieben, der Doktor Vale in die Lodge gelockt hat."
+      },
+      "d_adit": {
+        "title": "Der Weg nach unten",
+        "text": "Durch den Stollen hinter dem dritten Weinregal ging Vale."
+      },
+      "d_truth": {
+        "title": "Die Wahrheit der Sache",
+        "text": "Die Steine wurden versetzt, die Seite beweist es, und im Haus wusste man davon."
+      }
+    },
+    "new": "Neuer Hinweis: {name}"
+  },
+  "cutscene": {
+    "intro": {
+      "line01": "Larkspur Lodge. Elf Uhr nachts, und der Sturm hat den Weg, das Telefon und fast alle gute Laune davongetragen.",
+      "line02": "Mach die Tür zu, Portier, sonst kommt uns der ganze Berg ins Haus.",
+      "line03": "Der Pass ist bis zum Morgen gesperrt. Niemand kommt, niemand geht.",
+      "line04": "Du hast die Schlüssel, den Ofen und ein Haus voller Fremder bis zum Morgengrauen."
+    },
+    "chapter_2": {
+      "card1": "Mitternacht",
+      "line01": "Das Abendessen wurde auf dem langen Tisch kalt. Doktor Vales Stuhl stand noch zurückgeschoben da, als wollte er bald wiederkommen."
+    },
+    "chapter_3": {
+      "card1": "Ein Uhr nachts",
+      "line01": "Eine verschlossene Tür auf dem oberen Treppenabsatz und ein Haus, das nicht mehr so tut, als schliefe es."
+    },
+    "chapter_4": {
+      "card1": "Drei Uhr nachts",
+      "line01": "Der Wind fand einen Ton, der ihm gefiel, und ließ ihn nicht mehr los. Unter der Küche wartete der alte Weg hinter dem Wein."
+    },
+    "chapter_5": {
+      "card1": "Morgengrauen",
+      "line01": "Der Wind fällt auf einmal, wie ein Atem, der ausgelassen wird. Die Fenster werden von Schwarz zu Grau.",
+      "line02": "Ist es still, oder bin ich in diesem Loch taub geworden?",
+      "line03": "Es ist still, Ansel. Setz dich. Du hast uns viel zu erzählen."
+    },
+    "adit_descent": {
+      "line01": "Das dritte Regal dreht sich auf einem Scharnier, das seit dreißig Jahren niemand geölt hat. Stemm die Schulter dagegen.",
+      "line02": "Das Regal schwingt mit einem Laut wie ein langer Seufzer nach innen auf, und die Laterne beleuchtet eine Treppe, die hinabführt."
+    },
+    "adit_rescue": {
+      "line01": "Doktor Vale steigt die Stufen einzeln hinauf, die Lampe in der Hand des Portiers und Seite vierzig im Mantel.",
+      "line02": "Langsam, Doktor. Langsam. Sie sind draußen.",
+      "line03": "Dreißig Jahre, Haas. Und es lag genau dort, wo wir es gelassen haben."
+    },
+    "ending_dawn": {
+      "line01": "Um acht Uhr wurde der Pass geöffnet, und das erste Auto kam aus dem Weiß herab.",
+      "line02": "Ich hätte euch vor Jahren alles sagen sollen. Die Steine, die Seite, alles.",
+      "line03": "Der Plan wird für uns sprechen. Das hat er immer getan."
+    },
+    "ending_quiet": {
+      "line01": "Die Seite kräuselte sich im Ofen und verschwand, bevor jemand die Worte fand, es zu verhindern.",
+      "line02": "Danke. Ich werde nicht vergessen, was es Sie gekostet hat.",
+      "line03": "Heute Nacht wird niemand bestraft. Das ist nicht dasselbe wie frei zu sein."
+    },
+    "ending_long": {
+      "line01": "Am Morgen kam kein Auto herab. Der Schnee hatte andere Pläne mit dem Brandt-Weg.",
+      "line02": "Es war mein Schweigen. Der Hauptmann soll dafür büßen, und die anderen sollen in Frieden gehen.",
+      "line03": "Frieden? Nennen Sie das so?"
+    },
+    "skip": "Überspringen",
+    "hint": "{key} zum Überspringen"
+  },
+  "keyboard": {
+    "space": "Leerzeichen",
+    "delete": "Löschen",
+    "done": "Fertig"
+  },
+  "slots": {
+    "titleSave": "Spiel speichern",
+    "titleLoad": "Spiel laden",
+    "empty": "Platz {n}: leer",
+    "emptyAuto": "Autospeicherung: leer",
+    "used": "Platz {n}: {name}\nKapitel {chapter}, {time}",
+    "usedAuto": "Autospeicherung: {name}\nKapitel {chapter}, {time}",
+    "damaged": "Platz {n}: beschädigt (zum Freigeben löschen)",
+    "damagedAuto": "Autospeicherung: beschädigt (löschen)",
+    "damagedNote": "Ein Speicherplatz ist nicht lesbar. Lösche ihn oder lade einen anderen.",
+    "unnamed": "Ohne Namen",
+    "autoName": "Autospeicherung",
+    "delete": "Löschen",
+    "nameTitle": "Name des Spielstands auf Platz {n}",
+    "namePlaceholder": "Gib dem Spielstand einen Namen",
+    "confirmSave": "Speichern",
+    "cancel": "Abbrechen",
+    "deleteTitle": "Platz {n} löschen?",
+    "confirmDelete": "Löschen",
+    "saved": "Auf Platz {n} gespeichert.",
+    "noGame": "Es gibt noch kein Spiel zum Speichern.",
+    "noCutscene": "Während einer Zwischensequenz kann nicht gespeichert werden.",
+    "noDialogue": "Während eines Gesprächs kann nicht gespeichert werden.",
+    "busy": "Gerade kann nicht gespeichert werden."
+  },
+  "chapterSelect": {
+    "title": "Kapitel wählen",
+    "note": "Beginne die Nacht neu bei einem Kapitel, das du schon erreicht hast.",
+    "chapter": "Kapitel {n}: {title}",
+    "locked": "Kapitel {n}: noch nicht erreicht"
+  },
+  "ach": {
+    "ending_dawn": {
+      "name": "Morgengrauen in der Lodge",
+      "desc": "Erreiche das Ende im Morgengrauen."
+    },
+    "ending_quiet": {
+      "name": "Ein stiller Morgen",
+      "desc": "Erreiche das stille Ende."
+    },
+    "ending_long": {
+      "name": "Die lange Nacht",
+      "desc": "Erreiche das Ende der langen Nacht."
+    },
+    "all_endings": {
+      "name": "Alle Morgen",
+      "desc": "Erreiche alle drei Enden."
+    },
+    "all_clues": {
+      "name": "Nichts übersehen",
+      "desc": "Finde alle Hinweise in einer einzigen Nacht."
+    }
+  },
+  "dlg": {
+    "ch1_mara": {
+      "greet": "Da sind Sie ja. Sie müssen der neue Nachtportier sein. Mara Lindqvist; die Lodge gehört mir, und am Sturm heute Nacht ist niemand schuld.",
+      "intro_c1": "Wo fange ich an?",
+      "intro_c2": "Stimmt etwas nicht?",
+      "intro_c3": "Heute Nacht sorge ich dafür, dass alle sicher sind.",
+      "intro": "Der Pass wurde um sechs gesperrt. Bis er aufgeht, sind wir sechs Seelen unter diesem Dach, und keine ist gut gelaunt. Ihre Arbeit sind die Türen, der Ofen und die Schlüssel.",
+      "tip": "Gehen Sie durchs Haus. Sehen Sie sich um, nehmen Sie mit, was Sie finden, und wecken Sie die Gäste nicht.",
+      "worry": "Ob etwas nicht stimmt? Ein Haus voller Fremder und ein gesperrter Pass. Das ist alles. Wenn Sie mehr wollen, fragen Sie Hedda.",
+      "promise": "Sicher. Das ist ein gutes Wort für den Beginn einer Schicht. Halten Sie sich daran.",
+      "bye": "Hedda steht unten an der Treppe, auf der Westseite. Gehen Sie zu ihr.",
+      "again": "Hedda steht unten an der Treppe. Gehen Sie schon."
+    },
+    "ch1_hedda": {
+      "greet": "Der Portier. Gut. Ich bin seit vier Uhr auf den Beinen, und alles, was ich für Sie habe, sind Probleme.",
+      "trouble_c1": "Vielleicht schläft er.",
+      "trouble_c2": "Können wir die Tür öffnen?",
+      "trouble_c3": "Hat ihn jemand gesehen?",
+      "trouble": "Doktor Vale, Zimmer C. Er ging nach dem Abendessen hinauf. Um zehn brachte ich ihm heißes Wasser, die Tür war abgeschlossen; keine Antwort. Um Mitternacht dasselbe.",
+      "asleep": "Ein Schlafender schnarcht. Ein Schnarchen erkenne ich. Aus diesem Zimmer kommt nicht das Geringste.",
+      "nokey": "Den Schlüssel zu Zimmer C hat der Gast selbst, und der Ersatzschlüssel hängt an Frau Lindqvists Bund. Sie verleiht ihn nicht, solange es nicht gar nicht anders geht.",
+      "seen": "Er hat beim Abendessen mit Mara gestritten. Danach stand er lange an der Kellertür. Und dann hat ihn niemand mehr gesehen.",
+      "conclude": "Ein Mann ist mitten im Schneesturm aus einem abgeschlossenen Haus verschwunden. Finden Sie ihn, Portier.",
+      "again": "Zimmer C. Finden Sie ihn."
+    },
+    "ch1_tobias": {
+      "greet_c1": "Danke.",
+      "greet_c2": "Jetzt nicht.",
+      "greet": "Der Nachtportier? Komm rein, du bist ja halb erfroren. Hinten am Ofen steht Suppe.",
+      "soup": "Acht Jahre koche ich in diesem Haus und habe den Pass im November noch nie gesperrt gesehen. Pass auf den Topf auf, pass auf deine Füße auf.",
+      "busy": "Dann eben später. Die Suppe hält. Der Sturm auch."
+    },
+    "ch1_haas": {
+      "greet": "Hauptmann Haas, a. D. Vierzig Winter habe ich Leute über diesen Pass geführt, und Sie glauben immer noch, mich überraschen zu können.",
+      "pass_c1": "Ist jemand gegangen?",
+      "pass_c2": "Ich hole mehr Holz.",
+      "pass": "Vor dem Morgen öffnet er nicht. Wer heute Nacht aufgebrochen ist, kommt nicht zurück.",
+      "who": "Niemand könnte das. Darum geht es ja beim Schnee.",
+      "wood": "Ein Mann, der Holz bringt, ist ein Mann, den ich mag."
+    },
+    "ch1_lucian": {
+      "greet_c1": "Es rauscht nur.",
+      "greet_c2": "Was machen Sie hier?",
+      "greet": "Lucian Arne, vom Talboten. Sagen Sie mir bitte, dass das Radio geht.",
+      "hiss": "Natürlich. Ich bin heraufgekommen, um einer Grundstücksstreitigkeit nachzugehen, und bin in einen Schneesturm geraten.",
+      "dispute": "Eine Reportage. Fragen Sie mich morgen, wenn mir warm ist und Sie weniger nützlich sind."
+    },
+    "ch2_tobias": {
+      "greet": "Du fragst nach dem Doktor. Das tun alle. Setz dich; ich verkaufe nur Tatsachen.",
+      "fact_c1": "Hat er gesagt, wofür?",
+      "fact_c2": "Hast du sie ihm gegeben?",
+      "fact_c3": "Wirkte er verängstigt?",
+      "fact": "Um neun kam er in meine Küche, höflich wie ein Bischof. Er bat um eine Laterne und eine Kanne Lampenöl und sagte, seine Lampe mache Ärger.",
+      "why": "Für den Keller. Mehr hat er nicht gesagt. Ich dachte, er wollte nach dem Wein sehen.",
+      "gave": "Das Öl, ja. Eine Kanne. In der Kiste an der Tür steht noch eine, wenn du sie willst. Die Laterne habe ich nicht gefunden; in diesem Haus stehen die Laternen, wo sie wollen.",
+      "afraid": "Verängstigt? Nein. Aufgeregt. Wie ein Junge, der das lose Brett auf dem Dachboden seines Vaters gefunden hat.",
+      "close": "Mehr weiß ich nicht. Der Keller, das Lampenöl und ein sehr glücklicher Mann.",
+      "again": "Ich habe nichts hinzuzufügen. Der Keller, Lampenöl, ein glücklicher Mann. Frag jemand anderen."
+    },
+    "ch2_haas": {
+      "greet": "Vale. Ein sorgfältiger Mann. Er hat den Hof vor dem Frühstück vermessen und den Keller nach dem Mittagessen. Wer misst, traut nicht.",
+      "cellar_c1": "Ist das so?",
+      "cellar_c2": "Ich glaube Ihnen, Hauptmann.",
+      "cellar_c3": "Hinter den Weinregalen verbirgt sich etwas.",
+      "cellar": "Er fragte mich, ob der Keller hinter den Regalen weitergeht. Ich sagte nein. Er schrieb es auf.",
+      "deflect": "Ein Keller reicht so weit, wie seine Wände reichen. Zerbrich dir nicht den Kopf darüber.",
+      "thanks": "Das ist freundlich von dir. Denk daran, dass du es gesagt hast.",
+      "warn": "Alles verbirgt etwas. Dafür sind die Regale da.",
+      "close": "Sieh dir den Keller selbst an, wenn du musst. Aber Vorsicht beim dritten Weinregal: Das Holz ist morsch.",
+      "again": "Ich habe gesagt, was ich weiß. Das dritte Regal ist morsch. Lass es dabei."
+    },
+    "ch2_lucian": {
+      "greet": "Portier! Ausgezeichnet. Vales Abendessen steht immer noch da, unberührt. Ich finde das vielsagend.",
+      "page_c1": "Warum ist eine Seite wichtig?",
+      "page_c2": "Wer würde eine Seite verstecken?",
+      "page_c3": "Und was haben Sie davon?",
+      "page": "Unter uns: Vale vermisst Grundstücke für die Eisenbahngesellschaft. Vor acht Jahren wurde hier ein Plan dieses Tals eingetragen, und der Kreiskopie fehlt eine Seite. Die vierzigste. Er ist gekommen, um das Original zu suchen.",
+      "why": "Auf Seite vierzig verläuft die Linie zwischen dieser Lodge und dem Wegerecht der Bahn. Verschieben Sie eine Linie, und Sie verschieben ein Vermögen.",
+      "who": "Wer davon profitiert, dass die Linie liegt, wo sie liegt. Eine kurze Liste. Sie hat einen einzigen Namen und gehört die Hausherrin.",
+      "you": "Eine Reportage. Eine gute. Dafür schäme ich mich nicht.",
+      "close": "Finden Sie Vale, und Sie finden Seite vierzig, wette ich. Oder umgekehrt.",
+      "again": "Ich habe Ihnen gesagt, was ich weiß. Seite vierzig. Suchen Sie sie."
+    },
+    "ch2_mara": {
+      "greet": "Sie haben mit Hedda gesprochen, also wissen Sie, dass Doktor Vale verschwunden ist.",
+      "supper_c1": "Das muss hart gewesen sein.",
+      "supper_c2": "Haben Sie gelogen?",
+      "supper_c3": "Sie wollten, dass er geht.",
+      "supper": "Wir haben beim Abendessen gestritten. Ich tue nicht so, als wäre es anders; der ganze Tisch hat es gehört. Er verlangte den Plan von 1911, ich sagte, die Kopie der Lodge sei verloren gegangen, und er nannte mich vor meinem Koch eine Lügnerin.",
+      "kind": "Das war es. Danke, dass Sie es bemerken; die meisten bemerken nur das Geschrei.",
+      "blunt": "Wegen der Kopie? Ich habe gesagt, was ich wusste. Mein Mann verwahrte die Papiere, und ich habe sie nie gelesen. Ich wünschte, ich hätte es getan.",
+      "accuse": "Ich wollte, dass er schweigt. Nicht, dass er verschwindet. Verwechseln Sie das nicht, Portier: Das eine ist ein Geschäft, das andere ein Verbrechen.",
+      "close": "Finden Sie ihn. Was immer er entdeckt hat, mir ist lieber, jemand findet es, mit dem ich reden kann.",
+      "again": "Finden Sie ihn, Portier. Mehr verlange ich nicht."
+    },
+    "ch2_hedda": {
+      "greet": "Ich habe durchs Schlüsselloch von Zimmer C geschaut. Sein Koffer liegt offen auf dem Stuhl, und das Bett ist gemacht.",
+      "think": "Wer den Koffer offen lässt, will zurückkommen. Wo ist er also?",
+      "close": "Fragen Sie die anderen. Jemand in diesem Haus weiß mehr, als er sagt."
+    },
+    "ch3_hedda": {
+      "greet": "Sie stehen vor Zimmer C. Sagen Sie nicht, dass Sie den Schlüssel wollen.",
+      "ask_c1": "Ich habe in Zimmer B einen zerrissenen Brief gefunden.",
+      "ask_c2": "Vielleicht erfriert da ein Mann im Dunkeln.",
+      "ask_c3": "Geben Sie mir den Schlüssel, sonst sage ich Mara, dass Sie ihn versteckt haben.",
+      "ask_c4": "Bitte.",
+      "ask": "Mara hat mir den Ersatzschlüssel um Mitternacht gegeben und gesagt, ich solle ihn verwahren. Ich gebe ihn dem, der das Richtige sagt.",
+      "letter": "Also hat Lucian ihn aufbewahrt. Ich habe ihn für die Zeitung und für den Doktor geschrieben, zwei Abschriften. Ja, ich schrieb: »Trau dem Besitzer nicht.« Ist Mara freundlich zu mir? Immer. Ist sie aufrichtig? Fragen Sie sie nach den Grenzsteinen.",
+      "letter2": "Ich wollte nicht, dass daraus etwas Schlimmes entsteht. Ich wollte, dass ein Mann mit einer Messkette die richtige Frage stellt.",
+      "urgent": "Ja. Deshalb bin ich noch auf den Beinen. Gut.",
+      "threat": "Sagen Sie es ihr. Sie weiß, dass ich nie jemandem einen Schlüssel verweigern würde, der ihn braucht. Hier.",
+      "please": "Das reicht nicht, aber es ist auch nicht schlecht. Kommen Sie mit einem Grund wieder.",
+      "give": "Nehmen Sie ihn. Wenn er da drin ist, bringen Sie ihn mir.",
+      "again": "Sie haben den Schlüssel schon. Benutzen Sie ihn."
+    },
+    "ch3_tobias": {
+      "greet": "Schon wieder der Doktor? Du siehst aus wie einer, der einen Schlüssel will.",
+      "key_c1": "Du hast ihm um neun Lampenöl gegeben. Wenn er verletzt ist, trägt die Küche Mitschuld.",
+      "key_c2": "Ich bin der Portier. Der Schlüssel steht mir zu.",
+      "key_c3": "Ich sage, es war meine Idee.",
+      "key": "Der Ersatzschlüssel für Zimmer C hängt in meiner Speisekammer. Frau Lindqvist glaubt, ich wüsste es nicht. Was bietest du mir?",
+      "oil": "Ha. Du hast zugehört. Nimm ihn.",
+      "owed": "Portier oder Bischof, du stehst an meinem Topf und nicht an meiner Speisekammer. Frag jemand anderen.",
+      "idea": "Das wäre großzügig und dumm. Nimm ihn.",
+      "give": "Er hängt am Haken hinter dem Mehl. Bring ihn mir heil zurück.",
+      "again": "Du hast schon, weswegen du gekommen bist. Weiter."
+    },
+    "ch3_mara": {
+      "greet": "Sie haben die Bibliothek gefunden. Seit der Beerdigung meines Mannes war ich nicht mehr hier drin.",
+      "desk_c1": "Ich habe das Gästebuch.",
+      "desk_c2": "Erzählen Sie mir von den Grenzsteinen.",
+      "desk_c3": "Geht es Ihnen gut?",
+      "desk": "Das war Emils Schreibtisch. Rechnungsbücher, ein Brieföffner und eine Schublade, die ich nie zu öffnen wagte.",
+      "fine": "Noch nicht. Stellen Sie mir eine bessere Frage.",
+      "ledger": "Das ist die Schrift seines Angestellten. Sehen Sie: Drei Männer vom Eisenbahnamt wohnten vor acht Jahren je eine Nacht hier. Der erste blieb drei. Emil hat dieses Schweigen bezahlt.",
+      "stones": "Emil hat zwei davon in dem Frühjahr versetzt, als die Bahn zum ersten Mal nachfragte. Er sagte mir, es sei wegen der Entwässerung. Ich glaubte ihm, bis Doktor Vale beim Abendessen »Wegerecht« sagte.",
+      "confess": "Seite vierzig würde zeigen, wo die Steine 1911 standen. Zeigt sie, was ich fürchte, gehören die Wiese unten, der Obstgarten und der Weg der Bahn, und der Brandt-Hof wurde für nichts geräumt.",
+      "bye": "Jetzt wissen Sie, was ich beim Abendessen nicht sagen konnte. Finden Sie den Doktor, und dann finden Sie die Seite.",
+      "again": "Ich habe Ihnen alles gesagt, was ich weiß. Finden Sie den Doktor."
+    },
+    "ch3_haas": {
+      "greet_c1": "Darf ich Ihr Zimmer durchsuchen, Hauptmann?",
+      "greet_c2": "Wo waren Sie um Mitternacht?",
+      "greet_c3": "Nichts, Hauptmann.",
+      "greet": "Portier. Sie laufen diese Treppe auf und ab wie einer, der einen Knopf verloren hat.",
+      "room": "Zimmer D. Den Schlüssel habe ich in der Tasche. Dort ist nichts außer alten Karten; nehmen Sie ihn mit, wenn es Sie beruhigt.",
+      "gave": "Danken Sie mir nicht. Ein Schlüssel ist wenig, um ihn jemandem zu leihen, der klar darum bittet.",
+      "midnight": "Hier, am Ostende, dem Sturm zuhören. Eine Gewohnheit alter Führer.",
+      "nothing": "Dann tun Sie es woanders.",
+      "again": "Ich habe meins gesagt."
+    },
+    "ch3_lucian": {
+      "greet": "Herein, herein. Sie kommen wegen der Grenzsteine; ich sehe es an Ihren Stiefeln.",
+      "stones_c1": "Werden Sie es veröffentlichen?",
+      "stones_c2": "Schonen Sie die Witwe.",
+      "stones": "Emil Lindqvist hat vor acht Jahren zwei Grenzsteine versetzt, damit das Wegerecht der Bahn an der Lodge vorbei und quer über den Brandt-Hof lief. Vale ahnte es. Ohne Seite vierzig kann ich nichts beweisen.",
+      "print": "Wenn die Seite existiert, veröffentliche ich es. Wem es auch wehtut.",
+      "spare": "Schonen ist etwas für Leute mit einem anderen Beruf.",
+      "again": "Finden Sie die Seite, Portier, und bringen Sie sie mir vor allen anderen."
+    },
+    "ch4_haas": {
+      "greet": "Portier. Dann haben Sie seine Skizze gelesen. Zimmer C hat Ihnen gesagt, was ich nicht sagen wollte.",
+      "greet_knows": "Portier. Mara hat Ihnen von den Grenzsteinen erzählt, und die Skizze hat Ihnen gezeigt, wo Sie suchen müssen. Dann hat mein Schweigen keinen Sinn mehr.",
+      "confess": "Hinter dem dritten Regal liegt der alte Stollen, das Bergwerk, das man vor dem Bau der Lodge aufgemacht hat. Emil und ich haben die Mündung vor acht Jahren mit einer Tür und einem Riegel vermauert. Doktor Vale habe ich nichts gesagt. Ich dachte, Vergessen sei sicherer.",
+      "why_c1": "Warum es verbergen?",
+      "why_c2": "Vielleicht stirbt da drin gerade ein Mann.",
+      "why_c3": "Sie konnten nicht wissen, dass er hineingehen würde.",
+      "why": "Sagen Sie, was Sie von mir denken. Ich habe Schlimmeres gesagt.",
+      "reason": "Weil Emil mich darum bat, und Emil war mein Freund. Treue ist ein Laster, aber das einzige, das mir geblieben ist.",
+      "angry": "Dann öffnen Sie. Schnell. Predigen Sie mir nichts.",
+      "calm": "Das ist mehr, als ich verdiene. Danke.",
+      "ready": "Sie sind zurück. Der Riegel wartet auf Sie.",
+      "plan_c1": "Öffnen Sie.",
+      "plan_c2": "Ich habe keine Laterne.",
+      "plan_c3": "Ich habe kein Lampenöl.",
+      "plan_c4": "Der Riegel bewegt sich nicht.",
+      "plan": "Der Riegel fällt auf der dunklen Seite zu und lässt sich von hier nicht heben. Man braucht Licht und das Öl einer Laterne, um jemanden hinunter- und wieder heraufzubringen.",
+      "hint_lantern": "Emil hielt eine Laterne in einer Pappkiste in der Ecke, an der hinteren Wand. Holen Sie sie.",
+      "hint_power": "Der Riegel läuft über den Stromkreis des Kellers, und der Sturm hat den Stromkreis getötet. Der Sicherungskasten sitzt an der Kellerwand. Emil bewahrte Draht in seinem Bibliotheksschreibtisch auf, und in der anderen Kiste in der Küchenecke liegt eine Ersatzpatrone. Dann die Reihenfolge der Züge des Tages, falls ich mich erinnere, wie er sie hinterlassen hat.",
+      "hint_oil": "Der Koch hat eine Kanne in der Kiste neben der Küchentür. Beeilen Sie sich.",
+      "descend": "Das dritte Regal schwingt auf einem rostigen Scharnier nach innen, und ein kalter Hauch kommt aus dem Dunkel. Du zündest die Laterne an. Der Stollen führt hinab, feucht und niedrig.",
+      "found": "Hier unten! Wer ist da? Gott segne Sie; mir sind die Streichhölzer und der gute Verstand ausgegangen.",
+      "found2": "Der Riegel fiel hinter mir zu, und ich zähle seit sechs Stunden Steine. Nehmen Sie das. Seite vierzig, aus der Eisenkassette unter dem ersten Stein, genau wie im Brief stand.",
+      "found3": "Ansel. Es tut mir leid.",
+      "found4": "Hauptmann. Ich verzeihe Ihnen, wenn mir warm geworden ist.",
+      "up": "Du bringst ihn die Stufen hinauf ins Lampenlicht. Draußen hat sich der Wind gelegt. Der Morgen ist nicht mehr weit.",
+      "done": "Sie ist offen, und er ist oben. Kümmern Sie sich um ihn."
+    },
+    "ch4_mara": {
+      "greet_c1": "Ich weiß von den Grenzsteinen, Frau Lindqvist.",
+      "greet_c2": "Ich glaube, er ist im Keller.",
+      "greet_c3": "Noch nichts.",
+      "greet": "Sie sehen aus wie einer, der etwas Schweres trägt. Ist es wegen Vale?",
+      "truth": "Dann wissen Sie, warum ich es nicht sagen konnte. Sagen Sie, was Sie zu sagen haben, aber finden Sie ihn zuerst.",
+      "cellar": "Der Keller? Emil ließ mich nie über das zweite Regal hinaus. Die Tür ist nicht abgeschlossen. Gehen Sie.",
+      "nothing": "Dann beeilen Sie sich.",
+      "bye": "Ich bin hier, am Feuer.",
+      "again": "Ich bin hier, am Feuer."
+    },
+    "ch4_hedda": {
+      "confess": "Ich habe den Brief geschrieben. Der Hof meines Vaters liegt unter der Bahn, und ich wollte, dass ein Mann mit einem Theodoliten eine Frage stellt.",
+      "sorry": "Ich wollte ihn nie in die Dunkelheit schicken.",
+      "known": "Ich habe getan, was ich konnte, und es hat nicht gereicht. Bringen Sie ihn zurück."
+    },
+    "ch4_tobias": {
+      "greet": "Wenn du in den Keller gehst, brauchst du Öl. In der Kiste neben der Küchentür steht eine Kanne.",
+      "bread": "Und bring dem Doktor das Brotende mit. Wer aus dem Dunkel kommt, kommt hungrig."
+    },
+    "ch4_lucian": {
+      "greet_c1": "Tun Sie das, bitte.",
+      "greet_c2": "Wir werden sehen.",
+      "greet": "Ich leiste Mara in der Halle Gesellschaft. Wenn Sie die Seite finden, bleibt mein Bleistift in der Tasche, bis Sie es sagen.",
+      "thanks": "Ein Versprechen. Ich habe einige gebrochen, aber nie eines, das ich einem Mann mit einer Laterne gegeben habe.",
+      "later": "Fair. Ich bin in der Nähe.",
+      "again": "Mein Bleistift steckt in der Tasche."
+    },
+    "ch5_vale": {
+      "greet": "Da ist er ja, der Mann mit der Laterne. Ich schulde Ihnen ein Bett, ein Frühstück und eine Erklärung. Zuerst die Seite.",
+      "page": "Seite vierzig des Ostrander-Plans, in der Handschrift des Landvermessers. Der erste Grenzstein stand am Fuß der Kellertreppe, nicht am Weg.",
+      "page2": "Vor acht Jahren versetzte Emil Lindqvist den Stein vom Weg, damit das Wegerecht an der Lodge vorbeiführte, und vergrub den Beweis im Stollen.",
+      "ask_c1": "Tragen Sie es ein. Die ganze Wahrheit.",
+      "ask_c2": "Mara hat heute Nacht genug verloren. Lassen Sie ihr die Lodge.",
+      "ask_c3": "Es war der Hauptmann. Er hat Sie eingesperrt.",
+      "ask_c4": "Geben Sie mir einen Moment.",
+      "ask": "Mein Bericht geht mittags an die Bahn und an das Grundbuchamt, es sei denn, jemand zeigt mir einen besseren Weg. Was sagen Sie, Portier?",
+      "wait": "Lassen Sie sich Zeit. Die Sonne kann sich für uns nicht beeilen.",
+      "done": "Gute Reise, Portier. Und danke.",
+      "truth_a": "Dann trage ich es ein, wie es ist: die Grenzsteine, die Seite und Maras Aufrichtigkeit von gestern Nacht, die ich zu ihren Gunsten vermerke.",
+      "dawn_warm": "Im Frühjahr trägt das Land der Brandts wieder den Namen der Brandts. Mara behält das Haus und verkauft den Obstgarten, um dafür aufzukommen, und Hedda öffnet selbst die ersten Fensterläden des Jahres.",
+      "dawn_cold": "Der Bericht ist eingetragen. Die Lodge behält ihr Dach, verliert aber Obstgarten und Weg, und Mara spricht einen Monat lang mit niemandem. Hedda kehrt allein auf das Land der Brandts zurück.",
+      "dawn_end": "Du stehst an der Haustür, während der Pass öffnet. Es ist der erste Morgen seit acht Jahren ohne eine Lüge im Haus.",
+      "bury_a_c1": "Verbrennen Sie sie.",
+      "bury_a_c2": "Nein. Das nicht.",
+      "bury_a": "Eine Seite ist nur Papier. Verbrennt sie heute Nacht in der Lampe, könnte ich schwören, sie nie gefunden zu haben. Wollen Sie das?",
+      "bury_b": "Die Seite kräuselt sich in der Lampe und wird schwarz. Du wirfst das Gästebuch und den zerrissenen Brief hinterher, und die Flamme braucht lange, um zu ersterben.",
+      "bury_c": "Vale reicht einen Bericht ein, der den Plan als verloren führt. Mara behält die Lodge. Hedda geht im Morgengrauen und sieht nicht zurück, und der Portier behält die Schlüssel und das Schweigen.",
+      "bury_end": "Unten im Keller, hinter dem dritten Regal, hält ein Riegel etwas fester als zuvor.",
+      "accuse_a": "Der Hauptmann? Ich habe keine Schritte gehört; der Riegel fiel von selbst. Aber er wusste es und schwieg. Für einen Bericht ist das Schuld genug.",
+      "accuse_b": "Ich wusste, dass es so enden würde. Nur zu, Portier. Sagen Sie es laut genug, damit die anderen es hören.",
+      "accuse_c": "Der Hauptmann fährt mit dem ersten Schlitten ab, der hinunterfährt. Vales Bericht nennt das Schweigen eines alten Mannes und sagt nichts über die Grenzsteine. Mara dankt dir mit einer Stimme ohne jede Wärme.",
+      "accuse_end": "Die Lodge steht noch, die Seite wandert zurück in eine Schublade, und der Winter schließt sich über allem."
+    },
+    "ch5_mara": {
+      "greet_c1": "Danken Sie mir später.",
+      "greet_c2": "Was werden Sie tun?",
+      "greet": "Er ist in Sicherheit. Ich weiß nicht, ob ich Ihnen dafür danken oder Sie dafür hassen soll.",
+      "later": "Das werde ich. Wenn es noch eine Lodge gibt, in der ich es tun kann.",
+      "plan": "Was die Seite sagt. Ich habe acht Jahre Angst davor gehabt, und es ist eine Erleichterung, sie im Licht einer Lampe zu sehen."
+    },
+    "ch5_hedda": {
+      "greet": "Dann lebt er. Ich gehe mittags, was immer auch entschieden wird.",
+      "close": "Ich wollte nur, dass jemand hinsieht. Mehr nicht."
+    },
+    "ch5_tobias": {
+      "greet": "Frühstück in zehn Minuten für alle mit ruhigem Gewissen, also für niemanden. Esst trotzdem."
+    },
+    "ch5_haas": {
+      "greet": "Ich werde nicht über Ihre Entscheidung streiten. Ich habe mich acht Jahre lang geirrt.",
+      "close": "Was es auch kostet, es war billiger als das Leben eines Mannes."
+    },
+    "ch5_lucian": {
+      "greet": "Was immer Sie wählen, denken Sie daran, dass ich während des Sturms eine hervorragende Gesellschaft war.",
+      "letter": "Der Brief war von Hedda, wissen Sie. Ihren Namen würde ich nicht drucken. Alles andere schon."
+    }
+  },
+  "cast": {
+    "mara": {
+      "name": "Mara Lindqvist"
+    },
+    "hedda": {
+      "name": "Hedda Brandt"
+    },
+    "tobias": {
+      "name": "Tobias Rowe"
+    },
+    "haas": {
+      "name": "Hauptmann Haas"
+    },
+    "lucian": {
+      "name": "Lucian Arne"
+    },
+    "vale": {
+      "name": "Dr. Ansel Vale"
+    },
+    "porter": {
+      "name": "Portier"
+    }
+  },
+  "chapter": {
+    "1": {
+      "title": "Die Nachtschicht",
+      "intro": "Der Schnee hat den Pass um sechs Uhr gesperrt. Du hast die Schlüssel, den Ofen und ein Haus voller Fremder bis zum Morgen."
+    },
+    "2": {
+      "title": "Kaltes Abendessen",
+      "intro": "Doktor Vales Abendessen steht noch auf dem Tisch, und niemand will sagen, warum er es stehen ließ."
+    },
+    "3": {
+      "title": "Zimmer C",
+      "intro": "Der Koffer eines Mannes liegt offen hinter einer verschlossenen Tür. Wer den Schlüssel hat, hat die erste Antwort."
+    },
+    "4": {
+      "title": "Der alte Weg",
+      "intro": "Hinter dem dritten Weinregal reicht der Keller weiter, als irgendjemand zugab."
+    },
+    "5": {
+      "title": "Morgengrauen",
+      "intro": "Der Wind hat nachgelassen. In einer Stunde öffnet der Pass, und dann hat jeder eine Geschichte zu erzählen."
+    },
+    "label": "Kapitel {n}"
+  },
+  "ending": {
+    "dawn": {
+      "title": "Die Wahrheit im Morgengrauen",
+      "text": "Die Wahrheit wird festgehalten: die Grenzsteine, die Seite und Maras Aufrichtigkeit. Das Brandt-Land kehrt heim, und die Lodge lernt, ohne eine Lüge zu leben."
+    },
+    "quiet": {
+      "title": "Der stille Weg",
+      "text": "Die Seite verbrennt, und die Lodge behält ihr Dach. Niemand wird bestraft, und niemand ist davon frei."
+    },
+    "long": {
+      "title": "Der lange Winter",
+      "text": "Der Hauptmann büßt für ein Schweigen, das nie nur seines war. Die Lodge steht noch, und der Winter schließt sich über allem."
+    },
+    "label": "Ende",
+    "menu": "Hauptmenü"
+  },
+  "dialogue": {
+    "next": "Weiter",
+    "log": "Verlauf",
+    "logTitle": "Gesprächsverlauf",
+    "close": "Schließen"
+  }
+}

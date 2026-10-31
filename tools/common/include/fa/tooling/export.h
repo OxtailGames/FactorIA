@@ -14,11 +14,11 @@
 //                     <out>/<slug>-android/<slug>[-debug].apk or .aab (ExportReport::artifact)
 //   ios             : <out>/<slug>-ios/{game/..., build_ios.sh, ...}  the script configures the Xcode project with
 //                     CMake (-DFA_GAME_PROJECT_DIR=game ...) using the same settings as the `ios` preset
-//   web             : <out>/<slug>-web/{index.html, factoria_player.js, factoria_player.wasm, game.pak, FACTORIA_NOTICES.txt} and,
+//   web             : <out>/<slug>-web/{index.html, favicon.png (from the icon), factoria_player.js, factoria_player.wasm, game.pak, FACTORIA_NOTICES.txt} and,
 //                     next to that folder, <out>/<slug>-web.zip with the same files and index.html at its root (what itch.io
 //                     takes as an HTML5 game; ExportReport::artifact, format "zip"). The game is always ONE game.pak (like a
 //                     desktop `release`), the page is platforms/web/shell.html (embedded in factoria) with {{title}},
-//                     {{wasmBytes}} and {{pakBytes}} filled in. The player is two Emscripten files found by --player, then
+//                     {{wasmBytes}}, {{pakBytes}} and {{favicon}} filled in. The player is two Emscripten files found by --player, then
 //                     <factoria dir>/web, then `factoria setup players --platforms web`, then a web build of the source;
 //                     ExportReport::mode says which ("explicit", "package", "installed" or "build").
 // Android and iOS have two modes (ExportReport::mode); docs/EXPORTING.md has the rule that picks one:
@@ -31,6 +31,9 @@
 // shader dialects of the platform (windows hlsl5, linux glsl430, macos metal_macos, ios metal_ios and metal_sim, android and
 // web glsl300es) and the GLSL snippets they name are not shipped. A material that does not compile fails the export with the
 // errors `factoria validate` lists. ExportReport::materials lists them.
+// The built-in fonts that are files of factoria (builtin:serif, builtin:hand, builtin:blackletter, builtin:display) ship as
+// builtin-fonts/<file> when a scene, prefab, script, data file or factoria.json of the project names them (the name written out
+// in full); games that do not use them do not grow. ExportReport::builtinFonts lists them.
 // Every export also writes FACTORIA_NOTICES.txt (the licenses of the runtime inside the game, fa/tooling/notices.h):
 // next to the executable (linux, windows), in Contents/Resources (macos), in the APK assets (android), in game/ (ios).
 // A project with assets recorded as made with AI (provenance in assets.json) also gets AI_CONTENT_DISCLOSURE.md at the top
@@ -46,6 +49,7 @@
 // LICENSE, a data file of any kind: shipped, because a game may load them. Everything else the project holds is shipped.
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -77,9 +81,12 @@ struct ExportOptions {
     std::string playerBinary;   // web: the folder with factoria_player.js and factoria_player.wasm (or factoria_player.js itself)
                                 // desktop: path of factoria_player for the target platform
                                 // ("" = next to the running factoria binary, or the build tree layout)
-    bool allowPlayerMismatch = false;  // desktop: bundle a factoria_player built from another commit than this factoria (its
+    bool allowPlayerMismatch = false;  // bundle a player (desktop, web, prebuilt Android/iOS) built from another commit than this factoria (its
                                 // build fingerprint differs, or it has none) with a warning instead of stopping; the
                                 // game may not run on that player
+    bool allowMissingPlugins = false;  // a native plugin whose build for the target platform is missing (optional or not) is left
+                                // out of the export, with a warning and an entry in ExportReport::pluginsLeftOut, instead
+                                // of stopping it
     std::string engineRoot;     // android/ios: engine checkout; giving it selects "source" mode
     std::string mobileDir;      // android/ios: folder of the prebuilt players (android/jniLibs/<abi>/libfactoria_player.so,
                                 // ios/{iphoneos,iphonesimulator}/*.a); giving it selects "prebuilt" mode.
@@ -105,6 +112,14 @@ struct ExportOptions {
                                 // programs are run (nullptr = this machine); only tests change it
 };
 
+// One row of the size report of an export (ExportReport::largestFolders, ExportReport::webFiles).
+struct ExportSize {
+    std::string name;                // a project folder ("assets/audio", "(top level)") or a file of the web export
+    std::uint64_t files = 0;         // folders: how many files; web files: 1
+    std::uint64_t bytes = 0;         // as shipped (after the asset steps)
+    std::uint64_t gzipBytes = 0;     // web files: about what a host that gzips sends; folders: 0
+};
+
 struct ExportReport {
     std::string outputDir;                 // absolute folder that was written
     std::string mode;                      // android/ios: "prebuilt" or "source" (see above); web: where the player came from;
@@ -122,8 +137,19 @@ struct ExportReport {
     std::vector<std::string> packed;       // release desktop export: the project-relative paths in the pack, sorted
     std::vector<std::string> materials;    // the *.material.json that ship (project-relative, sorted), each with its compiled
                                            // shaders <material>.json.<slang>.shader for the platform's dialects
+    std::vector<std::string> builtinFonts;  // the built-in fonts that are files, not inside the player ("builtin:serif"), that the project
+                                           // names: shipped as builtin-fonts/<file>, with their licenses in FACTORIA_NOTICES.txt
+    std::vector<std::string> pluginsLeftOut;  // allowMissingPlugins: the native plugins whose build for this platform was missing, so the
+                                           // export does not hold them (a warning names each); empty otherwise
+    std::vector<ExportSize> largestFolders;  // the folders (at most two levels deep) that weigh most in what ships, biggest first (at most 5)
+    std::vector<ExportSize> webFiles;      // web export: every file of the zip with its raw and about-gzip size, biggest first; else empty
+    std::uint64_t webBytes = 0;            // web export: their total, raw
+    std::uint64_t webGzipBytes = 0;        // web export: their total, about gzip (the deflate size of the zip plus the 18 bytes of a gzip frame)
     std::vector<std::string> nextSteps;    // what the user does next, in order
     std::vector<std::string> warnings;     // non-fatal problems
+    // The size report as text lines (what `factoria export` prints): the largest folders and, for the web, the files and the download
+    // time of the gzip total at 1, 5, 20 and 100 Mbit/s. Empty when there is nothing to say.
+    std::vector<std::string> size_lines() const;
     Json to_json() const;
 };
 

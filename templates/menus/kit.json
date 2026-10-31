@@ -10,10 +10,18 @@
     },
     {
       "name": "options",
-      "description": "The options panel: video, a colour filter, audio per bus, controls (rebinding) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js).",
+      "description": "The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue \"Text speed\" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.",
       "requires": ["core"],
+      "prunes": {"textSpeed": ["text_speed"]},
       "files": ["prefabs/ui/options.prefab.json", "scripts/ui/options.js"],
       "localeKeys": ["options"]
+    },
+    {
+      "name": "textSpeed",
+      "description": "A \"Text speed\" row in the options panel's audio tab (slow, normal, fast, instant), saved as settings.textSpeed in characters per second; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds) (scripts/settings.js). Without this part the options prefab has no such row (all parts by default).",
+      "requires": ["core", "options"],
+      "files": [],
+      "localeKeys": []
     },
     {
       "name": "credits",
@@ -31,15 +39,23 @@
     },
     {
       "name": "ageGate",
-      "description": "The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience \"mixed\"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu opens it once, before any ad; its tests/age_gate.test.js checks it.",
+      "description": "The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience \"mixed\"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.",
       "requires": ["core"],
       "files": ["prefabs/ui/age_gate.prefab.json", "scripts/ui/age_gate.js", "tests/age_gate.test.js"],
       "localeKeys": ["ageGate"]
     },
     {
+      "name": "analyticsConsent",
+      "description": "The analytics question for a game whose factoria.json has an \"analytics\" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.",
+      "requires": ["core"],
+      "files": ["prefabs/ui/analytics_consent.prefab.json", "scripts/ui/analytics_consent.js", "tests/analytics_consent.test.js"],
+      "localeKeys": ["analyticsConsent"]
+    },
+    {
       "name": "main-menu",
-      "description": "The title screen: scenes/menu.scene.json (Play, Options, Credits, Shop, Quit, with the options, credits, shop and age gate panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options, credits, shop and ageGate: the scene uses their scripts and prefab.",
-      "requires": ["core", "options", "credits", "shop", "ageGate"],
+      "description": "The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).",
+      "requires": ["core", "options", "credits"],
+      "prunes": {"shop": ["shop_button", "shop"], "ageGate": ["age_gate"], "analyticsConsent": ["analytics_consent"]},
       "files": ["scenes/menu.scene.json", "scripts/main_menu.js", "tests/recipe.test.js"],
       "localeKeys": []
     },
@@ -65,11 +81,32 @@
       "localeKeys": ["keyboard"]
     },
     {
+      "name": "slots",
+      "description": "Save slots (scripts/slots.js, scripts/ui/slot_screen.js, prefabs/ui/slots.prefab.json, prefabs/ui/slot_dialog.prefab.json, tests/slots.test.js): five named slots and an autosave in storage, each a record with a counter, name, chapter, play time, picture and the game's data, the cloud merge by counter, and the save / load screen with a dialog that names a save (the on-screen keyboard opens for a gamepad player). Needs core and keyboard. The game supplies what is saved and how a slot is loaded: docs/MENUS.md, \"Save slots\".",
+      "requires": ["core", "keyboard"],
+      "files": ["scripts/slots.js", "scripts/ui/slot_screen.js", "prefabs/ui/slots.prefab.json", "prefabs/ui/slot_dialog.prefab.json", "tests/slots.test.js"],
+      "localeKeys": ["slots"]
+    },
+    {
       "name": "dialogue",
       "description": "Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).",
       "requires": [],
       "files": ["scripts/dialogue.js"],
       "localeKeys": ["captions"]
+    },
+    {
+      "name": "card",
+      "description": "A choice card for events, stories and decisions (scripts/ui/card.js, prefabs/ui/card.prefab.json): a modal panel (Panel.modal) with a title, a wrapped body, choice buttons that each have a detail line, a choice greyed out with its reason, a result stage with Continue, and an option to hold the game clock (game.paused) while it is open. The mouse, the arrows and the pad reach only the card. tests/card.test.js checks it.",
+      "requires": [],
+      "files": ["prefabs/ui/card.prefab.json", "scripts/ui/card.js", "tests/card.test.js"],
+      "localeKeys": ["card"]
+    },
+    {
+      "name": "cameraRig",
+      "description": "The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it.",
+      "requires": [],
+      "files": ["scripts/camera_rig.js", "tests/camera_rig.test.js"],
+      "localeKeys": []
     }
   ]
 }

@@ -26,10 +26,10 @@ std::string default_mcp_instructions() {
 R"(FactorIA is an AI-native 2D/3D game engine. You build games by editing JSON (scenes, prefabs, factoria.json) and JavaScript (scripts, tools, tests), and you verify them with the tools below. Everything is text; you can see the game through screenshots.
 
 WORKFLOW (repeat for every change)
-1. Read first: docs_list, then docs_read {"name":"ai-guide"} and docs_search for any component or API you are unsure about. Component names and fields are strict: use docs_components / docs_commands instead of guessing.
+1. Read first: docs_list, then docs_read {"name":"ai-guide"} and docs_search for any component or API you are unsure about. Component names and fields are strict: use docs_components {"name":"Sprite"} / docs_commands {"name":"game.step"} instead of guessing. A long page comes in parts with a contents list: read a section with docs_read {"name":"ai-guide","heading":"..."}.
 2. Edit files (your own file tools, or fs_read / fs_write / fs_edit / fs_search / fs_list if you have none) or use the scene_* tools on the running game.
 3. project_validate after every batch of edits. Errors give file, JSON pointer and a fix hint.
-4. Run and LOOK: game_step {"frames":120} then game_screenshot, and check the returned image really shows what you intended. game_state / game_logs show entity data and script errors.
+4. Run and LOOK: game_step {"frames":120} then game_screenshot, and check the returned image really shows what you intended. For fine detail (seams, joins, gradient ends) use game_screenshot {"region":[x,y,w,h],"zoom":8}; for an animation a filmstrip {"frames":24,"everyFrames":4}; game_screenshot without a path is not kept (the image is attached, then the file is deleted). game_state / game_logs show entity data and script errors.
 5. Run the project's tests (tests/*.test.js) and add a test for every behaviour you add.
 
 CONVENTIONS
@@ -39,7 +39,7 @@ CONVENTIONS
 - Simulation is deterministic: use the engine rng and dt, never Math.random or wall-clock time.
 - Tool names are command names with dots replaced by underscores (feedback.report -> feedback_report). Project tools from tools/*.js appear as project_<name>.
 
-RULE: REPORT ENGINE GAPS. Whenever the engine lacks a feature, has a bug, gives a misleading error, or you build a workaround or drop something because of an engine limitation, call feedback_report IMMEDIATELY (category, severity, title, missing, workaround, suggestion). It records the gap in the project's ENGINE_FEEDBACK.json, which engine developers use to decide what to build next. Similar reports are merged automatically, so never skip a report for fear of duplicates.
+RULE: REPORT ENGINE GAPS. Whenever the engine lacks a feature, has a bug, gives a misleading error, or you build a workaround or drop something because of an engine limitation, call feedback_report IMMEDIATELY (category, severity, title, missing, workaround, suggestion). It records the gap in the project's ENGINE_FEEDBACK.json (closed entries move to ENGINE_FEEDBACK.archive.json), which engine developers use to decide what to build next. Similar reports are merged automatically, so never skip a report for fear of duplicates.
 
 Resources: factoria://docs/<file> (documentation), factoria://project/factoria.json and factoria://project/ENGINE_FEEDBACK.json. Prompts: make-game, add-feature, fix-bug, report-engine-gap.)";
 }

@@ -1,4 +1,6 @@
-# Navigation: paths over 3D ground
+# Navigation: paths over 3D ground, and over tile maps
+
+(2D tile maps: see section 7, `nav.findTilePath`; everything before it is the 3D NavMesh.)
 
 Characters that chase, patrol or walk to a tapped point need a route over the level: around walls, up ramps, never up a
 step they cannot climb. The engine bakes one from the colliders you already have. No extra tool, no third-party library.
@@ -13,7 +15,7 @@ Add a `NavMesh3D` to an entity (usually an empty `navmesh` entity) and size it t
 
 The box is centred on the entity's world position (`size` is in meters; scale and rotation are ignored). It is baked from
 the **static** 3D colliders inside it: a `Collider3D` with no `RigidBody3D`, or with a static one. Triggers, dynamic and
-kinematic bodies, characters and colliders with `navObstacle` or `navWalkable` are left out of the bake. The bake runs by itself when the
+kinematic bodies, characters, disabled colliders (`enabled: false`) and colliders with `navObstacle` or `navWalkable` are left out of the bake. The bake runs by itself when the
 scene loads and again whenever a static collider inside the box changes (`autoBake`, on by default); `nav.bake` does it on
 demand.
 
@@ -141,7 +143,107 @@ character may have to cross. `Collider3D.navWalkable` wins over `navObstacle` wh
   blocks; blue on a walkable moving body) and the off-mesh links as yellow lines (an arrowhead on a one-way one; grey when
   an end is off the mesh). Cells missing next to walls are the `agentRadius` margin.
 
-## 7. Limits
+## 7. Tile paths (2D grids)
+
+`nav.findTilePath(map, from, to, opts)` is A* over the cells of a `Tilemap` (or of your own grid), for top-down and
+platformer maps where the 3D NavMesh does not apply. It needs no bake: it reads the tiles at the moment of the call, so a
+tile written with `entity.tilemap.setTile` is part of the next search.
+
+```js
+import { Behaviour, nav, world } from "factoria";
+export default class Rat extends Behaviour {
+  onStart() { this.ground = world.find("ground"); }
+  chase(from, to) {                      // cells: { col, row } or [col, row], 0-based, row 0 = the TOP row
+    const p = nav.findTilePath(this.ground, from, to, { diagonals: true, costs: { 7: 5, 9: Infinity } });
+    if (!p.found) return null;           // p.reason / p.message / p.hint say why
+    return p.points[1] ?? p.points[0];   // the world position of the next cell centre; points[0] is the start cell
+  }
+}
+```
+
+- `map`: an entity with a `Tilemap` (or its id), or a grid `{width, height, cost, origin?, cellSize?}`. For a grid, `cost` is
+  a flat array of `width * height` numbers, row-major, row 0 = top: the cost of ENTERING that cell (1 = a normal step, 0 or more).
+  `Infinity`, a negative number, `null` or `undefined` blocks it. Use a grid when the real map is not a Tilemap (the Tilemap
+  is only the drawn copy of a map the game keeps in its own arrays).
+- A Tilemap: tiles listed in `solidTiles` block, every other cell (empty ones too) costs 1. `opts.costs` changes that per tile
+  index (flip flags ignored): `{7: 5}` makes tile 7 cost 5, `{9: Infinity}` blocks tile 9, `{3: 1}` makes a solid tile 3
+  walkable, key `-1` is for empty cells. There is deliberately no per-cell JS callback (it would call the script engine for
+  every cell and the `nav.find_tile_path` command could not take one): put the rules in `costs` or build the grid with them.
+  For a changing rule, build the `cost` array yourself.
+- 4-way by default. `diagonals: true` allows 8-way: a diagonal step costs sqrt(2) times the cell it enters and never cuts a
+  corner: both cells it passes between (the two orthogonal neighbours) must be open.
+- The start cell is always allowed. A blocked goal answers `goal_blocked` unless `allowBlockedGoal: true` (the path then
+  ends ON it, entering at cost 1: chase something that stands on a wall) or `closest: true`.
+- `closest: true`: when the goal cannot be reached, the result is the path to the reachable cell nearest the goal (straight
+  distance), `found: true, complete: false` (a path of just the start cell when the start is already the nearest).
+- `maxNodes` (default 100000) bounds the cells the search expands; past it the result is `too_far`.
+- Result: `{found, complete, cells: [{col, row}], points: [Vec2], cost, length}`. `cells` are the path including start and end.
+  `points` are the cell centres in the WORLD (the Tilemap entity's position, rotation and scale applied; the map's top-left
+  corner is the entity's position, +Y up, as in the Tilemap docs; on an `isometric` Tilemap they are the centres of the diamonds,
+  `tilemap.cellToWorld`). For a grid, a centre is `origin + ((col + 0.5) * cellW,
+  -(row + 0.5) * cellH)` with `origin` default (0, 0) and `cellSize` default 1. `cost` sums the entering costs; `length` is
+  the distance along the cell centres in the map's own units (`tileSize` for a Tilemap, `cellSize` for a grid, before the entity's
+  scale). On an isometric Tilemap the cells are diamonds, so the length is the straight distance between the centres of the cells
+  (a step down a column is `sqrt(tileSize.x^2/4 + groundHeight^2/4)`), and the search still moves between the four neighbours
+  of a cell (or eight with `diagonals`).
+- No route is a result, not an exception: `found: false` with `reason` (`start_off_map`, `goal_off_map`, `goal_blocked`,
+  `blocked`, `too_far`), `message` and `hint`. A map that is not a Tilemap or a grid, or a malformed cell, throws.
+- Deterministic: the open list breaks ties by (f, h, cell index), so the same map and query give the same path on every run.
+- `nav.tileVersion(tilemap)` is a counter that goes up whenever the tiles of that Tilemap change, to tell that a path you
+  kept is stale: `setTile` / `tilemap.set_tile`, and any write that replaces `tiles` (a script assigning `tilemap.tiles`,
+  `scene.set_component`, an editor edit). A call hashes the tiles once, so ask when you need a decision,
+  not for every cell; the count starts at 0 on every scene load. For your own grid, keep your own counter.
+
+### Reusable grids and flow fields
+
+Every `nav.findTilePath` call with a `{width, height, cost}` array converts the whole array and sweeps it for its cheapest
+cell, so a short route costs as much as the size of the map. A script that asks hundreds of times on one map keeps the grid
+natively instead:
+
+```js
+import { nav } from "factoria";
+const grid = nav.createGrid({ width: 60, height: 60, cost: roads.map((r) => (r ? 1 : Infinity)) });
+grid.setCost(3, 4, 1);                              // a road was built: one cell changes, nothing is converted again
+const p = nav.findTilePath(grid, [0, 0], [9, 4]);   // the same result as with the array, without the conversion
+const field = nav.flowField(grid, [{ col: 9, row: 4 }, [20, 7]]);   // one search for every walker heading there
+const next = field.stepToward(col, row);            // { col, row } of the next cell, or null: O(1)
+```
+
+- `nav.createGrid({ width, height, cost?, origin?, cellSize? })`: `cost` as for the array form (default: every cell costs 1).
+  The grid lives in the engine and is freed when the script drops it (garbage collection); there is nothing to release. `grid.width`, `grid.height`,
+  `grid.version` (counts changes), `grid.setCost(col, row, cost)`, `grid.getCost(col, row)` (Infinity when blocked),
+  `grid.setCosts(array)` (all at once) and `grid.findPath(from, to, opts)` (= `nav.findTilePath(grid, ...)`). A cell outside
+  the grid throws. Infinity, a negative number or null blocks a cell.
+- `nav.findTilePath(grid, from, to, opts)` takes the grid as the first argument, with the options and the result of the
+  array form (`diagonals`, `closest`, `maxNodes`, ...; `costs` is for Tilemaps only). It gives exactly the cells the array
+  form gives for the same costs. The array form stays as it was.
+- `nav.flowField(grid, goals, { diagonals })`: `goals` is a cell or a list of cells. The field is the cost of the cheapest
+  route from every cell to the nearest goal, with the rules of `findTilePath` (entering a cell costs its cost; with
+  `diagonals` a diagonal costs sqrt(2) times that and never cuts a corner). A blocked goal cell is entered at cost 1, like
+  `allowBlockedGoal`. Nothing is searched until the first question; the search is one pass over the grid.
+  - `field.stepToward(col, row)` is the neighbour to walk to: `{ col, row }`, or `null` at a goal, where no goal can be
+    reached, or outside the grid. Among equally cheap neighbours it picks east, south, west, north, then the diagonals.
+  - `field.distance(col, row)` is the cost to the nearest goal (0 at a goal), Infinity where none can be reached.
+  - `field.pathFrom(col, row)` is the whole way, the cell and the goal included (what repeated `stepToward` gives); empty when
+    no goal can be reached.
+  - A field reads the grid it was made on. When `setCost` has changed the grid since, the next question rebuilds the field
+    from its goals (`field.rebuilds` counts the searches), so a field kept across road changes is always right, and costs one
+    pass over the grid after each change.
+- Use the array form for a one-off question, `nav.findTilePath(grid, ...)` for many different starts and goals on one map, and a
+  flow field when many walkers head for the same few goals: it is one search however many walkers there are, and every step
+  after that is a lookup. PERFORMANCE.md ("Path finding on tile maps") has the measured costs.
+- A Tilemap is not copied into a grid (its tiles change under `setTile`): pass the Tilemap to `findTilePath`, or build the
+  `cost` array from the tiles you care about.
+
+Command: `nav.flow_field {"grid":{...},"goals":[[9,4]],"from":[0,0]}` (or `"tilemap"`) is the stateless form of a flow field:
+it returns `distance` for every cell (row-major, `null` where no goal can be reached) and, with `from`, `reachable`, `cost`,
+`next` and `path`. Commands keep nothing between calls, so a grid kept natively is for scripts.
+
+Command (agents, tools): `nav.find_tile_path {"tilemap":"ground","from":[0,1],"to":[3,1],"diagonals":true,"costs":{"7":5,"9":null}}`
+or `{"grid":{"width":3,"height":2,"cost":[1,1,null,1,1,1]},"from":[0,0],"to":[2,1]}`; the result is the same object with
+`cells` as `[col, row]` pairs and `points` as `[x, y]`, and `null` (not `Infinity`) blocks.
+
+## 8. Limits of the 3D NavMesh
 
 - The bake sees colliders, not meshes: a floor without a `Collider3D` is not ground. Triangle-mesh colliders work
   (static only), including multi-level ones.

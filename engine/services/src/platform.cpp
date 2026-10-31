@@ -2,7 +2,10 @@
 #include "fa/services/platform.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstring>
+#include <deque>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -12,17 +15,18 @@
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 #include "fa/services/fake_platform.h"
+#include "fa/services/network.h"
 
 namespace fa {
 
 // ------------------------------------------------------------------------------------------------------ tables ----
 const std::vector<std::string>& platform_services_all() {
-    static const std::vector<std::string> v = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads"};
+    static const std::vector<std::string> v = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "remotePlay"};
     return v;
 }
 
 const std::vector<std::string>& platform_events() {
-    static const std::vector<std::string> v = {"purchase", "overlay", "player"};
+    static const std::vector<std::string> v = {"purchase", "overlay", "player", "remotePlay"};
     return v;
 }
 
@@ -40,12 +44,18 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
         {"achievements.reset", "achievements", "Development only: lock every achievement again."},
         {"stats.get", "stats", "Read one stat."},
         {"stats.set", "stats", "Set one stat."},
+        {"stats.add", "stats",
+         "Add a delta to one stat on the value the store holds when it serves the request (args: id, delta; result: id, value). Only the fake "
+         "backend gets it: a real store gets a stats.get and a stats.set."},
         {"leaderboards.submit", "leaderboards", "Submit a score to a leaderboard."},
         {"leaderboards.entries", "leaderboards", "Read the top, the neighbours of the player, or the friends' entries."},
         {"cloud.save", "cloudSave", "Store a text under a key in the player's cloud."},
         {"cloud.load", "cloudSave", "Read the text stored under a key."},
         {"cloud.list", "cloudSave", "List the keys stored in the player's cloud."},
         {"cloud.remove", "cloudSave", "Delete a key from the player's cloud."},
+        {"cloud.stat", "cloudSave",
+         "Read the size and the modified time of a key without returning its text (result: exists, and when it does: size in bytes, modified in "
+         "Unix seconds or null when the store keeps no time)."},
         {"purchases.products", "purchases", "Read the store's titles and prices of products."},
         {"purchases.buy", "purchases", "Start the purchase of a product."},
         {"purchases.finish", "purchases", "Tell the store the game delivered what a purchase paid for."},
@@ -66,6 +76,12 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
         {"ads.privacyOptions", "ads",
          "Open the consent form where the player changes their ad choices, when ads.consent says privacyOptions is \"required\" "
          "(result: shown)."},
+        {"remotePlay.sessions", "remotePlay",
+         "List the guests connected through Remote Play Together now (result: an array of { id, guestName, guestId, deviceName, formFactor, "
+         "resolution })."},
+        {"http.fetch", "http",
+         "Send an HTTP request to a host the game declared in factoria.json \"network\" (args: url, method, headers, body, timeout; "
+         "result: status, headers, text). Not a store service: the engine answers it itself, or the fake backend in tests."},
     };
     return v;
 }
@@ -176,6 +192,7 @@ struct PrepareContext {
     CalendarDate today;
     std::optional<bool> underAge;  // what the game told ads.setUnderAge, if it did
     bool release = false;
+    const NetworkPolicy& network;
 };
 
 // The key of the board a score belongs to: "" for allTime, the day for daily, the Monday of the week for weekly.
@@ -251,7 +268,7 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         return Json::object({{"achievements", std::move(list)}});
     }
 
-    if (method == "stats.get" || method == "stats.set") {
+    if (method == "stats.get" || method == "stats.set" || method == "stats.add") {
         const auto& s = lookup(cat.stats, need_string(in, "id", "the id of a stat"), "a stat", "stats", "{\"id\": \"wins\", \"type\": \"int\"}");
         Json out = id_pair(s, be);
         out["type"] = s.type;
@@ -266,6 +283,13 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
                 out["value"] = v;
             }
         }
+        if (method == "stats.add") {
+            const double d = need_number(in, "delta", "the amount to add to the stat");
+            if (s.type == "int" && !is_whole(d))
+                throw Bad{"the stat " + in_quotes(s.id) + " is an int: \"delta\" must be a whole number, got " + describe_json_value(in["delta"]),
+                          "Declare it with \"type\": \"float\" in factoria.json platform.stats to keep fractions."};
+            out["delta"] = d;
+        }
         return out;
     }
 
@@ -276,7 +300,28 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         out["name"] = localized(l.name, l.nameKey, c.translator);  // in the current language, for backends with no name of their own
         out["order"] = l.order;
         out["period"] = l.period;  // the board of "periodKey" (the day, or the Monday of the week; "" for allTime) in "date"'s calendar
-        out["periodKey"] = period_key(l.period, c.today);
+        std::string day;  // "day": the board of another day, daily boards only
+        if (auto it = in.find("day"); it != in.end() && !it->is_null()) {
+            const std::string shown = describe_json_value(*it);
+            if (!it->is_string())
+                throw Bad{"\"day\" must be a string \"YYYY-MM-DD\", got " + shown, "Example: { day: \"2026-10-23\" }."};
+            if (l.period != "daily")
+                throw Bad{"\"day\" only addresses a daily board, but " + in_quotes(l.id) + " is " +
+                              (l.period.empty() || l.period == "allTime" ? std::string("an allTime board") : "a " + l.period + " board"),
+                          "Drop the option, or declare \"period\": \"daily\" for this leaderboard in factoria.json platform.leaderboards."};
+            auto parsed = parse_calendar_date(it->get<std::string>(), "\"day\"");
+            if (!parsed.ok() || it->get<std::string>().size() != 10)
+                throw Bad{"\"day\" must be a date \"YYYY-MM-DD\", got " + shown,
+                          "Example: { day: \"2026-10-23\" }; game.today().iso is today's local day, game.today().utc.iso the UTC one."};
+            day = parsed->iso();
+            // Game Center and Play Games only know the store's own current day.
+            if ((be == "apple" || be == "googleplay") && day != c.today.iso() && day != c.today.utc().iso())
+                throw Reject{"unsupported",
+                             "the " + in_quotes(be) + " backend cannot address the leaderboard " + in_quotes(l.id) + " on " + day +
+                                 ": its store only has the current daily board",
+                             "Omit \"day\" or pass game.today().utc.iso; other days are kept by the fake and Steam backends only."};
+        }
+        out["periodKey"] = day.empty() ? period_key(l.period, c.today) : day;
         out["date"] = c.today.iso();
         if (method == "leaderboards.submit") {
             const double score = need_number(in, "score", "the score to submit");
@@ -351,6 +396,73 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         const PlatformProduct* p = cat.find_product(it->second);
         Json out = p ? product_args(*p, be, false, c.translator) : Json::object({{"id", it->second}, {"storeId", it->second}, {"type", "consumable"}});
         out["transactionId"] = tx;
+        return out;
+    }
+
+    if (method == "http.fetch") {
+        const std::string& urlText = need_string(in, "url", "the address to call, https://host/path");
+        Result<HttpUrl> url = check_http_url(urlText, c.network);
+        if (!url.ok()) throw Bad{url.error().message, url.error().hint};
+        std::string verb = "GET";
+        if (auto it = in.find("method"); it != in.end() && !it->is_null()) {
+            if (!it->is_string()) throw Bad{"\"method\" must be a string, got " + describe_json_value(*it), "Use \"GET\", \"POST\", \"PUT\", \"PATCH\", \"DELETE\" or \"HEAD\"."};
+            verb = it->get<std::string>();
+            for (char& ch : verb) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+            const std::vector<std::string> verbs = {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"};
+            if (!contains(verbs, verb)) {
+                const std::string best = closest_match(verb, verbs);
+                throw Bad{in_quotes(it->get<std::string>()) + " is not a method http.fetch sends; use GET, HEAD, POST, PUT, PATCH or DELETE" +
+                              (best.empty() ? std::string() : " (did you mean " + in_quotes(best) + "?)"),
+                          "Example: http.fetch(url, { method: \"POST\", body: \"...\" })."};
+            }
+        }
+        Json headers = Json::object();
+        if (auto it = in.find("headers"); it != in.end() && !it->is_null()) {
+            if (!it->is_object()) throw Bad{"\"headers\" must be an object of strings, got " + describe_json_value(*it), "Example: { headers: { Authorization: \"Bearer abc\" } }."};
+            static const std::vector<std::string> forbidden = {"host", "content-length", "connection", "transfer-encoding", "upgrade", "expect",
+                                                                "te", "trailer", "keep-alive", "proxy-authorization", "proxy-connection"};
+            if (it->size() > 32) throw Bad{"\"headers\" has " + std::to_string(it->size()) + " entries; the most is 32", {}};
+            std::set<std::string> seen;
+            std::size_t total = 0;
+            for (auto h = it->begin(); h != it->end(); ++h) {
+                const std::string& name = h.key();
+                if (name.empty() || !std::all_of(name.begin(), name.end(), [](unsigned char ch) { return std::isalnum(ch) || std::strchr("!#$%&'*+-.^_`|~", ch); }))
+                    throw Bad{"the header name " + in_quotes(name) + " is not valid", "A header name has letters, digits and - (for example \"Content-Type\")."};
+                std::string key = name;
+                for (char& ch : key) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                if (contains(forbidden, key) || key.rfind("sec-", 0) == 0)
+                    throw Bad{"the header " + in_quotes(name) + " is set by the system and cannot be changed",
+                              "Remove it; the system sets Host, Content-Length, Connection and the like itself."};
+                if (!seen.insert(key).second) throw Bad{"the header " + in_quotes(name) + " is given twice (header names ignore case)", "Keep one."};
+                if (!h.value().is_string())
+                    throw Bad{"the header " + in_quotes(name) + " must be a string, got " + describe_json_value(h.value()),
+                              "Convert it first: { \"X-Level\": String(level) }."};
+                const std::string& value = h.value().get_ref<const std::string&>();
+                if (std::any_of(value.begin(), value.end(), [](unsigned char ch) { return ch < 0x20 && ch != '\t'; }) || value.size() > 4096)
+                    throw Bad{"the value of the header " + in_quotes(name) + " has a line break or control character, or is longer than 4096 bytes", {}};
+                total += name.size() + value.size();
+                headers[name] = value;
+            }
+            if (total > 16 * 1024) throw Bad{"the headers are " + std::to_string(total) + " bytes; the most is 16384", {}};
+        }
+        Json out = Json::object({{"url", url->url}, {"host", url->host}, {"method", verb}, {"headers", headers}, {"timeout", 15.0}});
+        if (auto it = in.find("body"); it != in.end() && !it->is_null()) {
+            if (!it->is_string())
+                throw Bad{"\"body\" must be a string, got " + describe_json_value(*it),
+                          "http.fetch turns an object into JSON for you; at this level pass text: JSON.stringify(value)."};
+            if (verb == "GET" || verb == "HEAD")
+                throw Bad{"a " + verb + " request cannot have a body", "Use method \"POST\" (or PUT, PATCH), or move the data into the URL's query."};
+            if (it->get_ref<const std::string&>().size() > 1024 * 1024)
+                throw Bad{"\"body\" is " + std::to_string(it->get_ref<const std::string&>().size()) + " bytes; the most is 1048576 (1 MB)",
+                          "http.fetch is for small texts; send big files through the store's cloud save or your own upload."};
+            out["body"] = *it;
+        }
+        if (auto it = in.find("timeout"); it != in.end() && !it->is_null()) {
+            if (!it->is_number() || !std::isfinite(it->get<double>()) || it->get<double>() <= 0.0 || it->get<double>() > 120.0)
+                throw Bad{"\"timeout\" must be a number of seconds above 0 and at most 120, got " + describe_json_value(*it),
+                          "The default is 15 seconds: { timeout: 30 }."};
+            out["timeout"] = it->get<double>();
+        }
         return out;
     }
 
@@ -448,6 +560,8 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         return Json::object({{"challenge", challenge}});
     }
 
+    if (method == "remotePlay.sessions") return Json::object();
+
     throw Bad{"no preparation for " + method, "This is an engine bug; report it."};
 }
 
@@ -464,20 +578,30 @@ struct PlatformSink::State {
     bool release = false;
     std::string backendName = "none";
     std::string adsBackendName;  // the ads backend, "" when there is none (the store backend then serves ads, if it offers them)
-    std::vector<std::string> storeServices, adsServices, services;  // `services`: both together
+    std::string httpBackendName;  // the http backend, "" when there is none (the store backend then serves http, if it offers it: the fake)
+    std::vector<std::string> storeServices, adsServices, httpServices, services;  // `services`: all together
     std::optional<bool> underAge;  // the answer of ads.setUnderAge
+    NetworkPolicy network;         // factoria.json "network": the hosts http.fetch may call
 
     void rebuild_services() {
         services = storeServices;
-        for (const std::string& s : adsServices)
-            if (!contains(services, s)) services.push_back(s);
+        // An http backend decides alone whether http is offered: a client that cannot run (no libcurl) must not fall back to the fake.
+        if (!httpBackendName.empty()) services.erase(std::remove(services.begin(), services.end(), std::string("http")), services.end());
+        for (const std::vector<std::string>* more : {&adsServices, &httpServices})
+            for (const std::string& s : *more)
+                if (!contains(services, s)) services.push_back(s);
     }
 
     struct Pending {
         std::string method;
         Json args;  // as the backend got them
+        std::uint64_t frame = 0;  // the engine frame of the request (for the http log)
     };
     std::map<std::uint64_t, Pending> pending;
+    // The http log (log_http): requests in the order they were made, each with its answer once it has one.
+    const std::uint64_t* frameClock = nullptr;
+    bool logHttp = false;
+    std::deque<std::pair<std::uint64_t, std::optional<HttpLogEntry>>> httpLog;
     std::vector<PlatformAnswer> answers;
     std::vector<PlatformEvent> events;
     Json player = unknown_player();
@@ -586,6 +710,16 @@ struct PlatformSink::State {
             error = {"failed", "the " + in_quotes(backendName) + " backend answered integrity.token without a string \"token\": got " + describe_json_value(result),
                      "This is a bug in the backend; the answer must be {\"token\": \"<string>\"}."};
         }
+        // The game builds its Response from this answer: a malformed one is a failure here.
+        if (ok && p.method == "http.fetch") {
+            const bool shaped = result.is_object() && result.contains("status") && result["status"].is_number_integer() &&
+                                result.contains("text") && result["text"].is_string() && result.contains("headers") && result["headers"].is_object();
+            if (!shaped) {
+                ok = false;
+                error = {"failed", "the " + in_quotes(backendName) + " backend answered http.fetch without {status, headers, text}: got " + describe_json_value(result),
+                         "This is a bug in the backend; in a test, script it as game.platform.respond(\"http.fetch\", { status: 200, text: \"...\" })."};
+            }
+        }
         PlatformAnswer a;
         a.id = id;
         a.method = p.method;
@@ -601,6 +735,17 @@ struct PlatformSink::State {
             }
             if (error.message.empty()) error.message = "the " + in_quotes(backendName) + " backend reported a failure without a message";
             a.error = std::move(error);
+        }
+        if (logHttp && a.method == "http.fetch") {
+            for (auto& slot : httpLog)
+                if (slot.first == id) {
+                    HttpLogEntry e;
+                    e.frame = p.frame;
+                    if (a.ok) e.answer = Json::object({{"result", a.result}});
+                    else e.answer = Json::object({{"error", a.error.code}, {"message", a.error.message}, {"hint", a.error.hint}});
+                    slot.second = std::move(e);
+                    break;
+                }
         }
         if (id == startingId && std::this_thread::get_id() == startingThread) {
             syncAnswer = std::move(a);
@@ -719,6 +864,49 @@ void PlatformServices::set_backend(std::unique_ptr<PlatformBackend> backend, std
     why_ = std::move(why);
     backend_->attach(sink());
     if (adsBackend_) adsBackend_->attach(sink());  // a new generation: the ads backend needs the new sink
+    if (httpBackend_) httpBackend_->attach(sink());
+}
+
+void PlatformServices::set_network(NetworkPolicy network) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->network = std::move(network);
+}
+
+const NetworkPolicy& PlatformServices::network() const { return state_->network; }
+
+void PlatformServices::set_http_backend(std::unique_ptr<PlatformBackend> backend, std::string why) {
+    {
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        state_->httpBackendName = backend ? backend->name() : std::string();
+        state_->httpServices = backend ? backend->services() : std::vector<std::string>{};
+        state_->rebuild_services();
+    }
+    httpBackend_ = std::move(backend);
+    httpWhy_ = std::move(why);
+    if (httpBackend_) httpBackend_->attach(sink());
+}
+
+PlatformBackend* PlatformServices::http_backend() const { return httpBackend_.get(); }
+
+void PlatformServices::set_frame_clock(const std::uint64_t* frame) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->frameClock = frame;
+}
+
+void PlatformServices::log_http(bool on) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->logHttp = on;
+    if (!on) state_->httpLog.clear();
+}
+
+std::vector<HttpLogEntry> PlatformServices::take_http_log() {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    std::vector<HttpLogEntry> out;
+    while (!state_->httpLog.empty() && state_->httpLog.front().second) {  // up to the first request still waiting
+        out.push_back(std::move(*state_->httpLog.front().second));
+        state_->httpLog.pop_front();
+    }
+    return out;
 }
 
 void PlatformServices::set_ads_backend(std::unique_ptr<PlatformBackend> backend, std::string why) {
@@ -750,6 +938,7 @@ void PlatformServices::refresh_backend() {
     state_->backendName = backend_->name();
     state_->storeServices = backend_->services();
     if (adsBackend_) state_->adsServices = adsBackend_->services();
+    if (httpBackend_) state_->httpServices = httpBackend_->services();
     state_->rebuild_services();
 }
 
@@ -780,15 +969,17 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
     bool offered = true;
     // Ads go to the ads backend when there is one (a plugin that offers nothing else); everything else to the store backend.
     bool viaAds = false;
+    bool viaHttp = false;
     {
         std::lock_guard<std::mutex> lock(s.mutex);
         viaAds = info->service == "ads" && !s.adsBackendName.empty() && contains(s.adsServices, "ads");
-        backendName = viaAds ? s.adsBackendName : s.backendName;
+        viaHttp = info->service == "http" && !s.httpBackendName.empty();
+        backendName = viaAds ? s.adsBackendName : viaHttp ? s.httpBackendName : s.backendName;
         try {
             CalendarDate today;
             if (s.dateSource) today = s.dateSource();
             else if (auto d = parse_calendar_date(kDefaultDate); d.ok()) today = d.value();
-            prepared = prepare(method, args, {s.catalog, backendName, s.transactions, s.translator, today, s.underAge, s.release});
+            prepared = prepare(method, args, {s.catalog, backendName, s.transactions, s.translator, today, s.underAge, s.release, s.network});
         } catch (const Bad& b) {
             return make_error(b.message, b.hint);
         } catch (const Reject& r) {
@@ -802,7 +993,7 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
             return out;
         }
         out.id = s.nextId++;
-        offered = info->service.empty() || contains(s.services, info->service);
+        offered = info->service.empty() || (viaHttp ? contains(s.httpServices, "http") : contains(s.services, info->service));
         if (offered && method == "ads.setUnderAge") s.underAge = prepared.value("underAge", false);
         // A game for adults and children (audience "mixed") shows no ad before it knows the player's age.
         if (offered && s.catalog.adsAudience == "mixed" && !s.underAge && (method == "ads.available" || method == "ads.showRewarded")) {
@@ -815,7 +1006,8 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
             return out;
         }
         if (offered) {
-            s.pending[out.id] = {method, prepared};
+            s.pending[out.id] = {method, prepared, s.frameClock ? *s.frameClock : 0};
+            if (s.logHttp && method == "http.fetch") s.httpLog.emplace_back(out.id, std::nullopt);
             s.startingId = out.id;
             s.startingThread = std::this_thread::get_id();
             s.syncAnswer.reset();
@@ -827,6 +1019,12 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
         a.method = method;
         a.ok = false;
         a.error.code = "unavailable";
+        if (viaHttp) {  // an http backend that cannot run on this computer
+            a.error.message = method + " is not available: " + (httpWhy_.empty() ? "the " + in_quotes(backendName) + " client cannot run here" : httpWhy_);
+            a.error.hint = "Check platform.has(\"http\") before calling it, and let the game carry on offline.";
+            out.answer = std::move(a);
+            return out;
+        }
         a.error.message = "platform." + method + " is not available: the " + in_quotes(backendName) + " backend does not offer the " +
                           in_quotes(info->service) + " service";
         a.error.hint = "Check platform.has(" + in_quotes(info->service) + ") before calling it. " +
@@ -839,7 +1037,7 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
 
     const PlatformSink handle = sink();
     try {
-        (viaAds ? adsBackend_ : backend_)->request(out.id, method, prepared, handle);
+        (viaAds ? adsBackend_ : viaHttp ? httpBackend_ : backend_)->request(out.id, method, prepared, handle);
     } catch (const std::exception& e) {  // a backend must not throw; the game still gets an answer
         handle.fail(out.id, {"failed", std::string("the ") + in_quotes(backendName) + " backend threw while handling " + method + ": " + e.what(), {}});
     }
@@ -855,6 +1053,7 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
 void PlatformServices::frame() {
     backend_->frame();
     if (adsBackend_) adsBackend_->frame();
+    if (httpBackend_) httpBackend_->frame();
 }
 
 std::vector<PlatformAnswer> PlatformServices::take_answers() {
@@ -884,7 +1083,13 @@ Json PlatformServices::info() const {
     // The backend that answers ads.*: the ads plugin, else the store backend when it offers ads, else "none".
     const std::string adsBackend = !state_->adsBackendName.empty() ? state_->adsBackendName
                                    : contains(state_->storeServices, "ads") ? state_->backendName : std::string("none");
-    return Json::object({{"backend", state_->backendName}, {"adsBackend", adsBackend}, {"release", state_->release}, {"services", services},
+    // The backend that answers http.fetch: the engine's client, else the store backend when it offers http (the fake), else "none".
+    const std::string httpBackend = !state_->httpBackendName.empty() ? state_->httpBackendName
+                                    : contains(state_->storeServices, "http") ? state_->backendName : std::string("none");
+    Json hosts = Json::array();
+    for (const std::string& h : state_->network.hosts) hosts.push_back(h);
+    return Json::object({{"backend", state_->backendName}, {"adsBackend", adsBackend}, {"httpBackend", httpBackend}, {"networkHosts", hosts},
+                         {"release", state_->release}, {"services", services},
                          {"audience", state_->catalog.adsAudience},
                          {"underAge", state_->catalog.adsAudience == "children" ? Json(true) : state_->underAge ? Json(*state_->underAge) : Json(nullptr)},
                          {"player", state_->player}, {"pending", state_->pending.size()}});

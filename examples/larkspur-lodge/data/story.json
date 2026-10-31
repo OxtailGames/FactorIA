@@ -1,0 +1,350 @@
+{
+  "format": "larkspur.story/1",
+  "flags": {
+    "chapter": {
+      "type": "number",
+      "doc": "The chapter the night is in (1 to 5). Set by scripts/chapters.js; read by scripts/cast.js to place the characters and by P3's clue logic."
+    },
+    "interviews": {
+      "type": "number",
+      "doc": "How many of the four chapter 2 interviews were held. Added to by ch2_tobias, ch2_haas, ch2_lucian and ch2_mara; chapter 2 ends at 3."
+    },
+    "trust": {
+      "type": "number",
+      "doc": "How much the household trusts the porter. Added to by kind choices (ch1_mara, ch2_haas, ch2_mara, ch3_mara, ch4_mara, ch4_haas, ch4_lucian); the 'quiet' ending needs 3, Haas gives his room key at 1."
+    },
+    "ending": {
+      "type": "string",
+      "doc": "The ending reached: dawn, quiet or long. Set by the last line of ch5_vale; read by scripts/chapters.js, which shows the ending screen."
+    },
+    "storm_over": {
+      "type": "boolean",
+      "doc": "The power is back and the storm has blown out, so the front door can be opened. Set by scripts/puzzles.js when the cellar fuse box is mended; read by the front door."
+    },
+    "intro_seen": {
+      "type": "boolean",
+      "doc": "The opening cut-scene (intro) has played or was skipped. Set by that cut-scene's end block (data/cutscenes/intro.cutscene.json); read by scripts/chapters.js so it plays once."
+    },
+    "vale_missing": {
+      "type": "boolean",
+      "doc": "The porter knows Dr. Vale is missing. Set by ch1_hedda; ends chapter 1."
+    },
+    "know_oil": {
+      "type": "boolean",
+      "doc": "Clue: Dr. Vale took a lantern and lamp oil to the cellar. Set by ch2_tobias and ch4_tobias; read by ch3_tobias."
+    },
+    "know_cellar": {
+      "type": "boolean",
+      "doc": "Clue: the cellar goes back further than its shelves. Set by ch2_haas and by the chapter 4 entry; P3 reads it to hint at the wine rack."
+    },
+    "know_page": {
+      "type": "boolean",
+      "doc": "Clue: Dr. Vale came for a missing survey page. Set by ch2_lucian."
+    },
+    "know_argument": {
+      "type": "boolean",
+      "doc": "Clue: Mara and Dr. Vale quarrelled at supper. Set by ch2_mara."
+    },
+    "hedda_letter": {
+      "type": "boolean",
+      "doc": "Hedda owns up to the torn letter. Set by ch3_hedda (when shown the letter) and ch4_hedda; read by ch5_lucian."
+    },
+    "survey_known": {
+      "type": "boolean",
+      "doc": "The porter understands the boundary stones and page forty. Set by ch3_mara (library) or ch3_lucian (room B); the 'dawn' ending needs it."
+    },
+    "adit_known": {
+      "type": "boolean",
+      "doc": "Haas has admitted the adit behind the third wine shelf. Set by ch4_haas."
+    },
+    "adit_open": {
+      "type": "boolean",
+      "doc": "The adit is open. Set by ch4_haas when the porter opens it with the lantern and the lamp oil."
+    },
+    "vale_found": {
+      "type": "boolean",
+      "doc": "Dr. Vale was brought out of the adit. Set by ch4_haas; ends chapter 4."
+    },
+    "page_recovered": {
+      "type": "boolean",
+      "doc": "Page forty of the survey is in the porter's hands. Set by ch4_haas."
+    },
+    "mara_hurt": {
+      "type": "boolean",
+      "doc": "The porter accused Mara of wanting Dr. Vale gone. Set by ch2_mara; colour for P4."
+    },
+    "mara_kind": {
+      "type": "boolean",
+      "doc": "The porter asked Mara how she was in the library. Set by ch3_mara so the kindness earns trust once."
+    },
+    "haas_room": {
+      "type": "boolean",
+      "doc": "Haas lent the key to room D. Set by ch3_haas."
+    },
+    "cellar_box_taken": {
+      "type": "boolean",
+      "doc": "The library key was taken from the cellar crate. Set by the item box p_cellar_box."
+    },
+    "lantern_taken": {
+      "type": "boolean",
+      "doc": "The cellar lantern was taken from the nook crate. Set by the item box p_lantern_box."
+    },
+    "ledger_taken": {
+      "type": "boolean",
+      "doc": "The guest ledger was taken from the library. Set by the item box p_ledger_box."
+    },
+    "kitchen_box_taken": {
+      "type": "boolean",
+      "doc": "The lamp oil was taken from the kitchen box. Set by the item box p_kitchen_box."
+    },
+    "letter_taken": {
+      "type": "boolean",
+      "doc": "The torn letter was taken from room B. Set by the item box p_letter_box."
+    },
+    "test_box_taken": {
+      "type": "boolean",
+      "doc": "The test room's key box was emptied. Set by the item box in the test room."
+    },
+    "power_out": {
+      "type": "boolean",
+      "doc": "The storm has cut the lodge's power. Set by the chapter 4 entry; the cellar fuse box can be mended from then on (scripts/puzzles.js)."
+    },
+    "cartridge_taken": {
+      "type": "boolean",
+      "doc": "The spare fuse cartridge was taken from the kitchen box. Set by the item box p_cartridge_box."
+    },
+    "drawer_open": {
+      "type": "boolean",
+      "doc": "The locked drawer of the library desk is open. Set by scripts/puzzles.js (drawer)."
+    },
+    "switch_card_found": {
+      "type": "boolean",
+      "doc": "Emil's card about the fuse box was found in the drawer. Set by scripts/puzzles.js (drawer); a clue of the notebook."
+    },
+    "letter_pieced": {
+      "type": "boolean",
+      "doc": "The torn letter was pieced together. Set by scripts/puzzles.js (letter); a clue of the notebook."
+    },
+    "timetable_solved": {
+      "type": "boolean",
+      "doc": "The order of the railway services is known. Set by scripts/puzzles.js (timetable); a clue of the notebook."
+    },
+    "fuse_fixed": {
+      "type": "boolean",
+      "doc": "The cellar fuse box is mended and the power is back. Set by scripts/puzzles.js (fuse); Captain Haas needs it before he lets the porter open the adit (ch4_haas)."
+    }
+  },
+  "flagPrefixes": {
+    "open.": "A door the porter opened: open.<door id>, set by scripts/interactable.js. Chapter 3 ends on open.guest_door_c.",
+    "talked.": "A conversation held once in a chapter: talked.<character>.<chapter>. Set by the story data so a repeat gives the short 'again' line.",
+    "ded.": "A deduction on the board: ded.<deduction id>, set while it stands and cleared when it is undone (scripts/notebook.js)."
+  },
+  "chapters": [
+    {
+      "id": 1,
+      "titleKey": "chapter.1.title",
+      "introKey": "chapter.1.intro",
+      "advance": [
+        "vale_missing"
+      ]
+    },
+    {
+      "id": 2,
+      "titleKey": "chapter.2.title",
+      "introKey": "chapter.2.intro",
+      "advance": [
+        "interviews>=3"
+      ]
+    },
+    {
+      "id": 3,
+      "titleKey": "chapter.3.title",
+      "introKey": "chapter.3.intro",
+      "advance": [
+        "open.guest_door_c"
+      ]
+    },
+    {
+      "id": 4,
+      "titleKey": "chapter.4.title",
+      "introKey": "chapter.4.intro",
+      "advance": [
+        "vale_found"
+      ],
+      "enter": [
+        {
+          "set": "know_cellar"
+        },
+        {
+          "set": "power_out"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "titleKey": "chapter.5.title",
+      "introKey": "chapter.5.intro",
+      "final": true,
+      "start": {
+        "area": "ground",
+        "spawn": "spawn_default"
+      }
+    }
+  ],
+  "endings": {
+    "dawn": {
+      "titleKey": "ending.dawn.title",
+      "textKey": "ending.dawn.text"
+    },
+    "quiet": {
+      "titleKey": "ending.quiet.title",
+      "textKey": "ending.quiet.text"
+    },
+    "long": {
+      "titleKey": "ending.long.title",
+      "textKey": "ending.long.text"
+    }
+  },
+  "cutscenes": {
+    "adit_descent": {
+      "doc": "The porter lights the lantern and goes down the adit behind the third wine shelf. Played by P4."
+    },
+    "adit_rescue": {
+      "doc": "The porter brings Dr. Vale up the steps into the lamplight. Played by P4."
+    },
+    "intro": {
+      "doc": "The opening: the hall at eleven at night, the porter coming in out of the snow. Played when a new game starts (sets intro_seen)."
+    },
+    "chapter_2": {
+      "doc": "Lead-in to chapter 2: a card and a narrated line on a black screen."
+    },
+    "chapter_3": {
+      "doc": "Lead-in to chapter 3: a card and a narrated line on a black screen."
+    },
+    "chapter_4": {
+      "doc": "Lead-in to chapter 4: a card and a narrated line on a black screen."
+    },
+    "chapter_5": {
+      "doc": "Lead-in to chapter 5: the hall at dawn, the camera finding Dr. Vale on the sofa."
+    },
+    "ending_dawn": {
+      "doc": "The dawn ending in the hall, before the ending screen."
+    },
+    "ending_quiet": {
+      "doc": "The quiet ending in the hall, before the ending screen."
+    },
+    "ending_long": {
+      "doc": "The long ending in the hall, before the ending screen."
+    }
+  },
+  "places": {
+    "hall_center": {
+      "area": "ground",
+      "x": 15.0,
+      "z": 19.2,
+      "yaw": 180
+    },
+    "hall_lounge": {
+      "area": "ground",
+      "x": 11.8,
+      "z": 21.4,
+      "yaw": 45
+    },
+    "hall_radio": {
+      "area": "ground",
+      "x": 21.6,
+      "z": 20.8,
+      "yaw": 270
+    },
+    "hall_bear": {
+      "area": "ground",
+      "x": 19.6,
+      "z": 21.9,
+      "yaw": 0
+    },
+    "hall_east": {
+      "area": "ground",
+      "x": 19.8,
+      "z": 20.4,
+      "yaw": 90
+    },
+    "hall_stairs": {
+      "area": "ground",
+      "x": 9.8,
+      "z": 21.6,
+      "yaw": 270
+    },
+    "hall_vale": {
+      "area": "ground",
+      "x": 11.8,
+      "z": 21.0,
+      "yaw": 45
+    },
+    "stair_hall": {
+      "area": "ground",
+      "x": 4.8,
+      "z": 18.0,
+      "yaw": 270
+    },
+    "corridor_mid": {
+      "area": "ground",
+      "x": 16.5,
+      "z": 13.0,
+      "yaw": 180
+    },
+    "corridor_east": {
+      "area": "ground",
+      "x": 26.0,
+      "z": 13.2,
+      "yaw": 180
+    },
+    "kitchen_stove": {
+      "area": "ground",
+      "x": 27.6,
+      "z": 1.9,
+      "yaw": 0
+    },
+    "kitchen_island": {
+      "area": "ground",
+      "x": 26.4,
+      "z": 5.0,
+      "yaw": 180
+    },
+    "dining_head": {
+      "area": "ground",
+      "x": 17.5,
+      "z": 5.2,
+      "yaw": 180
+    },
+    "library_desk": {
+      "area": "ground",
+      "x": 5.6,
+      "z": 4.4,
+      "yaw": 270
+    },
+    "landing_hedda": {
+      "area": "upstairs",
+      "x": 7.0,
+      "z": 16.6,
+      "yaw": 90
+    },
+    "upstairs_c_door": {
+      "area": "upstairs",
+      "x": 21.6,
+      "z": 10.0,
+      "yaw": 90
+    },
+    "room_b": {
+      "area": "upstairs",
+      "x": 12.0,
+      "z": 4.6,
+      "yaw": 0
+    },
+    "cellar_rack": {
+      "area": "cellar",
+      "x": 18.0,
+      "z": 4.6,
+      "yaw": 270
+    }
+  }
+}

@@ -19,10 +19,10 @@ A walking character: a kinematic capsule that moves and slides. Move it with phy
 | `layer` | int | `0` | Collision category of the character, 0..31. Range 0.0..31.0. |
 | `mask` | int | `-1` | Bitmask of layers the character collides with. -1 = all layers. |
 | `velocity` | vec3 | `[0.0,0.0,0.0]` | Velocity in meters/second [x, y, z]: when not zero the character moves by velocity * dt every physics step (no gravity is added). Use it or moveCharacter, not both for the same motion. |
-| `carriedByPlatforms` | bool | `true` | When true (default) a kinematic RigidBody3D the character stands on carries it: every physics step it moves with the platform's displacement (velocity, or a teleport by script) and turns about the platform's centre with its angularVelocity (the character also yaws with it). Set false and it stays where it is, so a moving platform slides out from under it and the script must carry it. (not released yet, on main after 0.2.0) |
-| `applyWeight` | bool | `true` | When true (default) a character standing on a dynamic RigidBody3D presses on it with mass * gravity at its feet, every physics step: a seesaw tips towards the side it stands on, a bridge plank or a crate feels the load. Set false for a character that weighs nothing. (not released yet, on main after 0.2.0) |
-| `mass` | float | `70.0` | Weight in kilograms pressed on the dynamic body below when applyWeight is on (see applyWeight). Range 0.0..100000.0. (not released yet, on main after 0.2.0) |
-| `pushStrength` | float | `1.0` | How hard the character shoves the free dynamic bodies it walks into: 1 (default) gives them its own speed, 0.5 half of it, 0 none (they block it like a wall). A body held by a Joint3D (a seesaw on its pivot, a bridge plank, a door) is never shoved whatever the value. Range 0.0..10.0. (not released yet, on main after 0.2.0) |
+| `carriedByPlatforms` | bool | `true` | When true (default) a kinematic RigidBody3D the character stands on carries it: every physics step it moves with the platform's displacement (velocity, or a teleport by script) and turns about the platform's centre with its angularVelocity (the character also yaws with it). Set false and it stays where it is, so a moving platform slides out from under it and the script must carry it. (since 0.3.0) |
+| `applyWeight` | bool | `true` | When true (default) a character standing on a dynamic RigidBody3D presses on it with mass * gravity at its feet, every physics step: a seesaw tips towards the side it stands on, a bridge plank or a crate feels the load. Set false for a character that weighs nothing. (since 0.3.0) |
+| `mass` | float | `70.0` | Weight in kilograms pressed on the dynamic body below when applyWeight is on (see applyWeight). Range 0.0..100000.0. (since 0.3.0) |
+| `pushStrength` | float | `1.0` | How hard the character shoves the free dynamic bodies it walks into: 1 (default) gives them its own speed, 0.5 half of it, 0 none (they block it like a wall). A body held by a Joint3D (a seesaw on its pivot, a bridge plank, a door) is never shoved whatever the value. Range 0.0..10.0. (since 0.3.0) |
 | `isGrounded` | bool | `false` | Runtime: true when the last move ended standing on walkable ground (slope up to slopeLimit). Read-only. Runtime-only (not saved). |
 | `groundNormal` | vec3 | `[0.0,1.0,0.0]` | Runtime: the normal of the ground under the character after the last move (up when airborne). Read-only. Runtime-only (not saved). |
 
@@ -36,6 +36,7 @@ Collision shape for 2D physics. Without a RigidBody2D the collider acts as a sta
 | `size` | vec2 | `[32.0,32.0]` | box/capsule: [width, height] in world units (capsule is vertical). |
 | `radius` | float | `16.0` | circle: radius in world units. |
 | `offset` | vec2 | `[0.0,0.0]` | Shape center offset [x, y] from the entity origin, in world units. |
+| `enabled` | bool | `true` | false = the collider is switched off: raycasts and overlap queries pass through it, it makes no contacts or trigger events, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on). (since 0.3.0) |
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps (onTriggerEnter/Exit) but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = no bounce, 1 = perfectly elastic. Range 0.0..1.0. |
@@ -54,15 +55,16 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle me
 | `size` | vec3 | `[1.0,1.0,1.0]` | box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale. |
 | `radius` | float | `0.5` | sphere and capsule: radius in meters. |
 | `height` | float | `2.0` | capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius). Range 0.002..100000.0. (since 0.2.0) |
-| `mesh` | string | `""` | convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn. (since 0.2.0) |
+| `mesh` | string | `""` | convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform), or the `id` ("mesh:3") of a procedural mesh made with mesh.create() (the collider is rebuilt whenever the mesh is updated). Use the same value as the MeshRenderer so the collider matches what is drawn. (since 0.2.0) |
 | `offset` | vec3 | `[0.0,0.0,0.0]` | Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and mesh: where the model's own origin sits). |
+| `enabled` | bool | `true` | false = the collider is switched off: raycasts, shape casts and overlap queries pass through it, it makes no contacts or trigger events and the NavMesh bake leaves it out, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on). (since 0.3.0) |
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = none, 1 = perfectly elastic. Range 0.0..1.0. |
 | `layer` | int | `0` | Collision category of this collider, 0..31. Range 0.0..31.0. |
 | `mask` | int | `-1` | Bitmask of layers this collider collides with. -1 = all layers. |
-| `navObstacle` | bool | `false` | true = a NavMesh3D does not bake this collider into the ground (a crate, a gate, a door that moves): it blocks the navigation cells it covers, plus the agent's radius, wherever it is NOW, and the affected cells are marked again each time it moves, so nav.findPath goes around it. Use it on anything that moves or is removed during play; static level geometry needs nothing. (not released yet, on main after 0.2.0) |
-| `navWalkable` | bool | `false` | true = a NavMesh3D does not bake this collider either, but its TOP surface is walkable wherever it is NOW: put it on a kinematic body or a body held by a joint that characters stand on (a rope-bridge plank, a seesaw, a moving platform, a lift). The cells it covers are added to the navigation mesh and marked again each time it moves (only the cells it left and entered), and they join the ground around them within stepHeight, so nav.findPath crosses a bridge, rides a platform that is docked and says `disconnected` while it is away. The ground under it is blocked meanwhile. Surfaces steeper than maxSlope are not walkable. Wins over navObstacle when both are set. (not released yet, on main after 0.2.0) |
+| `navObstacle` | bool | `false` | true = a NavMesh3D does not bake this collider into the ground (a crate, a gate, a door that moves): it blocks the navigation cells it covers, plus the agent's radius, wherever it is NOW, and the affected cells are marked again each time it moves, so nav.findPath goes around it. Use it on anything that moves or is removed during play; static level geometry needs nothing. (since 0.3.0) |
+| `navWalkable` | bool | `false` | true = a NavMesh3D does not bake this collider either, but its TOP surface is walkable wherever it is NOW: put it on a kinematic body or a body held by a joint that characters stand on (a rope-bridge plank, a seesaw, a moving platform, a lift). The cells it covers are added to the navigation mesh and marked again each time it moves (only the cells it left and entered), and they join the ground around them within stepHeight, so nav.findPath crosses a bridge, rides a platform that is docked and says `disconnected` while it is away. The ground under it is blocked meanwhile. Surfaces steeper than maxSlope are not walkable. Wins over navObstacle when both are set. (since 0.3.0) |
 
 ## Joint2D
 
@@ -114,13 +116,13 @@ Joins this entity's RigidBody3D to another body or to the world: a hinge (door, 
 | `motorSpeed` | float | `0.0` | hinge motor: target speed in degrees/second of this body relative to the connected one, about the axis. |
 | `maxMotorTorque` | float | `10.0` | hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more. Range 0.0..1000000.0. |
 | `collideConnected` | bool | `false` | false (default): the two joined bodies do not collide with each other. true: they do. |
-| `damping` | float | `0.0` | Resistance to the two bodies turning relative to each other, per second: each physics sub-step the relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by 1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a rope-bridge plank ringing. A chain of 3+ bodies already settles without it. Range 0.0..1000.0. (not released yet, on main after 0.2.0) |
+| `damping` | float | `0.0` | Resistance to the two bodies turning relative to each other, per second: each physics sub-step the relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by 1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a rope-bridge plank ringing. A chain of 3+ bodies already settles without it. Range 0.0..1000.0. (since 0.3.0) |
 | `angle` | float | `0.0` | Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only. Runtime-only (not saved). |
-| `stalled` | bool | `false` | Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only. Runtime-only (not saved). (not released yet, on main after 0.2.0) |
+| `stalled` | bool | `false` | Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only. Runtime-only (not saved). (since 0.3.0) |
 
 ## NavLink3D
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 An off-mesh link of the NavMesh3D: a jump across a gap, a climb up a ladder, a drop off a ledge. The walkable cells do not join the two places, so this joins them: the link runs from this entity's world position to `end` (both are moved onto the nearest walkable cell). nav.findPath may take it, and its result lists where in `links` (the index of the point where the link starts and the link's entity), so a script makes the character jump or climb there; the next point is where it ends. See docs/NAVIGATION.md.
 
@@ -132,7 +134,7 @@ An off-mesh link of the NavMesh3D: a jump across a gap, a climb up a ladder, a d
 
 ## NavMesh3D
 
-Not released yet (on main after 0.2.0).
+Since 0.3.0.
 
 A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there; one with Collider3D.navWalkable (a bridge, a lift) adds its top surface while it is there, and NavLink3D entities add off-mesh links. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
 

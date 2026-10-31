@@ -91,719 +91,311 @@
     },
     {
       "id": "coin_1",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [400.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_2",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [432.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_3",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [464.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_4",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [720.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_5",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [752.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_6",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [784.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_7",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [848.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_8",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [912.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_9",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [976.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_10",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1008.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_11",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1040.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_12",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1584.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_13",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1648.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_14",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1968.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_15",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2000.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_16",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2032.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_17",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2160.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_18",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [272.0, 176.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_19",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [816.0, 176.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_20",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1232.0, 176.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_21",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1616.0, 176.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_22",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1712.0, 144.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_23",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2224.0, 144.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_24",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2288.0, 144.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "goal",
-      "name": "Goal Flag",
+      "prefab": "prefabs/goal.prefab.json",
       "tags": ["goal", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [2832.0, 160.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/flag.png",
-          "size": [40.0, 96.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [30.0, 96.0],
-          "isTrigger": true
-        },
         "Script": {
-          "path": "scripts/goal.js",
           "props": {
             "next": "scenes/win.scene.json"
           }
+        },
+        "Transform": {
+          "position": [2832.0, 160.0, 0.0]
         }
       }
     },
     {
       "id": "player",
-      "name": "Player",
+      "prefab": "prefabs/player.prefab.json",
       "tags": ["player", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [80.0, 112.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/player.png",
-          "size": [32.0, 48.0],
-          "layer": 3,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [26.0, 46.0],
-          "friction": 0.0
-        },
-        "Script": {
-          "path": "scripts/player.js"
         }
       }
     },
     {
       "id": "enemy_1",
-      "name": "Crawler",
+      "prefab": "prefabs/enemy.prefab.json",
       "tags": ["enemy", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [1136.0, 108.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/enemy.png",
-          "size": [36.0, 28.0],
-          "layer": 2,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [34.0, 26.0],
-          "friction": 0.0
-        },
         "Script": {
-          "path": "scripts/enemy.js",
           "props": {
             "speed": 76
           }
+        },
+        "Transform": {
+          "position": [1136.0, 108.0, 0.0]
         }
       }
     },
     {
       "id": "enemy_2",
-      "name": "Crawler",
+      "prefab": "prefabs/enemy.prefab.json",
       "tags": ["enemy", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [1456.0, 108.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/enemy.png",
-          "size": [36.0, 28.0],
-          "layer": 2,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [34.0, 26.0],
-          "friction": 0.0
-        },
         "Script": {
-          "path": "scripts/enemy.js",
           "props": {
             "speed": 76
           }
+        },
+        "Transform": {
+          "position": [1456.0, 108.0, 0.0]
         }
       }
     },
     {
       "id": "enemy_3",
-      "name": "Crawler",
+      "prefab": "prefabs/enemy.prefab.json",
       "tags": ["enemy", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [1744.0, 108.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/enemy.png",
-          "size": [36.0, 28.0],
-          "layer": 2,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [34.0, 26.0],
-          "friction": 0.0
-        },
         "Script": {
-          "path": "scripts/enemy.js",
           "props": {
             "speed": 76
           }
+        },
+        "Transform": {
+          "position": [1744.0, 108.0, 0.0]
         }
       }
     }

@@ -55,7 +55,9 @@ fills back in if you let go. Dig times with the starting pick: dirt 0.5 s, rock 
 silver 1.5 s, gold 2.4 s, gems 2.6 s. Hard rock, gold and gems need the tier 1 pick (the camp sells it, P4): without it the
 miner makes a "blocked" sound. Bedrock never breaks. Each player rebinds their own keys and buttons in
 Options > Controls (a button cycles Player 1 to 4; click an action, then press the key or button; a key replaces the keyboard list, a
-button replaces the pad list of that action). The bindings are saved by seat in `settings.playerBindings`.
+button replaces the pad list of that action). The engine keeps each player's bindings (`input.player(seat)`) and the game saves
+them by seat in `settings.playerBindings` (what an older version saved as left/right/up/down is moved to the project's
+`move_left`... names the first time it loads, with a note in the log).
 
 Holding dig with an enemy in front of you swings the pick at it instead (every 0.5 s; 1 damage plus the pick tier). With
 several players on one keyboard the key blocks are: WASD + Space + E, arrows + Enter + RightShift, IJKL + U + O (dig and torch
@@ -72,8 +74,8 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
 - **Daily dig**: one shared seed per local calendar day. It is played once for the score; a run in daily mode does not write
   to the slots.
 - **Seed codes**: a floor and seed as `XXXX-XXXX` (base32 with a check character). The results and camp screens copy it, the
-  title pastes it. The clipboard is a session buffer inside the game: scripts cannot reach the system clipboard (FB-0016), so a
-  code copied here is pasted here; typing a code from elsewhere works as usual.
+  title pastes it. Copy and paste use the system clipboard (`clipboard.write` / `clipboard.read`), so a code can travel to
+  another program and back; on a phone, which has no script clipboard, the game keeps the code in its own buffer for the session.
 
 ## The shift
 
@@ -98,21 +100,26 @@ last); a second and third player can use pads (left stick or d-pad, A or X to di
   friends fill it twice as fast); the bar empties 1.5 times faster than it filled when nobody holds. The friend gets up with one
   heart and 2 s of grace (`playerRevived`). A downed miner **does not bleed out**: it lies there until a friend comes or the shift
   ends, so the last miner standing is the one who can still pick the others up. Reviving does not dig or swing the pick.
-- **Camera**: one shared camera follows the miners and zooms out as they spread, up to 1.5 times the normal view. A **leash**
-  stops a miner from walking farther from the others than that view shows (a miner who is already far can always walk back).
-  The engine has one camera only, so a real split screen is not drawn: `camera_views.js` plans the 2 to 4 views (clusters,
-  viewports, hysteresis) and tests it, ready for when the engine can draw them (ENGINE_FEEDBACK FB-0013).
-- **A pad unplugged mid-shift** pauses the game with "Reconnect the controller for P2". Plugging it back resumes. Any other free
-  pad (A) or the keyboard (Enter, when nobody uses it) takes the miner over, and another player drops the missing one with Y (pad)
-  or Backspace (keyboard): that miner leaves the mine and the shift goes on.
+- **Camera**: one shared camera follows the miners and zooms out as they spread, up to 1.5 times the normal view. By default a
+  **leash** stops a miner from walking farther from the others than that view shows (a miner who is already far can always walk
+  back). With **Options > Video > Split screen when players part** on, there is no leash: when the miners no longer fit one view
+  the screen splits into 2 to 4 views (halves, three views, quarters) with a thin dark gap, each following its own cluster, and
+  merges back when they come together. `camera_views.js` plans the views (clusters, viewports, hysteresis), `follow_camera.js`
+  draws them with one extra `Camera` entity per view ("Split Camera 2"...), each with its own `Camera.viewport`. The HUD is drawn
+  once over the whole screen. The cameras are their own module: the controls and the miners' input do not know about them.
+- **A pad unplugged mid-shift** pauses the game with "Reconnect the controller for P2". Plugging it back resumes, also when it
+  comes back in another slot (each pad player keeps the pad's id and the miner follows it). Any other free pad (A) or the
+  keyboard (Enter, when nobody uses it) takes the miner over, and another player drops the missing one with Y (pad) or
+  Backspace (keyboard): that miner leaves the mine and the shift goes on.
 - **Hazards**: sealed pockets of **water** (every stratum) and **magma** (Magma Deep) spread over the floor once a
   miner digs into them; water slows a miner by half and drowns one who stays in it for 3.5 s, magma burns one on contact
   (0.5 s). **Cracked floor** brings the roof down on the 3 x 3 tiles around it 1.4 s after a miner steps on it; a miner inside
   goes down, a miner on the exit lift is safe. The floor tiles of a cave-in become rock.
 - **Light**: besides the lamp, a team has 6 **torches** per shift to put down (they stay lit and reveal the tiles around them).
-  Crystal walls (Crystal Caves) and magma glow. The engine draws at most 16 point lights, so `lights.js` keeps a pool and lights
-  the sources nearest the miners. The mine is under **fog of war**: tiles a lamp or torch reaches in a straight line are
-  clear, tiles seen once stay half dark, the rest is black, and enemies are drawn only on clear tiles.
+  Crystal walls (Crystal Caves) and magma glow. Every torch, crystal and magma source has its own Light2D (the engine
+  draws up to 256 per frame and skips the ones off screen), so none is left dark. The mine is under **fog of war**: tiles a
+  lamp or torch reaches in a straight line are clear, tiles seen once stay half dark, the rest is black, and enemies are
+  drawn only on clear tiles.
 - **Enemies**: **beetles** patrol, chase what their eyes find, wind up for 0.45 s and bite (a heart and 10 oil); **goblin
   thieves** take 25 percent of the ore the team carries and run to escape after 3 s (kill one and the ore drops); both follow
   the tunnels the miners dig. Magma Deep floor 3 holds the **Mole King**: it wakes when a miner comes near, slams the ground
@@ -125,9 +132,11 @@ Options has five tabs; every row works with the mouse, the keyboard (arrows or T
 is applied at once and saved in `settings` (`scripts/settings.js`). The texts are `locales/<language>.json` keys (English, Russian, Thai: see Languages below) and
 the rows grow with the text size.
 
-- **Video**: window mode (windowed or full screen), window size, vsync, frame cap, colour filter. The engine has no borderless
-  mode apart from its full screen (which is the window covering the monitor) and no monitor choice, so the monitor row only shows
-  the monitor's size (ENGINE_FEEDBACK FB-0027). Without a real window (headless, a test) the window rows are greyed out and a note says why.
+- **Video**: window mode (windowed, borderless window or full screen: `window.setMode`; borderless only where the platform has it),
+  the monitor (a button that goes through `window.monitors()`, shown only where the platform can move the window and there is
+  more than one monitor), window size, vsync, frame cap, colour filter, split screen. A save from before the borderless mode
+  that says full screen still means full screen (ENGINE_FEEDBACK FB-0027). Without a real window (headless, a test) the window
+  rows are greyed out and a note says why.
 - **Audio**: a slider per bus (master, music, effects, interface), read menus aloud, subtitles.
 - **Controls**: rebinding per player.
 - **Access**: sound captions (off by default), reduced flashing (starts from the system's "reduce motion"), game speed (100, 80 or
@@ -169,10 +178,10 @@ Options > Language cycles the three with the mouse, the keyboard or a gamepad. S
 slots, boards, camp prices) rewrite it on `i18n.on("change")`.
 
 - Russian plurals have `one`, `few`, `many`, `other` (daily tries, slot coins, miners in the presence line, volume percent).
-- Thai: the engine wraps only at spaces, so the Thai table has a real space between phrases and never a space-free run over 16 base letters
-  (`tools/thai_spaces.py --check`, a test). The font is `assets/fonts/NotoSansThai-Regular-subset.ttf` (SIL OFL 1.1, `assets/fonts/OFL.txt`; rebuilt by
-  `assets/fonts/make_subset.py`, which keeps U+0E4D because the engine draws sara am as two letters: FB-0037). Engine gaps: FB-0036 (no Thai
-  word breaking), FB-0037, FB-0038 (`ui.check_layout` and ScrollLists).
+- Thai: the engine wraps at spaces and at U+200B (FB-0036), but Burrow has no word-marked Thai, so the Thai table has a
+  real space between phrases and never a space-free run over 16 base letters (`tools/thai_spaces.py --check`, a test). The font is `assets/fonts/NotoSansThai-Regular-subset.ttf` (SIL OFL 1.1, `assets/fonts/OFL.txt`; rebuilt by
+  `assets/fonts/make_subset.py`, which keeps U+0E4D because the engine draws sara am as two letters: FB-0037). Engine gaps met and since closed:
+  FB-0036 (Thai word breaks), FB-0037, FB-0038 (`ui.check_layout` and ScrollLists).
 - Text size: every screen was checked at 100 % and 200 % (`ui.textScale`) in the three languages: panels that fit their content
   (`fit`), a column or grid fallback when a row gets too wide (`fallbackLayout`), `maxTextScale` on headings, `autoSize` on buttons, scrolling
   lists for the camp shop and the Options rows, and a modal consent card on the title at big sizes. `tests/layout.test.js` covers it;
@@ -189,7 +198,7 @@ scripts/                   menu kit (main_menu, pause_menu, loading, settings, u
 scripts/join.js            the join screen
 scripts/ui/title_flow.js   the title's Continue, slots, delete confirmation, cloud sync, daily and code panel
 tools/mine_preview.js      project.mine_preview: a mine as text
-tests/                     the test files of the table below; helpers/ (mine, world, bot, camp, online: a fake game server) and
+tests/                     the test files of the table below; helpers/ (mine, world, bot, camp, online: scripts the fake server) and
                            fixtures/ (save_v1, save_v2, news, balance)
 assets/                    tiles_topsoil/crystal/magma.png, sprites.png, fog.png (+ src/make_atlases.py, then src/make_markers.py), music/*.wav
                            (+ src/make_music.py, src/make_music_layers.py), audio/*.wav,
@@ -243,11 +252,13 @@ test file starts fresh). Import them with relative paths.
 ### Players registry: `scripts/game/players.js`
 
 `add({ device, name, color })`, `remove(id)`, `get(id)`, `all()`, `count()`, `alive()`, `hurt(id, amount, cause)`, `setState(id, "active" |
-"lift" | "down", cause)`, `ensureOne()`, `clear()`, `MAX_PLAYERS` (4), `PLAYER_COLORS`, `KEY_SCHEMES`. A player is `{ id, name, device, color,
+"lift" | "down", cause)`, `ensureOne()`, `clear()`, `MAX_PLAYERS` (4), `PLAYER_COLORS`, `KEY_SCHEMES` (the names of the key schemes). A player is `{ id, name, device, color,
 state, hp, invulnerable }` (`MAX_HP` is 3). The shift spawns one miner per registered player (`prefabs/miner.prefab.json`, prop `playerId`) and the HUD shows one
 oil bar each. `device` decides which input moves the miner (`scripts/game/miner_input.js`): `{ kind: "any" }` (the project's
 actions: keyboard and every pad; one player only, the title's Play uses it), `{ kind: "keys", scheme: "wasd" | "arrows" | "ijkl" }`
-or `{ kind: "pad", index }` (left stick or d-pad, A or X to dig, B or Y for a torch). `tests/input.test.js` drives two keyboard players and a second pad at
+or `{ kind: "pad", index }` (left stick or d-pad, A or X to dig, B or Y for a torch). The registry gives a keys or pad player to
+the engine as `input.player(id).use({ keys: scheme })` or `use({ pad: index })` (factoria.json `input.schemes` defines the four key schemes) and
+`miner_input.js` reads `input.player(id)`; a player on `any` reads the global input. `tests/input.test.js` drives two keyboard players and a second pad at
 once. `setState` emits `playerState` and, for `"down"`, `playerDown`; a miner that is `down` does not move, dig or burn oil and
 the shift's end check ignores it. `hurt` takes hearts and sets `down` at 0 (`playerHurt` is emitted); the hazards set `down`
 directly with the cause "drowned", "burned" or "caveIn". `revive(id, by)` (REVIVE_HP 1, REVIVE_GRACE 2) gets a downed player up and emits
@@ -256,16 +267,18 @@ can also be `"keyboard"` (the whole keyboard, what the join screen gives). `scri
 
 ### Per-player input: `scripts/game/controls.js`
 
-`bindingsOf(player)` (what `miner_input.js` reads each frame), `bindingsFor(seat, family, device)`, `rebind(seat, "keys" | "pad", action,
-names)` (saved; the same names are taken from the seat's other actions; the wrong family throws), `reset(seat)`, `resetAll()`, `label(...)`,
-`ACTIONS` (left, right, up, down, dig, torch). Names are the ones `input.lastPressed()` returns. It exists because the engine's actions match
-any pad (FB-0006).
+The engine does the per-player actions (`input.player(seat)`: its own device, its own bindings; docs: scripting, input); this module is
+the game's side: `bindingsFor(seat, family)` (the six actions of a miner with their bindings), `rebind(seat, "keys" | "pad", action,
+names)` (saved with `export()`; the same names are taken from the seat's other actions; a name the player's device cannot use throws the
+engine's error), `reset(seat)`, `resetAll()`, `applySaved()` (called by `settings.apply`: imports what was saved, renaming the old
+format), `label(...)`, `ACTIONS` (left, right, up, down, dig, torch). Names are the ones `input.lastPressed()` returns.
 
 ### Revive, camera and pads: `revive.js`, `camera_views.js`, `pad_watch.js`
 
 `revive.hold(reviverId, at, dt)` (called by the miner holding dig), `progressOf(id)`, `REVIVE_TIME`, `REVIVE_RANGE`. `camera_views.js`:
-`ViewPlanner.plan(points)` returns `{ mode: "shared" | "split", views: [{ players, center, ortho, viewport }] }`, `current` is the plan the
-camera follows, `limitMove(id, from, to)` is the leash and `config.tether` turns it off. `pad_watch.js` is a Script of the shift scene
+`ViewPlanner.plan(points)` returns `{ mode: "shared" | "split", views: [{ players, center, ortho, aspect, viewport }] }`, `current` is the plan the
+camera follows (`follow_camera.js` draws it when `settings.splitScreenOn()`), `limitMove(id, from, to)` is the leash (off with the split
+screen option) and `config.tether` turns it off. `pad_watch.js` is a Script of the shift scene
 (`runWhilePaused`) that pauses on a missing pad and emits `controllerLost` and `controllerRestored` (`how`: reconnected, handedOver or dropped).
 
 ### Game events: `scripts/game/events.js`
@@ -285,8 +298,8 @@ unsubscribe function, `emit(name, data)`, `count(name)`, `emitted(name)`, `clear
 `run` is `{ active, seed, mode, dailyKey, slot, stratum, floor, shiftNumber, cash, upgrades, ore, lamps, torches, molesRescued,
 molesTotal, shiftTime, playTime, bestDepth, shiftSeed, inShift, lastShift }`.
 
-**Contract with P5 (online):** a daily dig sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the local date from
-`game.today()`); every other run has `run.mode = "normal"` and `run.dailyKey = null`. `run.slot` is 1 to 3, or null for a daily
+**Contract with P5 (online):** a daily dig sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the UTC date from
+`game.today().utc.iso`); every other run has `run.mode = "normal"` and `run.dailyKey = null`. `run.slot` is 1 to 3, or null for a daily
 dig. Read these to tag a score or a board. `mineSeed(...)` and `depthOf(...)` give a floor's seed and its depth in metres. `upgrades` is `{ pickTier, pickSpeed, lampOil, lampRadius, walkSpeed, torches }` (`BASE_UPGRADES`); the miner
 already reads every one, the camp changes them (`upgrades.js`). `lamps` maps a player id to `{ oil, max, out, low }` (`lampOf(id)`). Functions:
 `startRun({ seed, stratum, floor })` (the title's Play calls it; it also clears the events bus and resets the music),
@@ -312,17 +325,19 @@ generated one (`w` water, `M` magma, `x` cracked floor). `update(dt)`, `speedFac
 ### Light and fog: `scripts/game/lights.js`, `scripts/game/fog.js`
 
 `new Lights(map)`: `placeTorch(playerId)` (true when put down; uses one of `run.torches`; a torch needs a free floor tile that is not
-water, magma or cracked floor and not already holding one), `sources`, `lit`, `update(dt)`. The Light2D pool is at most 16 minus
-one per miner (`ENGINE_LIGHT_CAP`); a test counts the active `Light2D` entities because `renderStats().lights` does not count them.
+water, magma or cracked floor and not already holding one), `sources`, `lit`, `update(dt)`. Each source owns one Light2D entity, kept while the source exists (a dug crystal loses its light); tests
+count them with `renderStats().lights2d` (drawn) plus `lights2dDropped` (off view). The fog is drawn with `tilemap.setTile`, one call per changed tile.
 `new Fog(map)` is a three-state map (`UNSEEN`, `SEEN`, `VISIBLE`) drawn on its own Tilemap: `stateAt(tx, ty)`, `isVisible`,
 `seen()`, `update(dt, { torches })`. Walls block sight, and digging opens it at once. `TORCH_RADIUS` is 4.5 tiles.
 
-### Pathfinding and behaviour trees: `scripts/game/pathfinding.js`, `scripts/game/behavior_tree.js`
+### Pathfinding and behaviour trees: `scripts/game/pathfinding.js`, the engine's `nav` and `bt`
 
-Both are generic (nothing in them knows this game) so another game can copy them. `navFor(map)` gives the shared `NavGrid`
+The search and the tree are the engine's: `nav.findTilePath` (A* over a `{width, height, cost}` grid that `pathfinding.js` builds from
+`MineMap.kinds`, because the real map is not the drawn Tilemap) and `bt` from `"factoria"`. `pathfinding.js` keeps the game's cost rules and the
+following. `navFor(map)` gives the shared `NavGrid`
 whose `version` goes up when a tile changes; `findPath(from, to, { dig: { tier, cost }, dangerCost, maxNodes })` is an A* over
 the tiles that can dig through what the pick can break and avoids water, magma and cracked floor unless `dangerCost` is finite;
-`PathFollower` walks a path and re-plans when `version` changed; `lineOfSight(map, a, b)`; `NavGrid.reachable(from, radius)`. `Tree` runs a
+`PathFollower` walks a path and re-plans when `version` changed; `lineOfSight(map, a, b)`; `NavGrid.reachable(from, radius)`. `bt.Tree` runs a
 description built from `sequence`, `selector`, `condition`, `action`, `wait`, `cooldown`, `inverter` and `succeeder` against a
 blackboard (the header documents the one catch: a RUNNING sequence resumes without asking its conditions again).
 
@@ -384,14 +399,14 @@ in `burrow.backup.N` and never deleted. Answers: `unavailable`, `none`, `inSync`
 ### Daily dig: `scripts/game/daily.js`
 
 `todayKey()`, `isKey(s)`, `seedFor(key)` (FNV-1a of `burrow-brigade/daily/<key>`), `status()`, `start()`, `noteShift(...)`. The key
-is the local date: `game.today()` has no time of day, so UTC cannot be derived (FB-0017). Played days are in `burrow.daily`.
+is the UTC date (`game.today().utc.iso`), so the whole world shares one dig and one board per day. Played days are in `burrow.daily`.
 
 ### Seed codes: `scripts/game/seed_code.js`, `scripts/game/clipboard.js`
 
 `encode(floorIndex, seed)`, `decode(text)` (a result or a teaching error with a "did you mean"), `normalize(text)`, `ALPHABET`,
 `EXAMPLE`. 4 bits of floor index and 31 bits of seed as 7 characters plus a check character, shown `XXXX-XXXX`; look-alike
-characters (O/0, I/1) are accepted. `clipboard.js`: `copy`, `paste`, `system`, `useSystem({ write, read })`, `reset`. It is a session
-buffer today; if the engine gets a clipboard, plug it in with `useSystem`.
+characters (O/0, I/1) are accepted. `clipboard.js`: `copy`, `async paste()`, `system`, `useSystem(on)`, `reset`. It writes and reads the engine clipboard, and falls
+back to a session buffer where `window.supports("clipboard")` is false (phones) or the read is refused.
 
 ### Achievements and stats: `scripts/game/trophies.js`
 
@@ -416,11 +431,10 @@ A store that is missing, signed out or failing never reaches the player: the cal
 
 Two boards in the catalog: `best_run_cash` (all time, descending) and `daily_run_cash` (daily, descending). The score is the cash
 banked over the run so far: each shift that ends on the lift adds its banked cash and posts the sum (`dark` and `allDown` post
-nothing). **Contract with P4**: a daily-dig run sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the local date the
+nothing). **Contract with P4**: a daily-dig run sets `run.mode = "daily"` and `run.dailyKey = "YYYY-MM-DD"` (the UTC date the
 try began on); every other run `run.mode = "normal"` and `run.dailyKey = null` (a missing `run.mode` counts as normal). The daily
-board takes the score only when `run.dailyKey` is within one day of `game.today().iso`: the engine posts to the board of the
-local date at the moment of the post and cannot be told another (FB-0021), so a try that crosses midnight still posts (to the new
-day's board) and an older key is skipped, with `status().lastPost.daily` saying `{ skipped: "otherDay" }`. Functions: `start`, `stop`, `idle`, `top(board, count = 10)`
+board takes the score with `submit(id, score, { day: run.dailyKey })`, so a try that crosses midnight UTC still posts to the day it began on;
+`top` reads the board of today's UTC day. Functions: `start`, `stop`, `idle`, `top(board, count = 10)`
 (rows `{ rank, name, score, isPlayer }`; `[]` when the store has no boards), `status()`, `BOARDS`, `modeOf`, `dailyKeyOf`,
 `dailyOpen`. `boardPosted { board, score, period }` is emitted after a post and `achievementUnlocked { id, name }` after an unlock.
 The boards screen (`scripts/ui/boards.js`, the Boards button of the title) has the tabs All time, Daily dig and Trophies and works
@@ -440,11 +454,10 @@ the services use it.
   `steamdeck` (a generic pad counts as Xbox) with a 64 px picture under `assets/glyphs/<family>/`; `prompt(action, pad, device)`
   picks the pad glyph, the key or the mouse button by `input.lastDevice`; `promptText(action)` is the label alone. The title's
   `hints` row uses it.
-- **Steam Deck** (`deck.js`): `isDeck()` is true while a connected pad is of type `steamdeck` (the engine has no other way to
-  tell), `keyboardKind()` is `steam` (Steam's keyboard through `input.platformKeyboard`), `onscreen`, `touch` or `keyboard`, `fit(w, h)`
+- **Steam Deck** (`deck.js`): `isDeck()` is `game.device.steamDeck`, `keyboardKind()` is `steam` (Steam's keyboard through `input.platformKeyboard`), `onscreen`, `touch` or `keyboard`, `fit(w, h)`
   is where the 1280x720 design lands in a window (1280x800: scale 1 and bars of 40 above and below; the UI is anchored, so
-  nothing is cut), and `watchLife({ pause, resumed })` listens to suspend (pause, flush analytics) and resume (send the presence
-  again). The pause menu uses it, so waking the Deck lands on the pause menu, never in a live shift.
+  nothing is cut), and `watchLife({ pause, resumed })` listens to suspend (pause; the engine sends the waiting analytics events
+  by itself) and resume (send the presence again). The pause menu uses it, so waking the Deck lands on the pause menu, never in a live shift.
 - **Text entry for P4's seed-code field** (`text_entry.js`): `bind(fieldId, { maxLength, alphabet, onChange, onSubmit })` cleans
   what is typed in a `TextField` to `CODE_ALPHABET` (capitals and digits without 0, O, 1, I) and returns the unsubscribe function;
   `focus(fieldId)`; `normalize(text, opts)`; `hint(action)` is the localized line that tells how to type on this device
@@ -453,22 +466,32 @@ the services use it.
 
 ### Online: `online.js`, `news.js`, `balance.js`, `analytics.js`
 
-The engine has no HTTP API, so everything that talks to a server goes through one seam: `online.request(method, path, body)`
-(never throws; resolves `{ ok: true, data }` or `{ ok: false, code, message }`). The default transport is **offline** (always
-fails), `setTransport(t)` (returns the old one) plugs in a real one: `{ name, request(method, path, body) -> Promise }`;
-tests use `fakeServer` of `tests/helpers/online.js`. Paths (`PATHS`): `/v1/news.json`, `/v1/balance.json`, `/v1/events`. No test
-and no default build touches a network.
+Everything that talks to a server uses the engine's `analytics` and `remoteConfig` (docs: `factoria docs read analytics`), which
+are `http.fetch` calls to the hosts declared in `factoria.json` (`network`, `analytics`, `remoteConfig`). `online.js` is the thin
+seam over `remoteConfig`: ONE JSON file holds the news and the balance values,
+`{ "balance": { "beetle.hp": 4 }, "news": { "version": 1, "items": [...] } }`, and the engine keeps the last good copy for a
+player who starts offline. No test and no default build touches a network: tests script the server with
+`game.platform.respond("http.fetch", ...)` (`serveConfig` and `serveEvents` of `tests/helpers/online.js`).
 
-- **News** (`news.js`): `{ "version": 1, "items": [{ "id", "date": "YYYY-MM-DD", "title", "body" }] }` where `title` and `body`
+#### Server addresses (placeholders)
+
+Burrow Brigade has no server yet. `https://burrow-brigade.example` in `factoria.json` (`network.hosts`, `analytics.endpoint`
+`/v1/events`, `remoteConfig.url` `/v1/config.json`) is a placeholder: `.example` never resolves, so a shipped build today plays
+offline (no news, the shipped balance, nothing sent). Before shipping with online features, point the three entries at a
+real host, serve the config file above, and accept the batches of `docs/ANALYTICS.md` section 4 (`POST`, any 2xx answer), then
+update the privacy sentence in `network.purpose` and the store texts (`docs/LEGAL.md`).
+
+- **News** (`news.js`): the `"news"` section, `{ "version": 1, "items": [{ "id", "date": "YYYY-MM-DD", "title", "body" }] }` where `title` and `body`
   are a string or `{ "en": "...", "ru": "..." }` (the language of the game, else `en`). `parse` drops items with no id or title, strips control characters, cuts the
   title at 48 characters and the body at 160, sorts newest first and keeps three. `refresh()` resolves
-  `{ source: "server" | "cache" | "none", items }` and remembers the last good answer in storage (`burrow.news`); the title shows
+  `{ source: "server" | "cache" | "none", items }` (it waits for the config file, at most 3 seconds) and remembers the last good answer in storage (`burrow.news`); the title shows
   the newest item at once from that memory and again when the server answers (if the title is still there).
-- **Remote balance** (`balance.js`): `{ "version": 1, "values": { "beetle.hp": 4 } }`. Each value is checked against `RANGES`
+- **Remote balance** (`balance.js`): the `"balance"` section, `{ "beetle.hp": 4 }`. Each value is checked against `RANGES`
   (range, whole number or not); a bad value is rejected with a reason and a hint (unknown keys get a "did you mean") and the
   rest still apply; `king.chargeMinDist` above `king.chargeMaxDist` rejects both. Values change `STATS` of `enemy_brains.js` and `TUNING`
-  of `hazards.js` in place and only between shifts (held while one runs, put in at `shiftEnded`). Nothing is cached: offline
-  or with a bad file the shipped numbers stay (`refresh()` says `source: "offline"` or `"invalid"`). `apply(values)`, `reset()`,
+  of `hazards.js` in place and only between shifts (held while one runs, put in at `shiftEnded`). The engine's cache gives a player
+  who starts offline the values of the last run (`refresh()` says `source: "server"`, `"cache"` or, with no answer ever,
+  `"offline"` and the shipped numbers stay). `apply(values)`, `reset()`,
   `defaults()`, `current()`, `flush()`. The keys:
 
 | Key | Default | Range | What |
@@ -516,13 +539,14 @@ and no default build touches a network.
 | `hazards.waterSlow` | 0.5 | 0.1 to 1 | speed factor in water (0.5 = half) |
 | `hazards.caveWarning` | 1.4 | 0.5 to 10 | seconds between stepping on cracked floor and the roof falling |
 
-- **Analytics** (`analytics.js`): OFF by default. The title shows a card in its top-right corner (`consent`, "Anonymous play
+- **Analytics** (`analytics.js`, on the engine's `analytics`): OFF by default. The title shows a card in its top-right corner (`consent`, "Anonymous play
   statistics": Yes, send / No, thanks) at every launch until one is pressed; it does not take the focus or hide the menu, and
   ignoring it is a no (a modal prompt hid the menu from the pad-only tests). Options has the same switch (`analytics` toggle).
   Only after a yes: `floor_reached { stratum, floor, players }` at each shift start, `shift_ended { outcome, stratum, floor,
   players, banked, seconds }` at each end (then the queue is sent), and `quit { shifts }` from the Quit button of the title (the
-  engine has no window-close event). No id, name, device or seed is sent. A failed send keeps up to 50 events for the next one; saying no
-  throws the queue away. `consent()`, `asked()`, `enabled()`, `setConsent(bool)`, `record` (private), `queued()`, `flush()`, `quit()`.
+  engine sends what waits when the window closes, waiting at most 3 seconds, and when the app is suspended). No id, name, device
+  or seed is sent. A failed send keeps the events and the engine retries later (at most 3 attempts per event, up to 500 kept);
+  saying no throws the queue away. `consent()`, `asked()`, `enabled()`, `setConsent(bool)`, `flush()`, `recordQuit()`.
 
 ## Tests
 
@@ -541,9 +565,9 @@ and no default build touches a network.
 | `daily.test.js` | the same seed per day, played once, `run.mode` and `run.dailyKey`, no slot written |
 | `seed_code.test.js` | encode and decode round trips, check character, look-alikes, copy at the camp and results, paste at the title |
 | `hazards.test.js` | a flood sealed then spreading, slow water and drowning, magma burning, a cave-in warning then impact, a miner on the lift spared, `allDown` with one and with three players, the results screen |
-| `light.test.js` | the cap of 16 Light2D with four players, six torches and a crystal hall, the nearest sources win the pool, torch rules and the T key, fog states, walls blocking sight and digging opening it |
-| `pathfinding.test.js` | the A* (dig cost, danger tiles, off the map, far), re-planning after digging, the path follower, line of sight |
-| `behavior_tree.test.js` | every node of the tree, including the running-sequence catch |
+| `light.test.js` | a Light2D for every source (four players, six torches, a crystal hall; a dug crystal loses its light), torch rules and the T key, fog states, walls blocking sight and digging opening it |
+| `pathfinding.test.js` | the cost rules over the engine's A* (dig cost, danger tiles, off the map, far), re-planning after digging, the path follower, line of sight |
+| `behavior_tree.test.js` | every node of the engine's `bt`, including the running-sequence catch |
 | `enemies.test.js` | the three brains driven by a fake blackboard, then a beetle, a chase through a tunnel dug a moment ago, the thief stealing, fleeing, escaping or being killed, the Mole King waking, slamming, charging, scaling with players and jamming the lift |
 | `strata.test.js` | the look and music of each stratum, the descent through the results over nine floors, victory then a new run, retry after `dark` and `allDown`, leaving before the results |
 | `coop.test.js` | the join screen with four pads, a keyboard and three pads, keyboard only and gamepad only, a Remote Play guest pad plugged in mid-lobby, a whole shift played by the bot through the join, reviving (bar, decay, no bleed-out, `allDown`), per-player rebinding (API and the Options page), the camera zoom, the leash and the split planner, a pad unplugged (pause, reconnect, hand-over, drop) |
@@ -554,7 +578,7 @@ and no default build touches a network.
 | `glyphs.test.js` | `setType` for each family, the Deck's L1/R1, the keyboard fallback, every picture exists |
 | `news.test.js` | the fixture parsed, the cap and the order, dropped items, the language object, the cache offline |
 | `balance.test.js` | values applied, out-of-range, wrong type and unknown keys rejected with hints, held during a shift, the offline fallback, `reset` |
-| `analytics.test.js` | nothing queued or sent without consent, the events after a yes, quit, a failed send, revoking |
+| `analytics.test.js` | nothing queued or sent without consent, the events after a yes, the quit flush, a failed send, revoking, the queue cap |
 | `deck.test.js` | Deck detection, the 1280x800 fit, suspend and resume, the text-entry helper |
 | `languages.test.js` | the three string tables (same keys, placeholders, plural forms), Russian plurals on real counts, the Thai break rule, the language row by mouse, keyboard and gamepad, saved, a saved choice over the start language |
 | `layout.test.js` | every screen, panel and Options tab in en, ru, th at 100 % and 200 %: nothing overflows, leaves the screen or overlaps; `ui.check_layout` over the scenes |
@@ -583,9 +607,9 @@ and no default build touches a network.
 |---|---|---|
 | P1 | The miner, digging and the mine | done |
 | P2 | World and enemies: the three strata and their hazards, torches and crystals, enemies that chase through the dug tunnels, music per stratum, a bot that clears floors | done |
-| P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split view is planned and tested, not drawn: one camera in the engine) |
+| P3 | Couch co-op: join screen, per-player devices and bindings, shared then split camera, revive, a pad unplugged, Remote Play Together | done (the split screen is an option, off by default; the engine draws a camera per `Camera.viewport`) |
 | P4 | Camp, progress and saves: the upgrades shop, Continue, 3 versioned save slots with migration, cloud saves, the daily dig, seed codes | done |
-| P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics go through a seam with no real transport: the engine has no HTTP) |
-| P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are emulated: FB-0025, FB-0026; no borderless mode or monitor choice: FB-0027) |
-| P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | done (macOS export run here; Windows and Linux exports built, not run; the Steam plugin and app 480 check are manual: `SHIPPING.md`, FB-0028 to FB-0035) |
-| P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | done (Thai cannot be wrapped by words: FB-0036; sara am glyph: FB-0037; check_layout and ScrollLists: FB-0038) |
+| P5 | Steam and online: achievements, stats and boards, rich presence, Steam Deck, glyphs, news, remote balance, opt-in analytics | done (news, balance and analytics use the engine's `remoteConfig` and `analytics`; the server address is a placeholder, see "Server addresses") |
+| P6 | Sound, options and accessibility: music layers, bus effects, captions, display options, game speed, reduced flashing | done (music layers, the mix and the cavern echo are still emulated: FB-0025, FB-0026; window modes and monitor choice use the engine's, FB-0027) |
+| P7 | Shipping: icon and store art, store texts, screenshots and trailer, desktop exports, budgets, SHIPPING.md | done (macOS export run here; Windows and Linux exports built, not run; the Steam plugin and app 480 check are manual: `SHIPPING.md`; the engine gaps met on the way, FB-0029 and FB-0031 to FB-0035, are closed) |
+| P8 | Languages: Russian and Thai, every screen at 100 % and 200 % text | done (Thai has real spaces because there is no word-marked Thai, though the engine now breaks at U+200B: FB-0036; sara am glyph: FB-0037; check_layout and ScrollLists: FB-0038) |

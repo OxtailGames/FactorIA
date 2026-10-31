@@ -166,7 +166,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-2022  # the preset uses the "Visual Studio 17 2022" generator; windows-latest now ships VS 2026
-    timeout-minutes: 60
+    timeout-minutes: 90  # a build with a cold ccache takes ~45 min, the tests ~25
     steps:
       - uses: actions/checkout@v4
 
@@ -738,7 +738,7 @@ jobs:
           "$aapt2" dump xmltree --file AndroidManifest.xml "$apk" | tee /tmp/apk-manifest.txt
           grep -q 'com.google.android.gms.games.APP_ID' /tmp/apk-manifest.txt
           if grep -q 'PlayGamesInitProvider' /tmp/apk-manifest.txt; then echo "the Play Games auto-start provider is still in the manifest"; exit 1; fi
-          "$aapt2" dump resources "$apk" | grep -A1 'game_services_project_id' | grep -q '123456789012'
+          "$aapt2" dump resources "$apk" | grep -A1 'game_services_project_id' | grep '123456789012' >/dev/null
 
       # The AdMob backend: its C bridge for both ABIs, its Java class and the Mobile Ads SDK and UMP in the dex, and the manifest merged
       # with Google's sample app id, the test flag and the audience that the export wrote.

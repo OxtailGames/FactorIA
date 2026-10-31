@@ -167,6 +167,7 @@ TEST_CASE("apple backend: every request is answered once and in time, and each r
     check_teaches(outcome(engine, "cload", "platform.cloud.load('slot1')"), {"unavailable"});
     check_teaches(outcome(engine, "clist", "platform.cloud.list()"), {"unavailable"});
     check_teaches(outcome(engine, "cremove", "platform.cloud.remove('slot1')"), {"unavailable"});
+    check_teaches(outcome(engine, "cstat", "platform.cloud.stat('slot1')"), {"unavailable"}, "com.apple.developer.ubiquity-kvstore-identifier");
 
     // The Game Center sign-in: a process with no window cannot show its sheet, so it ends as "not signed in" (or, on a
     // machine whose Game Center accepts this process, as a signed-in player) rather than waiting for ever.

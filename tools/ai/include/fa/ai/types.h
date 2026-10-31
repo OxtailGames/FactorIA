@@ -136,20 +136,31 @@ struct AgentEvent {
     enum class Type { SessionStart, TextDelta, ThinkingDelta, ToolStart, ToolEnd, Usage, Info, Done, Error };
     Type type = Type::Info;
     int depth = 0;        // 0 = main session, 1 = delegated sub-session
-    std::string role;     // orchestrator|worker|fast|cli
+    std::string role;     // orchestrator|worker|fast|artist|audio|artCritic|reviewer|cli
     std::string text;     // text delta / info / error message / final text
     std::string toolName;
+    std::string toolId;   // the provider's id of the tool call (ToolStart and its ToolEnd share it); "" when the agent gives none
     Json toolInput;
     Json toolResult;
     bool isError = false;
     ai::Usage usage;      // cumulative for Type::Usage
     double costUsd = 0;   // cumulative for Type::Usage / Done
+    // Type::Usage from a CLI agent: costUsd is the engine's running estimate (the price table applied to the tokens seen
+    // so far), not yet the CLI's own total. The CLI's total replaces it when the run's result arrives.
+    bool costIsEstimate = false;
+    // Set by a host that forwards the events of several runs (the editor, for ai.run sub-agents): which run this
+    // event belongs to. Empty = the session itself.
+    std::string runId;
     // Type::Usage only. An event may carry just one of these (the others stay empty / 0 = "nothing new"):
     std::vector<LimitWindow> limits;  // plan windows the CLI reported (merge them by name)
     u64 contextTokens = 0;            // tokens in the model's context after its last call (input + cache)
     u64 contextWindow = 0;            // size of the model's context window
 };
 const char* event_type_name(AgentEvent::Type t);
+// One short line saying what an event means for someone watching ("running Bash (cmake --build build)", "writing",
+// "thinking"); "" for events that say nothing new (tool results, the system init). Used for the progress an ai.run call
+// reports to its MCP client and for the activity line of the editor's AI panel.
+std::string describe_agent_event(const AgentEvent& e);
 using EventHandler = std::function<void(const AgentEvent&)>;
 
 }  // namespace fa::ai

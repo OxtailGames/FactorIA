@@ -1,0 +1,101 @@
+{
+  "$comment": "Event cards, drawn by a seeded weighted pick once per season (scripts/game/trade.js, on day `eventDay` of the season). An event: weights = per season weight (missing or 0 = never then), requires = conditions that must all hold (the same keys as data/story.json `when`), choices = 2 or 3 of { id, effects } or { id, outcomes: [{ weight, effects }] }. effects = { delta: { coins: -40, wood: 5 }, reputation: 2, shipDelay: 2 } (every key optional; shipDelay = days added to the next ship's arrival, negative = sooner). A choice with plain effects is disabled while the town cannot pay its negative delta; an outcome list is a gamble and takes what the town has when it cannot pay all of it (a storm takes up to 12 fish). Every event has at least one choice that costs nothing. Texts: event.<id>.title, .body (markup: [b] [c:colour] [icon:good]), .choice.<choiceId>, .result.<choiceId> (or .result.<choiceId>.<n> for outcome n).",
+  "format": "tidewater.events/1",
+  "eventDay": 3,
+  "history": 2,
+  "events": {
+    "storm": {
+      "weights": { "autumn": 4, "winter": 4, "spring": 1 },
+      "requires": {},
+      "choices": [
+        { "id": "secure", "effects": { "delta": { "planks": -4 } } },
+        { "id": "ride", "outcomes": [{ "weight": 55, "effects": { "delta": {} } }, { "weight": 45, "effects": { "delta": { "fish": -12, "wood": -8 }, "reputation": -1 } }] },
+        { "id": "shelter", "effects": { "delta": {}, "shipDelay": 2 } }
+      ]
+    },
+    "festival": {
+      "weights": { "summer": 5, "spring": 2, "autumn": 2 },
+      "requires": { "population": 6 },
+      "choices": [
+        { "id": "feast", "effects": { "delta": { "coins": -60, "bread": -6 }, "reputation": 4 } },
+        { "id": "stalls", "effects": { "delta": { "coins": -20 }, "reputation": 1 } },
+        { "id": "skip", "effects": { "delta": {} } }
+      ]
+    },
+    "merchant": {
+      "weights": { "spring": 3, "summer": 3, "autumn": 3, "winter": 2 },
+      "requires": { "pier": 1 },
+      "choices": [
+        { "id": "buy_wood", "effects": { "delta": { "coins": -50, "wood": 24 } } },
+        { "id": "sell_stone", "effects": { "delta": { "stone": -8, "coins": 90 } } },
+        { "id": "decline", "effects": { "delta": {} } }
+      ]
+    },
+    "sick_herd": {
+      "weights": { "spring": 3, "autumn": 2, "winter": 3 },
+      "requires": { "built": { "farm": 1 } },
+      "choices": [
+        { "id": "healer", "effects": { "delta": { "coins": -40 }, "reputation": 1 } },
+        { "id": "cull", "effects": { "delta": { "coins": 35 }, "reputation": -1 } },
+        { "id": "hope", "outcomes": [{ "weight": 50, "effects": { "delta": {} } }, { "weight": 50, "effects": { "delta": { "grain": -15, "coins": -10 } } }] }
+      ]
+    },
+    "good_harvest": {
+      "weights": { "autumn": 6, "summer": 2 },
+      "requires": { "built": { "farm": 1 } },
+      "choices": [
+        { "id": "store", "effects": { "delta": { "grain": 30 } } },
+        { "id": "sell", "effects": { "delta": { "coins": 110 } } }
+      ]
+    },
+    "fish_run": {
+      "weights": { "spring": 4, "summer": 3 },
+      "requires": { "built": { "fisher_dock": 1 } },
+      "choices": [
+        { "id": "nets", "effects": { "delta": { "coins": -25, "fish": 28 } } },
+        { "id": "leave", "effects": { "delta": { "fish": 6 } } }
+      ]
+    },
+    "cold_snap": {
+      "weights": { "winter": 6 },
+      "requires": { "population": 6 },
+      "choices": [
+        { "id": "burn", "effects": { "delta": { "wood": -16 }, "reputation": 2 } },
+        { "id": "blankets", "effects": { "delta": { "coins": -45 }, "reputation": 1 } },
+        { "id": "endure", "effects": { "delta": {}, "reputation": -2 } }
+      ]
+    },
+    "wreck": {
+      "weights": { "autumn": 3, "winter": 3, "spring": 2 },
+      "requires": { "pier": 1 },
+      "choices": [
+        { "id": "salvage", "effects": { "delta": { "planks": 12, "wood": 10 } } },
+        { "id": "report", "effects": { "delta": { "coins": 30 }, "reputation": 3 } }
+      ]
+    },
+    "fire": {
+      "weights": { "summer": 3, "autumn": 2 },
+      "requires": { "built": { "sawmill": 1 } },
+      "choices": [
+        { "id": "bucket", "effects": { "delta": { "coins": -30 } } },
+        { "id": "watch", "outcomes": [{ "weight": 40, "effects": { "delta": {} } }, { "weight": 60, "effects": { "delta": { "planks": -10, "wood": -10 } } }] }
+      ]
+    },
+    "pedlar": {
+      "weights": { "spring": 2, "summer": 2, "autumn": 2, "winter": 1 },
+      "requires": { "reputation": 5 },
+      "choices": [
+        { "id": "tools", "effects": { "delta": { "coins": -70, "tools": 3 } } },
+        { "id": "gossip", "effects": { "delta": {}, "reputation": 1 } }
+      ]
+    },
+    "smugglers": {
+      "weights": { "summer": 2, "autumn": 2, "winter": 2 },
+      "requires": { "pier": 1, "reputation": 8 },
+      "choices": [
+        { "id": "take", "outcomes": [{ "weight": 60, "effects": { "delta": { "coins": 140 } } }, { "weight": 40, "effects": { "delta": { "coins": -30 }, "reputation": -5 } }] },
+        { "id": "refuse", "effects": { "delta": {}, "reputation": 2 } }
+      ]
+    }
+  }
+}

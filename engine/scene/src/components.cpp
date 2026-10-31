@@ -1,5 +1,8 @@
 #include "fa/scene/components.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <mutex>
 
 #include "fa/core/reflect.h"
@@ -8,21 +11,46 @@ namespace fa {
 
 namespace {
 
+// UiBox.tooltip, the same on every widget kind.
+constexpr const char* kTooltipDoc =
+    "The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes "
+    "away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one "
+    "line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its "
+    "translation, anything else is shown as written). An object {\"title\": text, \"lines\": [text or {\"text\", \"color\"}], "
+    "\"args\": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the "
+    "tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a "
+    "Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on "
+    "the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the "
+    "text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, \"Tooltips\".";
+
+// UiBox.draggable, the same on every widget kind.
+constexpr const char* kDraggableDoc =
+    "Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not "
+    "draggable; true = draggable with the default slop; an object {\"payload\": any JSON, \"slop\": pixels} sets what the drag "
+    "carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A "
+    "press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click "
+    "the release would make is swallowed, a tooltip hides, and ui.on(\"dragStart\" | \"dragOver\" | \"drop\" | \"dragCancel\") "
+    "report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. "
+    "Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, \"Drag and drop\".";
+
 // The fields every UI widget shares (UiBox), registered once for each kind so their documentation exists in one place.
 template <class T>
 TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
     return b
         .field("size", static_cast<Vec2 T::*>(&UiBox::size),
-               "Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
-               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel "
-               "with fit = true recomputes it every frame.")
+               "Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
+               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel "
+               "with fit = true recomputes it every frame (within its minSize and maxSize).")
         .field("pivot", static_cast<Vec2 T::*>(&UiBox::pivot),
                "Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, "
                "[1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] "
-               "is still the visual top-left. Layout does not care about the pivot of its children.")
+               "is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts "
+               "the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen "
+               "(docs/MENUS.md, \"Anchors and pivots\"). Layout does not care about the pivot of its children.")
         .field("anchor", static_cast<Vec2 T::*>(&UiBox::anchor),
                "Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] "
                "top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. "
+               "The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. "
                "The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] "
                "and are placed by the Panel's layout.")
         .field("safeArea", static_cast<bool T::*>(&UiBox::safeArea),
@@ -40,12 +68,22 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], \"#rrggbb\" or a name.")
         .asset_field("texture", static_cast<std::string T::*>(&UiBox::texture), "texture",
                      "Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour "
-                     "sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`.")
+                     "sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\"). So does the live picture of a camera: \"target:<name>\" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, \"Render targets\").")
         .field("slice", static_cast<Vec4 T::*>(&UiBox::slice),
                "9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture "
                "pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives "
                "panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than "
-               "left + right (or top + bottom) the borders shrink proportionally.");
+               "left + right (or top + bottom) the borders shrink proportionally.")
+        .field("tooltip", static_cast<Json T::*>(&UiBox::tooltip), kTooltipDoc)
+        .field("draggable", static_cast<Json T::*>(&UiBox::draggable), kDraggableDoc)
+        .field("mirror", static_cast<bool T::*>(&UiBox::mirror),
+               "true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, "
+               "when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about "
+               "the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills "
+               "from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. "
+               "Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays "
+               "where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right "
+               "language or with ui.mirrorRtl off (docs/LOCALIZATION.md, \"Right to left\").");
 }
 
 // maxTextScale of Text and of the UI widgets.
@@ -54,6 +92,34 @@ constexpr const char* kMaxTextScaleDoc =
     "does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only "
     "limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring "
     "(autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.";
+
+// markup and bold of Text, Button, Toggle, Slider and TouchButton.
+constexpr const char* kMarkupDoc =
+    "true: the text reads tags: [b]bold[/b], [i]italic[/i] (the italic face of the font: factoria.json text.fonts \"italic\", or the built-in family's own, e.g. builtin:serif), [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or "
+    "#rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, "
+    "alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the "
+    "engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the "
+    "string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. "
+    "Docs: docs/TEXT.md, \"Rich text\".";
+constexpr const char* kBoldDoc =
+    "true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none "
+    "is emboldened by the engine, and `factoria validate` suggests adding one. builtin:serif, builtin:hand and builtin:display bring real bold or italic faces of their own. [b] in markup does the same for a part of the "
+    "text. false (default): regular weight.";
+
+constexpr const char* kTextDirectionDoc =
+    "Base direction of the paragraphs (Unicode bidi). auto (default): the first strong letter decides, except that a Text with a "
+    "localization key (`key`) takes the language's direction (i18n.direction), so a Hebrew line that starts with a key name or a "
+    "{placeholder} filled with Latin text is still a right-to-left line, with no U+200F mark in the string. ltr / rtl: the "
+    "paragraph runs that way whatever its first letter is. The direction also says which edge `align: start` is (rtl: the right "
+    "one); the glyphs of a line keep their reading order whatever the alignment. Widget labels with a `key` follow the language "
+    "the same way.";
+
+constexpr const char* kWordBreakDoc =
+    "Where a wrapped line (maxWidth > 0) may end inside a run of letters with no space. auto (default): Korean keeps its words "
+    "(Hangul lines end at spaces only, as Korean is written for screens), Chinese and Japanese break between any two characters "
+    "(kinsoku keeps closing punctuation off the start of a line). normal: Hangul also breaks between syllables. keepAll: Hangul, "
+    "Chinese and Japanese all break at spaces only; a run longer than maxWidth then overflows the box instead of splitting. "
+    "No effect without maxWidth.";
 
 // autoShrink and minFontSize of Text, Button, Toggle, Slider and TouchButton.
 constexpr const char* kAutoShrinkDoc =
@@ -85,7 +151,9 @@ TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
                "writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder "
                "(never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the "
                "language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps "
-               "the text written in the field and logs one warning.")
+               "the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a "
+               "keyboard key or pad button. To press a button with one, declare an input action in factoria.json (\"input\") and "
+               "read it with input.pressed in a script.")
         .field("keyArgs", static_cast<Json T::*>(&UiControl::keyArgs), kKeyArgsDoc)
         .field("fontSize", static_cast<float T::*>(&UiControl::fontSize), "Label glyph height in design pixels.").range(1, 4096)
         .field("maxTextScale", static_cast<float T::*>(&UiControl::maxTextScale), kMaxTextScaleDoc).range(0, 3)
@@ -157,9 +225,12 @@ void register_builtin_components(TypeRegistry& r) {
 
     // ----------------------------------------------------------- Camera ---
     r.add<Camera>("Camera",
-                  "Renders the scene to the screen. The active camera with primary=true and the lowest depth draws the "
-                  "game (only one camera renders for now; split-screen/overlay cameras are on the roadmap). 3D cameras "
-                  "look down their local -Z axis.",
+                  "Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport "
+                  "(the whole screen by default), in ascending depth order: the lowest depth draws first and is \"the\" "
+                  "camera (camera.main; the bloom and colorFilter of the frame are its). Two or more cameras with their own "
+                  "viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera "
+                  "culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, "
+                  "after all the cameras. 3D cameras look down their local -Z axis.",
                   "Camera")
         .enum_field("projection", &Camera::projection, {"orthographic", "perspective"},
                     "orthographic: flat 2D view (no perspective). perspective: 3D view with depth.")
@@ -175,16 +246,64 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0.01f, 1000000)
         .field("clearColor", &Camera::clearColor, "Background color the camera clears to when clear is true.")
         .field("clear", &Camera::clear,
-               "Clear the target before drawing. Set false on overlay cameras that draw on top of another camera.")
-        .field("primary", &Camera::primary, "The first active primary camera renders the game.")
-        .field("depth", &Camera::depth, "Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).")
+               "Clear this camera's viewport to clearColor before it draws. Set false on an overlay camera that draws on top of "
+               "what an earlier camera (a lower depth) drew in the same area. The first camera in depth order clears the whole "
+               "target, also the part its viewport does not cover; a camera with clear false first in depth order keeps the "
+               "previous frame under it.")
+        .field("primary", &Camera::primary,
+               "true: this camera renders (when it is active), into its viewport, in depth order with the other primary "
+               "cameras. false: it does not render (an unused camera, or one a script switches on for a split screen).")
+        .field("depth", &Camera::depth,
+               "Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. The lowest "
+               "is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, "
+               "colorFilter) use. Cameras with the same depth keep the order of creation.")
+        .field("viewport", &Camera::viewport,
+               "The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the "
+               "TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): "
+               "not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. "
+               "[0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left "
+               "half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap "
+               "inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. "
+               "The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel "
+               "(it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it "
+               "equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its "
+               "own, so a Light2D only lights the cameras it reaches. The post effects (bloom, colorFilter, bloomScreenSpace) "
+               "are applied once to the finished frame with the settings of the lowest-depth camera; the other cameras' "
+               "values are ignored. UI and screen-space items cover the whole screen, not one viewport. "
+               "camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. "
+               "To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a "
+               "CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and "
+               "ignores this field.")
+        .enum_field("viewportSpace", &Camera::viewportSpace, {"screen", "design"},
+                    "Which rectangle the fractions of `viewport` count. screen (default): the whole game target, that is the design "
+                    "resolution, or the area the Expand scale mode grows it to for a window with another shape (the letterbox bars of "
+                    "the Fit modes are not part of it). design: the design resolution (display.designWidth x designHeight) from the "
+                    "top-left corner, which is where a UI laid out from anchor [0, 0] in design pixels sits, so a viewport of "
+                    "[430 / 1280, 84 / 720, 400 / 1280, 360 / 720] lands on the same pixels as a 400 x 360 Panel at [430, 84] "
+                    "even when Expand has grown the target. The two are the same in every mode but Expand. For a rectangle that "
+                    "follows a widget, use a CameraView.")
+        .enum_field("lighting", &Camera::lighting, {"scene", "studio"},
+                    "What lights the 3D meshes this camera draws. scene (default): the Light entities, SceneSettings.ambientLight, "
+                    "the sky and environment colours and the fog of the scene. studio: a rig that follows the camera instead, "
+                    "whatever the scene holds and wherever the camera is: a warm key light from the upper left, a cool fill from the "
+                    "right, a rim light from behind, a neutral ambient and environment for reflections, no sky (the camera paints "
+                    "clearColor), no fog, no shadows. Scene lights do not reach the camera and a 2D lit sprite it draws is lit by "
+                    "the ambient alone (full brightness). Use it for an item turning on a stage in a menu (CameraView), or a "
+                    "portrait, that must look the same in a dark cellar and in a bright field. MeshRenderer.unlit meshes are "
+                    "not affected. Scale the rig with studioIntensity.")
+        .field("studioIntensity", &Camera::studioIntensity,
+               "Only used when lighting is studio. Multiplies the brightness of the studio rig (the three lights, the ambient and "
+               "the environment): 1 (default) shows a mid-grey surface at about its own colour, 0.5 is dimmer, 2 is bright and "
+               "may wash out pale colours.")
+        .range(0, 8)
         .field("bloom", &Camera::bloom,
                "Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / "
                "explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD "
                "included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend \"additive\" on Sprite, Shape2D or "
                "ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few "
                "extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). "
-               "Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace.")
+               "Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several "
+               "cameras the bloom settings of the lowest-depth camera apply to the whole frame.")
         .field("bloomThreshold", &Camera::bloomThreshold,
                "Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: "
                "pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully "
@@ -218,7 +337,28 @@ void register_builtin_components(TypeRegistry& r) {
                     "and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours "
                     "that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game "
                     "without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate "
-                    "instead.");
+                    "instead. With several cameras the lowest-depth camera's filter covers the whole frame.")
+        .field("renderTarget", &Camera::renderTarget,
+               "Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as \"book\". The texture "
+               "is the id \"target:book\" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a "
+               "3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, "
+               "Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, "
+               "ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target "
+               "composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active "
+               "(entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no "
+               "lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so "
+               "(a render loop needs two targets: A shows B and B shows A, each one frame late). There is no culling mask: "
+               "the camera sees everything in its frustum, so put what a target shows (a 2D page with Text, Sprites, Buttons "
+               "as world-space entities) away from the camera that shows the model. Screen-space UI (Panel, Button and the "
+               "other widgets, space \"screen\" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, "
+               "whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, \"Render targets\"). "
+               "Names are unique: a second camera with the same name is not drawn, with an error. \"\" (default) = the screen. "
+               "Letters, digits, '_', '-' and '.', up to 64 characters.")
+        .field("renderTargetSize", &Camera::renderTargetSize,
+               "Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). "
+               "The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture "
+               "pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; "
+               "memory is about width x height x 8 bytes (4 more per pixel with antialiasing).");
 
     // --------------------------------------------------------------- 2D ---
     r.add<Sprite>("Sprite",
@@ -226,7 +366,7 @@ void register_builtin_components(TypeRegistry& r) {
                   "Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.",
                   "2D")
         .asset_field("texture", &Sprite::texture, "texture",
-                     "Project-relative path of the image (e.g. \"assets/hero.png\"). Empty draws a solid quad of `color`.")
+                     "Project-relative path of the image (e.g. \"assets/hero.png\"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\"). So does the live picture of a camera: \"target:<name>\" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, \"Render targets\").")
         .field("region", &Sprite::region,
                "Source rectangle [x, y, w, h] in texture pixels with the origin at the TOP-LEFT. A zero size "
                "means the whole texture. SpriteAnimator overwrites it every frame.")
@@ -262,12 +402,64 @@ void register_builtin_components(TypeRegistry& r) {
         .field("lit", &Sprite::lit,
                "World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight "
                "(its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture "
-               "says, whatever lights exist. At most 16 lights shade a frame (see Light2D).")
+               "says, whatever lights exist. How many lights shade a frame: see Light2D.")
         .asset_field("normalMap", &Sprite::normalMap, "texture",
                      "Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right "
                      "and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). "
                      "It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. "
-                     "Ignored unless `lit` is true.");
+                     "Ignored unless `lit` is true.")
+        .field("skew", &Sprite::skew,
+               "Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top "
+               "edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; "
+               "y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no "
+               "shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and "
+               "a screen-space sprite; it also shears the picking box of the editor and the entity's bounds.")
+        .field("meshColumns", &Sprite::meshColumns,
+               "Makes the sprite deformable: it is drawn as a grid of meshColumns x meshRows cells (so (meshColumns + 1) x "
+               "(meshRows + 1) vertices) that textures `region` evenly, and `vertexOffsets` moves the vertices. Needs meshRows > 0 "
+               "too. 0 (default) = a plain quad. A side above 128 is clamped to 128; a grid of more than 4096 cells "
+               "(columns x rows) is drawn as a plain quad and a warning is logged once per scene. A bent page, a flag or cloth is ONE entity with e.g. 16 columns x 1 row or 8 x 8. A deformable sprite "
+               "ignores `slice` (9-slice). It costs one quad per cell, still in the sprite's batch: draw calls do not "
+               "grow.").range(0, 128)
+        .field("meshRows", &Sprite::meshRows,
+               "Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad.").range(0, 128)
+        .field("vertexOffsets", &Sprite::vertexOffsets,
+               "Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its place, in "
+               "the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat array "
+               "of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and "
+               "going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter array "
+               "leaves the vertices it does not name in place; extra numbers are ignored; a value that is not a number counts "
+               "as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; "
+               "changing one element of the array it returned does not write back). The texture is stretched with the "
+               "vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change "
+               "`size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices.")
+        .field("vertexColors", &Sprite::vertexColors,
+               "Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied with `color` "
+               "(and Tint), blended smoothly across each cell. A flat array of numbers [r0, g0, b0, a0, r1, g1, b1, a1, ...], "
+               "components 0..1, one RGBA per vertex in the order of `vertexOffsets` (row by row from the TOP row, left to right): "
+               "vertex (column c, row r) starts at index (r * (meshColumns + 1) + c) * 4. The length must be exactly "
+               "(meshColumns + 1) * (meshRows + 1) * 4: a scene or prefab with another length is an error naming the length it "
+               "needs, and a script that writes a wrong length gets one warning and the colours are ignored. A bent page gets "
+               "its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in light. Write the "
+               "whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with SpriteSkin.");
+
+    r.add<Tint>("Tint",
+                "Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren "
+                "and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, "
+                "and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, "
+                "Video, CameraView, Chart, Captions) drawn by the renderer. Put it on the root of a group to fade it "
+                "out (color [1, 1, 1, 0.5]), turn it red (a damage flash), or darken a whole room, without touching each visual. "
+                "The tints of an entity and all its ancestors multiply together, so nested groups compose; alpha is "
+                "multiplied too (a 0.5 inside a 0.5 shows at 0.25), and a visual whose resulting opacity is 0 is not drawn. It "
+                "multiplies the colours the visual already has (Sprite.color, Shape2D.color and color2 and every gradient stop, "
+                "Text.color, Tilemap.color, a particle's own colour over its life, Panel.color) and does not "
+                "affect 3D MeshRenderer, lights, the debug draw or the camera. Entities without a Tint ancestor cost nothing extra: "
+                "the renderer only walks the parents when at least one Tint exists in the scene.",
+                "2D")
+        .field("color", &Tint::color,
+               "RGBA multiplied into the colour of the visuals of this entity and its descendants. [1, 1, 1, 1] (default) changes "
+               "nothing. Alpha is a group opacity: [1, 1, 1, 0.5] draws the group at half opacity (each visual is faded on its "
+               "own, so overlapping visuals of the group still show through one another). Accepts [r,g,b,a], \"#rrggbb\" or a name.");
 
     r.add<Parallax>("Parallax",
                     "Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so "
@@ -289,11 +481,17 @@ void register_builtin_components(TypeRegistry& r) {
         .runtime_only().read_only();
 
     r.add<Light2D>("Light2D",
-                   "A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by "
+                   "A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by "
                    "SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, "
                    "scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one "
-                   "direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame "
-                   "(the same on every graphics backend): directional lights first, then the point lights nearest to the camera. "
+                   "direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light "
+                   "buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights "
+                   "shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones "
+                   "with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. "
+                   "More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was "
+                   "kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights "
+                   "(directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with "
+                   "occludesLight cast shadows (at most 32 shadow-casting lights per frame). "
                    "The light sits at the entity's position (Transform) and ignores layers.",
                    "2D")
         .enum_field("type", &Light2D::type, {"point", "directional"},
@@ -307,21 +505,132 @@ void register_builtin_components(TypeRegistry& r) {
                "Point lights: height above the drawing plane in world units. Only matters for normal-mapped sprites: a low lamp "
                "grazes the surface and shows relief, a high one lights it flatly.").range(0, 100000)
         .field("direction", &Light2D::direction, "Directional lights: degrees the light travels towards (0 = right, 90 = up, 270 = down).")
-        .field("elevation", &Light2D::elevation, "Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it).").range(0, 90);
+        .field("elevation", &Light2D::elevation, "Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it).").range(0, 90)
+        .field("castShadows", &Light2D::castShadows,
+               "Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a "
+               "wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in "
+               "shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next "
+               "frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per "
+               "frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false.");
 
     r.add<SpriteAnimator>("SpriteAnimator",
                           "Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it "
-                          "overwrites Sprite.region every frame. Frames are numbered row-major from the top-left.",
+                          "overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a "
+                          "named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; "
+                          "`assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then "
+                          "names only the texture and the clip. The numeric fields override the clip when they differ from their default "
+                          "(columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). "
+                          "A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.",
                           "2D")
-        .field("columns", &SpriteAnimator::columns, "Number of columns in the sprite sheet grid.").range(1, 4096)
+        .field("columns", &SpriteAnimator::columns, "Number of columns in the sprite sheet grid. With `clip`, set it (not 1) only to override the sheet entry.").range(1, 4096)
         .field("rows", &SpriteAnimator::rows, "Number of rows in the sprite sheet grid.").range(1, 4096)
         .field("firstFrame", &SpriteAnimator::firstFrame, "First frame of the clip (inclusive, row-major index).")
         .field("lastFrame", &SpriteAnimator::lastFrame, "Last frame of the clip (inclusive, row-major index).")
         .field("fps", &SpriteAnimator::fps, "Playback speed in frames per second.").range(0, 1000)
-        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame.")
+        .field("loop", &SpriteAnimator::loop, "Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.")
         .field("playing", &SpriteAnimator::playing, "Set false to pause, true to play.")
+        .field("clip", &SpriteAnimator::clip,
+               "Name of a clip of the Sprite texture's `sheet` entry in assets.json (\"run\"); \"\" = none, the numeric fields alone. "
+               "Changing it restarts the animation. A name the sheet does not have is an error that lists the clips (\"did you mean\"): "
+               "`factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame.")
+        .enum_field("mode", &SpriteAnimator::mode, {"forward", "reverse", "pingpong"},
+                    "Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without "
+                    "repeating the end frames). A pingpong clip that does not loop stops back on the first frame.")
+        .field("sheetPivot", &SpriteAnimator::sheetPivot,
+               "true = the pivot recorded in the sheet entry (or the clip's own pivot) is used as Sprite.pivot while the Sprite's own pivot "
+               "is the default centre [0.5, 0.5]; a Sprite that sets another pivot keeps it. The sheet stores it from the TOP-left of the "
+               "frame, Sprite.pivot counts from the bottom-left, so y is flipped. false = never touch the pivot.")
+        .field("ended", &SpriteAnimator::ended, "Runtime state: a non-looping clip reached its end (clipEnded was sent).").runtime_only()
+        .field("playedClip", &SpriteAnimator::playedClip, "Runtime state: the clip `time` counts in.").runtime_only()
         .field("time", &SpriteAnimator::time, "Runtime state: seconds elapsed in the current clip.").runtime_only()
         .field("frame", &SpriteAnimator::frame, "Runtime state: current frame index.").runtime_only();
+
+    r.add<Bone2D>("Bone2D",
+                  "A bone of a 2D skeleton, on a plain entity of the hierarchy (docs/ANIMATION.md, \"Bones and IK\"). The bone starts at "
+                  "the entity's origin and runs `length` units along its local +X axis, so its tip is where a child bone is usually put "
+                  "(position [length, 0]). Bones nest by being children of each other; a clip, a script or IK2D poses a bone through its "
+                  "Transform (rotation.z turns it, position and scale move and stretch it). A SpriteSkin deforms a Sprite's mesh with the "
+                  "bones; the editor draws the bones of the selection, and `debug.bones()` draws them in a game.",
+                  "2D")
+        .field("length", &Bone2D::length,
+               "How far the bone runs along the entity's local +X axis, from its origin to its tip, in local units (the entity's "
+               "Transform.scale stretches it). The tip is where the weights of a SpriteSkin and the IK2D solvers measure to. 32 by default.")
+            .range(0, 100000)
+        .field("minAngle", &Bone2D::minAngle,
+               "The lowest Transform.rotation.z (degrees, in the parent's frame) IK2D may give this bone. Only IK2D keeps a bone "
+               "inside the limits: a clip or a script can pose it anywhere. With maxAngle - minAngle of 360 or more (the default "
+               "-180 .. 180) the bone is free. Example: a knee that only bends one way is minAngle 0, maxAngle 150.")
+            .range(-360, 360)
+        .field("maxAngle", &Bone2D::maxAngle,
+               "The highest Transform.rotation.z (degrees, in the parent's frame) IK2D may give this bone; see minAngle.")
+            .range(-360, 360);
+
+    r.add<SpriteSkin>("SpriteSkin",
+                      "Deforms the Sprite on the same entity with bones (docs/ANIMATION.md, \"Bones and IK\"): each vertex of the sprite's "
+                      "2D mesh follows up to 4 bones, so one picture bends at an elbow or a tail without cutting it in pieces. The mesh is the "
+                      "Sprite's meshColumns x meshRows grid, or with `outline` a grid cut to the texture's opaque pixels. The skin "
+                      "remembers where the bones were when it was bound (`bindPose`: the first time the engine sees it, so pose the "
+                      "bones at rest in the scene; write `bindPose` as [] to bind again at the current pose). A bone that moves from "
+                      "its bind pose drags its vertices with it; at the bind pose the sprite looks exactly as without a skin. It is "
+                      "deformed on the CPU into the sprite's own batch: no extra draw call and no shader. World-space sprites only. "
+                      "Needs Sprite.meshColumns / meshRows or `outline`; Sprite.vertexOffsets still apply (before the bones) and "
+                      "Sprite.skew after them.",
+                      "2D")
+        .field("bones", &SpriteSkin::bones,
+               "The bones that move this sprite: an array of strings, each the id of a Bone2D entity (\"hip\") or the name of one, "
+               "or a path of names (\"skeleton/arm/hand\"). A name or path is looked up under the sprite's entity, then under its "
+               "parent, then under the grandparent and so on, so a character prefab can be instanced many times; an id is "
+               "looked up in the whole scene. The order is the bone index of `weights` and `bindPose`. At most 64 bones. "
+               "A name that finds no Bone2D is logged once, with a \"did you mean\", and that bone is left out. [] = no skin.")
+        .field("weights", &SpriteSkin::weights,
+               "How the vertices follow the bones. \"auto\" (default): each vertex follows the nearest bones (at most 4), "
+               "weighted by 1 / (distance to the bone's segment)^2 from the bind pose, so a vertex on a bone follows it alone and one "
+               "between two joints blends them; it is the same every run. Or an array with one entry per grid vertex, in the "
+               "order of Sprite.vertexOffsets (row by row from the TOP row, left to right; with `outline` the full grid, vertices "
+               "the outline leaves out are skipped): an entry is [bone, weight, bone, weight, ...] with up to 4 pairs, `bone` an "
+               "index into `bones`, weights normalised to 1; a missing or empty entry leaves the vertex where it is.")
+        .field("bindPose", &SpriteSkin::bindPose,
+               "Where each bone was when the skin was bound, relative to the sprite: 6 numbers [a, b, c, d, tx, ty] per bone (the "
+               "bone's 2D matrix in the sprite's local space). The engine writes it the first time it sees the skin; [] binds again, at "
+               "the pose the bones have then. If its length does not match `bones` it is recorded again.")
+        .field("outline", &SpriteSkin::outline,
+               "true: instead of Sprite.meshColumns / meshRows, the mesh is a grid of outlineDetail cells along the sprite's longer "
+               "side, keeping only the cells that hold opaque pixels (alpha above 5%) of the texture's region, so a thin limb or a "
+               "tail costs vertices where it is and transparent corners cost nothing. Needs the texture as an image file in "
+               "the project (png, jpg, tga, bmp): a texture an export packed into an atlas, a `.ktx2` only or a picture made at run time "
+               "draws the full grid instead, with one warning. Hot reload of the texture retraces it.")
+        .field("outlineDetail", &SpriteSkin::outlineDetail,
+               "outline only: how many cells the grid has along the sprite's longer side (the shorter side gets as many as keep the "
+               "cells square). More cells follow the shape closer and deform smoother, at one quad per kept cell. 16 by default.")
+            .range(2, 64);
+
+    r.add<IK2D>("IK2D",
+                "Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the hand, the foot) and name a `target`; "
+                "every fixed step, after the animators have posed the bones and before the frame is drawn, the bones from this one "
+                "up through its parents are turned so the tip of this bone reaches the target entity's position, within each bone's "
+                "minAngle / maxAngle. Feet on the ground, a hand on a lever, a head that looks at something (docs/ANIMATION.md, "
+                "\"Bones and IK\"). The solvers are deterministic. A target out of reach leaves the chain straight, pointing at "
+                "it. With several IK2D they solve in the order their components were added. IK2D rewrites the bones' rotation.z each step: the animator "
+                "(or you) pose the bones before it, it adjusts them.",
+                "2D")
+        .field("target", &IK2D::target,
+               "Id of the entity to reach: the tip of this bone (its origin plus Bone2D.length along its +X) is brought to the "
+               "target's world position. Empty = the component does nothing.")
+        .field("chainLength", &IK2D::chainLength,
+               "ccd: how many bones turn, this one and its parents upward (each must have a Bone2D and be the parent of the one "
+               "before). twoBone ignores it: it always turns this bone and its parent. 2 by default.").range(1, 16)
+        .enum_field("bend", &IK2D::bend, {"positive", "negative"},
+                    "twoBone: which way the middle joint (the elbow, the knee) bends. positive = this bone's rotation.z ends up "
+                    "counter-clockwise (greater) from the one above it, negative = clockwise. A character facing right with a "
+                    "knee in front usually wants one of them; flipping the whole character (a negative Transform.scale.x) is "
+                    "taken into account, so the knee stays in front.")
+        .field("weight", &IK2D::weight,
+               "0 to 1. 1 = the chain takes the solved pose; 0 = the animated pose stays; in between blends each bone's angle "
+               "the short way round. Fade it in while a foot is planted, out in the air.").range(0, 1)
+        .enum_field("solver", &IK2D::solver, {"twoBone", "ccd"},
+                    "twoBone: an exact solution for two bones (a leg, an arm), reaches whenever the target is within the two bones' "
+                    "length and honours `bend`. ccd: Cyclic Coordinate Descent, any chain of chainLength bones (a tail, a tentacle, "
+                    "a spine); it converges in at most 24 sweeps, bends where the limits allow and ignores `bend`.");
 
     r.add<Shape2D>("Shape2D",
                    "Untextured 2D primitive for prototypes, UI panels and debug visuals.",
@@ -336,7 +645,7 @@ void register_builtin_components(TypeRegistry& r) {
                     "diamond, polygon and star grow INWARD from the silhouette, like the rectangle's, so a thick outline never "
                     "pokes out of the size box.")
         .field("size", &Shape2D::size,
-               "rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.")
+               "rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin. In screen space (space \"screen\", +Y down) a line's size.y points UP, unlike the size.y of Panels, Texts and Sprites, which grows downwards: size [100, 40] ends 100 px right and 40 px above the start, [100, -40] ends below it. A chart bar is a rectangle, not a line: give it pivot [0, 1] so size [w, h] hangs w right and h down from its position.")
         .field("color", &Shape2D::color, "Fill or outline color.")
         .field("filled", &Shape2D::filled, "true = solid shape, false = outline only (lines are always drawn as strokes).")
         .field("thickness", &Shape2D::thickness, "Outline / line thickness in world units.").range(0, 10000)
@@ -369,7 +678,60 @@ void register_builtin_components(TypeRegistry& r) {
                "World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight "
                "(its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes "
                "for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false "
-               "(default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D).");
+               "(default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D.")
+        .field("cornerRadius", &Shape2D::cornerRadius,
+               "rectangle only: radius of the rounded corners in world units, antialiased (a button, a card, a page). Clamped to half "
+               "the shorter side, so a large value makes a pill. 0 (default) = square corners, drawn as before. Other shapes ignore it.")
+        .range(0, 100000)
+        .field("softness", &Shape2D::softness,
+               "rectangle and circle only: width in world units of a blurred edge, centred on the shape's outline (half of it fades "
+               "in inside the outline, half outside, so the shape's footprint grows by softness / 2 on every side). Turns a shape "
+               "into a soft drop shadow (a dark translucent rounded rectangle, a little offset, softness 12-30), a vignette or a "
+               "light pool (a circle with softness near its diameter and an additive blend). Follows cornerRadius; works with "
+               "filled = false (a blurred ring) and with a gradient. 0 (default) = a crisp, antialiased edge, as before. "
+               "Triangles, diamonds, polygons, stars and lines ignore it (draw a circle or rectangle for a soft shape).")
+        .range(0, 100000)
+        .enum_field("gradient", &Shape2D::gradient, {"none", "linear", "radial"},
+                    "rectangle and circle fill only (filled = true): none (default) = flat `color`. linear = `color` blends to `color2` "
+                    "along the direction gradientAngle, from the box edge to the opposite edge (paper shading, a gutter, a sky). radial = "
+                    "`color` at the centre blends to `color2` at the edge of the shape's box (a vignette, a light pool, a glow); outside "
+                    "the box's inscribed ellipse it stays color2. The blend is computed per pixel (and dithered), so it is smooth with no "
+                    "banding, in one entity. Alpha is blended too (premultiplied, so a "
+                    "transparent color2 fades color out without greying it): make color2 transparent to fade out. A gradient whose `color` is "
+                    "transparent still draws when `color2` is not (the vignette); the shape is skipped only when every colour it uses is "
+                    "fully transparent. Ignored by outlines and by the other shapes.")
+        .field("color2", &Shape2D::color2,
+               "gradient only: the colour at the end of the gradient (the right/top end of a linear one, the edge of a radial one). "
+               "`color` is the start. Include its alpha: [0, 0, 0, 0] fades `color` to nothing.")
+        .field("gradientAngle", &Shape2D::gradientAngle,
+               "linear gradient only: direction in degrees, measured like a rotation (counter-clockwise, y up in world space): 0 = "
+               "`color` on the left to `color2` on the right, 90 = `color` at the bottom to `color2` at the top, 270 = top to bottom. "
+               "The gradient spans the shape's box exactly from corner to corner and turns with the entity. In screen space, where "
+               "y is down, 90 still goes bottom to top on the screen.")
+        .field("gradientStops", &Shape2D::gradientStops,
+               "gradient only: more than two colours. An array of [position, colour] pairs, position 0..1 along the gradient "
+               "(0 = where `color` was, 1 = the far end or the edge of a radial one), colours as [r,g,b,a], \"#rrggbb\" or a "
+               "name, e.g. [[0, \"#000000cc\"], [0.6, [0, 0, 0, 0.25]], [1, [0, 0, 0, 0]]] for a soft shadow that dies out slowly. "
+               "Up to 8 stops (the others are ignored), sorted by position for you; before the first stop and after the last "
+               "one the gradient keeps that stop's colour. Alpha blends like `color` -> `color2` (premultiplied). With "
+               "stops, `color` and `color2` are not used for the fill, and the shape is skipped only when every stop is fully "
+               "transparent. [] (default) = the two-colour gradient "
+               "`color` -> `color2`. The colours are baked into a 256-step ramp (one row of a shared texture per distinct ramp, at most "
+               "256 ramps at once), so the cost is the same as a two-colour gradient, shapes with equal ramps still batch, "
+               "and a script may change the stops every frame. An entry that is not [number, colour] is skipped with one "
+               "warning.")
+        .enum_field("gradientEase", &Shape2D::gradientEase,
+                    {"linear", "smoothstep", "quadIn", "quadOut", "quadInOut", "cubicIn", "cubicOut", "cubicInOut", "quartIn",
+                     "quartOut", "quartInOut", "quintIn", "quintOut", "quintInOut", "sineIn", "sineOut", "sineInOut", "expoIn",
+                     "expoOut", "expoInOut", "circIn", "circOut", "circInOut"},
+                    "gradient only: the curve the position follows before the colours are looked up, which removes the visible "
+                    "kink where a linear fade meets its end. The names are those of the script tween easings (docs/ANIMATION.md). "
+                    "linear (default) = even steps. A soft shadow or vignette that fades `color` -> a transparent `color2` "
+                    "looks natural with quadOut/cubicOut (fast start, long gentle tail, no edge) or smoothstep (no kink at either "
+                    "end); quadIn/cubicIn hold the start colour longer. It applies to the two-colour gradient and to "
+                    "gradientStops alike (stop positions are on the curve's input side: a stop at 0.5 is where the eased position "
+                    "is 0.5). The shape costs the same as a linear gradient.")
+        ;
 
     r.add<Text>("Text",
                 "Draws a string with a TrueType font (or the built-in font). Works in world and screen space.",
@@ -386,17 +748,31 @@ void register_builtin_components(TypeRegistry& r) {
         .field("keyArgs", &Text::keyArgs, kKeyArgsDoc)
         .asset_field("font", &Text::font, "font",
                      "Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, "
-                     "Cyrillic, Hebrew, Arabic); \"builtin:pixel\" is Press Start 2P. Characters the font has no glyph for draw as nothing "
+                     "Cyrillic, Hebrew, Arabic). Other built-in fonts, by name: \"builtin:pixel\" (Press Start 2P, retro), "
+                     "\"builtin:serif\" (Crimson Text, a book serif with real bold, italic and bold italic), \"builtin:hand\" (Kalam, "
+                     "handwriting, with bold), \"builtin:blackletter\" (UnifrakturMaguntia, for titles) and \"builtin:display\" (IM Fell "
+                     "English, old print, with italic); the four after the pixel font have no Greek, Cyrillic, Hebrew or Arabic (those fall back to DejaVu Sans) and an export ships "
+                     "just the ones a project names (docs/TEXT.md, \"Built-in fonts\"). Characters the font has no glyph for draw as nothing "
                      "and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto "
                      "Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, "
                      "localization.languageFonts) to cover every Text of the game (docs/TEXT.md).")
-        .field("fontSize", &Text::fontSize, "Glyph height in world units (pixels in 2D).").range(1, 4096)
+        .field("fontSize", &Text::fontSize, "Glyph height in world units (pixels in 2D, meters in a 3D scene). A world Text may be tiny: 0.07 is 7 cm. The glyphs "
+               "are rasterized for the size they have ON SCREEN, not for this number, so small world text stays sharp. Screen-space "
+               "text is in design pixels (use 1 or more). docs/TEXT.md, \"Text in a 3D scene\".").range(0.001, 4096)
+        .field("lit", &Text::lit,
+               "World space only: true = the text is shaded by the scene's 3D lights (Light entities and "
+               "SceneSettings.ambientLight) like a lit material, so gold lettering on a book cover darkens with the shading. "
+               "The text is a flat surface facing its +Z (the side you read it from; seen from behind it uses the facing side); "
+               "directional, point and spot lights are summed ONCE per Text, at the text's origin, and multiply `color` "
+               "(and the colours and pictures of a rich text): no shadows, no per-pixel variation. false (default) = drawn "
+               "unlit, exactly `color`. Ignored in screen space and under a Camera with lighting \"studio\". For a Text "
+               "under 2D lights use a Sprite or Shape2D with `lit`.")
         .field("color", &Text::color, "Text color.")
         .enum_field("align", &Text::align, {"left", "center", "right", "start", "end"},
                     "Horizontal alignment of lines inside the text box. left / right are always the left / right edge, "
                     "even for right-to-left text. start / end follow the current language: start = left and end = right "
                     "in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left "
-                    "languages (i18n.direction); use them for text that must read from its start side.")
+                    "languages (i18n.direction), or when `direction` is rtl; use them for text that must read from its start side.")
         .field("pivot", &Text::pivot, "Anchor of the text box: [0, 1] top-left (default), [0.5, 0.5] center, [1, 0] bottom-right.")
         .field("maxWidth", &Text::maxWidth, "If > 0, lines wrap at this width in world units. 0 = no wrapping. With autoShrink "
                "it is also the width the text must fit (a word longer than the box shrinks the font).").range(0, 100000)
@@ -405,8 +781,20 @@ void register_builtin_components(TypeRegistry& r) {
                "maxHeight 30 stays on one line at any text size by shrinking. 0 (default) = only the width counts. Nothing is "
                "clipped or wrapped by it; it only drives autoShrink and ui.overflowed(id).").range(0, 100000)
         .field("autoShrink", &Text::autoShrink, kAutoShrinkDoc)
-        .field("minFontSize", &Text::minFontSize, kMinFontSizeDoc).range(1, 4096)
+        .field("minFontSize", &Text::minFontSize, kMinFontSizeDoc).range(0.001, 4096)
         .field("maxTextScale", &Text::maxTextScale, kMaxTextScaleDoc).range(0, 3)
+        .field("markup", &Text::markup, kMarkupDoc)
+        .field("bold", &Text::bold, kBoldDoc)
+        .enum_field("direction", &Text::direction, {"auto", "ltr", "rtl"}, kTextDirectionDoc)
+        .enum_field("wordBreak", &Text::wordBreak, {"auto", "normal", "keepAll"}, kWordBreakDoc)
+        .field("visibleCharacters", &Text::visibleCharacters,
+               "Typewriter reveal. -1 (default) draws the whole text. n >= 0 draws only its first n characters, counted in grapheme "
+               "clusters (a letter with its accents, an emoji sequence or a Hangul syllable is one; spaces and line breaks count, "
+               "the tags of `markup` do not and a [icon:name] picture is one). The text is laid out as a whole and only "
+               "clipped, so the box, its wrapping, its alignment, ui.rectOf and a Panel that fits it keep the size of the full line while it "
+               "reveals, and no word jumps to the next line. Reveal order is the order of the text, so a right-to-left line "
+               "appears from its right end. Raise it from a script a few characters per second; a value above the length shows "
+               "everything.").range(-1, 1000000)
         .field("layer", &Text::layer, "Draw order. Higher layers draw on top. Text defaults above sprites.")
         .enum_field("space", &Text::space, {"world", "screen"},
                     "world: affected by cameras. screen: HUD/UI in design pixels, origin TOP-LEFT, +Y down.")
@@ -427,10 +815,38 @@ void register_builtin_components(TypeRegistry& r) {
                    "2D")
         .asset_field("tileset", &Tilemap::tileset, "texture", "Project-relative path of the tileset image (tiles laid out left-to-right, top-to-bottom).")
         .field("tileSize", &Tilemap::tileSize, "Size of one tile [w, h], both in the tileset texture (pixels) and in the world (units).")
+        .enum_field("projection", &Tilemap::projection, {"orthogonal", "isometric"},
+                    "How the cells lie in the world. \"orthogonal\" (default): square tiles of tileSize, tile (col, row) at "
+                    "x = col * tileSize.x, y = -row * tileSize.y from the entity's top-left corner. \"isometric\": diamond tiles, "
+                    "tileSize.x wide and groundHeight (default tileSize.y) high, 2:1 for the usual 100 x 50. +col runs down-right "
+                    "and +row down-left on screen; the entity's position is the TOP corner of the map (the top vertex of tile "
+                    "(0, 0)), tile (col, row) has its centre at ((col - row) * tileSize.x / 2, -(col + row + 1) * groundHeight / 2). "
+                    "The tiles are one batched mesh drawn row by row from row 0 and left to right, which is back to front, so a "
+                    "tile covers the edge of the ones behind it. Collision (a diamond per solid tile), light occluders, "
+                    "nav.findTilePath points and scene.import_ascii objects all follow it; entity.tilemap.cellAt / cellToWorld "
+                    "convert between cells and world points for both projections.")
+        .field("groundHeight", &Tilemap::groundHeight,
+               "Isometric only. Height of the ground diamond, in world units: the rows of the map are groundHeight / 2 apart. "
+               "0 (the default) = tileSize.y, a tile image that is exactly the diamond (tileSize [100, 50]). Set it when the "
+               "tile image is taller than the diamond because it also shows the side of a block or a low wall: tileSize [100, 65] "
+               "with groundHeight 50 is a 100 x 50 diamond with 15 units of side below it.").range(0, 100000)
+        .field("groundOffset", &Tilemap::groundOffset,
+               "Isometric only. How far the top corner of the ground diamond lies below the top edge of the tile image, in world "
+               "units. 0 (the default) = the image starts at the diamond's top corner and anything taller hangs below it (a block "
+               "side). Set it to the height of a tree or a wall that rises above the ground to draw the image that much higher: "
+               "tileSize [100, 96], groundHeight 50, groundOffset 31 has 31 units above the diamond and 15 below.").range(0, 100000)
         .field("columns", &Tilemap::columns,
                "Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the "
                "default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. "
                "Set it only when the image has a different layout.").range(0, 4096)
+        .field("margin", &Tilemap::margin,
+               "Pixels between the edge of the tileset image and its first tile (the border many tileset packers add). "
+               "Default 0: tiles start at the corner of the image. Used for the tile's source rectangle, for the tile "
+               "count and for the normal map.").range(0, 4096)
+        .field("spacing", &Tilemap::spacing,
+               "Pixels between two neighbouring tiles of the tileset image (gutters, extruded borders). Default 0: tiles "
+               "are packed edge to edge. With margin M and spacing S, tile (col, row) starts at "
+               "(M + col*(tileSize.x+S), M + row*(tileSize.y+S)).").range(0, 4096)
         .field("width", &Tilemap::width,
                "Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the "
                "size; drawing and collision both use it).").range(0, 65536)
@@ -453,7 +869,12 @@ void register_builtin_components(TypeRegistry& r) {
                "true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false.")
         .asset_field("normalMap", &Tilemap::normalMap, "texture",
                      "Lit tilemaps only. Normal map image laid out exactly like the tileset (same size, same tile positions); "
-                     "flipped and rotated tiles turn their normals with them. Empty = flat tiles.");
+                     "flipped and rotated tiles turn their normals with them. Empty = flat tiles.")
+        .field("occludesLight", &Tilemap::occludesLight,
+               "true: the tiles whose index is in solidTiles block the light of every Light2D with castShadows, so a wall hides "
+               "what is behind it from the lamp (a cave, a dungeon, fog of war). The collision and the shadow use the same "
+               "solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap needs no "
+               "`lit` itself to cast. Default false.");
 
     r.add<ParticleEmitter>("ParticleEmitter",
                            "Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color "
@@ -505,11 +926,12 @@ void register_builtin_components(TypeRegistry& r) {
                         "3D")
         .field("mesh", &MeshRenderer::mesh,
                "Built-in shape name (\"cube\", \"sphere\", \"plane\", \"cylinder\", \"capsule\", \"cone\", \"quad\") or a "
-               "project-relative path to a .gltf/.glb model (e.g. \"assets/models/ship.glb\").")
-        .asset_field("texture", &MeshRenderer::texture, "texture", "Base color texture. Empty = none (or the glTF material).")
+               "project-relative path to a .gltf/.glb model (e.g. \"assets/models/ship.glb\"), or the `id` (\"mesh:3\") of a "
+               "procedural mesh a script made with mesh.create() (it lives as long as the scene: a scene load releases it).")
+        .asset_field("texture", &MeshRenderer::texture, "texture", "Base color texture. Empty = none (or the glTF material). \"target:<name>\" shows the live picture of the Camera whose `renderTarget` is that name (a screen, a mirror, the page of a book; docs/RENDERING.md, \"Render targets\"). A pointer over the mesh reaches the Interactables of that camera.")
         .asset_field("normalMap", &MeshRenderer::normalMap, "texture",
                      "Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief "
-                     "without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set.")
+                     "without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. Takes \"target:<name>\" like `texture`.")
         .field("normalScale", &MeshRenderer::normalScale, "How strong the normal map is: 0 = flat, 1 = as authored.").range(0, 4)
         .field("color", &MeshRenderer::color, "Base color, multiplied with the texture.")
         .field("metallic", &MeshRenderer::metallic,
@@ -533,7 +955,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("materialParams", &MeshRenderer::materialParams,
                "Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the "
                "material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths "
-               "for textures. Example: {\"glow\": [1, 0.2, 0, 1], \"mask\": \"textures/leaf.png\"}. Unnamed params keep the "
+               "for textures (a path, or \"target:<name>\" for the live picture of a render-target camera). Example: {\"glow\": [1, 0.2, 0, 1], \"mask\": \"textures/leaf.png\"}. Unnamed params keep the "
                "material's defaults. An entity without overrides batches with the others that share the material.")
         .field("materialColors", &MeshRenderer::materialColors,
                "Per-material colours of a glTF model, an object keyed by glTF material name: {\"Body\": [0.2, 0.8, 0.7, 1]}. "
@@ -556,18 +978,27 @@ void register_builtin_components(TypeRegistry& r) {
         .field("castShadows", &Light::castShadows, "Cast shadows. Only supported on directional lights for now.");
 
     r.add<Animator>("Animator",
-                    "Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same "
-                    "entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state "
-                    "machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays "
-                    "match. Scripts: entity.animator.play(\"Run\", 0.2), .set(\"speed\", 3), .stop(); events reach "
-                    "world.on(name, ...).",
+                    "Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the "
+                    "same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` "
+                    "(*.anim.json files that animate fields of this entity and its children: position, rotation.z, "
+                    "color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state "
+                    "machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so "
+                    "headless runs and replays match. Scripts: entity.animator.play(\"Run\", 0.2), .set(\"speed\", 3), "
+                    ".stop(); events reach world.on(name, ...).",
                     "3D")
         .field("model", &Animator::model,
                "Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on "
                "the same entity (usual case: leave it empty).")
         .field("clip", &Animator::clip,
-               "Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches "
-               "clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported).")
+               "Name of the clip playing now: a glTF animation, or a key of `clips` (see entity.animator.clips). Assigning it "
+               "at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported), "
+               "or, for 2D clips, the fields rest where they were before the first clip drove them.")
+        .field("clips", &Animator::clips,
+               "Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as "
+               "{\"walk\": \"anim/hero_walk.anim.json\", \"idle\": \"anim/hero_idle.anim.json\"} (docs/ANIMATION.md, "
+               "\"2D clips\"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): "
+               "`clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants "
+               "(found by EntityInfo name); those fields are a runtime pose that scene.save does not write.")
         .field("speed", &Animator::speed, "Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.").range(0, 100)
         .field("loop", &Animator::loop,
                "true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event.")
@@ -586,6 +1017,13 @@ void register_builtin_components(TypeRegistry& r) {
                "conditions joined by \"&&\": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). "
                "A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current "
                "non-looping clip ended (alone or together with `when`).")
+        .field("layers", &Animator::layers,
+               "2D clips only: layers played at the same time as the main clip, an array of {name, clip | states (with "
+               "transitions and state, like the Animator's own), weight (0..1, default 1), mode (\"override\" blends toward the "
+               "layer's pose, \"additive\" adds the layer's change from its first pose; default override), mask (paths such as "
+               "[\"body/arm_l\"]: the layer drives only the parts under them; empty = all), speed (default 1), loop}. "
+               "Layers apply in order over the main clip. A layer at weight 0 is not playing; it starts from its first pose "
+               "when its weight rises. Example: [{\"name\": \"arms\", \"clip\": \"shoot\", \"mask\": [\"body/arm_l\"]}].")
         .field("events", &Animator::events,
                "Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event "
                "`name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). "
@@ -620,6 +1058,10 @@ void register_builtin_components(TypeRegistry& r) {
         .field("size", &Collider2D::size, "box/capsule: [width, height] in world units (capsule is vertical).")
         .field("radius", &Collider2D::radius, "circle: radius in world units.")
         .field("offset", &Collider2D::offset, "Shape center offset [x, y] from the entity origin, in world units.")
+        .field("enabled", &Collider2D::enabled,
+               "false = the collider is switched off: raycasts and overlap queries pass through it, it makes no contacts or "
+               "trigger events, but the component and its settings stay. Writable at run time (a door that opened stops "
+               "blocking, closing it turns the collider back on).")
         .field("isTrigger", &Collider2D::isTrigger, "true = sensor: reports overlaps (onTriggerEnter/Exit) but does not block movement.")
         .field("friction", &Collider2D::friction, "Surface friction; 0 = ice, 1 = grippy.").range(0, 10)
         .field("restitution", &Collider2D::restitution, "Bounciness: 0 = no bounce, 1 = perfectly elastic.").range(0, 1)
@@ -749,11 +1191,16 @@ void register_builtin_components(TypeRegistry& r) {
         .field("mesh", &Collider3D::mesh,
                "convex / mesh shapes: a built-in primitive name (\"cube\", \"sphere\", \"plane\", \"cylinder\", "
                "\"capsule\", \"cone\", \"quad\", the same sizes as MeshRenderer) or a project-relative path to a "
-               ".gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the "
+               ".gltf/.glb model (every mesh node of the file, with its node transform), or the `id` (\"mesh:3\") of a procedural mesh "
+               "made with mesh.create() (the collider is rebuilt whenever the mesh is updated). Use the same value as the "
                "MeshRenderer so the collider matches what is drawn.")
         .field("offset", &Collider3D::offset,
                "Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and "
                "mesh: where the model's own origin sits).")
+        .field("enabled", &Collider3D::enabled,
+               "false = the collider is switched off: raycasts, shape casts and overlap queries pass through it, it makes "
+               "no contacts or trigger events and the NavMesh bake leaves it out, but the component and its settings stay. "
+               "Writable at run time (a door that opened stops blocking, closing it turns the collider back on).")
         .field("isTrigger", &Collider3D::isTrigger, "true = sensor: reports overlaps but does not block movement.")
         .field("friction", &Collider3D::friction, "Surface friction; 0 = ice, 1 = grippy.").range(0, 10)
         .field("restitution", &Collider3D::restitution, "Bounciness: 0 = none, 1 = perfectly elastic.").range(0, 1)
@@ -966,9 +1413,14 @@ void register_builtin_components(TypeRegistry& r) {
         .field("range", &AudioSource::range, "Spatial only: distance in world units where the volume reaches 0.").range(0, 1000000);
 
     r.add<AudioListener>("AudioListener",
-                         "The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the primary camera is used.",
+                         "The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).",
                          "Audio")
-        .field("volume", &AudioListener::volume, "Master volume multiplier for everything this listener hears.").range(0, 4);
+        .field("volume", &AudioListener::volume, "Master volume multiplier for everything this listener hears.").range(0, 4)
+        .field("zoom", &AudioListener::zoom,
+               "Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener "
+               "(gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. "
+               "A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener "
+               "(no AudioListener component) the zoom is 1.").range(0.01f, 100);
 
     // --------------------------------------------------------------- UI ---
     {
@@ -977,7 +1429,8 @@ void register_builtin_components(TypeRegistry& r) {
                   "grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other "
                   "Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` "
                   "field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above "
-                  "the world and above HUD Text; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.",
+                  "the world and above HUD Text; the interface scale `ui.scale` (docs/SCRIPTING.md) multiplies every size, offset, padding, spacing and "
+                  "font size of them; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.",
                   "UI");
         ui_box_fields(panel)
             .enum_field("layout", &Panel::layout, {"none", "row", "column", "grid"},
@@ -986,8 +1439,8 @@ void register_builtin_components(TypeRegistry& r) {
                         "Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in "
                         "screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout "
                         "moves its Transform.position so it lands in its slot.")
-            .field("spacing", &Panel::spacing, "Gap in design pixels between children (a grid uses it on both axes).").range(0, 10000)
-            .field("padding", &Panel::padding, "Space [left, top, right, bottom] between the panel's edge and its children.")
+            .field("spacing", &Panel::spacing, "Gap in UI units between children (a grid uses it on both axes; `ui.scale` multiplies it).").range(0, 10000)
+            .field("padding", &Panel::padding, "Space [left, top, right, bottom] in UI units between the panel's edge and its children (`ui.scale` multiplies it).")
             .field("columns", &Panel::columns, "Grid only: number of columns.").range(1, 64)
             .enum_field("align", &Panel::align, {"start", "center", "end"},
                         "Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = "
@@ -1004,12 +1457,39 @@ void register_builtin_components(TypeRegistry& r) {
                         "Hebrew and the other right-to-left languages (i18n.direction): one menu that mirrors itself.")
             .field("fit", &Panel::fit,
                    "true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); "
-                   "the pivot then decides which point of the fitted box stays on the position.")
+                   "the pivot then decides which point of the fitted box stays on the position. The fitted size is still held between "
+                   "`minSize` and `maxSize`.")
+            .field("minSize", &Panel::minSize,
+                   "Lower bound [w, h] of the panel's size in UI units; 0 on an axis = no bound. The size is raised to it, "
+                   "also when `fit` is true (a fitted panel never gets smaller than this, so a menu keeps one width while its "
+                   "texts change) and also when `layout` is none. Children are laid out inside the panel as clamped. "
+                   "`ui.scale` multiplies it like `size`.")
+            .field("maxSize", &Panel::maxSize,
+                   "Upper bound [w, h] of the panel's size in UI units; 0 on an axis = no bound. The size is cut to it, also "
+                   "when `fit` is true (a fitted panel stops growing and its content overflows: use a ScrollList or "
+                   "`autoShrink`/`maxWidth` on the texts to keep it readable). When both bounds are set and cross, `minSize` "
+                   "wins. `ui.scale` multiplies it like `size`.")
+            .range(0, 100000)
             .field("uniformSize", &Panel::uniformSize,
                    "true: every Button, Toggle and Slider with autoSize anywhere inside this panel (children, and the children "
                    "of the panels and lists inside it; active ones only) takes the size of the largest of them, width and "
                    "height separately, every layout. Widgets without autoSize keep their size and do not count. Use it for a "
                    "grid of level buttons as wide as the widest label.")
+            .field("modal", &Panel::modal,
+                   "true: while this panel is active (in the hierarchy) it is a modal: the pointer, the wheel and keyboard / "
+                   "gamepad navigation reach only the widgets inside it (the panel and its descendants). Everything else "
+                   "under it gets no hover, press, click, focus, tooltip or drop, the focus leaves a widget outside and "
+                   "stays inside (an autoFocus widget in the panel takes it), `ui.pointerOverUi` is true everywhere so the "
+                   "game's own mouse handling stands down, and the wheel is consumed unless a ScrollList inside scrolls. "
+                   "With several modal panels active the one with the highest `layer` (the later entity on a tie) is the "
+                   "scope. It does not pause the game: a script that wants that holds the clock itself (the menu kit's "
+                   "card does, with its `holdClock` option). A fully transparent panel draws nothing and is not hit, but "
+                   "still scopes the input; give it a dim `color` as a backdrop to block clicks on the sprites too.")
+            .field("wheelPassThrough", &Panel::wheelPassThrough,
+                   "true: a `modal` panel leaves the mouse wheel to scripts instead of consuming it: input.mouse.wheel keeps "
+                   "reading what the player turned (a zoom in an inventory view that is a modal). A ScrollList inside the "
+                   "modal that has more to show still scrolls and keeps the wheel for itself, as before. Only the modal "
+                   "panel that scopes the input counts; no effect on a panel that is not modal.")
             .enum_field("fallbackLayout", &Panel::fallbackLayout, {"none", "row", "column", "grid"},
                         "Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen "
                         "(none = never switch). The panel leaves the screen when its content size + padding, or the size of "
@@ -1037,21 +1517,41 @@ void register_builtin_components(TypeRegistry& r) {
                    "With autoSize the button is at most maxWidth plus its margins wide and grows taller instead.").range(0, 100000)
             .field("autoSize", &Button::autoSize, kAutoSizeDoc)
             .field("autoShrink", &Button::autoShrink, kAutoShrinkDoc)
-            .field("minFontSize", &Button::minFontSize, kMinFontSizeDoc).range(1, 4096);
+            .field("minFontSize", &Button::minFontSize, kMinFontSizeDoc).range(1, 4096)
+            .field("markup", &Button::markup, kMarkupDoc)
+            .field("bold", &Button::bold, kBoldDoc)
+            .asset_field("icon", &Button::icon, "texture",
+                         "Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. "
+                         "Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` (\"runtime:3\"; docs/SCRIPTING.md, \"Render\"). So does the live picture of a camera: \"target:<name>\" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, \"Render targets\").")
+            .field("iconRegion", &Button::iconRegion,
+                   "Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). "
+                   "A zero size means the whole texture.")
+            .field("iconSize", &Button::iconSize,
+                   "Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32].")
+            .enum_field("iconPosition", &Button::iconPosition, {"left", "top", "alone"},
+                        "left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, "
+                        "the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the "
+                        "button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the "
+                        "label shrinks to the room the icon leaves.");
     }
     {
         auto toggle = r.add<Toggle>("Toggle",
                   "Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the "
-                  "label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.",
+                  "label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}. The box is one line of the "
+                  "label high (fontSize at the player's text size, times 1.2, plus 4 px), centred in the widget and never bigger than "
+                  "its height minus 12: a wrapped label or a taller widget does not make the box bigger. autoShrink and minFontSize "
+                  "shrink the label to the room right of the box.",
                   "UI");
         ui_control_fields(toggle)
-            .field("label", &Toggle::label, "Text to the right of the box.")
+            .field("label", &Toggle::label, "Text to the right of the box, which follows the font size (see the Toggle description).")
             .field("maxWidth", &Toggle::maxWidth,
                    "> 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the "
                    "toggle is at most maxWidth plus the box and margins wide and grows taller instead.").range(0, 100000)
             .field("autoSize", &Toggle::autoSize, kAutoSizeDoc)
             .field("autoShrink", &Toggle::autoShrink, kAutoShrinkDoc)
             .field("minFontSize", &Toggle::minFontSize, kMinFontSizeDoc).range(1, 4096)
+            .field("markup", &Toggle::markup, kMarkupDoc)
+            .field("bold", &Toggle::bold, kBoldDoc)
             .field("value", &Toggle::value, "true = checked. Scripts may write it; no event is sent for a write.");
     }
     {
@@ -1075,6 +1575,8 @@ void register_builtin_components(TypeRegistry& r) {
             .field("autoSize", &Slider::autoSize, kAutoSizeDoc)
             .field("autoShrink", &Slider::autoShrink, kAutoShrinkDoc)
             .field("minFontSize", &Slider::minFontSize, kMinFontSizeDoc).range(1, 4096)
+            .field("markup", &Slider::markup, kMarkupDoc)
+            .field("bold", &Slider::bold, kBoldDoc)
             .field("value", &Slider::value,
                    "Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is "
                    "sent for a write.")
@@ -1099,6 +1601,104 @@ void register_builtin_components(TypeRegistry& r) {
                    "stays as it is.");
     }
     {
+        auto ia = r.add<Interactable>("Interactable",
+                  "Makes this entity, whatever it is made of (sprites, shapes, text, children), a widget that joins the same focus, "
+                  "navigation and events as Button, Toggle and Slider: hover, press, click, focus, the arrow keys / d-pad (spatial "
+                  "navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and "
+                  "the ui.* commands find it by id. The hit area is `size` (a rectangle in the entity's local space) or, with size "
+                  "0, the bounds of the entity and its children; in world space it is projected through the camera that draws "
+                  "there, so it follows parents that move, scale or rotate (a turning page, a swaying sign). An entity with "
+                  "screen-space visuals is a screen-space widget. An entity that is also a Button, Toggle, Slider, TextField, Panel "
+                  "or other UI-box component keeps that role and its Interactable is ignored. Draw the look with ordinary children and "
+                  "InteractableVisual (show, hide or tint per state). Events (ui.on): click (button), change (toggle / slider, "
+                  "value), focus, blur, hover (value true = entered, false = left), press and release (value true = released over it). "
+                  "A world-space widget under a screen-space widget (or outside a modal Panel) is not reached.",
+                  "UI");
+        ia.enum_field("kind", &Interactable::kind, {"button", "toggle", "slider"},
+                      "button: a click or ui_submit sends ui.click {id}. toggle: it flips `on` and sends ui.change {id, value: bool}. "
+                      "slider: dragging along the area or left / right (down / up with axis y) sets `value` and sends "
+                      "ui.change {id, value: number}.")
+          .field("enabled", &Interactable::enabled,
+                 "false: the Disabled state. It is never hovered, focused, pressed or clicked and sends no events; a focused one loses "
+                 "focus. Visuals with when/disabled show.")
+          .field("autoFocus", &Interactable::autoFocus,
+                 "Same rule as Button.autoFocus: when NOTHING is focused the first widget with autoFocus (reading order of their "
+                 "areas on the screen) takes the keyboard / gamepad focus. Mark the first item of each menu.")
+          .field("focusOnHover", &Interactable::focusOnHover,
+                 "true: the pointer entering the widget moves the focus to it (once per entry, so the arrow keys still move it "
+                 "away). A widget that appears (or turns on) under a resting pointer counts as an entry. false (default, like the built-in widgets): the focus moves on a press.")
+          .field("size", &Interactable::size,
+                 "Hit area [w, h] in the entity's LOCAL units, y up (screen space: UI units), so it scales and turns with the entity "
+                 "and its parents. [0, 0] (default) = the bounding box (in the entity's own frame) of the visuals of the entity and "
+                 "its active children, not counting InteractableVisual entities that Show/Hide with the state, a slider's knob and fill, "
+                 "and children that are Interactables themselves; an entity with no visuals then has no area and cannot be hit.")
+          .field("offset", &Interactable::offset,
+                 "Centre of the explicit area [x, y] from the entity origin, in local units. Ignored when size is [0, 0].")
+          .enum_field("space", &Interactable::space, {"auto", "world", "screen"},
+                      "auto (default): screen space when the entity or one of its children draws in screen space or has a UI box, "
+                      "else world space. world: the area is projected through the camera. screen: the area is in screen space "
+                      "(UI units; the anchor and safeArea of the entity's own screen-space Text, Sprite or Shape2D, else the top-left corner of the screen).")
+          .field("on", &Interactable::on,
+                 "Toggle: the value. Scripts may write it; no event is sent for a write. Visuals with when on / off follow it.")
+          .field("value", &Interactable::value,
+                 "Slider: the value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is "
+                 "sent for a write. `knob` and `fill` follow it every frame.")
+          .field("min", &Interactable::min, "Slider: the smallest value.")
+          .field("max", &Interactable::max, "Slider: the largest value.")
+          .field("step", &Interactable::step,
+                 "Slider: the keyboard / gamepad increment and the grid the value snaps to (also when dragging). 0 = continuous: "
+                 "keys move (max - min) / 20 per press.").range(0, 1000000)
+          .enum_field("axis", &Interactable::axis, {"x", "y"},
+                      "Slider: the track runs along the area's local x (min at the left end, max at the right) or local y (min at the "
+                      "bottom, max at the top). The area is the track: its length along the axis is the travel of the knob.")
+          .field("knob", &Interactable::knob,
+                 "Slider: id of the entity moved along the track so that it sits at the value (only its local position along "
+                 "`axis` is set, in the frame of its own parent: make it a child of this entity). Empty = none.")
+          .field("fill", &Interactable::fill,
+                 "Slider: id of the entity whose local scale along `axis` becomes the fraction (value - min) / (max - min), and "
+                 "whose position along the axis is the start of the track. Give it a pivot at its start (a Shape2D or Sprite with "
+                 "pivot [0, 0.5]) and the size of the whole track. Empty = none.")
+          .field("label", &Interactable::label,
+                 "Accessibility label, what ui.state reports as `text` and the read-aloud recipe speaks. Empty = the text of the "
+                 "first Text among the entity and its children. Overwritten by the translation while `key` is set.")
+          .field("key", &Interactable::key,
+                 "Localization key for `label` (docs/LOCALIZATION.md), like Button.key. Empty = not translated.")
+          .field("keyArgs", &Interactable::keyArgs, kKeyArgsDoc)
+          .field("focused", &Interactable::focused,
+                 "Runtime: has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity).")
+          .runtime_only().read_only()
+          .field("hovered", &Interactable::hovered,
+                 "Runtime: the pointer (mouse or first touch) is over it and it is the top-most widget there.")
+          .runtime_only().read_only()
+          .field("pressed", &Interactable::pressed, "Runtime: the pointer is held down on it.")
+          .runtime_only().read_only()
+          .enum_field("state", &Interactable::state, {"normal", "hover", "pressed", "focused", "disabled"},
+                      "Runtime: the one state the visuals show: disabled (enabled is false), else pressed, else hover, else focused, "
+                      "else normal. Written by the UI every frame.")
+          .runtime_only().read_only();
+    }
+    {
+        auto vis = r.add<InteractableVisual>("InteractableVisual",
+                  "Makes this entity follow the state of an Interactable with no script. Show: the entity is active only while `when` "
+                  "holds (a highlight on hover, a check mark when a toggle is on, a pressed sprite). Tint: the colour of its Sprite, "
+                  "Shape2D or Text (the first one it has) is set from the state every frame. Put it on a child of the Interactable "
+                  "or give `target`.",
+                  "UI");
+        vis.field("target", &InteractableVisual::target,
+                  "Id of the Interactable to follow. Empty (default) = the nearest ancestor that has an Interactable.")
+           .enum_field("mode", &InteractableVisual::mode, {"show", "tint"},
+                       "show: the entity is active only while `when` holds. tint: its colour follows the state (the colours below).")
+           .enum_field("when", &InteractableVisual::when, {"always", "normal", "hover", "pressed", "focused", "highlighted", "disabled", "on", "off"},
+                       "Show only. always: always active. normal: neither hovered, pressed, focused nor disabled. hover, pressed, "
+                       "focused: that flag is set (a hovered and focused widget shows both). highlighted: hovered OR focused (one look for the pointer and the keyboard / gamepad, so they never disagree). disabled: enabled is false. on / off: "
+                       "a toggle's `on` is true / false.")
+           .field("normal", &InteractableVisual::normal, "Tint: colour in the normal state.")
+           .field("hover", &InteractableVisual::hover, "Tint: colour while hovered (and not pressed).")
+           .field("pressed", &InteractableVisual::pressed, "Tint: colour while pressed.")
+           .field("focused", &InteractableVisual::focused, "Tint: colour while focused (and not hovered or pressed).")
+           .field("disabled", &InteractableVisual::disabled, "Tint: colour while the Interactable is not enabled.");
+    }
+    {
         auto field = r.add<TextField>("TextField",
                   "Single-line text input. While focused it appends the typed characters (Input text), Backspace removes "
                   "the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at "
@@ -1117,8 +1717,9 @@ void register_builtin_components(TypeRegistry& r) {
         auto list = r.add<ScrollList>("ScrollList",
                   "Scrolling container: its children are stacked in a column (aligned left, packed at the top) at "
                   "-scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED "
-                  "to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer), "
-                  "and focusing a widget inside scrolls just enough to show it.",
+                  "to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer) "
+                  "when it has more content than it shows; that wheel is then consumed: input.mouse.wheel reads 0 for "
+                  "the frame and ui.wheelConsumed is true. Focusing a widget inside scrolls just enough to show it.",
                   "UI");
         ui_box_fields(list)
             .field("spacing", &ScrollList::spacing, "Gap in design pixels between children.").range(0, 10000)
@@ -1190,6 +1791,8 @@ void register_builtin_components(TypeRegistry& r) {
             .field("autoShrink", &TouchButton::autoShrink, kAutoShrinkDoc)
             .field("minFontSize", &TouchButton::minFontSize, kMinFontSizeDoc).range(1, 4096)
             .field("maxTextScale", &TouchButton::maxTextScale, kMaxTextScaleDoc).range(0, 3)
+            .field("markup", &TouchButton::markup, kMarkupDoc)
+            .field("bold", &TouchButton::bold, kBoldDoc)
             .field("textColor", &TouchButton::textColor, "Label colour.")
             .field("touchOnly", &TouchButton::touchOnly, kTouchOnlyDoc)
             .field("pressed", &TouchButton::pressed, "Runtime: a finger holds the button.").runtime_only().read_only()
@@ -1270,6 +1873,102 @@ void register_builtin_components(TypeRegistry& r) {
             .runtime_only().read_only();
     }
 
+    {
+        auto cv = r.add<CameraView>("CameraView",
+                  "A 3D (or 2D) view inside the UI (docs/MENUS.md, \"A camera inside the UI\"): draws the camera named by `camera` into "
+                  "this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the "
+                  "clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera "
+                  "is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before "
+                  "the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also "
+                  "draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the "
+                  "picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = \"studio\" lights it with its own key, "
+                  "fill and rim lights, wherever it stands. bloom and colorFilter of the camera are ignored (the frame has one set of "
+                  "post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, "
+                  "x, y, u, v, dx, dy, wheel}; `ui.on(\"viewPointer\", fn)` in scripts) so a script can turn what it shows. It "
+                  "is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render "
+                  "pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). "
+                  "Defaults: 320 x 240, no background colour.",
+                  "UI");
+        ui_box_fields(cv)
+            .field("camera", &CameraView::camera,
+                   "Id or name of the Camera entity to draw (an id is tried first, then a name). \"\" or an entity that is missing, "
+                   "inactive or has no Camera draws only the background `color`. The same camera may be "
+                   "shown by several CameraViews: each gets its own image.")
+            .field("tint", &CameraView::tint,
+                   "Colour multiplied with the picture: white (default) leaves it as it is, alpha below 1 fades the view over what is "
+                   "behind it. `color` (the background) is a separate colour.")
+            .field("pointerEvents", &CameraView::pointerEvents,
+                   "true (default): a pointer (mouse or finger) pressed over the view sends ui.viewPointer events \"down\", then \"drag\" "
+                   "while it moves and \"up\" when it is released, to the view that was pressed. false: no events, the widget still "
+                   "blocks clicks to what is below it.")
+            .field("captureWheel", &CameraView::captureWheel,
+                   "true (default): the mouse wheel over the view is sent as a ui.viewPointer event with phase \"wheel\" and kept from "
+                   "scripts that read input.mouse.wheel (a zoom). false: the wheel is left alone.")
+            .field("resolution", &CameraView::resolution,
+                   "Pixels of the view's image per pixel of its rectangle: 1 (default) is sharp, 0.5 draws four times fewer pixels "
+                   "(soft, cheap), 2 supersamples. The result is multiplied by the renderer's own render scale.")
+            .range(0.25f, 2);
+    }
+
+    {
+        auto chart = r.add<Chart>("Chart",
+                  "A bar or line chart (docs/MENUS.md, \"Charts\"): draws `values` as bars or lines inside this entity's rectangle, "
+                  "scaled to the axis, in one batch by the UI layer, with a baseline rule, the axis maximum and minimum written in the "
+                  "current language's number format, and optional vertical `marks`. `values` is one series ([3, 5, 2]) or several "
+                  "([[3, 5, 2], [1, 4, 4]]); write it from a script (`chart.values = history`) whenever the data changes. The axis is "
+                  "automatic (the lowest and highest value, always including the baseline, zero by default) unless `min` / `max` are "
+                  "set. The sample under the pointer is reported: the game event `ui.chartHover` ({id, index, series, value}; index and "
+                  "series are -1 when the pointer leaves), `ui.on(\"chartHover\", fn)` in scripts, and `hoverIndex` / `hoverSeries` on "
+                  "the component. A Chart is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. "
+                  "Defaults: 480 x 200, a dark translucent background, bars.",
+                  "UI");
+        ui_box_fields(chart)
+            .field("values", &Chart::values,
+                   "The data: an array of numbers (one series), or an array of arrays of numbers (a series each, oldest value first). "
+                   "Anything that is not a number counts as 0. Series may have different lengths; the samples line up from the newest "
+                   "(right) end.")
+            .enum_field("kind", &Chart::kind, {"bar", "line"},
+                        "bar (default): one column per sample, the series side by side in it, each bar growing from `baseline`. line: "
+                        "one polyline per series through its points, spanning the plot from edge to edge.")
+            .field("colors", &Chart::colors,
+                   "Colour of each series: an array of colours (\"#rrggbb\", a name or [r, g, b, a]). Series beyond the list start over "
+                   "from its first colour; an empty list uses a built-in palette.")
+            .field("min", &Chart::min, "Lowest value of the axis. null (default) = automatic.")
+            .field("max", &Chart::max, "Highest value of the axis. null (default) = automatic.")
+            .field("baseline", &Chart::baseline,
+                   "The value bars grow from and where the baseline rule is drawn (0 by default, the line between gains and losses).")
+            .field("showBaseline", &Chart::showBaseline, "true (default): draw a thin rule at `baseline` when it is inside the axis.")
+            .field("includeBaseline", &Chart::includeBaseline,
+                   "true (default): the automatic axis always includes `baseline`, so bars of a series that is all large numbers still "
+                   "start at zero. false: the axis fits the data tightly (a line of coins that stays near 5000). Ignored for a side "
+                   "set by `min` / `max`.")
+            .field("slots", &Chart::slots,
+                   "How many samples the plot has room for. With fewer values the series is right-aligned, so a chart that fills up "
+                   "keeps each sample's width. 0 (default) = as many as the longest series.").range(0, 100000)
+            .field("marks", &Chart::marks,
+                   "Sample indexes (counted from the first value of the longest series) where a thin vertical rule is drawn, e.g. "
+                   "the first day of each season: [7, 14]. null = none.")
+            .field("baselineColor", &Chart::baselineColor, "Colour of the baseline rule.")
+            .field("markColor", &Chart::markColor, "Colour of the vertical rules of `marks`.")
+            .field("lineWidth", &Chart::lineWidth, "Thickness of a line chart's lines, in UI units.").range(0, 64)
+            .field("barGap", &Chart::barGap, "Fraction of a sample's column left empty between neighbouring bars, 0 to 0.9.").range(0, 0.9f)
+            .field("padding", &Chart::padding, "Space in UI units between the box and the plot area.").range(0, 1000)
+            .field("showLabels", &Chart::showLabels,
+                   "true (default): write the axis maximum at the top-left and the minimum at the bottom-left of the plot, in the "
+                   "current language's number format (\"1,234.5\" in English, \"1.234,5\" in Spanish).")
+            .field("decimals", &Chart::decimals,
+                   "Digits after the decimal separator in the labels, 0 to 9. -1 (default) = as many as the value has, rounded to two.")
+            .range(-1, 9)
+            .asset_field("font", &Chart::font, "font", "Font of the labels: project path of a .ttf, empty = the built-in font (same values as Text.font).")
+            .field("fontSize", &Chart::fontSize, "Label glyph height in design pixels, before ui.textScale.").range(1, 4096)
+            .field("textColor", &Chart::textColor, "Colour of the axis labels.")
+            .field("hoverIndex", &Chart::hoverIndex,
+                   "Runtime: the sample under the pointer (0 = the first value of the series), -1 when none. Written by the UI every frame.")
+            .runtime_only().read_only()
+            .field("hoverSeries", &Chart::hoverSeries, "Runtime: the series of the sample under the pointer, -1 when none.")
+            .runtime_only().read_only();
+    }
+
     // -------------------------------------------------------- Scripting ---
     r.add<Script>("Script",
                   "Attaches JavaScript behaviour to the entity. `path` is an ES module whose default export is a class "
@@ -1294,8 +1993,15 @@ void register_builtin_components(TypeRegistry& r) {
         .field("fogDensity", &SceneSettings::fogDensity, "Fog thickness; 0 disables fog.").range(0, 10)
         .field("skyColor", &SceneSettings::skyColor, "Top color of the 3D background gradient (used when a perspective camera clears).")
         .field("horizonColor", &SceneSettings::horizonColor, "Bottom color of the 3D background gradient.")
-        .asset_field("music", &SceneSettings::music, "audio", "Looping background music asset path. Empty = none.")
-        .field("musicVolume", &SceneSettings::musicVolume, "Volume of the background music, 0..1.").range(0, 1);
+        .asset_field("music", &SceneSettings::music, "audio", "Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this "
+                     "track again, even when the previous scene had the same one; music a script started with "
+                     "audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track.")
+        .field("musicVolume", &SceneSettings::musicVolume, "Volume of the background music, 0..1.").range(0, 1)
+        .field("lightScale", &SceneSettings::lightScale,
+               "Size of the Light2D light buffer as a fraction of the picture, 0.25 .. 1 (default 1: one light pixel per picture "
+               "pixel). Lower values make lights cost less fill rate and look softer (the light is smoothed up to the picture); "
+               "use 0.5 on mobile or the web when many lights are on screen. Only matters when a scene has lit visuals and Light2D lights.")
+        .range(0.25f, 1);
 }
 
 void ensure_builtin_components() {
@@ -1306,4 +2012,90 @@ void ensure_builtin_components() {
     });
 }
 
+}  // namespace fa
+
+namespace fa {
+std::string render_target_id(const std::string& name) { return "target:" + name; }
+std::string render_target_name(const std::string& id) { return id.rfind("target:", 0) == 0 ? id.substr(7) : std::string(); }
+
+void camera_render_target_pixels(const Camera& c, int& width, int& height, bool* clamped) {
+    const Vec2 sz = c.renderTargetSize;
+    const bool ok = std::isfinite(sz.x) && std::isfinite(sz.y) && sz.x >= 1 && sz.y >= 1 && sz.x <= kMaxRenderTargetSide + 0.5f &&
+                    sz.y <= kMaxRenderTargetSide + 0.5f;
+    if (clamped) *clamped = !ok;
+    width = std::isfinite(sz.x) ? std::clamp(int(std::lround(sz.x)), 1, kMaxRenderTargetSide) : 1024;
+    height = std::isfinite(sz.y) ? std::clamp(int(std::lround(sz.y)), 1, kMaxRenderTargetSide) : 1024;
+}
+
+std::string camera_render_target_problem(const Camera& c) {
+    if (c.renderTarget.empty()) return {};
+    if (c.renderTarget.size() > 64) return "Camera.renderTarget '" + c.renderTarget.substr(0, 20) + "...' is longer than 64 characters";
+    for (char ch : c.renderTarget) {
+        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' || ch == '.';
+        if (!ok)
+            return "Camera.renderTarget '" + c.renderTarget + "' has a character that is not a letter, a digit, '_', '-' or '.'";
+    }
+    const auto num = [](float f) {
+        char b[32];
+        std::snprintf(b, sizeof b, "%g", double(f));
+        return std::string(b);
+    };
+    const Vec2 sz = c.renderTargetSize;
+    const std::string shown = "[" + num(sz.x) + ", " + num(sz.y) + "]";
+    if (!std::isfinite(sz.x) || !std::isfinite(sz.y)) return "Camera.renderTargetSize " + shown + " has a value that is not a number";
+    if (sz.x < 1 || sz.y < 1) return "Camera.renderTargetSize " + shown + " is smaller than 1 x 1 pixel";
+    if (sz.x > kMaxRenderTargetSide || sz.y > kMaxRenderTargetSide)
+        return "Camera.renderTargetSize " + shown + " is larger than " + std::to_string(kMaxRenderTargetSide) + " x " + std::to_string(kMaxRenderTargetSide) + " pixels";
+    return {};
+}
+
+std::string camera_viewport_problem(const Rect& v) {
+    constexpr float eps = 1e-4f;
+    const auto num = [](float f) {
+        char b[32];
+        std::snprintf(b, sizeof b, "%g", double(f));
+        return std::string(b);
+    };
+    const std::string shown = "[" + num(v.x) + ", " + num(v.y) + ", " + num(v.w) + ", " + num(v.h) + "]";
+    if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.w) || !std::isfinite(v.h))
+        return "Camera.viewport " + shown + " has a value that is not a number";
+    if (v.x < -eps || v.y < -eps || v.x > 1 + eps || v.y > 1 + eps)
+        return "Camera.viewport " + shown + " starts outside the screen (x and y are 0..1)";
+    if (v.w <= eps || v.h <= eps) return "Camera.viewport " + shown + " has no size (width and height must be above 0)";
+    if (v.x + v.w > 1 + eps || v.y + v.h > 1 + eps)
+        return "Camera.viewport " + shown + " reaches past the edge of the screen (x + width and y + height must be at most 1)";
+    return {};
+}
+}  // namespace fa
+
+namespace fa {
+float gradient_ease_apply(GradientEase ease, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    // The curve is described by its "In" function; Out is its mirror image, InOut plays In for the first half and Out for the
+    // second (the definitions of the script tween easings, factoria.js).
+    enum class Kind { In, Out, InOut };
+    float (*in)(float) = nullptr;
+    Kind kind = Kind::In;
+    const int v = static_cast<int>(ease);
+    if (ease == GradientEase::Linear) return t;
+    if (ease == GradientEase::Smoothstep) return t * t * (3.0f - 2.0f * t);
+    const int family = (v - static_cast<int>(GradientEase::QuadIn)) / 3;
+    kind = static_cast<Kind>((v - static_cast<int>(GradientEase::QuadIn)) % 3);
+    switch (family) {
+        case 0: in = [](float x) { return x * x; }; break;
+        case 1: in = [](float x) { return x * x * x; }; break;
+        case 2: in = [](float x) { float q = x * x; return q * q; }; break;
+        case 3: in = [](float x) { float q = x * x; return q * q * x; }; break;
+        case 4: in = [](float x) { return 1.0f - std::cos(x * 1.57079632679f); }; break;
+        case 5: in = [](float x) { return x <= 0.0f ? 0.0f : std::pow(2.0f, 10.0f * x - 10.0f); }; break;
+        case 6: in = [](float x) { return 1.0f - std::sqrt(std::max(0.0f, 1.0f - x * x)); }; break;
+        default: return t;
+    }
+    switch (kind) {
+        case Kind::In: return in(t);
+        case Kind::Out: return 1.0f - in(1.0f - t);
+        case Kind::InOut: return t < 0.5f ? in(2.0f * t) * 0.5f : 1.0f - in(2.0f - 2.0f * t) * 0.5f;
+    }
+    return t;
+}
 }  // namespace fa

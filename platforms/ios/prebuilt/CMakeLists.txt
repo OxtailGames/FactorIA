@@ -78,6 +78,8 @@ fa_ios_add_privacy_manifest(factoria_player)
 target_link_libraries(factoria_player PRIVATE ${FA_PLAYER_LIBS}
     "-framework UIKit" "-framework CoreGraphics" "-framework Metal" "-framework MetalKit" "-framework QuartzCore"
     "-framework Foundation" "-framework AudioToolbox" "-framework AVFoundation" "-framework GameController")
+# Drop the engine code no game reaches, as player/CMakeLists.txt does for the source build.
+target_link_options(factoria_player PRIVATE -Wl,-dead_strip)
 # The game's native plugins (-DFA_GAME_PLUGINS / -DFA_GAME_PLUGIN_DIR from build_ios.sh): their static libraries, and the code
 # that registers them with the engine before main.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/plugins.cmake)

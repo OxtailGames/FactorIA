@@ -133,3 +133,18 @@ TEST_CASE("validate: a behaviour method that looks like a misspelled hook is a w
         }
     CHECK(count_mentioning(r.warnings, "loadLevel") == 0);
 }
+
+TEST_CASE("validate: a behaviour field that shadows a Behaviour method is a warning that names the field") {
+    testing::TempDir tmp;
+    const std::string dir = tmp.sub("game");
+    REQUIRE(create_project(dir, "2d-empty").ok());
+    testing::write_all(stdfs::path(dir) / "scripts/probe.js",
+                       "import { Behaviour } from \"factoria\";\nexport default class Probe extends Behaviour {\n"
+                       "  on = false;\n  speed = 2;\n}\n");
+
+    ValidationReport r = validate_with_engine(dir);
+    CHECK(r.ok);  // a warning, not an error
+    CHECK(count_mentioning(r.warnings, "scripts/probe.js") == 1);
+    for (const ValidationIssue& w : r.warnings)
+        if (w.file == "scripts/probe.js") CHECK(w.message.find("the field 'on' shadows Behaviour.on") != std::string::npos);
+}

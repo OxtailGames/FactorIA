@@ -5,6 +5,10 @@ rem %FAKE_ARGV_FILE%. FAKE_COST overrides total_cost_usd; FAKE_MODE=resume_fails
 rem "No conversation found" error; FAKE_MODE=mcp_spawn calls the tool scene_spawn {"name":"CliCoin"} on the HTTP MCP
 rem server of its --mcp-config with curl, like Claude Code calling a tool (the reply goes to %FAKE_ARGV_FILE%.mcp).
 rem FAKE_MODE=models answers the initialize control_request on stdin with a control_response of three models (argv is recorded, stdin is not; with FAKE_HANG it then keeps running).
+rem FAKE_MODE=mcp_run_detach calls the tool ai_run in the background and ends its turn at once (a prompt that says a worker
+rem "finished after your turn ended", the editor's continuation, gets a plain answer). FAKE_SLEEP=<seconds> keeps it silent
+rem that long after its init line.
+rem FAKE_MODE=spend makes two paid model calls, then stays silent 30 s (the run's limit must stop it).
 rem A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>". Keep the JSON free of & | < > ^ % and parentheses: cmd.exe would act on them.
 if not defined FAKE_COST set FAKE_COST=0.0123
 if "%FAKE_MODE%"=="models" goto models
@@ -22,12 +26,22 @@ if "%FAKE_MODE%"=="resume_fails" (
     exit /b 1
   )
 )
+if "%FAKE_MODE%"=="spend" goto spend
 if "%FAKE_MODE%"=="mcp_spawn" call :mcp_spawn %*
+if "%FAKE_MODE%"=="mcp_run_detach" call :mcp_run_detach %*
 echo {"type":"system","subtype":"init","session_id":"sess-1","model":"sonnet","mcp_servers":[{"name":"factoria","status":"connected"}]}
+if defined FAKE_SLEEP ping -n %FAKE_SLEEP% 127.0.0.1 >nul
 echo {"type":"assistant","message":{"content":[{"type":"text","text":"Looking at the project."}]}}
 echo {"type":"assistant","message":{"content":[{"type":"text","text":"All good."}],"usage":{"input_tokens":2,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":5}},"parent_tool_use_id":null}
 echo {"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792021800,"rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":0.06,"resetsAt":1792021800},"seven_day":{"utilization":0.07,"resetsAt":1792584000}}}}
 echo {"type":"result","subtype":"success","is_error":false,"result":"Done: project is valid.","total_cost_usd":%FAKE_COST%,"num_turns":2,"session_id":"sess-1","usage":{"input_tokens":100,"output_tokens":20,"cache_creation_input_tokens":5,"cache_read_input_tokens":50},"modelUsage":{"claude-haiku-5-5":{"inputTokens":100,"outputTokens":20,"cacheReadInputTokens":50,"cacheCreationInputTokens":5,"contextWindow":1000000}}}
+exit /b 0
+
+:spend
+echo {"type":"system","subtype":"init","session_id":"s1","model":"sonnet","mcp_servers":[]}
+echo {"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":1000,"output_tokens":100}},"parent_tool_use_id":null}
+echo {"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"b"}],"usage":{"input_tokens":1000,"output_tokens":100}},"parent_tool_use_id":null}
+ping -n 31 127.0.0.1 >nul
 exit /b 0
 
 :mcp_spawn
@@ -36,10 +50,25 @@ if "%~1"=="--mcp-config" goto mcp_call
 shift
 goto mcp_spawn
 :mcp_call
-for /f "tokens=2" %%u in ('findstr /c:"/mcp/" "%~2"') do set "MCP_URL=%%~u"
+for /f "tokens=2 delims=, " %%u in ('findstr /c:"/mcp/" "%~2"') do set "MCP_URL=%%~u"
 set "MCP_OUT=nul"
 if defined FAKE_ARGV_FILE set "MCP_OUT=%FAKE_ARGV_FILE%.mcp"
 curl -s -o "%MCP_OUT%" -H "content-type: application/json" -H "accept: application/json, text/event-stream" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"scene_spawn\",\"arguments\":{\"name\":\"CliCoin\"}}}" "%MCP_URL%"
+exit /b 0
+
+:mcp_run_detach
+findstr /c:"finished after your turn ended" "%FAKE_ARGV_FILE%" >nul 2>nul && exit /b 0
+call :mcp_run_args %*
+exit /b 0
+:mcp_run_args
+if "%~1"=="" exit /b 0
+if "%~1"=="--mcp-config" goto mcp_run_call
+shift
+goto mcp_run_args
+:mcp_run_call
+for /f "tokens=2 delims=, " %%u in ('findstr /c:"/mcp/" "%~2"') do set "MCP_URL=%%~u"
+start "" /b curl -s -m 120 -o nul -H "content-type: application/json" -H "accept: application/json, text/event-stream" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"ai_run\",\"arguments\":{\"task\":\"Make a coin\",\"role\":\"worker\"}}}" "%MCP_URL%" >nul 2>nul
+ping -n 2 127.0.0.1 >nul
 exit /b 0
 
 :models

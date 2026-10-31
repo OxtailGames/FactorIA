@@ -10,6 +10,9 @@
 namespace fa::render {
 
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error) {
+    // The command buffer and its encoder are autoreleased. A headless run has no run loop to drain the pool, so without an
+    // own pool every capture kept its buffer (one frame of pixels) until the process ended: 8 MB a frame at 1080p.
+    @autoreleasepool {
     id<MTLTexture> tex = (__bridge id<MTLTexture>)sg_mtl_query_image_info(image).tex[sg_mtl_query_image_info(image).active_slot];
     id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
     id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
@@ -30,6 +33,7 @@ bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint
     out.resize(bytesPerRow * NSUInteger(height));
     std::memcpy(out.data(), [buf contents], out.size());  // Metal rows are top-down
     return true;
+    }
 }
 
 }  // namespace fa::render

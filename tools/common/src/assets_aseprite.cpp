@@ -403,7 +403,7 @@ Result<ImportOutput> import_aseprite(const ImportRequest& request) {
         }
     }
     if (!slowedDirections.empty())
-        out.warnings.push_back("SpriteAnimator only plays forward, so these tags are clips that play forward: " + join(slowedDirections, ", ") + ".");
+        out.warnings.push_back("The sheet has no direction per clip, so these tags are clips that play forward: " + join(slowedDirections, ", ") + ". Set SpriteAnimator.mode to \"reverse\" or \"pingpong\" to play them that way.");
     std::vector<std::string> blended;
     for (const Layer& layer : ase.layers)
         if (layer.visible && layer.type != kLayerGroup && layer.blend != 0) blended.push_back(std::format("'{}' ({})", layer.name, blend_name(layer.blend)));

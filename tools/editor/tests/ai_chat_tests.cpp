@@ -613,6 +613,45 @@ TEST_CASE("image_from_dib reads the bitmaps a Windows screenshot puts on the cli
     }
 }
 
+TEST_CASE("RunUsage keeps every agent's running totals apart and settles them into the chat once") {
+    RunUsage run;
+    ai::Usage chatUsage;
+    double chatCost = 0;
+    auto usage = [](u64 in, u64 out) {
+        ai::Usage u;
+        u.inputTokens = in;
+        u.outputTokens = out;
+        return u;
+    };
+    run.update("", usage(100, 10), 0.10);           // the orchestrator
+    run.update("run-1", usage(1000, 100), 0.50);    // a worker
+    CHECK(run.usage().inputTokens == 1100);
+    CHECK(run.cost() == doctest::Approx(0.60));
+    run.update("", usage(150, 20), 0.15);           // the orchestrator again: replaces its own entry only
+    CHECK(run.usage().inputTokens == 1150);
+    CHECK(run.usage().outputTokens == 120);
+    CHECK(run.cost() == doctest::Approx(0.65));
+    run.update("run-1", usage(2000, 200), 0.80);
+    CHECK(run.cost() == doctest::Approx(0.95));
+
+    // the orchestrator's turn ends while the worker still runs: only the orchestrator moves into the chat
+    run.settle_orchestrator(usage(160, 21), 0.16, chatUsage, chatCost, false);
+    CHECK(chatUsage.inputTokens == 160);
+    CHECK(chatCost == doctest::Approx(0.16));
+    CHECK(run.usage().inputTokens == 2000);  // the worker, still live
+    CHECK(run.cost() == doctest::Approx(0.80));
+    // the worker ends: what it spent moves in, exactly once
+    run.update("run-1", usage(2500, 250), 0.90);
+    run.settle_all(chatUsage, chatCost);
+    CHECK(chatUsage.inputTokens == 2660);
+    CHECK(chatUsage.outputTokens == 271);
+    CHECK(chatCost == doctest::Approx(1.06));
+    CHECK(run.empty());
+    CHECK(run.cost() == 0);
+    run.settle_all(chatUsage, chatCost);
+    CHECK(chatUsage.inputTokens == 2660);  // nothing left to count twice
+}
+
 // ---- usage numbers -------------------------------------------------------------------------------------------------------
 
 TEST_CASE("format_tokens and format_percent are short and honest") {

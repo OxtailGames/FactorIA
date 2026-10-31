@@ -20,7 +20,22 @@ CommandResult fail(std::string code, std::string message, std::string hint = {})
     return r;
 }
 
+thread_local CommandProgressSink t_progress_sink;
+
 }  // namespace
+
+CommandProgressScope::CommandProgressScope(CommandProgressSink sink) : previous_(std::move(t_progress_sink)) {
+    t_progress_sink = std::move(sink);
+}
+
+CommandProgressScope::~CommandProgressScope() { t_progress_sink = std::move(previous_); }
+
+bool command_progress_active() { return static_cast<bool>(t_progress_sink); }
+
+bool report_command_progress(std::string_view message) {
+    if (!t_progress_sink) return false;
+    return t_progress_sink(message);
+}
 
 void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     std::string name = info.name;
@@ -47,6 +62,16 @@ std::vector<const CommandInfo*> CommandRegistry::list(std::string_view category)
 }
 
 CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) const {
+    struct DepthGuard {
+        int& d;
+        explicit DepthGuard(int& v) : d(v) { ++d; }
+        ~DepthGuard() { --d; }
+    };
+    if (beforeCall_ && callDepth_ == 0) {
+        DepthGuard g(callDepth_);
+        beforeCall_(name);
+    }
+    DepthGuard depth(callDepth_);
     auto it = commands_.find(name);
     if (it == commands_.end()) {
         std::vector<std::string> names;

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <chrono>
 #include <optional>
 
 #include "engine_impl.h"
@@ -14,6 +15,7 @@
 #include "fa/core/strings.h"
 #include "fa/platform/accessibility.h"
 #include "fa/platform/local_date.h"
+#include "fa/services/fake_platform.h"
 #include "fa/runtime/play_session.h"
 
 namespace fa {
@@ -28,9 +30,13 @@ struct WindowedState {
     int exitCode = 0;
     int framesRendered = 0;  // drawn frames, for the run marker in AppDesc.frame
     int framesRun = 0;       // frames run so far, for EngineConfig::maxFrames
+    int replayFrame = 0;     // windowed frames run so far, the frame number of EngineConfig::inputReplayPath
+    std::map<int, Json> replay;
+    int replayLast = -1;     // the last frame the replay has an entry for
     int framesSinceResume = -1;  // -1: not waiting for the post-resume marker; else drawn frames since Resumed
     // The player's date when it came from the wall clock (no --date): read again when the app comes back, see refresh_clock_date.
     std::optional<CalendarDate> clockDate;
+    std::chrono::steady_clock::time_point clockRead = std::chrono::steady_clock::now();  // when the clock was last read
     // What the window shows of Input's requested cursor and on-screen keyboard state (input.mouse.visible/locked,
     // input.showKeyboard): scripts change Input, apply_input_requests() makes the window follow.
     bool mouseVisible = true, mouseLocked = false, keyboardShown = false;
@@ -45,15 +51,16 @@ void apply_input_requests(WindowedState& st) {
     in.clear_vibrations();
 }
 
-// A player whose date came from the clock reads it again when the app comes back (resume, focus), before the scripts hear
-// about it: a game left in the background overnight sees the new day in its "resume" handler. Only a change of the clock's
-// date moves game.today(), so nothing else the game did to the date is undone by a focus change.
+// A player whose date came from the clock reads it again about once a minute and when the app comes back (resume, focus), before
+// the scripts hear about it: a game left in the background overnight sees the new day in its "resume" handler, and one that stays
+// in front past midnight gets "dayChanged". Only a change of the clock moves game.today(), so nothing else is undone.
 void refresh_clock_date(WindowedState& st) {
     if (!st.clockDate) return;
     const CalendarDate today = local_calendar_date();
-    if (today == *st.clockDate) return;
+    st.clockRead = std::chrono::steady_clock::now();
+    if (today.iso_datetime() == st.clockDate->iso_datetime() && today.utcOffsetMinutes == st.clockDate->utcOffsetMinutes) return;
     st.clockDate = today;
-    st.engine.scripts().set_start_date(today);
+    st.engine.scripts().set_clock_date(today);  // game.today() follows; "dayChanged" when the local day changed
 }
 
 // The device's safe area (notch, rounded corners, system bars) as insets of the renderer's target, in design pixels: the
@@ -163,7 +170,7 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         // does (--date overrides, and then it never changes).
         if (st->cfg.date.empty()) {
             const CalendarDate today = local_calendar_date();
-            st->cfg.date = today.iso();
+            st->cfg.date = today.iso_datetime();
             st->cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
             st->clockDate = today;
         }
@@ -175,6 +182,27 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             return;
         }
         apply_expand(st->engine, app_framebuffer_width(), app_framebuffer_height());
+        if (!st->cfg.inputReplayPath.empty()) {
+            auto r = load_json_file(st->cfg.inputReplayPath);
+            const Json* frames = r.ok() && r.value().is_object() && r.value().contains("frames") ? &r.value()["frames"] : nullptr;
+            if (!r.ok()) {
+                FA_ERROR("player", "Cannot read the input replay: {}", r.error().to_string());
+            } else if (!frames || !frames->is_object()) {
+                FA_ERROR("player", "The input replay {} must look like {{\"frames\": {{\"0\": {{\"press\": [\"jump\"]}}}}}}",
+                         st->cfg.inputReplayPath);
+            } else {
+                for (auto it = frames->begin(); it != frames->end(); ++it) {
+                    try {
+                        const int n = std::stoi(it.key());
+                        st->replay[n] = *it;
+                        st->replayLast = std::max(st->replayLast, n);
+                    } catch (...) {
+                        FA_WARN("player", "replay: frame key '{}' is not a number", it.key());
+                    }
+                }
+                FA_INFO("player", "replaying {} ({} frames with input)", st->cfg.inputReplayPath, st->replay.size());
+            }
+        }
         // The rectangle of a TextField for the platform's keyboard (a plugin's text input handler) is in window pixels.
         // A raw pointer: the engine keeps this function and `st` owns the engine (a shared_ptr would never be freed).
         st->engine.set_design_to_window([s = st.get()](Vec2 p) {
@@ -187,8 +215,19 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     };
     d.frame = [st](double dt) {
         if (!st->ok) return;
+        // The clock is read again about once a minute (outside the simulation, like the first read) so game.today() moves on.
+        if (st->clockDate && std::chrono::steady_clock::now() - st->clockRead >= std::chrono::seconds(60)) refresh_clock_date(*st);
         if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get()) window->throttle();  // window.frameCap
         apply_safe_insets(*st);  // before the frame: layout and drawing read it
+        if (!st->replay.empty()) {
+            if (auto it = st->replay.find(st->replayFrame); it != st->replay.end()) {
+                std::vector<std::string> problems;
+                st->engine.apply_input_entry(it->second, problems, st->replayFrame);
+                for (const std::string& p : problems) FA_WARN("player", "{}", p);
+            }
+            if (st->replayFrame == st->replayLast + 1) FA_INFO("player", "replay done after {} frames", st->replayFrame);
+        }
+        ++st->replayFrame;
         st->engine.frame(dt);
         apply_input_requests(*st);
         // Run marker: ONE info line after the 60th drawn frame. The device smoke tests (scripts/ios-smoke.sh,
@@ -235,6 +274,14 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
                 refresh_clock_date(*st);
                 st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Resume);
                 break;
+            case AppEvent::Type::QuitRequested:
+                // The player's close button, Cmd+Q or Alt+F4: game.on("quit") handlers may cancel it. A quit the app asked for
+                // itself (game.quit(), --frames, a failed start) closes without asking, and a handler that called game.quit()
+                // closes too even if it also called cancel().
+                if (!e.fromApp && !st->engine.quit_requested() && !st->engine.scripts().close_requested() &&
+                    !st->engine.quit_requested())
+                    app_cancel_quit();
+                break;
             default: break;
         }
     };
@@ -264,11 +311,11 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back"};
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back", "clipboard", "http"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys, mouse, gamepad, touch and back.");
+                     " A frame entry takes press, release, keys, mouse, gamepad, touch, back, clipboard and http.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
@@ -278,11 +325,31 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
             if (!I.inject_named(n.get<std::string>(), std::string(key) == "press", &err)) note(err);
         }
     }
+    if (entry.contains("clipboard")) {
+        // What the player had copied: clipboard.read() and a TextField's Ctrl+V give it from this frame on.
+        if (entry["clipboard"].is_string()) I.clipboard.set(entry["clipboard"].get<std::string>());
+        else note("'clipboard' must be a string, the text on the clipboard");
+    }
+    if (entry.contains("http")) {
+        // The answers to the http.fetch calls the game makes from this frame on (first in, first out): what the server said when the
+        // session was recorded. Each is what game.platform.respond("http.fetch", ...) takes.
+        if (!entry["http"].is_array()) {
+            note("'http' must be an array of answers like [{\"result\": {\"status\": 200, \"headers\": {}, \"text\": \"{}\"}}]");
+        } else if (FakeBackend* fake = I.platform.fake()) {
+            for (const Json& answer : entry["http"]) {
+                auto r = fake->respond("http.fetch", answer, 1);
+                if (!r.ok()) note("'http': " + r.error().message);
+            }
+        } else {
+            note("'http' needs the fake platform backend (headless runs have it): the answers were ignored");
+        }
+    }
     if (entry.contains("keys") && !entry["keys"].is_object()) note("'keys' must be an object like {\"A\": true}");
     if (entry.contains("mouse") && !entry["mouse"].is_object()) note("'mouse' must be an object like {\"position\": [10, 20], \"left\": true}");
     if (entry.contains("keys") && entry["keys"].is_object())
         for (auto it = entry["keys"].begin(); it != entry["keys"].end(); ++it) {
             Key k = key_from_name(it.key());
+            if (k == Key::Unknown) k = modifier_key(modifier_from_name(it.key()));  // "Ctrl", "Shift", "Alt", "Super": the left key
             if (k == Key::Unknown) {
                 std::vector<std::string> names;
                 for (int i = 1; i < int(Key::Count); ++i) names.emplace_back(key_name(Key(i)));
@@ -359,16 +426,19 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
                               options.inputReplayPath + ")";
             return finish(2);
         }
-        // Optional "date" ("YYYY-MM-DD") and "utcOffsetMinutes": the calendar date the run was recorded on, which game.today()
-        // answers again so a daily seed replays. --date wins; a file without it plays on the fixed default date.
+        // Optional "date" ("YYYY-MM-DD"), "time" ("HH:MM:SS") and "utcOffsetMinutes": the local date and time the run was recorded
+        // on, which game.today() answers again so a daily seed replays (a run recorded at 23:59 plays back on that day). --date
+        // wins; a file without a date plays on the fixed default date, one without a time at 00:00:00.
         if (config.date.empty()) {
             if (const Json& dj = r.value().value("date", Json()); !dj.is_null()) {
-                auto parsed = dj.is_string() ? parse_calendar_date(dj.get<std::string>(), "date") : Result<CalendarDate>(Error{"date must be a string \"YYYY-MM-DD\"", "Example: \"date\": \"2026-10-23\"."});
+                std::string text = dj.is_string() ? dj.get<std::string>() : std::string();
+                if (const Json& tj = r.value().value("time", Json()); !tj.is_null() && tj.is_string()) text += "T" + tj.get<std::string>();
+                auto parsed = dj.is_string() ? parse_calendar_date(text, "date") : Result<CalendarDate>(Error{"date must be a string \"YYYY-MM-DD\"", "Example: \"date\": \"2026-10-23\", \"time\": \"23:59:00\"."});
                 if (!parsed.ok()) {
                     report["error"] = "Input replay " + options.inputReplayPath + ": " + parsed.error().to_string();
                     return finish(2);
                 }
-                effective.date = dj.get<std::string>();
+                effective.date = text;
                 effective.dateUtcOffsetMinutes = r.value().value("utcOffsetMinutes", 0);
             }
         }
@@ -455,7 +525,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         const RenderStats rs = r->stats();  // OnDemand: the last drawn frame
         maxDrawCalls = std::max(maxDrawCalls, rs.drawCalls);
         maxTriangles = std::max(maxTriangles, rs.triangles);
-        maxLights = std::max(maxLights, rs.lights);
+        maxLights = std::max(maxLights, rs.lights + rs.lights2d);  // 3D and Light2D lights of one frame
         maxTextureBytes = std::max(maxTextureBytes, r->texture_bytes());
     };
     // Profiler (options.profile): measure the frames after the warm-up into report["profile"]; the setting is put back at the end.
@@ -503,6 +573,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
                 if (!videoFailed)
                     if (auto a = avi.add_frame(encode_jpeg(frameImg, 85)); !a.ok())
                         video_fail(a.error().to_string() + " The video stops here (" + std::to_string(avi.frame_count()) + " frames); the run goes on.");
+                if (!videoFailed && options.videoProgress) options.videoProgress(avi.frame_count(), options.frames);
             }
         }
         if (std::binary_search(shots.begin(), shots.end(), f)) {

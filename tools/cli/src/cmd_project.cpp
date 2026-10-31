@@ -161,7 +161,7 @@ Command make_export_command() {
     Command c;
     c.name = "export";
     c.summary = "Package the game for a platform (desktop bundle, Android APK/AAB, iOS project, web page).";
-    c.usage = "[project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--allow-player-mismatch]";
+    c.usage = "[project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--allow-player-mismatch] [--allow-missing-plugins]";
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"platform", "P", "linux, windows, macos, android, ios or web (default: this machine). web writes <out>/<slug>-web/ (index.html, the web player, game.pak) and <out>/<slug>-web.zip, the file to upload to itch.io as an HTML5 game."},
@@ -169,7 +169,8 @@ Command make_export_command() {
                {"format", "FORMAT", "Android: apk (default; built with Gradle), aab (the Google Play bundle) or gradle (only write the Gradle project, no JDK or SDK needed). Default: export.android.format of factoria.json, else apk. Linux: appimage also builds <slug>-x86_64.AppImage, the game as one file (needs Linux x86_64 or WSL and `factoria setup appimage`). Windows: msix also writes <slug>-windows.msix, the Microsoft Store package (any host; identity in export.windows.msix of factoria.json); folder writes only the export folder. Default: export.windows.format, else folder."},
                {"release", "", "Release build. Android: the release APK/AAB, signed with export.android.signing (passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json); without a keystore it is an error unless --allow-debug-key is given. Linux, Windows, macOS: the whole game in ONE file, game.pak, next to the executable instead of a game/ folder, with the scripts compiled to bytecode (export.scriptBytecode: false in factoria.json keeps them as source)."},
                {"allow-debug-key", "", "Android --release without export.android.signing: sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects it, so never upload that build."},
-               {"allow-player-mismatch", "", "Linux, Windows, macOS: bundle the factoria_player even when it was built from another commit than this factoria (its build fingerprint differs or is missing). Without it the export stops with an error: an old player may lack what the game uses or fail to start. Rebuild both from one checkout instead when you can."},
+               {"allow-missing-plugins", "", "Leave out a native plugin whose build for the target platform is missing, instead of stopping the export. A warning names each one and the result lists them (pluginsLeftOut). The game runs without the plugin; scripts that call it fail unless the plugin is \"optional\" in factoria.json and they check for it."},
+               {"allow-player-mismatch", "", "Bundle the player (desktop, web, or the prebuilt Android and iOS libraries) even when it was built from another commit than this factoria (its build fingerprint differs or is missing). Without it the export stops with an error: an old player may lack what the game uses or fail to start. Rebuild both from one checkout instead when you can."},
                {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
                {"mobile-dir", "DIR", "Android/iOS: the prebuilt players (\"prebuilt\" mode; default: the mobile/ folder next to factoria)."},
                {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria). web: the folder with factoria_player.js and factoria_player.wasm (default: web/ next to factoria, else the one `factoria setup players --platforms web` installed, else a web build of the source)."},
@@ -205,6 +206,7 @@ Command make_export_command() {
         eo.release = ctx.args.has("release");
         eo.allowDebugKey = ctx.args.has("allow-debug-key");
         eo.allowPlayerMismatch = ctx.args.has("allow-player-mismatch");
+        eo.allowMissingPlugins = ctx.args.has("allow-missing-plugins");
         // A long step (the Gradle build of an Android export) shows its output as it goes; --json keeps the output clean
         // (the same lines are in <export folder>/build.log).
         if (!ctx.args.has("json")) eo.progress = [&ctx](const std::string& line) { ctx.err << line << std::endl; };
@@ -221,6 +223,7 @@ Command make_export_command() {
                 << (r->mode.empty() ? "" : ", mode: " + r->mode) << (r->format.empty() ? "" : ", format: " + r->format) << ")\n";
         if (!r->artifact.empty()) ctx.out << "Built " << r->artifact << "\n";
         if (!r->materials.empty()) ctx.out << "Compiled the shaders of " << r->materials.size() << " material(s): " << fa::join(r->materials, ", ") << "\n";
+        for (const std::string& line : r->size_lines()) ctx.out << line << "\n";
         for (const auto& w : r->warnings) ctx.out << "warning: " << w << "\n";
         if (!r->nextSteps.empty()) ctx.out << "Next steps:\n";
         for (std::size_t i = 0; i < r->nextSteps.size(); ++i) ctx.out << "  " << (i + 1) << ". " << r->nextSteps[i] << "\n";

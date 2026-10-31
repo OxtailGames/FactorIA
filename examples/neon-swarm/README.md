@@ -20,6 +20,15 @@ The glow is a camera setting, not artwork (no glow textures, no halo sprites):
   (the triangle's centroid), so they spin and aim about their own centre instead of wobbling around the middle of their box.
 - Scripts tint the shapes at runtime through `Shape2D.color` (hit flash to white, invulnerability blink through `a`).
 
+## The shockwave (an animation drawn with code)
+
+Each kill also spawns a `Shockwave`: a ring and sparks that expand and fade, played from a sprite sheet by clip name
+(`SpriteAnimator.clip` is `pop` for a small enemy and `boom` for a big one; `clipEnded` removes the entity).
+The sheet is not hand-drawn: `art/shockwave.anim.js` is a JS module that draws every frame, and `tools/make_shockwave.sh`
+bakes it with `assets.animate_svg` into `assets/art/shockwave.png` and its `sheet` entry in `assets.json` (a 2 px
+`padding` around each frame, both clips non-looping). Edit the module and run the script again to change the effect;
+preview it with `factoria call --project . assets.preview_sheet '{"path":"assets/art/shockwave.png","clip":"boom"}'`.
+
 Screenshots (`screenshots/`) come from the headless runner:
 
 ```

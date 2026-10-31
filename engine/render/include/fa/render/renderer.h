@@ -26,6 +26,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,6 +35,8 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
+#include "fa/scene/rich_text.h"
+#include "fa/scene/text_fit.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -73,19 +76,30 @@ struct RendererDesc {
     bool headless = false;     // no swapchain; present() must not be called
 };
 
+// What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
+// triangles... count what each camera drew, so a sprite in view of two cameras counts twice, and lights, lights2d,
+// lights2dDropped and lights2dShadowed are the lights each camera used, added up (a light two cameras reach counts twice).
+// The cameras of CameraViews count like any other camera (one more pass each, in `views`).
 struct RenderStats {
     int drawCalls = 0;
     int sprites = 0;
     int shapes = 0;
     int textGlyphs = 0;
+    int glyphAtlasSize = 0;    // side of the glyph atlas in pixels (1024, 2048 or 4096; it grows when full, then clears)
+    int glyphAtlasResets = 0;  // times the glyph atlas was made, grew or cleared (1 at the start); a frame that met one is gathered again
     int particles = 0;
     int meshes = 0;          // MeshRenderer entities drawn in the main pass (instances)
     int meshesCulled = 0;    // MeshRenderer entities outside the camera frustum: not drawn in the main pass
     int meshBatches = 0;     // instanced batches drawn (meshes with the same mesh, textures and material values share one)
     int triangles = 0;
     int shadowCasters = 0;   // MeshRenderer entities drawn into the shadow map (castShadows, inside the shadow light's volume)
-    int lights = 0;          // lights sent to the shader (at most 32)
-    int lightsDropped = 0;   // lights over the limit that were left out (the least relevant ones)
+    int views = 0;           // CameraViews drawn this frame (each one renders its camera into an image first)
+    int renderTargets = 0;   // cameras with Camera.renderTarget drawn into their texture this frame (before the cameras that show them)
+    int lights = 0;          // 3D lights sent to the shader (at most 32); Light2D is counted in lights2d
+    int lightsDropped = 0;   // 3D lights over the limit that were left out (the least relevant ones)
+    int lights2d = 0;        // Light2D lights shading the 2D visuals (at most 256)
+    int lights2dDropped = 0; // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
+    int lights2dShadowed = 0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
     int materials = 0;       // distinct custom materials (MeshRenderer.material) drawn with their own shaders
     std::vector<std::string> materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
     double cpuMs = 0.0;
@@ -111,6 +125,11 @@ public:
 private:
     std::unique_ptr<Impl> impl_;
 };
+
+// Draws the bones (Bone2D) of the entity `root` and everything under it (every bone of the world when `root` is the null entity)
+// into `draw` for one frame: a thin kite from each bone's origin to its tip (scene/bones2d.h, bone_kite), and a small circle at
+// its origin. The editor's bone overlay and `debug.bones()` both call it. Returns the number of bones drawn.
+int debug_draw_bones(DebugDraw& draw, const World& world, Entity root, Color color = Color{0.2f, 0.9f, 1.0f, 1.0f});
 
 class Renderer {
 public:
@@ -165,8 +184,9 @@ public:
     // rendering (shaping, fallback fonts, right-to-left text, wrapping at maxWidth > 0, line height). font "" =
     // built-in font. `space` is where the text would be drawn: screen-space Text and UI labels (RenderSpace::Screen)
     // are scaled by the text scale, world-space Text is not.
+    // `style`: Text.markup (tags are not characters, an icon is a picture as tall as the line) and Text.bold.
     Vec2 measure_text(std::string_view text, float fontSize, std::string_view font = {}, float maxWidth = 0,
-                      RenderSpace space = RenderSpace::World) const;
+                      RenderSpace space = RenderSpace::World, TextStyle style = {}) const;
     // Size of a Text component as it is drawn: like measure_text above, with the Text's maxTextScale cap and autoShrink
     // (maxWidth x maxHeight box) applied at the current text scale (text_fit.h). What layout, bounds and ui.rectOf use.
     Vec2 measure_text(const Text& text) const;
@@ -181,6 +201,10 @@ public:
     // nothing, with one warning per Text font naming them. May be called before init() (it is kept).
     void set_fallback_fonts(std::vector<std::string> fonts);
     const std::vector<std::string>& fallback_fonts() const { return fallbackFonts_; }
+    // The project's "text" section (rich_text.h): the colours, icons and bold faces of Text.markup and Text.bold. Takes
+    // effect on the next layout. May be called before init() (it is kept).
+    void set_rich_text_style(RichTextStyle style);
+    const RichTextStyle& rich_text_style() const { return richStyle_; }
     // The player's "text size" option: multiplies the font size of screen-space Text (space = Screen) and of the labels
     // of UI widgets (Button, Toggle, Slider, TextField), and the measurements of those (measure_text with
     // RenderSpace::Screen, entity.bounds()). World-space Text is part of the world and is not scaled; neither is debug
@@ -188,6 +212,11 @@ public:
     // May be called before init().
     void set_text_scale(float scale);
     float text_scale() const { return textScale_; }
+    // The interface scale ui.scale (ui_rect.h): screen-space UI is laid out in UI units and drawn this many times as big.
+    // The renderer only needs it to measure screen-space text at the size it is drawn (measure_text); the drawing itself
+    // reads World::ui_scale(). Clamped to kMinUiScale..kMaxUiScale (NaN = 1). Set by Engine::set_ui_scale; may be called before init().
+    void set_ui_scale(float scale);
+    float ui_scale() const { return uiScale_; }
 
     // Expand support: with ScaleMode::Expand the orthographic camera keeps the design height fixed (or the
     // design width when the target is taller than the design aspect). present() also records its mode.
@@ -202,11 +231,65 @@ public:
 
     // Read back the last finished game target (RGBA8, top row first).
     bool capture(Image& out, std::string* error = nullptr);
+    // capture() resampled to width x height (both >= 1): the whole frame squeezed into that aspect when `stretch`, else
+    // the middle part with that aspect ratio (cover_image: nothing is distorted, the long side loses its edges). The
+    // same size as the target gives exactly the pixels of capture(), so of a screenshot of the same frame.
+    bool capture_fitted(Image& out, int width, int height, bool stretch, std::string* error = nullptr);
 
-    // Camera helpers for the current world/primary camera (valid after render_world).
-    Vec2 world_to_screen(Vec3 worldPos) const;     // design pixels, top-left origin
-    Vec3 screen_to_world(Vec2 screenPos, float depth = 0.0f) const;  // 2D: z = depth; 3D: point on ray at distance depth
-    void screen_ray(Vec2 screenPos, Vec3& origin, Vec3& dir) const;
+    // ---- Off-screen capture of the world (render.captureTexture with an entity or a rect) ---------------------------------
+    // A rectangle of the world, or an entity's subtree, drawn at an exact pixel scale into its own image and read back: no frame
+    // has to be drawn first, the main camera and the window size do not matter, and what is hidden, covered or off screen is drawn
+    // all the same.
+    struct WorldCapture {
+        // World xy, +Y up. The image is ceil(rect * scale) pixels, the camera shows exactly that many (so the view may be less than a pixel
+        // larger than the rect, never smaller).
+        Rect rect{};
+        float scale = 1.0f;  // pixels per world unit
+        // Null: everything in the rect is drawn. An entity: only it and its descendants (the world-space Sprite, Shape2D, Text, Tilemap,
+        // ParticleEmitter and MeshRenderer of the subtree), whether they are active or not; the lights of the scene still light them.
+        Entity subject = kNullEntity;
+    };
+    // The biggest side of a world capture, in pixels (a run-time texture cannot be bigger).
+    static constexpr int kMaxWorldCaptureSide = 4096;
+    // Draws `spec` with an orthographic camera centred on the rect and answers its pixels (row 0 = top). The background is transparent
+    // (alpha 0); soft edges keep their colour (straight alpha). Screen-space items (UI, HUD) are not part of the world and are not
+    // drawn. A Sprite or a mesh that shows "target:<name>" shows that target's last picture. False + *error (a sentence that says what
+    // to change) when the rect is empty, the scale is not positive or the image would pass kMaxWorldCaptureSide. Does not change
+    // stats() or the picture of the frame.
+    bool capture_world(World& world, const WorldCapture& spec, Image& out, std::string* error = nullptr);
+
+    // ---- Run-time textures ------------------------------------------------------------------------------------------
+    // A texture made from pixels at run time (render.captureTexture, render.textureFromPNG in scripts). Returns its id,
+    // "runtime:N" (N counts from 1, never reused): put it in Sprite.texture (or any other texture field) like an asset
+    // path. The texture lives until destroy_runtime_texture; clear_asset_cache() keeps it. "" + *error when the renderer is
+    // not initialized or the image is empty / bigger than 4096 px.
+    std::string create_runtime_texture(const Image& img, std::string* error = nullptr);
+    // Frees the texture; false when `id` is not a live run-time texture. A Sprite that still names it draws the missing-
+    // texture checker (and the failure is listed in asset_report()).
+    bool destroy_runtime_texture(const std::string& id);
+
+    // Camera helpers (valid after update() or render_world()). Screen points are design pixels, top-left origin, over the WHOLE
+    // screen: with several cameras (Camera.viewport) a point of the screen belongs to the camera whose viewport holds it.
+    // `camera` is a rendering camera entity (active, Camera.primary); null or any other entity = the default camera: for a
+    // screen point the topmost camera whose viewport contains it (the highest depth, so an inset wins over the view under
+    // it; the lowest-depth camera when none does), for a world point the lowest-depth ("primary") camera.
+    Vec2 world_to_screen(Vec3 worldPos, Entity camera = kNullEntity) const;  // design pixels inside that camera's viewport
+    Vec3 screen_to_world(Vec2 screenPos, float depth = 0.0f, Entity camera = kNullEntity) const;  // 2D: z = depth; 3D: point on ray at distance depth
+    void screen_ray(Vec2 screenPos, Vec3& origin, Vec3& dir, Entity camera = kNullEntity) const;
+    // The rendering cameras in draw order (ascending Camera.depth): empty when the world has none (a default camera draws).
+    std::vector<Entity> cameras() const;
+    // The camera a screen point belongs to (see above); null when the world has no camera entity.
+    Entity camera_at(Vec2 screenPos) const;
+
+    // A render target seen from outside (Camera.renderTarget): the camera that draws it, its picture's size and where a world point lands
+    // on that picture (pixels, top-left origin, the camera's own projection, orthographic or perspective). The pointer reaches the
+    // widgets of a page through it. nullopt when no active camera renders into `name` (a duplicate name counts the first). Does not draw.
+    struct RenderTargetView {
+        Entity camera;
+        int width = 0, height = 0;
+        std::function<Vec2(Vec3 world)> to_pixels;
+    };
+    std::optional<RenderTargetView> render_target_view(World& world, const std::string& name) const;
 
     DebugDraw& debug();
     RenderStats stats() const;  // of the last frame
@@ -239,7 +322,9 @@ private:
     friend render::Gpu* render::renderer_gpu(Renderer& r);
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
+    RichTextStyle richStyle_;
     float textScale_ = 1.0f;
+    float uiScale_ = 1.0f;
     ShaderCompiler shaderCompiler_;
 };
 

@@ -179,6 +179,23 @@ TEST_CASE("validate: keys a language lacks, keys the default language lacks (did
     CHECK(at(r.warnings, "locales/ja.json", "/coins/other").empty());
 }
 
+TEST_CASE("validate: a gender entry without the form a language uses warns, a name that lost its gender warns") {
+    Project p(R"({"defaultLanguage": "en", "languages": ["en", "es", "ja"]})");
+    p.table("en", R"({"ship": {"light": {"text": "Skiff", "gender": "f"}}, "the": {"other": "the {name}"}})");
+    p.table("es", R"({"ship": {"light": "Ligera"}, "the": {"f": "la {name}", "other": "{name}"}})");
+    p.table("ja", R"({"ship": {"light": {"text": "x", "gender": "f"}}, "the": {"f": "{name}", "other": "{name}"}})");
+    const ValidationReport r = p.validate();
+    CHECK(r.errors.empty());
+    const auto form = at(r.warnings, "locales/es.json", "/the");
+    REQUIRE(form.size() == 1);
+    CHECK(mentions(*form[0], "no \"m\" form"));
+    CHECK(mentions(*form[0], "show the \"other\" form"));
+    const auto lost = at(r.warnings, "locales/es.json", "/ship/light");
+    REQUIRE(lost.size() == 1);
+    CHECK(mentions(*lost[0], "has the gender \"f\" in locales/en.json but none here"));
+    CHECK(at(r.warnings, "locales/ja.json").empty());  // no grammatical gender: nothing to ask
+}
+
 TEST_CASE("validate: the `key` of a Text or widget must be in the default table; plural and placeholder keys cannot be filled by a component") {
     Project p(kTwoLanguages);
     p.table("en", kEn);

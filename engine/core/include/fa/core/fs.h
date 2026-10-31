@@ -34,6 +34,10 @@ const std::filesystem::path& user_dir();
 // the folder is on disk. On the web the folder lives in browser memory: this schedules copying it to the browser's
 // IndexedDB (a few writes in a row become one copy, and a closing tab flushes it), so saves survive a reload.
 void user_dir_changed();
+// Copies the save folder to the browser's IndexedDB now, without waiting for the half-second timer user_dir_changed()
+// schedules. The web player calls it right after the suspend, resume and quit handlers have run, so a save made inside
+// one is kept when the tab goes away. Does nothing on desktop and mobile.
+void flush_user_dir();
 #if defined(__EMSCRIPTEN__)
 // Web only, once before the game starts: mounts the browser's IndexedDB at `dir`, loads what an earlier run saved there and
 // then calls done() (the load is asynchronous; main() returns and done() starts the game). A browser that has no

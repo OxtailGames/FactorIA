@@ -112,6 +112,10 @@ void AndroidGamepads::set_layout(int deviceId, const AndroidLayout& layout) {
     }
 }
 
+void AndroidGamepads::set_info(int deviceId, const GamepadInfo& info) {
+    if (Pad* pad = find(deviceId)) pad->info = info;
+}
+
 void AndroidGamepads::release_device(int deviceId) {
     if (Pad* pad = find(deviceId)) *pad = Pad{};
 }
@@ -166,10 +170,27 @@ GamepadState AndroidGamepads::state(int slot) const {
     return st;
 }
 
-void AndroidGamepads::feed(Input& input) const {
+void AndroidGamepads::feed(Input& input) {
+    // A pad that is waiting for its info is not there yet; one that has it goes to the slot it had before, if that is free.
+    auto announced = [&](const Pad& p) { return p.used && (!waitForInfo_ || p.layoutSet); };
     for (int i = 0; i < kMaxGamepads; ++i) {
-        if (pads_[size_t(i)].used) state(i).feed(input, i);
-        else input.on_gamepad_connected(i, false);
+        Pad& pad = pads_[size_t(i)];
+        if (!announced(pad) || pad.placed) continue;
+        pad.placed = true;
+        if (pad.info.id.empty()) continue;
+        bool occupied[kMaxGamepads];
+        for (int s = 0; s < kMaxGamepads; ++s) occupied[s] = s != i && pads_[size_t(s)].used;
+        const int want = input.choose_gamepad_slot(pad.info.id, occupied);
+        if (want >= 0 && want != i) std::swap(pads_[size_t(want)], pad);  // `want` is free: a pad that is not there yet
+    }
+    for (int i = 0; i < kMaxGamepads; ++i) {
+        const Pad& pad = pads_[size_t(i)];
+        if (announced(pad)) {
+            if (!pad.info.id.empty()) input.set_gamepad_info(i, pad.info);  // before the feed, which connects the pad
+            state(i).feed(input, i);
+        } else {
+            input.on_gamepad_connected(i, false);
+        }
     }
 }
 

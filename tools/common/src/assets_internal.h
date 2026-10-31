@@ -61,10 +61,14 @@ struct SheetClip {
     int firstFrame = 0;
     int lastFrame = 0;
     double fps = 10;
+    bool loop = true;
+    std::optional<std::array<double, 2>> pivot;  // [x, y] in 0..1 of the frame: this clip's own pivot (overrides the sheet's)
 };
 
-// The `sheet` entry of assets.json (schemas/assets.schema.json) for a grid of `frames` frames.
-Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames, const std::vector<SheetClip>& clips);
+// The `sheet` entry of assets.json (schemas/assets.schema.json) for a grid of `frames` frames. `padding` is the transparent
+// gutter around every cell (written only when above 0); `pivot` the pivot of every frame (written only when given).
+Json sheet_entry(int columns, int rows, int frameWidth, int frameHeight, int frames, const std::vector<SheetClip>& clips,
+                 int padding = 0, std::optional<std::array<double, 2>> pivot = std::nullopt);
 // How to play `sheet` (a sheet_entry) from the image `texture`: the Sprite and SpriteAnimator settings, one line each.
 std::vector<std::string> sheet_next_steps(const std::string& texture, const Json& sheet, double fps);
 
@@ -72,10 +76,32 @@ std::vector<std::string> sheet_next_steps(const std::string& texture, const Json
 // which a JPEG-era solid background has): the sign of a background that should be transparent.
 std::optional<std::array<std::uint8_t, 3>> opaque_corner_color(const Image& image);
 
+// ---- rasterizing SVG text (assets_svg.cpp) ---------------------------------------------------------------
+
+struct SvgRaster {
+    Image image;           // straight-alpha RGBA, transparent where nothing is drawn
+    double svgWidth = 0;   // the size the SVG declares
+    double svgHeight = 0;
+};
+// The picture of the SVG `text` in a `w` x `h` image (the SVG fitted inside, aspect kept, centred; a 0 side follows the
+// SVG's proportions, both 0 is the SVG's own size), then the painterly `style` ("none" or one of image_style_names()) at
+// `styleStrength` with `seed`. The core of assets.rasterize_svg and assets.animate_svg. Warnings (features nanosvg does not
+// draw) are appended to `warnings`. Throws CommandError for text that is not a drawable SVG.
+SvgRaster rasterize_svg_text(const std::string& text, int w, int h, const std::string& style, double styleStrength, std::uint32_t seed,
+                             std::vector<std::string>& warnings);
+
 void register_slice_sheet_command(CommandRegistry& registry, const std::string& projectDir);
+void register_pack_atlas_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_icon_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_capsules_command(CommandRegistry& registry, const std::string& projectDir);
 void register_synth_sound_command(CommandRegistry& registry, const std::string& projectDir);
+void register_texture_command(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_texture
+void register_svg_command(CommandRegistry& registry, const std::string& projectDir);      // assets.rasterize_svg
+void register_animate_svg_command(CommandRegistry& registry, const std::string& projectDir);  // assets.animate_svg
+void register_preview_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_sheet
+void register_bake_sheet_command(CommandRegistry& registry, const std::string& projectDir);  // assets.bake_sheet
+void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
+void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
 
 // Title text as a tightly cropped transparent image (assets_draw_icon.cpp: the rasterizer of assets.draw_icon's text
 // layers), the largest that fits maxW x maxH; `outline` (or null) draws an outline around the letters. A project font is
@@ -90,6 +116,44 @@ void check_shipped_assets(const std::string& projectDir, std::vector<ValidationI
 void check_model_files(const std::string& projectDir, std::vector<ValidationIssue>& errors);
 // The textures Sprites draw (project-relative): fully transparent images, and backgrounds that should be transparent.
 void check_sprite_textures(const std::string& projectDir, const std::set<std::string>& textures, std::vector<ValidationIssue>& warnings);
+
+// ---- painterly styles (assets_style.cpp) -----------------------------------------------------------------
+
+// The values of `style` of assets.rasterize_svg: "none", "watercolor", "ink", "inkwash", "paper".
+const std::vector<std::string>& image_style_names();
+// Paints the look of `style` onto a rasterized picture (straight-alpha RGBA): wobbling edges, pooled pigment, granulation,
+// an ink line, paper tooth. `strength` is 0..1. Deterministic: the same pixels, style, strength and seed give the same result.
+void apply_image_style(Image& image, const std::string& style, double strength, std::uint32_t seed);
+
+// ---- recipes (assets_recipe.cpp) -------------------------------------------------------------------------
+
+// The `provenance.recipe` of a made asset (schemas/assets.schema.json): `command`, the `args` that make the same bytes
+// again (the caller makes paths project-relative and `seed` explicit) and the project files it read, `inputs`
+// (project-relative), each with its SHA-256 now. Throws CommandError for an input that cannot be read.
+Json make_recipe(const std::string& projectDir, const std::string& command, Json args, const std::vector<std::string>& inputs);
+// The `args` of a recipe from the arguments the command was called with: a copy of `a` without `overwrite` (assets.regenerate
+// sets it itself) and with `set` applied on top (the normalized project-relative paths and the values the command chose: the
+// seed actually used, the default path from factoria.json). A null value in `set` removes the key.
+Json recipe_args(const Json& a, std::initializer_list<std::pair<const char*, Json>> set);
+// `rel` as the project-relative path a recipe records (forward slashes, no "./"); `rel` itself when it is not a project path.
+std::string recipe_path(const std::string& rel);
+
+// What became of the files a recipe read, now: the paths whose hash differs from the recipe's (`changed`) and the ones that
+// no longer exist or cannot be read (`missing`). An asset is stale when any input changed.
+struct RecipeCheck {
+    std::vector<std::string> changed;
+    std::vector<std::string> missing;
+    bool stale() const { return !changed.empty(); }
+    bool ok() const { return changed.empty() && missing.empty(); }
+};
+RecipeCheck check_recipe(const std::string& projectDir, const Json& recipe);
+// The recipe of an assets.json entry (`provenance.recipe`), or null when it has none or it is malformed (no command).
+Json recipe_of(const Json& entry);
+
+// assets.regenerate (assets_regenerate.cpp): re-runs the recipe of a made asset through the registry, whatever the command.
+void register_regenerate_command(CommandRegistry& registry, const std::string& projectDir);
+// project.validate: the warnings for assets whose recipe inputs changed (stale) or went missing, with the regenerate command.
+void check_recipes(const std::string& projectDir, std::vector<ValidationIssue>& warnings);
 
 // ---- command helpers -------------------------------------------------------------------------------------
 

@@ -28,7 +28,7 @@ std::string factoria_home(const ExportEnvLookup& env) {
 namespace {
 
 const std::vector<std::string>& component_ids() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders", "vscode", "ffmpeg"};
+    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders", "vscode", "ffmpeg", "webplayer", "launcher"};
     return ids;
 }
 
@@ -110,11 +110,13 @@ SetupStatus setup_status(const SetupContext& ctx, const std::string& component, 
         if (!component.empty() && component != id) continue;
         if (id == "android") st.components.push_back(setup_detail::android_status(ctx, fetchLicenses));
         else if (id == "players") st.components.push_back(setup_detail::players_status(ctx));
+        else if (id == "webplayer") st.components.push_back(setup_detail::webplayer_status(ctx));
         else if (id == "cmake") st.components.push_back(setup_detail::cmake_status(ctx));
         else if (id == "xcode") st.components.push_back(setup_detail::xcode_status(ctx));
         else if (id == "appimage") st.components.push_back(setup_detail::appimage_status(ctx));
         else if (id == "shaders") st.components.push_back(setup_detail::shaders_status(ctx));
         else if (id == "vscode") st.components.push_back(setup_detail::vscode_status(ctx));
+        else if (id == "launcher") st.components.push_back(setup_detail::launcher_status(ctx));
         else st.components.push_back(setup_detail::ffmpeg_status(ctx));
     }
     return st;
@@ -130,12 +132,14 @@ SetupResult setup_install(const SetupInstallOptions& options, const SetupContext
     }
     if (options.component == "android") return setup_detail::android_install(ctx, options);
     if (options.component == "players") return setup_detail::players_install(ctx, options);
+    if (options.component == "webplayer") return setup_detail::webplayer_install(ctx, options);
     if (options.component == "cmake") return setup_detail::cmake_install(ctx, options);
     if (options.component == "xcode") return setup_detail::xcode_install(ctx, options);
     if (options.component == "appimage") return setup_detail::appimage_install(ctx, options);
     if (options.component == "shaders") return setup_detail::shaders_install(ctx, options);
     if (options.component == "vscode") return setup_detail::vscode_install(ctx, options);
     if (options.component == "ffmpeg") return setup_detail::ffmpeg_install(ctx, options);
+    if (options.component == "launcher") return setup_detail::launcher_install(ctx, options);
     SetupResult r;
     r.report.component = options.component;
     r.code = "invalid_argument";
@@ -165,15 +169,17 @@ void register_setup_commands(CommandRegistry& registry) {
         info.name = "setup.status";
         info.category = "setup";
         info.readOnly = true;
-        info.summary = "Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg.";
+        info.summary = "Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the FactorIA app launcher.";
         info.description =
             "Returns {home, host, components[]}; each component is {id, title, state, details, paths, problems[], installSizeMb, "
             "licenses[], canInstall}. Components: `android` (JDK + Android SDK for APK/AAB exports), `players` (the factoria_player of "
             "the other desktop OSes and the prebuilt Android/iOS libraries, from the GitHub release of this factoria's version), "
+            "`webplayer` (the web player built from the engine checkout this factoria was built from, for a development build: installed when build/web-release/player holds one of this build; unsupported without the checkout) "
             "`cmake` (3.24+, for the iOS export on a Mac), `xcode` (macOS: status only, it cannot be installed by a program) and `appimage` "
             "(appimagetool and the AppImage runtime, Linux x86_64 only: what `project.export` {platform: linux, format: appimage} builds an AppImage with) "
             "`shaders` (sokol-shdc, the shader compiler of custom materials: $SOKOL_SHDC, the one next to factoria or the pinned one under home/tools/sokol-shdc/) "
             "`vscode` (the FactorIA debugger extension in ~/.vscode/extensions and the other VS Code based editors' folders: installed when this factoria's version is there; docs_read {\"name\":\"debugging\"}) "
+            "`launcher` (an app that opens the editor with the FactorIA icon: ~/Applications/FactorIA.app on macOS, a .desktop entry on Linux; unsupported on Windows, where the installer adds a Start menu entry; partial when it opens another factoria or its files are out of date) "
             "and `ffmpeg` (what `factoria run --record-video trailer.mp4` converts its recording to H.264 + AAC with: $FACTORIA_FFMPEG, \"publish\": {\"ffmpeg\"} of export.json, PATH or the one under home/tools/ffmpeg/). "
             "state is installed | missing | partial | unsupported (nothing to do on this computer). problems[] says what is missing and "
             "how to fix it; `setup.install` fixes everything except Xcode. `licenses` (android only, only while the Android SDK license "
@@ -184,7 +190,7 @@ void register_setup_commands(CommandRegistry& registry) {
         info.inputSchema = Json::parse(R"({
           "type":"object",
           "properties":{
-            "component":{"type":"string","enum":["android","players","cmake","xcode","appimage","shaders","vscode","ffmpeg"],"description":"Only this component (default: all of them)."},
+            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher"],"description":"Only this component (default: all of them)."},
             "fetchLicenses":{"type":"boolean","default":true,"description":"Download the Android SDK license text when the license is not accepted yet (a network request). false = skip it (a polling UI)."}
           }})");
         registry.add(info, [cache](const Json& args) {
@@ -202,7 +208,7 @@ void register_setup_commands(CommandRegistry& registry) {
         info.name = "setup.install";
         info.category = "setup";
         info.readOnly = false;
-        info.summary = "Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg (or open Xcode's App Store page).";
+        info.summary = "Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher (or open Xcode's App Store page).";
         info.description =
             "Downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns {component, changed, steps[], "
             "paths, nextSteps[], warnings[], seconds}; every step says whether it was installed or skipped because it was already there. "
@@ -214,7 +220,11 @@ void register_setup_commands(CommandRegistry& registry) {
             "(components[].licenses[].text) and set acceptLicenses ONLY after they have read it and said yes; never set it on your own. "
             "`players`: the factoria_player of the other desktop OSes plus the prebuilt mobile libraries, for exports to other "
             "platforms without building anything; from the GitHub release of this factoria's version (a development build ahead of the "
-            "last release fails with code `no_release`); platforms narrows it (windows, linux, macos, mobile). `cmake`: CMake 3.31 from "
+            "last release takes the newest release's players and warns that their build fingerprint will not match, so an export needs allowPlayerMismatch; "
+            "code `no_release` only when even the newest release cannot be read); platforms narrows it (windows, linux, macos, mobile, web). "
+            "`webplayer`: builds the web player from the checkout this factoria was built from (CMake preset web-release) into build/web-release/player, where the web export looks first; "
+            "uses an Emscripten SDK it finds ($EMSDK, emcc on PATH, .cache/emsdk, ~/emsdk) or fetches the pinned one (6.0.10, about 1 GB) into the checkout's .cache/emsdk; "
+            "takes several minutes, so ask the user first; skipped when the player there is of this factoria's build. `cmake`: CMake 3.31 from "
             "Kitware (macOS only, for iOS exports) unless 3.24+ is found; force installs it anyway. `xcode` (macOS): cannot be "
             "installed by a program: it opens Xcode's App Store page and returns the steps the user must do (some need their password). "
             "`appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 16 MB, into $FACTORIA_HOME/tools/appimage. "
@@ -224,16 +234,19 @@ void register_setup_commands(CommandRegistry& registry) {
             "records the path of this factoria next to it and removes older versions; nothing is downloaded, so it is fast and safe to run without asking. "
             "`ffmpeg`: the static ffmpeg 6.0 build of github.com/eugeneware/ffmpeg-static (GPL, with libx264 and AAC; 19-28 MB depending on the computer) into $FACTORIA_HOME/tools/ffmpeg/<release>/, "
             "so `factoria run --record-video trailer.mp4` works without installing ffmpeg by hand; skipped when an ffmpeg is already found. "
+            "`launcher` (macOS, Linux): writes the app that opens this factoria's editor with the FactorIA icon (~/Applications/FactorIA.app, or "
+            "factoria.desktop + its icon under ~/.local/share), so it can be kept in the Dock or the application menu; nothing is downloaded, "
+            "so it is fast and safe to run without asking; an existing launcher is rewritten in place (a Dock item stays valid). "
             "Every download is checked against the publisher's checksum (error code `checksum_mismatch` installs nothing). Other error "
             "codes: network, cancelled, unsupported, invalid_argument, failed; the data of the error holds the steps done so far. "
             "Example: {\"component\":\"android\",\"acceptLicenses\":true}.";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["component"],
           "properties":{
-            "component":{"type":"string","enum":["android","players","cmake","xcode","appimage","shaders","vscode","ffmpeg"],"description":"What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor), ffmpeg (turns --record-video recordings into .mp4)."},
+            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher"],"description":"What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), webplayer (builds the web player from the engine checkout), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor), ffmpeg (turns --record-video recordings into .mp4), launcher (the app that opens the editor, with the FactorIA icon)."},
             "acceptLicenses":{"type":"boolean","default":false,"description":"android: the user has read the Android SDK license (setup.status components[].licenses) and agreed to it. Without it the install refuses with license_required. Never set it without asking the user."},
             "platforms":{"type":"array","items":{"type":"string","enum":["windows","linux","macos","mobile","web"]},"description":"players: which players to install (default: every desktop OS but this one, plus the mobile libraries when this factoria has none next to it). \"web\" installs the web export's player (factoria_player.js + .wasm); every download carries it next to factoria, so it is only fetched when asked for."},
-            "force":{"type":"boolean","default":false,"description":"android, cmake, players, ffmpeg: install again even when it is found (a JDK or CMake that is already there is used otherwise)."}
+            "force":{"type":"boolean","default":false,"description":"android, cmake, players, webplayer, ffmpeg, launcher: install again even when it is found (a JDK or CMake that is already there is used otherwise)."}
           }})");
         registry.add(info, [cache](const Json& args) {
             SetupInstallOptions o;

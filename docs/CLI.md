@@ -59,17 +59,17 @@ error, not a warning), and `factoria call scene.format '{"paths":[...]}'` is the
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. A `.gltf`/`.glb` whose texture or buffer file is missing is an error (docs/ASSETS.md, "Checks"), a `MeshRenderer.materialColors` key that is not a material of its model is an error with a "did you mean", and loudness warnings use the gain that `defaults.audio.normalize` applies. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
-### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--allow-player-mismatch] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
+### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]] [--allow-player-mismatch] [--allow-missing-plugins] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, `--platform web`: a page, the web player and `game.pak` plus a zip for itch.io). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
 that name is an error, never deleted ([EXPORTING.md](EXPORTING.md#replacing-an-earlier-export)).
-The exported game (and `factoria_player <game folder>`) takes `--frames N`: draw N frames, then exit 0, or 1 after a script error (a smoke test for CI, [EXPORTING.md](EXPORTING.md#ci-for-your-game)).
+The exported game (and `factoria_player <game folder>`) takes `--frames N`: draw N frames, then exit 0, or 1 after a script error (a smoke test for CI, [EXPORTING.md](EXPORTING.md#ci-for-your-game)). With `--frames N` it also takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>`: a headless run like `factoria run --headless`, so a shipped build can be checked against the editor's ([EXPORTING.md](EXPORTING.md#checking-an-exported-build)).
 
 `--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
 development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
-A desktop export checks that the `factoria_player` comes from the same build as `factoria` and stops with an error naming both builds when it does not; `--allow-player-mismatch` bundles it anyway ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)).
+A desktop export checks that the `factoria_player` comes from the same build as `factoria` and stops with an error naming both builds when it does not; `--allow-player-mismatch` bundles it anyway ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)). `--allow-missing-plugins` exports without the native plugins whose build for that platform is missing and lists them ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)).
 Android builds the app itself with the Gradle wrapper it writes into the project: `--format apk` (default), `aab` (the
 Google Play bundle) or `gradle` (only the project; no JDK or SDK needed), `--release` for the signed release build (without a keystore it fails; `--allow-debug-key` signs with the debug key for tests on your own device); Gradle's
 output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](EXPORTING.md#android)).
@@ -80,7 +80,7 @@ Linux: `--format appimage` also builds `<slug>-x86_64.AppImage`, the game as one
 notarizes the exported app ([EXPORTING.md](EXPORTING.md#signing-and-notarizing-for-macos)), and
 `factoria call project.new_ci_workflow` writes a GitHub Actions workflow for the game ([EXPORTING.md](EXPORTING.md#ci-for-your-game)).
 Prints the output folder, the built file, warnings and the next steps. The command `project.export` (`platform`, `format`,
-`out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export button for people; see
+`out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export Game item in the menu bar for people; see
 [EXPORTING.md](EXPORTING.md).
 
 Uploading a build to a store has no flags of its own: the commands `publish.steam`, `publish.itch`, `publish.epic`,
@@ -92,7 +92,7 @@ Opens the visual editor (only in builds with the editor). It is AI-first: the vi
 are described in `docs/EDITOR.md`. There is no hand-editing UI; the AI Assistant and the Console run engine commands (`scene.spawn`,
 `scene.set_component`, `scene.import_ascii`, `audio.log`...), so everything the editor does can also be done with `factoria call`.
 
-### `factoria setup [android|players|cmake|xcode|appimage|shaders|vscode] [--accept-licenses] [--platforms LIST] [--force] [--json]`
+### `factoria setup [android|players|webplayer|cmake|xcode|appimage|shaders|vscode|ffmpeg] [--accept-licenses] [--platforms LIST] [--force] [--json]`
 Checks this computer for exporting and installs what is missing into `~/.factoria` (`$FACTORIA_HOME`), so nobody has to install
 a JDK or an SDK by hand. `factoria setup` alone prints what each component has (nothing is written or downloaded, except the
 Android license text with `--json`) and says which `factoria setup <component>` to run. `android` installs Eclipse Temurin
@@ -100,7 +100,11 @@ JDK 21, the Android command-line tools (revision 22.0, the classic Java `sdkmana
 build-tools 35.0.0, and saves their folders in `~/.factoria/export.json`; it shows the Android SDK license and asks `[y/N]`
 in a terminal, and without one refuses until `--accept-licenses` says you have read and accepted it. `players` downloads the
 `factoria_player` of the other desktop OSes and the Android/iOS libraries from the GitHub release of this version
-(`--platforms windows,linux,macos,mobile` narrows it).
+(`--platforms windows,linux,macos,mobile,web` narrows it); a development build whose version has no release gets the newest
+release's players and a warning that their fingerprint will not match (exports then need `--allow-player-mismatch`).
+`webplayer` builds the web player from the engine checkout `factoria` was built from (CMake preset `web-release`, into
+`build/web-release/player`, where the web export looks first), with the Emscripten SDK it finds or the pinned 6.0.10 fetched into
+the checkout's `.cache/emsdk`; it takes several minutes.
 `cmake` installs CMake 3.31 for the iOS export unless a 3.24+ is found. `xcode` (macOS) checks Xcode, opens its App Store page
 when missing and lists what you do next (it never runs `sudo`). `appimage` (Linux x86_64, also WSL) installs appimagetool and the
 AppImage runtime, about 16 MB pinned by SHA-256, for `factoria export --platform linux --format appimage`. `shaders` installs sokol-shdc, the shader compiler of custom
@@ -109,8 +113,13 @@ one, so it is for source builds. `ffmpeg` installs the static ffmpeg 6.0 build (
 `factoria run --record-video trailer.mp4` converts its recording with, so it works without installing ffmpeg by hand. `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
 VSCodium and Cursor when present) in one step: it copies the extension that is built into `factoria` (nothing is
 downloaded) to `~/.vscode/extensions/oxtailgames.factoria-<version>/`, records the path of this `factoria` next to it and
-removes older versions; restart VS Code and press F5 in a project ([DEBUGGING.md](DEBUGGING.md)). `--force` installs again
-even when something is found.
+removes older versions; restart VS Code and press F5 in a project ([DEBUGGING.md](DEBUGGING.md)). `launcher` writes an app
+that opens this `factoria`'s editor with the FactorIA icon (nothing is downloaded): `~/Applications/FactorIA.app` on macOS
+(for the Dock, Launchpad and Spotlight; it passes its arguments to the editor, which the restart after an update uses; its output goes to `~/Library/Logs/FactorIA/editor.log`), a `factoria.desktop`
+entry (with `StartupWMClass=FactorIA`) and its icon under `~/.local/share` (or `$XDG_DATA_HOME`) on Linux; Windows needs none (the installer adds the Start
+menu entry). After an update the editor rewrites, at start, a launcher that opens it but carries the old version or icon;
+a launcher that opens another `factoria` is left alone until `factoria setup launcher` points it at this one. `--force`
+installs again even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
 checked against its publisher's checksum. Details, what is trusted and the commands for AIs (`setup.status`, `setup.install`):
 [EXPORTING.md](EXPORTING.md#setting-up-this-computer).
@@ -119,9 +128,11 @@ factoria setup
 factoria setup android
 factoria setup android --accept-licenses
 factoria setup players --platforms windows,linux
+factoria setup webplayer
 factoria setup appimage
 factoria setup shaders
 factoria setup vscode
+factoria setup launcher
 ```
 
 ## Running
@@ -134,16 +145,17 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--scene S`, `--width W`, `--height H` | Start scene / resolution override |
 | `--headless` | No window; every frame is exactly `1/fixedHz` s |
 | `--frames N` | Frames to simulate (default 60) |
-| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `mouse`, `gamepad` and `touch` (see `docs/AI_GUIDE.md` 11.2); a top-level `"date": "YYYY-MM-DD"` (editor recordings have it) sets `game.today()` |
+| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `mouse`, `gamepad`, `touch`, `clipboard` and `http` (the answers of the game's `http.fetch` calls, `docs/NETWORKING.md`; see `docs/AI_GUIDE.md` 11.2); a top-level `"date": "YYYY-MM-DD"` (editor recordings have it) sets `game.today()` |
 | `--screenshot-at 10,60` | Frames to capture as PNG |
 | `--render-scale S` | Screenshot size = design size * S (0.25 to 4, default 1), drawn natively and sharp, not upscaled: the HUD, camera and visible area are the same as at 1. 1.5 on a 1280x720 game gives 1920x1080 for store pages. (`--width/--height` change the design instead.) |
 | `--screenshot-simulate MODE` | Save the screenshots as a colour-blind viewer sees them: `greyscale`, `protanopia`, `deuteranopia` or `tritanopia` (Machado 2009, severity 1.0, applied to the sRGB pixels in linear light; `greyscale` is Rec. 709 luminance). Only the saved PNGs change (not the video, not what the game draws; a `Camera.colorFilter` of the game is part of the frame and shows in both). The same option is `simulate` of `game.screenshot`. |
 | `--screenshot-pattern P` | PNG path containing `{frame}`, relative to the current directory (default `<project>/.factoria/screenshots/frame_{frame}.png`) |
 | `--state-out f.json` | Final world state dump (relative to the current directory) |
 | `--record-audio f.wav` | Record the audio mix (relative to the current directory) |
-| `--record-video f.avi` | Record a video of the run: every frame drawn at `--render-scale`, at the project's `fixedHz` fps, with the audio mix when the run is not silent. `.avi` (Motion-JPEG + PCM) needs nothing; `.mp4` (H.264 + AAC) needs ffmpeg (`FACTORIA_FFMPEG`, `publish.ffmpeg` in `~/.factoria/export.json`, or `PATH`). Relative to the current directory; see `docs/EXPORTING.md` "Store page material" |
+| `--record-video f.avi` | Record a video of the run: every frame drawn at `--render-scale`, at the project's `fixedHz` fps, with the audio mix when the run is not silent. `.avi` (Motion-JPEG + PCM) needs nothing; `.mp4` (H.264 + AAC) needs ffmpeg (`FACTORIA_FFMPEG`, `publish.ffmpeg` in `~/.factoria/export.json`, or `PATH`). Relative to the current directory; prints `recording: N of TOTAL frames (P%)` on stderr about every tenth of the run; see `docs/EXPORTING.md` "Store page material" |
 | `--seed N` | World RNG seed |
-| `--date YYYY-MM-DD` | The calendar date `game.today()` returns. Headless runs use the fixed date `2026-01-01` by default (never the clock), and a replay (`--input`) that recorded a `"date"` plays with it; `--date` wins over both. An impossible date (`2026-02-29`) or another format is a usage error (exit 2) that says what is wrong. A windowed run uses the real local date |
+| `--props JSON\|FILE` | Props of the start scene: a JSON object (`'{"level":3}'`) or a `.json` file (current directory first, then the project). The scene's scripts read them with `game.sceneProps()` from their first `onStart`; a reload keeps them. Works windowed and headless. Anything that is not an object is a usage error (exit 2) |
+| `--date YYYY-MM-DD[THH:MM[:SS]]` | The calendar date `game.today()` returns. Headless runs use the fixed date `2026-01-01` by default (never the clock), and a replay (`--input`) that recorded a `"date"` plays with it; `--date` wins over both. An impossible date (`2026-02-29`) or another format is a usage error (exit 2) that says what is wrong. A windowed run uses the real local date |
 | `--allow-script-errors` | Exit 0 even if scripts raised errors |
 | `--render-all` | Draw every frame (default headless: simulate every frame, draw only screenshot frames and the last frame; screenshots are pixel-identical either way) |
 | `--persist-storage` | Let scripts' `storage.*` use the real save file (default headless: in memory, so runs do not leak state) |
@@ -163,7 +175,9 @@ Runs `N` frames (default 30) headless and saves a PNG (default `<project>/.facto
 ### `factoria test [project] [FILE|GLOB...] [--filter TEXT] [--render-all] [--persist-storage] [--date YYYY-MM-DD] [--json]`
 Runs `tests/**/*.test.js` on a headless engine (or only the files, folders or globs named after the project, relative to
 it: `factoria test tests/saves.test.js`, `factoria test my-game "tests/ui*.test.js"`; a path that is not a `*.test.js`
-file is an error); prints one line per test, failure messages with expected/actual and
+file is an error). One engine runs the whole run, so use a `--filter` or a file name to check one thing quickly; to call one
+exported function of a pure module without tests, use `factoria call script.eval '{"module":"scripts/rules.js","call":"price","args":["wood",3]}'`
+(no scene is needed); prints one line per test, failure messages with expected/actual and
 the totals. Exit 1 if a test fails or a test file does not load. Tests simulate every frame but only draw when a
 screenshot is taken (`--render-all` draws every frame; much slower with software rendering), `storage.*` is in memory,
 and the same commands as `factoria call` (including `fs.*`) are available to scripts via `fa.call(name, args)`.
@@ -193,6 +207,11 @@ project is used, so `docs.*` and `project.create` work anywhere. Options: `--pro
 stepping; steps through its last frame unless `--frames-before N` is given), `--frames-before N`, `--no-graphics`,
 `--render-all`, `--persist-storage`.
 
+`script.eval` takes `code` (JavaScript, the last expression is the result) or `module` (a project path) with `call` (the name of
+an exported function, `"default"` for the default export) and `args` (a JSON array): it imports the module and returns the
+function's result, so a pure module (a map generator, a rules table) runs on its own. A wrong `call` or `module` says what
+was meant ("did you mean").
+
 **Every `call` starts a new engine**, so `game.step` in one call is not seen by `script.eval` in the next. To run
 several commands against the SAME game use `--batch` (or `--batch-file F.json`, `-` = stdin): an array of
 `{"command": "...", "args": {...}}` executed in order on one engine. It prints
@@ -207,6 +226,10 @@ factoria call scene.format '{"check":true}'     # list scene/prefab files not in
 factoria call scene.format '{"paths":["scenes"]}'   # rewrite those files/folders; '{"all":true}' = the whole project; with none of paths/all/check it writes nothing and fails
 factoria call scene.format '{"check":true,"strict":true}'   # same, but exits non-zero when any file is not canonical (CI)
 factoria call game.screenshot '{"path":"/tmp/s.png"}' --frames-before 60
+factoria call game.screenshot '{"region":[100,60,48,27],"zoom":8,"path":"/tmp/seam.png"}'   # a part of the view, magnified (sharp up to 4x)
+factoria call game.screenshot '{"frames":24,"everyFrames":4,"columns":4,"path":"/tmp/film.png"}'   # a labelled contact sheet of 7 frames
+factoria call render.inspect '{"from":[100,90],"to":[220,90],"threshold":20}'   # where the brightness jumps along a line
+factoria call render.pick '{"position":[160,90]}'   # what draws that pixel, topmost first
 factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30
 factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"time.elapsed"}}]'
 ```
@@ -282,7 +305,8 @@ Providers and roles are configured in `~/.factoria/ai.json` ([AI_PROVIDERS.md](A
 
 `ai run` gives the agent the project's command registry as tools (the `ai.*` commands are hidden from it). Use `-`
 as the task to read stdin, `@file` to read it from a file. The transcript is saved in `<project>/.factoria/ai/sessions/`.
-Command results containing `"$image": {"path"|"base64", "mimeType"}` are sent to the model as images.
+Command results containing `"$image": {"path"|"base64", "mimeType"}` are sent to the model as images. A temporary
+image (`"temporary": true`, a `game.screenshot` without `path`) is deleted once it has been read.
 
 ## Feedback and docs
 

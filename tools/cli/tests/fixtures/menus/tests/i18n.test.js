@@ -1,5 +1,5 @@
 import { test, expect, game } from "factoria:test";
-import { ui, input, storage, session, i18n, world, game as running } from "factoria";
+import { ui, input, storage, session, i18n, scene, world, game as running } from "factoria";
 
 // The localization acceptance test (docs/LOCALIZATION.md): the menus in two languages, switched at run time. Texts and widgets with a
 // `key` follow the language; one without a key is left alone. Driven with gamepad presses like the other menu tests.
@@ -62,7 +62,6 @@ test("the Language tab switches every Text and widget that has a key, at once", 
   expect(text("Title")).toBe("Opciones");
   expect(button("tab_audio")).toBe("Audio");
   expect(button("tab_language")).toBe("Idioma");
-  expect(game.find("fullscreen").get("Toggle").label).toBe("Pantalla completa");
   expect(game.find("master_volume").get("Slider").label).toBe("General");
   expect(game.find("music_volume").get("Slider").label).toBe("Música");
   expect(button("reset_controls")).toBe("Restablecer valores");
@@ -75,6 +74,7 @@ test("the Language tab switches every Text and widget that has a key, at once", 
   game.step(1); // the "change" event reaches the script, which writes its own texts again
   expect(button("language")).toBe("Idioma: Español");
   expect(button("frame_cap")).toBe("Límite de fotogramas: sin límite");
+  expect(button("window_mode")).toBe("Modo de ventana: ventana");
   expect(button("bind_jump")).toContain("Saltar:");
 
   pad.tap("A"); // Español -> العربية
@@ -165,4 +165,12 @@ test("the shop's texts follow the language", () => {
   game.step(1); // the shop script rewrites its own line when the "change" event arrives
   expect(text("shop_title")).toBe("Shop");
   expect(text("gems_label")).toBe("Gems: 0");
+});
+
+test("the loading screen's progress line is in the language of the game", () => {
+  load("scenes/menu.scene.json");
+  i18n.setLanguage("es");
+  pad.tap("A"); // Play: the loading screen, which reads the level ahead for a few frames
+  expect(scene.current).toBe("scenes/loading.scene.json"); // the line below belongs to this scene
+  expect(text("loading")).toMatch(/^Cargando\.\.\. \d+%$/);
 });

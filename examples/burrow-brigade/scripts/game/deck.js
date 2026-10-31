@@ -1,8 +1,7 @@
 // @ts-check
 // Steam Deck: telling it apart, its screen, and what happens when it goes to sleep.
 //
-//   isDeck()                  true when a connected pad is a Steam Deck's (input.gamepad(i).type === "steamdeck"). The engine has no
-//                             "running on a Deck" flag: the built-in controls show up as pad 0 of that family.
+//   isDeck()                  true when the game runs on a Steam Deck (game.device.steamDeck; tests set it with game.setDevice).
 //   keyboardKind()            who types for a focused TextField right now: "steam" (Steam's own keyboard is up:
 //                             input.platformKeyboard), "onscreen" (a pad, no Steam keyboard: the menu kit's keyboard), "touch" or
 //                             "keyboard". text_entry.js uses it to choose the hint.
@@ -10,21 +9,16 @@
 //   DECK_SCREEN               { width: 1280, height: 800 } (the Deck's 16:10 panel). The design fits it at scale 1 with 40 px bars.
 //   watchLife(hooks)          listens to suspend and resume for the current scene (the Deck's sleep; a phone's home button). On
 //                             suspend: hooks.pause() (open the pause menu, so the player is not dropped into a live shift on
-//                             waking), the analytics queue is sent. On resume: presence is sent again and hooks.resumed() runs.
+//                             waking); the engine sends the analytics queue by itself. On resume: presence is sent again and hooks.resumed() runs.
 //                             Returns the function that stops listening.
 import { input, game } from "factoria";
-import * as analytics from "./analytics.js";
 import * as presence from "./presence.js";
 
 export const DESIGN = Object.freeze({ width: 1280, height: 720 });
 export const DECK_SCREEN = Object.freeze({ width: 1280, height: 800 });
 
 export function isDeck() {
-  for (let i = 0; i < 4; i++) {
-    const pad = input.gamepad(i);
-    if (pad.connected && pad.type === "steamdeck") return true;
-  }
-  return false;
+  return game.device.steamDeck === true;
 }
 
 /** @returns {"steam"|"onscreen"|"touch"|"keyboard"} */
@@ -52,11 +46,7 @@ export function fit(width, height) {
  */
 export function watchLife(hooks = {}) {
   const offSuspend = game.on("suspend", () => {
-    try {
-      hooks.pause?.();
-    } finally {
-      void analytics.flush();
-    }
+    hooks.pause?.(); // the engine sends the analytics queue by itself when the app is suspended
   });
   const offResume = game.on("resume", () => {
     presence.forget();

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <filesystem>
 
+#include "fa/core/build_info.h"
 #include "fa/core/pack.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/export.h"
@@ -120,7 +121,7 @@ struct Fixture {
         if (platform == "web") {
             const stdfs::path dir = tmp.sub("web-player");
             testing::write_all(dir / "factoria_player.js", "// fake emscripten glue\n");
-            testing::write_all(dir / "factoria_player.wasm", std::string("\0asm\1\0\0\0", 8));
+            testing::write_all(dir / "factoria_player.wasm", std::string("\0asm\1\0\0\0", 8) + "FA-BUILD-FINGERPRINT:" + build_fingerprint() + ";");
             o.playerBinary = dir.string();
         } else if (platform == "android") {
             const stdfs::path mobile = tmp.sub("download/mobile");

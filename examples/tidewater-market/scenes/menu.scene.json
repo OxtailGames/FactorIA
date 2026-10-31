@@ -1,0 +1,188 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Camera": {
+          "projection": "orthographic",
+          "orthoSize": 400,
+          "clearColor": [0.1, 0.2, 0.32, 1],
+          "primary": true
+        },
+        "Script": {
+          "path": "scripts/game/title_backdrop.js"
+        }
+      },
+      "name": "Title camera"
+    },
+    {
+      "id": "captions",
+      "components": {
+        "Transform": {
+          "position": [0, -24, 0]
+        },
+        "Captions": {
+          "maxLines": 3,
+          "fontSize": 30
+        }
+      }
+    },
+    {
+      "id": "main_menu",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Panel": {
+          "anchor": [0.5, 0.5],
+          "color": [0.05, 0.07, 0.1, 0.78],
+          "layout": "column",
+          "spacing": 14,
+          "fit": true,
+          "padding": [48, 32, 48, 36],
+          "layer": 200
+        },
+        "Script": {
+          "path": "scripts/main_menu.js"
+        }
+      },
+      "children": [
+        {
+          "id": "title",
+          "components": {
+            "Text": {
+              "text": "Tidewater Market",
+              "key": "menu.title",
+              "fontSize": 64,
+              "maxTextScale": 1.5,
+              "space": "screen",
+              "layer": 210
+            }
+          }
+        },
+        {
+          "id": "tagline",
+          "components": {
+            "Text": {
+              "text": "",
+              "key": "menu.tagline",
+              "align": "center",
+              "fontSize": 22,
+              "space": "screen",
+              "layer": 210,
+              "maxWidth": 520,
+              "maxTextScale": 1.5
+            }
+          }
+        },
+        {
+          "id": "play",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Play",
+              "key": "menu.play",
+              "autoFocus": true,
+              "layer": 210
+            }
+          }
+        },
+        {
+          "id": "options_button",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Options",
+              "key": "menu.options",
+              "layer": 210
+            }
+          }
+        },
+        {
+          "id": "credits_button",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Credits",
+              "key": "menu.credits",
+              "layer": 210
+            }
+          }
+        },
+        {
+          "id": "quit",
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Quit",
+              "key": "menu.quit",
+              "layer": 210
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "options",
+      "active": false,
+      "prefab": "prefabs/ui/options.prefab.json"
+    },
+    {
+      "id": "credits",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [760, 620],
+          "anchor": [0.5, 0.5],
+          "layer": 300,
+          "layout": "column",
+          "spacing": 16,
+          "padding": [24, 24, 24, 24]
+        },
+        "Script": {
+          "path": "scripts/ui/credits.js"
+        }
+      },
+      "children": [
+        {
+          "id": "credits_list",
+          "components": {
+            "ScrollList": {
+              "size": [712, 476],
+              "layer": 301,
+              "color": [0, 0, 0, 0.25],
+              "spacing": 14,
+              "padding": [16, 16, 16, 16]
+            }
+          }
+        },
+        {
+          "id": "credits_back",
+          "tags": ["back"],
+          "components": {
+            "Button": {
+              "autoSize": true,
+              "text": "Back",
+              "key": "menu.back",
+              "layer": 302,
+              "autoFocus": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "pad_cursor_driver",
+      "name": "Gamepad cursor",
+      "components": {
+        "Script": {
+          "path": "scripts/ui/pad_cursor.js"
+        }
+      }
+    }
+  ]
+}

@@ -177,6 +177,16 @@ const std::vector<AccessorSpec>& accessor_specs() {
     return specs;
 }
 
+// The interfaces a Steam client may or may not give out (ISteamRemotePlay): looked up like the others, but never an error.
+const std::vector<AccessorSpec>& optional_accessor_specs() {
+    static const std::vector<AccessorSpec> specs = {
+#define STEAM_SPEC(field, iface, ...) {iface, &SteamApi::field, {__VA_ARGS__}},
+        STEAM_OPTIONAL_ACCESSORS(STEAM_SPEC)
+#undef STEAM_SPEC
+    };
+    return specs;
+}
+
 std::string join_names(const std::vector<const char*>& names) {
     std::string out;
     for (const char* n : names) out += (out.empty() ? "" : ", ") + std::string(n);
@@ -394,6 +404,26 @@ bool start_steam(SteamApi& api, std::string& error) {
         error = "Steam started, but the library returned no interface for " + failed + ": it does not match the client. Update "
                 "Steam, or use the redistributable of a checked SDK (" + kCheckedSdk + ").";
         return false;
+    }
+    // Optional interfaces: an older client or library has none, and the service they give is then simply not offered. A
+    // newer version than the ones listed is not probed for (the plugin has no warning to give about a service it can do
+    // without), and the interface only counts when every function the plugin calls on it is exported.
+    const bool remotePlayFunctions =
+        api.SteamAPI_ISteamRemotePlay_GetSessionCount && api.SteamAPI_ISteamRemotePlay_GetSessionID &&
+        api.SteamAPI_ISteamRemotePlay_GetSessionSteamID && api.SteamAPI_ISteamRemotePlay_GetSessionClientName &&
+        api.SteamAPI_ISteamRemotePlay_GetSessionClientFormFactor && api.SteamAPI_ISteamRemotePlay_BGetSessionClientResolution;
+    for (const AccessorSpec& spec : optional_accessor_specs()) {
+        if (spec.field == &SteamApi::remotePlay && !remotePlayFunctions) continue;
+        for (const char* name : spec.names) {
+            auto function = reinterpret_cast<void* (*)()>(symbol(handle, name));
+            if (!function) continue;
+            api.*spec.field = function();
+            if (api.*spec.field) {
+                const std::string text = name;
+                api.accessors += (api.accessors.empty() ? "" : ", ") + std::string(spec.label) + " " + text.substr(text.rfind('_') + 1);
+            }
+            break;
+        }
     }
     api.needsStatsRequest = api.SteamAPI_ISteamUserStats_RequestCurrentStats != nullptr;
     return true;

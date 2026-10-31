@@ -9,6 +9,7 @@
 #endif
 
 #include "fa/ai/commands.h"
+#include "fa/ai/progress_file.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -252,6 +253,7 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
         register_docs_commands(registry);
         register_api_export_commands(registry);
         register_setup_commands(registry);
+        register_update_commands(registry);
         CommandInfo info;
         info.name = "project.templates";
         info.summary = "List the project templates `project.create` can start from.";
@@ -291,6 +293,18 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
     }
     ai::AiCommandOptions ao;
     ao.projectDir = [projectDir]() { return projectDir; };
+    // What a sub-agent does goes to the project's progress file, where the terminal of a `factoria ai run` (whose
+    // orchestrator started this server) prints it: this process has no other way to reach that terminal.
+    ao.onRunStart = [projectDir](const ai::AiRunInfo& info) { ai::append_progress_line(projectDir, info.role + ": starting"); };
+    ao.onRunEvent = [projectDir, last = std::make_shared<std::string>()](const ai::AiRunInfo& info, const ai::AgentEvent& e) {
+        const std::string what = ai::describe_agent_event(e);
+        if (what.empty() || what == *last) return;  // a streamed reply is one line, not one per word
+        *last = what;
+        ai::append_progress_line(projectDir, info.role + (e.depth > 0 ? " > " : ": ") + what);
+    };
+    ao.onRunEnd = [projectDir](const ai::AiRunInfo& info, bool ok, const std::string&, const std::string& error) {
+        ai::append_progress_line(projectDir, info.role + (ok ? ": finished" : ": failed" + (error.empty() ? std::string() : " (" + error.substr(0, 160) + ")")));
+    };
     ai::register_ai_commands(registry, ao);
 }
 

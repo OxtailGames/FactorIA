@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "editor_internal.h"
+#include "fa/scene/bones2d.h"
 #include "fa/scene/tilemap.h"
 #include "ui_backend.h"
 
@@ -43,7 +44,7 @@ bool Editor::primary_is_ortho() {
     bool ortho = true;
     if (!engine_) return true;
     world().each<Camera>([&](Entity, Camera& c) {
-        if (c.primary) ortho = c.projection == Projection::Orthographic;
+        if (c.primary && c.renderTarget.empty()) ortho = c.projection == Projection::Orthographic;
     });
     return ortho;
 }
@@ -81,7 +82,21 @@ bool ray_box(Vec3 o, Vec3 d, Vec3 lo, Vec3 hi, float& tOut) {
     tOut = t0;
     return true;
 }
+
 }  // namespace
+
+// The box of a MeshRenderer's mesh in its own space, for the selection outline: the real bounds of a procedural mesh, the
+// unit cube (+-0.5) for the built-in shapes and models, which the editor treats as one unit box.
+void Editor::mesh_local_box(Entity e, Vec3& lo, Vec3& hi) {
+    lo = Vec3{-0.5f, -0.5f, -0.5f};
+    hi = Vec3{0.5f, 0.5f, 0.5f};
+    const MeshRenderer* mr = world().get<MeshRenderer>(e);
+    if (!mr || !MeshStore::is_id(mr->mesh)) return;
+    if (const MeshStore::Entry* m = world().meshes().find(mr->mesh)) {
+        lo = m->data.bmin;
+        hi = m->data.bmax;
+    }
+}
 
 Entity Editor::pick_at(Vec2 design) {
     if (!engine_ || !engine_->renderer()) return kNullEntity;
@@ -98,6 +113,19 @@ Entity Editor::pick_at(Vec2 design) {
             Mat4 inv = w.world_matrix(e).inverse();
             Vec3 lo_ = inv.transform_point(o), ld = inv.transform_dir(d);
             float t;
+            const MeshRenderer* mr = w.get<MeshRenderer>(e);
+            if (MeshStore::is_id(mr->mesh) && w.meshes().find(mr->mesh)) {
+                // A procedural mesh: its real triangles (the box first, as a quick reject), not a unit cube.
+                const MeshStore::Entry* m = w.meshes().find(mr->mesh);
+                const Vec3 pad{1e-4f, 1e-4f, 1e-4f};
+                if (!ray_box(lo_, ld, m->data.bmin - pad, m->data.bmax + pad, t)) continue;
+                const auto g = w.meshes().geometry(mr->mesh);
+                if (g && ray_hits_mesh(*g, lo_, ld, t) && t < bestT) {
+                    bestT = t;
+                    best = e;
+                }
+                continue;
+            }
             if (ray_box(lo_, ld, Vec3{-0.55f, -0.55f, -0.55f}, Vec3{0.55f, 0.55f, 0.55f}, t) && t < bestT) {
                 bestT = t;
                 best = e;
@@ -197,7 +225,15 @@ void Editor::draw_viewport() {
     // viewport_gizmo.cpp); a click anywhere else selects what is under the cursor: the selection is how the user points at
     // something for the AI.
     if (play_ != PlayState::Playing) {
-        const bool onHandle = gizmo_frame(*r, imgMin, sz, hovered);
+        bool onHandle = false;
+        if (bone_tools_active()) {  // a bone tool owns the clicks: no gizmo handles meanwhile
+            gizmo_end_drag(false);
+            gizmoShapes_.clear();
+            gizmoHover_ = {};
+            onHandle = bone_tools_frame(*r, imgMin, sz, hovered);
+        } else {
+            onHandle = gizmo_frame(*r, imgMin, sz, hovered);
+        }
         if (hovered && !onHandle && !gizmoDrag_.active && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) select(pick_at(design_of(io.MousePos)));
         if (hovered && gizmoHover_) ImGui::SetItemTooltip("Drag to %s (hold Ctrl to snap, Esc cancels)", gizmo_mode_name(gizmoMode_));
         else if (hovered) ImGui::SetItemTooltip("Click: select (point at something for the AI)\nQ / W / E / R: select only, move, rotate, scale the selection");
@@ -209,6 +245,8 @@ void Editor::draw_viewport() {
 
     // ---- overlays
     dl->PushClipRect(imgMin, ImVec2(imgMin.x + sz.x, imgMin.y + sz.y), true);
+    anim_update_onion(*r);
+    anim_draw_onion(dl, *r);
     if (showColliders_) {
         w.each<Collider2D>([&](Entity e, Collider2D& c) {
             if (!w.active_in_hierarchy(e)) return;
@@ -265,7 +303,9 @@ void Editor::draw_viewport() {
         const ImU32 col = IM_COL32(255, 205, 60, 255);
         if (w.has<MeshRenderer>(sel) && !primary_is_ortho()) {
             ImVec2 c8[8];
-            for (int i = 0; i < 8; ++i) c8[i] = project(sel, Vec3{(i & 1) ? .5f : -.5f, (i & 2) ? .5f : -.5f, (i & 4) ? .5f : -.5f}, false);
+            Vec3 lo, hi;
+            mesh_local_box(sel, lo, hi);
+            for (int i = 0; i < 8; ++i) c8[i] = project(sel, Vec3{(i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z}, false);
             static const int edges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
             for (auto& ed : edges) dl->AddLine(c8[ed[0]], c8[ed[1]], col, 2.0f);
         } else {
@@ -290,7 +330,33 @@ void Editor::draw_viewport() {
             dl->AddCircle(o, 4.5f, IM_COL32(0, 0, 0, 200));
         }
     }
+    // Bones (Bone2D) of the selection: the selected entity's own bone and the ones below it, and the bones of its SpriteSkin. A thin
+    // kite from each bone's origin to its tip, the selected bone in yellow (View > Bone tools draws and edits them).
+    bone_.bonesDrawn = 0;
+    if (showOverlay_ && !sel.is_null() && primary_is_ortho()) {  // the 2D view; a 3D camera does not show bones
+        std::vector<Entity> bones;
+        std::function<void(Entity)> collect = [&](Entity e) {
+            if (w.has<Bone2D>(e) && std::find(bones.begin(), bones.end(), e) == bones.end()) bones.push_back(e);
+            for (Entity c : w.children(e)) collect(c);
+        };
+        collect(sel);
+        if (const SpriteSkin* skin = w.get<SpriteSkin>(sel))
+            for (Entity b : skin_resolve_bones(w, sel, *skin).entities)
+                if (!b.is_null() && std::find(bones.begin(), bones.end(), b) == bones.end()) bones.push_back(b);
+        const float z = w.world_position(sel).z;
+        for (Entity b : bones) {
+            const ImU32 col = b == sel ? IM_COL32(255, 205, 60, 255) : IM_COL32(60, 220, 255, 220);
+            const std::array<Vec2, 4> kite = bone_kite(bone_world_segment(w, b));
+            ImVec2 p[4];
+            for (int i = 0; i < 4; ++i) p[i] = outline_pt(kite[size_t(i)], false, z);
+            dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 1.5f);
+            dl->AddCircleFilled(p[0], 3.5f, col);
+            ++bone_.bonesDrawn;
+        }
+    }
+    bone_tools_draw(dl, *r, imgMin, sz);
     gizmo_draw(dl);
+    anim_draw_record_frame(dl, imgMin, sz);
     dl->PopClipRect();
 
     ImGui::End();

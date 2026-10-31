@@ -1,0 +1,66 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 300,
+  "scene": "scenes/stress.scene.json",
+  "budgets": {
+    "maxDrawCalls": 40,
+    "maxLights": 4,
+    "maxTextureMB": 32,
+    "maxEntities": 1500,
+    "maxTriangles": 1000
+  },
+  "runners": {
+    "linux-gcc-llvmpipe": {
+      "frames": 300,
+      "cpuMsAvg": 70.726,
+      "cpuMsP95": 82.834,
+      "cpuMsMax": 2789.284,
+      "peakMemoryMB": 240.9,
+      "drawCalls": 19,
+      "entities": 1029,
+      "graphics": "EGL surfaceless / llvmpipe (LLVM 20.1.2, 256 bits) (GL 4.3 core, 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.24.04.4)",
+      "triangles": 0,
+      "lights": 0,
+      "textureMB": 15.77
+    },
+    "macos-clang-metal-debug": {
+      "frames": 300,
+      "cpuMsAvg": 40.998,
+      "cpuMsP95": 49.091,
+      "cpuMsMax": 1616.988,
+      "peakMemoryMB": 137.9,
+      "drawCalls": 19,
+      "entities": 1029,
+      "graphics": "Metal / Apple M5",
+      "triangles": 0,
+      "lights": 0,
+      "textureMB": 15.77
+    },
+    "macos-clang-metal-paravirtual": {
+      "frames": 300,
+      "cpuMsAvg": 6.801,
+      "cpuMsP95": 21.749,
+      "cpuMsMax": 164.327,
+      "peakMemoryMB": 100.2,
+      "drawCalls": 19,
+      "entities": 1029,
+      "graphics": "Metal / Apple Paravirtual device",
+      "triangles": 0,
+      "lights": 0,
+      "textureMB": 15.77
+    },
+    "windows-msvc-d3d11-warp": {
+      "frames": 300,
+      "cpuMsAvg": 101.747,
+      "cpuMsP95": 155.883,
+      "cpuMsMax": 1393.68,
+      "peakMemoryMB": 145.3,
+      "drawCalls": 19,
+      "entities": 1029,
+      "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)",
+      "triangles": 0,
+      "lights": 0,
+      "textureMB": 15.77
+    }
+  }
+}
