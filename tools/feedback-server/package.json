@@ -1,0 +1,17 @@
+{
+  "name": "factoria-feedback-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FactorIA feedback server: a Cloudflare Worker with D1 that receives generic engine-gap reports (docs/design/FEEDBACK_SHARING.md).",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test test",
+    "dry-run": "wrangler deploy --dry-run",
+    "dev": "wrangler dev --local"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
