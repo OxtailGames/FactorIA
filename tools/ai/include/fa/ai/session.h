@@ -55,6 +55,9 @@ struct SessionOptions {
     std::function<void(long long pid, const std::string& role)> onProcessStart;
     // How {key} and ${ENV} of the tool servers are filled in (empty = the process environment). Tests set it.
     EnvLookup env;
+    // Where the user's trust of project extensions is kept (extensions_trust_path). Empty = next to the ai.json the config was
+    // read from (the default path when it was not read from a file). Tests set it.
+    std::string extensionsTrustPath;
     // The HTTP the built-in agent uses to reach tool servers (empty = the real network). Tests set it to a fake server.
     HttpTransport toolServerTransport;
 };

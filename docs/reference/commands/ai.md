@@ -2,6 +2,18 @@
 
 # Commands: ai
 
+## `ai.extensions`
+
+Not released yet (on main after 0.9.0).
+
+Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading.
+
+The user's "extensions" in ai.json plus the project's .factoria/extensions.json (docs/AI_PROVIDERS.md, Extensions). Returns {inheritUserPlugins, projectFile:{path, exists, hash, trusted, error}, entries:[{kind plugin|skill|hooks, name, source user|project, enabled, roles, target (the folder it resolves to), problem + fix when it cannot load, trusted for a project's plugin or hooks}], roles:{<role>:{provider, providerKind, receives:[{kind, name, source}], skipped:[{kind, name, source, reason, fix}], notes, userPluginsOff, projectSettingsSkipped}}, claudeSettings:{files:[{path, exists, needsTrust, grants (what in the file runs a program or widens what the AI may do: hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Only Claude Code (and a generic CLI with {plugin_dirs} / {settings} in its argv) uses extensions: Codex gets none and the API providers (anthropic, openai-compatible) do not use them yet. A plugin or hook that comes from a project loads only after the USER trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only. Example: {"role":"worker"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `role` | string | no | Only this role (orchestrator, worker, fast, artist, audio, artCritic, reviewer). Omit for all. |
+
 ## `ai.models`
 
 List the models each AI provider offers (the values for roles.<role>.model).

@@ -662,6 +662,12 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         }
     }
 
+    if (const Json* ext = child(j, "extensions")) {
+        auto parsed = parse_extensions(*ext, "/extensions", "user");
+        if (!parsed) return make_error(std::string(sourceName) + ": " + parsed.error().message, parsed.error().hint);
+        cfg.extensions = std::move(*parsed);
+    }
+
     // Roles: defaults first, then overrides. The three original roles come first: artist, audio, artCritic and reviewer that
     // the file does not set follow what it says about them (same provider, model of the matching tier).
     cfg.roles = default_roles_for(cfg);
@@ -844,6 +850,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         for (const ToolServer& s : cfg.toolServers) servers[s.name] = tool_server_to_json(s, redactKeys);
         out["mcpServers"] = std::move(servers);
     }
+    if (Json ext = extensions_to_json(cfg.extensions, true); !ext.empty()) out["extensions"] = std::move(ext);
     Json roles = Json::object();
     for (const auto& [name, r] : cfg.roles) {
         Json rj = Json::object();

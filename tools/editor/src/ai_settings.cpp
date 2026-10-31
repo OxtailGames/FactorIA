@@ -74,6 +74,7 @@ void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool kee
     d = AiSettingsDraft{};
     d.loaded = true;
     d.tools.servers = cfg.toolServers;
+    ai_extensions_load(cfg);
     d.path = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
     for (ai::MediaKind k : ai::kMediaKinds) {
         const auto it = cfg.assets.find(ai::media_kind_name(k));
@@ -89,6 +90,7 @@ void Editor::ai_settings_load(const ai::AiConfig& cfg, bool keepAssets, bool kee
     options.probeVersions = false;  // only PATH lookups and key checks: nothing slow on the UI thread
     d.status = ai::detect_providers(cfg, options);
     if (keepAssets) {
+        d.ext = std::move(old.ext);  // an Extensions tab save reloads its own draft afterwards
         d.routes = std::move(old.routes);
         d.sources = std::move(old.sources);
         d.keys = std::move(old.keys);
@@ -252,6 +254,13 @@ void Editor::draw_ai_settings_window() {
     ImGui::SetItemTooltip("Services and programs the AI may use when they help: image generators such as Scenario, or tools of your own (MCP servers).");
     if (toolsShown) {
         draw_ai_tools_tab(cfg, cfgErr.empty());
+        ImGui::EndTabItem();
+    }
+    const bool extShown = ImGui::BeginTabItem("Extensions", nullptr, wantTab == 4 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    at_track("aiset:tab:extensions");
+    ImGui::SetItemTooltip("Plugins, skills and hooks the AI agents load (Claude Code): your own, and the ones this project brings. A project's plugins and hooks run only after you trust the project.");
+    if (extShown) {
+        draw_ai_extensions_tab(cfg, cfgErr.empty());
         ImGui::EndTabItem();
     }
     const bool assetsShown = ImGui::BeginTabItem("Assets", nullptr, wantTab == 2 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);

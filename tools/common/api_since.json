@@ -728,6 +728,7 @@
     "Video.volume": "0.3.0"
   },
   "commands": {
+    "ai.extensions": "unreleased",
     "ai.models": "0.1.0",
     "ai.providers": "0.1.0",
     "ai.review": "0.4.0",

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "FactorIA AI config (~/.factoria/ai.json)",
-  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), the asset providers that generate images, sounds and 3D models, the websites the AI should search for assets, and the external tool servers (MCP) the AI may use (mcpServers). Lives in the user's home, NEVER inside a game project.",
+  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), the asset providers that generate images, sounds and 3D models, the websites the AI should search for assets, and the external tool servers (MCP) the AI may use (mcpServers), and the extensions (plugins, skills, hooks) the CLI agents load (extensions). Lives in the user's home, NEVER inside a game project.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -44,6 +44,7 @@
       "description": "External tool servers (MCP) the AI may use when it helps the game, for example Scenario (AI game art) or a local program. The key is the server's name ([A-Za-z0-9_-], not \"factoria\"). The shape follows Claude Code's .mcp.json (type, url, headers, command, args, env) plus FactorIA's apiKeyEnv, apiKey, note, roles, enabled and timeoutSeconds. Only this user file can add servers, never a game project. The editor's AI settings window (External tools tab) edits this section. Example: {\"scenario\": {\"type\": \"http\", \"url\": \"https://mcp.scenario.com/mcp\", \"headers\": {\"Authorization\": \"Basic {key}\"}, \"apiKeyEnv\": \"SCENARIO_MCP_KEY\", \"note\": \"AI game art: sprites, textures, icons\"}}. See docs/AI_PROVIDERS.md, \"External tools (MCP servers)\".",
       "additionalProperties": { "$ref": "#/$defs/toolServer" }
     },
+    "extensions": { "$ref": "#/$defs/extensions" },
     "roles": {
       "type": "object",
       "description": "Which provider/model plays each role. orchestrator plans and delegates, worker implements, fast does small mechanical tasks, artist makes the game's art, audio makes its sound and music, artCritic and reviewer (read-only) give opinions on the art and on the whole game when the user asks for a review. A role that is not listed gets a default that follows the provider and model of orchestrator (artist, artCritic, reviewer) or worker (audio), so an ai.json written before these roles existed keeps working on the same provider.",
@@ -90,6 +91,65 @@
         "enabled": { "type": "boolean", "default": true, "description": "false keeps the entry but nobody uses it." },
         "timeoutSeconds": { "type": "number", "minimum": 1, "default": 120, "description": "How long one tool call may take before it fails (generating an image can take a minute or two)." }
       },
+      "additionalProperties": false
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Extensions the CLI agents (Claude Code, a generic CLI with {plugin_dirs} / {settings} in its argv) load for a run: plugins (a directory, a .zip, or a Claude Code name@marketplace you installed), skill folders and hooks (Claude Code's hooks shape). Each entry has roles and enabled, like mcpServers. The same section is read from a game project's .factoria/extensions.json (without inheritUserPlugins); a plugin or a hook that comes from a project, and what the project's .claude/settings*.json runs or allows (hooks, plugins, env, permissions.allow...), apply only after you trust the project in AI settings > Extensions (until then Claude Code starts without the project and local setting sources). The API providers (anthropic, openai-compatible) do not use extensions yet; Codex gets none (FactorIA could not verify how it takes them). The editor's AI settings window (Extensions tab) edits this section. Example: {\"plugins\": {\"notes\": {\"path\": \"~/plugins/notes\"}, \"superpowers\": {\"plugin\": \"superpowers@claude-plugins-official\", \"roles\": [\"worker\"]}}, \"skills\": {\"gdd\": {\"path\": \"~/skills/gdd\"}}, \"hooks\": {\"log-edits\": {\"hooks\": {\"PostToolUse\": [{\"matcher\": \"Edit|Write\", \"hooks\": [{\"type\": \"command\", \"command\": \"echo edited >> ~/edits.log\"}]}]}}}}. See docs/AI_PROVIDERS.md, \"Extensions\".",
+      "properties": {
+        "inheritUserPlugins": { "type": "boolean", "default": true, "description": "true (the default): Claude Code also loads the plugins, skills and hooks of your own Claude Code setup (~/.claude and the project's .claude), as it always did. false: a FactorIA run loads only the extensions listed here (Claude Code is started with --setting-sources project,local, which drops ALL your user-level Claude Code settings: plugins, skills, hooks, permissions and env). User file only." },
+        "plugins": {
+          "type": "object",
+          "description": "Plugins by name ([A-Za-z0-9_-], up to 40 characters).",
+          "additionalProperties": { "$ref": "#/$defs/extensionPlugin" }
+        },
+        "skills": {
+          "type": "object",
+          "description": "Skill folders by name. Each is a folder with a SKILL.md, or a folder of such folders.",
+          "additionalProperties": { "$ref": "#/$defs/extensionSkill" }
+        },
+        "hooks": {
+          "type": "object",
+          "description": "Hook sets by name. Each holds Claude Code's hooks (events with matchers and commands).",
+          "additionalProperties": { "$ref": "#/$defs/extensionHooks" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "extensionPlugin": {
+      "type": "object",
+      "description": "One plugin: set path (a directory or a .zip) or plugin (name@marketplace of a Claude Code plugin you installed with `claude plugin install`).",
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "description": "A plugin directory or a .zip. ~ is the home folder. In ai.json it must be absolute or start with ~; in a project's extensions.json it may be relative to the project." },
+        "plugin": { "type": "string", "minLength": 1, "pattern": "^[^@\\s]+@[^@\\s]+$", "description": "name@marketplace of an installed Claude Code plugin; FactorIA finds its folder in ~/.claude/plugins/installed_plugins.json." },
+        "note": { "type": "string", "description": "What the extension is for (shown in the settings and in `factoria ai doctor`)." },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/roleName" }, "description": "Which roles load it. Default: orchestrator, worker, fast, artist, audio." },
+        "enabled": { "type": "boolean", "default": true, "description": "false keeps the entry but no run loads it." }
+      },
+      "additionalProperties": false
+    },
+    "extensionSkill": {
+      "type": "object",
+      "description": "One skill folder (SKILL.md inside), or a folder of skill folders.",
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "description": "The folder. ~ is the home folder. In ai.json absolute or ~; in a project's extensions.json relative to the project and inside it." },
+        "note": { "type": "string", "description": "What the extension is for." },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/roleName" }, "description": "Which roles load it. Default: orchestrator, worker, fast, artist, audio." },
+        "enabled": { "type": "boolean", "default": true, "description": "false keeps the entry but no run loads it." }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    },
+    "extensionHooks": {
+      "type": "object",
+      "description": "One set of Claude Code hooks. Claude Code runs the commands at the events (PreToolUse, PostToolUse, SessionStart, UserPromptSubmit, Stop...).",
+      "properties": {
+        "hooks": { "type": "object", "description": "Claude Code's hooks object: event name -> list of {matcher, hooks: [{type: command, command: ...}]}.", "additionalProperties": { "type": "array" } },
+        "note": { "type": "string", "description": "What the extension is for." },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/roleName" }, "description": "Which roles load it. Default: orchestrator, worker, fast, artist, audio." },
+        "enabled": { "type": "boolean", "default": true, "description": "false keeps the entry but no run loads it." }
+      },
+      "required": ["hooks"],
       "additionalProperties": false
     },
     "roleName": { "enum": ["orchestrator", "worker", "fast", "artist", "audio", "artCritic", "reviewer"] },

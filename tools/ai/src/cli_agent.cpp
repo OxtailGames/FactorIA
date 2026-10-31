@@ -1,4 +1,5 @@
 #include "fa/ai/cli_agent.h"
+#include "fa/ai/extension_plan.h"
 
 #include <algorithm>
 #include <atomic>
@@ -249,7 +250,8 @@ void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRe
 }
 
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
-                                         const std::string& mcpConfigPath, const std::string& factoriaCommand) {
+                                         const std::string& mcpConfigPath, const std::string& factoriaCommand,
+                                         const std::string& settingsPath, const std::vector<std::string>& pluginDirs) {
     struct Sub {
         const char* key;
         std::string value;
@@ -259,32 +261,76 @@ std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, c
                         {"{project}", req.projectDir},
                         {"{mcp_config}", mcpConfigPath},
                         {"{session}", req.sessionId},
+                        {"{settings}", settingsPath},
                         {"{project_json}", dump(Json(req.projectDir))},
                         {"{factoria_json}", dump(Json(factoriaCommand))},
                         {"{factoria}", factoriaCommand}};
+    const auto is_bare_flag = [](const std::string& a) {
+        return a.size() > 1 && a[0] == '-' && a.find('{') == std::string::npos && a.find('=') == std::string::npos;
+    };
     std::vector<std::string> out;
-    for (const auto& el : tmpl) {
-        std::string s = el;
+    // Expands the plain placeholders of one element; false when an optional one is empty (the element is dropped).
+    const auto expand_one = [&](std::string s, std::string& result) {
         bool emptyPlaceholder = false;
-        bool hadPlaceholder = false;
         for (const auto& sub : subs) {
             std::string key = sub.key;
             if (s.find(key) == std::string::npos) continue;
-            hadPlaceholder = true;
-            if (sub.value.empty() && (key == "{model}" || key == "{mcp_config}" || key == "{session}")) emptyPlaceholder = true;
+            if (sub.value.empty() && (key == "{model}" || key == "{mcp_config}" || key == "{session}" || key == "{settings}"))
+                emptyPlaceholder = true;
             s = fa::replace_all(std::move(s), key, sub.value);
         }
-        if (emptyPlaceholder) {
-            if (!out.empty() && out.back().size() > 1 && out.back()[0] == '-' && out.back().find('{') == std::string::npos &&
-                out.back().find('=') == std::string::npos) {
-                out.pop_back();
+        result = std::move(s);
+        return !emptyPlaceholder;
+    };
+    for (const auto& el : tmpl) {
+        if (el.find("{plugin_dirs}") != std::string::npos) {
+            if (pluginDirs.empty()) {
+                if (!out.empty() && is_bare_flag(out.back())) out.pop_back();
+                continue;
+            }
+            const bool bare = el == "{plugin_dirs}";
+            const std::string flag = bare && !out.empty() && is_bare_flag(out.back()) ? out.back() : std::string();
+            for (std::size_t i = 0; i < pluginDirs.size(); ++i) {
+                std::string one;
+                expand_one(bare ? pluginDirs[i] : fa::replace_all(el, "{plugin_dirs}", pluginDirs[i]), one);
+                if (i > 0 && !flag.empty()) out.push_back(flag);
+                out.push_back(std::move(one));
             }
             continue;
         }
-        (void)hadPlaceholder;
+        std::string s;
+        if (!expand_one(el, s)) {
+            if (!out.empty() && is_bare_flag(out.back())) out.pop_back();
+            continue;
+        }
         out.push_back(std::move(s));
     }
     return out;
+}
+
+void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool templateHasSettings, const CliRunRequest& req,
+                          const std::vector<std::string>& pluginDirs, const std::string& settingsPath,
+                          std::vector<std::string>& argv) {
+    if (kind != ProviderKind::ClaudeCode) return;
+    if (!templateHasPluginDirs) {
+        for (const std::string& d : pluginDirs) {
+            argv.push_back("--plugin-dir");
+            argv.push_back(d);
+        }
+    }
+    if (!templateHasSettings && !settingsPath.empty() && std::find(argv.begin(), argv.end(), "--settings") == argv.end()) {
+        argv.push_back("--settings");
+        argv.push_back(settingsPath);
+    }
+    if ((req.userPluginsOff || req.projectSettingsOff) && std::find(argv.begin(), argv.end(), "--setting-sources") == argv.end()) {
+        // The sources Claude Code keeps: user (your ~/.claude) unless inheritUserPlugins is off; project and local (the
+        // project's .claude) unless the project is not trusted. FactorIA's own --settings file is not a source.
+        std::string sources;
+        if (!req.userPluginsOff) sources += "user";
+        if (!req.projectSettingsOff) sources += std::string(sources.empty() ? "" : ",") + "project,local";
+        argv.push_back("--setting-sources");
+        argv.push_back(sources);
+    }
 }
 
 bool cli_supports_resume(const ProviderConfig& cfg) {
@@ -746,26 +792,70 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
             privateMcpFile = file;
         }
     }
+    // Files and folders made for this run only (the keyed MCP config, the hooks settings, the skills plugin): removed on every
+    // way out of run().
+    std::vector<fsys::path> runFiles;
+    if (!privateMcpFile.empty()) runFiles.push_back(privateMcpFile);
     struct RemoveAtExit {
-        fsys::path& path;
+        std::vector<fsys::path>& paths;
         ~RemoveAtExit() {
-            if (path.empty()) return;
-            std::error_code ec;
-            fsys::remove(path, ec);
+            for (const auto& p : paths) {
+                std::error_code ec;
+                fsys::remove_all(p, ec);
+            }
         }
-    } removeMcpFile{privateMcpFile};
+    } removeRunFiles{runFiles};
+
+    // Extensions: hooks go to a private settings file, skills to a plugin written for the run (Claude Code only; a generic
+    // CLI takes plugin folders and a settings file through {plugin_dirs} and {settings}).
+    bool templateHasPluginDirs = false, templateHasSettings = false;
+    for (const auto& a : tmpl) {
+        templateHasPluginDirs = templateHasPluginDirs || a.find("{plugin_dirs}") != std::string::npos;
+        templateHasSettings = templateHasSettings || a.find("{settings}") != std::string::npos;
+    }
+    std::string settingsPath;
+    std::vector<std::string> pluginDirs;
+    if (cfg_.kind == ProviderKind::ClaudeCode || cfg_.kind == ProviderKind::GenericCli) {
+        static std::atomic<unsigned> extCounter{0};
+        const bool canSettings = cfg_.kind == ProviderKind::ClaudeCode || templateHasSettings;
+        const bool canPlugins = cfg_.kind == ProviderKind::ClaudeCode || templateHasPluginDirs;
+        const bool wantsHooks = req.hooks.is_object() && !req.hooks.empty() && canSettings;
+        const bool wantsSkills = cfg_.kind == ProviderKind::ClaudeCode && !req.skillDirs.empty();
+        if (wantsHooks || wantsSkills) {
+            std::error_code ec;
+            const fsys::path dir = fsys::path(projectDir) / ".factoria" / "ai";
+            fsys::create_directories(dir, ec);
+            const std::string tag = cfg_.name + "-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-" +
+                                    std::to_string(extCounter++);
+            if (wantsHooks) {
+                // Hooks run programs, and a hook's command line may carry a secret: owner-only, like the MCP config.
+                const fsys::path file = dir / ("settings-" + tag + ".json");
+                runFiles.push_back(file);
+                if (auto ok = write_private_file(file.string(), dump_pretty(Json::object({{"hooks", req.hooks}})) + "\n"); !ok) return ok.error();
+                settingsPath = file.string();
+            }
+            if (wantsSkills) {
+                const fsys::path skills = dir / ("ext-skills-" + tag);
+                runFiles.push_back(skills);
+                if (auto ok = write_skills_plugin(skills.string(), req.skillDirs); !ok) return ok.error();
+                pluginDirs.push_back(skills.string());
+            }
+        }
+        if (canPlugins) pluginDirs.insert(pluginDirs.begin(), req.pluginDirs.begin(), req.pluginDirs.end());
+    }
     CliRunRequest effective = req;
     effective.projectDir = projectDir;
 
     ProcessOptions po = std::move(*base);
-    std::vector<std::string> expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand);
+    std::vector<std::string> expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand, settingsPath, pluginDirs);
     // Pictures: inline in the stdin JSON when the CLI reads stream-json, else the prompt names their files.
     const bool jsonInput = argv_wants_stream_json_input(expanded);
     if (!jsonInput && !req.imagePaths.empty()) {
         effective.prompt = prompt_with_image_paths(req.prompt, req.imagePaths);
-        expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand);  // {prompt} carries the paths too
+        expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand, settingsPath, pluginDirs);  // {prompt} carries the paths too
     }
     apply_role_restrictions(cfg_.kind, cfg_.argv.empty(), req, expanded);
+    apply_extension_args(cfg_.kind, templateHasPluginDirs, templateHasSettings, req, pluginDirs, settingsPath, expanded);
     if (cfg_.kind == ProviderKind::Codex && cfg_.argv.empty() && !req.toolServers.empty()) {
         auto extra = codex_tool_server_args(req.toolServers, po.env);
         auto stdinMarker = std::find(expanded.begin(), expanded.end(), "-");
