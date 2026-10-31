@@ -175,7 +175,7 @@ already use instead of falling back to an Anthropic API key: `artist` and `audio
 `sonnet`, `haiku`, for the CLI providers). So a file with only `orchestrator` / `worker` / `fast` on `claude-code` keeps
 all seven roles on Claude Code, and old files keep working. Saving from the Roles window writes only the roles you set.
 
-Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?, enabled?}`. `effort` is one of
+Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?, enabled?, toolGroups?}`. `effort` is one of
 `low|medium|high|xhigh|max` and is always sent explicitly to Anthropic. For
 `openai-compatible` providers it is ignored unless `"sendReasoningEffort": true`
 (then mapped to `low|medium|high`). A CLI provider runs its own loop and
@@ -352,9 +352,15 @@ The models come from the `artCritic` and `reviewer` roles (or from the orchestra
 
 ## How the built-in agent behaves (API providers)
 
-* Tools: every registered command (`scene.spawn` -> `scene_spawn`), plus
-  `agent_delegate {role: worker|fast|artist|audio, task}` for the orchestrator. `ai.*`
-  commands are hidden from the model.
+* Tools: not every command is sent as a tool on every step (that was about 80k tokens of definitions on each one). The
+  built-in agent gets the **core commands** in full (`fs_*`, `docs_*`, the scene commands `scene_spawn`, `scene_set_component`,
+  `scene_save`..., `game_step`, `game_input`, `game_click`, `game_screenshot`, `game_state`, `game_logs`, `project_validate`,
+  `project_info`, `project_test`, `script_*`, `feedback_report`, `assets_list`, `assets_import`), the commands of the
+  **tool groups** of its role in full, and a **catalog** in the system prompt: one line (`command: what it does`) for every
+  other command. Two loop tools reach those: `tool_describe {commands: [...]}` returns the full definition (description and
+  input schema) of commands, and `tool_call {command, arguments}` runs one; a wrong call to a catalog command comes back
+  with its input schema. Plus `agent_delegate {role: worker|fast|artist|audio, task}` for the orchestrator. `ai.*`
+  commands are hidden from the model. See [Tool groups and the catalog](#tool-groups-and-the-catalog).
 * Safety limits: `limits.maxTurns`, `maxCostUsd`, `maxTotalTokens`, Ctrl+C /
   cancel flag. Transient errors (429, 5xx, 529) are retried with backoff and
   `Retry-After`.
@@ -375,8 +381,54 @@ The models come from the `artCritic` and `reviewer` roles (or from the orchestra
   newest by default) and returns the gaps of at least `minGapSeconds` (default 30) with what was going on (`tool`,
   `thinking`, `model` = waiting for the model, `user` = waiting for the user), plus `totals` per kind and per tool, so you
   can tell a long think from a slow tool. For a log without times it returns `hasTimes: false` and a note.
+* Context sizes in the transcript: each `assistant` line of the built-in agent has `context`, the split of the request that
+  call sent: `systemBytes` (the system prompt, `catalogBytes` of it the command catalog), `toolBytes` (the tool
+  definitions), `conversationBytes`, the same three as estimated tokens (bytes divided by 3.75, not the provider's count),
+  `toolCount` and `catalogCount`. The `start` line has `tools` (how many), `catalogCommands` and `toolGroups`.
+  `ai.session_timeline` returns a `context` object with this per step and the totals of the run (`toolShare` is the tool
+  definitions' share of everything the run sent). CLI agents send their own tool list, so their logs have none of it.
 * Screenshots: a command result `{"image": {"mediaType": "image/png", "data": "<base64>"}}`
   is attached to the model as an image.
+
+### Tool groups and the catalog
+
+Every command is a tool the model could use, but sending the definitions of all of them (summary, description and input
+schema: 186 commands, about 320 KB) on every step costs about 80k tokens before the model reads a word. The built-in agent
+offers instead:
+
+* the **core commands** in full (the list above; `is_core_tool` in `tools/ai/include/fa/ai/tool_catalog.h`),
+* the commands of the role's **tool groups** in full: a group is a command category (`assets`, `anim`, `audio`, `ui`, `i18n`,
+  `platform`, `publish`, `perf`, `nav`, `physics`, `mesh`... the `category` of `factoria commands`), the exact name of a command
+  (`assets.draw_icon`) or `"all"` (every command in full: the old behaviour),
+* `tool_describe` and `tool_call`, and
+* a `# Tools` section in the system prompt with one line per remaining command, grouped by category.
+
+The model reads the catalog, describes the commands it is about to use (several in one call) and calls them through
+`tool_call`, which runs the command under its own name: the chat shows `assets_slice_sheet`, not `tool_call`, and the transcript and
+the events carry the command's arguments. The catalog is used only when it saves something (the definitions it leaves out add
+up to more than 6000 bytes), so a small registry is offered in full.
+
+A role names its groups in `ai.json`, `"roles": {"artist": {"toolGroups": ["assets", "anim"]}}`. Without `toolGroups` the
+artist loads `assets` and the audio role `assets` and `audio`; every other role loads none. A list replaces the default
+(`[]` loads nothing but the core). A name that matches no category or command is reported as an Info line in the chat when the
+run starts, with suggestions. `factoria call ai.tool_plan '{"role":"artist"}'` shows what a role gets: the tools sent with
+their estimated sizes, the catalog's size, the groups that matched and the cost of offering everything in full.
+CLI agents (Claude Code, Codex...) choose their own tools and ignore `toolGroups`; see [MCP.md](MCP.md#tool-definitions-and-claude-code).
+
+Why this shape. Tool definitions are the start of the prompt cache's prefix (before the system prompt and the messages):
+adding a tool in the middle of a conversation would rewrite the cache of everything after it. So the tool list is computed once
+per run and **never changes while the conversation goes on**: describing a command does not add a tool, its definition comes
+back as the result of `tool_describe` and stays in the conversation like any other result. The catalog is part of the
+system prompt, which is also fixed for the run (the registry can change between two messages, for example when a project
+tool is added: then the next message pays one cache rewrite, as it does when the project's file listing changes).
+The alternative, Anthropic's server-side tool search (`defer_loading` on each tool plus a search tool), still sends every
+definition in every request and only keeps them out of the model's context, so the request stays large; it exists only on the
+Anthropic API and could not be tested offline, so the engine does the same on the client for every API provider.
+
+Read-only roles (`artCritic`, `reviewer`) get the same mechanism over the commands that look and play only: the catalog does
+not list a command that changes the project, `tool_describe` does not know it, and `tool_call` refuses it with `not_allowed`
+("a read-only role cannot use it"), the same set `is_read_only_tool` and `cli_disallowed_tools` already define. A command
+that is excluded for every agent (`ai.*`) is refused the same way.
 
 ## Conversations and resume
 
@@ -413,6 +465,8 @@ The AI panel shows what the provider reports, never a guess:
   use the same plan in between, so old numbers would be wrong. Until the first message of a run the panel shows a dim
   "Plan usage updates after the first message.".
 * **Context**: tokens in the model's context window now (the last request, not the sum of the run), for example `47k / 1M`.
+  Hover it with the built-in agent to see where the last call's context went (estimated): the system prompt (and the part of it
+  that is the command catalog), the tool definitions (and how many tools) and the conversation.
 * **Tokens** (in / out / cache) and **API cost est.** of the chat. The cost is an estimate of what the same tokens would cost
   on the provider's pay-per-token API (the CLI's own number when it reports one); on a subscription plan (Claude Code /
   Codex sign-in) none of it is billed on top of the plan, and the line says so. Both are live while an agent works (every assistant message adds its usage once,

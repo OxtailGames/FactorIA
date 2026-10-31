@@ -14,6 +14,8 @@
 
 namespace fa::ai {
 
+struct ToolPlan;  // tool_catalog.h
+
 // What carries a chat from one message to the next. The caller (the editor) keeps it between `AgentSession::run` calls:
 // pass the previous `SessionResult::conversation` in `SessionOptions::conversation`.
 //   * CLI agents with a {session} placeholder in their argv (Claude Code): the CLI's own session id; a follow-up resumes
@@ -43,6 +45,9 @@ struct SessionOptions {
     bool stream = true;
     bool saveTranscript = true;        // <project>/.factoria/ai/sessions/*.jsonl
     bool allowDelegation = true;       // orchestrator gets agent_delegate
+    // false = the built-in agent gets every command as a tool with its full definition (about 80k tokens on every step); the
+    // default offers the core commands and a catalog (tool_catalog.h). Tests and measurements set it.
+    bool toolCatalog = true;
     std::string extraSystem;           // appended to the system prompt
     std::string mcpUrl;                // CLI agents attach this MCP endpoint (the editor's) instead of `factoria mcp`
     // A CLI agent's process started (any depth): its pid (fa/core/process.h process_tree()) and role. Runs on the thread
@@ -86,7 +91,10 @@ std::string mcp_tool_name_for(std::string_view commandName);
 // start other agents or reviews (mcp__factoria__ai_run unless `canDelegate`, always mcp__factoria__ai_review), and for the
 // read-only roles also the file-editing tools, Bash and every FactorIA command that is not is_read_only_tool.
 std::vector<std::string> cli_disallowed_tools(const CommandRegistry& registry, std::string_view role, bool canDelegate);
-// Tool list from the registry, sorted by name (byte-stable for prompt caching). `readOnly`: only is_read_only_tool commands.
+// The agent_delegate tool (the orchestrator's way to start a sub-agent). Loop-internal: it is not a registry command.
+ToolDef delegate_tool_def();
+// EVERY command as a tool in full, sorted by name (byte-stable for prompt caching). `readOnly`: only is_read_only_tool commands.
+// The built-in agent loop uses plan_tools (tool_catalog.h) instead: the core commands in full and a catalog of the rest.
 std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate, bool readOnly = false);
 
 // What the prompt says about one tool server.
@@ -109,6 +117,9 @@ struct PromptContext {
     std::vector<std::string> disabledRoles;
     // The user's external tool servers this role may use (ai.json "mcpServers"): the prompt gets an "External tools" section.
     std::vector<ToolServerBrief> toolServers;
+    // The "# Tools" section (ToolPlan::catalogText): the commands that are not offered as tools of their own, one line each.
+    // "" = every command is a tool. Part of the stable system prompt, so it must not change while a conversation goes on.
+    std::string toolCatalog;
 };
 // The "External tools" section of the prompt of a role that got tool servers: each server with its note and how its tools are
 // named, and the rules for using them (they may cost credits; what they make comes into the project through assets_import).
@@ -159,7 +170,10 @@ private:
                            const std::string& task, int depth);
     SessionResult run_cli(const std::string& role, const RoleConfig& rc, const ProviderConfig& pc,
                           const std::string& task, int depth);
-    ToolResult execute_tool(const ToolCall& call, const std::string& role, int depth, McpToolSet* toolServers = nullptr);
+    // `plan`: the run's tool plan; with its catalog in use, tool_describe and tool_call are answered here (tool_call runs the
+    // command under its own name, so events and read-only checks see the command, not the wrapper).
+    ToolResult execute_tool(const ToolCall& call, const std::string& role, int depth, McpToolSet* toolServers = nullptr,
+                            const ToolPlan* plan = nullptr);
     void emit(AgentEvent e, int depth, const std::string& role);
     bool over_budget(std::string& why) const;
     bool over_budget(const Usage& usageNow, double costNow, std::string& why) const;  // with these totals instead
