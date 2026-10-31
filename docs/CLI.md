@@ -310,7 +310,7 @@ image (`"temporary": true`, a `game.screenshot` without `path`) is deleted once 
 
 ## Feedback and docs
 
-### `factoria feedback init|add|list|update|validate|collect`
+### `factoria feedback init|add|list|update|validate|collect|pull|quarantine|ban|unban|bans|delete|stats|fixed`
 ```
 factoria feedback add --category physics --severity major --title "No one-way platforms" \
     --missing "Collider2D has no one-way option" --workaround "scripts/one_way.js" --files scripts/one_way.js
@@ -323,7 +323,31 @@ factoria feedback collect games/ examples/ --out roadmap.md      # .json => JSON
 `add` merges into a similar open entry (occurrences++). `update [project] <id>` triages an entry: `--status open|fixed-in-engine|wont-fix|duplicate`, `--engine-issue REF`, `--note TEXT` (appended to `notes`). `collect` groups reports of the same gap across projects even
 when the titles differ ("Bug:" prefixes, plurals, stop words and synonyms such as stub/placeholder are ignored; a
 short title contained in a longer one counts; same-category or similar-suggestion entries score higher, and a
-cluster may span categories). See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).
+cluster may span categories). The score of a group is `sum over projects of severity weight x trust x min(occurrences, 3)`
+(trust 1 for local and verified, 0.5 for anonymous pulled entries); the report shows installations, verified
+installations and occurrences. See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).
+
+The engine developer's side of feedback sharing (needs `feedback-admin.json` next to `ai.json`, written by
+`tools/feedback-server/deploy.sh`; routine in [EXTENDING.md](EXTENDING.md), section F.1):
+```
+factoria feedback pull [--out DIR] [--full] [--classify | --no-classify] [--json]
+factoria feedback quarantine [list | restore <shareId> | clear] [--out DIR]
+factoria feedback ban <installKey|reporterKey|shareId> [--install | --reporter] [--purge] [--reason TEXT]
+factoria feedback unban <key> [--install | --reporter]
+factoria feedback bans
+factoria feedback delete <shareId> [--local]
+factoria feedback stats
+factoria feedback fixed add --category C --title T [--title T2] --version V [--note N] [--file PATH]
+factoria feedback fixed list [--file PATH]
+```
+`pull` downloads the reports shared since the saved cursor into `~/.factoria/feedback-inbox/<installKey>/ENGINE_FEEDBACK.json`
+(`%APPDATA%\factoria\feedback-inbox` on Windows; never inside a git checkout unless `--out` is given), merging by
+`shareId`. `--full` ignores the cursor and updates the occurrences of reports users sent again (the server keeps them in
+place and only raises the count). With a usable `fast` AI role each new report is judged valid, doubtful or junk
+(`--no-classify` skips it, `--classify` fails without an AI); junk goes to the quarantine. `ban` needs `--install` or
+`--reporter` unless the key is a `shareId` or an inbox folder. `fixed add` records which release fixed a gap in
+`feedback/fixed.json`; `feedback update <inbox project> <id> --status fixed-in-engine` prints the matching `fixed add`.
+Server errors (wrong token, rate limit, unreachable, not the feedback server) are explained with what to do.
 
 ### `factoria docs [name] | list | read <name> | search <query...>`
 The docs embedded in the binary (offline). `factoria docs scripting` prints SCRIPTING.md. Two are generated:

@@ -134,16 +134,20 @@ TEST_CASE("feedback: collect ranks by occurrences x severity weight") {
     REQUIRE(report.ok());
     const Json& cl = report->json["clusters"];
     REQUIRE(cl.size() == 3);
-    // one-way: occurrences 2 + 1 = 3, severity major (4) => 12; crash: 1 x 8 = 8; audio: 5 x 1 = 5
+    // Per project: weight x trust (1, local) x min(occurrences, 3).
+    // one-way: proj-a major (4) x 2 occurrences + proj-b minor (2) x 1 = 10; crash: 8 x 1 = 8; audio: 1 x min(5, 3) = 3
     CHECK(cl[0]["title"].get<std::string>().find("one-way") != std::string::npos);
-    CHECK(cl[0]["score"] == 12);
+    CHECK(cl[0]["score"] == 10);
+    CHECK(cl[0]["installations"] == 2);
+    CHECK(cl[0]["verifiedInstallations"] == 0);
     CHECK(cl[0]["totalOccurrences"] == 3);
     CHECK(cl[0]["projects"].size() == 2);
     CHECK(cl[0]["bestSuggestion"] == "Add Collider2D.oneWay (bool) with direction.");
     CHECK(cl[1]["category"] == "scene");
     CHECK(cl[1]["score"] == 8);
     CHECK(cl[2]["category"] == "audio");
-    CHECK(cl[2]["score"] == 5);
+    CHECK(cl[2]["score"] == 3);
+    CHECK(cl[2]["totalOccurrences"] == 5);  // the cap is on the score, not on the count
     CHECK(cl[0]["rank"] == 1);
 
     std::string md = report->markdown();
