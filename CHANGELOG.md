@@ -2,6 +2,19 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- The built-in AI agent (API providers) no longer sends the definitions of all 186 commands on every step (about 320 KB, around 85k tokens, before any conversation). It gets the core commands in full (files, docs, scene editing, running and looking at the game, validating and testing, scripts, `feedback_report`, `assets_list`, `assets_import`), the commands of its role's tool groups in full, and a catalog in the system prompt: one line per other command. Two loop tools reach those: `tool_describe` returns the full definition of commands and `tool_call` runs one under its own name (the chat and the events show the command). A wrong call to a catalog command comes back with its input schema. The tool list is fixed for the whole run, so the prompt cache keeps working. On the scripted task of `tools/cli/tests/tool_catalog_test.cpp` (real command registry, no model) a step sends 62 KB instead of 324 KB; the numbers and the reasons are in docs/AI_COSTS.md and docs/AI_PROVIDERS.md ("Tool groups and the catalog"). A registry whose left-out definitions add up to under 6000 bytes is still offered in full. Read-only roles (`artCritic`, `reviewer`) see only the read-only commands in the catalog and cannot reach any other one through `tool_describe` / `tool_call`.
+- `roles.<role>.toolGroups` in `ai.json` (new): command categories (`assets`, `anim`, `ui`...), command names or `"all"` that a role always gets in full. Default: the artist loads `assets`, the audio role `assets` and `audio`; `["all"]` brings back every command in full.
+- Claude Code 2.1.312 already defers the tools of MCP servers behind its own tool search; FactorIA sets nothing for it (docs/MCP.md, "Tool definitions and Claude Code").
+
+### New
+
+- `ai.tool_plan {role?, catalog?}`: which commands a role gets as tools in full and which only as catalog lines, with estimated sizes.
+- Where the context goes: each model call of the built-in agent records the estimated split of its request (system prompt, command catalog, tool definitions, conversation) in the session log; `ai.session_timeline` returns it as `context` (per step and totals), and the Context bar of the editor's AI panel shows it in its tooltip.
+
 ## 0.9.0
 
 FactorIA 0.9.0 (M44) brings what a 3D book needs, found by the user's game Roguestory: scripts build and deform meshes in code (`mesh.create`, `mesh.update`, `mesh.save` to a `.glb`) with vertex colors, a camera can draw live into a texture that a model shows (`Camera.renderTarget`, `"target:<name>"`) and the pointer reaches the buttons on it through the mesh, `render.captureTexture` photographs any part of the world off-screen at a scale you choose, world Text can be sized in meters and lit, a project tool always runs the code on disk, and AI session logs carry times that `ai.session_timeline` turns into a timeline.

@@ -225,9 +225,25 @@ void draw_usage_area(const AiChat& chat, bool subscription) {
         }
         ImGui::EndGroup();
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("How much the model reads on every message: the whole conversation so far (input and cached\n"
-                              "tokens of the last model call)%s.",
-                              known ? ", against the size of its context window" : "");
+            ImGui::BeginTooltip();
+            ImGui::Text("How much the model reads on every message: the whole conversation so far (input and cached\n"
+                        "tokens of the last model call)%s.",
+                        known ? ", against the size of its context window" : "");
+            const ai::ContextSplit& split = chat.contextSplit;
+            if (split.known()) {
+                // Estimates from the request's size (about 3.75 bytes per token), not the provider's count.
+                ImGui::Separator();
+                ImGui::Text("Where the last call's context went (estimated):");
+                std::string system = format_tokens(ai::estimate_tokens(split.systemBytes));
+                if (split.catalogCount > 0) {
+                    system += ", of which the catalog of " + std::to_string(split.catalogCount) + " more commands: " +
+                              format_tokens(ai::estimate_tokens(split.catalogBytes));
+                }
+                ImGui::BulletText("System prompt: %s", system.c_str());
+                ImGui::BulletText("Tool definitions: %s (%d tools)", format_tokens(ai::estimate_tokens(split.toolBytes)).c_str(), split.toolCount);
+                ImGui::BulletText("Conversation: %s", format_tokens(ai::estimate_tokens(split.conversationBytes)).c_str());
+            }
+            ImGui::EndTooltip();
         }
     }
     ai::Usage u = chat.usage;
@@ -852,6 +868,7 @@ void Editor::ai_drain_run(AiRun& run) {
                 if (ev.depth == 0) {
                     if (ev.contextTokens) c.contextTokens = ev.contextTokens;
                     if (ev.contextWindow) c.contextWindow = ev.contextWindow;
+                    if (ev.contextSplit.known()) c.contextSplit = ev.contextSplit;
                     if (!ev.limits.empty() && !run.provider.empty()) {
                         ProviderLimits& pl = aiLimits_[run.provider];
                         ai::merge_limit_windows(pl.windows, ev.limits);

@@ -104,6 +104,26 @@ struct ChatRequest {
     u64 maxContextTokens = 0;  // > 0: the API summarizes earlier turns past this many input tokens (Anthropic only)
 };
 
+// Where the context of one model call went: the system prompt, the tool definitions and the conversation. Sizes are what the
+// request carries (bytes of text and JSON); tokens are an estimate from them (kBytesPerToken), not the provider's count.
+// The saving of the tool catalog (tool_catalog.h) shows as a smaller `toolBytes`.
+struct ContextSplit {
+    u64 systemBytes = 0;        // the system prompt, the tool catalog included
+    u64 catalogBytes = 0;       // of systemBytes: the one-line catalog of the commands that are not offered in full
+    u64 toolBytes = 0;          // the tool definitions (name, description, input schema)
+    u64 conversationBytes = 0;  // messages so far: text, tool calls, tool results (a picture counts as a fixed size)
+    int toolCount = 0;          // tools offered with their full definition
+    int catalogCount = 0;       // commands that are only a line of the catalog (reachable through tool_describe / tool_call)
+    bool known() const { return systemBytes || toolBytes || conversationBytes; }
+    u64 totalBytes() const { return systemBytes + toolBytes + conversationBytes; }
+    Json to_json() const;       // every size in bytes and estimated tokens
+    static ContextSplit from_json(const Json& j);
+};
+inline constexpr double kBytesPerToken = 3.75;  // the same estimate AI_COSTS.md uses for text and JSON
+u64 estimate_tokens(u64 bytes);
+// The split of a request about to be sent. catalogBytes and catalogCount stay 0: only the caller knows them.
+ContextSplit estimate_context(const ChatRequest& req);
+
 struct ChatResponse {
     Message message;  // assistant message (raw filled in)
     StopReason stopReason = StopReason::EndTurn;
@@ -155,6 +175,7 @@ struct AgentEvent {
     std::vector<LimitWindow> limits;  // plan windows the CLI reported (merge them by name)
     u64 contextTokens = 0;            // tokens in the model's context after its last call (input + cache)
     u64 contextWindow = 0;            // size of the model's context window
+    ContextSplit contextSplit;        // the built-in agent: where the context of the call went (known() false = not told)
 };
 const char* event_type_name(AgentEvent::Type t);
 // One short line saying what an event means for someone watching ("running Bash (cmake --build build)", "writing",

@@ -90,6 +90,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Since 0.4.0._
 - [`ai.run`](commands/ai.md#airun-modifies-state): Run an AI agent on a task in the current project (blocks until it finishes).
 - [`ai.session_timeline`](commands/ai.md#aisession_timeline): Show where the time of a recorded AI session went: the long gaps and what was going on in each. _Since 0.9.0._
+- [`ai.tool_plan`](commands/ai.md#aitool_plan): Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines. _Not released yet._
 - [`ai.tool_servers`](commands/ai.md#aitool_servers): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Since 0.8.0._
 
 ### [anim](commands/anim.md)

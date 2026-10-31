@@ -1150,12 +1150,25 @@ Since 0.9.0.
 
 Show where the time of a recorded AI session went: the long gaps and what was going on in each.
 
-Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", the UTC time with ms; tool_end has "ms", the duration of the tool; thinking has "ms", how long the model thought, also when its text is hidden). Returns `gaps`: each pause of at least minGapSeconds with start, end, seconds, activity (tool, thinking, model = waiting for the model, user = waiting for the user) and detail (the tool's name...), and `totals` per activity with the tools sorted by time. A session recorded before events carried times gives hasTimes false and a note. Example: {"minGapSeconds":60}
+Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", the UTC time with ms; tool_end has "ms", the duration of the tool; thinking has "ms", how long the model thought, also when its text is hidden). Returns `gaps`: each pause of at least minGapSeconds with start, end, seconds, activity (tool, thinking, model = waiting for the model, user = waiting for the user) and detail (the tool's name...), and `totals` per activity with the tools sorted by time. A session recorded before events carried times gives hasTimes false and a note. `context` splits what each model call carried (built-in agent only): per step the system prompt, the tool definitions and the conversation, in bytes and estimated tokens, plus how many commands were tools and how many only catalog lines, and the totals of the run. Example: {"minGapSeconds":60}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `session` | string | no | File name of the session (20261014-153012-orchestrator or with .jsonl) in .factoria/ai/sessions. Omit for the newest. |
 | `minGapSeconds` | number | no | List only the gaps at least this long (seconds). Totals always count every gap. Default 30. |
+
+### `ai.tool_plan`
+
+Not released yet (on main after 0.9.0).
+
+Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines.
+
+The built-in agent (API providers) does not send every command's definition on every step: it gets the core commands (files, docs, scene, running the game, validating, scripts) and the tool groups of the role (ai.json roles.<role>.toolGroups, default: artist assets, audio assets and audio) in full, plus tool_describe and tool_call, and lists the other commands in its system prompt. Returns `tools` (name and estimated bytes of each tool sent), `catalogCommands`, the estimated `toolBytes`/`toolTokens` against `fullBytes`/`fullTokens` (every command in full), `groups` (the tool groups loaded), `notes` (a group that matches nothing, with suggestions) and `categories` (per category: commands, inCatalog, inFull). CLI agents (claude-code...) choose their own tools; this plan is what the API providers get. Example: {"role":"artist","catalog":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `role` | string | no | Role to plan for: orchestrator, worker, fast, artist, audio, artCritic, reviewer. Default "orchestrator". |
+| `catalog` | boolean | no | Also list every catalog command (command, category, summary). Default false. |
 
 ### `ai.tool_servers`
 

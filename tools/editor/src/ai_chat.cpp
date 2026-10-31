@@ -203,6 +203,7 @@ Json AiChat::to_json() const {
                          {"costUsd", costUsd},
                          {"contextTokens", contextTokens},
                          {"contextWindow", contextWindow},
+                         {"contextSplit", contextSplit.to_json()},
                          {"items", its}});
 }
 
@@ -217,6 +218,7 @@ AiChat AiChat::from_json(const Json& j) {
     c.costUsd = num_of(j, "costUsd");
     c.contextTokens = static_cast<u64>(num_of(j, "contextTokens"));
     c.contextWindow = static_cast<u64>(num_of(j, "contextWindow"));
+    if (j.contains("contextSplit")) c.contextSplit = ai::ContextSplit::from_json(j["contextSplit"]);
     if (j.contains("items") && j["items"].is_array()) {
         for (const auto& it : j["items"]) c.items.push_back(ChatItem::from_json(it));
     }

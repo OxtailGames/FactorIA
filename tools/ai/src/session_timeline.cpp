@@ -37,6 +37,37 @@ struct Bucket {
     Json to_json() const { return Json::object({{"seconds", std::round(seconds * 10) / 10}, {"count", count}}); }
 };
 
+// Where the context of each model call went (the "context" of the assistant lines: system prompt, tool definitions, conversation;
+// sizes estimated from the request, see ContextSplit). Totals add the calls up: what the whole run sent, before caching.
+Json context_summary(const std::vector<ContextSplit>& steps) {
+    Json out = Json::object({{"known", !steps.empty()}});
+    if (steps.empty()) {
+        out["note"] = "This session has no context sizes: it was recorded by an engine that did not measure them, or by a CLI agent "
+                      "(which sends its own tool list).";
+        out["steps"] = Json::array();
+        return out;
+    }
+    ContextSplit sum;
+    Json list = Json::array();
+    int n = 0;
+    for (const ContextSplit& c : steps) {
+        sum.systemBytes += c.systemBytes;
+        sum.catalogBytes += c.catalogBytes;
+        sum.toolBytes += c.toolBytes;
+        sum.conversationBytes += c.conversationBytes;
+        Json step = c.to_json();
+        step["step"] = ++n;
+        list.push_back(std::move(step));
+    }
+    out["steps"] = list;
+    out["totals"] = Json::object({{"systemTokens", estimate_tokens(sum.systemBytes)},
+                                  {"toolTokens", estimate_tokens(sum.toolBytes)},
+                                  {"conversationTokens", estimate_tokens(sum.conversationBytes)},
+                                  {"totalTokens", estimate_tokens(sum.totalBytes())},
+                                  {"toolShare", sum.totalBytes() ? std::round(1000.0 * sum.toolBytes / sum.totalBytes()) / 1000 : 0.0}});
+    return out;
+}
+
 }  // namespace
 
 Result<std::string> find_session_file(const std::string& projectDir, const std::string& session) {
@@ -67,6 +98,7 @@ Result<std::string> find_session_file(const std::string& projectDir, const std::
 
 Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
     std::vector<TimedLine> lines;
+    std::vector<ContextSplit> contexts;
     int total = 0;
     std::istringstream in(text);
     std::string raw;
@@ -75,6 +107,9 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
         Json j = Json::parse(raw, nullptr, false);
         if (!j.is_object()) continue;
         ++total;
+        if (str(j, "kind") == "assistant") {
+            if (const Json* c = child(j, "context"); c && c->is_object()) contexts.push_back(ContextSplit::from_json(*c));
+        }
         std::int64_t t = 0;
         if (!parse_iso_utc_ms(str(j, "t"), t)) continue;
         TimedLine l;
@@ -92,6 +127,7 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
         lines.push_back(std::move(l));
     }
     Json out = Json::object({{"events", total}, {"timedEvents", lines.size()}, {"minGapSeconds", minGapSeconds}});
+    out["context"] = context_summary(contexts);
     if (lines.size() < 2) {
         out["hasTimes"] = false;
         out["note"] = lines.empty() ? "This session has no times: it was recorded before every event carried \"t\", so no timeline can be made."
