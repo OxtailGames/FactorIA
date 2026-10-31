@@ -53,7 +53,7 @@ struct CliRunRequest {
     std::vector<std::string> skillDirs;
     Json hooks;
     bool userPluginsOff = false;
-    // The project's .claude/settings*.json runs a program and the project is not trusted: Claude Code starts without the
+    // The project's .claude/settings*.json runs a program or widens what the AI may do (env, allowed tools) and the project is not trusted: Claude Code starts without the
     // project and local setting sources (ExtensionPlan::projectSettingsOff).
     bool projectSettingsOff = false;
     // Called once with the CLI process's pid when it started (ProcessOptions::onStart).

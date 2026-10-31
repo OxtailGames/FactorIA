@@ -483,7 +483,7 @@ bool project_extensions_trusted(std::string_view trustPath, std::string_view pro
 Result<void> trust_project_extensions(std::string_view trustPath, std::string_view projectDir, std::string_view hash,
                                       std::string_view claudeHash) {
     if (hash.empty() && claudeHash.empty())
-        return err("This project has nothing to trust: no .factoria/extensions.json and no program in .claude/settings*.json",
+        return err("This project has nothing to trust: no .factoria/extensions.json and nothing in .claude/settings*.json that needs trust",
                    "Add extensions to the project first.");
     Json root = read_trust(trustPath);
     if (!root.contains("projects")) {
@@ -510,8 +510,19 @@ namespace {
 
 bool non_empty_container(const Json* v) { return v && ((v->is_object() || v->is_array()) && !v->empty()); }
 
-// Which settings of a Claude Code settings file name a program to run.
-std::vector<std::string> settings_programs(const Json& s) {
+// "a, b, c" of the first few strings, then "+N more".
+std::string joined(const std::vector<std::string>& names, std::size_t most = 5) {
+    std::string out;
+    for (std::size_t i = 0; i < names.size() && i < most; ++i) out += (i ? ", " : "") + names[i];
+    if (names.size() > most) out += " +" + std::to_string(names.size() - most) + " more";
+    return out;
+}
+
+// What a Claude Code settings file asks for that needs the user's trust: a program to run (hooks, plugins, commands) and what
+// widens the AI's reach without a dialog (-p mode has none): env (a base URL or a proxy sends the requests, with the user's key,
+// elsewhere; BASH_ENV, NODE_OPTIONS, PATH, LD_PRELOAD change what programs do), permissions.allow, a defaultMode other than
+// "default", additionalDirectories. permissions.deny and ask only restrict, so they do not count.
+std::vector<std::string> settings_grants(const Json& s) {
     std::vector<std::string> out;
     if (!s.is_object()) return out;
     if (const Json* hooks = child(s, "hooks"); non_empty_container(hooks) && hooks->is_object()) {
@@ -547,6 +558,24 @@ std::vector<std::string> settings_programs(const Json& s) {
     if (const Json* v = child(s, "enableAllProjectMcpServers"); v && v->is_boolean() && v->get<bool>())
         out.push_back("enableAllProjectMcpServers");
     if (const Json* v = child(s, "enabledMcpjsonServers"); non_empty_container(v)) out.push_back("enabledMcpjsonServers");
+    if (const Json* env = child(s, "env"); non_empty_container(env) && env->is_object()) {
+        std::vector<std::string> names;
+        for (auto it = env->begin(); it != env->end(); ++it) names.push_back(it.key());
+        out.push_back("env (" + joined(names) + ")");
+    }
+    if (const Json* perms = child(s, "permissions"); perms && perms->is_object()) {
+        if (const Json* allow = child(*perms, "allow"); allow && allow->is_array()) {
+            std::vector<std::string> rules;
+            for (const Json& r : *allow)
+                if (r.is_string() && !r.get<std::string>().empty()) rules.push_back(r.get<std::string>());
+            if (!rules.empty()) out.push_back("permissions.allow (" + joined(rules) + ")");
+        }
+        if (const Json* mode = child(*perms, "defaultMode"); mode && mode->is_string() && !mode->get<std::string>().empty() &&
+                                                              mode->get<std::string>() != "default")
+            out.push_back("permissions.defaultMode (" + mode->get<std::string>() + ")");
+        if (const Json* dirs = child(*perms, "additionalDirectories"); non_empty_container(dirs) && dirs->is_array())
+            out.push_back("permissions.additionalDirectories (" + std::to_string(dirs->size()) + ")");
+    }
     return out;
 }
 
@@ -555,9 +584,9 @@ std::vector<std::string> settings_programs(const Json& s) {
 std::vector<std::string> ClaudeProjectSettings::describe() const {
     std::vector<std::string> out;
     for (const ClaudeSettingsFile& f : files) {
-        if (f.programs.empty()) continue;
+        if (f.grants.empty()) continue;
         std::string line = ".claude/" + fsys::path(f.path).filename().string() + ": ";
-        for (std::size_t i = 0; i < f.programs.size(); ++i) line += (i ? ", " : "") + f.programs[i];
+        for (std::size_t i = 0; i < f.grants.size(); ++i) line += (i ? ", " : "") + f.grants[i];
         out.push_back(std::move(line));
     }
     return out;
@@ -581,7 +610,7 @@ ClaudeProjectSettings load_claude_project_settings(std::string_view projectDir) 
                 f.hash = sha256_hex(bytes);
                 auto parsed = fa::parse_json(bytes, f.path);
                 if (parsed) {
-                    f.programs = settings_programs(*parsed);
+                    f.grants = settings_grants(*parsed);
                 } else {
                     f.error = parsed.error().message;
                 }
@@ -589,7 +618,7 @@ ClaudeProjectSettings load_claude_project_settings(std::string_view projectDir) 
                 f.error = text.error().message;
             }
         }
-        runs = runs || !f.programs.empty();
+        runs = runs || !f.grants.empty();
         material += std::string(name) + '\n' + (f.exists ? "1" : "0") + '\n' + f.hash + '\n';
         out.files.push_back(std::move(f));
     }

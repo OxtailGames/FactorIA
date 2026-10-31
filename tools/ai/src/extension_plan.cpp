@@ -274,7 +274,7 @@ ProjectTrustState read_project_trust(const ExtensionContext& ctx, bool dropStale
     st.claude = load_claude_project_settings(ctx.projectDir);
     bool programEntry = false;
     for (const Extension& e : st.extensions.entries) programEntry = programEntry || e.runs_program();
-    st.needsTrust = programEntry || st.claude.runs_programs();
+    st.needsTrust = programEntry || st.claude.needs_trust();
     // The trust is for both sources at once: a file that fails to parse cannot be trusted.
     if (st.extensions.error.empty())
         st.trusted = project_extensions_trusted(ctx.trustPath, ctx.projectDir, st.extensions.hash, nullptr, dropStale, st.claude.hash);
@@ -284,9 +284,10 @@ ProjectTrustState read_project_trust(const ExtensionContext& ctx, bool dropStale
 std::string untrusted_settings_message(const std::vector<std::string>& described) {
     std::string list;
     for (const std::string& d : described) list += (list.empty() ? "" : "; ") + d;
-    return "The project's Claude Code settings run programs (" + list + ") and you have not trusted this project, so Claude Code "
-           "started without its project and local settings: those hooks, plugins and commands did not run, and the permissions and env "
-           "in those files were not applied either. To load them, read them in the editor (AI settings > Extensions > This project) and "
+    return "The project's Claude Code settings run programs or widen what the AI may do (" + list + ") and you have not trusted "
+           "this project, so Claude Code started without its project and local settings: those hooks, plugins, commands, env "
+           "variables and allowed tools did not apply, and neither did the rest of those files (their deny rules and other settings). "
+           "To load them, read them in the editor (AI settings > Extensions > This project) and "
            "choose Trust this project; the trust ends when either file changes.";
 }
 
@@ -308,7 +309,7 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
         for (const Extension& e : project.entries)
             if (e.serves_role(role)) entries.push_back(&e);
     }
-    if (provider.kind == ProviderKind::ClaudeCode && state.claude.runs_programs() && !projectTrusted) {
+    if (provider.kind == ProviderKind::ClaudeCode && state.claude.needs_trust() && !projectTrusted) {
         plan.projectSettingsOff = true;
         plan.untrustedSettings = state.claude.describe();
     }
@@ -415,13 +416,13 @@ Json extensions_report(const AiConfig& cfg, const ExtensionContext& ctx, std::st
         // The project's own Claude Code settings: read, never loaded for the user, and kept out of runs until trusted.
         Json files = Json::array();
         for (const ClaudeSettingsFile& f : state.claude.files) {
-            Json fj = Json::object({{"path", f.path}, {"exists", f.exists}, {"runsPrograms", !f.programs.empty()}, {"programs", f.programs}});
+            Json fj = Json::object({{"path", f.path}, {"exists", f.exists}, {"needsTrust", !f.grants.empty()}, {"grants", f.grants}});
             if (f.exists) fj["hash"] = f.hash;
             if (!f.error.empty()) fj["error"] = f.error;
             files.push_back(std::move(fj));
         }
-        Json cs = Json::object({{"files", std::move(files)}, {"runsPrograms", state.claude.runs_programs()}});
-        if (state.claude.runs_programs()) {
+        Json cs = Json::object({{"files", std::move(files)}, {"needsTrust", state.claude.needs_trust()}});
+        if (state.claude.needs_trust()) {
             cs["hash"] = state.claude.hash;
             cs["trusted"] = projectTrusted;
             cs["loadedByClaudeCode"] = projectTrusted;
@@ -510,7 +511,7 @@ std::vector<std::string> extension_doctor_lines(const AiConfig& cfg, const Exten
         if (item.problem.empty()) continue;
         lines.push_back(std::string("  ! ") + extension_kind_name(e->kind) + " '" + e->name + "' (" + e->source + "): " + item.problem + ". " + item.fix);
     }
-    if (state.claude.runs_programs() && !projectTrusted)
+    if (state.claude.needs_trust() && !projectTrusted)
         lines.push_back("  ! " + untrusted_settings_message(state.claude.describe()));
     for (const DeniedTool& d : find_denied_factoria_tools(ctx.projectDir)) lines.push_back("  ! " + format_denied_tool(d));
     return lines;

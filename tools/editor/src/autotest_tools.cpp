@@ -4561,7 +4561,7 @@ void Editor::at_build_tools_script() {
         click("aiset:ext:review");
         step(3, [this] {
             at_check(aiSettings_.ext.showTrust && at_visible("aiset:ext:trust"), "Review what would run opens the list and the Trust button");
-            at_check(aiSettings_.ext.claudePrograms.size() == 1 && aiSettings_.ext.claudePrograms[0].find("settings.local.json: hooks (SessionStart)") != std::string::npos,
+            at_check(aiSettings_.ext.claudeGrants.size() == 1 && aiSettings_.ext.claudeGrants[0].find("settings.local.json: hooks (SessionStart)") != std::string::npos,
                      "...which also lists what the project's .claude/settings.local.json would run");
             const ai::AiConfig cfg = [&] {
                 std::lock_guard<std::mutex> lock(aiMu_);
@@ -4577,7 +4577,7 @@ void Editor::at_build_tools_script() {
         step(4, [this, x] {
             const ai::ProjectExtensions pe = ai::load_project_extensions(projectDir_);
             const ai::ClaudeProjectSettings claude = ai::load_claude_project_settings(projectDir_);
-            at_check(aiSettings_.ext.projectTrusted && claude.runs_programs() &&
+            at_check(aiSettings_.ext.projectTrusted && claude.needs_trust() &&
                          ai::project_extensions_trusted(ai::extensions_trust_path(x->path), projectDir_, pe.hash, nullptr, false, claude.hash),
                      "Trust this project records the trust for both the extensions file and .claude/settings*.json (" + aiSettings_.ext.trustMessage + ")");
             const ai::AiConfig cfg = [&] {
