@@ -772,7 +772,7 @@ public:
     std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in the Roles tab
     std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
     bool showAiSettings_ = false, aiSettingsFocus_ = false;
-    int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets
+    int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets, 3 External tools, 4 Extensions
     struct AiSettingsDraft {                       // the AI settings window's working copy (dropped when it closes: a typed key must not linger)
         bool loaded = false;
         std::string path;                          // the ai.json it saves into
@@ -804,6 +804,27 @@ public:
             std::string saveError;
             std::shared_ptr<ToolTests> tests = std::make_shared<ToolTests>();
         } tools;
+        // The "Extensions" tab: plugins, skill folders and hooks (ai.json "extensions" and the project's .factoria/extensions.json).
+        struct ExtensionsDraft {
+            std::vector<ai::Extension> user;           // the user's entries, the working copy
+            bool inherit = true;                       // inheritUserPlugins
+            std::vector<ai::Extension> project;        // the open project's entries (.factoria/extensions.json), the working copy
+            bool projectExists = false;                // the project's file exists on disk
+            std::string projectError;                  // why the project's file could not be read ("" = fine)
+            std::string projectHash;                   // hash of the file as read; the trust applies to exactly this
+            bool projectTrusted = false;               // the user trusted the project for projectHash
+            std::vector<ai::Extension> userLoaded, projectLoaded;  // as saved, to tell what changed
+            int addKind = 0;                           // the add row: 0 plugin folder or .zip, 1 skill folder, 2 installed plugin name@marketplace
+            bool addToProject = false;                 // keep the new entry in the project's file instead of ai.json
+            std::string addPath, addName, addError;
+            bool showHooks = false;
+            std::string hooksText, hooksName, hooksMessage;
+            bool hooksFailed = false;
+            bool showTrust = false;                    // the "what would run" list of the Trust this project step
+            std::string saveError, trustMessage;
+            std::map<std::string, std::string> status; // by "kind:source:name": why it cannot load ("" = ready), refreshed every second
+            double statusAt = -10;
+        } ext;
     } aiSettings_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
     ai::HttpTransport aiToolTransport_;  // test hook: the HTTP the External tools tab's Test button uses (empty = the network)
@@ -814,6 +835,8 @@ public:
     Result<ai::ToolServer> ai_tool_form_build() const;  // the form as a server, validated like ai.json would
     void ai_tool_test(const ai::ToolServer& server);    // Test button: connects off the main thread, writes the draft's ToolTests
     void ai_settings_discard();           // closes the draft (stops a running Test)
+    void draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable);  // ai_extensions.cpp
+    void ai_extensions_load(const ai::AiConfig& cfg);   // the Extensions draft from the loaded config and the open project's file
 
     // autotest
     bool autotest_ = false;
