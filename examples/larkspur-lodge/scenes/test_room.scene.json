@@ -1,0 +1,919 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "ambientLight": [0.26, 0.28, 0.38, 1],
+    "skyColor": [0.02, 0.03, 0.07, 1],
+    "horizonColor": [0.05, 0.06, 0.12, 1]
+  },
+  "entities": [
+    {
+      "id": "hud",
+      "prefab": "prefabs/ui/hud.prefab.json"
+    },
+    {
+      "id": "moon",
+      "components": {
+        "Transform": {
+          "position": [8.0, 12, 5.0],
+          "rotation": [-52, 28, 0]
+        },
+        "Light": {
+          "type": "directional",
+          "color": [0.55, 0.66, 1.0, 1],
+          "intensity": 0.55,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": "navmesh",
+      "components": {
+        "Transform": {
+          "position": [8.0, 1.5, 5.0]
+        },
+        "NavMesh3D": {
+          "size": [22.0, 4, 16.0],
+          "agentRadius": 0.3,
+          "agentHeight": 1.75,
+          "stepHeight": 0.3,
+          "cellSize": 0.2
+        }
+      }
+    },
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [5.0, 6, 14.0],
+          "rotation": [-35, 0, 0]
+        },
+        "Camera": {
+          "projection": "perspective",
+          "fov": 52,
+          "nearPlane": 0.1,
+          "farPlane": 120,
+          "primary": true,
+          "clearColor": [0.03, 0.04, 0.08, 1]
+        },
+        "Script": {
+          "path": "scripts/lodge_camera.js"
+        }
+      }
+    },
+    {
+      "id": "porter",
+      "tags": ["porter"],
+      "components": {
+        "Transform": {
+          "position": [5.0, 0.95, 8.0]
+        },
+        "CharacterController3D": {
+          "radius": 0.3,
+          "height": 1.75,
+          "center": [0, 0, 0],
+          "stepOffset": 0.3,
+          "slopeLimit": 45
+        },
+        "Script": {
+          "path": "scripts/porter.js"
+        }
+      },
+      "children": [
+        {
+          "id": "porter_model",
+          "components": {
+            "Transform": {
+              "position": [0, -0.875, 0],
+              "rotation": [0, 180, 0],
+              "scale": [0.7, 0.7, 0.7]
+            },
+            "MeshRenderer": {
+              "mesh": "assets/models/characters/character-b.glb",
+              "castShadows": true,
+              "emissive": [0.1, 0.09, 0.09]
+            },
+            "Animator": {
+              "params": {
+                "speed": 0.0,
+                "interact": false,
+                "pickup": false
+              },
+              "states": {
+                "idle": {
+                  "clip": "idle"
+                },
+                "walk": {
+                  "clip": "walk"
+                },
+                "run": {
+                  "clip": "sprint"
+                },
+                "interact": {
+                  "clip": "interact-right",
+                  "loop": false
+                },
+                "pickup": {
+                  "clip": "pick-up",
+                  "loop": false
+                }
+              },
+              "transitions": [
+                {
+                  "to": "interact",
+                  "when": "interact",
+                  "fade": 0.1
+                },
+                {
+                  "to": "pickup",
+                  "when": "pickup",
+                  "fade": 0.1
+                },
+                {
+                  "from": "interact",
+                  "to": "idle",
+                  "onFinish": true,
+                  "fade": 0.15
+                },
+                {
+                  "from": "pickup",
+                  "to": "idle",
+                  "onFinish": true,
+                  "fade": 0.15
+                },
+                {
+                  "from": "idle",
+                  "to": "walk",
+                  "when": "speed > 0.3",
+                  "fade": 0.15
+                },
+                {
+                  "from": "walk",
+                  "to": "run",
+                  "when": "speed > 3.6",
+                  "fade": 0.15
+                },
+                {
+                  "from": "run",
+                  "to": "walk",
+                  "when": "speed <= 3.2 && speed > 0.3",
+                  "fade": 0.15
+                },
+                {
+                  "from": "walk",
+                  "to": "idle",
+                  "when": "speed <= 0.3",
+                  "fade": 0.2
+                },
+                {
+                  "from": "run",
+                  "to": "idle",
+                  "when": "speed <= 0.3",
+                  "fade": 0.2
+                }
+              ],
+              "events": [
+                {
+                  "clip": "walk",
+                  "time": 0.1,
+                  "name": "footstep"
+                },
+                {
+                  "clip": "walk",
+                  "time": 0.55,
+                  "name": "footstep"
+                },
+                {
+                  "clip": "sprint",
+                  "time": 0.05,
+                  "name": "footstep"
+                },
+                {
+                  "clip": "sprint",
+                  "time": 0.4,
+                  "name": "footstep"
+                }
+              ],
+              "state": "idle"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "area",
+      "components": {
+        "Script": {
+          "path": "scripts/area.js",
+          "props": {
+            "area": "test_room",
+            "titleKey": "area.testRoom",
+            "preload": []
+          }
+        }
+      }
+    },
+    {
+      "id": "sound",
+      "components": {
+        "Script": {
+          "path": "scripts/sound.js"
+        }
+      }
+    },
+    {
+      "id": "pause_menu",
+      "components": {
+        "Script": {
+          "path": "scripts/pause_menu.js"
+        }
+      }
+    },
+    {
+      "id": "dialogue",
+      "components": {
+        "Script": {
+          "path": "scripts/dialogue_view.js"
+        }
+      }
+    },
+    {
+      "id": "screens",
+      "components": {
+        "Script": {
+          "path": "scripts/screens.js"
+        }
+      }
+    },
+    {
+      "id": "f_main",
+      "components": {
+        "Transform": {
+          "position": [0.0, -0.05, 10.0],
+          "scale": [10.0, 1, 10.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/floorFull.glb",
+          "color": [0.5, 0.4, 0.3, 1],
+          "castShadows": false
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.5, 1],
+          "offset": [0.5, -0.2, -0.5],
+          "layer": 0,
+          "friction": 0.8
+        }
+      }
+    },
+    {
+      "id": "f_closet",
+      "components": {
+        "Transform": {
+          "position": [10.0, -0.05, 8.0],
+          "scale": [6.0, 1, 6.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/floorFull.glb",
+          "color": [0.4, 0.4, 0.45, 1],
+          "castShadows": false
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 0.5, 1],
+          "offset": [0.5, -0.2, -0.5],
+          "layer": 0,
+          "friction": 0.8
+        }
+      }
+    },
+    {
+      "id": "w_n",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [-0.05, 0.0, 0.05],
+          "rotation": [0, 0, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_window",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [2.0, 0.0, 0.05],
+          "rotation": [0, 0, 0],
+          "scale": [2.0, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wallWindow.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_n_1",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [3.95, 0.0, 0.05],
+          "rotation": [0, 0, 0],
+          "scale": [4.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_n_2",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [7.95, 0.0, 0.05],
+          "rotation": [0, 0, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_n_3",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [9.95, 0.0, 2.05],
+          "rotation": [0, 0, 0],
+          "scale": [4.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_n_4",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [13.95, 0.0, 2.05],
+          "rotation": [0, 0, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_n_5",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [9.95, 0.0, 8.05],
+          "rotation": [0, 0, 0],
+          "scale": [4.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_n_6",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [13.95, 0.0, 8.05],
+          "rotation": [0, 0, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_n_7",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [-0.05, 0.0, 10.05],
+          "rotation": [0, 0, 0],
+          "scale": [4.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_n_8",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [3.95, 0.0, 10.05],
+          "rotation": [0, 0, 0],
+          "scale": [4.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_n_9",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [7.95, 0.0, 10.05],
+          "rotation": [0, 0, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_e",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [0.05, 0.0, 4.05],
+          "rotation": [0, 90, 0],
+          "scale": [4.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_e_1",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [0.05, 0.0, 8.05],
+          "rotation": [0, 90, 0],
+          "scale": [4.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_e_2",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [0.05, 0.0, 10.05],
+          "rotation": [0, 90, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_e_3",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [10.05, 0.0, 2.05],
+          "rotation": [0, 90, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_e_4",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [10.05, 0.0, 4.05],
+          "rotation": [0, 90, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 1
+        }
+      }
+    },
+    {
+      "id": "w_doorway",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [10.05, 0.0, 6.0],
+          "rotation": [0, 90, 0],
+          "scale": [2.0, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wallDoorway.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "mesh",
+          "mesh": "assets/models/lodge/wallDoorway.glb",
+          "layer": 1
+        }
+      }
+    },
+    {
+      "id": "w_e_5",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [10.05, 0.0, 8.05],
+          "rotation": [0, 90, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 1
+        }
+      }
+    },
+    {
+      "id": "w_e_6",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [10.05, 0.0, 10.05],
+          "rotation": [0, 90, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_e_7",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [16.05, 0.0, 6.05],
+          "rotation": [0, 90, 0],
+          "scale": [4.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "w_e_8",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [16.05, 0.0, 8.05],
+          "rotation": [0, 90, 0],
+          "scale": [2.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 3
+        }
+      }
+    },
+    {
+      "id": "test_door",
+      "tags": ["interactable", "fade", "door"],
+      "components": {
+        "Transform": {
+          "position": [10.089, 0, 5.486],
+          "rotation": [0, 90, 0],
+          "scale": [2, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/doorway.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.5, 1.01, 0.12],
+          "offset": [0.245, 0.505, -0.01],
+          "layer": 1,
+          "navObstacle": true
+        },
+        "Script": {
+          "path": "scripts/interactable.js",
+          "props": {
+            "name": "object.test_door",
+            "requiresItem": "test_key",
+            "lockedText": "door.testLocked",
+            "kind": "door",
+            "point": [10.0, 5.0]
+          }
+        }
+      }
+    },
+    {
+      "id": "w_screen",
+      "tags": ["wall", "fade"],
+      "components": {
+        "Transform": {
+          "position": [1.95, 0.0, 6.05],
+          "rotation": [0, 0, 0],
+          "scale": [4.1, 2, 2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/wall.glb",
+          "color": [0.9, 0.85, 0.8, 1]
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [1, 1.29, 0.125],
+          "offset": [0.5, 0.645, -0.025],
+          "layer": 1
+        }
+      }
+    },
+    {
+      "id": "p_test_box",
+      "tags": ["interactable"],
+      "components": {
+        "Transform": {
+          "position": [1.366, 0.0, 8.234],
+          "rotation": [0, 0, 0],
+          "scale": [2.2, 2.2, 2.2]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/cardboardBoxClosed.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.212, 0.281, 0.212],
+          "offset": [0.106, 0.141, -0.106],
+          "layer": 2
+        },
+        "Script": {
+          "path": "scripts/interactable.js",
+          "props": {
+            "kind": "item",
+            "name": "object.test_box",
+            "item": "test_key",
+            "once": "test_box_taken",
+            "point": [1.6, 8.0]
+          }
+        }
+      }
+    },
+    {
+      "id": "p_test_bear",
+      "tags": ["interactable"],
+      "components": {
+        "Transform": {
+          "position": [8.085, 0.0, 7.629],
+          "rotation": [0, 180, 0],
+          "scale": [3.0, 3.0, 3.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/bear.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.39, 0.45, 0.247],
+          "offset": [0.195, 0.225, -0.124],
+          "layer": 2
+        },
+        "Script": {
+          "path": "scripts/interactable.js",
+          "props": {
+            "kind": "examine",
+            "name": "object.hall_bear",
+            "text": "examine.hallBear",
+            "point": [7.5, 8.0]
+          }
+        }
+      }
+    },
+    {
+      "id": "p_test_shelf",
+      "tags": ["fade"],
+      "components": {
+        "Transform": {
+          "position": [12.52, 0.0, 3.0],
+          "rotation": [0, 0, 0],
+          "scale": [2.4, 2.4, 2.4]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/bookcaseOpen.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.4, 0.88, 0.25],
+          "offset": [0.2, 0.44, -0.125],
+          "layer": 1
+        }
+      }
+    },
+    {
+      "id": "p_tableCoffee",
+      "tags": [],
+      "components": {
+        "Transform": {
+          "position": [13.261, 0.0, 6.2],
+          "rotation": [0, 0, 0],
+          "scale": [2.0, 2.0, 2.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/lodge/tableCoffee.glb"
+        },
+        "Collider3D": {
+          "shape": "box",
+          "size": [0.661, 0.23, 0.4],
+          "offset": [-0.13, 0.115, -0.1],
+          "layer": 2
+        }
+      }
+    },
+    {
+      "id": "light_main",
+      "components": {
+        "Transform": {
+          "position": [5.0, 2.3, 5.0]
+        },
+        "Light": {
+          "type": "point",
+          "color": [1.0, 0.82, 0.6, 1],
+          "intensity": 1.2,
+          "range": 9
+        }
+      }
+    },
+    {
+      "id": "light_closet",
+      "components": {
+        "Transform": {
+          "position": [13.0, 2.2, 4.0]
+        },
+        "Light": {
+          "type": "point",
+          "color": [0.6, 0.75, 1.0, 1],
+          "intensity": 0.8,
+          "range": 6
+        }
+      }
+    },
+    {
+      "id": "spawn_default",
+      "tags": ["spawn"],
+      "components": {
+        "Transform": {
+          "position": [5.0, 0.95, 8.0],
+          "rotation": [0, 0, 0]
+        }
+      }
+    }
+  ]
+}

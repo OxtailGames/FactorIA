@@ -38,6 +38,17 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"N", "Project panel"},
     {"O", "CLI agent through the editor's MCP endpoint"},
     {"P", "Revert an AI run: checkpoint, Revert, Undo revert"},
+    {"Q", "AI agent liveness: stuck warning, Check activity, a worker that outlives the orchestrator's turn"},
+    {"R", "Program updated on disk: the Restart notice, its button state, Not now"},
+    {"U", "Editor layout kept: changed panels come back after reopening and after the welcome screen; Reset layout"},
+    {"V", "AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator"},
+    {"W", "Several AI chats at once: both finish, same-file warning, the cap, Revert of one run, Stop of one run"},
+    {"X", "AI settings window: asset providers, a key, asset sites; a bad site stops Save; Remove stored key"},
+    {"Y", "Recipes: stale badge, the banner when a source is saved, Regenerate (toolbar and banner), a missing source"},
+    {"Z", "Sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets SpriteAnimator.clip"},
+    {"B2", "Animation panel: new clip, keys recorded by a gizmo drag, a key moved and undone, easing, an event, scrubbing, onion skin"},
+    {"C2", "Bone tools: a chain drawn by clicks, a sprite bound, weights painted (one undo step), an IK handle dragged, the overlay of the selected bone"},
+    {"D2", "AI settings, External tools tab: add a server with the form, Test, paste Claude Code JSON, Save keeps the other keys, Remove"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

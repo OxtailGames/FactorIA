@@ -17,8 +17,19 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
         if (error) *error = "No project is open.";
         return r;
     }
+    lastEditRecorded_ = false;
+    // Record mode (Animation panel): a change of an animatable field of a part of the animated entity becomes a key at the
+    // playhead; the scene keeps its rest value.
+    if (play_ == PlayState::Edit && name == "scene.set_component" && anim_recording() && anim_record_edit(key, args, r, error)) {
+        lastEditRecorded_ = r.ok;
+        return r;
+    }
     const CommandInfo* ci = engine_->commands().info(name);
     const bool snapshot = play_ == PlayState::Edit && ci && !ci->readOnly && command_edits_scene(name, args);
+    if (snapshot && anim_.posed) {  // the undo step and the file must hold rest values, not the pose; the panel poses again
+        anim_unpose();
+        anim_.dirtyPose = true;
+    }
     // begin_edit pushes the undo step before the call. A refused call must not leave an empty step (or lose the redo list), so
     // what begin_edit changes is put back when the command fails.
     std::vector<Json> savedRedo;

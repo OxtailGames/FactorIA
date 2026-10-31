@@ -1,0 +1,1065 @@
+{
+  "$name": "Español",
+  "format": {
+    "list": ", "
+  },
+  "number": {
+    "units": "1000= mil;1000000= M"
+  },
+  "credits": {
+    "madeWith": "Hecho con FactorIA",
+    "software": "Este juego usa el siguiente software:",
+    "licenses": "Los textos completos de las licencias están en FACTORIA_NOTICES.txt, incluido con el juego."
+  },
+  "loading": {
+    "progress": "Cargando... {percent} %"
+  },
+  "menu": {
+    "title": "Tidewater Market",
+    "tagline": "Haz crecer un pueblo portuario, un camino y un oficio a la vez.",
+    "play": "Jugar",
+    "options": "Opciones",
+    "credits": "Créditos",
+    "shop": "Tienda",
+    "quit": "Salir",
+    "back": "Volver"
+  },
+  "options": {
+    "title": "Opciones",
+    "tab": {
+      "video": "Vídeo",
+      "audio": "Audio",
+      "controls": "Controles",
+      "language": "Idioma",
+      "access": "Accesibilidad"
+    },
+    "windowMode": "Modo de ventana: {mode}",
+    "mode": {
+      "windowed": "ventana",
+      "borderless": "sin bordes",
+      "fullscreen": "pantalla completa"
+    },
+    "monitor": "Monitor: {n} - {name}",
+    "vsync": "VSync",
+    "windowSize": "Tamaño de ventana: {width} x {height}",
+    "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
+    "frameCap": "Límite de fotogramas: {fps} fps",
+    "frameCapOff": "Límite de fotogramas: sin límite",
+    "colorFilter": "Filtro de color: {filter}",
+    "filter": {
+      "none": "desactivado",
+      "greyscale": "escala de grises",
+      "highContrast": "alto contraste",
+      "protanopia": "protanopía (rojo)",
+      "deuteranopia": "deuteranopía (verde)",
+      "tritanopia": "tritanopía (azul)"
+    },
+    "videoNote": "Los ajustes de vídeo se aplican cuando el juego se ejecuta en su propia ventana.",
+    "volume": {
+      "master": "General",
+      "music": "Música",
+      "effects": "Efectos",
+      "interface": "Interfaz",
+      "ambience": "Ambiente"
+    },
+    "action": {
+      "pan_left": "Desplazar a la izquierda",
+      "pan_right": "Desplazar a la derecha",
+      "pan_up": "Desplazar hacia arriba",
+      "pan_down": "Desplazar hacia abajo",
+      "pan_drag": "Arrastrar el mapa",
+      "primary_shift": "Carretera o derribo en dos clics",
+      "zoom_in": "Acercar",
+      "zoom_out": "Alejar",
+      "rotate": "Girar edificio",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "tool_demolish": "Herramienta de derribo",
+      "tool_cancel": "Guardar la herramienta",
+      "pause": "Pausa",
+      "speed_pause": "Pausar el reloj",
+      "speed_1": "Velocidad normal",
+      "speed_2": "Rápido",
+      "speed_3": "Muy rápido",
+      "pause_toggle": "Pausar o reanudar el reloj",
+      "tool_next": "Siguiente edificio",
+      "tool_prev": "Edificio anterior",
+      "cat_prev": "Categoría anterior",
+      "cat_next": "Categoría siguiente"
+    },
+    "binding": "{action}: {button}",
+    "player": "Jugador {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
+    "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
+    "resetControls": "Restablecer valores",
+    "language": "Idioma: {language}",
+    "readAloud": "Leer los menús en voz alta",
+    "subtitles": "Subtítulos",
+    "privacyOptions": "Privacidad de los anuncios",
+    "analytics": "Compartir datos de uso anónimos",
+    "on": "sí",
+    "off": "no",
+    "percent": "{value} por ciento",
+    "safeColors": "Señales para daltonismo",
+    "reducedMotion": "Movimiento reducido",
+    "holdFree": "Controles sin mantener",
+    "textScale": "Tamaño del texto: {value} %",
+    "uiScale": "Tamaño de la interfaz: {value} %",
+    "accessNote": "Las señales añaden patrones y marcas. Movimiento reducido: sin suavizado de cámara, avisos que no se desvanecen, imagen de título fija. Sin mantener: clics, sin mantener ni arrastrar. Cada cambio se aplica al instante y se guarda.",
+    "conflict": "{button} ya hace «{other}». Elige otro botón para «{action}» o cambia antes «{other}»."
+  },
+  "pause": {
+    "title": "En pausa",
+    "resume": "Continuar",
+    "mainMenu": "Menú principal",
+    "save": "Guardar partida"
+  },
+  "terrain": {
+    "water": "agua",
+    "sand": "arena",
+    "grass": "hierba",
+    "forest": "bosque",
+    "rock": "roca"
+  },
+  "good": {
+    "fish": "pescado",
+    "grain": "grano",
+    "wood": "madera",
+    "stone": "piedra",
+    "planks": "tablones",
+    "bread": "pan",
+    "tools": "herramientas",
+    "flour": "harina",
+    "smoked_fish": "pescado ahumado"
+  },
+  "category": {
+    "infrastructure": "Infraestructura",
+    "housing": "Viviendas",
+    "production": "Producción",
+    "storage": "Almacenaje",
+    "trade": "Comercio"
+  },
+  "building": {
+    "road": {
+      "name": "Camino",
+      "desc": "Arrastra para trazar un camino. Los almacenes y los mercados necesitan uno frente a su puerta."
+    },
+    "house": {
+      "name": "Casa",
+      "desc": "Aquí viven cuatro aldeanos. Necesita un camino junto a ella."
+    },
+    "farm": {
+      "name": "Granja",
+      "desc": "Cultiva grano. Necesita hierba."
+    },
+    "fisher_dock": {
+      "name": "Muelle pesquero",
+      "desc": "Pesca. Tiene que tocar el agua."
+    },
+    "lumber_camp": {
+      "name": "Campamento maderero",
+      "desc": "Corta madera. Se levanta en un bosque o sobre hierba."
+    },
+    "quarry": {
+      "name": "Cantera",
+      "desc": "Extrae piedra. Se levanta sobre roca."
+    },
+    "sawmill": {
+      "name": "Aserradero",
+      "desc": "Convierte la madera en tablones."
+    },
+    "mill": {
+      "name": "Molino",
+      "desc": "Muele el grano para hacer harina."
+    },
+    "bakery": {
+      "name": "Panadería",
+      "desc": "Hornea pan con harina, o con grano si no hay harina."
+    },
+    "smokehouse": {
+      "name": "Ahumadero",
+      "desc": "Ahuma el pescado para que se conserve y se venda mejor."
+    },
+    "workshop": {
+      "name": "Taller",
+      "desc": "Fabrica herramientas con tablones y piedra."
+    },
+    "warehouse": {
+      "name": "Almacén",
+      "desc": "Guarda mercancías; sus trabajadores las llevan de un edificio a otro."
+    },
+    "market": {
+      "name": "Mercado",
+      "desc": "Vende comida a los aldeanos: mantenlo abastecido y con personal."
+    },
+    "pier": {
+      "name": "Embarcadero",
+      "desc": "Un atracadero para barcos mercantes. Tiene que tocar el agua y el barco necesita mar abierto para llegar."
+    }
+  },
+  "season": {
+    "spring": "Primavera",
+    "summer": "Verano",
+    "autumn": "Otoño",
+    "winter": "Invierno",
+    "date": {
+      "spring": "primavera",
+      "summer": "verano",
+      "autumn": "otoño",
+      "winter": "invierno"
+    }
+  },
+  "amount": {
+    "coins": {
+      "one": "{count:number} moneda",
+      "other": "{count:number} monedas"
+    },
+    "good": "{n:number} × {name}",
+    "villagers": {
+      "one": "{count:number} aldeano",
+      "other": "{count:number} aldeanos"
+    },
+    "none": "gratis"
+  },
+  "hud": {
+    "date": "{day} de {season}, año {year}",
+    "coins": "Monedas",
+    "undo": "Deshacer",
+    "redo": "Rehacer",
+    "demolish": "Derribar",
+    "rotate": "Girar",
+    "palette": "Construir",
+    "item": "{name} - {coins}",
+    "population": "Aldeanos",
+    "popItem": "{count} / {housing}",
+    "speed": "Velocidad",
+    "speedPause": "||",
+    "speed1": "1x",
+    "speed2": "2x",
+    "speed4": "4x",
+    "paused": "En pausa",
+    "speedHint": "Velocidad: espacio pausa, 1 pausa, 2 normal, 3 rápido, 4 muy rápido",
+    "hungry": "Hambrientos: {count}",
+    "next": "Siguiente",
+    "prev": "Anterior"
+  },
+  "status": {
+    "idle": "B construye. Haz clic en un edificio o aldeano para verlo. Arrastra con el botón derecho para mover el mapa, la rueda acerca. F1 para ayuda.",
+    "terrain": "{terrain}  ({c}, {r})",
+    "building": "{name}  ({c}, {r})",
+    "placing": "{name}: {cost}.  Clic para construir, R para girar, Q o clic derecho para dejar de construir.",
+    "placingRoad": "Camino: arrastra para trazarlo, {cost} por tramo.  Q o clic derecho para dejarlo.",
+    "roadDrag": {
+      "one": "Camino: {count} tramo nuevo por {cost}",
+      "other": "Camino: {count} tramos nuevos por {cost}"
+    },
+    "demolish": "Derribo: haz clic o arrastra sobre los edificios. Recuperas la mitad del coste.  Q o clic derecho para dejarlo.",
+    "demolishHover": "Derribar {name}: recuperas {refund}",
+    "palette": "{name}: {desc}  Coste: {cost}.",
+    "house": {
+      "one": "{name}  ({c}, {r}): vive {n} de {cap} aldeano.",
+      "other": "{name}  ({c}, {r}): viven {n} de {cap} aldeanos."
+    },
+    "work": "{name}  ({c}, {r}): {present} de {workers} trabajando - {state}.",
+    "paused": "En pausa. Pulsa espacio o 2 para continuar."
+  },
+  "reason": {
+    "out_of_bounds": "Fuera del mapa.",
+    "occupied": "Ya hay algo ahí.",
+    "terrain": "No se puede construir sobre {terrain}: necesita {allowed}.",
+    "no_road": "Necesita un camino frente a su puerta.",
+    "not_near_water": "Tiene que tocar el agua.",
+    "cannot_afford": "No alcanza: te faltan {missing}.",
+    "nothing_here": "Aquí no hay nada que derribar.",
+    "unknown_type": "Edificio desconocido: {type}."
+  },
+  "toast": {
+    "built": "Construido: {name}.",
+    "roads": {
+      "one": "Trazado {count} tramo de camino.",
+      "other": "Trazados {count} tramos de camino."
+    },
+    "demolished": "Derribado: {name}.",
+    "demolishedMany": {
+      "one": "Derribado {count} elemento.",
+      "other": "Derribados {count} elementos."
+    },
+    "undone": "Deshecho: {label}.",
+    "redone": "Rehecho: {label}.",
+    "nothingToUndo": "No hay nada que deshacer.",
+    "nothingToRedo": "No hay nada que rehacer.",
+    "season": "Empieza una nueva estación: {season}.",
+    "left": "Un aldeano se ha ido: {reason}.",
+    "broke": "Hoy el pueblo no puede pagar todos los sueldos y gastos."
+  },
+  "history": {
+    "place": "construir {name}",
+    "road": "caminos",
+    "demolish": "derribar {name}",
+    "rotate": "girar {name}"
+  },
+  "sim": {
+    "leftReason": {
+      "starved": "sin comida",
+      "home_lost": "su casa fue derribada"
+    },
+    "stall": {
+      "no_staff": "sin trabajadores",
+      "closed": "cerrado por hoy",
+      "no_input": "esperando mercancías",
+      "output_full": "esperando a un porteador",
+      "season": "fuera de temporada"
+    },
+    "running": "trabajando"
+  },
+  "scenario": {
+    "first_harbour": {
+      "name": "Primer puerto",
+      "blurb": "Una bahía tranquila y una orilla vacía. Haz crecer un pequeño pueblo de pescadores."
+    },
+    "river_mills": {
+      "name": "Molinos del río",
+      "blurb": "Un valle fluvial con madera y piedra. Alimenta con pan a un pueblo en crecimiento."
+    },
+    "winter_trade": {
+      "name": "Comercio de invierno",
+      "blurb": "El año entra en otoño. Ahuma pescado y hornea pan antes de que llegue el frío."
+    },
+    "sandbox": {
+      "name": "Modo libre",
+      "blurb": "Mucho dinero y mercancías, y ningún objetivo. Construye como quieras."
+    }
+  },
+  "goal": {
+    "title": "Objetivos",
+    "population": {
+      "one": "Alcanza {count} aldeano",
+      "other": "Alcanza {count} aldeanos"
+    },
+    "coins": "Ahorra {coins}",
+    "produced_in_season": "Produce {amount} en una temporada",
+    "progress": "{value:number} / {target:number}",
+    "done": "hecho",
+    "toast": "Objetivo cumplido: {goal}",
+    "won": {
+      "title": "¡Escenario completado: {scenario}!",
+      "body": "Todos los objetivos se cumplieron el {date}. Puedes seguir construyendo o volver al título.",
+      "keep": "Seguir jugando",
+      "menu": "Menú principal"
+    }
+  },
+  "slots": {
+    "title": "Elige una ranura de guardado",
+    "titleSave": "Guardar la partida",
+    "slot": "Ranura {n}",
+    "continue": "Continuar",
+    "back": "Volver",
+    "empty": "Vacía",
+    "new": "Partida nueva",
+    "load": "Cargar",
+    "save": "Guardar aquí",
+    "auto": "Autoguardado",
+    "rename": "Renombrar",
+    "delete": "Borrar",
+    "damaged": "Este guardado está dañado",
+    "info": "{scenario}, {date}",
+    "stats": "{coins}, {population}",
+    "goals": {
+      "one": "{done} de {total} objetivo",
+      "other": "{done} de {total} objetivos"
+    },
+    "completed": "Completada",
+    "autoInfo": "Autoguardado: {date}",
+    "playTime": "Jugado {hours} h {minutes} min",
+    "playTimeShort": "Jugado {minutes} min",
+    "pick": "Elige un escenario",
+    "confirmDelete": "¿Borrar «{name}»? No se puede deshacer.",
+    "confirmOverwrite": "¿Sustituir «{name}» por la partida que estás jugando?",
+    "yes": "Sí",
+    "no": "No",
+    "renameTitle": "Ponle nombre a este guardado",
+    "renameOk": "Aceptar",
+    "saved": "Guardado en la ranura {n}",
+    "deleted": "Ranura borrada",
+    "renamed": "Renombrada",
+    "loadFailed": "No se pudo cargar el guardado: {problem}",
+    "migrated": "Un guardado antiguo se ha actualizado a la versión actual.",
+    "cloudConflict": "Otro dispositivo también guardó esta ranura. Tu copia se conservó como copia de seguridad."
+  },
+  "save": {
+    "error": {
+      "bad_json": "Este archivo no es un guardado (no es texto legible). Elige otra ranura.",
+      "not_a_save": "Esta ranura no contiene ningún guardado.",
+      "unknown_format": "Este archivo no lo creó Tidewater Market.",
+      "future_version": "Este guardado es de una versión más nueva del juego. Actualiza el juego para abrirlo.",
+      "too_old": "Este guardado es demasiado antiguo para abrirlo.",
+      "invalid": "Este guardado está dañado y no se puede abrir.",
+      "map_mismatch": "Este guardado se hizo en un mapa que esta versión no puede reconstruir.",
+      "storage": "No se pudo guardar la partida. Libera espacio en el disco e inténtalo de nuevo.",
+      "bad_slot": "Esa ranura no existe."
+    }
+  },
+  "ship": {
+    "name": {
+      "0": "Gaviota",
+      "1": "Garza",
+      "2": "Caléndula",
+      "3": "Charrán",
+      "4": "Vientosal",
+      "5": "Anita",
+      "6": "Brisa",
+      "7": "Nutria"
+    },
+    "class": {
+      "skiff": "Esquife",
+      "cog": "Coca",
+      "carrack": "Carraca"
+    }
+  },
+  "event": {
+    "storm": {
+      "title": "Aviso de tormenta",
+      "body": "Negros nubarrones se amontonan sobre la bahía. Los pescadores arrastran sus barcas a la orilla y el viento ya tira de la [icon:wood] apilada en el muelle.",
+      "choice": {
+        "secure": "Amarrarlo todo bien",
+        "ride": "Aguantar el temporal",
+        "shelter": "Refugiarse y esperar"
+      },
+      "result": {
+        "secure": "La cuadrilla sujeta las pilas con [b]tablones[/b] y cuerdas. La tormenta aúlla sobre el pueblo y no se lleva [c:good]nada[/c].",
+        "ride": {
+          "0": "Hay suerte: la tormenta gira hacia el norte y [c:good]respeta el puerto[/c]. Nadie pierde ni el sombrero.",
+          "1": "La tormenta arrasa las pilas y las redes. El pueblo pierde [c:bad]pescado[/c] y [c:bad]madera[/c], y la gente refunfuña."
+        },
+        "shelter": "Todos se quedan en casa. [c:muted]No hay daños, pero el mar queda vacío un tiempo: el próximo barco se retrasa.[/c]"
+      }
+    },
+    "festival": {
+      "title": "Fiesta de verano",
+      "body": "Los aldeanos quieren celebrar los días largos. Farolillos, música y [icon:bread] en cada mesa harían que [c:gold]el pueblo hablara de ti durante un año[/c].",
+      "choice": {
+        "feast": "Organizar un banquete",
+        "stalls": "Permitir unos puestos",
+        "skip": "Este año no"
+      },
+      "result": {
+        "feast": "¡Gran banquete! Los niños bailan en las plazas y los viajeros llevan la historia a otros puertos. [c:gold]El pueblo está orgulloso.[/c]",
+        "stalls": "Una fiesta modesta con unos cuantos puestos. Es agradable y nadie se queja.",
+        "skip": "El trabajo sigue como siempre. [c:muted]Nadie menciona la fiesta, al menos no delante de ti.[/c]"
+      }
+    },
+    "merchant": {
+      "title": "La oferta de un mercader",
+      "body": "Un mercader ambulante se detiene en el embarcadero y abre su cofre. Necesita [icon:stone] y vende [icon:wood] barata: [b]un trato justo[/b], si lo quieres.",
+      "choice": {
+        "buy_wood": "Comprarle la madera",
+        "sell_stone": "Venderle piedra",
+        "decline": "Rechazar con educación"
+      },
+      "result": {
+        "buy_wood": "La madera está cortada y seca. Buen precio, y tus pilas se llenan.",
+        "sell_stone": "Cuenta las monedas despacio y carga la [icon:stone] en su carro.",
+        "decline": "Se encoge de hombros, se toca el sombrero y sigue su camino."
+      }
+    },
+    "sick_herd": {
+      "title": "Ganado enfermo",
+      "body": "Varios animales de las granjas tosen y se niegan a pastar. [c:bad]Si se contagia, lo pagarán los graneros.[/c]",
+      "choice": {
+        "healer": "Llamar al curandero",
+        "cull": "Sacrificar a los más débiles",
+        "hope": "Esperar que pase"
+      },
+      "result": {
+        "healer": "Las hierbas del curandero funcionan. En pocos días el rebaño vuelve a ponerse en pie y los granjeros recuerdan quién pagó.",
+        "cull": "Una decisión dura, pero la carne se vende y el resto del rebaño se salva. Algunos aldeanos apartan la mirada.",
+        "hope": {
+          "0": "La tos se pasa sola. [c:good]¡Qué suerte![/c]",
+          "1": "Se contagia. Los granjeros pierden [c:bad]grano[/c] y pagan una ayuda de emergencia."
+        }
+      }
+    },
+    "good_harvest": {
+      "title": "Una buena cosecha",
+      "body": "Los campos están más cargados de lo que nadie recuerda. Los sacos de [icon:grain] se amontonan en las puertas de las granjas: [c:good]más de lo que caben en los graneros[/c].",
+      "choice": {
+        "store": "Llenar los almacenes",
+        "sell": "Vender el excedente"
+      },
+      "result": {
+        "store": "Los porteadores llevan el grano sobrante a los almacenes hasta que crujen.",
+        "sell": "Un comerciante del sur compra el excedente a buen precio."
+      }
+    },
+    "fish_run": {
+      "title": "Un banco de peces",
+      "body": "El agua hierve de plata. Un banco de [icon:fish] pasa por la bahía, [b]una vez al año[/b], y los pescadores piden redes nuevas.",
+      "choice": {
+        "nets": "Comprar redes nuevas",
+        "leave": "Que usen las viejas"
+      },
+      "result": {
+        "nets": "Las redes nuevas suben cargadas. Los ahumaderos van a estar ocupados.",
+        "leave": "Las redes viejas aún pescan algo. El banco pasa de largo."
+      }
+    },
+    "cold_snap": {
+      "title": "Ola de frío",
+      "body": "Escarcha en los tejados, hielo en los pozos. Los aldeanos tiritan y miran la [icon:wood] que guardas en los almacenes.",
+      "choice": {
+        "burn": "Abrir los depósitos de leña",
+        "blankets": "Comprar mantas",
+        "endure": "Pedirles que aguanten"
+      },
+      "result": {
+        "burn": "Arde el fuego en todos los hogares. Los aldeanos están calientes y agradecidos, y la [c:bad]madera[/c] se ha acabado.",
+        "blankets": "La lana de los buhoneros mantiene caliente el pueblo. Cuesta [icon:coin], pero ni un tronco.",
+        "endure": "Los aldeanos aguantan, pero no lo olvidarán. [c:bad]El ánimo está agrio.[/c]"
+      }
+    },
+    "wreck": {
+      "title": "Un naufragio en las rocas",
+      "body": "Un buque mercante se ha hecho pedazos contra las rocas al amanecer. Tablones y barriles llegan a la orilla, y el capitán del puerto quiere saber [b]quién se los queda[/b].",
+      "choice": {
+        "salvage": "Rescatar la carga",
+        "report": "Avisar a la oficina marítima"
+      },
+      "result": {
+        "salvage": "Las cuadrillas arrastran la madera a tierra antes de que se la lleve la marea. [c:gold]Quien lo encuentra, se lo queda.[/c]",
+        "report": "Entregas lo hallado y redactas el informe. La oficina paga una recompensa y tu nombre viaja con los barcos."
+      }
+    },
+    "fire": {
+      "title": "Chispas en el aserradero",
+      "body": "Una chispa de la sierra prende la pila seca de [icon:planks]. El humo sube sobre los tejados. [c:bad]Aún puede apagarse, si alguien actúa ahora.[/c]",
+      "choice": {
+        "bucket": "Formar una cadena de cubos",
+        "watch": "Dejar que lo resuelvan los trabajadores"
+      },
+      "result": {
+        "bucket": "Todo el pueblo forma una fila y el fuego se apaga antes de extenderse. Cuesta unas monedas en cubos nuevos.",
+        "watch": {
+          "0": "Los trabajadores apagan las llamas por su cuenta. [c:good]¡Por poco![/c]",
+          "1": "El fuego se come una pila de [c:bad]tablones[/c] y [c:bad]madera[/c] antes de apagarse."
+        }
+      }
+    },
+    "pedlar": {
+      "title": "El carro del buhonero",
+      "body": "Un buhonero que ha oído hablar bien del puerto aparca su carro junto al mercado. Vende [icon:tools] y chismes.",
+      "choice": {
+        "tools": "Comprar una caja de herramientas",
+        "gossip": "Intercambiar historias"
+      },
+      "result": {
+        "tools": "Buen acero, bien hecho. Los talleres sienten envidia.",
+        "gossip": "Intercambias historias en el embarcadero. Al anochecer, tres puertos conocen el nombre de tu pueblo."
+      }
+    },
+    "smugglers": {
+      "title": "Visitantes discretos",
+      "body": "Dos hombres con abrigos oscuros esperan al final del embarcadero al caer la noche. Ofrecen [icon:coin] por usar un almacén vacío. [c:bad]Nadie pregunta qué hay en los cajones.[/c]",
+      "choice": {
+        "take": "Aceptar el dinero",
+        "refuse": "Echarlos"
+      },
+      "result": {
+        "take": {
+          "0": "Los cajones se van al amanecer y las monedas se quedan. Nadie vuelve a preguntar.",
+          "1": "Los guardias del puerto encuentran los cajones. Pagas una multa y tu nombre ya no suena tan bien en el puerto."
+        },
+        "refuse": "Se marchan sin una palabra. El capitán del puerto se entera y asiente."
+      }
+    }
+  },
+  "story": {
+    "first_harbour": {
+      "name": "El primer puerto",
+      "letter": {
+        "title": "Una carta del Gremio",
+        "body": "Con la marea de la mañana llega una carta sellada con lacre verde: [b]el Gremio de Mercaderes del Mar[/b] enviará barcos a cualquier pueblo que construya un embarcadero. ¿Quieres que toda la costa lo sepa?",
+        "choice": {
+          "aloud": "Leerla en el mercado",
+          "quiet": "Guardar el secreto"
+        },
+        "result": {
+          "aloud": "En un día la mitad de la costa se ha enterado. La gente viene a ver tu orilla embarrada. [c:gold]Las expectativas son altas.[/c]",
+          "quiet": "Guardas la carta en un cajón. Un comprador discreto te paga unas monedas por un poco de silencio."
+        }
+      },
+      "pier": {
+        "title": "El primer embarcadero",
+        "body": "El embarcadero ya está en pie. Los tablones huelen a brea y a madera nueva. Los aldeanos preguntan si debería llevar un nombre pintado en el poste o si basta con dejarlo liso.",
+        "choice": {
+          "paint": "Pintarlo con colores vivos",
+          "plain": "Dejarlo liso"
+        },
+        "result": {
+          "paint": "Un poste azul brillante y un nombre dorado. Los capitanes ven el puerto desde lejos.",
+          "plain": "Un embarcadero sencillo, tablones sencillos. Cumple su función."
+        }
+      },
+      "cargo": {
+        "title": "El primer cargamento",
+        "body": "Se completa el primer pedido y el capitán te estrecha la mano. La tripulación pregunta dónde está la primera ronda de cerveza. [icon:coin]",
+        "choice": {
+          "toast": "Invitar a la tripulación a una ronda",
+          "pocket": "Quedarte con las monedas extra"
+        },
+        "result": {
+          "toast": "Todo el muelle brinda por el puerto. [c:gold]El capitán se lo cuenta a sus amigos.[/c]",
+          "pocket": "Te quedas con las monedas. El capitán frunce el ceño y corre el rumor de que tu puerto es tacaño."
+        }
+      },
+      "map": {
+        "title": "Un lugar en el mapa",
+        "body": "Una cartógrafa quiere poner [b]tu pueblo[/b] en las nuevas cartas marinas. Necesita una bandera para el puerto, o puede escribir que el puerto es famoso por sus banquetes.",
+        "choice": {
+          "flag": "Pagar una bandera",
+          "feast": "Presumir de banquetes"
+        },
+        "result": {
+          "flag": "La bandera ondea en el embarcadero y la carta muestra tu pueblo en tinta dorada. [c:gold]El Gremio toma nota.[/c]",
+          "feast": "La cartógrafa se ríe y lo anota. Pronto todos los capitanes querrán probar la leyenda."
+        }
+      }
+    },
+    "river_mills": {
+      "name": "Los molinos del río",
+      "bend": {
+        "title": "El recodo del río",
+        "body": "El río hace aquí un recodo y la corriente es fuerte. Los molineros dicen que un molino funcionaría muy bien en este recodo, si alguien examinara antes las piedras.",
+        "choice": {
+          "survey": "Pagar un estudio del terreno",
+          "build": "Construir donde quieras"
+        },
+        "result": {
+          "survey": "El agrimensor encuentra el mejor sitio y lo marca. No se desperdiciará ni una piedra.",
+          "build": "Encontrarás el mejor sitio probando."
+        }
+      },
+      "grindstone": {
+        "title": "La piedra de moler",
+        "body": "El primer molino necesita una buena piedra de moler. Un cantero de río arriba ofrece [icon:stone] tallada para ese fin, o una gastada que solo quiere prestar.",
+        "choice": {
+          "buy": "Comprar la piedra de moler",
+          "borrow": "Pedir prestada una gastada"
+        },
+        "result": {
+          "buy": "Una piedra magnífica, redonda y plana. Molerá durante años.",
+          "borrow": "El cantero te entrega una piedra tosca. Se acordará de esto."
+        }
+      },
+      "oven": {
+        "title": "La primera hogaza",
+        "body": "El horno de la panadería está caliente y las primeras hogazas de [icon:bread] salen doradas. Los aldeanos hacen cola en la puerta, pero un mercader quiere comprar toda la hornada.",
+        "choice": {
+          "share": "Repartirla con el pueblo",
+          "sell": "Vender la hornada"
+        },
+        "result": {
+          "share": "Cada casa recibe una hogaza. La panadería huele a felicidad.",
+          "sell": "El mercader paga bien y los aldeanos se van a casa con hambre."
+        }
+      },
+      "south": {
+        "title": "Un contrato del sur",
+        "body": "Los barcos del sur quieren harina y pan cada estación, con un [b]contrato largo[/b]. Paga bien, pero ata tus molinos a su calendario.",
+        "choice": {
+          "contract": "Firmar el contrato",
+          "freedom": "Mantenerte libre"
+        },
+        "result": {
+          "contract": "La tinta se seca. El sur pagará puntual y tus molinos no descansarán.",
+          "freedom": "Conservas tu libertad y tu buen nombre. Los molinos trabajan para quien mejor pague."
+        }
+      }
+    },
+    "winter_trade": {
+      "name": "Comercio de invierno",
+      "ice": {
+        "title": "Hielo temprano",
+        "body": "Se forma el primer hielo en la bahía. Los viejos marineros dicen que el mar se cerrará durante semanas. Un mercader se ofrece a entregar [icon:wood] para el invierno antes de que ocurra.",
+        "choice": {
+          "stock": "Comprar existencias de invierno",
+          "trust": "Confiar en las reservas del otoño"
+        },
+        "result": {
+          "stock": "La madera llega justo a tiempo. Los leñeros están llenos.",
+          "trust": "Te quedas con tus monedas y confías en los almacenes."
+        }
+      },
+      "frost": {
+        "title": "La bahía se congela",
+        "body": "Una fina capa de hielo cubre la bahía. Los barcos dudan. [b]Una cuadrilla con hachas[/b] podría abrirles un canal.",
+        "choice": {
+          "break_ice": "Pagar a una cuadrilla para romper el hielo",
+          "wait": "Esperar al deshielo"
+        },
+        "result": {
+          "break_ice": "La cuadrilla abre un canal y los barcos entran. [c:gold]Los capitanes recuerdan quién mantuvo abierto el puerto.[/c]",
+          "wait": "Esperas. Los barcos llegarán, pero más tarde."
+        }
+      },
+      "bargain": {
+        "title": "Un trato duro",
+        "body": "Un capitán ofrece un precio muy alto por el [icon:smoked_fish] y luego pide un descuento, alegando que el invierno es duro en todas partes. Los aldeanos miran.",
+        "choice": {
+          "haggle": "Regatear hasta que pague",
+          "fair": "Ofrecer un precio justo"
+        },
+        "result": {
+          "haggle": "Ganas la discusión y las monedas. No sonríe al marcharse.",
+          "fair": "Lo tratas con justicia. [c:gold]La noticia corre bien.[/c]"
+        }
+      },
+      "thaw": {
+        "title": "El deshielo",
+        "body": "El hielo se rompe con un sonido de trueno. Llega la primavera. Los aldeanos están hartos del invierno y quieren [b]celebrarlo[/b].",
+        "choice": {
+          "celebrate": "Abrir los barriles",
+          "save": "Ahorrar las monedas"
+        },
+        "result": {
+          "celebrate": "Todo el pueblo celebra. [c:gold]Un buen invierno, después de todo.[/c]",
+          "save": "Dejas los barriles cerrados y las monedas a salvo."
+        }
+      }
+    }
+  },
+  "achievement": {
+    "first_ship": {
+      "name": "Primera vela",
+      "desc": "Un barco atraca en tu embarcadero."
+    },
+    "ten_orders": {
+      "name": "Diez pedidos",
+      "desc": "Completa diez pedidos de barcos."
+    },
+    "no_debt_year": {
+      "name": "Un año sin deudas",
+      "desc": "Pasa un año entero y todos los pagos del día de paga se cumplen."
+    },
+    "harbour_master": {
+      "name": "Capitán del puerto",
+      "desc": "Alcanza reputación 50."
+    },
+    "story_first_harbour": {
+      "name": "El primer puerto",
+      "desc": "Termina la historia de El primer puerto."
+    },
+    "story_river_mills": {
+      "name": "Los molinos del río",
+      "desc": "Termina la historia de Los molinos del río."
+    },
+    "story_winter_trade": {
+      "name": "Comercio de invierno",
+      "desc": "Termina la historia de Comercio de invierno."
+    }
+  },
+  "trade": {
+    "ship": "{class} {name}",
+    "reputation": "Reputación {value}",
+    "board": {
+      "title": "Pedidos del puerto",
+      "close": "Cerrar",
+      "nopier": "Construye un embarcadero en la costa y los barcos vendrán a comerciar.",
+      "empty": "No hay ningún barco en la bahía. El próximo está en camino.",
+      "next": {
+        "one": "Próximo barco en {count} día, más o menos",
+        "other": "Próximo barco en {count} días, más o menos"
+      },
+      "unlock": "Con reputación {value}: barcos tipo {class}",
+      "fill": "Cumplir pedido",
+      "missing": "Falta: {list}",
+      "left": {
+        "one": "Queda {count} día",
+        "other": "Quedan {count} días"
+      },
+      "left1": "Último día",
+      "sailing": "Zarpando...",
+      "leaving": "Partiendo...",
+      "wants": "Pide",
+      "pays": "Paga"
+    },
+    "card": {
+      "event": "Suceso",
+      "story": "Historia",
+      "continue": "Continuar",
+      "free": "No cuesta nada",
+      "risky": "Arriesgado",
+      "cannot": "No alcanza: {list}",
+      "later": {
+        "one": "Próximo barco {count} día más tarde",
+        "other": "Próximo barco {count} días más tarde"
+      },
+      "sooner": {
+        "one": "Próximo barco {count} día antes",
+        "other": "Próximo barco {count} días antes"
+      }
+    },
+    "hud": {
+      "orders": "Pedidos",
+      "ordersN": "Pedidos ({count})"
+    },
+    "toast": {
+      "docked": "{ship} atraca en el embarcadero.",
+      "filled": "{ship} se va contento: +{reward}.",
+      "missed": "{ship} se fue sin su mercancía. Reputación {delta}.",
+      "unlocked": "La reputación abre paso a barcos tipo {class}.",
+      "achievement": "Logro: {name}",
+      "story": "Historia terminada: {name}"
+    },
+    "key": {
+      "orders": "Tablón de pedidos"
+    }
+  },
+  "ui": {
+    "hungryShort": {
+      "one": "{shown} hambriento",
+      "other": "{shown} hambrientos"
+    },
+    "btn": {
+      "build": "Construir  (B)",
+      "goods": "Bienes  (G)",
+      "charts": "Gráficos  (T)",
+      "help": "Ayuda  (F1)",
+      "overlay": "Mapa  (M)",
+      "overlayTitle": "Capa del mapa"
+    },
+    "cat": {
+      "infrastructure": "Caminos",
+      "housing": "Viviendas",
+      "production": "Producción",
+      "storage": "Almacenaje",
+      "trade": "Comercio",
+      "hint": {
+        "infrastructure": "Los caminos llevan a aldeanos y porteadores. Arrastra para trazar una línea.",
+        "housing": "Los aldeanos viven aquí y trabajan en los edificios de alrededor.",
+        "production": "Granjas, campamentos, molinos y talleres: producen las mercancías.",
+        "storage": "Los almacenes guardan las mercancías y envían porteadores.",
+        "trade": "Los mercados venden comida a los aldeanos y traen monedas."
+      }
+    },
+    "key": {
+      "B": "Tecla: B",
+      "Del": "Tecla: Supr",
+      "R": "Tecla: R",
+      "Z": "Tecla: Z",
+      "Y": "Tecla: Y",
+      "G": "Tecla: G",
+      "T": "Tecla: T",
+      "M": "Tecla: M",
+      "F1": "Tecla: F1",
+      "speed0": "Tecla: 1 o espacio",
+      "speed1": "Tecla: 2",
+      "speed2": "Tecla: 3",
+      "speed3": "Tecla: 4"
+    },
+    "tip": {
+      "build": "Abre el menú de construcción: elige una categoría y luego un edificio.",
+      "demolish": "Haz clic o arrastra sobre los edificios para derribarlos (recuperas parte de las monedas).",
+      "rotate": "Gira el edificio seleccionado, o el que vas a colocar.",
+      "undo": "Deshace tu último edificio o derribo.",
+      "redo": "Vuelve a hacer lo que acabas de deshacer.",
+      "goods": "Existencias, producción, consumo y precio de cada bien.",
+      "charts": "Monedas y producción de los últimos días.",
+      "overlay": "Cambia la capa del mapa: atractivo, mercado, almacén, tráfico.",
+      "help": "Todos los atajos de teclado y ratón.",
+      "cost": "Coste: {cost}",
+      "terrain": "sobre {terrain}",
+      "nearWater": "junto al agua",
+      "road": "un camino en su puerta",
+      "needs": "Necesita: {needs}",
+      "housing": {
+        "one": "Aloja a {count} aldeano.",
+        "other": "Aloja a {count} aldeanos."
+      },
+      "workers": {
+        "one": "{count} trabajador, mantenimiento {upkeep} al día.",
+        "other": "{count} trabajadores, mantenimiento {upkeep} al día."
+      },
+      "recipe": "Produce {outputs} a partir de {inputs} en {seconds} s.",
+      "nothing": "nada",
+      "storage": "Guarda {count} de cada bien.",
+      "madeIn": "Se produce en: {list}",
+      "usedIn": "Se usa en: {list}",
+      "nowhere": "en ningún sitio todavía",
+      "eaten": "Los aldeanos se lo comen (alimenta {n}).",
+      "basePrice": "Precio habitual: {price}",
+      "coinsTitle": "Monedas",
+      "coins": "Tienes {money}.",
+      "coinsFlow": "Hoy hasta ahora: ventas {sales}, sueldos y mantenimiento {wages}.",
+      "stock": "En existencias: {n} (una red de almacenes guarda {cap} de cada uno)",
+      "rates": "Se producen {made} al día, se usan {used} al día.",
+      "price": "Precio ahora: {price} (habitual {base})",
+      "popTitle": "Aldeanos",
+      "pop": "{population}, sitio para {housing}. Empleos cubiertos: {employed} de {jobs}.",
+      "popHungry": "Hambrientos ahora: {n}",
+      "speed0": "Pausa el reloj.",
+      "speed1": "Velocidad normal.",
+      "speed2": "El doble de rápido.",
+      "speed3": "Cuatro veces más rápido.",
+      "noticeTitle": "Aviso",
+      "notice": "Haz clic para ir allí y seleccionarlo.",
+      "chipTitle": "Aldeano n.º {id}",
+      "chip": "Clic para inspeccionar. Arrástralo a otro lugar de trabajo para enviarlo allí.",
+      "clickInspect": "Clic para inspeccionar."
+    },
+    "goods": {
+      "title": "Bienes",
+      "sortHint": "Clic para ordenar, otro clic para invertir.",
+      "col": {
+        "name": "Bien",
+        "stock": "Existencias",
+        "made": "Prod./día",
+        "used": "Uso/día",
+        "price": "Precio"
+      },
+      "colHint": {
+        "name": "El bien.",
+        "stock": "Cuántos hay en los almacenes.",
+        "made": "Producidos por día de juego en los últimos días.",
+        "used": "Usados en talleres y consumidos por día de juego.",
+        "price": "Lo que vale ahora una unidad."
+      }
+    },
+    "charts": {
+      "title": "Gráficos",
+      "money": "Monedas al empezar cada día",
+      "made": "{name} producido cada día",
+      "good": "Bien: {name}",
+      "pick": "Elige el bien",
+      "pickHint": "Clic para mostrar el siguiente bien.",
+      "since": {
+        "one": "último {count} día",
+        "other": "últimos {count} días"
+      },
+      "dayTip": "Día {day}",
+      "madeTip": "{n} producidos"
+    },
+    "help": {
+      "title": "Cómo se juega",
+      "hint": "Arrastrar con el botón derecho mueve el mapa, la rueda acerca. Haz clic en un edificio o aldeano para inspeccionarlo. Pasa el ratón por cualquier cosa para ver una ayuda.",
+      "build": "Abrir el menú de construcción",
+      "cycle": "Edificio siguiente / anterior",
+      "rotate": "Girar el edificio seleccionado o el siguiente",
+      "delete": "Derribar el edificio seleccionado",
+      "demolish": "Herramienta de derribo",
+      "cancel": "Guardar herramienta, panel o selección",
+      "undo": "Deshacer / rehacer",
+      "goods": "Tabla de bienes",
+      "charts": "Gráficos",
+      "overlay": "Cambiar la capa del mapa",
+      "notice": "Ir al aviso más reciente",
+      "speed": "Pausa / velocidad del juego",
+      "camera": "Mover y acercar la cámara",
+      "help": "Esta ayuda",
+      "keys": {
+        "delete": "Supr",
+        "cancel": "Esc / Q / clic derecho",
+        "speed": "Espacio, 1 - 4",
+        "camera": "WASD, flechas, rueda"
+      }
+    },
+    "overlay": {
+      "none": "desactivada",
+      "desirability": "atractivo",
+      "market": "alcance del mercado",
+      "warehouse": "alcance del almacén",
+      "traffic": "tráfico",
+      "hint": {
+        "desirability": "más verde = mejor sitio para una casa",
+        "market": "más brillante = más cerca de un mercado",
+        "warehouse": "más brillante = más cerca de un almacén",
+        "traffic": "más brillante = más gente caminando"
+      },
+      "legend": "Capa: {name} ({hint}). M para la siguiente.",
+      "value": "{name} {percent} %"
+    },
+    "insp": {
+      "title": "{name} en {c}, {r}",
+      "noRoad": "Ningún camino llega a la puerta.",
+      "status": "Estado: {state}",
+      "workers": "Trabajadores: {count} de {max} ({present} trabajando)",
+      "dragHint": "Arrastra un aldeano a un lugar de trabajo.",
+      "residents": "Residentes: {count} de {max}",
+      "makes": "Produce {out} cada {seconds} s ({percent} % hecho)",
+      "needs": "Necesita {goods}",
+      "inbox": "Esperando dentro: {goods}",
+      "outbox": "Listo para llevar: {goods}",
+      "shelf": "En el estante: {goods}",
+      "money": "Mantenimiento {upkeep}/día, reembolso {refund}.",
+      "villager": "Aldeano n.º {id}",
+      "walking": "Camina: {purpose}",
+      "at": "Dentro de: {place}",
+      "home": "Hogar: {name} en {c}, {r}",
+      "homeless": "Sin hogar.",
+      "job": "Trabaja en: {name}, {c}, {r}",
+      "jobPinned": "Trabaja en: {name}, {c}, {r} (por orden tuya)",
+      "noJob": "Sin trabajo.",
+      "carrying": "Lleva {goods}",
+      "carrierEmpty": "Un porteador en camino a recoger mercancías.",
+      "hungry": "¡Hambriento!",
+      "fed": "Alimentado (comida {food})",
+      "btn": {
+        "rotate": "Girar",
+        "demolish": "Derribar",
+        "home": "A casa",
+        "job": "Al trabajo",
+        "release": "Liberar",
+        "close": "Cerrar"
+      },
+      "btnHint": {
+        "rotate": "Gira este edificio (gratis, se puede deshacer).",
+        "demolish": "Derriba este edificio.",
+        "home": "Lleva la cámara a la casa de este aldeano.",
+        "job": "Lleva la cámara al lugar de trabajo de este aldeano.",
+        "release": "Deja que el pueblo vuelva a elegir el trabajo de este aldeano.",
+        "close": "Cierra el inspector."
+      }
+    },
+    "purpose": {
+      "idle": "a ninguna parte",
+      "work": "al trabajo",
+      "shop": "al mercado",
+      "home": "a casa",
+      "carry": "llevando mercancías"
+    },
+    "notice": {
+      "noRoad": "{name} no tiene camino hasta su puerta.",
+      "noWorkers": "{name} no tiene trabajadores.",
+      "noInput": "{name} espera: {goodName}.",
+      "hungry": {
+        "one": "{count} aldeano tiene hambre.",
+        "other": "{count} aldeanos tienen hambre."
+      },
+      "storageFull": "Los almacenes están llenos de {goodName}.",
+      "broke": "No hay monedas para sueldos y mantenimiento.",
+      "left": "Un aldeano se ha ido: {reasonText}.",
+      "mark": {
+        "bad": "[!!]",
+        "warn": "[!]"
+      }
+    },
+    "drag": {
+      "villager": "Aldeano n.º {id}",
+      "done": "El aldeano n.º {id} trabaja ahora en: {name}.",
+      "no": "No se puede mover allí: {reason}",
+      "reason": {
+        "gone": "el aldeano se fue",
+        "no_jobs": "allí no hay puestos",
+        "same": "ya trabaja allí",
+        "no_road": "no hay camino entre su casa y allí",
+        "full": "no queda sitio libre",
+        "none": "suéltalo sobre un lugar de trabajo"
+      }
+    },
+    "toast": {
+      "rotated": "Girado: {name}."
+    }
+  },
+  "card": {
+    "continue": "Continuar"
+  }
+}

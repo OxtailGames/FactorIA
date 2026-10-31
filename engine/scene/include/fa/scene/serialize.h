@@ -46,8 +46,19 @@ struct LoadMessage {
     std::string to_string() const;  // "scenes/main.scene.json#/entities/2/...: message (hint: ...)"
 };
 
+// An Entity-typed field whose target id did not exist when the entity was loaded with `deferMissingRefs` (see
+// entity_from_json): the caller can set `field` of `owner`'s `type` once an entity with `id` exists.
+struct DeferredRef {
+    Entity owner;
+    const TypeInfo* type = nullptr;
+    const FieldInfo* field = nullptr;
+    std::string id;       // the entity id the field names
+    std::string pointer;  // where the value was written, for messages
+};
+
 struct LoadReport {
     std::vector<LoadMessage> messages;
+    std::vector<DeferredRef> deferred;  // only filled by entity_from_json(..., deferMissingRefs = true)
     std::vector<Entity> created;  // all entities created, in order
     bool ok() const;              // no Error-severity messages
     std::size_t error_count() const;
@@ -62,11 +73,22 @@ struct SceneLoadOptions {
 // Scenes
 LoadReport load_scene(World& world, const Json& scene, std::string_view sourceName, const SceneLoadOptions& opts = {});
 LoadReport load_scene_file(World& world, std::string_view path, const SceneLoadOptions& opts = {});
+// What a save left out because a script spawned it at runtime: every entity of the skipped subtrees, and the label
+// ("<id>" or "<id> (<name>)") of the first few subtree roots.
+struct SpawnedSkip {
+    std::size_t count = 0;
+    std::vector<std::string> labels;  // at most 5
+};
+
 // Canonical JSON: nested children, only non-default fields, stable key order. The one exception is the gravity: `settings`
 // always carries gravity2D and gravity3D, even at their defaults, so a reader of the file sees what the level uses.
-Json save_scene(const World& world);
-// Writes the scene with the reviewable layout of dump_scene_json (below).
-Result<void> save_scene_file(const World& world, std::string_view path);
+// Includes entities scripts spawned at runtime (the editor's Play/Stop snapshot and undo need them); pass skipSpawned to leave them out.
+Json save_scene(const World& world, bool skipSpawned = false, SpawnedSkip* skipped = nullptr);
+// Writes the scene with the reviewable layout of dump_scene_json (below). Entities a script spawned at runtime
+// (world.spawn, world.spawnPrefab) are NOT written unless includeSpawned: the script builds them again on load, so saving
+// them duplicates them. `skipped` (may be null) reports what was left out.
+Result<void> save_scene_file(const World& world, std::string_view path, bool includeSpawned = false,
+                             SpawnedSkip* skipped = nullptr);
 
 // Text of a scene or prefab document as written to disk: 2-space indent, with the short arrays of scalars on one line
 // (vectors, colors, rects, tags, solidTiles; long ones wrap at about 100 columns) and a Tilemap's flat `tiles` array
@@ -96,16 +118,42 @@ bool is_scene_or_prefab_file(std::string_view path);
 std::vector<std::string> project_scene_files(std::string_view dir = {});
 
 // Entities
+
+// The rest value of every field an Animator that plays 2D clips (docs/ANIMATION.md, "2D clips") drives: what the field held
+// before the first clip drove it. The driven fields are a runtime pose, not part of the scene, so the writers of scene
+// and prefab files put these values in place of the posed ones.
+struct PoseRestEntry {
+    Entity entity;
+    const TypeInfo* type = nullptr;
+    const FieldInfo* field = nullptr;
+    Json value;   // the field as JSON (all channels of a vector: the driven ones at rest, the others as they are now)
+};
+struct PoseRest {
+    std::vector<PoseRestEntry> entries;   // sorted by entity (Entity::bits)
+    bool empty() const { return entries.empty(); }
+};
+// Collects it from every Animator of `world`. Empty when no Animator plays 2D clips.
+PoseRest collect_pose_rest(const World& world);
+
 struct EntityJsonOptions {
     bool includeChildren = true;
     bool includeDefaults = false;   // true = every field (useful for AI inspection)
     bool includeRuntime = false;    // include runtime-only fields (velocity mirrors, animator time...)
+    // Leave out entities a script spawned at runtime (EntityInfo::scriptSpawned) together with their children.
+    bool skipSpawned = false;
+    // When skipSpawned: filled with what was left out (may be null).
+    SpawnedSkip* skipped = nullptr;
+    // Write these rest values instead of the posed ones of the fields 2D clips drive (null = write what the fields hold now).
+    const PoseRest* poseRest = nullptr;
 };
 Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts = {});
-// Creates an entity (and children) from entity JSON. Errors go to `report`.
+// Creates an entity (and children) from entity JSON. Errors go to `report`. References to entities inside the JSON (its
+// own children included) always resolve once the whole tree exists. With `deferMissingRefs`, a reference to an id that
+// still does not exist then is a warning (not an error) and is listed in `report.deferred` so the caller can resolve it
+// later, e.g. when a script spawns the knob of a slider after the slider.
 Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadReport& report,
                         std::string_view sourceName = "<memory>", std::string_view pointer = "",
-                        int index = -1);
+                        int index = -1, bool deferMissingRefs = false);
 
 // Components
 Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool includeDefaults = false,

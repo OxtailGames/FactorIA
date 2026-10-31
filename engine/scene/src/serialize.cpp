@@ -8,6 +8,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/scene/bounds.h"
 #include "fa/scene/tilemap.h"
 
 namespace fa {
@@ -107,6 +108,7 @@ public:
     // Adds/patches a component from JSON. Returns false if nothing could be applied.
     bool apply_component(Entity e, const TypeInfo& type, const Json& fields, const std::string& ptr, bool deferEntities);
     void resolve_pending();
+    void defer_missing_refs() { deferMissing_ = true; }
     World& world() { return world_; }
 
 private:
@@ -119,6 +121,7 @@ private:
     std::string source_;
     std::string note_;  // appended to hints while inside a prefab-expanded entity
     std::vector<PendingRef> pending_;
+    bool deferMissing_ = false;  // a reference to an id that does not exist yet is a warning and goes to report_.deferred
     std::vector<std::string> prefabStack_;
 };
 
@@ -138,7 +141,10 @@ void Loader::apply_info_key(Entity e, const std::string& key, const Json& v, con
             for (int n = 2; !world_.find_by_id(unique).is_null(); ++n) unique = want + "_" + std::to_string(n);
             if (!quietIds)
                 warn(ptr, "id '" + want + "' is already used; renamed to '" + unique + "'",
-                     "Entity ids must be unique within a scene. References to '" + want + "' point at the first entity with that id.");
+                     "Entity ids must be unique within a scene. References to '" + want + "' point at the first entity with that id. "
+                     "If the file lists entities that a script also spawns at start, it was probably saved by an older engine "
+                     "that wrote script-spawned entities into the scene: delete those entries from the scene file (the script "
+                     "creates them again on load). Otherwise give the entities different ids.");
             (void)world_.set_id(e, unique);
         } else {
             (void)world_.set_id(e, want);
@@ -234,8 +240,15 @@ void Loader::resolve_one(const PendingRef& ref) {
     if (target.is_null()) {
         std::vector<std::string> ids;
         for (Entity x : world_.entities()) ids.push_back(world_.id_of(x));
-        error(ref.pointer, "No entity with id '" + v.get<std::string>() + "' for field '" + ref.type->name + "." + ref.field->name + "'",
-              did_you_mean(v.get<std::string>(), ids, 20));
+        const std::string where = "'" + v.get<std::string>() + "' for field '" + ref.type->name + "." + ref.field->name + "'";
+        if (deferMissing_) {
+            warn(ref.pointer, "No entity with id " + where + " yet; the field stays empty until one appears",
+                 "Spawn the entity with that id (e.g. as a child right after this one) and the field is set then; if it never "
+                 "appears the engine warns again and leaves the field empty. " + did_you_mean(v.get<std::string>(), ids, 20));
+            report_.deferred.push_back({ref.owner, ref.type, ref.field, v.get<std::string>(), ref.pointer});
+            return;
+        }
+        error(ref.pointer, "No entity with id " + where, did_you_mean(v.get<std::string>(), ids, 20));
         return;
     }
     *static_cast<Entity*>(ref.field->ptr(obj)) = target;
@@ -469,10 +482,25 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
             if (!sp->normalMap.empty() && !sp->lit)
                 warn(cptr + "/Sprite/normalMap", "Sprite.normalMap is set but Sprite.lit is false, so the normal map is not used",
                      "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
+            if (const std::string problem = sprite_vertex_colors_problem(*sp); !problem.empty())
+                error(cptr + "/Sprite/vertexColors", problem,
+                      "vertexColors is [r, g, b, a, ...] with 4 numbers (0..1) per vertex of the (meshColumns + 1) x (meshRows + 1) grid.");
             if (sp->slice.x < 0 || sp->slice.y < 0 || sp->slice.z < 0 || sp->slice.w < 0)
                 error(cptr + "/Sprite/slice", "Sprite.slice has a negative border [" + std::to_string(sp->slice.x) + ", " + std::to_string(sp->slice.y) +
                       ", " + std::to_string(sp->slice.z) + ", " + std::to_string(sp->slice.w) + "]",
                       "slice is [left, top, right, bottom] in texture pixels, each 0 or more. Example: \"slice\": [8, 8, 8, 8].");
+        }
+        if (const Camera* cam = world_.get<Camera>(e)) {
+            const std::string problem = camera_viewport_problem(cam->viewport);
+            if (!problem.empty())
+                error(cptr + "/Camera/viewport", problem,
+                      "viewport is [x, y, width, height] as fractions of the screen with [0, 0] the top-left corner and +Y down, "
+                      "inside 0..1. Left half: [0, 0, 0.5, 1]. Bottom-right quarter: [0.5, 0.5, 0.5, 0.5]. Whole screen: [0, 0, 1, 1].");
+            const std::string targetProblem = camera_render_target_problem(*cam);
+            if (!targetProblem.empty())
+                error(cptr + "/Camera/renderTarget", targetProblem,
+                      "renderTarget is a short name (letters, digits, '_', '-', '.') and renderTargetSize [width, height] is 1..4096 pixels "
+                      "each. Example: \"renderTarget\": \"book\", \"renderTargetSize\": [1024, 768]; then use \"target:book\" as a texture.");
         }
         if (const Joint2D* jt = world_.get<Joint2D>(e)) {
             if (jt->enableLimit && jt->lowerLimit > jt->upperLimit)
@@ -564,6 +592,40 @@ Result<void> patch_component(World& world, Entity e, const TypeInfo& type, const
 }
 
 // --------------------------------------------------------------- entities --
+namespace {
+std::size_t subtree_size(const World& world, Entity e) {
+    std::size_t n = 1;
+    for (Entity c : world.children(e)) n += subtree_size(world, c);
+    return n;
+}
+// True when `e` was spawned by a script and so is left out (with its children); records it in opts.skipped.
+bool skip_spawned_subtree(const World& world, Entity e, const EntityJsonOptions& opts) {
+    if (!world.info(e).scriptSpawned) return false;
+    if (opts.skipped) {
+        opts.skipped->count += subtree_size(world, e);
+        if (opts.skipped->labels.size() < 5) {
+            const EntityInfo& inf = world.info(e);
+            opts.skipped->labels.push_back(inf.name.empty() || inf.name == inf.id ? inf.id : inf.id + " (" + inf.name + ")");
+        }
+    }
+    return true;
+}
+
+// Puts the rest value of every posed field of component `t` of `e` in `c` (the component's JSON): a field equal to its
+// default is left out unless `includeDefaults`, like component_to_json does.
+void apply_pose_rest(const PoseRest& pose, Entity e, const TypeInfo& t, bool includeDefaults, Json& c) {
+    const auto first = std::lower_bound(pose.entries.begin(), pose.entries.end(), e.bits(),
+                                        [](const PoseRestEntry& r, std::uint64_t bits) { return r.entity.bits() < bits; });
+    for (auto it = first; it != pose.entries.end() && it->entity == e; ++it) {
+        const PoseRestEntry& r = *it;
+        if (r.type != &t) continue;
+        DefaultObject def(t);
+        if (!includeDefaults && r.value == field_to_json(*r.field, def.get())) c.erase(r.field->name);
+        else c[r.field->name] = r.value;
+    }
+}
+}  // namespace
+
 Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts) {
     Json j = Json::object();
     if (!world.alive(e)) return j;
@@ -581,6 +643,7 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
     for (const TypeInfo* t : world.components_of(e)) {
         if (t->name == "EntityInfo") continue;
         Json c = component_to_json(world, e, *t, opts.includeDefaults, opts.includeRuntime);
+        if (opts.poseRest) apply_pose_rest(*opts.poseRest, e, *t, opts.includeDefaults, c);
         if (t->name == "Transform" && c.empty()) continue;  // default transform is implicit
         comps[t->name] = std::move(c);
     }
@@ -588,15 +651,19 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
 
     if (opts.includeChildren && !world.children(e).empty()) {
         Json kids = Json::array();
-        for (Entity c : world.children(e)) kids.push_back(entity_to_json(world, c, opts));
-        j["children"] = std::move(kids);
+        for (Entity c : world.children(e)) {
+            if (opts.skipSpawned && skip_spawned_subtree(world, c, opts)) continue;
+            kids.push_back(entity_to_json(world, c, opts));
+        }
+        if (!kids.empty()) j["children"] = std::move(kids);
     }
     return j;
 }
 
 Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadReport& report, std::string_view sourceName,
-                        std::string_view pointer, int index) {
+                        std::string_view pointer, int index, bool deferMissingRefs) {
     Loader loader(world, report, std::string(sourceName));
+    if (deferMissingRefs) loader.defer_missing_refs();
     Entity e = loader.load_entity(entity, parent, std::string(pointer), false);
     if (!e.is_null() && !parent.is_null() && index >= 0) world.set_parent(e, parent, false, index);
     loader.resolve_pending();
@@ -701,12 +768,20 @@ Json settings_to_json(const World& world) {
 
 }  // namespace
 
-Json save_scene(const World& world) {
+Json save_scene(const World& world, bool skipSpawned, SpawnedSkip* skipped) {
+    const PoseRest pose = collect_pose_rest(world);
+    EntityJsonOptions eo;
+    eo.skipSpawned = skipSpawned;
+    eo.skipped = skipped;
+    if (!pose.empty()) eo.poseRest = &pose;
     Json scene = Json::object();
     scene["format"] = kSceneFormat;
     scene["settings"] = settings_to_json(world);
     Json ents = Json::array();
-    for (Entity e : world.roots()) ents.push_back(entity_to_json(world, e));
+    for (Entity e : world.roots()) {
+        if (skipSpawned && skip_spawned_subtree(world, e, eo)) continue;
+        ents.push_back(entity_to_json(world, e, eo));
+    }
     scene["entities"] = std::move(ents);
     return scene;
 }
@@ -785,8 +860,8 @@ std::vector<std::string> project_scene_files(std::string_view dir) {
     return out;
 }
 
-Result<void> save_scene_file(const World& world, std::string_view path) {
-    return save_scene_json_file(path, save_scene(world));
+Result<void> save_scene_file(const World& world, std::string_view path, bool includeSpawned, SpawnedSkip* skipped) {
+    return save_scene_json_file(path, save_scene(world, !includeSpawned, skipped));
 }
 
 // ---------------------------------------------------------------- prefabs --
@@ -808,7 +883,10 @@ Entity instantiate_prefab(World& world, std::string_view prefabPath, Entity pare
 Json make_prefab(const World& world, Entity root) {
     Json p = Json::object();
     p["format"] = kPrefabFormat;
-    p["entity"] = entity_to_json(world, root);
+    const PoseRest pose = collect_pose_rest(world);
+    EntityJsonOptions eo;
+    if (!pose.empty()) eo.poseRest = &pose;
+    p["entity"] = entity_to_json(world, root, eo);
     return p;
 }
 

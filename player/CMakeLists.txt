@@ -45,7 +45,7 @@ elseif(FA_PLATFORM STREQUAL "web")
         -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2
         -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2097152 -sINITIAL_MEMORY=67108864
         -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS -lidbfs.js
-        -sEXPORTED_FUNCTIONS=_main,_fa_web_save_restored,_emscripten_stack_get_current,__emscripten_stack_restore
+        -sEXPORTED_FUNCTIONS=_main,_fa_web_save_restored,_fa_web_http_done,_emscripten_stack_get_current,__emscripten_stack_restore
         -sEXIT_RUNTIME=0)
     target_link_options(factoria_player PRIVATE "$<$<CONFIG:Debug>:-sASSERTIONS=1>")
 elseif(FA_PLATFORM STREQUAL "ios")
@@ -98,6 +98,8 @@ elseif(FA_PLATFORM STREQUAL "ios")
     # (platforms/ios/prebuilt/CMakeLists.txt, docs/EXPORTING.md). Not part of ALL.
     add_library(factoria_player_main STATIC EXCLUDE_FROM_ALL ${player_srcs} ${CMAKE_CURRENT_SOURCE_DIR}/ios_bundle.mm)
     target_link_libraries(factoria_player_main PUBLIC fa_runtime PRIVATE fa_warnings)
+    target_include_directories(factoria_player_main PRIVATE ${CMAKE_BINARY_DIR}/generated)  # fa_build_fingerprint.h
+    add_dependencies(factoria_player_main fa_build_fingerprint)
 
     if(FA_GAME_PROJECT_DIR)
         if(NOT EXISTS "${FA_GAME_PROJECT_DIR}/factoria.json")
@@ -145,3 +147,17 @@ else()
 endif()
 
 target_link_libraries(factoria_player PRIVATE fa_runtime fa_warnings)
+# fa_build_fingerprint.h (engine/core/CMakeLists.txt): the mobile players carry the fingerprint in their own code (main.cpp).
+target_include_directories(factoria_player PRIVATE ${CMAKE_BINARY_DIR}/generated)
+add_dependencies(factoria_player fa_build_fingerprint)
+
+# Every game ships the same player, so it links the whole engine; the linker drops the functions and data nothing reaches
+# (about 1.1 MB, 11% of the macOS player; docs/EXPORTING.md, "Size of the player"). Static initializers and plugin entry
+# points stay: plugins reach the engine through the FaPluginApi table, not through exported symbols. Android (NDK) and
+# MSVC Release already do this by default, Emscripten too. No LTO: it saved 0.1 MB more and can change which code is
+# inlined across modules, which the floating-point rules of the root CMakeLists.txt keep identical on every platform.
+if(APPLE)
+    target_link_options(factoria_player PRIVATE -Wl,-dead_strip)
+elseif(FA_PLATFORM STREQUAL "linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_link_options(factoria_player PRIVATE -Wl,--gc-sections)
+endif()

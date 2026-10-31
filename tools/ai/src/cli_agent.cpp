@@ -1,6 +1,10 @@
 #include "fa/ai/cli_agent.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <thread>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -12,6 +16,55 @@ namespace fa::ai {
 
 using namespace util;
 namespace fsys = std::filesystem;
+
+namespace {
+#ifdef _WIN32
+constexpr char kPathListSep = ';';
+#else
+constexpr char kPathListSep = ':';
+#endif
+}  // namespace
+
+std::string find_cli(const std::string& command, const EnvLookup& env) {
+    if (std::string onPath = which(command); !onPath.empty() || command.find_first_of("/\\") != std::string::npos) {
+        return onPath;
+    }
+#ifdef _WIN32
+    const std::string home = env("USERPROFILE");
+#else
+    const std::string home = env("HOME");
+#endif
+    std::vector<fsys::path> dirs;
+    if (!home.empty()) {
+        const fsys::path h = home;
+        for (const char* d : {".local/bin", ".claude/local", ".npm-global/bin", ".bun/bin", ".volta/bin", ".yarn/bin"}) {
+            dirs.push_back(h / d);
+        }
+        std::error_code ec;  // nvm: every installed node version, newest name last
+        std::vector<fsys::path> nvm;
+        for (const auto& e : fsys::directory_iterator(h / ".nvm/versions/node", ec)) nvm.push_back(e.path() / "bin");
+        std::sort(nvm.rbegin(), nvm.rend());
+        dirs.insert(dirs.end(), nvm.begin(), nvm.end());
+    }
+#ifdef _WIN32
+    if (const std::string appData = env("APPDATA"); !appData.empty()) dirs.push_back(fsys::path(appData) / "npm");
+#else
+    for (const char* d : {"/opt/homebrew/bin", "/usr/local/bin"}) dirs.push_back(d);
+#endif
+    for (const fsys::path& d : dirs) {
+#ifdef _WIN32
+        for (const char* ext : {".exe", ".cmd", ".bat", ""}) {
+            const fsys::path p = d / (command + ext);
+            std::error_code ec;
+            if (fsys::is_regular_file(p, ec)) return p.string();
+        }
+#else
+        const std::string p = which((d / command).string());
+        if (!p.empty()) return p;
+#endif
+    }
+    return {};
+}
 
 std::string cli_install_hint(const ProviderConfig& cfg) {
     switch (cfg.kind) {
@@ -42,21 +95,157 @@ Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
         return make_error("CLI provider '" + cfg.name + "' has no \"command\"",
                           "Set \"command\" and \"argv\" for it in ~/.factoria/ai.json.");
     }
-    std::string exe = which(command);
+    std::string exe = find_cli(command);
     if (exe.empty()) {
         return make_error("'" + command + "' was not found in PATH (provider '" + cfg.name + "')", cli_install_hint(cfg));
     }
     ProcessOptions po;
-    po.argv = {std::move(exe)};
     po.env = cfg.env;
     po.unsetEnv = cfg.unsetEnv;
+    if (which(command).empty() && !po.env.contains("PATH")) {
+        // Found outside PATH: its folder goes first, so a script CLI (npm's `claude` is `#!/usr/bin/env node`) finds the
+        // node installed next to it.
+        const char* path = std::getenv("PATH");
+        po.env["PATH"] = fsys::path(exe).parent_path().string() + kPathListSep + (path ? path : "");
+    }
+    po.argv = {std::move(exe)};
     return po;
 }
 
-Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl) {
+Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl,
+                     const std::vector<ResolvedToolServer>& servers) {
     Json server = mcpUrl.empty() ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
                                  : Json::object({{"type", "http"}, {"url", mcpUrl}});
-    return Json::object({{"mcpServers", Json::object({{"factoria", server}})}});
+    server["timeout"] = kMcpToolTimeoutMs;  // Claude Code: milliseconds a tool call may take at most
+    Json all = Json::object({{"factoria", server}});
+    for (const ResolvedToolServer& s : servers) {
+        Json entry = Json::object();
+        if (s.is_stdio()) {
+            entry["command"] = s.command;
+            if (!s.args.empty()) entry["args"] = s.args;
+            if (!s.env.empty()) {
+                Json env = Json::object();
+                for (const auto& [k, v] : s.env) env[k] = v;
+                entry["env"] = std::move(env);
+            }
+        } else {
+            entry["type"] = "http";
+            entry["url"] = s.url;
+            if (!s.headers.empty()) {
+                Json h = Json::object();
+                for (const auto& [k, v] : s.headers) h[k] = v;
+                entry["headers"] = std::move(h);
+            }
+        }
+        entry["timeout"] = static_cast<long long>(s.timeoutSeconds * 1000);
+        all[s.name] = std::move(entry);
+    }
+    return Json::object({{"mcpServers", std::move(all)}});
+}
+
+std::vector<std::string> codex_tool_server_args(const std::vector<ResolvedToolServer>& servers,
+                                                std::map<std::string, std::string>& env) {
+    std::vector<std::string> out;
+    const auto toml = [](const std::string& s) { return dump(Json(s)); };  // a JSON string is a valid TOML basic string
+    const auto toml_array = [&](const std::vector<std::string>& v) {
+        std::string a = "[";
+        for (std::size_t i = 0; i < v.size(); ++i) a += (i ? "," : "") + toml(v[i]);
+        return a + "]";
+    };
+    const auto add = [&](const std::string& server, const std::string& key, const std::string& value) {
+        out.push_back("-c");
+        out.push_back("mcp_servers." + server + "." + key + "=" + value);
+    };
+    const auto env_var_part = [](const std::string& text) {
+        std::string v;
+        for (char c : text) v += std::isalnum(static_cast<unsigned char>(c)) ? static_cast<char>(std::toupper(static_cast<unsigned char>(c))) : '_';
+        return v;
+    };
+    for (const ResolvedToolServer& s : servers) {
+        // Codex keys: a server name with '-' or '_' is a plain TOML key; the config has been checked to use [A-Za-z0-9_-] only.
+        if (s.is_stdio()) {
+            add(s.name, "command", toml(s.command));
+            if (!s.args.empty()) add(s.name, "args", toml_array(s.args));
+            std::vector<std::string> pass;
+            std::string literal;
+            for (const auto& [k, v] : s.env) {
+                const bool special = k == "PATH" || k == "HOME" || k == "USERPROFILE" || k == "SHELL" || k == "TMPDIR";
+                if (special) literal += (literal.empty() ? "" : ",") + toml(k) + "=" + toml(v);
+                else {
+                    env[k] = v;  // the value never appears in Codex's argument list
+                    pass.push_back(k);
+                }
+            }
+            if (!pass.empty()) add(s.name, "env_vars", toml_array(pass));
+            if (!literal.empty()) add(s.name, "env", "{" + literal + "}");
+        } else {
+            add(s.name, "url", toml(s.url));
+            std::string headers;
+            int index = 0;
+            for (const auto& [k, v] : s.headers) {
+                const std::string var = "FACTORIA_MCP_" + env_var_part(s.name) + "_H" + std::to_string(index++);
+                env[var] = v;
+                headers += (headers.empty() ? "" : ",") + toml(k) + "=" + toml(var);
+            }
+            if (!headers.empty()) add(s.name, "env_http_headers", "{" + headers + "}");
+        }
+        add(s.name, "tool_timeout_sec", std::to_string(static_cast<long long>(std::ceil(s.timeoutSeconds))));
+        add(s.name, "startup_timeout_sec", "60");
+    }
+    return out;
+}
+
+std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains) {
+    std::vector<std::string> rules;
+    const auto add = [&rules](const std::string& host) {
+        const std::string rule = "WebFetch(domain:" + host + ")";
+        if (std::find(rules.begin(), rules.end(), rule) == rules.end()) rules.push_back(rule);
+    };
+    for (const std::string& host : domains) {
+        if (host.empty()) continue;
+        add(host);
+        add(host.rfind("www.", 0) == 0 ? host.substr(4) : "www." + host);
+    }
+    return rules;
+}
+
+void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv) {
+    if (kind == ProviderKind::ClaudeCode) {
+        std::vector<std::string> disallowed = req.disallowedTools;
+        const bool webOnly = req.webOnlyListed && !req.webDomains.empty();
+        if (webOnly) disallowed.push_back("WebSearch");  // a search result is not one of the listed sites
+        if (!disallowed.empty()) {
+            // One comma-separated argument: the option is variadic and the prompt goes to standard input.
+            std::string list;
+            for (const auto& t : disallowed) list += (list.empty() ? "" : ",") + t;
+            argv.push_back("--disallowedTools");
+            argv.push_back(std::move(list));
+        }
+        // Claude Code asks before every MCP tool in -p mode; the user's tool servers are allowed whole (`mcp__<name>`).
+        auto rules = web_fetch_rules(req.webDomains);
+        for (const ResolvedToolServer& s : req.toolServers) rules.push_back("mcp__" + s.name);
+        if (!rules.empty()) {
+            std::string list;
+            for (const auto& r : rules) list += (list.empty() ? "" : ",") + r;
+            // Into the --allowedTools the argv already has (a second flag might replace the first instead of adding to it).
+            auto at = std::find(argv.begin(), argv.end(), "--allowedTools");
+            if (at != argv.end() && at + 1 != argv.end() && (at + 1)->rfind("--", 0) != 0) {
+                *(at + 1) += "," + list;
+            } else {
+                argv.push_back("--allowedTools");
+                argv.push_back(std::move(list));
+            }
+        }
+    }
+    if (kind == ProviderKind::Codex && req.readOnly && builtInArgv) {
+        for (auto& a : argv) {
+            // `factoria mcp --read-only`: the server offers and runs only commands that do not change the project.
+            const std::string from = "[\"mcp\",\"--project\",";
+            if (a.rfind("mcp_servers.factoria.args=", 0) == 0) a = fa::replace_all(std::move(a), from, "[\"mcp\",\"--read-only\",\"--project\",");
+        }
+        auto stdinMarker = std::find(argv.begin(), argv.end(), "-");
+        argv.insert(stdinMarker, {"--sandbox", "read-only"});
+    }
 }
 
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
@@ -212,6 +401,7 @@ void CliStreamParser::usage_event(std::vector<AgentEvent>& out, std::vector<Limi
     e.type = AgentEvent::Type::Usage;
     e.usage = usage_;
     e.costUsd = costUsd_;
+    e.costIsEstimate = !costFinal_;
     e.limits = std::move(limits);
     e.contextTokens = contextTokens_;
     e.contextWindow = contextWindow_;
@@ -246,6 +436,50 @@ static std::vector<LimitWindow> parse_claude_rate_limits(const Json& info) {
     return out;
 }
 
+// One assistant message's usage, counted once however many events repeat it (Claude Code writes one `assistant` event per
+// content block with the same message.id; the cache and input numbers repeat, output_tokens may grow: the largest wins).
+// A sub-agent's messages count too (their tokens are paid), only the context in use ignores them.
+bool CliStreamParser::count_message(const Json& msg) {
+    const Json* u = child(msg, "usage");
+    if (!u || !u->is_object()) return false;
+    std::string id = str(msg, "id");
+    if (id.empty()) id = "#" + std::to_string(++anonMessages_);
+    MessageUsage& m = messages_[id];
+    Usage now;
+    now.inputTokens = static_cast<u64>(num(*u, "input_tokens"));
+    now.outputTokens = static_cast<u64>(num(*u, "output_tokens"));
+    now.cacheCreationTokens = static_cast<u64>(num(*u, "cache_creation_input_tokens"));
+    now.cacheReadTokens = static_cast<u64>(num(*u, "cache_read_input_tokens"));
+    now.inputTokens = std::max(now.inputTokens, m.usage.inputTokens);
+    now.outputTokens = std::max(now.outputTokens, m.usage.outputTokens);
+    now.cacheCreationTokens = std::max(now.cacheCreationTokens, m.usage.cacheCreationTokens);
+    now.cacheReadTokens = std::max(now.cacheReadTokens, m.usage.cacheReadTokens);
+    // Claude Code writes its prompt cache with a 1-hour lifetime, billed at twice the input price instead of the
+    // 5-minute write price in Pricing::cacheWrite: {"cache_creation": {"ephemeral_1h_input_tokens": n, ...}}.
+    u64 write1h = 0;
+    if (const Json* cc = child(*u, "cache_creation"); cc && cc->is_object()) write1h = static_cast<u64>(num(*cc, "ephemeral_1h_input_tokens"));
+    write1h = std::min(std::max(write1h, m.cacheWrite1h), now.cacheCreationTokens);
+    if (now.inputTokens == m.usage.inputTokens && now.outputTokens == m.usage.outputTokens &&
+        now.cacheCreationTokens == m.usage.cacheCreationTokens && now.cacheReadTokens == m.usage.cacheReadTokens &&
+        write1h == m.cacheWrite1h && m.seen) {
+        return false;
+    }
+    m.seen = true;
+    const std::string model = str(msg, "model");
+    const Pricing price = builtin_pricing(model).known ? builtin_pricing(model) : pricing_;
+    double cost = estimate_cost(now, price);
+    if (price.known) cost += static_cast<double>(write1h) * (2.0 * price.input - price.cacheWrite) / 1e6;
+    usage_.inputTokens += now.inputTokens - m.usage.inputTokens;
+    usage_.outputTokens += now.outputTokens - m.usage.outputTokens;
+    usage_.cacheCreationTokens += now.cacheCreationTokens - m.usage.cacheCreationTokens;
+    usage_.cacheReadTokens += now.cacheReadTokens - m.usage.cacheReadTokens;
+    if (!costFinal_) costUsd_ += cost - m.cost;
+    m.usage = now;
+    m.cacheWrite1h = write1h;
+    m.cost = cost;
+    return true;
+}
+
 void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
     const std::string type = str(j, "type");
     if (type == "rate_limit_event") {
@@ -276,14 +510,16 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
         // Context in use = the prompt of the model's last call (input + cache). A sub-agent's calls have their own context.
         const Json* parent = child(j, "parent_tool_use_id");
         const bool fromSubAgent = parent && parent->is_string() && !parent->get<std::string>().empty();
+        bool changed = msg && count_message(*msg);
         if (const Json* u = msg ? child(*msg, "usage") : nullptr; u && u->is_object() && !fromSubAgent) {
             const u64 ctx = static_cast<u64>(num(*u, "input_tokens")) + static_cast<u64>(num(*u, "cache_creation_input_tokens")) +
                             static_cast<u64>(num(*u, "cache_read_input_tokens"));
             if (ctx > 0 && ctx != contextTokens_) {
                 contextTokens_ = ctx;
-                usage_event(out);
+                changed = true;
             }
         }
+        if (changed) usage_event(out);
         const Json* content = msg ? child(*msg, "content") : nullptr;
         if (!content || !content->is_array()) return;
         for (const auto& b : *content) {
@@ -297,6 +533,7 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
                 AgentEvent e;
                 e.type = AgentEvent::Type::ToolStart;
                 e.toolName = str(b, "name");
+                e.toolId = str(b, "id");
                 if (const Json* in = child(b, "input")) e.toolInput = *in;
                 toolNames_[str(b, "id")] = e.toolName;
                 out.push_back(e);
@@ -316,6 +553,7 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
             AgentEvent e;
             e.type = AgentEvent::Type::ToolEnd;
             e.toolName = toolNames_[str(b, "tool_use_id")];
+            e.toolId = str(b, "tool_use_id");
             e.isError = flag(b, "is_error");
             if (const Json* c = child(b, "content")) e.toolResult = clip(summarize_content(*c));
             out.push_back(e);
@@ -333,6 +571,7 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
         if (resultIsError_) errorText_ = result.empty() ? str(j, "subtype") : result;
         else finalText_ = result;
         costUsd_ = num(j, "total_cost_usd", num(j, "cost_usd"));
+        costFinal_ = true;
         // The context window comes with the totals per model; the main model is the one that used the most tokens.
         if (const Json* mu = child(j, "modelUsage"); mu && mu->is_object()) {
             double best = -1;
@@ -448,7 +687,9 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
             usage_.inputTokens += in > cached ? in - cached : 0;
             usage_.outputTokens += static_cast<u64>(num(*u, "output_tokens"));
         }
-        AgentEvent e; e.type = AgentEvent::Type::Usage; e.usage = usage_; out.push_back(e);
+        costUsd_ = estimate_cost(usage_, pricing_);  // 0 when the price is unknown; Codex never reports a cost
+        AgentEvent e; e.type = AgentEvent::Type::Usage; e.usage = usage_; e.costUsd = costUsd_; e.costIsEstimate = true;
+        out.push_back(e);
     } else if (type == "turn.failed" || type == "error") {
         std::string msg = str(j, "message");
         if (const Json* er = child(j, "error")) msg = str(*er, "message", msg);
@@ -478,18 +719,41 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     // MCP config file for CLIs that take one (Claude Code). The editor's endpoint URL carries a per-session token for a
     // loopback port; the file stays in the project's git-ignored .factoria folder.
     std::string mcpPath;
+    fsys::path privateMcpFile;
     bool needsMcp = cfg_.kind == ProviderKind::ClaudeCode;
     for (const auto& a : tmpl) needsMcp = needsMcp || a.find("{mcp_config}") != std::string::npos;
     if (needsMcp) {
         std::error_code ec;
         fsys::path dir = fsys::path(projectDir) / ".factoria" / "ai";
         fsys::create_directories(dir, ec);
-        fsys::path file = dir / ("mcp-" + cfg_.name + ".json");
-        std::ofstream f(file, std::ios::binary | std::ios::trunc);
-        if (!f) return make_error("Cannot write " + file.string(), "Is the project directory writable?");
-        f << dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl)) << "\n";
-        mcpPath = file.string();
+        if (req.toolServers.empty()) {
+            fsys::path file = dir / ("mcp-" + cfg_.name + ".json");
+            std::ofstream f(file, std::ios::binary | std::ios::trunc);
+            if (!f) return make_error("Cannot write " + file.string(), "Is the project directory writable?");
+            f << dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl)) << "\n";
+            mcpPath = file.string();
+        } else {
+            // The user's tool servers put keys in this file: a file of its own (runs of other roles have other servers and
+            // may run at the same time), readable by the owner only, deleted when the run ends.
+            static std::atomic<unsigned> counter{0};
+            const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+            fsys::path file = dir / ("mcp-" + cfg_.name + "-" + std::to_string(stamp) + "-" + std::to_string(counter++) + ".json");
+            if (auto ok = write_private_file(file.string(),
+                                             dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl, req.toolServers)) + "\n");
+                !ok)
+                return ok.error();
+            mcpPath = file.string();
+            privateMcpFile = file;
+        }
     }
+    struct RemoveAtExit {
+        fsys::path& path;
+        ~RemoveAtExit() {
+            if (path.empty()) return;
+            std::error_code ec;
+            fsys::remove(path, ec);
+        }
+    } removeMcpFile{privateMcpFile};
     CliRunRequest effective = req;
     effective.projectDir = projectDir;
 
@@ -501,6 +765,12 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         effective.prompt = prompt_with_image_paths(req.prompt, req.imagePaths);
         expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand);  // {prompt} carries the paths too
     }
+    apply_role_restrictions(cfg_.kind, cfg_.argv.empty(), req, expanded);
+    if (cfg_.kind == ProviderKind::Codex && cfg_.argv.empty() && !req.toolServers.empty()) {
+        auto extra = codex_tool_server_args(req.toolServers, po.env);
+        auto stdinMarker = std::find(expanded.begin(), expanded.end(), "-");
+        expanded.insert(stdinMarker, extra.begin(), extra.end());
+    }
     for (auto& a : expanded) po.argv.push_back(std::move(a));
     po.workingDir = projectDir;
     // A template without {prompt} gets the prompt on standard input (one stream-json line when the CLI asks for that).
@@ -509,14 +779,36 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         po.stdinText = effective.prompt;
     po.cancel = cancel;
     po.captureStdout = false;
+    po.onStart = req.onStart;
+    po.endWithChild = true;  // the CLI died but a job it started holds the pipes: do not wait for them forever
     CliStreamParser parser(cfg_.kind);
+    parser.set_pricing(cfg_.pricing);
     std::vector<AgentEvent> events;
+    // stopWhen kills the CLI: the process only polls one flag, so a relay thread merges the caller's flag and ours.
+    CancelFlag stopFlag{false};
+    std::atomic<bool> relayDone{false};
+    std::thread relay;
+    if (req.stopWhen) {
+        po.cancel = &stopFlag;
+        relay = std::thread([&] {
+            while (!relayDone.load()) {
+                if (is_cancelled(cancel)) stopFlag = true;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        });
+    }
     po.onStdoutLine = [&](std::string_view line) {
         events.clear();
         parser.feed_line(line, events);
         if (onEvent) for (auto& e : events) onEvent(e);
+        if (req.stopWhen && !stopFlag.load() && !events.empty() &&
+            req.stopWhen(parser.usage(), parser.cost_usd(), parser.cost_is_estimate())) {
+            stopFlag = true;
+        }
     };
     auto pr = run_process(po);
+    relayDone = true;
+    if (relay.joinable()) relay.join();
     if (!pr) return make_error(pr.error().message, pr.error().hint.empty() ? cli_install_hint(cfg_) : pr.error().hint);
 
     CliRunResult res;
@@ -525,6 +817,7 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     res.finalText = parser.final_text();
     res.usage = parser.usage();
     res.costUsd = parser.cost_usd();
+    res.costIsEstimate = parser.cost_is_estimate();
     res.turns = parser.turns();
     res.sessionId = parser.session_id();
     if (pr->cancelled) {

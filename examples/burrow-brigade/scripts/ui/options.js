@@ -1,6 +1,6 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
-// size, the monitor's size, vsync, frame cap, and the colour filter, an accessibility option that works without a window),
+// size, the monitor, vsync, frame cap, the colour filter, an accessibility option that works without a window, and the split screen for players who part),
 // Audio (one slider per bus, read aloud, subtitles), Controls (rebinding, one page per player), Access (sound captions, reduced
 // flashing, game speed, hold or toggle for the dig button of each player) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
@@ -86,10 +86,17 @@ export default class Options extends Behaviour {
     vsync.interactable = has;
     this.refreshVideo();
 
-    // Window mode: the engine has windowed and full screen (its full screen is the window covering the monitor: borderless).
+    // The monitor row only exists where the game can move between monitors and this computer has more than one.
+    world.find("monitor").active = window.supports("monitors") && window.monitors().length > 1;
+    // Window mode cycles windowed, borderless and full screen (windowed and full screen where there is no borderless mode).
     ui.on("click", "display_mode", () => {
-      const next = settings.DISPLAY_MODES[(settings.DISPLAY_MODES.indexOf(window.fullscreen ? "fullscreen" : "windowed") + 1) % settings.DISPLAY_MODES.length];
-      this.video("window mode", () => { window.setFullscreen(next === "fullscreen"); s.displayMode = next; s.fullscreen = next === "fullscreen"; });
+      const modes = window.supports("borderless") ? settings.DISPLAY_MODES : settings.DISPLAY_MODES.filter((m) => m !== "borderless");
+      const next = modes[(modes.indexOf(window.mode) + 1) % modes.length];
+      this.video("window mode", () => { window.setMode(next); s.displayMode = next; s.fullscreen = next !== "windowed"; });
+    });
+    ui.on("click", "monitor", () => {
+      const next = (window.monitor + 1) % window.monitors().length;
+      this.video("monitor", () => { window.setMonitor(next); s.monitor = settings.monitorChoice(next); });
     });
     ui.on("change", "vsync", (e) => this.video("vsync", () => { window.setVsync(e.value); s.vsync = e.value; }));
     ui.on("click", "resolution", () => {
@@ -110,6 +117,12 @@ export default class Options extends Behaviour {
       settings.save(s);
       this.refreshVideo();
     });
+    // Split screen: works without a window (it only decides whether miners may part and the camera splits), so it is always live.
+    world.find("split_screen").get("Toggle").value = s.splitScreen === true;
+    ui.on("change", "split_screen", (e) => {
+      s.splitScreen = e.value;
+      settings.save(s); // camera_views.js and follow_camera.js read it every frame
+    });
   }
 
   /** Runs a window change (which also updates this.s); saves it when it worked, shows why when it did not. */
@@ -126,15 +139,16 @@ export default class Options extends Behaviour {
   refreshVideo() {
     const size = window.size;
     const resolution = world.find("resolution").get("Button");
-    resolution.text = window.fullscreen
+    const windowed = window.mode === "windowed";
+    resolution.text = !windowed
       ? i18n.t("options.windowSizeFullscreen")
       : i18n.t("options.windowSize", { width: Math.round(size.x), height: Math.round(size.y) });
-    resolution.interactable = window.supports("resize") && !window.fullscreen; // full screen uses the display's size
+    resolution.interactable = window.supports("resize") && windowed; // full screen uses the display's size
     const mode = world.find("display_mode").get("Button");
-    mode.text = i18n.t("options.displayMode", { mode: i18n.t(`options.mode.${window.fullscreen ? "fullscreen" : "windowed"}`) });
+    mode.text = i18n.t("options.displayMode", { mode: i18n.t(`options.mode.${window.mode}`) });
     mode.interactable = window.supports("fullscreen");
-    const display = window.displaySize;
-    world.find("monitor").get("Text").text = i18n.t("options.monitor", { width: Math.round(display.x), height: Math.round(display.y) });
+    const monitors = window.monitors();
+    world.find("monitor").get("Button").text = i18n.t("options.monitor", { n: window.monitor + 1, name: monitors[window.monitor]?.name ?? "" });
     world.find("frame_cap").get("Button").interactable = window.supports("frameCap");
     world.find("frame_cap").get("Button").text = window.frameCap
       ? i18n.t("options.frameCap", { fps: window.frameCap })
@@ -215,7 +229,7 @@ export default class Options extends Behaviour {
   }
 
   // --------------------------------------------------------------------------------------------------------- controls
-  // One page per player (Player 1 to 4): each rebinds its own keyboard and gamepad (scripts/game/controls.js), saved by seat. The
+  // One page per player (Player 1 to 4): each rebinds its own keyboard and gamepad (input.player(seat), scripts/game/controls.js), saved by seat. The
   // button at the top cycles the player; a row waits for a key or button and rebinds the list of the device that was pressed.
   setupControls() {
     const list = world.find("bindings");
@@ -308,8 +322,12 @@ export default class Options extends Behaviour {
     this.release = true;
     // Escape cancels; a mouse or touch press is not a binding. A key replaces the keyboard list of the action for this player,
     // a gamepad button or stick direction replaces its gamepad list: rebinding one does not take the other away.
-    if (pressed !== "Escape" && !/^(Mouse|Touch)/.test(pressed)) {
-      controls.rebind(this.seat, pressed.startsWith("Gamepad") ? "pad" : "keys", action, [pressed]);
+    if (pressed !== "Escape" && !/(^|\+)(Mouse|Touch)/.test(pressed)) {
+      try {
+        controls.rebind(this.seat, pressed.startsWith("Gamepad") ? "pad" : "keys", action, [pressed]);
+      } catch (e) {
+        console.warn(`options: ${pressed} was not taken as a binding: ${e.message}`); // the engine refuses a name the player's device cannot use
+      }
     }
     this.refreshControls();
     ui.focus(button); // the key that was pressed may also have moved the focus

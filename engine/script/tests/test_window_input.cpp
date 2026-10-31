@@ -9,17 +9,37 @@ using namespace fa::test;
 namespace {
 
 // A window that records what scripts ask of it (the real one is AppWindowControl in fa_runtime, tested in a real window).
+// Two fake monitors (a 1920x1080 primary and a 1280x720 one on its right) and the macOS rule that borderless cannot be reached from
+// full screen directly, so the platform-independent parts of window.* are covered without a display.
 struct FakeWindow final : WindowControl {
-    bool full = false, sync = true;
-    int w = 1000, h = 562, cap = 0;
-    bool fullscreen() const override { return full; }
+    std::string mode_ = "windowed";
+    bool sync = true;
+    int w = 1000, h = 562, cap = 0, mon = 0;
+    bool borderless_ok = true, monitors_ok = true;
+    bool full() const { return mode_ != "windowed"; }
+    std::string mode() const override { return mode_; }
+    bool supports_modes() const override { return borderless_ok; }
+    bool supports_monitors() const override { return monitors_ok; }
+    std::vector<WindowMonitor> monitors() const override {
+        return {{"Main", 1920, 1080, true, mon == 0}, {"Side", 1280, 720, false, mon == 1}};
+    }
+    std::string set_mode(const std::string& m) override {
+        if (m == "borderless" && !borderless_ok) return "this platform has no borderless mode";
+        mode_ = m;
+        return {};
+    }
+    std::string set_monitor(int i) override {
+        if (!monitors_ok) return "this platform shows the game on one display";
+        if (i < 0 || i >= 2) return "there is no monitor " + std::to_string(i) + "; this computer has 2";
+        mon = i;
+        return {};
+    }
     void size(int& a, int& b) const override { a = w; b = h; }
-    void display_size(int& a, int& b) const override { a = 1920; b = 1080; }
+    void display_size(int& a, int& b) const override { a = mon == 0 ? 1920 : 1280; b = mon == 0 ? 1080 : 720; }
     bool vsync() const override { return sync; }
     int frame_cap() const override { return cap; }
-    std::string set_fullscreen(bool on) override { full = on; return {}; }
     std::string set_size(int a, int b) override {
-        if (full) return "the window is full screen. Call window.setFullscreen(false) first.";
+        if (full()) return "the window is full screen. Call window.setFullscreen(false) first.";
         w = a;
         h = b;
         return {};
@@ -125,6 +145,115 @@ test("vsync and frame cap", () => {
     CHECK(rep.ok());
 }
 
+TEST_CASE("window modes and monitors: a fake set of monitors, mode changes, refusals and supports()") {
+    WindowedHost h("window_modes", Json::parse(R"({"display": {"width": 1000, "height": 562}})"));
+    h.file("tests/t.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { window } from "factoria";
+test("monitors are listed primary first with index, name and size", () => {
+  const list = window.monitors();
+  expect(list.length).toBe(2);
+  expect(list[0].index).toBe(0);
+  expect(list[0].name).toBe("Main");
+  expect(list[0].size.x).toBe(1920);
+  expect(list[0].primary).toBe(true);
+  expect(list[1].index).toBe(1);
+  expect(list[1].size.y).toBe(720);
+  expect(list[1].primary).toBe(false);
+  expect(window.monitor).toBe(0);
+  expect(list[0].current).toBe(true);
+});
+test("setMonitor moves the window and the display size follows", () => {
+  window.setMonitor(1);
+  expect(window.monitor).toBe(1);
+  expect(window.monitors()[1].current).toBe(true);
+  expect(window.displaySize.x).toBe(1280);
+  expect(window.resolutions()[window.resolutions().length - 1]).toEqual({ width: 1280, height: 720 });
+  window.setMonitor(0);
+  expect(window.displaySize.x).toBe(1920);
+});
+test("setMonitor explains a bad index", () => {
+  expect(() => window.setMonitor(5)).toThrow("window.setMonitor: there is no monitor 5; this computer has 2");
+  expect(() => window.setMonitor(-1)).toThrow("expects the number of a monitor from window.monitors()");
+  expect(() => window.setMonitor(1.5)).toThrow("window.setMonitor(1)");
+  expect(() => window.setMonitor("1")).toThrow("but got");
+});
+test("setMode switches between windowed, borderless and fullscreen; fullscreen is true for both covering modes", () => {
+  expect(window.mode).toBe("windowed");
+  expect(window.fullscreen).toBe(false);
+  window.setMode("borderless");
+  expect(window.mode).toBe("borderless");
+  expect(window.fullscreen).toBe(true);
+  window.setMode("fullscreen");
+  expect(window.mode).toBe("fullscreen");
+  window.setMode("windowed");
+  expect(window.mode).toBe("windowed");
+  window.setFullscreen(true);
+  expect(window.mode).toBe("fullscreen");
+  window.setFullscreen(false);
+  expect(window.mode).toBe("windowed");
+});
+test("setMode rejects an unknown name with a suggestion", () => {
+  expect(() => window.setMode("borderles")).toThrow('did you mean "borderless"?');
+  expect(() => window.setMode(true)).toThrow('expects "windowed", "borderless" or "fullscreen"');
+});
+test("supports says what this platform can do and a refusal is thrown with the function name", () => {
+  expect(window.supports("borderless")).toBe(true);
+  expect(window.supports("monitors")).toBe(true);
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("window modes on a platform without borderless or monitor choice") {
+    WindowedHost h("window_modes_web", Json::parse(R"({"display": {"width": 1000, "height": 562}})"));
+    h.win.borderless_ok = false;
+    h.win.monitors_ok = false;
+    h.file("tests/t.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { window } from "factoria";
+test("supports is false and the setters explain", () => {
+  expect(window.supports("borderless")).toBe(false);
+  expect(window.supports("monitors")).toBe(false);
+  expect(() => window.setMode("borderless")).toThrow("window.setMode: this platform has no borderless mode");
+  expect(() => window.setMonitor(1)).toThrow("window.setMonitor: this platform shows the game on one display");
+  window.setMode("fullscreen");
+  expect(window.mode).toBe("fullscreen");
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("window modes and monitors without a window: one monitor from factoria.json, setters throw") {
+    TestHost h("window_modes_headless", Json::parse(R"({"display": {"width": 800, "height": 600, "fullscreen": true}})"));
+    h.file("tests/t.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { window } from "factoria";
+test("one display, the project's mode, and no support", () => {
+  expect(window.mode).toBe("fullscreen");
+  const list = window.monitors();
+  expect(list.length).toBe(1);
+  expect(list[0].primary).toBe(true);
+  expect(list[0].size.x).toBe(800);
+  expect(window.monitor).toBe(0);
+  expect(window.supports("borderless")).toBe(false);
+  expect(window.supports("monitors")).toBe(false);
+  expect(() => window.setMode("borderless")).toThrow("window.setMode: this run has no window");
+  expect(() => window.setMonitor(0)).toThrow("window.setMonitor: this run has no window");
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
 TEST_CASE("input rebinding: input.down follows the new binding, errors teach, nothing leaks into the next test") {
     TestHost h("input_rebind");
     h.file("tests/t.test.js", R"JS(
@@ -166,6 +295,88 @@ test("errors name the problem and suggest the fix, and change nothing", () => {
   expect(() => input.rebind("jump", [5])).toThrow("expects an array of binding names");
   expect(() => input.bindings("nope")).toThrow("unknown input action");
   expect(() => input.resetBindings("nope")).toThrow("unknown input action");
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("input.player(i): per-player devices, bindings and errors that teach; nothing leaks into the next test") {
+    TestHost h("input_player", Json::parse(R"({"input": {
+        "actions": {"jump": ["Space", "Enter", "GamepadA"], "move_left": ["A", "Left", "GamepadDpadLeft", "GamepadLeftStickLeft"],
+                    "move_right": ["D", "Right", "GamepadDpadRight", "GamepadLeftStickRight"]},
+        "schemes": {"ijkl": {"keys": ["I", "J", "K", "L"], "actions": {"jump": ["I"]}}}}})"));
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { input } from "factoria";
+test("two pads drive two players independently, the global actions hear both", () => {
+  input.player(0).use({ pad: 0 });
+  input.player(1).use({ pad: 1 });
+  game.gamepad(0).axis("LeftX", 1);
+  game.gamepad(1).press("DpadLeft");
+  expect(input.player(0).axis("move_left", "move_right")).toBe(1);
+  expect(input.player(1).axis("move_left", "move_right")).toBe(-1);
+  expect(input.player(0).down("move_left")).toBe(false);
+  expect(input.player(1).down("move_left")).toBe(true);
+  expect(input.player(1).pressed("move_left")).toBe(true);
+  expect(input.player(0).vector("move_left", "move_right", "jump", "jump").x).toBe(1);
+  expect(input.player(0).value("move_right")).toBe(1);
+  expect(input.down("move_left")).toBe(true);
+  expect(input.down("move_right")).toBe(true);
+  expect(input.player(0).device.slot).toBe(0);
+  expect(input.player(1).pad).toBe(1);
+});
+test("a new test starts with no devices, like it starts with the project's bindings", () => {
+  expect(input.player(0).device).toEqual({ pad: -1, padId: "", keys: "", slot: -1 });
+  expect(input.player(2).down("jump")).toBe(false);
+});
+test("keyboard halves, a project scheme and rebinding one player", () => {
+  expect(input.keySchemes()).toEqual(["all", "left", "right", "ijkl"]);
+  expect(input.keySchemeKeys("ijkl")).toEqual(["I", "J", "K", "L"]);
+  input.player(0).use({ keys: "left" });
+  input.player(1).use({ keys: "right" });
+  input.player(2).use({ keys: "ijkl" });
+  game.keyDown("A");
+  game.keyDown("Right");
+  expect(input.player(1).lastPressed()).toBe("Right");
+  expect(input.player(0).lastPressed()).toBe("A");
+  game.keyDown("I");
+  expect(input.player(0).down("move_left")).toBe(true);
+  expect(input.player(0).down("move_right")).toBe(false);
+  expect(input.player(1).down("move_right")).toBe(true);
+  expect(input.player(2).down("jump")).toBe(true);
+  expect(input.player(2).bindings("jump")).toEqual(["I"]);
+  expect(input.player(0).bindings("jump")).toEqual(["Space"]);
+  input.player(1).rebind("jump", ["Backspace"]);
+  expect(input.player(1).bindings("jump")).toEqual(["Backspace"]);
+  expect(input.player(1).bindings("jump", "pad")).toEqual(["GamepadA"]);
+  expect(input.player(0).bindings("jump")).toEqual(["Space"]);
+  expect(input.bindings("jump")).toEqual(["Space", "Enter", "GamepadA"]);
+  const saved = input.player(1).export();
+  expect(saved).toEqual({ keys: { jump: ["Backspace"] } });
+  input.player(1).reset();
+  expect(input.player(1).bindings("jump")).toEqual(["Enter"]);
+  expect(input.player(1).import(saved)).toEqual([]);
+  expect(input.player(1).bindings("jump")).toEqual(["Backspace"]);
+  expect(input.player(1).import({ keys: { gone: ["A"] } }).length).toBe(1);
+});
+test("errors name the problem and suggest the fix", () => {
+  expect(() => input.player(4)).toThrow("whole number from 0 to 3");
+  expect(() => input.player("1")).toThrow("whole number from 0 to 3");
+  expect(() => input.player(0).use({ keys: "lefft" })).toThrow("Did you mean 'left'");
+  expect(() => input.player(0).use({ pad: 7 })).toThrow("gamepad slot");
+  expect(() => input.player(0).use({ pads: 0 })).toThrow("Did you mean 'pad'");
+  expect(() => input.player(0).use({ pad: 0, padId: "x" })).toThrow("not both");
+  expect(() => input.player(0).down("jmp")).toThrow("Did you mean 'jump'");
+  expect(() => input.player(0).rebind("jump", ["MouseLeft"])).toThrow("pointer");
+  expect(() => input.player(0).rebind("jump", ["Spce"])).toThrow("Did you mean 'Space'");
+  expect(() => input.player(0).rebind("jump", "Z")).toThrow("expects an array of binding names");
+  expect(() => input.keySchemeKeys("lefft")).toThrow("Did you mean 'left'");
+  input.player(0).use({ keys: "left" });
+  expect(() => input.player(0).rebind("jump", ["Enter"])).toThrow("not a key of this player's scheme 'left'");
+  expect(input.player(0).bindings("jump")).toEqual(["Space"]);
 });
 )JS");
     REQUIRE(h.start());
@@ -331,12 +542,25 @@ test("supports names the feature or throws with a suggestion", () => {
   expect(() => window.supports("hdr")).toThrow('use one of "frameCap", "renderScale"');
 });
 test("game.device is fixed headless and game.setDevice pretends", () => {
-  expect(g.device).toEqual({ formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" });
+  expect(g.device).toEqual({ formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false });
   game.setDevice({ formFactor: "tablet", gpuBackend: "gles3", memoryGB: 3, tier: "low" });
-  expect(g.device).toEqual({ formFactor: "tablet", gpuBackend: "gles3", memoryGB: 3, tier: "low" });
+  expect(g.device).toEqual({ formFactor: "tablet", gpuBackend: "gles3", memoryGB: 3, tier: "low", steamDeck: false, handheld: true });
   expect(window.supports("frameCap")).toBe(false);  // still no window
   expect(() => game.setDevice({ formFactor: "tv" })).toThrow("formFactor must be one of");
   expect(() => game.setDevice({ memoryGb: 2 })).toThrow("did you mean 'memoryGB'");
+});
+test("a test device can be a Steam Deck", () => {
+  game.setDevice({ steamDeck: true });
+  expect(g.device.steamDeck).toBe(true);
+  expect(g.device.handheld).toBe(true);        // a Deck is a handheld
+  expect(g.device.formFactor).toBe("desktop");  // and reports a desktop form factor
+  game.setDevice({ steamDeck: true, handheld: false });
+  expect(g.device.handheld).toBe(false);
+  game.setDevice({ handheld: true });
+  expect(g.device.steamDeck).toBe(false);
+  expect(g.device.handheld).toBe(true);
+  expect(() => game.setDevice({ steamDeck: "yes" })).toThrow("steamDeck must be true or false");
+  expect(() => game.setDevice({ steamdeck: true })).toThrow("did you mean 'steamDeck'");
 });
 test("game.renderStats needs graphics", () => {
   expect(() => game.renderStats()).toThrow("no renderer");
@@ -359,6 +583,56 @@ test("a desktop window can cap, a pretend phone cannot", () => {
   game.setDevice({ formFactor: "phone" });
   expect(window.supports("frameCap")).toBe(false);
   expect(window.supports("renderScale")).toBe(true);
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("modifier chords: keyDown names either side, a chord wins over its plain key, rebind and lastPressed record chords") {
+    TestHost h("input_chords");
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { input } from "factoria";
+test("keyDown(Ctrl) is either side", () => {
+  expect(input.keyDown("Ctrl")).toBe(false);
+  game.keyDown("RightControl");
+  expect(input.keyDown("Ctrl")).toBe(true);
+  expect(input.keyDown("Shift")).toBe(false);
+  game.keyUp("RightControl");
+  game.keyDown("LeftShift");
+  expect(input.keyDown("shift")).toBe(true);
+});
+test("a chord action fires only with the modifier, and silences the plain action", () => {
+  input.rebind("move_left", ["Ctrl+Z"]);
+  input.rebind("move_right", ["Z"]);
+  expect(input.bindings("move_left")).toEqual(["Ctrl+Z"]);
+  game.keyDown("Z");
+  expect(input.pressed("move_left")).toBe(false);
+  expect(input.pressed("move_right")).toBe(true);
+  game.keyUp("Z");
+  game.step(2);
+  game.keyDown("Ctrl");
+  game.keyDown("Z");
+  expect(input.pressed("move_left")).toBe(true);
+  expect(input.pressed("move_right")).toBe(false);   // the chord wins
+  game.keyUp("Z");
+  game.keyUp("Ctrl");
+});
+test("lastPressed and a rebind record a chord", () => {
+  game.keyDown("RightControl");
+  game.keyDown("Q");
+  expect(input.lastPressed()).toBe("Ctrl+Q");
+  game.keyUp("Q");
+  game.keyUp("RightControl");
+});
+test("a bad chord teaches", () => {
+  expect(() => input.rebind("jump", ["Crtl+Z"])).toThrow("Did you mean 'Ctrl'");
+  expect(() => input.rebind("jump", ["Ctrl+"])).toThrow("empty");
+  expect(() => input.rebind("jump", ["Ctrl+Ctrl+Z"])).toThrow("twice");
+  expect(input.bindings("jump")).toEqual(["Space"]);
 });
 )JS");
     REQUIRE(h.start());

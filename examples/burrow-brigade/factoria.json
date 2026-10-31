@@ -60,6 +60,106 @@
         "P",
         "GamepadStart"
       ]
+    },
+    "schemes": {
+      "wasd": {
+        "extends": "all",
+        "actions": {
+          "move_left": [
+            "A"
+          ],
+          "move_right": [
+            "D"
+          ],
+          "move_up": [
+            "W"
+          ],
+          "move_down": [
+            "S"
+          ],
+          "dig": [
+            "Space"
+          ],
+          "torch": [
+            "E"
+          ]
+        }
+      },
+      "arrows": {
+        "extends": "all",
+        "actions": {
+          "move_left": [
+            "Left"
+          ],
+          "move_right": [
+            "Right"
+          ],
+          "move_up": [
+            "Up"
+          ],
+          "move_down": [
+            "Down"
+          ],
+          "dig": [
+            "Enter"
+          ],
+          "torch": [
+            "RightShift"
+          ]
+        }
+      },
+      "ijkl": {
+        "extends": "all",
+        "actions": {
+          "move_left": [
+            "J"
+          ],
+          "move_right": [
+            "L"
+          ],
+          "move_up": [
+            "I"
+          ],
+          "move_down": [
+            "K"
+          ],
+          "dig": [
+            "U"
+          ],
+          "torch": [
+            "O"
+          ]
+        }
+      },
+      "keyboard": {
+        "extends": "all",
+        "actions": {
+          "move_left": [
+            "A",
+            "Left"
+          ],
+          "move_right": [
+            "D",
+            "Right"
+          ],
+          "move_up": [
+            "W",
+            "Up"
+          ],
+          "move_down": [
+            "S",
+            "Down"
+          ],
+          "dig": [
+            "Space",
+            "J"
+          ],
+          "torch": [
+            "T",
+            "E"
+          ]
+        }
+      }
     }
   },
   "platforms": [
@@ -68,6 +168,18 @@
     "linux"
   ],
   "feedbackFile": "ENGINE_FEEDBACK.json",
+  "network": {
+    "hosts": [
+      "burrow-brigade.example"
+    ],
+    "purpose": "Anonymous play statistics the player agreed to (floor reached, how a shift ended), plus the news and the balance values of the title screen."
+  },
+  "analytics": {
+    "endpoint": "https://burrow-brigade.example/v1/events"
+  },
+  "remoteConfig": {
+    "url": "https://burrow-brigade.example/v1/config.json"
+  },
   "localization": {
     "defaultLanguage": "en",
     "languages": [

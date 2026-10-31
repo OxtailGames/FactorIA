@@ -234,6 +234,35 @@ TEST_CASE("scene: Shape2D diamond and Camera.bloomScreenSpace round trip, typos 
     CHECK(again.get<Camera>(again.find_by_id("cam"))->bloomScreenSpace == false);
 }
 
+TEST_CASE("scene: Camera.viewport defaults to the whole screen, round trips, and a bad rectangle is an error with a hint") {
+    const char* text = R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "whole", "components": { "Camera": {} } },
+        { "id": "left", "components": { "Camera": { "viewport": [0, 0, 0.5, 1], "depth": 1 } } },
+        { "id": "quarter", "components": { "Camera": { "viewport": [0.5, 0.5, 0.5, 0.5] } } },
+        { "id": "past", "components": { "Camera": { "viewport": [0.5, 0, 0.75, 1] } } },
+        { "id": "empty", "components": { "Camera": { "viewport": [0, 0, 0, 1] } } },
+        { "id": "outside", "components": { "Camera": { "viewport": [-0.1, 0, 0.5, 1] } } }
+      ]
+    })";
+    World w;
+    LoadReport r = load_scene(w, Json::parse(text), "split.scene.json");
+    CHECK((Camera{}.viewport == Rect{0, 0, 1, 1}));
+    CHECK((w.get<Camera>(w.find_by_id("left"))->viewport == Rect{0, 0, 0.5f, 1}));
+    CHECK(has_message(r, kErr, "#/entities/3/components/Camera/viewport"));
+    CHECK(has_message(r, kErr, "past the edge of the screen"));
+    CHECK(has_message(r, kErr, "Left half: [0, 0, 0.5, 1]"));
+    CHECK(has_message(r, kErr, "#/entities/4/components/Camera/viewport"));
+    CHECK(has_message(r, kErr, "#/entities/5/components/Camera/viewport"));
+    CHECK(!has_message(r, kErr, "#/entities/1/components/Camera/viewport"));
+    CHECK(!has_message(r, kErr, "#/entities/2/components/Camera/viewport"));
+    // Saved canonically: the default (the whole screen) is omitted.
+    Json saved = save_scene(w);
+    CHECK(!saved["entities"][0]["components"]["Camera"].contains("viewport"));
+    CHECK(saved["entities"][1]["components"]["Camera"]["viewport"] == Json::array({0, 0, 0.5, 1}));
+}
+
 TEST_CASE("scene: a number outside a field's range() is an error at its pointer, reported once and never clamped") {
     TempProject p;
     REQUIRE(fs::write_text("prefabs/ball.prefab.json", R"({
@@ -688,4 +717,12 @@ TEST_CASE("scene: a prefab reference overrides the prefab's children") {
     CHECK(has_message(bad, kErr, "Did you mean 'components'?"));
     CHECK(has_message(bad, kErr, "Unknown field 'layr' on Sprite"));
     CHECK(has_message(bad, kErr, "Did you mean 'layer'?"));
+}
+
+TEST_CASE("load_scene: a duplicate id warning explains scenes saved with script-spawned entities") {
+    World w;
+    Json scene = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"a"},{"id":"a"}]})");
+    LoadReport r = load_scene(w, scene, "dup.scene.json");
+    REQUIRE(r.messages.size() == 1);
+    CHECK(r.messages[0].hint.find("script") != std::string::npos);
 }

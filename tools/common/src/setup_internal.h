@@ -4,12 +4,14 @@
 //   setup_core.cpp     downloading (curl), checksums, unpacking, moving into place, the install bookkeeping
 //   setup_android.cpp  JDK + Android SDK
 //   setup_players.cpp  factoria_player of the other OSes + prebuilt mobile libraries
+//   setup_webplayer.cpp the web player built from the checkout (Emscripten)
 //   setup_cmake.cpp    CMake for the iOS export
 //   setup_xcode.cpp    Xcode: status and guidance
 //   setup_appimage.cpp appimagetool + the AppImage runtime (Linux x86_64)
 //   setup_shaders.cpp  sokol-shdc, the shader compiler of custom materials (and where it is looked for)
 //   setup_ffmpeg.cpp   ffmpeg, which --record-video turns a recording into an .mp4 with
 //   setup_vscode.cpp   the VS Code extension of the script debugger (copied from the binary, nothing is downloaded)
+//   setup_launcher.cpp the app that opens the editor with the FactorIA icon (macOS ~/Applications, Linux .desktop)
 #pragma once
 
 #include <chrono>
@@ -137,6 +139,9 @@ std::string installed_player_path(const SetupContext& ctx, const std::string& pl
 std::string installed_mobile_path(const SetupContext& ctx);                              // "" when not installed
 SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& options);
 
+SetupComponent webplayer_status(const SetupContext& ctx);
+SetupResult webplayer_install(const SetupContext& ctx, const SetupInstallOptions& options);
+
 SetupComponent cmake_status(const SetupContext& ctx);
 std::string find_cmake_path(const SetupContext& ctx);  // the first CMake 3.24+ found, "" when none
 SetupResult cmake_install(const SetupContext& ctx, const SetupInstallOptions& options);
@@ -160,6 +165,9 @@ SetupResult ffmpeg_install_binary(const SetupContext& ctx, const SetupInstallOpt
 
 SetupComponent vscode_status(const SetupContext& ctx);
 SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& options);
+
+SetupComponent launcher_status(const SetupContext& ctx);
+SetupResult launcher_install(const SetupContext& ctx, const SetupInstallOptions& options);
 
 // What the three installers and the status share about Java and the SDK folders.
 bool jdk_usable(const std::string& dir);        // bin/java + bin/javac + Java 17 or newer

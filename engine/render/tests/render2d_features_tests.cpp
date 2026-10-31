@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <string>
+#include <vector>
 
 #include "fa/scene/bounds.h"
 #include "fa/scene/tilemap.h"
@@ -525,4 +527,267 @@ TEST_CASE("lit shapes: shaded by Light2D and the ambient light, unlit shapes kee
     // The lit star on the far side is out of the lamp's reach: only the ambient light (0.15, 0.15, 0.2).
     CHECK(near(img.pixel(272, 54), Color{0.9f * 0.15f, 0.6f * 0.15f, 0.3f * 0.2f, 1}, 0.03f));
     expect_golden(img, "2d_lit_shapes");
+}
+
+// M29.1 kept the first 16 lights in view; since M29.14 lit visuals without a normal map read a light buffer and the budget
+// is kMaxLights2D = 256 (docs/PERFORMANCE.md), so all the lights in view stay and only the off-view ones are left out.
+TEST_CASE("Light2D: the lights in view are all kept and the off-view ones are the ones left out, counted in the stats") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/white16.png");
+    World w;
+    camera_at(w);
+    lit_sprite(w, "", {0, 0, 0});
+    // Four bright lights far off the view come first in the entity order: still left out.
+    for (int i = 0; i < 4; ++i) {
+        Entity e = make(w, "far", {1000.0f + float(i) * 10.0f, 0, 0});
+        auto& l = w.add<Light2D>(e);
+        l.radius = 50;
+        l.intensity = 5;
+    }
+    for (int i = 0; i < 16; ++i) {
+        Entity e = make(w, "near", {-150.0f + float(i) * 20.0f, 0, 0});
+        auto& l = w.add<Light2D>(e);
+        l.radius = 30;
+    }
+    g.render(w);
+    CHECK(g.renderer.stats().lights2d == 16);
+    CHECK(g.renderer.stats().lights2dDropped == 4);
+    CHECK(g.renderer.stats().lights == 0);
+    // A directional light is one more light (it was one of the 16 slots before the light buffer): nothing in view is left out.
+    sun(w, 270, 45);
+    g.render(w);
+    CHECK(g.renderer.stats().lights2d == 17);
+    CHECK(g.renderer.stats().lights2dDropped == 4);
+}
+
+// ------------------------------------------------------------------------------------------ light buffer and tile shadows
+
+namespace {
+
+bool light_format_is(const char* name) {
+    const char* v = std::getenv("FA_LIGHT_FORMAT");
+    return v && std::string(v) == name;
+}
+
+// A flat lit floor over the whole view, no ambient light: only the lights show. Returns nothing; the tests add lights.
+void lit_floor(World& w) {
+    camera_at(w);
+    w.settings().ambientLight = Color{0, 0, 0, 1};
+    lit_sprite(w, "", {0, 0, 0}, {320, 180});
+}
+
+// A vertical wall of solid tiles one tile wide covering world x in [0, 16), taller than the view. Returns the tilemap entity.
+Entity tile_wall(World& w, bool occludes = true) {
+    Entity map = make(w, "wall", {0, 96, 0});
+    auto& tm = w.add<Tilemap>(map);
+    tm.tileset = "assets/white16.png";
+    tm.tileSize = {16, 16};
+    Json rows = Json::array();
+    for (int r = 0; r < 12; ++r) rows.push_back(Json::array({0}));
+    tm.tiles = rows;
+    tm.solidTiles = Json::array({0});
+    tm.occludesLight = occludes;
+    tm.layer = -20;  // behind the floor: the wall tiles do not paint over the sampled pixels
+    return map;
+}
+
+Entity point_light(World& w, Vec3 pos, float radius = 200, bool shadows = true) {
+    Entity e = make(w, "lamp", pos);
+    auto& l = w.add<Light2D>(e);
+    l.radius = radius;
+    l.falloff = 1;
+    l.intensity = 1;
+    l.castShadows = shadows;
+    return e;
+}
+
+// The brightness at world (x, y) of the default camera.
+float at(const Image& img, float x, float y) { return img.pixel(int(160 + x), int(90 - y)).r; }
+
+}  // namespace
+
+TEST_CASE("Light2D buffer: a wall of solid tiles leaves the far side dark, a light without castShadows shines through") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/white16.png");
+    World w;
+    lit_floor(w);
+    tile_wall(w);
+    Entity lamp = point_light(w, {-80, 0, 0});
+    Image img = g.render(w);
+    CHECK(at(img, -40, 0) == doctest::Approx(0.8f).epsilon(0.04));   // 40 from the lamp: 1 - 40/200
+    CHECK(at(img, -40, 60) > 0.4f);                                  // the near side is lit all over
+    CHECK(at(img, 40, 0) < 0.02f);                                   // behind the wall: 120 away would be 0.4
+    CHECK(at(img, 40, 50) < 0.02f);
+    CHECK(at(img, 40, -50) < 0.02f);
+    CHECK(at(img, 100, 10) < 0.02f);
+    CHECK(g.renderer.stats().lights2dShadowed == 1);
+    CHECK(g.renderer.stats().lights2d == 1);
+    // Lit from the side: the lamp's own picture of the wall is its front face, which stays lit (x just before the wall).
+    CHECK(at(img, -2, 0) > 0.5f);
+
+    // The same lamp without castShadows: the wall does not matter.
+    w.get<Light2D>(lamp)->castShadows = false;
+    img = g.render(w);
+    CHECK(at(img, 40, 0) == doctest::Approx(0.4f).epsilon(0.05));
+    CHECK(g.renderer.stats().lights2dShadowed == 0);
+
+    // castShadows but a tilemap that does not occlude: also shines through.
+    w.get<Light2D>(lamp)->castShadows = true;
+    w.get<Tilemap>(w.find("wall"))->occludesLight = false;
+    img = g.render(w);
+    CHECK(at(img, 40, 0) == doctest::Approx(0.4f).epsilon(0.05));
+    CHECK(g.renderer.stats().lights2dShadowed == 0);
+}
+
+TEST_CASE("Light2D buffer: editing a solid tile updates the shadow on the next frame") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/white16.png");
+    World w;
+    lit_floor(w);
+    Entity map = tile_wall(w);
+    point_light(w, {-80, 0, 0});
+    Image img = g.render(w);
+    CHECK(at(img, 40, 0) < 0.02f);
+    // Open a doorway: rows 5 and 6 are the ones at y in [16, 0) and [0, -16) of the 96-high origin: y = 96 - 16 * row.
+    Tilemap& tm = *w.get<Tilemap>(map);
+    REQUIRE(set_tilemap_tile(tm, 0, 5, -1));
+    REQUIRE(set_tilemap_tile(tm, 0, 6, -1));
+    img = g.render(w);
+    CHECK(at(img, 40, 0) > 0.3f);          // through the doorway
+    CHECK(at(img, 40, 60) < 0.02f);        // still behind the rest of the wall
+    // Close it again.
+    REQUIRE(set_tilemap_tile(tm, 0, 5, 0));
+    REQUIRE(set_tilemap_tile(tm, 0, 6, 0));
+    img = g.render(w);
+    CHECK(at(img, 40, 0) < 0.02f);
+    // A tile that is not solid does not block.
+    tm.solidTiles = Json::array();
+    img = g.render(w);
+    CHECK(at(img, 40, 0) > 0.3f);
+}
+
+TEST_CASE("Light2D buffer: a moving light and a light that stays both cast the shadow of the current frame") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/white16.png");
+    World w;
+    lit_floor(w);
+    tile_wall(w);
+    Entity lamp = point_light(w, {-80, 0, 0});
+    Image a = g.render(w);
+    Image b = g.render(w);  // a light that did not move: the same picture
+    CHECK(diff_images(a, b, 1.0f / 255.0f).differingPixels == 0);
+    // Over the wall: on the far side now.
+    w.get<Transform>(lamp)->position = {80, 0, 0};
+    Image c = g.render(w);
+    CHECK(at(c, 40, 0) > 0.7f);
+    CHECK(at(c, -40, 0) < 0.02f);
+}
+
+TEST_CASE("Light2D buffer: 64 lights all light the scene") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/white16.png");
+    World w;
+    lit_floor(w);
+    struct Spot { float x, y; };
+    std::vector<Spot> spots;
+    for (int j = 0; j < 8; ++j)
+        for (int i = 0; i < 8; ++i) {
+            const Spot s{-140.0f + 40.0f * float(i), 77.0f - 22.0f * float(j)};
+            spots.push_back(s);
+            point_light(w, {s.x, s.y, 0}, 14, false);
+        }
+    Image img = g.render(w);
+    CHECK(g.renderer.stats().lights2d == 64);
+    CHECK(g.renderer.stats().lights2dDropped == 0);
+    int lit = 0;
+    for (const Spot& s : spots) {
+        const float v = at(img, s.x, s.y);
+        if (v > 0.9f) ++lit;
+        // Between two lamps (20 from each of the two nearest horizontally, beyond radius 14): dark.
+        CHECK(at(img, s.x + 20, s.y) < 0.02f);
+    }
+    if (light_format_is("none")) {
+        // No light buffer on this GPU: the per-pixel path keeps the first 16 lights, as before M29.14.
+        CHECK(lit >= 16);
+        CHECK(lit < 64);
+    } else {
+        CHECK(lit == 64);
+        CHECK(at(img, spots[63].x, spots[63].y) == doctest::Approx(1.0f).epsilon(0.03));
+    }
+}
+
+TEST_CASE("Light2D buffer: lights add up and a light over the budget of shadow casters is lit without shadow") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/white16.png");
+    World w;
+    lit_floor(w);
+    tile_wall(w);
+    // 40 lights next to the wall on its left, all asking for shadows: 32 get one.
+    for (int i = 0; i < 40; ++i) point_light(w, {-8.0f - 0.1f * float(i), 80.0f - 4.0f * float(i), 0}, 30, true);
+    g.render(w);
+    CHECK(g.renderer.stats().lights2d == 40);
+    CHECK(g.renderer.stats().lights2dShadowed == 32);
+    // Two overlapping lights add up: 0.5 + 0.5.
+    World w2;
+    lit_floor(w2);
+    point_light(w2, {-50, 0, 0}, 100, false);
+    point_light(w2, {50, 0, 0}, 100, false);
+    Image img = g.render(w2);
+    CHECK(at(img, 0, 0) == doctest::Approx(1.0f).epsilon(0.04));
+}
+
+TEST_CASE("Light2D buffer: a lit sprite with a normal map is shadowed too") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/white16.png");
+    save(tilted_normal_map(16, 16), "assets/normal_tilt_x.png");
+    World w;
+    camera_at(w);
+    w.settings().ambientLight = Color{0, 0, 0, 1};
+    lit_sprite(w, "assets/normal_tilt_x.png", {0, 0, 0}, {320, 180});
+    tile_wall(w);
+    Entity lamp = point_light(w, {80, 0, 0});  // the normals lean towards +x: lit from the right
+    Image img = g.render(w);
+    CHECK(at(img, 40, 0) > 0.1f);
+    CHECK(at(img, -40, 0) < 0.02f);
+    w.get<Light2D>(lamp)->castShadows = false;
+    img = g.render(w);
+    CHECK(at(img, -40, 0) > 0.05f);
+}
+
+TEST_CASE("Light2D buffer: a scene without point lights or without lit visuals draws no light pass") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/white16.png");
+    World none;
+    lit_floor(none);
+    g.render(none);
+    const int withoutLight = g.renderer.stats().drawCalls;
+    World one;
+    lit_floor(one);
+    point_light(one, {0, 0, 0}, 100, false);
+    g.render(one);
+    if (!light_format_is("none")) CHECK(g.renderer.stats().drawCalls == withoutLight + 1);
+    else CHECK(g.renderer.stats().drawCalls == withoutLight);
+    // A light and only unlit visuals: no pass.
+    World unlit;
+    camera_at(unlit);
+    Entity plain = make(unlit, "plain", {0, 0, 0});
+    auto& ps = unlit.add<Sprite>(plain);
+    ps.texture = "assets/white16.png";
+    point_light(unlit, {0, 0, 0}, 100, true);
+    g.render(unlit);
+    const int unlitCalls = g.renderer.stats().drawCalls;
+    World noLight;
+    camera_at(noLight);
+    Entity plain2 = make(noLight, "plain", {0, 0, 0});
+    noLight.add<Sprite>(plain2).texture = "assets/white16.png";
+    g.render(noLight);
+    CHECK(g.renderer.stats().drawCalls == unlitCalls);
 }

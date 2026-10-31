@@ -1,15 +1,19 @@
 // Editor application shell: sokol callbacks, project/scene lifecycle, play mode, undo/redo,
-// docking layout, menu, toolbar and status bar.
+// docking layout, toolbar and status bar. The main menu is in main_menu.cpp.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <thread>
 #include <filesystem>
 
+#include "app_icon.h"
 #include "autotest_sections.h"
+#include "recent_projects.h"
 #include "editor_internal.h"
+#include "fa/core/build_info.h"
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -18,6 +22,7 @@
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "ui_backend.h"
+#include "fa/tooling/setup.h"
 #include "fa/tooling/shaders.h"
 
 namespace fa::editor {
@@ -117,10 +122,13 @@ ImVec4 level_color(LogLevel l) {
 
 // ------------------------------------------------------------------------------------------
 // MainThreadQueue
-CommandResult MainThreadQueue::call(const std::string& name, const Json& args, const std::atomic<bool>* cancel) {
+CommandResult MainThreadQueue::call(const std::string& name, const Json& args, const std::atomic<bool>* cancel,
+                                    const std::string& tag) {
     auto promise = std::make_shared<std::promise<CommandResult>>();
+    auto abandoned = std::make_shared<std::atomic<bool>>(false);
     std::future<CommandResult> fut = promise->get_future();
     auto fail = [&](const char* why) {
+        abandoned->store(true);  // the main thread skips the job if it has not started it
         CommandResult r;
         r.ok = false;
         r.error = Json::object({{"code", "unavailable"}, {"message", why},
@@ -130,7 +138,7 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (closed_) return fail("editor main thread is not accepting commands");
-        jobs_.push_back(Job{name, args, promise});
+        jobs_.push_back(Job{name, tag, args, promise, abandoned});
     }
     for (;;) {
         if (fut.wait_for(std::chrono::milliseconds(25)) == std::future_status::ready) return fut.get();
@@ -141,6 +149,11 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
         }
         if (closed || (cancel && cancel->load())) return fail("cancelled");
     }
+}
+
+std::size_t MainThreadQueue::size() {
+    std::lock_guard<std::mutex> lock(mu_);
+    return jobs_.size();
 }
 
 int MainThreadQueue::pump(const std::function<std::optional<CommandResult>(const std::string&, const Json&)>& run,
@@ -155,12 +168,16 @@ int MainThreadQueue::pump(const std::function<std::optional<CommandResult>(const
     while (!local.empty()) {
         Job j = std::move(local.front());
         local.pop_front();
+        if (j.abandoned && j.abandoned->load()) continue;  // its run was stopped while it waited: nobody wants the answer
         current_ = j.promise;
+        currentTag_ = j.tag;
         std::optional<CommandResult> r = run(j.name, j.args);
         const bool taken = !current_;
         current_.reset();
+        currentTag_.clear();
         if (!taken) j.promise->set_value(r ? std::move(*r) : CommandResult{});
         ++ran;
+        if (taken) break;  // a sliced command owns the simulation until it finishes: the others wait their turn
         if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() >= budgetMs) break;
     }
     if (!local.empty()) {  // out of time: keep the rest, in order, ahead of anything queued meanwhile
@@ -200,18 +217,22 @@ void MainThreadQueue::reopen() {
 Editor::Editor(EditorOptions options) : options_(std::move(options)) {}
 
 Editor::~Editor() {
-    ai_stop();
+    ai_stop("editor_closing");
     if (aiDetectThread_.joinable()) aiDetectThread_.join();
+    if (aiSettings_.tools.tests) aiSettings_.tools.tests->cancel = true;
+    if (aiToolTestThread_.joinable()) aiToolTestThread_.join();
     if (atThread_.joinable()) atThread_.join();
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();
     if (updateThread_.joinable()) updateThread_.join();
+    if (launcherThread_.joinable()) launcherThread_.join();
 }
 
 int Editor::run() {
     g_editor = this;
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
+    load_recent_projects();  // before any project opens, so opening one never overwrites the history
     atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
     if (autotest_ && !atWelcome_)  // FA_EDITOR_AUTOTEST_SECTIONS=K,M: only those sections (checked before a window opens)
         if (const char* sections = std::getenv("FA_EDITOR_AUTOTEST_SECTIONS"); sections && *sections) {
@@ -225,6 +246,9 @@ int Editor::run() {
     AppDesc d;
     windowTitle_ = editor_window_title(FA_ENGINE_VERSION, "");
     d.title = windowTitle_;
+    d.icon = editor_window_icon();
+    d.dockIcon = editor_dock_icon();
+    d.appName = "FactorIA";
     d.width = autotest_ ? 1600 : 1440;
     d.height = autotest_ ? 900 : 860;
     if (autotest_)  // FA_EDITOR_AUTOTEST_SIZE=1024x642: try the autotest on a small display (the macOS CI runner)
@@ -252,6 +276,7 @@ int Editor::run() {
 
 void Editor::on_init() {
     set_log_level(LogLevel::Debug);
+    set_dock_name("FactorIA");  // macOS: not "factoria", the executable's name
     std::string dir = options_.projectDir;
     if (autotest_) {
         // Window screenshots. FA_EDITOR_AUTOTEST_SHOW=1: a window to watch (macOS hides it from view and the mouse).
@@ -346,6 +371,9 @@ void Editor::on_init() {
         // layout2: a new name, so everyone starts on the AI layout once
         if (!h.empty()) iniPath_ = (std::filesystem::path(h) / ".factoria" / "editor_layout2.ini").string();
         maximize_window();  // the game view and the AI chat use the whole screen
+        launcherThread_ = std::thread([] {  // after an update the Dock/menu launcher still carries the old icon and version
+            if (refresh_launcher()) FA_INFO("editor", "updated the FactorIA app launcher to this version");
+        });
         if (!update_repo().empty()) {  // a downloaded package: offer newer releases (draw_update_popup)
             remove_update_leftovers(executable_dir());
             updateThread_ = std::thread([this] {
@@ -362,6 +390,12 @@ void Editor::on_init() {
         std::string root = find_project_root(dir);
         if (!root.empty()) dir = root;
     }
+    set_update_status_extra("editor", [this] {  // engine.update_status: what the editor's notice says
+        const std::string blocker = disk_restart_blocker();
+        return Json::object({{"noticeShown", disk_update_due()},
+                             {"restartAllowed", blocker.empty()},
+                             {"restartBlockedBy", blocker}});
+    });
     boot(dir);
     if (!bootError_.empty()) {
         notify(bootError_, 2);
@@ -375,7 +409,8 @@ void Editor::on_init() {
 void Editor::on_cleanup() {
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();
-    ai_stop();
+    set_update_status_extra("editor", nullptr);
+    ai_stop(restartAfterQuit_ ? "editor_restart" : "editor_closing");
     queue_.close();
     if (uiUp_) {
         ui::shutdown();
@@ -398,14 +433,27 @@ void Editor::on_cleanup() {
         if (auto r = start_editor_process(projectDir_); !r) FA_WARN("editor", "restart after the update: {}", r.error().to_string());
 }
 
-void Editor::save_recent_projects() {
+std::string Editor::recent_projects_file() const {
     const std::string h = home_dir();
-    if (autotest_ || h.empty()) return;
-    Json j = Json::array();
-    for (auto& r : recentProjects_) j.push_back(r);
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(h) / ".factoria", ec);
-    (void)save_json_file((std::filesystem::path(h) / ".factoria" / "editor_recent.json").string(), j);
+    return h.empty() ? std::string() : (std::filesystem::path(h) / ".factoria" / "editor_recent.json").string();
+}
+
+void Editor::load_recent_projects() {
+    if (autotest_) return;
+    recentProjects_ = existing_recent_projects(read_recent_projects(recent_projects_file()));
+}
+
+void Editor::remember_recent_project(const std::string& dir) {
+    if (autotest_ || recent_projects_file().empty()) return;
+    recentProjects_ = existing_recent_projects(fa::editor::remember_recent_project(recent_projects_file(), dir));
+}
+
+void Editor::forget_recent_project(const std::string& dir) {
+    if (autotest_ || recent_projects_file().empty()) {
+        std::erase(recentProjects_, normalize_project_path(dir));
+        return;
+    }
+    recentProjects_ = existing_recent_projects(fa::editor::forget_recent_project(recent_projects_file(), dir));
 }
 
 bool Editor::open_project(const std::string& dir) {
@@ -415,7 +463,7 @@ bool Editor::open_project(const std::string& dir) {
 
 bool Editor::boot(const std::string& dirIn) {
     std::string dir = dirIn;
-    ai_stop();
+    ai_stop("project_closed");
     reset_export_state();  // an export of the previous project finishes first
     reset_platform_settings_state();  // so does a keystore being created; the unsaved settings of the old project are dropped
     // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).
@@ -473,7 +521,7 @@ bool Editor::boot(const std::string& dirIn) {
         cfg.audioDevice = !autotest_;
         if (!autotest_) {  // playing in the editor is playing: the player's real date (the autotest keeps the fixed one)
             const CalendarDate today = local_calendar_date();
-            cfg.date = today.iso();
+            cfg.date = today.iso_datetime();
             cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
         }
         engine_ = std::make_unique<Engine>();
@@ -491,6 +539,8 @@ bool Editor::boot(const std::string& dirIn) {
         gfxUp_ = true;
     }
     ui::setup(iniPath_.empty() ? nullptr : iniPath_.c_str());
+    panelMask_ = -1;
+    register_layout_settings();
     // sokol_app hands back the last pasted text when the clipboard holds no text (a picture): ImGui would paste that
     // again, and the AI panel's Ctrl+V would never see an empty clipboard and attach the picture.
     ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) {
@@ -504,16 +554,18 @@ bool Editor::boot(const std::string& dirIn) {
         while (projectDir_.size() > 1 && (projectDir_.back() == '/' || projectDir_.back() == '\\')) projectDir_.pop_back();
         fs::set_project_root(projectDir_);
         projectName_ = engine_->project().name;
+        // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
+        if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
+            if (auto r = archive_closed_feedback_file(fbPath); !r) FA_WARN("editor", "feedback archive: {}", r.error().to_string());
+            else if (r->moved > 0) FA_INFO("editor", "moved {} closed feedback entries to the archive", r->moved);
+        }
         scenePath_ = world().scene_path();
         if (scenePath_.empty()) scenePath_ = engine_->project().mainScene;
         register_project_commands(*engine_, projectDir_);
         engine_->set_paused(true);
         install_command_overrides();
         // Remember the project.
-        recentProjects_.erase(std::remove(recentProjects_.begin(), recentProjects_.end(), projectDir_), recentProjects_.end());
-        recentProjects_.insert(recentProjects_.begin(), projectDir_);
-        if (recentProjects_.size() > 8) recentProjects_.resize(8);
-        save_recent_projects();
+        remember_recent_project(projectDir_);
         set_window_title(editor_window_title(FA_ENGINE_VERSION, projectName_));
         FA_INFO("editor", "opened project '{}' ({})", projectName_, projectDir_);
         if (!aiDetected_.load() && !aiDetecting_.load()) ai_refresh_providers();
@@ -567,6 +619,7 @@ void Editor::on_event(const sapp_event* e) {
         }
         return;
     }
+    if (e->type == SAPP_EVENTTYPE_FOCUSED) diskPollNow_ = true;  // back to the window: was the program replaced meanwhile?
     if (!uiUp_) return;
     ui::handle_event(e);
     if (!engine_) return;
@@ -586,7 +639,6 @@ void Editor::on_event(const sapp_event* e) {
             if (gameActive && vpFocused_ && !io.WantTextInput && !(e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_repeat) &&
                 e->key_code != SAPP_KEYCODE_F9) {  // F9 marks a problem (build_ui): the game does not see it
                 engine_->input().on_key(map_key(e->key_code), e->type == SAPP_EVENTTYPE_KEY_DOWN);
-                run_.rec.key(engine_->frame_index(), map_key(e->key_code), e->type == SAPP_EVENTTYPE_KEY_DOWN);
             }
             break;
         case SAPP_EVENTTYPE_CHAR:
@@ -596,7 +648,6 @@ void Editor::on_event(const sapp_event* e) {
         case SAPP_EVENTTYPE_MOUSE_MOVE:
             if (gameActive && (vpHovered_ || vpMouseCaptured_[0] || vpMouseCaptured_[1] || vpMouseCaptured_[2])) {
                 engine_->input().on_mouse_move(to_design(e->mouse_x, e->mouse_y));
-                run_.rec.mouse_position(engine_->frame_index(), to_design(e->mouse_x, e->mouse_y));
             }
             break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:
@@ -608,13 +659,10 @@ void Editor::on_event(const sapp_event* e) {
                 if (gameActive && vpHovered_) {
                     engine_->input().on_mouse_move(to_design(e->mouse_x, e->mouse_y));
                     engine_->input().on_mouse_button(mb, true);
-                    run_.rec.mouse_position(engine_->frame_index(), to_design(e->mouse_x, e->mouse_y));
-                    run_.rec.mouse_button(engine_->frame_index(), mb, true);
                     vpMouseCaptured_[b] = true;
                 }
             } else if (vpMouseCaptured_[b]) {
                 engine_->input().on_mouse_button(mb, false);
-                run_.rec.mouse_button(engine_->frame_index(), mb, false);
                 vpMouseCaptured_[b] = false;
             }
             break;
@@ -625,7 +673,6 @@ void Editor::on_event(const sapp_event* e) {
         case SAPP_EVENTTYPE_UNFOCUSED:
         case SAPP_EVENTTYPE_ICONIFIED:
             engine_->input().release_all();
-            run_.rec.release_all(engine_->frame_index());
             break;
         case SAPP_EVENTTYPE_FILES_DROPPED:
             ai_on_files_dropped();  // pictures dropped on the window go to the AI Assistant's message (ai_panel.cpp)
@@ -740,6 +787,7 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
     CommandResult r = engine_->commands().call(name, args);
     if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
     after_command(name, args, r);
+    if (!queue_.current_tag().empty()) ai_note_command(queue_.current_tag(), name, args, r);  // which chat's run changed what
     if (elapsed() > 100.0) FA_WARN("editor", "command {} took {:.0f} ms on the UI thread", name, elapsed());
     return r;
 }
@@ -747,10 +795,13 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
 void Editor::on_frame(double dt) {
     atHeartbeat_.fetch_add(1, std::memory_order_relaxed);  // the autotest's watchdog sees the editor alive
     time_ += dt;
+    poll_disk_update();
+    poll_recipe_sources();
     if (dt > 0) fps_ = fps_ * 0.9 + (1.0 / dt) * 0.1;
-    if (!pendingOpen_.empty()) {
+    if (!pendingOpen_.empty() || pendingWelcome_) {
         std::string dir = std::move(pendingOpen_);
         pendingOpen_.clear();
+        pendingWelcome_ = false;
         boot(dir);
         if (!bootError_.empty()) {
             dlgError_ = bootError_;
@@ -775,8 +826,8 @@ void Editor::on_frame(double dt) {
         const bool slicing = bool(slicedJob_);
         sync_scene_path();
         ai_drain_events();
-        const std::uint64_t frameBefore = engine_->frame_index(), stepBefore = engine_->fixed_step_index();
-        double frameDt = engine_->fixed_dt();  // dt of the last frame run here (step(1) runs one fixed dt)
+        ai_review_tick();
+        const std::uint64_t frameBefore = engine_->frame_index();
         if (stepPending_ > 0) {
             --stepPending_;
             engine_->step(1);
@@ -784,12 +835,7 @@ void Editor::on_frame(double dt) {
             // a sliced game.step/project.test owns the simulation: extra frames would change its result
         } else {
             engine_->frame(dt);
-            frameDt = dt;
             if (play_ == PlayState::Playing) session_frame(dt, frameBefore);
-        }
-        if (run_.active && engine_->frame_index() > frameBefore) {
-            const std::uint64_t ran = engine_->frame_index() - frameBefore, steps = engine_->fixed_step_index() - stepBefore;
-            run_.rec.timing(engine_->frame_index(), frameDt, int(steps - (ran - 1)), engine_->fixed_dt());
         }
         profile_tick(frameBefore);
     }
@@ -828,12 +874,15 @@ void Editor::restore_scene(const Json& snapshot) {
 
 bool Editor::command_edits_scene(const std::string& name, const Json& args) const {
     if (name == "prefab.save" || name == "scene.format" || name == "scene.ascii_edit" || name == "fs.delete") return false;  // files only
+    if (name.rfind("anim.", 0) == 0 && name != "anim.pose" && name != "anim.check" && name != "anim.filmstrip") return false;  // clip files only
     if (name == "scene.import_ascii" && args.is_object() && args.contains("path")) return false;  // file mode: the world is not touched
     return true;
 }
 
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
+    // A clip file changed (the Console, the AI or the panel): the pose on screen is out of date.
+    if (name.rfind("anim.", 0) == 0 && command_edits_scene(name, args) == false && name != "anim.check" && name != "anim.filmstrip") anim_.dirtyPose = true;
     // Commands that write or delete project files: the Project panel reads the folder again (it never walks the disk per frame).
     if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
         for (const char* prefix : {"fs.", "assets.", "prefab.", "material.", "scene.save", "scene.format", "scene.import_ascii",
@@ -921,12 +970,11 @@ void Editor::reload_scene_from_disk(bool keepUndo) {
 }
 
 // The assistant edits the scene in edit mode only: what it changed after Play would be thrown away at Stop. So Play
-// (and Step, which starts the game too) waits for it, and the AI panel sends nothing while the game runs.
-constexpr const char* kAiEditingNote = "The assistant is changing the scene: wait for it to finish (or press Stop in the AI panel).";
-
+// (and Step, which starts the game too) waits while ANY chat's run is going, and the AI panel sends nothing while the game
+// runs. The note names the chats that are working (ai_editing_note).
 bool Editor::ai_blocks_play() {
     if (play_ != PlayState::Edit || !ai_running()) return false;
-    notify(kAiEditingNote, 1);
+    notify(ai_editing_note(), 1);
     return true;
 }
 
@@ -950,7 +998,6 @@ void Editor::pause() {
     engine_->set_paused(true);
     play_ = PlayState::Paused;
     engine_->input().release_all();
-    run_.rec.release_all(engine_->frame_index());
 }
 
 void Editor::step_once() {
@@ -1007,6 +1054,13 @@ void Editor::begin_edit(const std::string& key) {
 
 void Editor::undo() {
     if (play_ != PlayState::Edit || undo_.empty() || !engine_) return;
+    if (undo_.back().is_object() && undo_.back().contains("$clip")) {  // a step of a clip file (anim_panel.cpp)
+        Json entry = std::move(undo_.back());
+        undo_.pop_back();
+        lastEditKey_.clear();
+        anim_apply_clip_undo(entry, false);
+        return;
+    }
     redo_.push_back(save_scene(world()));
     Json s = std::move(undo_.back());
     undo_.pop_back();
@@ -1017,6 +1071,13 @@ void Editor::undo() {
 
 void Editor::redo() {
     if (play_ != PlayState::Edit || redo_.empty() || !engine_) return;
+    if (redo_.back().is_object() && redo_.back().contains("$clip")) {
+        Json entry = std::move(redo_.back());
+        redo_.pop_back();
+        lastEditKey_.clear();
+        anim_apply_clip_undo(entry, true);
+        return;
+    }
     undo_.push_back(save_scene(world()));
     Json s = std::move(redo_.back());
     redo_.pop_back();
@@ -1057,6 +1118,46 @@ void Editor::open_screenshots_folder() {
 
 // ------------------------------------------------------------------------------------------
 // Layout and top-level UI
+// The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
+int Editor::panels_mask() const {
+    const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,  showProject_,  showAi_,
+                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_};
+    int mask = 0;
+    for (std::size_t i = 0; i < std::size(flags); ++i)
+        if (flags[i]) mask |= 1 << i;
+    return mask;
+}
+
+void Editor::set_panels_mask(int mask) {
+    bool* flags[] = {&showViewport_, &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,  &showAi_,
+                     &showFeedback_, &showAudio_,     &showProfiler_,  &showAnimation_, &showBoneTools_};
+    for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
+}
+
+// The layout file also says which panels are open: a closed panel stays closed the next time the editor opens. The handler
+// is registered after the context is created and before its first frame, which is when ImGui reads the ini file.
+void Editor::register_layout_settings() {
+    ImGuiSettingsHandler h;
+    h.TypeName = "FactorIAEditor";
+    h.TypeHash = ImHashStr("FactorIAEditor");
+    h.UserData = this;
+    h.ReadOpenFn = [](ImGuiContext*, ImGuiSettingsHandler*, const char* name) -> void* {
+        return std::strcmp(name, "Panels") == 0 ? reinterpret_cast<void*>(1) : nullptr;
+    };
+    h.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, void*, const char* line) {
+        Editor* ed = static_cast<Editor*>(handler->UserData);
+        int mask = 0;
+        float h = 0;
+        if (std::sscanf(line, "Open=%d", &mask) == 1) ed->set_panels_mask(mask);
+        else if (std::sscanf(line, "AiInputHeight=%f", &h) == 1) ed->aiInputH_ = std::max(0.0f, h);
+    };
+    h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* out) {
+        const Editor* ed = static_cast<const Editor*>(handler->UserData);
+        out->appendf("[%s][Panels]\nOpen=%d\nAiInputHeight=%.0f\n\n", handler->TypeName, ed->panels_mask(), ed->aiInputH_);
+    };
+    ImGui::AddSettingsHandler(&h);
+}
+
 void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGui::DockBuilderRemoveNode(dockId);
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
@@ -1095,7 +1196,9 @@ void Editor::build_ui() {
 
     // Keyboard shortcuts (not while typing).
     if (engine_ && !io.WantTextInput) {
-        const bool ctrl = io.KeyCtrl;
+        // With the system menu bar (macOS) Cmd+S, Z and Shift+Z are key equivalents of its Save, Undo and Redo items: the menu takes
+        // the key, and handling it here too would act twice.
+        const bool ctrl = io.KeyCtrl && !nativeMenu_;
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) save_scene_now();
         if (ctrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) undo();
         if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) || (ctrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false))) redo();
@@ -1136,7 +1239,13 @@ void Editor::build_ui() {
         if (resetLayout_ || oldLayout || ImGui::DockBuilderGetNode(dockId) == nullptr)
             build_default_layout(dockId, ImGui::GetContentRegionAvail());
         layoutBuilt_ = true;
+        if (resetLayout_) set_panels_mask(0x7F);  // the default panels: Audio, Profiler, Animation and Bone tools stay closed
         resetLayout_ = false;
+    }
+    {  // a panel opened or closed (its X, the Window menu): the ini file is written soon, with the layout
+        const int mask = panels_mask();
+        if (panelMask_ >= 0 && mask != panelMask_) ImGui::MarkIniSettingsDirty();
+        panelMask_ = mask;
     }
     ImGui::DockSpace(dockId, ImVec2(0, 0), ImGuiDockNodeFlags_None);
     ImGui::End();
@@ -1153,21 +1262,27 @@ void Editor::build_ui() {
         if (showFeedback_) draw_feedback_panel();
         if (showAudio_) draw_audio_panel();
         if (showProfiler_) draw_profiler_panel();
+        if (showAnimation_) draw_animation_panel();
+        else if (anim_.posed) anim_unpose();  // the panel was closed: the entity goes back to its rest values
+        if (showBoneTools_) draw_bone_tools_panel();
+        else if (bone_.tool != BoneTool::Off) bone_cancel_chain(), bone_.tool = BoneTool::Off;
         if (pendingFocus_) {
             ImGui::SetWindowFocus(pendingFocus_);
             pendingFocus_ = nullptr;
         }
     }
-    if (showDemo_) ImGui::ShowDemoWindow(&showDemo_);
     draw_project_dialog();
     draw_validation_window();
     draw_export_window();
     draw_platform_settings_window();
+    draw_ai_settings_window();
     draw_setup_window();
     draw_docs_window();
     draw_toasts();
     draw_mark_popup();
     draw_update_popup();
+    draw_disk_update_notice();
+    draw_recipe_notice();
 
     // Unsaved changes dialogs.
     if (showQuitDialog_) ImGui::OpenPopup("Unsaved changes##quit");
@@ -1190,7 +1305,7 @@ void Editor::build_ui() {
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) {
             showQuitDialog_ = false;
-            restartAfterQuit_ = false;  // the update stays installed; the next start uses it
+            restartAfterQuit_ = false;  // the update stays installed; the next start uses it (the disk notice offers Restart again)
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -1217,106 +1332,6 @@ void Editor::build_ui() {
     }
 }
 
-void Editor::draw_main_menu() {
-    if (!ImGui::BeginMainMenuBar()) return;
-    const bool have = engine_ != nullptr;
-    const bool editing = have && play_ == PlayState::Edit;
-    const bool fileOpen = ImGui::BeginMenu("File");
-    at_track("menu:file");
-    if (fileOpen) {
-        if (ImGui::MenuItem("New Project...")) showProjectDialog_ = true;
-        if (ImGui::MenuItem("Open Project...")) showProjectDialog_ = true;
-        if (ImGui::BeginMenu("Recent Projects", !recentProjects_.empty())) {
-            for (const auto& r : recentProjects_)
-                if (ImGui::MenuItem(r.c_str())) open_project(r);
-            ImGui::EndMenu();
-        }
-        ImGui::Separator();
-        if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, editing)) save_scene_now();
-        if (ImGui::MenuItem("Reload Scene", nullptr, false, have)) { if (dirty_) showReloadConfirm_ = true; else reload_scene_from_disk(); }
-        if (ImGui::BeginMenu("Open Scene", have)) {
-            for (const auto& f : fs::list("", true))
-                if (f.size() > 11 && f.ends_with(".scene.json") && f[0] != '.')
-                    if (ImGui::MenuItem(f.c_str(), nullptr, f == scenePath_)) { if (dirty_) pendingScene_ = f; else open_scene(f); }
-            ImGui::EndMenu();
-        }
-        ImGui::Separator();
-        if (ImGui::MenuItem("Open Screenshots Folder", nullptr, false, have)) open_screenshots_folder();
-        if (ImGui::MenuItem("Export Game...", nullptr, false, have)) open_export_window();
-        ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS");
-        if (ImGui::MenuItem("Platform Settings...", nullptr, false, have)) open_platform_settings();
-        at_track("menu:platform-settings");
-        ImGui::SetItemTooltip("The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team...");
-        if (ImGui::MenuItem("Set Up This Computer...")) open_setup_window();
-        at_track("menu:setup");
-        ImGui::SetItemTooltip("Install what an export needs: the Android build tools, the players of other platforms, CMake, Xcode");
-        ImGui::Separator();
-        if (ImGui::MenuItem("Quit")) sapp_request_quit();
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Edit")) {
-        if (ImGui::MenuItem("Undo", "Ctrl+Z", false, editing && !undo_.empty())) undo();
-        if (ImGui::MenuItem("Redo", "Ctrl+Y", false, editing && !redo_.empty())) redo();
-        ImGui::Separator();
-        const int lastRun = ai_last_revertable_run();
-        if (ImGui::MenuItem("Revert Last AI Run", nullptr, false, editing && !ai_busy() && lastRun >= 0)) ai_revert_request(chat_.current().id, lastRun);
-        at_track("menu:revert-ai");
-        ImGui::SetItemTooltip("Puts the project's files and the open scene back as they were before the last run of the AI Assistant in this chat.");
-        ImGui::EndMenu();
-    }
-    const bool viewOpen = ImGui::BeginMenu("View");
-    at_track("menu:view");
-    if (viewOpen) {
-        ImGui::MenuItem("Viewport", nullptr, &showViewport_);
-        ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy_);
-        at_track("menu:hierarchy");
-        ImGui::MenuItem("Inspector", nullptr, &showInspector_);
-        at_track("menu:inspector");
-        ImGui::MenuItem("Console", nullptr, &showConsole_);
-        ImGui::MenuItem("Project", nullptr, &showProject_);
-        at_track("menu:project");
-        ImGui::SetItemTooltip("The project's files: filter, search, drag onto the Inspector or the Viewport, open scenes");
-        ImGui::MenuItem("AI Assistant", nullptr, &showAi_);
-        ImGui::MenuItem("Engine Feedback", nullptr, &showFeedback_);
-        ImGui::MenuItem("Audio", nullptr, &showAudio_);
-        at_track("menu:audio");
-        ImGui::SetItemTooltip("The live audio.log: every sound played, with its bus, volume, source entity and whether the clip loaded");
-        ImGui::MenuItem("Profiler", nullptr, &showProfiler_);
-        at_track("menu:profiler");
-        ImGui::SetItemTooltip("Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory");
-        ImGui::Separator();
-        ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
-        ImGui::MenuItem("Show navmesh", nullptr, &showNav_);
-        ImGui::SetItemTooltip("Draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body) and its off-mesh links (yellow lines), the ground nav.findPath walks on");
-        ImGui::MenuItem("Selection overlay", nullptr, &showOverlay_);
-        if (ImGui::MenuItem("Reset layout")) resetLayout_ = true;
-        ImGui::MenuItem("ImGui demo", nullptr, &showDemo_);
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Help")) {
-        if (ImGui::MenuItem("AI providers setup")) {
-            auto d = read_doc("ai-providers");
-            docsTitle_ = "AI_PROVIDERS.md";
-            docsText_ = d ? *d : d.error().to_string();
-            showDocs_ = true;
-        }
-        if (ImGui::MenuItem("Scripting guide")) {
-            auto d = read_doc("scripting");
-            docsTitle_ = "SCRIPTING.md";
-            docsText_ = d ? *d : d.error().to_string();
-            showDocs_ = true;
-        }
-        if (ImGui::MenuItem("Engine feedback guide")) {
-            auto d = read_doc("engine-feedback");
-            docsTitle_ = "ENGINE_FEEDBACK.md";
-            docsText_ = d ? *d : d.error().to_string();
-            showDocs_ = true;
-        }
-        ImGui::EndMenu();
-    }
-    ImGui::EndMainMenuBar();
-}
-
 void Editor::draw_toolbar() {
     const bool have = engine_ != nullptr;
     auto colored = [](ImVec4 c) {
@@ -1331,7 +1346,7 @@ void Editor::draw_toolbar() {
     if (ImGui::Button(" Play ")) play();
     ImGui::PopStyleColor(3);
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("%s", aiEditing ? kAiEditingNote : "Snapshot the scene and run the game (F5 toggles Play/Stop)");
+    ImGui::SetItemTooltip("%s", aiEditing ? ai_editing_note().c_str() : "Snapshot the scene and run the game (F5 toggles Play/Stop)");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ != PlayState::Playing);
     if (ImGui::Button(" Pause ")) pause();
@@ -1341,7 +1356,7 @@ void Editor::draw_toolbar() {
     ImGui::BeginDisabled(aiEditing);
     if (ImGui::Button(" Step ")) step_once();
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("%s", aiEditing ? kAiEditingNote : "Advance exactly one fixed frame (F10)");
+    ImGui::SetItemTooltip("%s", aiEditing ? ai_editing_note().c_str() : "Advance exactly one fixed frame (F10)");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ == PlayState::Edit);
     colored(ImVec4(0.62f, 0.22f, 0.20f, 1));
@@ -1357,7 +1372,7 @@ void Editor::draw_toolbar() {
     if (ImGui::Button("Save")) save_scene_now();
     at_track("toolbar:save");
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("Save the scene to %s (Ctrl+S)", scenePath_.c_str());
+    ImGui::SetItemTooltip("Save the scene to %s (%s)", scenePath_.c_str(), menu::shortcut_label("Ctrl+S", menu::kApple).c_str());
     ImGui::SameLine();
     if (ImGui::Button("Reload")) { if (dirty_) showReloadConfirm_ = true; else reload_scene_from_disk(); }
     ImGui::SetItemTooltip("Reload the scene from disk");
@@ -1383,10 +1398,6 @@ void Editor::draw_toolbar() {
     at_track("toolbar:screenshot");
     ImGui::SetItemTooltip("Save the game view as PNG into .factoria/screenshots (a hidden folder:\nthe toast has a Show in %s button, and File > Open Screenshots Folder opens it)", file_manager_name());
     ImGui::SameLine();
-    if (ImGui::Button("Export")) open_export_window();
-    at_track("toolbar:export");
-    ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS (File > Export Game...)");
-    ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ != PlayState::Edit || undo_.empty());
@@ -1398,9 +1409,11 @@ void Editor::draw_toolbar() {
     if (ImGui::Button("Redo")) redo();
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
-    gizmo_toolbar_buttons();
+    if (!selected().is_null()) {  // the gizmo modes act on the selection: with nothing selected they are hidden
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+        gizmo_toolbar_buttons();
+    }
     ImGui::EndDisabled();
 
     const char* label = play_ == PlayState::Edit ? "EDIT" : play_ == PlayState::Playing ? "PLAYING" : "PAUSED";
@@ -1446,8 +1459,6 @@ void Editor::draw_status_bar() {
         ImGui::Text("%s", projectName_.c_str());
         ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
         ImGui::Text("%s%s", scenePath_.c_str(), dirty_ ? " *" : "");
-        ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
-        ImGui::Text("frame %llu", (unsigned long long)engine_->frame_index());
         ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
         ImGui::Text("%.0f FPS", fps_);
         ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();

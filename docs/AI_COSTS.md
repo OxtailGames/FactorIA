@@ -14,11 +14,13 @@ billed in four kinds of tokens:
 |---|---|---|
 | input | new text the model reads this step | $2 |
 | output | what the model writes (text, tool calls, thinking) | $10 |
-| cache write | the context stored so the next step can reuse it | $2.50 |
+| cache write | the context stored so the next step can reuse it | $2.50 (5-minute cache); $4 (1-hour cache) |
 | cache read | the stored context read again | $0.20 |
 
-(Opus 5.5 is $4 input / $20 output / $0.20 cache read; Haiku 5.5 is $0.10 / $0.50 / $0.01. The engine's table is for
-prompts up to 100K tokens; see section 2 for why that matters.)
+(Opus 5.5 is $4 input / $20 output / $0.20 cache read; Haiku 5.5 is $0.10 / $0.50 / $0.01. A cache write costs 1.25 times
+the input price for a 5-minute cache and twice the input price for a 1-hour cache; Claude Code writes the 1-hour kind, and
+the live estimate prices each kind as the message reports it (`cache_creation.ephemeral_1h_input_tokens`). The engine's
+table is for prompts up to 100K tokens; see section 2 for why that matters.)
 
 You pay for tokens in one of two ways:
 
@@ -99,7 +101,7 @@ that takes twice the steps in a context twice as large costs four times as much.
 - **Long chats.** A chat that has been going for hours carries everything said so far in every step. Open a new chat tab for
   a new task (AI panel, [EDITOR.md](EDITOR.md)); the project files are the memory, not the chat. The built-in agent does not
   trim its history ([AI_PROVIDERS.md](AI_PROVIDERS.md#conversations-and-resume)).
-- **Compaction.** `maxContextTokens` on a role (at least 100000, **Roles...** in the editor, **Context** column) caps how
+- **Compaction.** `maxContextTokens` on a role (at least 100000, **AI > Roles...** in the editor, **Context** column) caps how
   much conversation a session keeps: past it, the earlier turns become a summary and each step reads less. It works with
   Claude Code and the Anthropic API ([AI_PROVIDERS.md](AI_PROVIDERS.md#roles)).
 - **Screenshots.** A picture is tokens too. FactorIA scales big pictures to 1568 px on the long side, which is what the
@@ -125,6 +127,8 @@ Put limits in your user-level `ai.json` (`~/.factoria/ai.json`, on Windows `%APP
 | `maxTurns` | model requests per role in one run | 40 |
 | `maxCostUsd` | estimated dollars for the whole run, delegated work included (0 = unlimited) | 0 |
 | `maxTotalTokens` | tokens of all kinds for the whole run, cache reads included (0 = unlimited) | 0 |
+| `maxConcurrentRuns` | how many chats of the editor's AI panel can run at the same time (1 to 8); each run has its own `maxTurns`, `maxCostUsd` and `maxTotalTokens`, so the spending adds up across the runs, and the plan limits (Session, Week) are shared | 3 |
+| `stuckAfterSeconds` | the editor's AI panel warns after this many seconds without any sign of activity from the agent (not a cost limit: it never stops anything, see [EDITOR.md](EDITOR.md)); 0 = never warn | 180 |
 
 On the command line, `factoria ai run "<task>" --max-turns 20 --max-cost 2` overrides the first two for that run. The
 command `ai.run` takes `maxTurns` and `maxCostUsd` too. There is no flag for `maxTotalTokens`: it is only in `ai.json`.
@@ -144,9 +148,16 @@ Asset providers are not covered by any limit. Cap those at the provider (a spend
 ## 5. How to see what you spent
 
 - **In the editor**, the usage lines above the AI transcript: **Session (5h)** and **Week** (plan windows, with the time
-  they reset), **Context** (tokens in the window now), **Tokens** (in / out / cache) and **Cost** of the chat, marked `est.`
-  ([EDITOR.md](EDITOR.md), [AI_PROVIDERS.md](AI_PROVIDERS.md#usage-display)). For a subscription, the cost is the CLI's own
-  figure, and plan percentages are what the provider reports.
+  they reset), **Context** (tokens in the window now), **Tokens** (in / out / cache) and **API cost est.** of the chat
+  ([EDITOR.md](EDITOR.md), [AI_PROVIDERS.md](AI_PROVIDERS.md#usage-display)). The plan windows are the provider's and sit above
+  the chat tabs; the rest belongs to the chat. The dollars are what the same tokens would cost on the pay-per-token API:
+  with a subscription (Claude Code / Codex sign-in) none of it is charged on top of the plan, and plan percentages are
+  what the provider reports.
+- **While it runs**, Tokens and Cost in the editor grow with every model call, including a delegated worker's, instead of
+  jumping at the end. Until the CLI's own total arrives the cost is the engine's estimate (price table or the provider's
+  `pricing`); the CLI's figure replaces it when the agent finishes. The plan windows (Session, Week) are reported by Claude
+  Code once per message, so they update when the next message starts. The limits of section 4 are checked against these live
+  numbers: a Claude Code or Codex run is stopped when it crosses them (`"stopReason": "budget"`), not after the fact.
 - **On the command line**, `factoria ai run` ends with a line such as `--- done: end_turn, 41 turns, 1830000 tokens, ~$0.55`. With `--json` each event carries `costUsd`.
 - **In the transcripts**, one file per run in `<project>/.factoria/ai/sessions/<time>-<role>.jsonl` (a delegated worker has
   its own, `<time>-worker-1.jsonl`). The built-in agent writes one line per model request with `"kind": "assistant"`, a

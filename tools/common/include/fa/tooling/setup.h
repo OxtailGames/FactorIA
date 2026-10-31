@@ -1,16 +1,20 @@
 // One-click setup of everything an export needs: `factoria setup`, commands "setup.status" and "setup.install".
 //
-// FactorIA never only tells the user what to install when it can install it. Six components:
+// FactorIA never only tells the user what to install when it can install it. The components:
 //   android   JDK 21 (Eclipse Temurin) + the Android SDK (the command-line tools revision pinned below, platform-tools,
 //             platform 36, build-tools 35.0.0) with its license accepted: what `factoria export --platform android` builds an
 //             APK/AAB with.
 //   players   the factoria_player of the other desktop OSes and the prebuilt mobile libraries, from the GitHub release of
 //             this factoria's version: what `factoria export --platform windows|linux|macos` (for another OS) and the
 //             prebuilt Android/iOS exports copy into the game.
+//   webplayer the web player built from the checkout this factoria was built from (Emscripten, preset web-release), for a
+//             development build that has no release to take players from.
 //   cmake     CMake 3.24+ for the iOS export's build_ios.sh (macOS).
 //   xcode     status and guidance only (macOS): a program cannot install Xcode; install opens its App Store page.
 //   appimage  appimagetool and the AppImage runtime (Linux x86_64 only): what `factoria export --platform linux --format
 //             appimage` builds an AppImage with. Pinned releases, checked against SHA-256 values kept in this file.
+//   launcher  the app that opens the editor with the FactorIA icon (macOS ~/Applications/FactorIA.app, Linux a .desktop
+//             entry): written from the binary, outside factoria_home() like the VS Code extension.
 // Everything lands under factoria_home() (`$FACTORIA_HOME`, else ~/.factoria) and nothing outside it except the
 // machine config (~/.factoria/export.json, fa/tooling/export_settings.h) that learns where the JDK and SDK are. Every
 // download is verified against the checksum its publisher lists; an archive is unpacked next to its destination and
@@ -56,6 +60,9 @@ inline constexpr const char* kSetupAndroidLicenseId = "android-sdk-license";
 inline constexpr const char* kSetupAndroidCmdlineTools = "cmdline-tools;22.0";
 // What is installed instead when Google's listing no longer offers the pinned package (missing or obsolete): the Android CLI front.
 inline constexpr const char* kSetupAndroidCmdlineToolsFallback = "cmdline-tools;latest";
+// The Emscripten SDK the web player is built with (`setup webplayer` fetches it when none is found): the version of CI and the
+// releases (docs/BUILDING.md, "Web"; a test keeps them equal).
+inline constexpr const char* kSetupEmscriptenVersion = "6.0.10";
 inline constexpr const char* kSetupCmakeVersion = "3.31.6";
 inline constexpr const char* kSetupCmakeMinimum = "3.24";                  // what the engine and build_ios.sh need
 // The AppImage tools: the same releases and hashes as scripts/package-appimage.sh (a test keeps the two equal). To upgrade,
@@ -147,6 +154,7 @@ struct SetupContext {
     std::string hostArch;           // "aarch64" | "x64"; "" = this machine's
     std::string engineVersion;      // "" = FA_ENGINE_VERSION: the release the players come from
     std::string executableDir;      // "" = the folder of the running factoria (where mobile/ is looked for)
+    std::string sourceRoot;         // "" = the checkout this factoria was built from (FA_SOURCE_ROOT): where `setup webplayer` builds
     std::string applicationsDir;    // macOS: where Xcode*.app is looked for; "" = /Applications
     Downloader download;            // empty = curl_downloader()
     ProcessRunner run;              // empty = fa::run_process
@@ -184,7 +192,7 @@ struct SetupLicense {
 };
 
 struct SetupComponent {
-    std::string id;       // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg"
+    std::string id;       // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
@@ -214,7 +222,7 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 // ---------------------------------------------------------------------------------------------------------------
 
 struct SetupInstallOptions {
-    std::string component;                 // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg"
+    std::string component;                 // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
     bool acceptLicenses = false;           // android: the user agreed to the Android SDK license
     std::vector<std::string> platforms;    // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
     bool force = false;                    // reinstall even when it is found (android, cmake)
@@ -291,6 +299,25 @@ std::string find_sokol_shdc(const SetupContext& context = {});
 const FfmpegBinary* ffmpeg_binary(const SetupContext& context);
 // <home>/tools/ffmpeg/<kSetupFfmpegRelease>/ffmpeg[.exe]: where `setup ffmpeg` puts it (the file may not exist).
 std::string ffmpeg_install_path(const SetupContext& context);
+
+// When the launcher `setup launcher` wrote opens this factoria but is out of date (an update or a reinstall brought a new
+// icon or version), writes it again and returns true. A missing launcher, or one that opens another factoria (a
+// development build runs the editor too), is left alone. The editor calls it at start, off the main thread.
+bool refresh_launcher(const SetupContext& context = {});
+
+// The command that restarts the editor on `projectDir` through the launcher the user has pinned, so the Dock or taskbar
+// shows one FactorIA icon and not a second one (argv[0] is the program; the caller runs it detached and does not wait for
+// it). macOS, only when ~/Applications/FactorIA.app is the launcher of THIS factoria and passes the project on, even when
+// another version wrote it (an editor still running after a newer FactorIA was installed over it): with `quittingPid`
+// (the editor that is about to quit), a `/bin/sh` that waits until that process is gone and then runs
+// `/usr/bin/open <FactorIA.app> --args <projectDir>`, so the new editor takes the pinned Dock icon (a second instance,
+// `open -n`, gets an icon of its own); without it, `/usr/bin/open -n <FactorIA.app> --args <projectDir>`. Windows:
+// FactorIA-Editor.exe next to this factoria.exe. With an empty projectDir (the editor is on its start screen) the same
+// launcher without the project. Empty (start `factoria editor <projectDir>` yourself) when there is no such launcher,
+// it is another factoria's, or on Linux (the .desktop's StartupWMClass groups the window already).
+// `projectDir` should be absolute: the macOS launcher runs from the home folder.
+std::vector<std::string> editor_restart_command(const SetupContext& context, const std::string& projectDir,
+                                               long long quittingPid = 0);
 
 // Registers "setup.status" (read-only) and "setup.install" (category "setup"). They need no project, so they are
 // registered with the tooling commands and with the project-less command set; the editor calls the C++ API above.

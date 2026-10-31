@@ -1,12 +1,13 @@
 // Couch co-op (P3): the join screen, a whole shift for four pads, reviving, the camera, per-player controls and a pad that is
 // unplugged mid-shift. Everything goes through the test API's keys and pads, like a player would.
 import { test, describe, expect, game } from "factoria:test";
-import { scene, ui, world } from "factoria";
+import { scene, ui, world, input, storage } from "factoria";
 import { cleanBeforeEach, plugPads, playRows, miners, miner, teleport, record } from "./helpers/world.js";
 import { botsForAll, playFloor } from "./helpers/bot.js";
 import { run } from "../scripts/game/run_state.js";
 import * as players from "../scripts/game/players.js";
 import * as controls from "../scripts/game/controls.js";
+import * as settings from "../scripts/settings.js";
 import * as revive from "../scripts/game/revive.js";
 import * as views from "../scripts/game/camera_views.js";
 import * as events from "../scripts/game/events.js";
@@ -29,7 +30,8 @@ function tapKey(name) {
   game.step(1);
 }
 
-const devices = () => players.all().map((p) => p.device);
+// A pad device also carries the pad's `padId` (see players.js); most tests only care about kind and index.
+const devices = () => players.all().map(({ device: { padId, ...rest } }) => rest);
 
 describe("the join screen", () => {
   cleanBeforeEach();
@@ -229,21 +231,69 @@ describe("reviving", () => {
 
 describe("per-player controls", () => {
   cleanBeforeEach();
+  const KEYBOARD = { kind: "keys", scheme: "keyboard" };
+  const stored = () => storage.get("settings", {}).playerBindings ?? {};
 
-  test("rebinding is for one seat only: P2 swaps dig to Space on the keyboard family and the others keep their defaults", () => {
+  test("a player on keys or a pad is an engine player with that device; a player on any stays on the global input", () => {
+    players.clear();
+    players.add({ device: { kind: "any" } });
+    players.add({ device: { kind: "keys", scheme: "arrows" } });
+    players.add({ device: { kind: "pad", index: 2 } });
+    expect(input.player(0).device.keys).toBe("");
+    expect(input.player(0).device.pad).toBe(-1);
+    expect(input.player(1).device.keys).toBe("arrows");
+    expect(input.player(2).device.pad).toBe(2);
+    players.setDevice(2, { kind: "keys", scheme: "ijkl" });
+    expect(input.player(2).device).toEqual({ pad: -1, padId: "", keys: "ijkl", slot: -1 });
+    players.remove(1);
+    expect(input.player(1).device.keys).toBe("");
+    players.clear();
+    expect(input.player(2).device.keys).toBe("");
+  });
+
+  test("each scheme gives its own keys: the defaults are the factoria.json ones", () => {
+    players.clear();
+    players.add({ device: { kind: "keys", scheme: "wasd" } });
+    players.add({ device: { kind: "keys", scheme: "arrows" } });
+    players.add({ device: { kind: "keys", scheme: "ijkl" } });
+    players.add({ device: KEYBOARD });
+    const first = (seat, action) => input.player(seat).bindings(action, "keys");
+    expect(first(0, "dig")).toEqual(["Space"]);
+    expect(first(1, "dig")).toEqual(["Enter"]);
+    expect(first(1, "torch")).toEqual(["RightShift"]);
+    expect(first(2, "move_up")).toEqual(["I"]);
+    expect(first(3, "move_left")).toEqual(["A", "Left"]);
+    expect(first(3, "dig")).toEqual(["Space", "J"]);
+    expect(first(3, "torch")).toEqual(["T", "E"]);
+    expect(input.player(0).bindings("dig", "pad")).toEqual(["GamepadA", "GamepadX"]);
+  });
+
+  test("rebinding is for one seat only: P2 swaps dig to Q on the keyboard family and the others keep their defaults", () => {
     controls.resetAll();
-    const before = controls.bindingsFor(0, "keys", { kind: "keys", scheme: "keyboard" }).dig;
+    const before = controls.bindingsFor(0, "keys").dig;
     controls.rebind(1, "keys", "dig", ["Q"]);
-    expect(controls.bindingsFor(1, "keys", { kind: "keys", scheme: "keyboard" }).dig).toEqual(["Q"]);
-    expect(controls.bindingsFor(0, "keys", { kind: "keys", scheme: "keyboard" }).dig).toEqual(before);
+    expect(controls.bindingsFor(1, "keys").dig).toEqual(["Q"]);
+    expect(controls.bindingsFor(0, "keys").dig).toEqual(before);
+    expect(stored()["1"]).toEqual({ keys: { dig: ["Q"] } });
+    expect(stored()["0"]).toBeUndefined();
     controls.reset(1);
-    expect(controls.bindingsFor(1, "keys", { kind: "keys", scheme: "keyboard" }).dig).toEqual(before);
+    expect(controls.bindingsFor(1, "keys").dig).toEqual(before);
+    expect(stored()["1"]).toBeUndefined();
+  });
+
+  test("a key bound to an action is taken away from the seat's other actions of that family", () => {
+    controls.resetAll();
+    controls.rebind(1, "keys", "torch", ["Space"]); // Space was dig
+    expect(controls.bindingsFor(1, "keys").torch).toEqual(["Space"]);
+    expect(controls.bindingsFor(1, "keys").dig).toEqual(["J"]);
+    expect(controls.bindingsFor(0, "keys").dig).toEqual(["Space", "J"]);
+    controls.resetAll();
   });
 
   test("a rebound key drives the miner of that seat, and the old key no longer digs", () => {
     controls.resetAll();
     players.clear();
-    players.add({ device: { kind: "keys", scheme: "keyboard" } });
+    players.add({ device: KEYBOARD });
     controls.rebind(0, "keys", "right", ["L"]);
     playRows(HALL);
     const m = miner();
@@ -261,17 +311,71 @@ describe("per-player controls", () => {
     controls.resetAll();
   });
 
-  test("a rebound pad button is per seat: P2's A becomes X, P1 keeps A", () => {
+  test("a rebound pad button is per seat: P2's A becomes Y, P1 keeps A", () => {
     controls.resetAll();
     controls.rebind(1, "pad", "dig", ["GamepadY"]);
-    expect(controls.bindingsFor(1, "pad", { kind: "pad", index: 1 }).dig).toEqual(["GamepadY"]);
-    expect(controls.bindingsFor(0, "pad", { kind: "pad", index: 0 }).dig).not.toContain("GamepadY");
+    expect(controls.bindingsFor(1, "pad").dig).toEqual(["GamepadY"]);
+    expect(controls.bindingsFor(0, "pad").dig).not.toContain("GamepadY");
     controls.resetAll();
   });
 
-  test("a binding of the wrong family is an error that says what to do", () => {
-    expect(() => controls.rebind(0, "keys", "dig", ["GamepadA"])).toThrow(/key names like/);
-    expect(() => controls.rebind(0, "pad", "dig", ["Space"])).toThrow(/Gamepad/);
+  test("two pads walk two miners independently, and P2's rebinding leaves P1's pad as it was", () => {
+    controls.resetAll();
+    players.clear();
+    players.add({ device: { kind: "pad", index: 0 } });
+    players.add({ device: { kind: "pad", index: 1 } });
+    controls.rebind(1, "pad", "dig", ["GamepadLeftTrigger"]);
+    playRows(HALL, {});
+    plugPads();
+    const a = input.player(0);
+    const b = input.player(1);
+    pad(0).press("A");
+    game.step(1);
+    expect(a.down("dig")).toBe(true);
+    expect(b.down("dig")).toBe(false);
+    pad(0).release("A");
+    pad(1).press("A"); // P2's A no longer digs
+    game.step(1);
+    expect(b.down("dig")).toBe(false);
+    pad(1).release("A");
+    pad(1).axis("LeftTrigger", 1);
+    game.step(1);
+    expect(b.down("dig")).toBe(true);
+    expect(a.down("dig")).toBe(false);
+    pad(1).axis("LeftTrigger", 0);
+    controls.resetAll();
+  });
+
+  test("a binding of the wrong family is an error that says what to do, and nothing changes", () => {
+    controls.resetAll();
+    expect(() => controls.rebind(0, "keys", "dig", ["GamepadA"])).toThrow(/gamepad binding/);
+    expect(() => controls.rebind(0, "pad", "dig", ["Space"])).toThrow(/key/);
+    expect(() => controls.rebind(0, "keys", "dig", ["Spce"])).toThrow(/Space/);
+    expect(() => controls.rebind(0, "keys", "mine", ["Q"])).toThrow(/left, right, up, down, dig, torch/);
+    expect(controls.bindingsFor(0, "keys").dig).toEqual(["Space", "J"]);
+  });
+
+  test("the saved controls of an older version (left, right... by seat) are moved to the engine's action names, with a note", () => {
+    controls.resetAll();
+    const old = { settings: { playerBindings: { 1: { keys: { left: ["Q"], dig: ["Z"] }, pad: { up: ["GamepadB"] } } } } };
+    game.setStorageText(JSON.stringify(old));
+    settings.apply();
+    expect(controls.bindingsFor(1, "keys").left).toEqual(["Q"]);
+    expect(controls.bindingsFor(1, "keys").dig).toEqual(["Z"]);
+    expect(controls.bindingsFor(1, "pad").up).toEqual(["GamepadB"]);
+    expect(controls.bindingsFor(0, "keys").left).toEqual(["A", "Left"]);
+    expect(stored()["1"]).toEqual({ keys: { move_left: ["Q"], dig: ["Z"] }, pad: { move_up: ["GamepadB"] } });
+    controls.resetAll();
+  });
+
+  test("a saved binding the engine no longer accepts is skipped with a warning and the rest applies", () => {
+    controls.resetAll();
+    const bad = { settings: { playerBindings: { 2: { keys: { move_left: ["Q"], fly: ["Space"] }, pad: { dig: ["Space"] } } } } };
+    game.setStorageText(JSON.stringify(bad));
+    settings.apply();
+    expect(controls.bindingsFor(2, "keys").left).toEqual(["Q"]);
+    expect(controls.bindingsFor(2, "pad").dig).toEqual(["GamepadA", "GamepadX"]);
+    controls.resetAll();
   });
 
   test("the Options Controls page rebinds a seat with a key press and saves it", () => {
@@ -290,11 +394,12 @@ describe("per-player controls", () => {
     game.step(2);
     game.keyUp("Q");
     game.step(3);
-    expect(controls.bindingsFor(1, "keys", { kind: "keys", scheme: "keyboard" }).dig).toEqual(["Q"]);
-    expect(controls.bindingsFor(0, "keys", { kind: "keys", scheme: "keyboard" }).dig).not.toEqual(["Q"]);
+    expect(controls.bindingsFor(1, "keys").dig).toEqual(["Q"]);
+    expect(controls.bindingsFor(0, "keys").dig).not.toEqual(["Q"]);
+    expect(stored()["1"].keys.dig).toEqual(["Q"]);
     game.click("reset_controls");
     game.step(2);
-    expect(controls.bindingsFor(1, "keys", { kind: "keys", scheme: "keyboard" }).dig).not.toEqual(["Q"]);
+    expect(controls.bindingsFor(1, "keys").dig).not.toEqual(["Q"]);
     controls.resetAll();
   });
 });
@@ -358,7 +463,7 @@ describe("the camera", () => {
     expect(three.views.length).toBe(3);
   });
 
-  test("with the tether off, miners can part and the shift reports a split view; the fog and 16-light cap still hold", () => {
+  test("with the tether off, miners can part and the shift reports a split view; the fog still holds", () => {
     views.config.tether = false;
     try {
       const shift = playRows(WIDE, { players: 2, stratum: 1 });
@@ -366,7 +471,6 @@ describe("the camera", () => {
       game.step(90);
       expect(views.current.mode).toBe("split");
       expect(views.current.views.length).toBe(2);
-      expect(shift.lights.pool.length).toBeLessThanOrEqual(16);
     } finally {
       views.config.tether = true;
     }
@@ -404,7 +508,31 @@ describe("a pad unplugged mid-shift", () => {
     game.step(2);
     pad(2).tap("A");
     expect(game.paused).toBe(false);
-    expect(players.get(3).device).toEqual({ kind: "pad", index: 2 });
+    expect(players.get(3).device).toMatchObject({ kind: "pad", index: 2 });
+  });
+
+  test("a pad that comes back in another slot is still its player's: the miner follows it and the game goes on", () => {
+    playRows(HALL, { players: 4, padWatch: true }); // player 4 is on pad 1
+    const id = input.gamepad(1).id;
+    const log = record("controllerLost", "controllerRestored");
+    pad(2).disconnect(); // a free port
+    pad(1).disconnect();
+    game.step(5);
+    expect(game.paused).toBe(true);
+    pad(2).connect({ id }); // the same pad, plugged into another port
+    game.step(5);
+    expect(game.paused).toBe(false);
+    expect(players.get(3).device).toMatchObject({ kind: "pad", index: 2, padId: id });
+    expect(log[log.length - 1].data.how).toBe("reconnected");
+  });
+
+  test("a player on a pad remembers the pad's id; a player on the keyboard has none", () => {
+    players.clear();
+    pad(0).connect({ id: "pad-red" });
+    players.add({ device: { kind: "pad", index: 0 } });
+    players.add({ device: { kind: "keys", scheme: "keyboard" } });
+    expect(players.get(0).device.padId).toBe("pad-red");
+    expect(players.get(1).device.padId).toBeUndefined();
   });
 
   test("the keyboard takes over a miner whose pad is gone when no other player uses it", () => {

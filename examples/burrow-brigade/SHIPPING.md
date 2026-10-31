@@ -79,7 +79,7 @@ factoria export --platform linux --release --allow-player-mismatch
 
 | Platform | Folder (git-ignored, under `build/export/`) | Size | Made with |
 |---|---|---|---|
-| macOS (arm64) | `burrow-brigade-macos/Burrow Brigade.app` | 16 MB | the player of this factoria build |
+| macOS (arm64) | `burrow-brigade-macos/Burrow Brigade.app` | 15 MB (16 MB before the player dropped unused code) | the player of this factoria build |
 | Windows | `burrow-brigade-windows/` (`burrow-brigade.exe`, `game.pak`) | 13 MB | the installed 0.2.0 player, `--allow-player-mismatch` |
 | Linux | `burrow-brigade-linux/` (`burrow-brigade`, `.desktop`, `game.pak`) | 18 MB | the installed 0.2.0 player, `--allow-player-mismatch` |
 
@@ -88,18 +88,19 @@ The whole game is in `game.pak` (167 files, scripts compiled to bytecode). The e
 ### The macOS run (checked on this Mac)
 
 1. `"build/export/burrow-brigade-macos/Burrow Brigade.app/Contents/MacOS/burrow-brigade" --version` prints
-   `factoria_player 0.2.0 (build e9384f7e82ee)`.
+   `factoria_player 0.2.0 (build 1a7977932207)`, and `codesign --verify --deep --strict` passes on the app.
 2. The same binary with `--frames 300` opens a 2560x1440 Metal window, opens the audio device, loads
    `scenes/menu.scene.json` (98 entities), renders the frames and exits 0. With `--scene scenes/join.scene.json` it loads the
    join screen (17 entities) the same way. The app is an ad hoc signed arm64 bundle; sign and notarize it with
    `sign.macos` before it leaves this machine.
-3. **Input.** The exported player has no input-replay, state-dump or screenshot option (only `[projectDir|game.pak] --scene
-   --fullscreen --frames --version`, FB-0029), so input cannot be fed to the exported binary from a script. It was proven on
-   the same project and scripts with the engine's own runtime: `factoria run --headless --scene scenes/join.scene.json
-   --input store/replays/join.json --frames 200 --state-out build/proof/join_state.json` presses A on four gamepads one
-   after the other. Without `--input` the state dump shows "Nobody has joined yet." and four "press A to join" slots; with
-   it, the slots read "P1 - Gamepad 1 - Start begins the shift", "P2 - Gamepad 2", "P3 - Gamepad 3", "P4 - Gamepad 4". The
-   floors of the screenshots and the trailer are four bots playing from replays, the same input path.
+3. **Input.** The exported player takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>` with `--frames`
+   like `factoria run` (FB-0029; EXPORTING.md, "checking an exported build"). `factoria run --headless --scene
+   scenes/join.scene.json --input store/replays/join.json --frames 200 --state-out build/proof/join_state.json` presses A
+   on four gamepads one after the other. Without `--input` the state dump shows "Nobody has joined yet." and four "press A
+   to join" slots; with it, the slots read "P1 - Gamepad 1 - Start begins the shift", "P2 - Gamepad 2", "P3 - Gamepad 3",
+   "P4 - Gamepad 4". The exported binary given the same replay, scene and frame count (`--input`, `--dump-state`,
+   `--screenshot`) writes the same state dump and the same screenshot, byte for byte (checked on 2026-10-26). The floors
+   of the screenshots and the trailer are four bots playing from replays, the same input path.
 4. **By hand, once:** double-click the app, press Enter on the title, Enter to join, and dig. This is the one thing a script
    cannot do on the exported binary.
 
@@ -124,13 +125,14 @@ Steam keeps a file's executable bit only from a macOS or Linux machine: upload t
   `ACH_BUG_SQUASHER`; stats `NumOreDug`, `NumMolesRescued`, `NumFloorsCleared`, `NumEnemiesDefeated`; boards `BestRunCash`
   and `DailyRunCash`), rich presence from `scripts/online/presence.js`, and `steam_appid.txt` with 480.
 - **The plugin is not committed.** `platform.add_backend steam` builds `plugins/steam` on the machine that exports, and it
-  needs Valve's Steamworks SDK (a free download from Valve, not redistributable). Without it every run logs an ERROR and the
-  export warns that the Windows and Linux plugin builds are missing (FB-0031). So the committed project has no `plugins/steam`
+  needs Valve's Steamworks SDK (a free download from Valve, not redistributable). Without it a run logs a warning (an
+  ERROR before FB-0031) and the export warns that the Windows and Linux plugin builds are missing (FB-0031). So the committed project has no `plugins/steam`
   (it is in `.gitignore`), the game runs with platform services off ("no store backend"), and the exports above have no Steam
   library. Before the real Steam build, on each export machine:
   `factoria call platform.add_backend '{"backend":"steam","sdk":"~/Downloads/steamworks_sdk_<version>.zip","appId":<your app id>}'`.
-- **Publish dry run**: `publish.steam` writes the `.vdf` files and runs `steamcmd`. It refuses Valve's test app 480
-  even for a dry run (FB-0033: "a build cannot be uploaded to it"). Pass any other id to see the plan:
+- **Publish dry run**: `publish.steam` writes the `.vdf` files and runs `steamcmd`. Valve's test app 480 is accepted
+  in a dry run with a warning and refused for a real upload (FB-0033, fixed in the engine). The dry run with 480 was run on
+  2026-10-26 and accepted with the Spacewar warning; the refusal of a real upload was not tried. To see the plan with any id:
   `factoria call publish.steam '{"dryRun":true,"appId":1234567}'` returned the three depots (windows 9000001, macos
   9000002, linux 9000003), `steamcmd +login FAKE_steam_build_account +run_app_build .../app_build_1234567.vdf +quit`, with
   `steamcmd` not found on this Mac named as a warning (nothing ran, `ran: false`).
@@ -149,16 +151,16 @@ The busiest floor is Crystal Caves floor 3 with four miners, six torches, the cr
 
 | File | What it holds |
 |---|---|
-| `perf.json` | 300 frames of that scene; budgets `maxDrawCalls` 24, `maxLights` 16, `maxTextureMB` 4, `maxEntities` 200; one runner, `macos-clang-metal` |
-| `tools/cli/tests/perf/burrow-brigade.perf.json` (engine repo) | the same scene and budgets, **no runner entries**; the orchestrator adds CI's after the first CI run |
-| `tests/render_budget.test.js` | the same caps, checked on every floor (all nine), with 4 miners, and the Light2D count (cap 16) |
+| `perf.json` | 300 frames of that scene; budgets `maxDrawCalls` 24, `maxLights` 24, `maxTextureMB` 4, `maxEntities` 200; one runner, `macos-clang-metal` |
+| `tools/cli/tests/perf/burrow-brigade.perf.json` (engine repo) | the same scene and budgets, with one entry per CI runner (`drawCalls` and `entities` are the same on all of them) |
+| `tests/render_budget.test.js` | the same caps, checked on every floor (all nine), with 4 miners, and the Light2D count (`renderStats().lights2d`, up to 24 in view) |
 
-Measured on the Mac (`factoria call perf.measure`, `factoria call perf.check` passes): 10 draw calls, 134 entities, 47 MB
+Measured on the Mac (`factoria call perf.measure`, `factoria call perf.check` passes): 11 draw calls, 145 entities, 47 MB
 peak, 1.4 ms CPU per frame on average (p95 2.3 ms), 0.08 MB of textures. CPU time and memory are CI's to measure; draw
 calls and entities are the same on every runner.
 
-`lights` reads 0 in the report: `renderStats().lights` counts 3D lights only and the game's lamps are `Light2D` (FB-0028).
-The test counts the active Light2D entities itself (16 on the busiest floor, the engine's cap).
+`lights` reads 20 in the report: `perf.measure` counts `Light2D` too since the engine fixed it (FB-0028, a duplicate of FB-0009).
+The render test reads `renderStats().lights2d` (more than 16 on the busiest floor, never over the cap of 24).
 
 ## 6. Could not be checked
 
@@ -166,5 +168,6 @@ The test counts the active Light2D entities itself (16 on the busiest floor, the
 - Anything that needs Valve's library: the plugin build, app 480, the overlay, Remote Play Together, the real
   `steamcmd` upload, achievements on a real Steam account.
 - Signing and notarizing the macOS app (needs a Developer ID).
-- Keyboard and pad input on the exported binary (no replay option, FB-0029): proven with the headless runtime instead.
+- Keyboard and pad input on the exported binary by hand: a replay of four pads joining runs on it and matches the headless
+  runtime byte for byte (section 3), but nobody has pressed a key on it.
 - The Russian and Thai store texts by a native reader, and the games' own Russian and Thai (package P8).

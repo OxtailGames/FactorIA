@@ -12,7 +12,9 @@
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include <encoder/basisu_miniz.h>
 
+#include "fa/core/build_info.h"
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/core/pack.h"
 #include "fa/core/json.h"
 #include "fa/script/bytecode.h"
@@ -26,10 +28,17 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-std::string fake_player(const testing::TempDir& tmp) {
-    const stdfs::path dir = tmp.sub("web-player");
+// A wasm stand-in: the magic, the build fingerprint (`fingerprint`, none when empty) and padding up to 1008 bytes.
+std::string fake_wasm(const std::string& fingerprint) {
+    std::string bytes = std::string("\0asm\1\0\0\0", 8);
+    if (!fingerprint.empty()) bytes += "FA-BUILD-FINGERPRINT:" + fingerprint + ";";
+    return bytes + std::string(1008 - bytes.size(), 'w');
+}
+
+std::string fake_player(const testing::TempDir& tmp, const std::string& fingerprint = build_fingerprint(), const char* folder = "web-player") {
+    const stdfs::path dir = tmp.sub(folder);
     testing::write_all(dir / "factoria_player.js", "// fake emscripten glue\n");
-    testing::write_all(dir / "factoria_player.wasm", std::string("\0asm\1\0\0\0", 8) + std::string(1000, 'w'));
+    testing::write_all(dir / "factoria_player.wasm", fake_wasm(fingerprint));
     return dir.string();
 }
 
@@ -265,4 +274,192 @@ TEST_CASE("export web: scripts are compiled to bytecode in the pack, like a desk
     REQUIRE(bytes.ok());
     CHECK(has(r->packed, "factoria.json"));
     CHECK(is_script_bytecode(std::string_view(reinterpret_cast<const char*>(bytes->data()), bytes->size())));
+}
+
+TEST_CASE("export web: a player of another build stops the export unless allowPlayerMismatch") {
+    if (std::string(build_fingerprint()) == "unknown") return;  // built outside a git checkout: nothing to compare
+    testing::TempDir tmp;
+    ExportOptions o = web_options(tmp, make_project(tmp));
+
+    SUBCASE("the same build exports quietly") {
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        for (const std::string& w : r->warnings) CHECK(w.find("build fingerprint") == std::string::npos);
+    }
+    SUBCASE("another fingerprint stops with an error that says what to do") {
+        o.playerBinary = fake_player(tmp, "0123456789ab", "old-player");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("web player") != std::string::npos);
+        CHECK(r.error().message.find("was built from 0123456789ab") != std::string::npos);
+        CHECK(r.error().hint.find("factoria setup players --platforms web") != std::string::npos);
+        CHECK(r.error().hint.find("build/web-release") != std::string::npos);
+        CHECK(r.error().hint.find("allowPlayerMismatch") != std::string::npos);
+        CHECK_FALSE(stdfs::exists(stdfs::path(tmp.sub("out")) / "web-test-web"));  // nothing was written
+    }
+    SUBCASE("a player with no fingerprint is told apart") {
+        o.playerBinary = fake_player(tmp, "", "old-player");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("has no build fingerprint") != std::string::npos);
+    }
+    SUBCASE("allowPlayerMismatch exports anyway and says so") {
+        o.playerBinary = fake_player(tmp, "0123456789ab", "old-player");
+        o.allowPlayerMismatch = true;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool said = false;
+        for (const std::string& w : r->warnings) said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
+        CHECK(said);
+    }
+}
+
+TEST_CASE("export web: without --player the player whose fingerprint matches is chosen") {
+    if (std::string(build_fingerprint()) == "unknown") return;
+    testing::TempDir tmp;
+    ScopedHome home(tmp.sub("fa-home"));
+    ExportOptions o = web_options(tmp, make_project(tmp));
+    o.playerBinary.clear();
+    // The installed player (of an older release) and the checkout's own build.
+    const stdfs::path installed = stdfs::path(tmp.sub("fa-home")) / "players" / FA_ENGINE_VERSION / "web";
+    testing::write_all(installed / "factoria_player.js", "// installed glue\n");
+    testing::write_all(installed / "factoria_player.wasm", fake_wasm("0123456789ab"));
+    const stdfs::path checkout = tmp.sub("checkout");
+    o.buildSourceRoot = checkout.string();
+
+    SUBCASE("the checkout's build/web-release wins over an installed player of another build") {
+        const stdfs::path build = checkout / "build" / "web-release" / "player";
+        testing::write_all(build / "factoria_player.js", "// built glue\n");
+        testing::write_all(build / "factoria_player.wasm", fake_wasm(build_fingerprint()));
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(r->mode == "build");
+    }
+    SUBCASE("a stale build of the checkout loses to an installed player that matches") {
+        const stdfs::path build = checkout / "build" / "web-release" / "player";
+        testing::write_all(build / "factoria_player.js", "// built glue\n");
+        testing::write_all(build / "factoria_player.wasm", fake_wasm("ffffffffffff"));
+        testing::write_all(installed / "factoria_player.wasm", fake_wasm(build_fingerprint()));
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(r->mode == "installed");
+    }
+    SUBCASE("none matches: the export stops on the first one found") {
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("was built from 0123456789ab") != std::string::npos);
+    }
+}
+
+namespace {
+
+// Gives the project a 128x128 icon (assets/icon.png) and sets "icon" in factoria.json.
+void give_icon(const std::string& proj) {
+    Image img;
+    img.width = img.height = 128;
+    img.rgba.assign(128 * 128 * 4, 255);
+    const std::vector<std::uint8_t> png = encode_png(img);
+    testing::write_all(stdfs::path(proj) / "assets" / "icon.png", std::string(png.begin(), png.end()));
+    const stdfs::path manifest = stdfs::path(proj) / "factoria.json";
+    auto j = Json::parse(testing::read_all(manifest));
+    j["icon"] = "assets/icon.png";
+    testing::write_all(manifest, j.dump(2));
+}
+
+bool any_warning_has(const ExportReport& r, const std::string& text) {
+    return std::any_of(r.warnings.begin(), r.warnings.end(), [&](const std::string& w) { return w.find(text) != std::string::npos; });
+}
+
+}  // namespace
+
+TEST_CASE("export web: the page links a favicon.png made from the game's icon, and it is in the zip") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    give_icon(proj);
+    auto r = export_project(web_options(tmp, proj));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+    const std::string html = testing::read_all(root / "index.html");
+    CHECK(html.find("<link rel=\"icon\" href=\"favicon.png\">") != std::string::npos);
+    CHECK(html.find("href=\"data:,\"") == std::string::npos);
+    CHECK(has(r->files, "favicon.png"));
+    auto icon = load_image((root / "favicon.png").string());
+    REQUIRE(icon.ok());
+    CHECK(icon->width == 64);
+    CHECK(icon->height == 64);
+    const auto files = read_zip(testing::read_all(stdfs::path(r->outputDir).parent_path() / "web-test-web.zip"));
+    REQUIRE(files.count("favicon.png") == 1);
+    CHECK(files.at("favicon.png") == testing::read_all(root / "favicon.png"));
+    for (const std::string& w : r->warnings) CHECK(w.find("512") == std::string::npos);  // an app icon's remark, not a favicon's
+}
+
+TEST_CASE("export web: a game without an icon keeps the empty icon and writes no favicon") {
+    testing::TempDir tmp;
+    auto r = export_project(web_options(tmp, make_project(tmp)));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(testing::read_all(stdfs::path(r->outputDir) / "index.html").find("<link rel=\"icon\" href=\"data:,\">") != std::string::npos);
+    CHECK_FALSE(has(r->files, "favicon.png"));
+}
+
+TEST_CASE("export web: the report has the raw and gzip size of each file, the total, and the download times") {
+    testing::TempDir tmp;
+    auto r = export_project(web_options(tmp, make_project(tmp)));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    REQUIRE_FALSE(r->webFiles.empty());
+    std::uint64_t raw = 0, gz = 0;
+    bool wasm = false;
+    for (const ExportSize& f : r->webFiles) {
+        raw += f.bytes;
+        gz += f.gzipBytes;
+        CHECK(f.gzipBytes > 0);
+        if (f.name == "factoria_player.wasm") {
+            wasm = true;
+            CHECK(f.bytes == 1008);
+            CHECK(f.gzipBytes < f.bytes);  // 1008 bytes of padding deflate to almost nothing
+        }
+    }
+    CHECK(wasm);
+    CHECK(r->webBytes == raw);
+    CHECK(r->webGzipBytes == gz);
+    CHECK(r->webGzipBytes < r->webBytes);
+    for (std::size_t i = 1; i < r->webFiles.size(); ++i) CHECK(r->webFiles[i - 1].bytes >= r->webFiles[i].bytes);
+    const std::vector<std::string> lines = r->size_lines();
+    std::string all;
+    for (const std::string& l : lines) all += l + "\n";
+    CHECK(all.find("factoria_player.wasm") != std::string::npos);
+    CHECK(all.find("total") != std::string::npos);
+    CHECK(all.find("1 Mbit/s") != std::string::npos);
+    CHECK(all.find("100 Mbit/s") != std::string::npos);
+    const Json j = r->to_json();
+    CHECK(j["webGzipBytes"].get<std::uint64_t>() == gz);
+    CHECK(j["webDownloadSeconds"].size() == 4);
+    CHECK(j["largestFolders"].size() >= 1);
+}
+
+TEST_CASE("export: the largest folders are listed, and a packed store/ or src/ folder is a warning that names export.exclude") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    testing::write_all(stdfs::path(proj) / "store" / "capsule.png", std::string(300000, 'x'));
+    testing::write_all(stdfs::path(proj) / "assets" / "src" / "hero.psd", std::string(1000, 'y'));
+    auto r = export_project(web_options(tmp, proj));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    REQUIRE_FALSE(r->largestFolders.empty());
+    CHECK(r->largestFolders.size() <= 5);
+    CHECK(r->largestFolders.front().name == "store");
+    CHECK(r->largestFolders.front().bytes == 300000);
+    CHECK(any_warning_has(*r, "The folder store/ (1 file(s), 293.0 KB)"));
+    CHECK(any_warning_has(*r, "add \"store\" to \"export.exclude\""));
+    CHECK(any_warning_has(*r, "The folder assets/src/ (1 file(s)"));
+    CHECK(any_warning_has(*r, "add \"assets/src\" to \"export.exclude\""));
+
+    // With the folders excluded the warnings are gone and they are not in the list.
+    const stdfs::path manifest = stdfs::path(proj) / "factoria.json";
+    auto j = Json::parse(testing::read_all(manifest));
+    j["export"]["exclude"] = Json::array({"store", "assets/src"});
+    testing::write_all(manifest, j.dump(2));
+    auto again = export_project(web_options(tmp, proj));
+    REQUIRE_MESSAGE(again.ok(), (again.ok() ? "" : again.error().to_string()));
+    CHECK_FALSE(any_warning_has(*again, "The folder store/"));
+    CHECK_FALSE(any_warning_has(*again, "The folder assets/src/"));
+    for (const ExportSize& f : again->largestFolders) CHECK(f.name != "store");
 }

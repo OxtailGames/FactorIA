@@ -4,7 +4,7 @@
 
 namespace fa {
 
-std::string third_party_notices(NoticeScope scope) {
+std::string third_party_notices(NoticeScope scope, const std::set<std::string>& builtinFonts) {
     const std::string rule(78, '-');
     std::string out;
     out += "FactorIA " FA_ENGINE_VERSION " - license notices\n\n";
@@ -14,7 +14,7 @@ std::string third_party_notices(NoticeScope scope) {
                : "The FactorIA engine and tools are FactorIA (MIT License) plus the third-party software below; each part is\n"
                  "used under the license that follows it. Games made with FactorIA ship the parts marked \"in games\".\n";
     for (const ThirdPartyComponent& c : third_party_components()) {
-        if (scope == NoticeScope::Game && !c.inGames) continue;
+        if (scope == NoticeScope::Game && !c.inGames && !(!c.fontKey.empty() && builtinFonts.count(c.fontKey))) continue;
         out += "\n" + rule + "\n" + c.name + " (" + c.usedFor + (scope == NoticeScope::All && c.inGames ? "; in games" : "") +
                ")\n" + c.url + "\nLicense: " + c.license + "\n\n";
         std::string text = bundled_read(c.licenseFile).value_or("");

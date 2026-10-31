@@ -14,10 +14,46 @@ Without a project the editor starts on the **Open or create a project** dialog (
 Project...). Type a path or press **Browse...** for the system's folder dialog (Windows, macOS; on Linux it needs
 `zenity` or `kdialog`): browsing to a project folder opens it at once. New projects go to `<Folder>/<Name>`; Folder
 starts at your Documents folder. Recent projects, and projects found in the current folder,
-are listed by name under the path; hover one to see its path (`~/.factoria/editor_recent.json`).
+are listed by name under the path; hover one to see its path.
+
+The recent list (up to 8, most recent first) lives in `~/.factoria/editor_recent.json`, outside the engine's install
+folder, so it survives updates and reinstalls. The editor reads it once when it starts, even when it starts straight on
+a project (`factoria editor <dir>`, the restart after an update). Every time a project opens, the editor re-reads the
+file, puts that project first and writes the merge, so it never drops entries it did not show and two editors open at
+once do not erase each other's history. Paths are compared normalised (absolute, no trailing slash), so one project is
+listed once. A project whose folder has no `factoria.json` any more (deleted, or on a drive that is not mounted) is
+hidden from the dialog and from File > Recent Projects but stays in the file, and shows again when the folder comes back.
+When the list is full, such missing projects are the first to go, so they never push out projects that are still
+there. Otherwise only **Delete...** in the dialog removes a project from the list. The autotest never reads or writes the file.
 
 The window title names the engine version and the open project, `FactorIA 0.1.3 — My Game` (just `FactorIA 0.1.3` on
-the Open or create a project dialog). The version is the one `factoria version` prints.
+the Open or create a project dialog). The version is the one `factoria version` prints; the right end of the menu bar
+shows it too on Windows and Linux (`FactorIA 0.8.1`; hover it for the build fingerprint), and on macOS **FactorIA > About
+FactorIA** shows it with the build fingerprint.
+
+## The menu bar
+
+On **Windows and Linux** the menus (File, Edit, View, AI, Help) are a bar at the top of the editor window, with a
+clickable **Export Game** item after Help and the engine version at the right end.
+
+On **macOS** they are in the Mac's own menu bar at the top of the screen, like any Mac app, and the window has no bar of
+its own:
+
+- **FactorIA** (the app menu): **About FactorIA** (the engine version and the build fingerprint), **Settings...**
+  (Cmd+, opens AI Settings), Services, **Hide FactorIA** (Cmd+H), Hide Others, Show All and **Quit FactorIA** (Cmd+Q;
+  the unsaved-changes dialog still asks). Quit is not in File on a Mac.
+- **File, Edit, View, AI** and **Help** have the same items as on the other systems. **Export** is a menu of its own
+  (a system menu bar cannot hold a clickable item) with **Export Game...** (Cmd+E). **Window** (Minimize Cmd+M, Zoom) comes
+  before Help. The version text of the in-window bar is not there: About and the window title show it.
+- Shortcuts are the Mac's: Cmd+S saves the scene, Cmd+Z undoes, Cmd+Shift+Z redoes (Ctrl+S, Ctrl+Z and Ctrl+Y on the
+  other systems). They work with the menus closed, and while a text box (the AI message, a name in the Inspector) has the
+  keyboard they go to the box instead, so Cmd+Z undoes your typing and not the scene.
+- A click on a menu item does its work at the start of the next editor frame, never inside the system's menu event.
+  Hovering an item shows the same tooltips as the in-window bar. **Open Scene** and **Recent Projects** are read only
+  when you open them.
+
+`FA_EDITOR_NATIVE_MENU=0` makes the macOS editor draw the in-window bar instead, as on the other systems (the editor
+autotest does this by itself: it clicks the bar with injected mouse events).
 
 ## Updates
 
@@ -28,25 +64,55 @@ version until the next start. Builds from source never check (they have no `FA_U
 Linux AppImage (a read-only mount: download the newer one). Details:
 [GETTING_STARTED.md, Updates](GETTING_STARTED.md#updates).
 
+**Updated on disk.** Files copied over the installation without the updater leave the running editor on the old code. The
+editor looks at its own `factoria` file (size and modification time) every 5 seconds and when its window gets focus, and
+once the file has changed it reads the build identity (version and commit fingerprint) written in it. If that is another
+build than the one running, a notice appears at the bottom of the window, and the editor stays usable:
+
+> FactorIA was updated on disk (0.3.0 build f530fda3e543 -> 0.4.0 build 1a2b3c4d5e6f). Restart the editor to use it.
+
+**Restart** quits (the unsaved-changes dialog still asks) and reopens the editor on the same project, the way the updater
+does; the chats of the AI Assistant (`.factoria/ai/chats/`) come back with their tabs. **Not now** hides the notice until the
+file changes again. Restart is off, with the reason in its tooltip, while an AI run is in progress (or a worker still runs),
+a play session runs, an export or a Set Up This Computer install runs, or a keystore is being created: nothing is stopped
+silently. The editor starts again through the launcher you pinned, so the Dock or taskbar keeps one FactorIA icon: on macOS
+a helper waits until the old editor has quit and then runs `open ~/Applications/FactorIA.app --args <project>` (no `--args` on
+the start screen), so the new editor takes the pinned Dock icon (a second instance started while the old one is still
+quitting would get an icon of its own), when that app is the launcher of this `factoria`
+(`factoria setup launcher`; the editor rewrites an older one at start), also when a newer FactorIA installed over the running editor wrote it, on Windows `FactorIA-Editor.exe` next to
+`factoria.exe` (also with no project open); on Linux the `.desktop` entry's `StartupWMClass=FactorIA` groups the new window with it. With no such
+launcher (a development build, a launcher of another `factoria`) or if starting it fails, it runs `factoria editor <project>`
+directly. A rebuild of the same commit, a file with no identity (a build outside git) or an unreadable file never shows the
+notice. The AI can ask with the read-only command `engine.update_status` (`running`, `onDisk`, `restartDue`, and under `editor`
+whether the notice shows and what blocks Restart). While the updater above installs a release, this notice stays quiet.
+
 ## Layout
 
 The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Hierarchy** over **Inspector** on the left,
 the **Viewport** in the middle, **AI Assistant** on the right, and Console / Project / Engine Feedback / Audio / Profiler as tabs
 under the view. You can also edit by hand with the Hierarchy and the Inspector, by dragging gizmos in the Viewport (below) and by
-dragging files from the Project panel ([Project panel](#project-panel)). Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
+dragging files from the Project panel ([Project panel](#project-panel)). Use Undo to take back what it or you did. View > Reset layout restores this layout.
+
+The editor keeps your layout in `~/.factoria/editor_layout2.ini`: where panels sit, their sizes, floating panels, tabs moved to
+another dock, and which panels are open (a panel closed with its X, or one opened from the View menu, stays that way). It is
+written a few seconds after a change and again when the editor closes or another project opens, and read when the editor starts,
+so the layout is the same after reopening the editor or switching project. Reset layout also reopens the default panels (Audio and
+Profiler stay closed). Two editors open at once share the file: the last one to close writes it.
 
 | Panel | What it does |
 |---|---|
-| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos)). Screenshot saves a PNG into the hidden `.factoria/screenshots/` of the project; its toast has a **Show in Finder / Explorer / file manager** button (the toast stays longer and does not vanish while the mouse is over it), and File > Open Screenshots Folder opens the folder (creating it if missing). The F9 mark screenshots of a play session go into the play session's own folder and are read by the AI panel's Attach last play session. |
+| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot; Undo, Redo; Select, Move, Rotate, Scale (the gizmo mode, see [Gizmos](#gizmos); shown only while an entity is selected, the Q W E R keys work regardless). Screenshot saves a PNG into the hidden `.factoria/screenshots/` of the project; its toast has a **Show in Finder / Explorer / file manager** button (the toast stays longer and does not vanish while the mouse is over it), and File > Open Screenshots Folder opens the folder (creating it if missing). The F9 mark screenshots of a play session go into the play session's own folder and are read by the AI panel's Attach last play session. |
 | Hierarchy | The entity tree: select, drag to reparent, right-click for create / duplicate / rename / active / delete, search by name or id. |
 | Inspector | The selected entity's components, one widget per field, Add Component. |
 | Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at; the gizmos move, rotate and scale it ([Gizmos](#gizmos)). Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Project | The project's files: folder tree, filter, search, thumbnails; drag files onto the Inspector and the Viewport ([Project panel](#project-panel)). |
-| Console | The log, and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
-| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
+| Console | The log (each line starts with the computer's local time `HH:MM:SS.mmm`; hover it for the date, the frame and the seconds since start), and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
+| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. The panel keeps its size however long an entry is: only the entries table and the text of the selected entry scroll. Opening the project moves its closed entries to `ENGINE_FEEDBACK.archive.json`; "Archive closed" moves them on demand. |
 | Audio | (View > Audio) the live `audio.log`. |
 | Profiler | (View > Profiler) where the time of a frame goes while the game plays. |
+| Animation | (View > Animation, a tab next to Console) the clips of the selected entity's Animator as a dopesheet or curves, with record mode ([Animation panel](#animation-panel)). |
+| Bone tools | (View > Bone tools, a tab next to Inspector) draw a bone chain, bind a sprite, paint weights, drag IK targets ([Bone tools](#bone-tools)). |
 
 Play snapshots the scene and runs the game; Stop restores the snapshot, so edits made while playing are temporary. For that
 reason the AI works in edit mode only: while the game runs (Play or Pause) its Run button is disabled ("game running: Stop it
@@ -54,7 +120,7 @@ to send"), and while it is working Play and Step are disabled until it finishes 
 still runs commands during play, to inspect or poke the running game. Ctrl+Z / Ctrl+Y
 (toolbar and Edit menu too) undo and redo scene edits: the ones made by the AI and by commands typed in the Console. Undo does
 not touch files; to take back a whole AI run, scripts included, use Revert ([Revert an AI run](#revert-an-ai-run)). View >
-Show navmesh draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body, Collider3D.navWalkable) and its off-mesh links (NavLink3D: a yellow line, with an arrowhead when one-way) (docs/NAVIGATION.md). Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport.
+Show navmesh draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a walkable moving body, Collider3D.navWalkable) and its off-mesh links (NavLink3D: a yellow line, with an arrowhead when one-way) (docs/NAVIGATION.md). Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport. With a 2D camera, Selection overlay also draws the bones of the selection (docs/ANIMATION.md, "Bones and IK"): a thin kite from the origin to the tip of every `Bone2D` on the selected entity and below it, and of the bones a selected sprite's `SpriteSkin` names; the selected bone itself is yellow, the rest cyan. The overlay only shows them; moving them is done with the Transform gizmos or the Inspector, and drawing, binding and weight painting are in View > Bone tools ([Bone tools](#bone-tools)).
 
 **Materials and textures reload live.** The editor watches `materials/`, `shaders/` and `assets/` for the files the renderer
 rebuilds in place: a `*.material.json`, a shader snippet (`*.surface.glsl`, which reloads every material that uses it), a
@@ -72,8 +138,9 @@ the material field.
 
 ## Gizmos
 
-Select an entity and drag handles in the Viewport to move, rotate or scale it. The toolbar has four buttons (tooltips name
-the key) and the keys work while the Viewport is hovered or focused and no text box has the keyboard:
+Select an entity and drag handles in the Viewport to move, rotate or scale it. While an entity is selected the toolbar
+has four buttons (tooltips name the key); the keys work while the Viewport is hovered or focused and no text box has the
+keyboard:
 
 | Mode | Key | Handles |
 | --- | --- | --- |
@@ -131,34 +198,141 @@ Undo step).
 
 The panel holds several conversations as **tabs**: **+** opens an empty chat, the **x** on a tab closes it (the chat stays
 in History), and the title is the first message ("New chat" until then). Each tab has its own transcript, input, usage and
-attachments; a message in a tab continues that tab's conversation (see `docs/AI_PROVIDERS.md`). One chat runs at
-a time: Run is disabled in the other tabs while one works (hover it to see which). **History** lists the saved chats, newest
-first; click one to reopen it as a tab (the next message resumes it) or Delete it from the list.
+attachments; a message in a tab continues that tab's conversation (see `docs/AI_PROVIDERS.md`). Several chats can run at the
+same time, up to `limits.maxConcurrentRuns` (default 3, `ai.json`; `docs/AI_COSTS.md`): each has its own agent, live progress,
+usage, **Stop** and Revert point (see "Several chats at once" below). A tab with a run shows a `*` before its title. Run is
+disabled in a chat that is already running, and in the others once the limit is reached (hover it to see why). **History**
+lists the saved chats, newest first; click one to reopen it as a tab (the next message resumes it) or Delete it from the list.
+
+The transcript follows new output only while it is scrolled to the bottom: scroll up to read and it stays where you are
+while the agent keeps working, with a **Jump to latest** button in its corner that goes back to the bottom (and following
+starts again, as it does when you scroll down yourself or send a message). The message box is three lines high; drag the
+grip just above it to make it taller (it grows upwards) or shorter, and double-click the grip to go back to three lines.
+The height is kept with the layout.
 
 - **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
-  the worker role and small mechanical edits to the fast role by itself. **Roles...** at the top of the panel picks the
-  provider, model and effort of each role (the line next to it shows the current ones); Save writes them into `ai.json`
+  the worker role, small mechanical edits to the fast role, the art to the artist role and the sound to the audio role
+  by itself. The `artCritic` and `reviewer` roles never run unless you ask (see **Reviews** below). **AI > Roles...**
+  (the **Roles** tab of the AI settings window) picks the provider, model and effort of each of the seven roles, listed with readable names in three
+  groups (Orchestration and code: Orchestrator, Worker, Fast; Art and audio: Artist, Audio; Critics and reviewers: Art
+  critic, Reviewer; hover **AI > Roles...** to see the current ones). Each role has an **Enabled** checkbox: untick one you do
+  not want to use and the orchestrator does that work itself (nothing is delegated to it; for the Art critic and the
+  Reviewer, the review buttons still work but run on the orchestrator's model). The orchestrator's box is ticked and cannot
+  be changed. Save writes them into `ai.json`
   and the next message uses them (see `docs/AI_PROVIDERS.md`, Roles). The **Model** column is a dropdown of the models
   the provider really offers, fetched when the project opens; **Refresh models** asks again (new releases show up), and
-  **Other...** types a name that is not listed (see `docs/AI_PROVIDERS.md`, Choosing a model). **Roles...** is disabled
-  until `ai.json` has been read. Its **Context** column caps how much of the
+  **Other...** types a name that is not listed (see `docs/AI_PROVIDERS.md`, Choosing a model). **Revert** drops the
+  changes made since the last Save. **AI > Roles...** is disabled until `ai.json` has been read. Its **Context** column caps how much of the
   conversation a session keeps (full, or 100k to 800k): past it the earlier part is summarized, so each message costs
   less. It works with Claude Code and the Anthropic API.
+- **AI > AI Settings...** (the **AI** menu of the menu bar, next to File, Edit, View and Help; on macOS also **FactorIA > Settings...**, Cmd+,; there is no button for it in
+  the panel) opens a window with three tabs. **Roles** (the first) is the role table above, and **AI > Roles...** opens
+  the window on it. The **External tools** tab lists the MCP servers the AI may use (a service such as Scenario): a form
+  to add one (name, address or program, key), a **Test** button that connects and lists its tools, **Paste JSON** for a
+  `.mcp.json` snippet from Claude Code, and **Remove**; **Save** keeps every other key of `ai.json` (see `docs/AI_PROVIDERS.md`,
+  "External tools (MCP servers)"). The **Assets** tab is for what the AI makes besides
+  code and where it finds it. **Asset generation** picks, for each kind (Image, Sound, Music, Voice, 3D model), the provider
+  that makes it (only providers that can make that kind, or **None**, which leaves it to the procedural commands), the model
+  and, for Voice, the voice id, with a status per row (key found, or what is missing); a masked box stores an API key in your
+  `ai.json` (your own file outside any project; an environment variable is safer and the window names it), and
+  `asset-command` takes a program and its arguments. **Asset sources** lists the websites the AI should look at for images
+  and textures, 3D models, audio, fonts and other assets (a domain or an address, and an optional note), and **Use only these
+  sites** forbids searching anywhere else (enforced for Claude Code; for other providers it is an instruction). **Save**
+  rewrites only those parts of `ai.json` and the next message uses them (see `docs/AI_PROVIDERS.md`, "The AI settings
+  window" and "Asset sources").
+- **Reviews:** at the top of the panel, above the chat tabs (they are not about one chat), **Review:** has an **Art critique** and a **Game review**
+  button (and **Reviews...**, below), then a **Reviewers** count (1 to 5 reviewers, each with a different point of view,
+  one after another) and an optional focus ("the shop screen"); a narrow panel moves the count and focus to a line of their
+  own. Pressing
+  one opens a confirmation (what runs, how many reviewers, the role's model, the focus); **Start** starts read-only
+  agents that look at and play the game (they read `REVIEW.md` first) and give an opinion with a score from 0 to 10 and
+  sub-scores. Each reviewer works in a chat tab of its own, titled "Art critique" or "Game review", where
+  you see what it does. They cost tokens, so nothing starts them but you: the orchestrator cannot. A reviewer is one more run: it counts
+  toward the limit of chats at once (`limits.maxConcurrentRuns`), and the orchestrator's chats keep working while it does. The
+  buttons are disabled while the game runs (the reviewers start it themselves) or that limit is reached. Stop in the review's
+  tab ends the review and the reviewers after it. When a review is ready, the **AI
+  reviews** window opens (also from **Reviews...**) with every saved review of the project, newest first, with its score,
+  persona and game version, and the text of the selected one. **Send to orchestrator** posts that report as your message
+  into the active orchestrator chat (a new one when the active tab is a review's own) so it plans the fixes and delegates
+  them; **Copy** puts the text on the clipboard. Nothing is sent unless you press it. The reviews are files in
+  `.factoria/ai/reviews/` (`docs/AI_PROVIDERS.md`, Reviews).
 - **Pictures:** drop image files (png, jpg, jpeg, gif, webp) on the window, press Ctrl+V in the input with a picture on the
   clipboard, or press **Attach image...**. Pending pictures show above the input (remove one with its x); sent ones show
   in the transcript. Copies live in `.factoria/ai/attachments/`; other file types are refused with a message saying why.
   A big picture (a 4K screenshot) is scaled down to 1568 px on its long side, what the model looks at anyway, so it costs
   fewer tokens and stays under the API's 5 MB limit.
-- **Usage** (above the transcript): Session (5h) and Week plan limits with the reset time, the model's Context, Tokens
-  and the estimated Cost of the chat. Hover a line for details. The limits are the last ones the provider reported in
-  this run of the editor; they show after the first message.
+- **Usage:** the plan limits (Session (5h) and Week, with the reset time) belong to the provider, not to a chat, so they
+  sit at the top of the panel above the chat tabs, with the provider problems ("No AI provider is configured", an unreadable
+  `ai.json`) and the review row. Under the tabs, above the transcript, are the chat's own Context, Tokens and **API cost est.**
+  Hover a line for details. The cost is what the same tokens would cost on the provider's pay-per-token API; with a
+  subscription (Claude Code / Codex sign-in) none of it is charged on top of the plan, and the line says "(not billed on a
+  subscription)": only the plan limits matter there. Tokens and Cost move while the agent works: every model call
+  adds its usage (the worker's too, each agent counted on its own and summed) and the cost is the engine's running estimate
+  from its price table until the CLI reports its own total, which replaces it when the agent finishes. Claude Code reports
+  a message's output tokens early, so "out" can lag until the end. The plan limits are the last ones the provider reported in
+  this run of the editor; Claude Code reports them once per message (after its first model call), so they do not move while
+  it works (the tooltip says "As of HH:MM"). `limits.maxCostUsd` / `limits.maxTotalTokens` see the live numbers: a CLI agent
+  is stopped as soon as it crosses them.
 - **Selection:** the entity selected in the viewport (click it) is named to the AI in each message.
 - **Claude Code** runs its own loop in a child process, but its tools are the editor's: the editor serves MCP on a loopback
   port (`http://127.0.0.1:<port>/mcp/<token>`) and the MCP config it writes for the CLI points there. Its tool calls run on
   the editor's main thread like an API provider's, so its edits show in the viewport as it works, each is a Ctrl+Z step,
   and Play waits for it. Codex still uses a `factoria mcp` process of its own (see `docs/AI_PROVIDERS.md`, CLI agents in
   the editor).
+- **A run that is going shows its pulse** under the transcript: `running 4 min | last activity 12 s ago | <last thing it
+  did>`. A CLI agent's sub-agent (the orchestrator's `ai_run`) streams into the chat as it works, each step indented under
+  the `ai_run` call, so a long delegation is not a silent wait.
+- **"The agent may be stuck":** after `limits.stuckAfterSeconds` (default 180, `ai.json`, 0 turns it off; `docs/AI_COSTS.md`)
+  without any event from the agent, a warning appears with two buttons. **Stop** cancels the run and a worker it started.
+  **Check activity** looks, without touching anything, at the agent's CLI process and everything below it (is it alive, CPU
+  used over the last seconds, child processes such as a shell command), the tool call it waits for and for how long, the
+  files that changed in the project in the last 2 minutes, and its last event. It writes a chat line starting with
+  "Activity check:" with a verdict (a plain `Still working: ...` or `Looks stuck: ...`, followed by the evidence) and
+  keeps the warning quiet for another `stuckAfterSeconds`. A model thinking for a long time looks like a stuck agent
+  (alive, idle, no tool), so the verdict says to press Stop if you do not want to wait. It reads the CPU and process
+  list through the operating system (`/proc` on Linux, `libproc` on macOS, the toolhelp snapshot on Windows); where a
+  figure is not available the check skips it and still reports the rest. An API provider has no process, so the verdict
+  there covers only the tool call, the files and the last event. The panel also stops a run by itself, with a message, when
+  the CLI process has disappeared for 10 seconds while the run goes on. "Disappeared" is confirmed with a direct question to
+  the operating system (is that pid still running) and only counts while the run has produced no event for 10 seconds: a
+  process the list does not show, or a run that still reports, is never stopped for it.
+- **Why a run was cancelled:** every cancel records its cause. The session transcript's `end` event
+  (`.factoria/ai/sessions/*.jsonl`) has `"cause"` (`user_stop` the Stop button, `stuck_stop` the Stop of the stuck warning,
+  `watchdog_process_gone`, `activity_check_process_gone`, `project_closed`, `editor_closing`, `editor_restart`, `run_ended`)
+  and an `error` such as `cancelled: the user pressed Stop`. The chat shows the same text, and the `ai_run` call of an
+  orchestrator whose worker was cancelled fails with it, so neither the user nor the orchestrator has to guess.
+- **Worker still running:** if the orchestrator's turn ends while an `ai_run` is still going (Claude Code cut the call off, for
+  example), the panel says "Worker still running: the orchestrator's turn ended, its report will continue the chat" and keeps
+  showing the worker's live steps. Play stays blocked. When the worker finishes, its report goes into the chat and the
+  editor sends it to the orchestrator as a new message of the same conversation (Claude Code `--resume`), once. **Stop**
+  stops the orchestrator and the worker, and sends no continuation.
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
+
+### Several chats at once
+
+Each chat that runs has its own agent thread (and, for Claude Code, its own MCP endpoint), so its transcript, status line,
+stuck warning, **Check activity**, usage and **Stop** are the chat's alone: Stop in one tab ends that run and its worker and
+leaves the other chats going. A worker that outlives its orchestrator's turn (see above) is also per chat. The commands of all
+the runs share the editor's main thread, one after another, and the Undo history gets each command's step in the order they ran.
+`limits.maxCostUsd` and `limits.maxTotalTokens` apply to each run on its own; the plan limits (Session, Week) are shared by all
+chats, since they are the provider's.
+
+- **Play and the scene:** while any run is going Play waits, and the note names the chats working ("The assistant is changing
+  the scene (chat "Add a coin" and "Fix the menu")").
+- **The same file in two chats:** when two chats that run at the same time change the same project file (a script, or the open
+  scene), both transcripts get an amber note: `Chat "Fix the menu" is running at the same time and also changed
+  scripts/menu.js. ...`. The editor sees a file changed through the editor's commands, through Claude Code's own Write / Edit
+  tools, and, when a run ends, through the checkpoint (a file a shell command wrote is credited to the run that has no other
+  claim on it). Each pair of runs is told once per file. Two runs writing the same
+  file is not prevented: the later write wins, and the note is there so you check the result.
+- **Revert with several chats:** each run has its own checkpoint, taken when it started. Reverting a run while no other chat's
+  run overlapped it works as before (the whole checkpoint goes back). If another chat's run was going at the same time (or ran
+  after it), only the files this run changed go back, and the dialog lists the files both runs changed, and names the chats
+  still running. **Revert, keep their changes** puts back the files only this run changed and leaves the listed ones, and
+  the open scene when the other chat edited it too, as they are now; **Revert including those files** also takes them back to
+  how they were before this run, losing the other chat's changes to them. Undo revert of a revert that kept someone's files
+  restores only the files that revert wrote. A run saved by an older editor has no start time and is treated as if it ran alone.
+  Revert stays disabled in a chat that is running.
 
 ### Revert an AI run
 
@@ -177,11 +351,13 @@ It does not replace git: use git for long-term history.
 Checkpoints live in `.factoria/checkpoints/` (each distinct file content is stored once; the newest 30 checkpoints are kept)
 and use disk space, mostly for big assets. To clear them, delete that folder; the editor never needs it back. They are
 never exported or bundled (folders starting with `.` are skipped), and the template `.gitignore` lists `.factoria/`. The same
-engine is available as the commands `checkpoint.create`, `checkpoint.list`, `checkpoint.diff` and `checkpoint.restore`.
+engine is available as the commands `checkpoint.create`, `checkpoint.list`, `checkpoint.diff`, `checkpoint.read` and `checkpoint.restore`.
+`checkpoint.read {id, path}` returns one file as it was at a checkpoint (text inline; a binary as base64, or any file into `out`)
+without restoring anything, and `checkpoint.restore {id, paths:[...]}` puts back only the listed files, with the same safety checkpoint.
 
 ## Exporting the game
 
-**Export** in the toolbar (or File > Export Game...) opens the **Export game** window: a button per platform (Windows,
+**Export Game** in the menu bar (next to the Help menu; on macOS the **Export** menu, Cmd+E; or File > Export Game...) opens the **Export game** window: a button per platform (Windows,
 macOS, Linux, Android, iOS, Web) that runs the same export as `factoria export` and the `project.export` command. Each
 platform's row says what the export writes, or why it cannot run on this machine (no player built for that OS, no
 mobile players or engine checkout, a missing `id`, an output folder that already holds a folder of that name no
@@ -290,7 +466,7 @@ The outline of the selected entity comes from the engine's own geometry (`fa/sce
 
 - a **Sprite** or **Shape2D** is its size box placed by `pivot` (a triangle with pivot `[0.5, 0.3333]` keeps its whole box around
   the entity); a **diamond** is outlined by its size box and, thinner, by its four tips; **Text** by the laid-out text box;
-  a **Tilemap** by its rows (or `width` x `height`) times `tileSize`, from its top-left corner;
+  a **Tilemap** by its rows (or `width` x `height`) times `tileSize`, from its top-left corner (an isometric one by the box around its diamonds and the tile images; the editor has no tile painting tool, `tilemap.set_tile` and `scene.import_ascii` write the tiles);
 - **rotation and scale** are applied: the outline and the click area are the turned box, not the box around it;
 - an entity with several visuals (a Sprite and a Text) is selectable on any of them, the highest `layer` wins;
 - **screen-space** items (`space: "screen"`, the HUD) are outlined and picked on the screen with their `anchor`, which
@@ -324,7 +500,7 @@ nothing. Edit mode shows nothing: nothing runs.
 
 Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switch on.
 
-- **While you play**: the editor records the input it feeds the game, the frame times, and the warnings and errors that are logged.
+- **While you play**: the editor records (with the engine's `input.record` recorder, docs/DEBUGGING.md "Recording and replaying input") the input it feeds the game, the frame times, and the warnings and errors that are logged.
 - **F9 marks a problem** (the toolbar shows "F9 marks a problem" while the game runs). The game pauses on that frame, a screenshot is taken
   and a small window asks for a one-line note. **Enter** saves the mark and the game continues; **Esc** discards it.
 - **On Stop** the session is written to `.factoria/sessions/<yyyymmdd-hhmmss>/`:
@@ -358,13 +534,96 @@ badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its p
   ground plane (y = 0), and 10 units in front of the camera when it misses it (the ray points up or the ground is farther than
   1000 units). Other types do nothing on the Viewport (the tooltip says only prefabs).
 - **Double-click** a `.scene.json` to open it (with the same "Unsaved changes" question as File > Open Scene).
+- **Sprite sheets.** Select a picture that has a `sheet` entry in `assets.json` and a strip appears under the file list: a menu
+  of its clips ("(all frames)" first) and the chosen clip playing, frame by frame at the clip's `fps`, the way a
+  `SpriteAnimator` plays it (same code: padding and a non-looping clip's last frame included), with the frame number and
+  range. A picture without a `sheet` entry shows no strip.
 - **Right-click** a file: **Show in Finder** (Explorer, file manager), **Copy path**, **Delete...** (asks first, then `fs.delete`;
   it is not an Undo step, the file is gone from disk).
+
+## Animation panel
+
+View > Animation (a tab next to Console; the View menu reopens it) edits the 2D clips of an entity's `Animator`
+(`*.anim.json`, [ANIMATION.md](ANIMATION.md), "2D clips"). Select the entity that has the Animator, or any part below it: the
+panel edits the nearest `Animator` up the tree and keeps it while you select other parts of the same character. An entity with
+no Animator offers **Add an Animator to it**. The panel works in edit mode only; while the game runs it says so.
+
+- **Clips.** The menu lists `Animator.clips`. **New clip** asks for a name, a length and a loop flag, writes
+  `anim/<name>.anim.json` (`anim.create_clip`) and lists it in `Animator.clips` (a scene edit): two undo steps. The second line
+  shows the file, its length (`anim.set_clip`), its loop flag and **Add event**.
+- **Time.** The ruler shows seconds and, zoomed in, the frames of the **fps** the panel offers (12, 24, 30, 60; clips are in
+  seconds, the fps only sets the grid). With **Snap** on, scrubbing, dragging and recording land on whole frames. Ctrl+wheel
+  zooms, Shift+wheel or the middle button pans, **Fit** shows the whole clip. Click or drag the ruler to **scrub**: the entity is
+  posed at the playhead in the viewport. A pose is a preview only: saving the scene, Undo snapshots and Play write the rest
+  values, never the pose. Left / Right step one frame, Home goes to 0, Space plays. **Play** previews the clip in the viewport
+  (loop and speed are the panel's own; nothing runs in the engine, so scripts and physics do not).
+- **Dopesheet.** One row per part, with a row per animated field below it; a part's row folds. Click a key to select it, Shift-click
+  adds or removes it, drag on empty space for a box. Drag selected keys to move them (the ghost shows where they land; one
+  `anim.move_keys` and one undo step when you let go); Alt-drag scales their spacing around the first one. Esc during a drag
+  drops it. Delete removes the selected keys (or the selected event). Ctrl+C / Ctrl+V copy keys and paste them at the playhead,
+  keeping their spacing. Right-click a key: **Linear**, **Step**, **Bezier**, **Easing** (every `tween()` curve), Copy, Paste,
+  Delete (`anim.set_interp` and friends).
+- **Curves.** The **Curves** check shows the selected tracks as curves instead of the dopesheet: drag a key point to change its
+  value and time, and the tangent handles of a `bezier` key to shape the curve.
+- **Events.** Markers on the lane under the ruler. **Add event** (at the playhead) or a right click on empty lane (at that
+  time) asks for a name; click selects a marker, drag moves it (`anim.move_event`), double click or right click renames it
+  or deletes it, Delete removes the selected one.
+- **Onion skin.** With **Onion** on, the viewport draws the sprites of the animated entity in the poses before (red) and after
+  (green) the playhead, faded; the numbers set how many poses on each side and how many frames apart.
+- **Record mode.** **REC** turns it on: the viewport gets a red frame and a `REC` label, and the button and the status line of
+  the panel say so. While it is on, moving, rotating or scaling a part with the gizmo, or changing an animatable field in the
+  Inspector (a number, vector, colour, bool, enum or asset that the scene saves), writes a key at the playhead (`anim.set_keys`)
+  instead of changing the rest value; the part keeps its rest value in the scene. A track the clip lacks starts with the old
+  value at 0 s, so the part stays as it was until the new key. A field a clip cannot drive, and a change to a part that is not
+  below the Animator, are ordinary edits. One gizmo drag is one undo step; Esc during the drag takes the key back out. Outside
+  record mode, editing a field the current clip drives changes the rest value, and the pose (which wins while the panel poses
+  the entity) hides it: turn record mode on to key it, or move the playhead off the clip's keys.
+- **Undo.** Every edit is a command (`anim.*`), so it is on the Console and visible to an AI, and it is in the same Undo /
+  Redo list as scene edits (Ctrl+Z). A clip file is not part of the scene: editing it does not mark the scene as changed, and
+  the file on disk is already written. Save is for the scene.
+
+## Bone tools
+
+View > Bone tools (a tab next to Inspector) is for the 2D view: with a perspective main camera it says so. Pick one tool; while it
+is on the viewport clicks belong to it and the gizmo handles are off (click the tool again to leave it). Every edit is one command
+with one Undo step.
+
+- **Draw chain.** Select the entity the bones hang from (a character's root, or the last bone of a chain to extend it), then click
+  the joints in the viewport from the root to the tip. A rubber band shows the next bone. **Finish chain** (or Enter) makes the
+  bones with `bones.create`, named `<prefix>_1`, `<prefix>_2`...; Esc or **Cancel** drops the points. The first bone is selected
+  afterwards.
+- **Bind a sprite to bones.** Select the sprite, pick the root bone (the sprite follows it and every bone below it; **Use the
+  selected bone** copies the selection) and the mesh columns and rows, then **Bind sprite to bones** (`skin.bind`). The picture does
+  not change: the bind pose is recorded.
+- **Weights.** With a skinned sprite selected, the mesh vertices show as dots coloured by the weight of one bone (blue none, red
+  all); selecting a bone of the skin in the Hierarchy picks it, or use the menu. Drag over the sprite to paint with the brush:
+  **Add** raises the bone's weight by the strength, **Set** gives it exactly that weight, **Smooth** blends the vertices toward
+  their neighbours; radius is in the sprite's units. A drag is one undo step (`skin.set_weights`). A skin still on automatic
+  weights is turned into explicit ones by the first stroke, or by **Start from automatic weights**.
+- **IK targets.** A diamond marks the target of every `IK2D` that has one; drag it to move the target entity (`Transform.position`,
+  one undo step) and the chain solves at once. The solved bone rotations stay in the scene: they are the bones' own
+  `Transform.rotation`, so Undo takes them back and a clip that drives those bones overrides them again when it plays.
+
+## The program icon
+
+The editor's window icon (Windows, Linux) and its macOS Dock icon are the PNGs in `tools/editor/icon/`, embedded in the
+editor; `factoria.exe` and `FactorIA-Editor.exe` carry the same sizes in `tools/cli/windows/factoria.ico`. They are made from
+the sources in `tools/editor/icon/src/`: the artwork (`factoria_art.png`, 1024 px) for 32 px and up, and a simplified
+drawing (`factoria_small.svg`, rendered to `factoria_small.png`) for 16 and 24 px, where the artwork turns into a blur. After
+changing a source run `python3 tools/editor/icon/make_icons.py` (needs Pillow) and commit what it writes (it also
+writes the AppImage's `platforms/linux/factoria.png`).
+
+The program's name is FactorIA everywhere the system shows one: the editor renames itself in the macOS Dock (the
+`factoria` executable is not an app bundle, so macOS would show its file name), the Windows exes carry it in their
+version resource (`tools/cli/windows/factoria.rc`), and the editor window's Linux `WM_CLASS` (`AppDesc::appName`) is
+`FactorIA`, as the AppImage's `StartupWMClass`.
+
+The icon of a game is its own (`factoria.json` `icon`, docs/EXPORTING.md), not this one.
 
 ## Testing the editor
 
 - `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed and the Profiler view (`tools/editor/src/editor_tools.*`), picking geometry
-  (`pick.cpp`), the Project panel's tree, filter and sort (`project_browser_model.*`), the reflected fields the AI edits, what Save writes, the window title, and the Export window's logic
+  (`pick.cpp`), the Project panel's tree, filter and sort (`project_browser_model.*`), the reflected fields the AI edits, what Save writes, the window title, the program icon (`app_icon.*`: every window size and the Dock icon decode), and the Export window's logic
   (`export_job.*`: the options each platform's button exports with, the rows' checks, the export on its worker thread, its
   progress lines and cancelling), the Platform settings window's logic (`platform_settings.*`: the working copy, Save and
   Revert, validation, icons, the Android toolchain, the keystore command and creation) and the Set Up This Computer window's
@@ -411,8 +670,11 @@ The autotest is a list of sections, each a letter (`tools/editor/src/autotest_se
 play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), A (Audio panel), A2 (Profiler panel), B (commands that
 rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
 wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
-(custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel) and O (the CLI
-agent through the MCP endpoint). While you work on one part of the editor, run only the sections that cover it:
+(custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
+agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
+the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
+its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), B2 (the Animation panel: New clip, keys written in record mode by a gizmo drag, a key moved and its Undo, an easing from the context menu, an event, scrubbing that poses without changing the scene, the onion skin), C2 (the bone tools: a chain drawn by clicks, a sprite bound, weights painted as one undo step, an IK handle dragged, the overlay following the selected bone), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key), D2 (the External tools tab of that window: a server added with the form, Test, a pasted Claude Code JSON, Save keeping the other keys of `ai.json`, Remove), Z (sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets `SpriteAnimator.clip`) and W (two AI chats at once against a scripted model: both finish with their own answers, the
+same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest

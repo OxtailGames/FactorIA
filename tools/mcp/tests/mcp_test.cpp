@@ -2,8 +2,11 @@
 
 #include <filesystem>
 #include <fstream>
+#include <chrono>
+#include <mutex>
 #include <set>
 #include <sstream>
+#include <thread>
 
 #include "fa/mcp/client_config.h"
 #include "fa/mcp/server.h"
@@ -70,6 +73,22 @@ struct Fixture {
                 if (a.contains("path"))
                     return Json::object({{"$image", Json::object({{"path", a["path"]}, {"mimeType", "image/png"}})}, {"frame", 5}});
                 return Json::object({{"$image", Json::object({{"base64", "iVBORw0KGgo="}, {"mimeType", "image/png"}})}});
+            });
+        }
+        {
+            // Like game.screenshot without `path`: writes <project>/.factoria/screenshots/<name> and flags it temporary.
+            CommandInfo i;
+            i.name = "test.temp_shot";
+            i.summary = "Returns a temporary image file.";
+            const std::string dir = tmp.path.string();
+            registry.add(i, [dir](const Json& a) {
+                const std::string name = a.value("name", std::string("frame_9.png"));
+                const stdfs::path file = stdfs::path(dir) / ".factoria" / "screenshots" / name;
+                stdfs::create_directories(file.parent_path());
+                std::ofstream(file, std::ios::binary) << std::string("\x89PNG\r\n\x1a\n", 8);
+                Json image = Json::object({{"path", file.generic_string()}, {"mimeType", "image/png"}});
+                if (a.value("temporary", true)) image["temporary"] = true;
+                return Json::object({{"frame", 9}, {"$image", image}});
             });
         }
         register_tooling_commands(registry, tmp.path.string());
@@ -217,6 +236,20 @@ TEST_CASE("mcp: tools/call failures are isError results with code, message and h
     CHECK(badArgs["error"]["code"] == -32602);
 }
 
+TEST_CASE("mcp: a command filter hides commands from tools/list and refuses to call them") {
+    Fixture f;
+    f.server.set_command_filter([](const CommandInfo& i) { return i.readOnly; });
+    f.initialize();
+    std::set<std::string> names;
+    Json listed = f.rpc("tools/list");
+    for (auto& t : listed["result"]["tools"]) names.insert(t["name"].get<std::string>());
+    CHECK(names.count("test_echo_value") == 1);
+    CHECK(names.count("test_change_state") == 0);
+    CHECK(f.call("test_echo_value", {{"value", 1}})["result"]["isError"] == false);
+    Json blocked = f.call("test_change_state")["result"];
+    CHECK(blocked["isError"] == true);
+}
+
 TEST_CASE("mcp: $image results add an image content block") {
     Fixture f;
     Json res = f.call("test_shot")["result"];
@@ -339,6 +372,79 @@ TEST_CASE("mcp: tools/list_changed and log notifications") {
     CHECK(got.size() == 3);
 }
 
+TEST_CASE("mcp: a long tool call with a progressToken sends notifications/progress; without one nothing") {
+    Fixture f;
+    std::mutex mu;
+    std::vector<Json> got;
+    bool withToken = false;  // the call asked for progress: the command waits for what it should have caused
+    // Waits (up to 10 s) until `n` notifications start with `prefix`, instead of sleeping a fixed time: a busy CI machine
+    // can wake the heartbeat thread late.
+    auto wait_for = [&](const std::string& prefix, std::size_t n) {
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (withToken && std::chrono::steady_clock::now() < end) {
+            {
+                std::lock_guard<std::mutex> lock(mu);
+                std::size_t seen = 0;
+                for (const Json& m : got)
+                    if (m["params"]["message"].get<std::string>().rfind(prefix, 0) == 0) ++seen;
+                if (seen >= n) return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    };
+    CommandInfo i;
+    i.name = "test.slow";
+    i.summary = "Reports what it does, then returns.";
+    f.registry.add(i, [&](const Json&) {
+        report_command_progress("step one");
+        wait_for("step one", 1);  // sent when the throttle is over
+        report_command_progress("step two");
+        wait_for("step two", 2);  // sent, then repeated by the heartbeat while the command is silent
+        return Json::object({{"done", true}});
+    });
+    f.server.set_notification_sink([&](const std::string& m) {
+        std::lock_guard<std::mutex> lock(mu);
+        got.push_back(Json::parse(m));
+    });
+    f.server.set_progress_timing(std::chrono::milliseconds(50), std::chrono::milliseconds(100));
+
+    // No token: the client did not ask for progress.
+    auto plain = f.rpc("tools/call", {{"name", "test_slow"}, {"arguments", Json::object()}});
+    CHECK(plain["result"]["isError"] == false);
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        CHECK(got.empty());
+    }
+
+    withToken = true;
+    auto reply = f.rpc("tools/call", {{"name", "test_slow"},
+                                      {"arguments", Json::object()},
+                                      {"_meta", Json::object({{"progressToken", 7}})}});
+    CHECK(reply["result"]["isError"] == false);
+    std::lock_guard<std::mutex> lock(mu);
+    REQUIRE(got.size() >= 3);
+    double last = 0;
+    bool sawStepTwo = false, sawHeartbeat = false;
+    for (const Json& n : got) {
+        CHECK(n["method"] == "notifications/progress");
+        CHECK(n["params"]["progressToken"] == 7);
+        CHECK(n["params"]["progress"].get<double>() > last);  // strictly increasing, as the MCP spec requires
+        last = n["params"]["progress"].get<double>();
+        const std::string msg = n["params"]["message"].get<std::string>();
+        CHECK(msg.find("[") != std::string::npos);  // ends with the elapsed time
+        if (msg.rfind("step two", 0) == 0) sawStepTwo = true;
+        if (msg.rfind("step two", 0) == 0 && &n != &got.front()) sawHeartbeat = true;  // repeated while silent
+    }
+    CHECK(sawStepTwo);
+    CHECK(sawHeartbeat);
+    // A quick call sends nothing at all (the first message waits for the throttle).
+    got.clear();
+    CHECK(f.rpc("tools/call", {{"name", "test_echo_value"},
+                               {"arguments", Json::object({{"value", 1}})},
+                               {"_meta", Json::object({{"progressToken", "abc"}})}})["result"]["isError"] == false);
+    CHECK(got.empty());
+}
+
 TEST_CASE("mcp: stdio transport is newline-delimited and writes only protocol messages") {
     Fixture f;
     std::istringstream in(
@@ -367,4 +473,29 @@ TEST_CASE("mcp: client config helpers are reachable from fa_mcp") {
     Json cfg = claude_code_mcp_config();
     CHECK(cfg["mcpServers"]["factoria"]["args"] == Json::array({"mcp", "--project", "."}));
     CHECK(codex_mcp_toml().find("[mcp_servers.factoria]") != std::string::npos);
+}
+
+TEST_CASE("mcp: a temporary screenshot is attached and then its file is deleted; other images stay") {
+    Fixture f;
+    const stdfs::path shots = f.tmp.path / ".factoria" / "screenshots";
+    // temporary: the image block is there, the file is gone, and the text no longer names a path to read.
+    Json res = f.call("test_temp_shot")["result"];
+    REQUIRE(res["content"].size() == 2);
+    CHECK(res["content"][1]["type"] == "image");
+    CHECK(res["content"][1]["data"] == "iVBORw0KGgo=");
+    CHECK_FALSE(stdfs::exists(shots / "frame_9.png"));
+    const std::string text = res["content"][0]["text"].get<std::string>();
+    CHECK(text.find("frame_9.png") == std::string::npos);
+    CHECK(text.find("deleted") != std::string::npos);
+    CHECK(res["structuredContent"]["$image"]["temporary"] == true);
+    CHECK_FALSE(res["structuredContent"]["$image"].contains("path"));
+    // a file the user named is not temporary: it stays and its path is still in the reply
+    Json kept = f.call("test_temp_shot", {{"name", "hall.png"}, {"temporary", false}})["result"];
+    REQUIRE(kept["content"].size() == 2);
+    CHECK(stdfs::exists(shots / "hall.png"));
+    CHECK(kept["content"][0]["text"].get<std::string>().find("hall.png") != std::string::npos);
+    // flagged but not named by the engine: never deleted
+    Json odd = f.call("test_temp_shot", {{"name", "hall2.png"}})["result"];
+    REQUIRE(odd["content"].size() == 2);
+    CHECK(stdfs::exists(shots / "hall2.png"));
 }

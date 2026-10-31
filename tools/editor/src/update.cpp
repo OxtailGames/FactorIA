@@ -8,7 +8,9 @@
 
 #include "ai_chat.h"  // utf8_path
 #include "fa/ai/process.h"
+#include "fa/core/process.h"
 #include "fa/tooling/export.h"  // executable_dir
+#include "fa/tooling/setup.h"   // editor_restart_command
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -240,6 +242,44 @@ void remove_update_leftovers(const stdfs::path& installDir) {
 }
 
 Result<void> start_editor_process(const std::string& projectDir) {
+    // Through the launcher the user pinned (the Dock or taskbar icon), when it is ours: a bare `factoria` would show a
+    // second FactorIA icon next to it. Any failure falls back to starting the program itself.
+    std::error_code absEc;
+    const stdfs::path absProject = projectDir.empty() ? stdfs::path() : stdfs::absolute(editor::utf8_path(projectDir), absEc);
+#if defined(_WIN32)
+    const std::vector<std::string> viaLauncher = editor_restart_command(SetupContext{}, editor::utf8_string(absProject));
+#else
+    // macOS: a helper that waits until this editor is gone, so the new one takes the pinned Dock icon.
+    const std::vector<std::string> viaLauncher =
+        editor_restart_command(SetupContext{}, editor::utf8_string(absProject), static_cast<long long>(getpid()));
+#endif
+    if (!viaLauncher.empty()) {
+#if defined(_WIN32)
+        std::wstring cmd = L"\"" + editor::utf8_path(viaLauncher[0]).wstring() + L"\"";
+        if (viaLauncher.size() > 1) cmd += L" \"" + editor::utf8_path(viaLauncher[1]).wstring() + L"\"";  // none: start screen
+        STARTUPINFOW si{};
+        si.cb = sizeof si;
+        PROCESS_INFORMATION pi{};
+        if (CreateProcessW(editor::utf8_path(viaLauncher[0]).c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
+                           nullptr, &si, &pi)) {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            return {};
+        }
+#else
+        // Detached and not waited for: it waits for this process to exit.
+        std::vector<char*> argv;
+        for (const std::string& a : viaLauncher) argv.push_back(const_cast<char*>(a.c_str()));
+        argv.push_back(nullptr);
+        if (pid_t pid = fork(); pid == 0) {
+            setsid();  // outlives this editor
+            execv(argv[0], argv.data());
+            _exit(127);
+        } else if (pid > 0) {
+            return {};
+        }
+#endif
+    }
     stdfs::path exe = executable_dir() / (std::string("factoria") + kExe);
     stdfs::path project = editor::utf8_path(projectDir);
 #if defined(_WIN32)

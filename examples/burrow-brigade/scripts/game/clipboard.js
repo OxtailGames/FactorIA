@@ -1,28 +1,26 @@
 // @ts-check
-// The clipboard of the game, behind two functions. FactorIA has no clipboard API for scripts (ENGINE_FEEDBACK: "Scripts cannot
-// read or write the system clipboard"), so by default `copy` keeps the text in the game's own buffer for the rest of the session
-// and `paste` reads that buffer back: a code copied at the camp can be pasted at the title (or by a second player on the same
-// machine), but not into another program, and a text copied elsewhere cannot be pasted here. `system` says which one is in use,
-// so the screens never claim a copy they did not make.
-//
-// The day the engine offers a clipboard, plug it in with `useSystem({ write, read })` from one place (the title and the camp
-// need no other change).
+// The clipboard of the game, behind two functions. On Windows, macOS, Linux and the web (and in tests, where it is an in-memory
+// clipboard) `copy` writes the system clipboard with the engine's `clipboard.write` and `paste` reads it with `clipboard.read`,
+// so a code copied at the camp can be pasted into another program and a text copied elsewhere can be pasted here. A phone has no
+// clipboard for scripts (`window.supports("clipboard")` is false): there `copy` keeps the text in the game's own buffer for the
+// rest of the session and `paste` reads that buffer back. `system()` says which one is in use, so the screens never claim a copy
+// they did not make.
+import { clipboard, window } from "factoria";
 
-/** @type {{write: (text: string) => void, read: () => string} | null} */
-let backend = null;
+let useEngine = true;
 let buffer = "";
 
-/** True when copy and paste go through the system clipboard; false while they only use the game's own buffer. */
+/** True when copy and paste go through the system clipboard; false while they only use the game's own buffer (phones). */
 export function system() {
-  return backend !== null;
+  return useEngine && window.supports("clipboard");
 }
 
 /**
- * Plugs in a real clipboard.
- * @param {{write: (text: string) => void, read: () => string} | null} api  null goes back to the game's own buffer.
+ * Switches the system clipboard off (false) or back on (true). A test uses it to play a phone.
+ * @param {boolean} on
  */
-export function useSystem(api) {
-  backend = api;
+export function useSystem(on) {
+  useEngine = on;
 }
 
 /**
@@ -32,17 +30,26 @@ export function useSystem(api) {
  */
 export function copy(text) {
   buffer = String(text);
-  if (backend) backend.write(buffer);
-  return { ok: true, system: backend !== null };
+  if (system()) clipboard.write(buffer);
+  return { ok: true, system: system() };
 }
 
-/** The copied text ("" when nothing was copied yet). */
-export function paste() {
-  return backend ? backend.read() : buffer;
+/**
+ * The copied text ("" when there is none). The system clipboard answers later (a Promise): the caller checks that its scene is
+ * still the current one before it uses the text.
+ * @returns {Promise<string>}
+ */
+export async function paste() {
+  if (!system()) return buffer;
+  try {
+    return await clipboard.read();
+  } catch {
+    return buffer; // the platform refused the read (the web outside a paste gesture): a code copied in this game still works
+  }
 }
 
-/** Forgets the buffer (tests). */
+/** Forgets the buffer and goes back to the system clipboard (tests). */
 export function reset() {
   buffer = "";
-  backend = null;
+  useEngine = true;
 }

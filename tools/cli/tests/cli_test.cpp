@@ -207,6 +207,21 @@ TEST_CASE("run --input: a missing file lists the places tried and suggests a clo
     CHECK(r.err.find("a folder of that name exists") != std::string::npos);
 }
 
+TEST_CASE("run --props: a JSON object or a file is accepted, anything else is refused with a hint") {
+    PathsFixture f;
+    auto r = run({"run", f.project.string(), "--headless", "--frames", "3", "--props", R"({"level":3})", "--json"});
+    CHECK_MESSAGE(r.code == 0, (r.out + r.err));
+    PathsFixture::write(f.project / "props/lvl.json", R"({"level":4})");
+    r = run({"run", f.project.string(), "--headless", "--frames", "3", "--props", "props/lvl.json", "--json"});
+    CHECK_MESSAGE(r.code == 0, (r.out + r.err));
+    r = run({"run", f.project.string(), "--headless", "--frames", "3", "--props", "{nope", "--json"});
+    CHECK(r.code != 0);
+    PathsFixture::write(f.project / "props/arr.json", "[1]");
+    r = run({"run", f.project.string(), "--headless", "--frames", "3", "--props", "props/arr.json", "--json"});
+    CHECK(r.code != 0);
+    CHECK((r.out + r.err).find("JSON object") != std::string::npos);
+}
+
 // game.today(): the fixed default in headless runs, the replay's recorded date when it has one, --date over both; an
 // impossible date is a teaching usage error.
 TEST_CASE("run --headless: the date is fixed, a replay keeps its own, --date wins, an impossible date fails") {

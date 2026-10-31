@@ -8,6 +8,8 @@
 #include <stb_truetype.h>
 
 #include "fa/core/log.h"
+#include "fa/render/builtin_fonts.h"
+#include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 #include "font_internal.h"
 #include "render_internal.h"
@@ -20,20 +22,28 @@ struct GlyphKey {
     int face;
     int px;
     std::uint32_t gid;
-    bool operator==(const GlyphKey& o) const { return face == o.face && px == o.px && gid == o.gid; }
+    bool synth;  // emboldened by the engine (no bold face)
+    bool operator==(const GlyphKey& o) const { return face == o.face && px == o.px && gid == o.gid && synth == o.synth; }
 };
 struct GlyphKeyHash {
     std::size_t operator()(const GlyphKey& k) const {
-        return std::size_t(k.gid) * 2654435761u ^ std::size_t(k.px) * 40503u ^ std::size_t(k.face) * 977u;
+        return std::size_t(k.gid) * 2654435761u ^ std::size_t(k.px) * 40503u ^ std::size_t(k.face) * 977u ^ (k.synth ? 0x9e3779b9u : 0u);
     }
 };
 
+// How much wider the engine makes a letter it emboldens (a font with no bold face), in raster pixels: a stem about 4 % of the
+// size thicker, never less than 0.7 px so the pixel font and small sizes still show it.
+float synthetic_bold_extra(int px) { return std::clamp(float(px) * 0.04f, 0.7f, 6.0f); }
+
 std::string font_label(const std::string& key) {
     if (key == "builtin") return "'' (DejaVu Sans, the default font)";
-    if (key == "builtin:pixel") return "'builtin:pixel' (Press Start 2P, and DejaVu Sans behind it)";
+    if (const BuiltinFont* b = key.rfind("builtin:", 0) == 0 ? find_builtin_font(key) : nullptr)
+        return "'" + key + "' (" + b->family + ", and DejaVu Sans behind it)";
     return "'" + key + "'";
 }
 }  // namespace
+
+constexpr int kMaxAtlas = 4096;
 
 struct Fonts::Impl {
     std::unordered_map<std::string, std::unique_ptr<FontFace>> faces;
@@ -43,13 +53,14 @@ struct Fonts::Impl {
     // every frame); upgrade to an LRU when that shows in a profile.
     std::unordered_map<std::string, TextLayout> layouts;
     std::vector<std::string> fallbackKeys;  // Renderer::set_fallback_fonts
+    RichTextStyle style;                    // Renderer::set_rich_text_style; boldFonts keyed by FontFace::key ("builtin" for "")
+    std::unordered_set<std::string> warnedRich;  // markup problems already reported (capped)
     int atlasSize = 1024;
     unsigned atlasEpoch = 0;  // counts atlas resets: a layout made across one holds stale UVs
     std::vector<unsigned char> pixels;  // R8
     struct Shelf { int y, h, x; };
     std::vector<Shelf> shelves;
     bool dirty = true;
-    bool warnedFull = false;
     std::unordered_set<std::string> warnedMissing;  // fonts already warned about a missing glyph
     int nextId = 1;
 
@@ -102,6 +113,53 @@ void Fonts::set_fallback_fonts(std::vector<std::string> fonts) {
     impl_->warnedMissing.clear();  // a new chain may cover (or miss) other characters
 }
 
+void Fonts::set_rich_style(const RichTextStyle& style) {
+    if (style == impl_->style) return;
+    impl_->style = style;
+    for (auto* m : {&impl_->style.boldFonts, &impl_->style.italicFonts}) {
+        if (auto it = m->find(""); it != m->end()) {  // "" names the built-in font
+            (*m)["builtin"] = it->second;
+            m->erase(it);
+        }
+    }
+    impl_->layouts.clear();
+    impl_->warnedRich.clear();
+}
+
+// The face a project or a built-in family gives `regular` for bold and/or italic text, or null (a bold character is then
+// emboldened by the engine; an italic one stays upright). The project's text.fonts entry wins over the built-in family's face.
+// Bold italic asks for the family's own bold italic face; without one it settles for the bold face, then the italic one.
+FontFace* Fonts::variant_face(FontFace* regular, bool bold, bool italic, bool& boldDrawn) {
+    boldDrawn = false;
+    const auto from_map = [&](const std::map<std::string, std::string>& m) -> FontFace* {
+        const auto it = m.find(regular->key);
+        if (it == m.end() || it->second == regular->key) return nullptr;
+        FontFace* f = load(it->second);
+        return f->ok ? f : nullptr;
+    };
+    const auto builtin = [&](bool b, bool i) -> FontFace* {
+        if (regular->key.rfind("builtin:", 0) != 0 || regular->key.find('#') != std::string::npos) return nullptr;
+        const BuiltinFont* family = find_builtin_font(regular->key);
+        if (!family || builtin_variant_file(*family, b, i).empty()) return nullptr;
+        FontFace* f = load(regular->key + (b && i ? "#bolditalic" : b ? "#bold" : "#italic"));
+        return f->ok ? f : nullptr;
+    };
+    if (bold && italic) {
+        if (FontFace* f = builtin(true, true)) { boldDrawn = true; return f; }
+    }
+    if (bold) {
+        FontFace* f = from_map(impl_->style.boldFonts);
+        if (!f) f = builtin(true, false);
+        if (f) { boldDrawn = true; return f; }
+    }
+    if (italic) {
+        FontFace* f = from_map(impl_->style.italicFonts);
+        if (!f) f = builtin(false, true);
+        if (f) return f;
+    }
+    return nullptr;
+}
+
 FontFace* Fonts::load(const std::string& fontIn) {
     const std::string font = fontIn.empty() ? "builtin" : fontIn;
     auto it = impl_->faces.find(font);
@@ -120,9 +178,9 @@ FontFace* Fonts::face(const std::string& font) {
 }
 
 // A glyph of a face by glyph index, rasterized into the atlas on first use.
-GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid) {
+GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid, bool synthBold) {
     Impl& im = *impl_;
-    const GlyphKey key{ff->id, px, gid};
+    const GlyphKey key{ff->id, px, gid, synthBold};
     auto it = im.glyphs.find(key);
     if (it != im.glyphs.end()) return it->second;
     GlyphInfo g;
@@ -130,36 +188,55 @@ GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid) {
     const float s = stbtt_ScaleForMappingEmToPixels(&ff->info, float(px));
     int x0, y0, x1, y1;
     stbtt_GetGlyphBitmapBox(&ff->info, int(gid), s, s, &x0, &y0, &x1, &y1);
-    const int w = x1 - x0, h = y1 - y0;
-    if (w <= 0 || h <= 0 || gid == 0) {  // whitespace, or the .notdef box of a missing character: nothing to draw
+    const int w0 = x1 - x0, h = y1 - y0;
+    // An emboldened glyph is smeared to the right by `extra` pixels (a whole part and a fraction), so it is wider.
+    const float extra = synthBold ? synthetic_bold_extra(px) : 0.0f;
+    const int extraWhole = int(extra), extraCols = int(std::ceil(extra));
+    const int w = w0 + extraCols;
+    if (w0 <= 0 || h <= 0 || gid == 0) {  // whitespace, or the .notdef box of a missing character: nothing to draw
         im.glyphs[key] = g;
         return g;
     }
     int ax, ay;
     if (!im.pack(w, h, ax, ay)) {
-        if (im.atlasSize < 2048) {
-            // Grow: old UVs become invalid, so everything is re-rasterized on demand.
-            im.reset_atlas(2048);
+        // Grow first (1024 -> 2048 -> 4096), clear only when the largest page is full. Either way the old UVs are
+        // invalid: the layout cache is dropped (the texts lay out again on their next draw) and atlasEpoch moves, so the
+        // frame being gathered is gathered again (Renderer::Impl::render).
+        if (im.atlasSize < kMaxAtlas) {
+            const int next = im.atlasSize * 2;
+            FA_INFO("render", "glyph atlas is full ({0}x{0}); growing it to {1}x{1}. Every text lays out again.", im.atlasSize, next);
+            im.reset_atlas(next);
         } else {
-            if (!im.warnedFull) {
-                FA_WARN("render", "glyph atlas is full (2048x2048); clearing it. Use fewer distinct font sizes to avoid flicker.");
-                im.warnedFull = true;
-            }
-            im.reset_atlas(2048);
+            FA_WARN("render", "glyph atlas is full ({0}x{0}); clearing it. Every text lays out again. Use fewer distinct font sizes "
+                              "and scripts on screen at once to avoid the cost.", im.atlasSize);
+            im.reset_atlas(im.atlasSize);
         }
         if (!im.pack(w, h, ax, ay)) return g;
     }
-    stbtt_MakeGlyphBitmap(&ff->info, &im.pixels[std::size_t(ay) * im.atlasSize + ax], w, h, im.atlasSize, s, s, int(gid));
+    stbtt_MakeGlyphBitmap(&ff->info, &im.pixels[std::size_t(ay) * im.atlasSize + ax], w0, h, im.atlasSize, s, s, int(gid));
+    if (extraCols > 0) {  // out[x] = max of in[x - k] for k = 0..whole, and the fraction of in[x - whole - 1]; right to left, in place
+        const float frac = extra - float(extraWhole);
+        for (int yy = 0; yy < h; ++yy) {
+            unsigned char* row = &im.pixels[std::size_t(ay + yy) * im.atlasSize + ax];
+            for (int xx = w - 1; xx >= 0; --xx) {
+                float v = 0;
+                for (int k = 0; k <= extraWhole; ++k)
+                    if (xx - k >= 0 && xx - k < w0) v = std::max(v, float(row[xx - k]));
+                if (frac > 0 && xx - extraWhole - 1 >= 0 && xx - extraWhole - 1 < w0) v = std::max(v, frac * float(row[xx - extraWhole - 1]));
+                row[xx] = static_cast<unsigned char>(std::min(255.0f, v + 0.5f));
+            }
+        }
+    }
     im.dirty = true;
     const float inv = 1.0f / float(im.atlasSize);
     g.empty = false;
     g.u0 = ax * inv; g.v0 = ay * inv; g.u1 = (ax + w) * inv; g.v1 = (ay + h) * inv;
-    g.x0 = float(x0); g.y0 = float(y0); g.x1 = float(x1); g.y1 = float(y1);
+    g.x0 = float(x0); g.y0 = float(y0); g.x1 = float(x1 + extraCols); g.y1 = float(y1);
     im.glyphs[key] = g;
     return g;
 }
 
-TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit) {
+TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, bool tightBox) {
     Impl& im = *impl_;
     FontFace* primary = face(t.font);
     if (!primary || !primary->ok) return {};
@@ -168,9 +245,11 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit) {
     const float unitsPerPx = fontSize / float(px);          // local units per raster pixel
     const float maxW = t.maxWidth > 0 ? t.maxWidth / unitsPerPx : 0.0f;  // in raster pixels
 
-    struct KeyHead { float fontSize, maxWidth, pivotX, pivotY; int px, align; } head{};
+    struct KeyHead { float fontSize, maxWidth, pivotX, pivotY; int px, align, wordBreak, direction; } head{};
     head.fontSize = fontSize; head.maxWidth = t.maxWidth; head.pivotX = t.pivot.x; head.pivotY = t.pivot.y;
-    head.px = px; head.align = int(t.align);
+    head.px = px; head.align = int(t.align) + (tightBox ? 1000 : 0) + (t.markup ? 2000 : 0) + (t.bold ? 4000 : 0);
+    head.direction = int(t.direction);
+    head.wordBreak = int(t.wordBreak);  // visibleCharacters is not part of the key: it clips a layout, it never changes one
     std::string cacheKey(reinterpret_cast<const char*>(&head), sizeof head);
     cacheKey += t.font;
     cacheKey.push_back('\0');
@@ -193,17 +272,59 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit) {
     float lineH = std::round(fm.lineHeight());
     if (lineH < 1) lineH = float(px);
 
-    ShapedText shaped;
+    // ---- rich text: the visible characters, what styles each, and the pictures ----
+    const bool rich = t.markup || t.bold;
+    std::u32string text = decode_text(t.text);
+    MarkupText mk;
+    if (t.markup) {
+        mk = parse_markup(text);
+        text = mk.text;
+        if (!mk.problems.empty() || !mk.colors.empty() || !mk.icons.empty()) warn_markup(t.text, mk);
+    }
+    std::vector<MarkupAttr> attrs = std::move(mk.attrs);
+    if (t.bold) {
+        attrs.resize(text.size());
+        for (MarkupAttr& a : attrs) a.bold = true;
+    }
+    RichShaping shaping;
     TextLayout out;
+    std::vector<int> iconDef(mk.icons.size(), -1);  // by markup icon index: index in out.iconDefs, or -1 (not defined: a blank box)
+    std::vector<int> colorSlot(mk.colors.size() + 1, 0);  // by attr.color: 0 = the Text's colour, else palette index + 1
+    if (rich) {
+        shaping.attrs = &attrs;
+        shaping.syntheticExtra = synthetic_bold_extra(px);
+        shaping.variantFace = [this](FontFace* f, bool bold, bool italic, bool& boldDrawn) { return variant_face(f, bold, italic, boldDrawn); };
+        for (std::size_t i = 0; i < mk.icons.size(); ++i) {
+            float aspect = 1.0f;
+            if (const auto it = im.style.icons.find(mk.icons[i]); it != im.style.icons.end()) {
+                aspect = float(it->second.w) / float(std::max(1, it->second.h));
+                iconDef[i] = int(out.iconDefs.size());
+                out.iconDefs.push_back(it->second);
+            }
+            shaping.iconAdvance.push_back(std::max(1.0f, std::round(lineH * aspect)));
+        }
+        out.palette.assign(mk.colors.size(), Color{1, 1, 1, 1});
+        for (std::size_t i = 0; i < mk.colors.size(); ++i)
+            if (rich_color(im.style, mk.colors[i], out.palette[i])) colorSlot[i + 1] = int(i) + 1;
+    }
+    const std::vector<RichIcon> iconDefs = out.iconDefs;
+    const std::vector<Color> palette = out.palette;
+
+    ShapedText shaped;
     for (int attempt = 0; attempt < 2; ++attempt) {  // a second pass when the atlas was reset halfway: UVs of the first are stale
         const unsigned epoch = im.atlasEpoch;
-        shaped = shape_text(t.text, px, maxW, chainSize, chain);
+        shaped = shape_text(text, px, maxW, chainSize, chain, rich ? &shaping : nullptr, t.wordBreak, t.direction);
+        const std::vector<std::uint32_t> graphemeOf = grapheme_index(text);
+        const auto grapheme_at = [&](std::uint32_t cluster) { return cluster < graphemeOf.size() ? std::int32_t(graphemeOf[cluster]) : std::int32_t(0); };
         out = TextLayout{};
+        out.iconDefs = iconDefs;
+        out.palette = palette;
         float boxW = 0;
         for (const ShapedLine& l : shaped.lines) boxW = std::max(boxW, l.width);
-        if (maxW > 0) boxW = std::max(boxW, maxW);
         const float boxH = lineH * float(shaped.lines.size());
-        out.size = {boxW * unitsPerPx, boxH * unitsPerPx};
+        out.size = {boxW * unitsPerPx, boxH * unitsPerPx};  // the widest line: what measuring and ui.overflowed see
+        // Centre and right alignment still work inside the maxWidth box (the pivot is that box's); the reported size is not.
+        if (maxW > 0 && !tightBox && t.align != Align::Left) boxW = std::max(boxW, maxW);
 
         // ---- place glyphs (raster pixels, y down from the box top) ----
         const float ox = -t.pivot.x * boxW;
@@ -216,14 +337,24 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit) {
             x = std::round(x);
             const float baselineY = top - std::round(fm.ascent) - lineH * float(li);  // y up
             for (const ShapedGlyph& sg : l.glyphs) {
+                if (sg.icon >= 0) {  // a picture as tall as the line, from its top to its bottom
+                    const int def = iconDef[std::size_t(sg.icon)];
+                    if (def < 0) continue;
+                    const float pen = std::round(x + sg.x);
+                    out.icons.push_back({(ox + pen) * unitsPerPx, (top - lineH * float(li + 1)) * unitsPerPx,
+                                         (ox + pen + sg.advance) * unitsPerPx, (top - lineH * float(li)) * unitsPerPx, def, grapheme_at(sg.cluster)});
+                    continue;
+                }
                 if (sg.gid == 0) continue;
-                const GlyphInfo g = glyph(sg.face, px, sg.gid);
+                const GlyphInfo g = glyph(sg.face, px, sg.gid, sg.synth);
                 if (g.empty) continue;
                 const float pen = std::round(x + sg.x), lift = std::round(sg.y);
                 const float gx0 = pen + g.x0, gx1 = pen + g.x1;
                 const float gy0 = baselineY - g.y1 + lift, gy1 = baselineY - g.y0 + lift;  // y up
-                out.quads.push_back({(ox + gx0) * unitsPerPx, gy0 * unitsPerPx, (ox + gx1) * unitsPerPx, gy1 * unitsPerPx,
-                                     g.u0, g.v0, g.u1, g.v1});
+                TextQuad q{(ox + gx0) * unitsPerPx, gy0 * unitsPerPx, (ox + gx1) * unitsPerPx, gy1 * unitsPerPx, g.u0, g.v0, g.u1, g.v1};
+                q.grapheme = grapheme_at(sg.cluster);
+                if (t.markup && sg.cluster < attrs.size()) q.color = std::uint16_t(colorSlot[std::size_t(attrs[sg.cluster].color)]);
+                out.quads.push_back(q);
             }
         }
         if (im.atlasEpoch == epoch) break;
@@ -233,6 +364,22 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit) {
     if (im.layouts.size() >= 4096) im.layouts.clear();
     im.layouts[cacheKey] = out;
     return out;
+}
+
+// Markup mistakes show on screen as written; the first time a text has one, the log says where and how to fix it.
+void Fonts::warn_markup(const std::string& source, const MarkupText& m) {
+    Impl& im = *impl_;
+    (void)m;  // already parsed by the caller; markup_problems reads the same string against the project style
+    const std::vector<std::string> problems = markup_problems(source, &im.style);
+    for (const std::string& p : problems) {
+        if (im.warnedRich.size() >= 256) return;  // a game full of bad strings does not flood the log
+        if (!im.warnedRich.insert(source + "\n" + p).second) continue;
+        std::string excerpt;
+        const std::u32string cps = utf8_decode(source);
+        for (std::size_t i = 0; i < cps.size() && i < 40; ++i) utf8_append(excerpt, cps[i]);
+        if (cps.size() > 40) excerpt += "...";
+        FA_WARN("render", "markup in text \"{}\": {} (Text.markup is on: docs/TEXT.md \"Rich text\"; reported once per text.)", excerpt, p);
+    }
 }
 
 // Text that draws as nothing is the worst kind of bug to find, so the first missing glyph of each font says which
@@ -276,6 +423,9 @@ void Fonts::warn_missing_glyphs(FontFace* f, const std::string& text, const std:
     FA_WARN("render", "text \"{}\" has characters the font {} has no glyph for, so they draw as nothing: {}. {} (Reported once per font.)",
             excerpt, label, chars, hint);
 }
+
+unsigned Fonts::atlas_epoch() const { return impl_->atlasEpoch; }
+int Fonts::atlas_size() const { return impl_->atlasSize; }
 
 void Fonts::sync() {
     Impl& im = *impl_;

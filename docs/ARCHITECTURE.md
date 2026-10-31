@@ -41,7 +41,7 @@ engine/            runtime modules (ship inside every game)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads, the system languages
   render/          fa_render   2D + 3D renderer, text (HarfBuzz shaping, SheenBidi bidi), particles, debug draw, capture, KTX2 textures (Basis Universal transcoder), the picture of Video components
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres, oriented boxes, capsules, convex hulls, static triangle meshes, rigid-body rotation, hinge/ball/fixed joints, character controller, continuous collision, shape casts)
-  audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording, the sound of Video components
+  audio/           fa_audio    mixer with a bus table (built-in plus project buses) with per-bus effects (low-pass, reverb, ducking) and snapshots, wav/ogg/mp3, null device + recording, the sound of Video components
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
   services/        fa_services store and platform services: the `"platform"` catalog, the request dispatcher (`PlatformServices`), the fake and "none" backends, the `platform.*` commands
   script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner, scripts compiled to bytecode for game packs (bytecode.h), the script debugger runtime (debugger.h, docs/design/SCRIPT_DEBUGGER.md)
@@ -86,10 +86,14 @@ pending-destroy entity as gone at once: no body, no collisions, no query hits).
 documented fields. From it we derive: JSON load/save, `scene.set_component`, script
 property access, JSON Schemas, Markdown docs and TypeScript declarations.
 
-Versions: `tools/common/api_since.json` says which release added each component, field (`Component.field`) and
-command, and the generated reference prints it. A new component, field or command needs an `"unreleased"` entry there
-(not in the registration call); the test `api_since` in `tools/common/tests` lists the exact lines to add. A release
-renames `## Unreleased` in CHANGELOG.md to the version, and the same test then tells you to replace every
+Versions: `tools/common/api_since.json` says which release added each component, field (`Component.field`), command
+and script export, and the generated reference prints it. A new component, field, command or script export needs an
+`"unreleased"` entry there (not in the registration call); the `"script"` section is keyed by the name of each export of
+`engine/script/src/js/api.json` (`tween`, `NavAPI`; the object `nav` is of type `NavAPI`, so the version of
+`nav.findTilePath` is the one of `NavAPI.findTilePath`), `Type.member` for each member or static of a class or interface
+(`NavAPI.findTilePath`), and the same with a `test:` prefix for the `factoria:test` module (`test:TestGame.setDate`);
+the generated `types/factoria.d.ts` gets an `@since` tag from it. The test `api_since` in `tools/common/tests` lists
+the exact lines to add. A release renames `## Unreleased` in CHANGELOG.md to the version, and the same test then tells you to replace every
 `"unreleased"` with it and regenerate `docs/COMPONENTS.md` and the browsable pages in `docs/reference/` (`factoria call
 docs.write_reference '{"out":"docs"}'` from the repository root, checked by the test `api_reference`; plus
 `factoria api --dts --project examples/<name>` for the committed typings).
@@ -158,7 +162,9 @@ HUD pass loads it again, so the HUD is multisampled too. `Camera.colorFilter` is
 draws the finished target into a second image of the same size, and `present()`, `capture()` (screenshots, video) and
 the editor viewport read that image while a filter is on; `none` skips the pass and the image. The colour-blind
 CHECK (`simulate` of `game.screenshot`) is separate: `simulate_color_vision()` in `fa/core/image.h` on the captured
-pixels. Shaders are GLSL annotated for
+pixels. `game.screenshot` (whole view, `region` + `zoom` via `Engine::capture_region`, filmstrip), `render.inspect` and `render.pick` are in
+`runtime/src/shot_commands.cpp`; pixel work (crop, contact sheet, line profile) is `fa/core/image_tools.h`, and which files a screenshot
+may leave behind (temporary ones, pruning) is `fa/core/screenshot_files.h`. Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
 `mesh_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares
@@ -166,6 +172,32 @@ the programs. `mesh.glsl` is that top file with an empty `surface()`; a custom m
 snippet, so the engine and the materials share one source of truth (an empty `surface()` renders pixel-identical to a
 `MeshRenderer` without a material). Engine identifiers in the template start with `fa_`; `fa_time` (vertex and
 fragment) is `World::time()`, the engine clock. The template is embedded in `fa_tooling`.
+
+**Cameras and viewports.** Every active `Camera` with `primary` draws, in ascending `depth`, into its `Camera.viewport`
+(normalized `[x, y, w, h]` of the target, top-left origin, at most 8 cameras; the loader and `camera_viewport_problem` in
+`scene/components.h` reject a bad rectangle). One camera over the whole target is ONE job, world and screen space together, exactly
+the path there was before. Otherwise `Renderer::render` makes one world job per camera (own viewport and scissor, own culling, own
+2D and 3D lights, own clear of its rectangle) and one more job for the screen-space groups, drawn once over the whole target after
+them. The 2D light buffer is built per camera job, from the lights that reach that camera. Bloom, `bloomScreenSpace` and
+`colorFilter` run once, on the finished target, with the lowest-`depth` camera's settings. `RenderStats` is per frame and adds up
+over the cameras. `world_to_screen`, `screen_to_world` and `screen_ray` take an optional camera; without one they use
+`camera_at(point)` (the camera whose viewport contains the point, else the first drawn), and `cameras()` lists those drawn. The
+audio listener without an `AudioListener` is the first camera drawn. Known limit: a screen-space visual with `lit: true` is lit
+by the scene's ambient light only when the frame has several cameras (the screen job gathers no `Light2D`). The editor viewport
+shows the whole frame: its picking uses the camera under the pointer, but its outlines and gizmos project through the first
+camera drawn, so in a split frame they line up with the first view only.
+
+**Cameras inside the UI.** A `CameraView` (a UiBox widget) names a Camera. The UI gather (`draw_camera_view` in `ui2d.cpp`)
+asks the renderer for an image of the widget's size (`Frame::viewImage`; `Impl::viewTargets` caches one per widget, same formats
+and sample count as the game target so the pipelines fit, freed at the end of a frame that did not ask for it) and registers a
+`ViewRequest`; the widget's quad samples that image at `layer + 1`, so clipping, layers, the modal Panel and the mirroring are the
+UI's own. `Renderer::render` gathers one extra world frame per request (`build_camera` with the widget's size: the viewport
+forced to the whole image, always cleared, no screen space, no post effects, no debug draw, no 2D light buffer) and draws those
+jobs before the frame's own (`draw_view_job` swaps the target members of `Impl` for the image's). `Camera.lighting = studio`
+replaces the scene's directional/point lights, ambient, sky and fog on the CPU, in `draw_job`, with a camera-relative key, fill and
+rim, so it needs no shader change. `Camera.viewportSpace = design` converts the viewport fractions of the design area to the
+target's in `build_camera`. The pointer side is `fa_ui` (`view.cpp`): the topmost widget under the pointer (`ui_widget_at`)
+decides, and the game event `ui.viewPointer` goes out like the other ui.* events.
 
 **Custom materials** ([guide for game makers](SHADERS.md), [design](design/CUSTOM_SHADERS.md)):
 
@@ -242,7 +274,7 @@ Game-maker docs: [ANIMATION.md](ANIMATION.md).
 
 ### UI
 Menus and settings screens are components (`Panel`, `Button`, `Toggle`, `Slider`, `TextField`, `ScrollList` in
-`scene/components.h`, category "UI"), screen space only. The work is split three ways so nobody depends on a sibling:
+`scene/components.h`, category "UI"), screen space only; `Interactable` is the exception (below). The work is split three ways so nobody depends on a sibling:
 - **Where a widget is** has ONE definition, `fa/scene/ui_rect.h` (`ui_rect`, `ui_clip_rect`, `ui_slider_track`); layout, hit-testing, drawing and
   the editor's picking (`bounds.h`) all call it.
 - **How it behaves** is `fa_ui` (`UiSystem`, `fa/ui/ui.h`): layout of Panel and ScrollList children, focus rules
@@ -250,6 +282,13 @@ Menus and settings screens are components (`Panel`, `Button`, `Toggle`, `Slider`
   drag / wheel, widget values, and the `ui.*` game events (`world.events().game`, which scripts receive through
   `world.on` and `ui.on`). It reads `Input`, writes components and events, never draws. The runtime calls `update`
   every frame before `scripts.update` and `layout` before drawing; `ui.state` is its read-only command.
+- **Any entity as a widget.** The `Interactable` component (`scene/components.h`) makes a composition of sprites, shapes, text and
+  children a widget of the same focus, navigation and event system, with no second system next to it: `fa_ui` keeps one list of
+  items in which a Button and an Interactable differ only in where the rectangle comes from (`ui/src/interactable.cpp`: the bounds of the
+  entity and its children, projected through a camera for a world-space one, or screen-space rectangles). `UiSystem` gets the camera as
+  an injected `UiProjectFn` (`set_world_projection`; the runtime installs the renderer's `world_to_screen`/`camera_at`, because `fa_ui` is below
+  `fa_render`; without it `scene/camera_query.h` does the orthographic maths, which headless runs use). `InteractableVisual` children
+  show, hide or tint by state; hover, blur, press and release events come from Interactables only.
 - **How it looks** is `fa_render` (`render/src/ui2d.cpp`): 9-slice backgrounds, labels, focus ring, drawn into the screen quad
   list. A ScrollList's descendants (widgets and every other screen-space item) carry a clip rectangle that `draw_group` applies as a scissor;
   batches only merge with an equal clip.
@@ -269,7 +308,18 @@ request is `(method, args)` and gets one answer, a result or `{code, message, hi
   `ScriptSystem::dispatch_platform()` first thing), which settles the scripts' Promises and calls `platform.on` listeners.
 - **Commands** `platform.state`, `platform.reset`, `platform.respond`, `platform.emit`, `platform.revoke`, `platform.set_fake`
   (`platform_commands.h`, registered by the runtime): `game.platform` of `factoria:test` is a view of them.
-Docs: [PLATFORM.md](PLATFORM.md).
+- **`http.fetch`** is a method of the same pipeline with a backend slot of its own (`set_http_backend`, next to the store and
+  ads backends). `PlatformServices::prepare` checks the URL against the `"network"` hosts of factoria.json
+  (`fa/services/network.h`) and shapes the arguments; the runtime's `HttpBackend` (`http_backend.cpp`) hands them to
+  an `HttpClient` of `fa_platform` (`fa/platform/http.h`: WinHTTP, `NSURLSession`, libcurl loaded with dlopen, Android's
+  `HttpURLConnection` through JNI, the browser's `fetch`; one `http_<platform>` file each). Headless runs and tests ask for
+  the fake backend, which never touches the network. A plugin cannot offer the "http" service.
+- **`analytics` and `remoteConfig`** are script services in `factoria.js`, not platform services: they call `http.fetch`
+  (so the same host check and fake apply) and keep their state in `storage` under the engine's own `factoria.*` keys.
+  `fa/services/network.h` parses their `factoria.json` sections (`parse_analytics`, `parse_remote_config`) and `factoria
+  validate` checks them. The script system ticks them with the unscaled frame time, and runs `app.suspend` and the quit
+  flush (`request_quit` and `close_requested` wait up to 3 seconds for a pending request) through hooks of the prelude.
+Docs: [PLATFORM.md](PLATFORM.md), [NETWORKING.md](NETWORKING.md), [ANALYTICS.md](ANALYTICS.md).
 
 ### Localization
 Text lives in string tables, `locales/<language>.json`, and the engine shows the player's language (docs:
@@ -301,7 +351,10 @@ without a GPU), Metal (macOS), D3D11 with WARP fallback (Windows). Used by
 - **External agents** (Claude Code, Codex, any MCP client) connect to
   `factoria mcp --project <dir>` and get every command as a tool, docs as
   resources, and screenshots as images. Users keep using their own Claude /
-  ChatGPT subscriptions through those official CLIs.
+  ChatGPT subscriptions through those official CLIs. The server and the editor notice when the `factoria` file was replaced
+  under them (`fa/tooling/self_update.h`: stat, then the build identity written in the binary; `fa/mcp/update_monitor.h`): the
+  server re-executes itself between two messages (POSIX; `docs/MCP.md`, "After an update"), the editor offers a Restart notice
+  (`docs/EDITOR.md`, "Updates"), and `engine.update_status` says it.
 - **Built-in agent** (`factoria ai`, editor AI panel): providers
   `anthropic` (API key or `ant` CLI profile), `openai-compatible`
   (OpenAI, OpenRouter, Gemini, Groq, Ollama, LM Studio...), and CLI agents

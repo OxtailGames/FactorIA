@@ -77,6 +77,9 @@ the same components with your package manager.
   source ./emsdk_env.sh                                  # emsdk_env.bat on Windows: sets EMSDK and puts emcc on PATH
   ```
 
+- `factoria setup webplayer` does the two steps above and the build for you: it uses an SDK it finds (`$EMSDK`, `emcc` on
+  `PATH`, `.cache/emsdk` of the checkout, `~/emsdk`) or fetches the pinned one into `.cache/emsdk`, then runs the `web-release`
+  preset (docs/EXPORTING.md, "A development build"). `emsdk` needs Python 3.10+ (`EMSDK_PYTHON` names one; a Mac's system Python is older).
 - CMake 3.24+ and Ninja on the host (any host OS). The presets read the toolchain file from `$EMSDK`
   (`$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake`), so `EMSDK` must be set (`emsdk_env` does it).
 - No Python, Node or browser is needed to build. To look at the result you serve the folder and open it in a browser
@@ -248,10 +251,12 @@ cmake --preset web-release
 cmake --build --preset web-release         # build/web-release/player/factoria_player.js + .wasm
 ```
 
+or `factoria setup webplayer`, which finds or fetches the SDK and runs the two presets (the export prefers this folder).
+
 The result is the two files `platforms/web/shell.html` loads (`factoria export --platform web` copies them next to the page
-and the game's `game.pak`; docs/EXPORTING.md). A release build is about 6.5 MB of wasm (about 2.5 MB gzipped, which is what
+and the game's `game.pak`; docs/EXPORTING.md). A release build is about 8 MB of wasm (about 3 MB gzipped, which is what
 a web server sends) and 150 KB of JS. To try a game by hand, put `factoria_player.js`, `factoria_player.wasm`, a `game.pak`
-and the page (`shell.html` with `{{title}}`, `{{wasmBytes}}` and `{{pakBytes}}` filled in, saved as `index.html`) in one
+and the page (`shell.html` with `{{title}}`, `{{wasmBytes}}` and `{{pakBytes}}` filled in, and `{{favicon}}` replaced by `data:,`, saved as `index.html`) in one
 folder, serve it (`python -m http.server`; no special headers, the player uses no threads) and open it in a browser. To
 check it headless, with a software WebGL2: `node platforms/web/smoke.mjs <folder>` (Node 22+, Chrome, Chromium or Edge; it
 waits for the player's `60 frames rendered` line and fails on a page error or `console.error`).

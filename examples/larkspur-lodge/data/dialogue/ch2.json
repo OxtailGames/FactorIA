@@ -1,0 +1,365 @@
+{
+  "format": "larkspur.dialogue/1",
+  "conversations": {
+    "ch2_tobias": {
+      "doc": "Tobias in the kitchen: Dr. Vale asked him for a lantern and lamp oil. Clue: know_oil.",
+      "start": "dlg.ch2_tobias.start",
+      "nodes": {
+        "dlg.ch2_tobias.start": {
+          "route": [
+            {
+              "if": [
+                "talked.tobias.2"
+              ],
+              "to": "dlg.ch2_tobias.again"
+            },
+            {
+              "to": "dlg.ch2_tobias.greet"
+            }
+          ]
+        },
+        "dlg.ch2_tobias.greet": {
+          "speaker": "tobias",
+          "voice": "tobias_ch2_tobias_greet",
+          "next": "dlg.ch2_tobias.fact"
+        },
+        "dlg.ch2_tobias.fact": {
+          "speaker": "tobias",
+          "voice": "tobias_ch2_tobias_fact",
+          "choices": [
+            {
+              "id": "why",
+              "text": "dlg.ch2_tobias.fact_c1",
+              "next": "dlg.ch2_tobias.why"
+            },
+            {
+              "id": "gave",
+              "text": "dlg.ch2_tobias.fact_c2",
+              "next": "dlg.ch2_tobias.gave"
+            },
+            {
+              "id": "afraid",
+              "text": "dlg.ch2_tobias.fact_c3",
+              "next": "dlg.ch2_tobias.afraid"
+            }
+          ]
+        },
+        "dlg.ch2_tobias.why": {
+          "speaker": "tobias",
+          "voice": "tobias_ch2_tobias_why",
+          "next": "dlg.ch2_tobias.close"
+        },
+        "dlg.ch2_tobias.gave": {
+          "speaker": "tobias",
+          "voice": "tobias_ch2_tobias_gave",
+          "next": "dlg.ch2_tobias.close"
+        },
+        "dlg.ch2_tobias.afraid": {
+          "speaker": "tobias",
+          "voice": "tobias_ch2_tobias_afraid",
+          "next": "dlg.ch2_tobias.close"
+        },
+        "dlg.ch2_tobias.close": {
+          "speaker": "tobias",
+          "voice": "tobias_ch2_tobias_close",
+          "effects": [
+            {
+              "set": "know_oil"
+            },
+            {
+              "add": "interviews"
+            },
+            {
+              "set": "talked.tobias.2"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch2_tobias.again": {
+          "speaker": "tobias",
+          "voice": "tobias_ch2_tobias_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch2_haas": {
+      "doc": "Captain Haas: Dr. Vale asked whether the cellar went back further than its shelves. Clue: know_cellar.",
+      "start": "dlg.ch2_haas.start",
+      "nodes": {
+        "dlg.ch2_haas.start": {
+          "route": [
+            {
+              "if": [
+                "talked.haas.2"
+              ],
+              "to": "dlg.ch2_haas.again"
+            },
+            {
+              "to": "dlg.ch2_haas.greet"
+            }
+          ]
+        },
+        "dlg.ch2_haas.greet": {
+          "speaker": "haas",
+          "voice": "haas_ch2_haas_greet",
+          "next": "dlg.ch2_haas.cellar"
+        },
+        "dlg.ch2_haas.cellar": {
+          "speaker": "haas",
+          "voice": "haas_ch2_haas_cellar",
+          "choices": [
+            {
+              "id": "press",
+              "text": "dlg.ch2_haas.cellar_c1",
+              "next": "dlg.ch2_haas.deflect"
+            },
+            {
+              "id": "trust",
+              "text": "dlg.ch2_haas.cellar_c2",
+              "effects": [
+                {
+                  "add": "trust"
+                }
+              ],
+              "next": "dlg.ch2_haas.thanks"
+            },
+            {
+              "id": "cold",
+              "text": "dlg.ch2_haas.cellar_c3",
+              "next": "dlg.ch2_haas.warn"
+            }
+          ]
+        },
+        "dlg.ch2_haas.deflect": {
+          "speaker": "haas",
+          "voice": "haas_ch2_haas_deflect",
+          "next": "dlg.ch2_haas.close"
+        },
+        "dlg.ch2_haas.thanks": {
+          "speaker": "haas",
+          "voice": "haas_ch2_haas_thanks",
+          "next": "dlg.ch2_haas.close"
+        },
+        "dlg.ch2_haas.warn": {
+          "speaker": "haas",
+          "voice": "haas_ch2_haas_warn",
+          "next": "dlg.ch2_haas.close"
+        },
+        "dlg.ch2_haas.close": {
+          "speaker": "haas",
+          "voice": "haas_ch2_haas_close",
+          "effects": [
+            {
+              "set": "know_cellar"
+            },
+            {
+              "add": "interviews"
+            },
+            {
+              "set": "talked.haas.2"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch2_haas.again": {
+          "speaker": "haas",
+          "voice": "haas_ch2_haas_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch2_lucian": {
+      "doc": "Lucian at the dining table: Dr. Vale came for a missing page of an old survey. Clue: know_page.",
+      "start": "dlg.ch2_lucian.start",
+      "nodes": {
+        "dlg.ch2_lucian.start": {
+          "route": [
+            {
+              "if": [
+                "talked.lucian.2"
+              ],
+              "to": "dlg.ch2_lucian.again"
+            },
+            {
+              "to": "dlg.ch2_lucian.greet"
+            }
+          ]
+        },
+        "dlg.ch2_lucian.greet": {
+          "speaker": "lucian",
+          "voice": "lucian_ch2_lucian_greet",
+          "next": "dlg.ch2_lucian.page"
+        },
+        "dlg.ch2_lucian.page": {
+          "speaker": "lucian",
+          "voice": "lucian_ch2_lucian_page",
+          "choices": [
+            {
+              "id": "why",
+              "text": "dlg.ch2_lucian.page_c1",
+              "next": "dlg.ch2_lucian.why"
+            },
+            {
+              "id": "who",
+              "text": "dlg.ch2_lucian.page_c2",
+              "next": "dlg.ch2_lucian.who"
+            },
+            {
+              "id": "you",
+              "text": "dlg.ch2_lucian.page_c3",
+              "next": "dlg.ch2_lucian.you"
+            }
+          ]
+        },
+        "dlg.ch2_lucian.why": {
+          "speaker": "lucian",
+          "voice": "lucian_ch2_lucian_why",
+          "next": "dlg.ch2_lucian.close"
+        },
+        "dlg.ch2_lucian.who": {
+          "speaker": "lucian",
+          "voice": "lucian_ch2_lucian_who",
+          "next": "dlg.ch2_lucian.close"
+        },
+        "dlg.ch2_lucian.you": {
+          "speaker": "lucian",
+          "voice": "lucian_ch2_lucian_you",
+          "next": "dlg.ch2_lucian.close"
+        },
+        "dlg.ch2_lucian.close": {
+          "speaker": "lucian",
+          "voice": "lucian_ch2_lucian_close",
+          "effects": [
+            {
+              "set": "know_page"
+            },
+            {
+              "add": "interviews"
+            },
+            {
+              "set": "talked.lucian.2"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch2_lucian.again": {
+          "speaker": "lucian",
+          "voice": "lucian_ch2_lucian_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch2_mara": {
+      "doc": "Mara in the corridor: the quarrel at supper. Clue: know_argument. The kind reply earns trust.",
+      "start": "dlg.ch2_mara.start",
+      "nodes": {
+        "dlg.ch2_mara.start": {
+          "route": [
+            {
+              "if": [
+                "talked.mara.2"
+              ],
+              "to": "dlg.ch2_mara.again"
+            },
+            {
+              "to": "dlg.ch2_mara.greet"
+            }
+          ]
+        },
+        "dlg.ch2_mara.greet": {
+          "speaker": "mara",
+          "voice": "mara_ch2_mara_greet",
+          "next": "dlg.ch2_mara.supper"
+        },
+        "dlg.ch2_mara.supper": {
+          "speaker": "mara",
+          "voice": "mara_ch2_mara_supper",
+          "choices": [
+            {
+              "id": "kind",
+              "text": "dlg.ch2_mara.supper_c1",
+              "effects": [
+                {
+                  "add": "trust"
+                }
+              ],
+              "next": "dlg.ch2_mara.kind"
+            },
+            {
+              "id": "blunt",
+              "text": "dlg.ch2_mara.supper_c2",
+              "next": "dlg.ch2_mara.blunt"
+            },
+            {
+              "id": "accuse",
+              "text": "dlg.ch2_mara.supper_c3",
+              "effects": [
+                {
+                  "set": "mara_hurt"
+                }
+              ],
+              "next": "dlg.ch2_mara.accuse"
+            }
+          ]
+        },
+        "dlg.ch2_mara.kind": {
+          "speaker": "mara",
+          "voice": "mara_ch2_mara_kind",
+          "next": "dlg.ch2_mara.close"
+        },
+        "dlg.ch2_mara.blunt": {
+          "speaker": "mara",
+          "voice": "mara_ch2_mara_blunt",
+          "next": "dlg.ch2_mara.close"
+        },
+        "dlg.ch2_mara.accuse": {
+          "speaker": "mara",
+          "voice": "mara_ch2_mara_accuse",
+          "next": "dlg.ch2_mara.close"
+        },
+        "dlg.ch2_mara.close": {
+          "speaker": "mara",
+          "voice": "mara_ch2_mara_close",
+          "effects": [
+            {
+              "set": "know_argument"
+            },
+            {
+              "add": "interviews"
+            },
+            {
+              "set": "talked.mara.2"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch2_mara.again": {
+          "speaker": "mara",
+          "voice": "mara_ch2_mara_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch2_hedda": {
+      "doc": "Hedda on the landing: what she saw in room C. Colour only.",
+      "start": "dlg.ch2_hedda.greet",
+      "nodes": {
+        "dlg.ch2_hedda.greet": {
+          "speaker": "hedda",
+          "voice": "hedda_ch2_hedda_greet",
+          "next": "dlg.ch2_hedda.think"
+        },
+        "dlg.ch2_hedda.think": {
+          "speaker": "hedda",
+          "voice": "hedda_ch2_hedda_think",
+          "next": "dlg.ch2_hedda.close"
+        },
+        "dlg.ch2_hedda.close": {
+          "speaker": "hedda",
+          "voice": "hedda_ch2_hedda_close",
+          "next": "@end"
+        }
+      }
+    }
+  }
+}

@@ -293,3 +293,105 @@ TEST_CASE("Captions: a block at the bottom of the rectangle, the speaker in its 
     CHECK_FALSE(near(left.pixel(22, 165), clear, 0.02f));  // left aligned: the block starts at the rectangle's left edge (x = 20)
     CHECK(near(left.pixel(10, 165), clear, 0.01f));
 }
+
+TEST_CASE("Chart: bars scale to the maximum, a line passes through its points, the automatic axis includes zero") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const Color clear = Color{0.08f, 0.08f, 0.12f, 1};
+    const Color red = Color::hex(0xff2020), blue = Color::hex(0x2040ff);
+    World w;
+    w.add<Camera>(make(w, "cam"));
+    Chart& c = widget<Chart>(w, "chart", 20, 10, 200, 120);  // the plot is 188 x 108 at (26, 16) with padding 6
+    c.color = Color{0, 0, 0, 0};
+    c.showLabels = false;
+    c.showBaseline = false;
+    c.barGap = 0.0f;
+    c.colors = Json::array({"#ff2020", "#2040ff"});
+    c.values = Json::array({50, 100, 75, 100});  // 47 units per bar; the maximum (100) fills the plot to its top
+
+    Image img = g.render(w);
+    auto column = [&](Image& im, int x, int y0, int y1) {  // the pixel rows of colour `red` in column x
+        int top = -1, bottom = -1;
+        for (int y = y0; y < y1; ++y)
+            if (near(im.pixel(x, y), red)) {
+                if (top < 0) top = y;
+                bottom = y;
+            }
+        return std::pair{top, bottom};
+    };
+    const auto [t1, b1] = column(img, 26 + 47 + 20, 0, 180);  // the second bar, 100: the full height
+    CHECK(t1 <= 17);
+    CHECK(b1 >= 122);  // stands on the bottom (zero) of the plot
+    const auto [t0, b0] = column(img, 26 + 20, 0, 180);  // the first bar, 50: half the height
+    CHECK(b0 == b1);
+    CHECK(std::abs((b0 - t0 + 1) - (b1 - t1 + 1) / 2) <= 2);
+    CHECK(near(img.pixel(26 + 20, 30), clear, 0.01f));  // above the short bar: only the clear colour
+
+    // An axis that does not include zero would stretch a series of large numbers: this one starts at zero.
+    c.values = Json::array({90, 100});
+    img = g.render(w);
+    const auto [t2, b2] = column(img, 26 + 47, 0, 180);
+    CHECK((b2 - t2 + 1) >= 95);  // 90 of 100 of 108 pixels
+    c.includeBaseline = false;   // now the axis is 90 .. 100: the first bar is as short as a bar can be
+    img = g.render(w);
+    const auto [t3, b3] = column(img, 26 + 47, 0, 180);
+    CHECK((b3 - t3 + 1) <= 2);
+
+    // A line: the pixels along it are coloured, in the colour of its series, through each of its points.
+    c.kind = ChartKind::Line;
+    c.includeBaseline = true;
+    c.lineWidth = 3;
+    c.values = Json::array({Json::array({0, 100, 50}), Json::array({20, 20, 20})});
+    img = g.render(w);
+    auto has_colour = [&](int cx, int cy, const Color& want) {
+        for (int y = cy - 2; y <= cy + 2; ++y)
+            for (int x = cx - 2; x <= cx + 2; ++x)
+                if (near(img.pixel(x, y), want)) return true;
+        return false;
+    };
+    const float px0 = 26, px1 = 26 + 94, px2 = 26 + 188, top = 16, bottom = 16 + 108;
+    CHECK(has_colour(int(px0 + 1), int(bottom - 1), red));         // point 0 (value 0) on the bottom
+    CHECK(has_colour(int(px1), int(top + 1), red));                 // point 1 (value 100) at the top
+    CHECK(has_colour(int(px2 - 1), int((top + bottom) / 2), red));  // point 2 (value 50) in the middle
+    CHECK(has_colour(int((px0 + px1) / 2), int((top + bottom) / 2), red));  // halfway up between the first two points
+    CHECK(has_colour(int(px2 - 30), int(bottom - 0.2f * 108), blue));  // the second series, flat at 20
+    CHECK(near(img.pixel(int(px0 + 20), int(top + 60)), clear, 0.01f));  // away from both lines: nothing
+}
+
+TEST_CASE("mirrored UI: in a right-to-left language the widgets are drawn as the mirror image of the left-to-right screen") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    auto scene = [&](bool rtl, bool mirrorOff) {
+        World w;
+        w.add<Camera>(make(w, "cam"));
+        w.set_language(rtl ? "he" : "en");
+        w.set_rtl(rtl);
+        w.set_ui_mirror_rtl(!mirrorOff);
+        widget<Panel>(w, "p", 10, 10, 120, 30).color = Color{0.8f, 0.2f, 0.2f, 1};
+        Slider& s = widget<Slider>(w, "s", 10, 60, 200, 30);  // no label: the track fills the width
+        s.label = "";
+        s.value = 0.25f;
+        Toggle& t = widget<Toggle>(w, "t", 10, 110, 150, 28);  // no label: the box alone
+        t.label = "";
+        t.value = true;
+        return g.render(w);
+    };
+    const Image ltr = scene(false, false), rtl = scene(true, false), off = scene(true, true);
+    REQUIRE(ltr.width == rtl.width);
+    int mirroredDiff = 0, offDiff = 0;
+    for (int y = 0; y < ltr.height; ++y)
+        for (int x = 0; x < ltr.width; ++x) {
+            const bool valueText = y >= 62 && y < 88 && x > 20 && x < 300;  // the Slider's value readout: text is not reflected
+            if (!valueText && !near(rtl.pixel(x, y), ltr.pixel(ltr.width - 1 - x, y), 0.05f)) ++mirroredDiff;
+            if (!near(off.pixel(x, y), ltr.pixel(x, y), 0.05f)) ++offDiff;
+        }
+    CHECK(mirroredDiff < 12);  // the same picture reflected (the edge pixels of anti-aliased shapes may differ)
+    // the Slider (value 0.25) fills from its left end in English and from its right end in Hebrew
+    CHECK_FALSE(near(ltr.pixel(30, 75), ltr.pixel(150, 75), 0.05f));
+    CHECK(near(rtl.pixel(ltr.width - 1 - 30, 75), ltr.pixel(30, 75), 0.05f));
+    CHECK(near(rtl.pixel(ltr.width - 1 - 150, 75), ltr.pixel(150, 75), 0.05f));
+    CHECK(offDiff == 0);       // ui.mirrorRtl off: nothing moves
+    // and it is not the same picture: the panel is at the right now
+    CHECK(near(rtl.pixel(ltr.width - 1 - 70, 20), Color{0.8f, 0.2f, 0.2f, 1}, 0.05f));
+    CHECK_FALSE(near(rtl.pixel(70, 20), Color{0.8f, 0.2f, 0.2f, 1}, 0.05f));
+}

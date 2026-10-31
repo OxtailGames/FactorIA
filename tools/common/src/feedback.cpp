@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <map>
@@ -81,7 +82,7 @@ std::vector<std::string> title_tokens(std::string_view title) {
 
 struct SetStats {
     double jaccard = 0, overlap = 0;
-    size_t minSize = 0;
+    size_t minSize = 0, shared = 0;
 };
 
 SetStats set_stats(const std::vector<std::string>& a, const std::vector<std::string>& b) {
@@ -90,6 +91,7 @@ SetStats set_stats(const std::vector<std::string>& a, const std::vector<std::str
     if (sa.empty() || sb.empty()) return st;
     size_t inter = 0;
     for (const auto& t : sa) inter += sb.count(t);
+    st.shared = inter;
     st.jaccard = double(inter) / double(sa.size() + sb.size() - inter);
     st.minSize = std::min(sa.size(), sb.size());
     st.overlap = double(inter) / double(st.minSize);
@@ -114,8 +116,8 @@ double feedback_title_similarity(std::string_view a, std::string_view b) {
     for (const auto& t : tb) jb += t + " ";
     size_t maxLen = std::max(ja.size(), jb.size());
     double edit = 1.0 - double(edit_distance(ja, jb)) / double(maxLen);
-    // A short title fully contained in a longer one (>= 3 shared significant tokens) is the same gap, slightly damped.
-    double contained = st.minSize >= 3 ? 0.85 * st.overlap : 0.0;
+    // A short title fully contained in a longer one (>= 4 shared significant tokens: three shared words such as "icon text button" are common to different gaps) is the same gap, slightly damped.
+    double contained = st.shared >= 4 ? 0.85 * st.overlap : 0.0;
     return std::max({st.jaccard, edit, contained});
 }
 
@@ -126,8 +128,30 @@ double feedback_entry_similarity(const Json& a, const Json& b) {
     else if (!ca.empty() && category_family(ca) == category_family(cb)) score += 0.05;
     auto sa = title_tokens(a.value("suggestion", "")), sb = title_tokens(b.value("suggestion", ""));
     if (sa.size() >= 3 && sb.size() >= 3) score += 0.10 * set_stats(sa, sb).jaccard;
+    // What the report says is missing weighs in a little: two titles that share a few words but describe different
+    // things differ here.
+    auto ma = title_tokens(a.value("missing", "")), mb = title_tokens(b.value("missing", ""));
+    if (ma.size() >= 3 && mb.size() >= 3) score += 0.10 * set_stats(ma, mb).jaccard;
     return std::min(1.0, score);
 }
+
+namespace {
+
+// Whether `listed` (an entry's distinctFrom) names the other entry: by id for an entry of the same project, or as
+// "<project>/<id>" for one of another project.
+bool lists_distinct(const Json& listed, const std::string& otherProject, const std::string& otherId,
+                    const std::string& ownProject) {
+    if (!listed.is_object() || !listed.contains("distinctFrom") || !listed["distinctFrom"].is_array()) return false;
+    for (const auto& d : listed["distinctFrom"]) {
+        if (!d.is_string()) continue;
+        const std::string v = d.get<std::string>();
+        if (v == otherProject + "/" + otherId) return true;
+        if (v == otherId && otherProject == ownProject) return true;
+    }
+    return false;
+}
+
+}  // namespace
 
 // ------------------------------------------------------------- documents ----
 Json create_empty_feedback(std::string_view projectName, std::string_view engineVersion) {
@@ -200,7 +224,7 @@ std::string check_enum(const char* field, const std::string& value, const std::v
 
 }  // namespace
 
-Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in) {
+Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in, Json* archive) {
     if (!doc.is_object() || !doc.contains("entries") || !doc["entries"].is_array())
         return make_error("ENGINE_FEEDBACK.json has no \"entries\" array.",
                           "Start from create_empty_feedback() or run `factoria feedback init`.");
@@ -231,6 +255,30 @@ Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in)
         if (s >= 0.7 && s > bestScore) { best = &e; bestScore = s; }
     }
     FeedbackAddResult result;
+    // No open match: a gap that was reported, fixed in the engine and archived, and is reported again, is a possible
+    // regression. The archived entry moves back (same id, open) instead of a second entry for the same gap.
+    Json reopenedEntry;
+    if (!best && archive && archive->is_object() && archive->contains("entries") && (*archive)["entries"].is_array()) {
+        Json& archived = (*archive)["entries"];
+        std::size_t bestAt = archived.size();
+        for (std::size_t i = 0; i < archived.size(); ++i) {
+            const Json& e = archived[i];
+            if (!e.is_object() || status_of(e) != "fixed-in-engine" || e.value("category", "") != in.category) continue;
+            double s = feedback_title_similarity(e.value("title", ""), in.title);
+            if (s >= 0.7 && s > bestScore) { bestAt = i; bestScore = s; }
+        }
+        if (bestAt < archived.size()) {
+            reopenedEntry = archived[bestAt];
+            archived.erase(archived.begin() + std::ptrdiff_t(bestAt));
+            reopenedEntry["status"] = "open";
+            if (!reopenedEntry.contains("notes") || !reopenedEntry["notes"].is_array()) reopenedEntry["notes"] = Json::array();
+            reopenedEntry["notes"].push_back(today + ": reported again with engine " + std::string(FA_ENGINE_VERSION) +
+                                             ": regression?");
+            entries.push_back(reopenedEntry);
+            best = &entries[entries.size() - 1];
+            result.reopened = true;
+        }
+    }
     if (best) {
         Json& e = *best;
         int occ = e.value("occurrences", 1) + 1;
@@ -257,7 +305,10 @@ Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& in)
     }
 
     char idbuf[16];
-    std::snprintf(idbuf, sizeof idbuf, "FB-%04d", max_entry_number(entries) + 1);
+    int top = max_entry_number(entries);
+    if (archive && archive->is_object() && archive->contains("entries") && (*archive)["entries"].is_array())
+        top = std::max(top, max_entry_number((*archive)["entries"]));
+    std::snprintf(idbuf, sizeof idbuf, "FB-%04d", top + 1);
     Json e = Json::object();
     e["id"] = idbuf;
     e["date"] = today;
@@ -290,10 +341,133 @@ Result<FeedbackAddResult> add_feedback_entry_to_file(const std::string& path, co
         if (name.empty()) name = stdfs::path(path).parent_path().filename().string();
         doc = create_empty_feedback(name);
     }
-    auto r = add_feedback_entry(doc, input);
+    const std::string archivePath = feedback_archive_path(path);
+    Json archive;
+    bool haveArchive = false;
+    if (stdfs::exists(archivePath)) {
+        auto loaded = load_feedback(archivePath);
+        if (!loaded.ok()) return loaded.error();
+        archive = std::move(loaded.value());
+        haveArchive = true;
+    }
+    auto r = add_feedback_entry(doc, input, haveArchive ? &archive : nullptr);
     if (!r.ok()) return r;
+    // The entry is in the file before it leaves the archive: a crash in between leaves it twice, never lost.
+    if (auto s = save_feedback(path, doc); !s.ok()) return s.error();
+    if (r->reopened)
+        if (auto s = save_feedback(archivePath, archive); !s.ok()) return s.error();
+    return r;
+}
+
+std::string feedback_archive_path(const std::string& feedbackPath) {
+    const stdfs::path p(feedbackPath);
+    if (p.extension() == ".json") return (p.parent_path() / (p.stem().string() + ".archive.json")).string();
+    return feedbackPath + ".archive.json";
+}
+
+FeedbackArchiveResult archive_closed_feedback(Json& doc, Json& archive) {
+    FeedbackArchiveResult out;
+    if (!archive.is_object() || !archive.contains("entries") || !archive["entries"].is_array())
+        archive["entries"] = Json::array();
+    if (!doc.is_object() || !doc.contains("entries") || !doc["entries"].is_array()) return out;
+    std::set<std::string> known;
+    for (const auto& e : archive["entries"]) known.insert(e.value("id", ""));
+    Json keep = Json::array();
+    for (auto& e : doc["entries"]) {
+        if (!e.is_object() || status_of(e) == "open") {
+            keep.push_back(e);
+            continue;
+        }
+        const std::string id = e.value("id", "");
+        if (known.insert(id).second) archive["entries"].push_back(e);
+        out.ids.push_back(id);
+        ++out.moved;
+    }
+    doc["entries"] = std::move(keep);
+    out.open = int(doc["entries"].size());
+    out.archived = int(archive["entries"].size());
+    return out;
+}
+
+Result<FeedbackArchiveResult> archive_closed_feedback_file(const std::string& path) {
+    auto loaded = load_feedback(path);
+    if (!loaded.ok()) return loaded.error();
+    Json doc = std::move(loaded.value());
+    const std::string archivePath = feedback_archive_path(path);
+    Json archive;
+    if (stdfs::exists(archivePath)) {
+        auto a = load_feedback(archivePath);
+        if (!a.ok()) return a.error();
+        archive = std::move(a.value());
+    } else {
+        archive = create_empty_feedback(doc.is_object() ? doc.value("project", std::string()) : std::string(),
+                                        doc.is_object() ? doc.value("engineVersion", std::string()) : std::string());
+    }
+    FeedbackArchiveResult r = archive_closed_feedback(doc, archive);
+    if (r.moved == 0) return r;
+    // Archive first: a crash between the two writes leaves an entry in both files (the next run drops the copy), never in none.
+    if (auto s = save_feedback(archivePath, archive); !s.ok()) return s.error();
     if (auto s = save_feedback(path, doc); !s.ok()) return s.error();
     return r;
+}
+
+Json list_archived_feedback(const std::string& path, const FeedbackFilter& filter) {
+    const std::string archivePath = feedback_archive_path(path);
+    if (!stdfs::exists(archivePath)) return Json::array();
+    auto a = load_feedback(archivePath);
+    if (!a.ok()) return Json::array();
+    return list_feedback(a.value(), filter);
+}
+
+Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
+                                  std::string_view engineIssue, std::string_view note) {
+    auto loaded = load_feedback(path);
+    if (!loaded.ok()) return loaded.error();
+    Json doc = std::move(loaded.value());
+    auto has_id = [&](const Json& d) {
+        if (!d.is_object() || !d.contains("entries") || !d["entries"].is_array()) return false;
+        for (const auto& e : d["entries"])
+            if (e.value("id", "") == id) return true;
+        return false;
+    };
+    auto add_note = [&](Json& d, Json& result) {
+        if (note.empty()) return;
+        for (auto& e : d["entries"]) {
+            if (e.value("id", "") != id) continue;
+            if (!e.contains("notes") || !e["notes"].is_array()) e["notes"] = Json::array();
+            e["notes"].push_back(std::string(note));
+            result = e;
+        }
+    };
+    if (has_id(doc) || !stdfs::exists(feedback_archive_path(path))) {
+        auto r = update_feedback_entry(doc, id, status, engineIssue);
+        if (!r.ok()) return r;
+        Json result = *r;
+        add_note(doc, result);
+        if (auto s = save_feedback(path, doc); !s.ok()) return s.error();
+        return result;
+    }
+    const std::string archivePath = feedback_archive_path(path);
+    auto a = load_feedback(archivePath);
+    if (!a.ok()) return a.error();
+    Json archive = std::move(a.value());
+    if (!has_id(archive)) return update_feedback_entry(doc, id, status, engineIssue);  // the error lists the ids of the file
+    auto r = update_feedback_entry(archive, id, status, engineIssue);
+    if (!r.ok()) return r;
+    Json result = *r;
+    add_note(archive, result);
+    if (status == "open") {  // reopened by hand: back into the file
+        Json moved;
+        Json keep = Json::array();
+        for (auto& e : archive["entries"]) {
+            if (e.value("id", "") == id) moved = e; else keep.push_back(e);
+        }
+        archive["entries"] = std::move(keep);
+        doc["entries"].push_back(moved);
+        if (auto s = save_feedback(path, doc); !s.ok()) return s.error();
+    }
+    if (auto s = save_feedback(archivePath, archive); !s.ok()) return s.error();
+    return result;
 }
 
 Json list_feedback(const Json& doc, const FeedbackFilter& f) {
@@ -331,6 +505,7 @@ namespace {
 struct Item {
     std::string project;
     Json entry;
+    double joinedScore = 1.0;  // similarity to the entry that pulled it into the group (1 for the first)
 };
 struct Cluster {
     std::string category;
@@ -396,7 +571,16 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
         std::string project = d.value("project", stdfs::path(f).parent_path().filename().string());
         sources.push_back(f);
         if (projectSet.insert(project).second) projects.push_back(project);
-        for (const auto& e : d["entries"]) {
+        // The closed entries archived next to the file belong to the same project: they count where closed ones count.
+        Json allEntries = d["entries"];
+        if (const std::string archivePath = feedback_archive_path(f); archivePath != f && stdfs::is_regular_file(archivePath)) {
+            auto archived = load_feedback(archivePath);
+            if (!archived.ok())
+                errors.push_back(archivePath + ": " + archived.error().to_string());
+            else if (archived->is_object() && archived->contains("entries") && (*archived)["entries"].is_array())
+                for (const auto& e : (*archived)["entries"]) allEntries.push_back(e);
+        }
+        for (const auto& e : allEntries) {
             if (!e.is_object()) continue;
             std::string status = status_of(e);
             if (!opts.includeClosed && status != "open") continue;
@@ -405,7 +589,14 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
             (void)title;
             Cluster* target = nullptr;
             double best = 0;
+            const std::string eid = e.value("id", "");
             for (auto& c : clusters) {
+                // An entry never joins a group that holds one it (or that one) lists in distinctFrom.
+                bool apart = false;
+                for (const auto& it : c.items)
+                    if (lists_distinct(e, it.project, it.entry.value("id", ""), project) ||
+                        lists_distinct(it.entry, project, eid, it.project)) { apart = true; break; }
+                if (apart) continue;
                 for (const auto& it : c.items) {
                     double s = feedback_entry_similarity(it.entry, e);
                     if (s >= opts.similarity && s > best) { best = s; target = &c; }
@@ -415,7 +606,7 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
                 clusters.push_back({cat, {}});
                 target = &clusters.back();
             }
-            target->items.push_back({project, e});
+            target->items.push_back({project, e, target->items.empty() ? 1.0 : best});
         }
     }
 
@@ -450,7 +641,8 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
             if (feedback_severity_weight(s) > maxW) { maxW = feedback_severity_weight(s); sev = s; }
             projs.insert(it.project);
             entryRefs.push_back(Json::object({{"project", it.project}, {"id", it.entry.value("id", "")},
-                                              {"severity", s}, {"status", status_of(it.entry)}, {"occurrences", o}}));
+                                              {"severity", s}, {"status", status_of(it.entry)}, {"occurrences", o},
+                                              {"similarity", std::round(it.joinedScore * 100.0) / 100.0}}));
             if (o > repOcc) { repOcc = o; rep = &it; }
             std::string sug = it.entry.value("suggestion", "");
             if (sug.size() > bestSuggestion.size()) bestSuggestion = sug;
@@ -515,6 +707,18 @@ std::string FeedbackReport::markdown() const {
             first = false;
         }
         o << "\n";
+        if (c["entries"].size() > 1) {
+            o << "- **Merged (similarity to the group):** ";
+            first = true;
+            for (const auto& e : c["entries"]) {
+                char buf[16];
+                std::snprintf(buf, sizeof buf, "%.2f", e.value("similarity", 1.0));
+                o << (first ? "" : ", ") << e["project"].get<std::string>() << "/" << e["id"].get<std::string>()
+                  << " " << buf;
+                first = false;
+            }
+            o << "\n";
+        }
         if (!c["bestSuggestion"].get<std::string>().empty())
             o << "- **Suggestion:** " << c["bestSuggestion"].get<std::string>() << "\n";
         if (!c["sampleWorkarounds"].empty()) {
@@ -569,7 +773,7 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             "differently; you had to emulate a feature in JavaScript; a command you wanted is missing.\n"
             "The entry is appended to the project's ENGINE_FEEDBACK.json, which engine developers aggregate to decide "
             "what to build next. Reporting a gap similar to an open one merges into it (occurrences + 1), so duplicates "
-            "are harmless. Write 'title' as a short noun phrase (\"No one-way platforms\"), 'missing' as what you needed "
+            "are harmless. A gap the engine already fixed (archived, see feedback.archive) and that you report again reopens the archived entry as a possible regression. Write 'title' as a short noun phrase (\"No one-way platforms\"), 'missing' as what you needed "
             "and why, 'workaround' as what you did instead and where (list files in workaroundFiles), 'suggestion' as the "
             "concrete engine change that would remove the workaround.\n"
             "Example: {\"category\":\"physics\",\"severity\":\"major\",\"title\":\"No one-way platforms\","
@@ -615,9 +819,11 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             out["merged"] = r->merged;
             out["occurrences"] = r->occurrences;
             out["file"] = stdfs::path(path).filename().string();
-            out["message"] = r->merged ? "Merged into existing entry " + r->id + " (now " + std::to_string(r->occurrences) +
-                                             " occurrences). Thank you."
-                                       : "Recorded as " + r->id + ". Thank you.";
+            out["reopened"] = r->reopened;
+            out["message"] = r->reopened ? "Reopened " + r->id + ": it was fixed in the engine and is reported again (a regression?). Thank you."
+                             : r->merged ? "Merged into existing entry " + r->id + " (now " + std::to_string(r->occurrences) +
+                                               " occurrences). Thank you."
+                                         : "Recorded as " + r->id + ". Thank you.";
             return out;
         });
     }
@@ -627,12 +833,16 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
         info.category = "feedback";
         info.readOnly = true;
         info.summary = "List the engine-feedback entries recorded for this project.";
-        info.description = "Check this before reporting to see what is already recorded. Filters are optional. "
-                           "Example: {\"status\":\"open\",\"category\":\"physics\"}";
+        info.description = "Check this before reporting to see what is already recorded. Filters are optional. The file only holds "
+                           "what is still open (plus entries closed since the last feedback.archive): entries that are fixed, "
+                           "rejected or duplicates live in the archive file next to it; pass includeArchive to list them too "
+                           "(each marked \"archived\": true). Example: {\"status\":\"open\",\"category\":\"physics\"}";
         info.inputSchema = Json::object({{"type", "object"},
             {"properties", Json::object({{"status", enum_schema(feedback_statuses(), "Only entries with this status.")},
                                          {"category", enum_schema(feedback_categories(), "Only this category.")},
-                                         {"severity", enum_schema(feedback_severities(), "Only this severity.")}})}});
+                                         {"severity", enum_schema(feedback_severities(), "Only this severity.")},
+                                         {"includeArchive", Json::object({{"type", "boolean"},
+                                              {"description", "Also list the archived (closed) entries, marked archived: true."}})}})}});
         registry.add(info, [projectDir](const Json& args) {
             std::string path = feedback_path_for(projectDir);
             if (!stdfs::exists(path))
@@ -641,7 +851,14 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             if (!doc.ok()) throw CommandError("failed", doc.error().message, doc.error().hint);
             FeedbackFilter f{arg_string(args, "status", false), arg_string(args, "category", false), arg_string(args, "severity", false)};
             Json entries = list_feedback(doc.value(), f);
-            return Json::object({{"count", entries.size()}, {"entries", entries}});
+            const Json archived = list_archived_feedback(path);
+            if (args.value("includeArchive", false)) {
+                for (auto e : list_archived_feedback(path, f)) {
+                    e["archived"] = true;
+                    entries.push_back(std::move(e));
+                }
+            }
+            return Json::object({{"count", entries.size()}, {"entries", entries}, {"archivedCount", archived.size()}});
         });
     }
     {
@@ -651,7 +868,8 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
         info.readOnly = false;
         info.summary = "Change the status of a feedback entry or link it to an engine issue.";
         info.description = "Engine developers use this when a gap is fixed (status fixed-in-engine), rejected (wont-fix) or "
-                           "duplicated. Example: {\"id\":\"FB-0001\",\"status\":\"fixed-in-engine\",\"engineIssue\":\"#42\"}";
+                           "duplicated; the entry moves to the archive on the next feedback.archive (the editor runs it when it opens "
+                           "the project). An archived entry is found too, and set to open it moves back to the file. Example: {\"id\":\"FB-0001\",\"status\":\"fixed-in-engine\",\"engineIssue\":\"#42\"}";
         info.inputSchema = Json::object({{"type", "object"},
             {"properties", Json::object({{"id", Json::object({{"type", "string"}, {"description", "Entry id, e.g. FB-0001."}})},
                                          {"status", enum_schema(feedback_statuses(), "New status.")},
@@ -659,15 +877,36 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             {"required", Json::array({"id"})}});
         registry.add(info, [projectDir](const Json& args) {
             std::string path = feedback_path_for(projectDir);
-            auto doc = load_feedback(path);
-            if (!doc.ok()) throw CommandError("not_found", doc.error().message, doc.error().hint);
             std::string status = arg_string(args, "status", false), issue = arg_string(args, "engineIssue", false);
             if (status.empty() && issue.empty())
                 throw CommandError("invalid_argument", "Nothing to update.", "Pass status and/or engineIssue.");
-            auto r = update_feedback_entry(doc.value(), arg_string(args, "id", true), status, issue);
+            auto r = update_feedback_file(path, arg_string(args, "id", true), status, issue);
             if (!r.ok()) throw CommandError("not_found", r.error().message, r.error().hint);
-            if (auto s = save_feedback(path, doc.value()); !s.ok()) throw CommandError("failed", s.error().message);
             return r.value();
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "feedback.archive";
+        info.category = "feedback";
+        info.readOnly = false;
+        info.summary = "Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file.";
+        info.description =
+            "ENGINE_FEEDBACK.json should only hold what is still open: this moves every entry whose status is not open to "
+            "ENGINE_FEEDBACK.archive.json next to it (same format). Ids stay unique across both files and keep counting up; "
+            "a new report that matches an archived fixed-in-engine entry reopens it (feedback.report says reopened). "
+            "The editor runs this when it opens the project. Safe to repeat: with nothing closed it changes nothing. "
+            "feedback.list with includeArchive and `factoria feedback collect` still see the archived entries.";
+        info.inputSchema = Json::object({{"type", "object"}, {"properties", Json::object()}});
+        registry.add(info, [projectDir](const Json&) {
+            std::string path = feedback_path_for(projectDir);
+            if (!stdfs::exists(path))
+                return Json::object({{"moved", 0}, {"ids", Json::array()}, {"note", "No ENGINE_FEEDBACK.json yet."}});
+            auto r = archive_closed_feedback_file(path);
+            if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
+            return Json::object({{"moved", r->moved}, {"ids", r->ids}, {"open", r->open}, {"archived", r->archived},
+                                 {"file", stdfs::path(path).filename().string()},
+                                 {"archiveFile", stdfs::path(feedback_archive_path(path)).filename().string()}});
         });
     }
 }

@@ -26,12 +26,9 @@ export default class MainMenu extends Behaviour {
     ui.on("cancel", () => this.menus.back());
   }
 
-  /** Quit. With the player's consent the analytics "quit" event is sent first (P5; the engine has no event for closing the window). */
+  /** Quit. With the player's consent the "quit" event is queued; the engine sends what waits (at most 3 seconds) before it closes. */
   quit() {
-    if (!analytics.enabled()) return game.quit();
-    let done = false;
-    const go = () => !done && ((done = true), game.quit());
-    analytics.quit().then(go, go);
-    this.after(1.5, go); // a server that does not answer must not keep the player from quitting
+    analytics.recordQuit();
+    game.quit();
   }
 }

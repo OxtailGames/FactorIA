@@ -37,7 +37,7 @@ Repeat it for every change. Make small steps: change one thing, validate, run, l
 1. **Read.** `factoria docs read scripting` for the script API, `factoria api --md` for components, `factoria docs search "..."` for the rest. Over MCP: `docs_list`, `docs_read {"name":"scripting"}`, `docs_components`, `docs_search {"query":"..."}`.
 2. **Edit** scenes, prefabs, `scripts/`, `tools/`, `tests/`, `data/` or `factoria.json`.
 3. **Validate.** `factoria validate` (MCP: `project_validate`). Fix every error using its file, JSON pointer and hint. Run `factoria validate --fix-types` when the typings are out of date (it rewrites `types/factoria.d.ts`). It must be clean before you go on.
-4. **Run and LOOK.** `factoria run --headless --frames 120 --screenshot-at 119 --json` (MCP: `game_step {"frames":120}`, then `game_screenshot`). The report lists the PNG paths. Open the image and check that it shows what you intended. `scriptErrors` in the report and `game_logs` show script problems. A clean validation does not prove that the scene is right.
+4. **Run and LOOK.** `factoria run --headless --frames 120 --screenshot-at 119 --json` (MCP: `game_step {"frames":120}`, then `game_screenshot`). The report lists the PNG paths. Open the image and check that it shows what you intended. `scriptErrors` in the report and `game_logs` show script problems. A clean validation does not prove that the scene is right. Fine detail (a seam, a join, the end of a gradient) needs a closer look: `game_screenshot {"region":[x,y,w,h],"zoom":8}`; an animation needs a filmstrip (`{"frames":24,"everyFrames":4}`); see the `game_screenshot` row in section 4.
 5. **Test.** Add or update a test in `tests/*.test.js` for every behaviour. Run `factoria test` (MCP: `project_test`). A bug fix starts with a test that fails.
 6. **Debug the live game** when a test is not enough: `factoria session` keeps one game running and answers one JSON request per line (section 11).
 7. **Report gaps** as soon as you meet them (section 3).
@@ -102,6 +102,8 @@ Bad example:
 
 It passes the schema and is still useless. The title names no gap, `missing` does not say what was needed, the workaround names no file, and there is no suggestion, so the engine team cannot act on it. Write each entry so that a developer who has never seen your project understands the gap.
 
+`ENGINE_FEEDBACK.json` holds the open entries. Closed ones (`fixed-in-engine`, `wont-fix`, `duplicate`) move to `ENGINE_FEEDBACK.archive.json` next to it when the editor opens the project or `factoria feedback archive` (command `feedback.archive`) runs. Do not edit the archive by hand. Reporting a gap that matches an archived `fixed-in-engine` entry reopens it with a note "reported again ...: regression?". `feedback.list` with `includeArchive` (CLI: `feedback list --archive`) shows the archived entries too.
+
 Without MCP and without the CLI, add an object to the `entries` array of `ENGINE_FEEDBACK.json` by hand. It must match `schemas/engine-feedback.schema.json`, which also requires `id` (`FB-0001`, the next free number), `date`, `occurrences` and `status`. The tools set those for you, so prefer them.
 
 ## 4. Using the MCP tools and the CLI
@@ -110,7 +112,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 
 | Tool | Command | Purpose |
 |---|---|---|
-| `docs_list`, `docs_read`, `docs_search`, `docs_components`, `docs_commands` | `docs.*` | Read the built-in docs, the component reference and the command list. |
+| `docs_list`, `docs_read`, `docs_search`, `docs_components`, `docs_commands` | `docs.*` | Read the built-in docs, the component reference and the command list. An MCP result is capped near 25 000 tokens, so these never return a whole big page by default: `docs_read {"name":"ai-guide"}` returns the first 40 000 bytes plus `contents` (every heading with its line number) and `next`, the call that continues; read one part with `{"name":"ai-guide","heading":"9.1 Platformer character"}` (case-insensitive, an exact title wins, a part of a title works if it is unique) or `startLine`/`maxLines`/`maxBytes`. `docs_components` and `docs_commands` list names with a one-line summary; `{"name":"Sprite"}` returns one in full, `{"filter":"physics"}` narrows the list, `{"full":true}` returns everything (over 200 KB). `docs_search` returns line numbers to use with `docs_read`. |
 | `project_validate` | `project.validate` | Check the whole project. Returns `ok`, `errors[]`, `warnings[]` and `notes[]` (informational, nothing to fix: for example that some scene files are formatted by hand, which is valid); each issue has `file`, `pointer`, `message` and `hint`. It loads every `*.scene.json` and `*.prefab.json` of the project wherever it is kept (not only `scenes/` and `prefabs/`; hidden folders, `node_modules` and a top-level `build/` are skipped), each prefab on its own too, so a value outside a field's range (`Shape2D.sides` 200 when the range is 3..64) is an error with the JSON pointer and the allowed range. Nothing is clamped: fix the value. |
 | `shader_compile`, `material_info` | `shader.compile`, `material.info` | Custom materials (`*.material.json`, schema `schemas/material.schema.json`): `material_info {"material":"materials/water.material.json"}` describes lighting, params (type, default, range, doc), textures and programs; `shader_compile` compiles its GLSL snippet for the dialects of some platforms (`{"material":...,"platforms":["windows","web"]}`, default all) and returns `errors[]` with `file`, `line`, `column`, `source` and a fix `hint`; call it until `ok`. `project_validate` does the same for every material. The guide for writing the snippet: `docs_read {"name":"shaders"}`. Needs sokol-shdc: the factoria downloads carry it next to `factoria`; otherwise `factoria setup shaders` or `SOKOL_SHDC`. |
 | `project_test` | `project.test` | Run `tests/*.test.js` headless, optionally `{"filter":"player","files":["tests/saves.test.js"]}` (files, folders or globs). Tests change the running world, so call `scene_reload` afterwards. |
@@ -127,30 +129,40 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `scene_set_parent` | `scene.set_parent` | Move an entity under another one, or to the top level: `{"id":"coin_3","parent":"chest"}`; `"parent":null` (or `""`) makes it a root. By default it stays where it is on screen (its local Transform is recomputed); `"keepWorldTransform":false` keeps the local Transform. A parent that is the entity or one of its children is refused. |
 | `scene_import_ascii` | `scene.import_ascii` | Build a tile level and its objects from ASCII `rows` and a `legend` (section 9.8): `{"rows":["..o..","#####"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},"tilemap":{...},"path":"scenes/level1.scene.json"}`. With `path` it edits that scene FILE and never touches the running game. |
 | `scene_ascii_edit` | `scene.ascii_edit` | Edit the ASCII map of a level args file with ops (`fill`, `replace`, `insertColumns`, `deleteColumns`, `put` with `row` or `above`) and rebuild the level (section 9.8): `{"file":"levels/1-1.json","ops":[{"op":"put","col":40,"glyph":"o","above":1}]}`. |
-| `scene_load`, `scene_save`, `scene_reload` | `scene.load`, `scene.save`, `scene.reload` | Load `{"path"}`, save the running world (optional `path`), or reload the current scene. |
+| `tilemap_set_tile`, `nav_find_tile_path` | `tilemap.set_tile`, `nav.find_tile_path` | Change one tile of the running level in place: `{"id":"map","col":12,"row":7,"tile":-1}` (-1 = empty; the running world only, `scene_save` keeps it). A* over a Tilemap's cells (solid tiles block) or your own cost grid: `{"tilemap":"ground","from":[0,0],"to":[5,3],"diagonals":true}` returns `cells` and world `points`; `closest` gives the nearest reachable cell (section 9.27). |
+| `scene_load`, `scene_save`, `scene_reload` | `scene.load`, `scene.save`, `scene.reload` | Load `{"path"}`, save the running world (optional `path`), or reload the current scene. `scene_save` does NOT write entities a script created at runtime (`world.spawn`, `world.spawnPrefab`) nor their children: the script builds them again when the scene loads, so saving them duplicates them. The result lists them under `skippedSpawned` with a hint; `{"includeSpawned":true}` bakes them in on purpose. Entities made with `scene_spawn` or the editor are always saved. |
 | `prefab_save` | `prefab.save` | Save an entity of the running world, with its children, as a prefab file: `{"id":"enemy_3","path":"prefabs/enemy.prefab.json"}`. It does not overwrite a file unless `"overwrite":true`. Section 6 says what the file leaves out. |
 | `scene_format` | `scene.format` | Put hand-edited scenes and prefabs in the canonical layout without loading them: `{"paths":["prefabs"]}` formats those files or folders, `{"all":true}` the whole project, `{"check":true}` only lists (with none of the three it writes nothing and fails, naming the files it would change) the files that are not canonical (`"strict":true` makes that an error). Section 6. |
 | `game_step` | `game.step` | Advance N fixed frames: `{"frames":60,"press":["move_right"]}`. `press` and `release` apply before the first frame and stay in effect until released. |
-| `game_input` | `game.input` | Press or release an action or key now, or move the mouse, a gamepad or a finger. Forms: `{"action":"jump","down":true}`, `{"key":"Space","down":false}`, `{"mouse":{"position":[640,360]}}`, `{"gamepad":{"index":0,"buttons":{"A":true},"axes":{"LeftX":-1}}}`, `{"touch":{"id":1,"position":[200,300],"down":true}}`, `{"back":true}` (the phone's Back button: the `input.onBack` handlers run on the next step, and the game quits if none consumes it). The next `game_step` sees the input. |
+| `game_input` | `game.input` | Press or release an action or key now, or move the mouse, a gamepad or a finger. Forms: `{"action":"jump","down":true}`, `{"key":"Space","down":false}`, `{"mouse":{"position":[640,360]}}`, `{"gamepad":{"index":0,"buttons":{"A":true},"axes":{"LeftX":-1}}}`, `{"touch":{"id":1,"position":[200,300],"down":true}}`, `{"back":true}` (the phone's Back button: the `input.onBack` handlers run on the next step, and the game quits if none consumes it). The next `game_step` sees the input; a button that goes up to down between two frames is a press (`input.mouse.pressed`, `input.keyPressed`, `pressed` of an action) for that frame, whichever command set it. It only sets state: the button stays held until you set it false, so to click use `game_click`. |
+| `game_click` | `game.click` | Click like a player: move the mouse, press, step a frame, release, step a frame. One target: `{"id":"play"}` (centre of a UI widget; it throws why when it cannot be clicked), `{"position":[640,360]}` (design pixels) or `{"world":[3,-2]}` (through the main camera, needs graphics). `button` (`left`, `right`, `middle`) and `hold` (frames down, default 1) are optional. Scripts see `input.mouse.pressed` in the first frame and `released` in the second, a Button sends its `click`. Returns the position, the topmost `widget` there and the frames run. |
 | `screen_set_safe_area` | `screen.set_safe_area` | Pretend the device has a notch or system bars: `{"profile":"phone-portrait"}` (also `phone-landscape`, `none`) or `{"top":40,"left":10}` in design pixels. Items with `safeArea: true` move and `screen.safeArea` in scripts reports it; then `game_step` and `game_screenshot`. |
-| `game_screenshot` | `game.screenshot` | Capture the game view as it is now (changes since the last step included) as an image. Optional `path`; by default it is saved under `.factoria/screenshots/`. Optional `scale` (0.25 to 4): the same frame drawn natively larger, for store screenshots (1280x720 at 1.5 = 1920x1080, HUD and visible area unchanged; `--width/--height` would change them). Optional `simulate` (`greyscale`, `protanopia`, `deuteranopia`, `tritanopia`): the saved image shows what a colour-blind viewer sees, to check that hazards and pickups read without their colour (section 9.20.1). Needs graphics. |
+| `game_screenshot` | `game.screenshot` | Capture the game view as it is now (changes since the last step included) as an image. Without `path` the picture is temporary: the MCP server or the editor attaches it to the reply and deletes the file (the engine also removes `frame_*.png` older than 3 days, or beyond the newest 200, from `.factoria/screenshots/` when a project opens); give a `path` to keep it. Optional `scale` (0.25 to 4): the same frame drawn natively larger, for store screenshots (1280x720 at 1.5 = 1920x1080, HUD and visible area unchanged; `--width/--height` would change them). Optional `simulate` (`greyscale`, `protanopia`, `deuteranopia`, `tritanopia`): the saved image shows what a colour-blind viewer sees, to check that hazards and pickups read without their colour (section 9.20.1). **Look closely:** `region` `[x,y,w,h]` (design pixels) with `zoom` returns only that part, `w*zoom` by `h*zoom`; up to 4x the engine draws the frame again at that size, so edges stay sharp, above 4x the pixels are enlarged as blocks. Use it for seams, joins, outlines and the ends of a gradient: `{"region":[100,60,48,27],"zoom":8}`. **Animations:** `frames` + `everyFrames` (+ `columns`, `region`, `zoom`) steps the game and returns ONE contact sheet with a label per tile (`f<frame> +<frames since the start>`): `{"frames":24,"everyFrames":4,"columns":4}`. The game really advances. Needs graphics. |
+| `render_inspect` | `render.inspect` | Brightness along a line of the drawn picture, to measure what the eye cannot: `{"from":[100,90],"to":[220,90],"threshold":20}` returns `samples` (0..255, one per pixel) and `steps` (`at` in design pixels, `delta`, `width`): every place where it jumps by more than `threshold`. Finds a hard edge where a soft one was meant (or no gap between two boards). Read only, needs graphics. |
+| `render_pick` | `render.pick` | Which entities draw the pixel at `position` (design pixels), topmost first: `entity`, `component`, `layer`, `space`; plus the UI `widget` there. Answers "what is that stray block?" and "why is my sprite hidden?". Boxes only: transparent pixels inside a sprite still count. Read only. |
 | `game_state` | `game.state` | Dump the running game: entities, physics, script errors, render stats. Filters: `entities` (ids), `components` (names), `includeDefaults`, `maxEntities` (default 200). |
-| `game_logs` | `game.logs` | Recent log lines: `{"minLevel":"warn","max":50}`. Pass `after` (a `seq` from an earlier call) to get only new lines. |
+| `game_logs` | `game.logs` | Recent log lines: `{"minLevel":"warn","max":50}`. Pass `after` (a `seq` from an earlier call) to get only new lines. Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). |
 | `game_pause`, `game_resume` | `game.pause`, `game.resume` | Pause or resume the simulation. |
 | `play_sessions`, `play_report` | `play.sessions`, `play.report` | What the user saw while playing in the editor (Play .. Stop): `play_report {}` returns the latest session with frame-time stats (avg, p95, max), the slowest frames, a `profile` (where the time went: ms per engine system and per script behaviour class, GPU, memory; `perf_profile` gives the same for a headless run), warnings/errors, the problems the user marked with F9 (frame, note, screenshot; the first one comes back as a picture, `{"mark":2}` for the next) and the path of `input.json`, an input replay for `factoria run --headless --input`. **When the user says they played and found problems (slow, ugly UI, bugs), call `play_report` first**, then replay or inspect the marked frames. `play_sessions` lists older ones. |
 | `audio_log` | `audio.log` | Sounds played so far (scripts, `AudioSource`, music), oldest first: `{"path":"jump.wav"}` keeps one clip (a file name matches any folder). Each play has `frame`, `path`, `volume`, `bus`, `source` (entity id) and `ok` (false = the clip failed to load). Pass `after` (a `seq`) for only new plays. |
+| `audio_bus`, `audio_snapshot` | `audio.bus`, `audio.snapshot` | The mixer. `audio_bus {"bus":"music","lowpass":800,"fade":0.5}` sets only the keys you pass (`volume`, `lowpass` in Hz with 0 or null = off, `reverb` 0..1, `duck` `{by, amount, attack, release}` or null) and returns the bus state; with just `bus` it reads it. `audio_snapshot {"name":"underwater"}` applies a snapshot of factoria.json `audio.snapshots`; without `name` it lists them. Section 9.7. |
 | `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
 | `script_errors` | `script.errors` | Exceptions thrown by scripts. Cleared by `scene_load`/`scene_reload`. |
-| `script_reload` | `script.reload` | Re-import scripts edited on disk without reloading the scene (`scene_load`/`scene_reload` already do it, and re-read the input actions of `factoria.json`). `{"force":true}` re-imports every module. |
+| `script_reload` | `script.reload` | Re-import scripts edited on disk without reloading the scene (`scene_load`/`scene_reload` already do it, and re-read the input actions of `factoria.json`). `{"force":true}` re-imports every module. `script_eval {module, call}` also re-imports the modules whose file changed before it runs. |
 | `physics_raycast` | `physics.raycast` | First hit of a ray: `{"from":[0,300],"to":[0,-300]}` in 2D. In 3D pass `"dimension":"3d"`, `origin`, `direction`, `maxDistance`. Takes the options of the script API and of `physics_shape_cast`: `mask`, `ignore` (id of an entity whose colliders, and its children's, are skipped: the caster) and `ignoreTriggers` (default `true`; `false` hits trigger colliders too): `{"from":[0,300],"to":[0,-300],"ignore":"player","ignoreTriggers":false}`. |
 | `physics_shape_cast` | `physics.shape_cast` | First collider a shape with size touches while its centre moves from `from` to `to`: `{"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}`. 2 numbers in `from`/`to` = 2D (`circle` with `radius`, `box` with `size:[w,h]`), 3 numbers = 3D (`sphere`, `box` with `size:[x,y,z]`). Also takes `mask` and `ignoreTriggers`. Returns `{"hit":false}` or `{hit, entity, point, normal, distance}` (section 9.21). |
 | `assets_generate_image`, `assets_generate_sprite_sheet`, `assets_generate_sound`, `assets_generate_music`, `assets_generate_voice`, `assets_generate_model` | `assets.generate_*` | Generate art, sounds, music, speech and 3D models with the asset providers of `ai.json`, write them under `assets/` and record their provenance. `assets_generate_image` returns the picture. Section 9.23. |
 | `assets_provenance`, `assets_set_provenance`, `assets_disclosure` | `assets.provenance`, `assets.set_provenance`, `assets.disclosure` | Where each asset came from (and the files with no record), recording it for files you did not generate, and the AI-content text for store forms. Section 9.23. |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
+| `storage_list`, `storage_clear` | `storage.list`, `storage.clear` | The game's save storage (`storage.set`): list the keys held in memory and in the save folder (`.factoria/save/storage/`), or delete one key (`{"key":"run.current"}`) or all (`{"all":true}`). Use it to start from a first run (a stale save makes a menu show "Continue") instead of a shell `rm`. `project_test` never reads or writes that folder: every test file has its own empty in-memory storage. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
 | `assets_import`, `assets_slice_sheet` | `assets.import`, `assets.slice_sheet` | Bring a file made elsewhere into `assets/` with its provenance, and make a sprite sheet playable by `SpriteAnimator` (section 9.23). |
+| `assets_generate_texture`, `assets_rasterize_svg` | `assets.generate_texture`, `assets.rasterize_svg` | Art with no image provider: a seeded material (paper, parchment, wood, planks, leather, fabric, stone, noises, gradients, vignette; tileable, with a normal map) and an SVG you write turned into a PNG. Section 9.23, "Art without an image provider". |
+| `assets_animate_svg` | `assets.animate_svg` | An animation you write as code (a JS module that returns the SVG of each frame, or one SVG with SMIL) baked into a sprite sheet PNG and its `sheet` entry, offline. Section 9.23, "Animations drawn with code". |
+| `assets_bake_sheet` | `assets.bake_sheet` | Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D with gradients, tweens, particles and scripted clips play and are captured frame by frame. Section 9.23, "Effects drawn by the engine, baked". |
 | `assets_draw_icon`, `assets_draw_capsules` | `assets.draw_icon`, `assets.draw_capsules` | Draw the game icon (1024x1024) and the Android adaptive-icon foreground from shapes and text, and the store page images (capsules, heroes, covers) at each store's sizes from key art and a logo, no image provider needed (docs: assets, exporting). |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
+| `engine_update_status` | `engine.update_status` | Whether FactorIA was replaced on disk after this server started (`restartDue`), the running and on-disk builds and the state of the project's `.mcp.json`. |
 | `project_<name>` | `project.<name>` | Your own tool from `tools/<name>.js`. |
 
 Examples:
@@ -175,6 +187,8 @@ The argument names above are the ones the engine accepts. `fs_edit` requires the
 
 Without MCP, the same commands run from a shell: `factoria commands` lists them, `factoria call <command> '<json>'` runs one on a fresh engine, and `factoria call --batch` or `factoria session` run several on one engine (section 11).
 
+A tool result can end with a block that starts with `[FactorIA notice]`: the server restarted itself after a FactorIA update (the headless game restarts from the start scene), or it runs the old code and the user must reconnect (`/mcp`), or the project's `.mcp.json` changed after your client started. Read it, tell the user what it asks of them, and redo whatever it says was lost; `engine_update_status` repeats it ("MCP", docs `mcp`, "After an update").
+
 The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature` (`feature`), `fix-bug` (`description`) and `report-engine-gap`.
 
 ## 5. Coordinates, units and conventions
@@ -182,14 +196,14 @@ The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature`
 | Topic | Rule |
 |---|---|
 | 2D world | Units are design pixels. +X is right and +Y is up. The origin is the centre of the screen. With the 1280x720 design size of the templates, a default camera shows x from -640 to 640 and y from -360 to 360. |
-| Screen space | `"space": "screen"` on Sprite, Shape2D, Text or ParticleEmitter. Units are design pixels, the origin is the top-left corner and +Y points down. Cameras do not affect it. Use it for HUD and menus. Section 9.4 shows how to pin items to the corners. |
+| Screen space | `"space": "screen"` on Sprite, Shape2D, Text or ParticleEmitter. Units are design pixels, the origin is the top-left corner and +Y points down. Cameras do not affect it, and with several cameras (split screen) it is drawn once over the whole screen, not once per camera. Use it for HUD and menus. Section 9.4 shows how to pin items to the corners. |
 | `anchor` and `pivot` | Screen space only: `anchor` (0..1 in each axis) is the screen point the position is relative to: [0,0] top-left, [1,0] top-right, [0,1] bottom-left, [1,1] bottom-right. `pivot` is the point of the item that sits at that point: [0,0] bottom-left, [0,1] top-left, [1,1] top-right, [0.5,0.5] centre. Sprite and Shape2D default to [0.5,0.5]; Text defaults to [0,1]. |
 | 3D | Units are meters. Right-handed, +Y up. A perspective camera looks down its local -Z axis. |
 | Angles | Degrees. In 2D only `rotation[2]` is used, counter-clockwise. In 3D, `rotation` is `[pitch X, yaw Y, roll Z]` and the matrix is `Ry(yaw) · Rx(pitch) · Rz(roll)`. |
 | Colors | `[r, g, b, a]` with values 0..1, `"#rgb"`, `"#rrggbb"` or `"#rrggbbaa"`, or a name: white, black, red, green, blue, yellow, cyan, magenta, gray, grey, orange, purple, pink, brown, transparent. If any value in an array is above 1, the engine reads the array as 0..255 bytes, so keep to 0..1. |
 | Rects | `{x, y, w, h}` or `[x, y, w, h]` (`physics.overlapBox`, `debug.rect`, `entity.bounds()`): `(x, y)` is the minimum corner, the BOTTOM-LEFT in the +Y-up world, and `w`, `h` the size. |
 | Vectors | In scripts, a vector argument accepts `Vec2`/`Vec3` values, `{x, y}` or `[x, y]`. In JSON, use arrays (`[x, y]` or `[x, y, z]`); `{x, y}` objects also work in component fields. |
-| Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"`, `"Touch"` (any finger down) or gamepad names, which match ANY connected pad: buttons `"GamepadA"`, `"GamepadB"`, `"GamepadX"`, `"GamepadY"`, `"GamepadStart"`, `"GamepadBack"`, `"GamepadGuide"`, `"GamepadDpadLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftShoulder"`, `"GamepadRightShoulder"`, `"GamepadLeftThumb"`, `"GamepadRightThumb"` and the analog half axes `"GamepadLeftStickLeft"`/`Right`/`Up`/`Down`, `"GamepadRightStickLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftTrigger"`, `"GamepadRightTrigger"`. Sticks and triggers are analog: `input.axis("move_left", "move_right")` gives -1..1 and `input.vector(...)` a short vector for a half-tilted stick, `input.value(action)` gives 0..1, and an action counts as down from 0.5. A radial deadzone (default 0.2, `"input": {"deadzone": 0.2}` in `factoria.json`) hides stick drift. For local multiplayer, `input.gamepad(1).down("A")` reads one pad. Tests drive pads with `game.gamepad(0).press("A")` and `.axis("LeftX", -1)`. On phones, the `TouchStick` and `TouchButton` widgets (UI table below) press these same gamepad bindings, so a pad game plays by touch unchanged. Unknown binding names are errors with a "did you mean". Real pads are read in windowed runs: Windows (XInput), Linux (joystick API), macOS/iOS (GameController) and Android; the web build has none yet. Face buttons are positional (`GamepadA` is the bottom button whatever the pad prints on it). On Linux a pad is translated through a mapping line found by its USB/Bluetooth ids: the engine embeds the Linux lines of the community SDL GameControllerDB (about 740 entries, including generic "USB Gamepad" devices, DualShock 4, DualSense, Switch Pro), and a pad listed nowhere gets the Xbox (xpad) layout. For a pad whose buttons come out wrong, add its line (copy it from SDL's GameControllerDB or SDL tools; the engine logs the pad's GUID) to a `gamecontrollerdb.txt` next to `factoria.json` (one line per pad, `#` comments), or have the player set the standard `SDL_GAMECONTROLLERCONFIG` environment variable; priority is that variable, then the file, then the built-in lines. Android drops a pad's slot when the pad is unplugged and tells Z/RZ sticks from Z/RZ triggers by the axes the device reports. No real pad has been tried on Linux or Android yet. |
+| Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"`, `"Touch"` (any finger down), a chord with modifiers (`"Ctrl+Z"`, `"Shift+MouseLeft"`; `Ctrl`, `Shift`, `Alt`, `Super` name either side; a plain `Z` bound by another action does not fire while Ctrl+Z is held) or gamepad names, which match ANY connected pad: buttons `"GamepadA"`, `"GamepadB"`, `"GamepadX"`, `"GamepadY"`, `"GamepadStart"`, `"GamepadBack"`, `"GamepadGuide"`, `"GamepadDpadLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftShoulder"`, `"GamepadRightShoulder"`, `"GamepadLeftThumb"`, `"GamepadRightThumb"` and the analog half axes `"GamepadLeftStickLeft"`/`Right`/`Up`/`Down`, `"GamepadRightStickLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftTrigger"`, `"GamepadRightTrigger"`. Sticks and triggers are analog: `input.axis("move_left", "move_right")` gives -1..1 and `input.vector(...)` a short vector for a half-tilted stick, `input.value(action)` gives 0..1, and an action counts as down from 0.5. A radial deadzone (default 0.2, `"input": {"deadzone": 0.2}` in `factoria.json`) hides stick drift. For local multiplayer give each person `input.player(i)`: the same actions read from that person's own pad or key block, with bindings of their own (section 9.28); `input.gamepad(1).down("A")` reads the raw buttons of one pad. Tests drive pads with `game.gamepad(0).press("A")` and `.axis("LeftX", -1)`. On phones, the `TouchStick` and `TouchButton` widgets (UI table below) press these same gamepad bindings, so a pad game plays by touch unchanged. Unknown binding names are errors with a "did you mean". Real pads are read in windowed runs: Windows (XInput), Linux (joystick API), macOS/iOS (GameController) and Android and the web (the browser's Gamepad API). Face buttons are positional (`GamepadA` is the bottom button whatever the pad prints on it). On Linux a pad is translated through a mapping line found by its USB/Bluetooth ids: the engine embeds the Linux lines of the community SDL GameControllerDB (about 740 entries, including generic "USB Gamepad" devices, DualShock 4, DualSense, Switch Pro), and a pad listed nowhere gets the Xbox (xpad) layout. For a pad whose buttons come out wrong, add its line (copy it from SDL's GameControllerDB or SDL tools; the engine logs the pad's GUID) to a `gamecontrollerdb.txt` next to `factoria.json` (one line per pad, `#` comments), or have the player set the standard `SDL_GAMECONTROLLERCONFIG` environment variable; priority is that variable, then the file, then the built-in lines. Android drops a pad's slot when the pad is unplugged and tells Z/RZ sticks from Z/RZ triggers by the axes the device reports. No real pad has been tried on Linux or Android yet. `game.on("gamepadConnected" | "gamepadDisconnected", (pad) => ...)` gives `{ slot, id, name, type }`; `id` is the same for the same physical pad every time, and a pad that returns gets its old slot when that is free (`input.gamepad(i).id` and `.name` read them; pads plugged in before the first scene are not announced). Tests: `game.gamepad(1).connect({ id, name, type })`. |
 | Ids | Give every gameplay entity a stable `id` (`"player"`, `"coin_3"`). Entity references use ids. |
 | Paths | Project-relative with forward slashes (`assets/hero.png`). The file tools (`fs_*`) reject absolute paths and any `..` segment. To create a sprite or other binary file from text tools, call `fs_write` with `"encoding": "base64"` and the base64 of the PNG bytes as `content` (generate the PNG in a JS tool or script, or encode it yourself); the default `"utf8"` is text only. |
 | Determinism | Random numbers come from `rng` (imported from "factoria"); a generator that must repeat from a seed uses its own `rng.create(seed)` (section 9.16). Time comes from the `dt` argument or `time.dt`. Never use `Math.random`, `Date.now` or wall-clock time. |
@@ -296,23 +310,24 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`) | The view. Without a primary camera the screenshot is black. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). |
-| `Sprite` | `texture` (asset path; empty = solid `color`), `size` (0 = image size), `pivot` (default [0.5, 0.5]), `color`, `flipX`, `flipY`, `layer`, `space`, `anchor`, `blend`, `region`, `pixelArt` | An image or a coloured quad. |
-| `SpriteAnimator` | `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet. |
+| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `viewport` ([x, y, w, h] of the game target, 0..1, top-left origin, default [0, 0, 1, 1]), `viewportSpace` (`screen` or `design`), `lighting` (`scene` or `studio`), `studioIntensity`, `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true), `colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`, `deuteranopia`, `tritanopia`), `renderTarget` (a name: the camera draws into the texture `"target:<name>"` instead of the screen), `renderTargetSize` ([w, h], 1..4096) | The view. Without a primary camera the screenshot is black. Every active camera with `primary: true` draws into its `viewport` in ascending `depth`: two or more make a split screen or an inset (section 9.29), and the lowest `depth` is the camera of the post effects, `camera.main` and the default of the screen conversions. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). `colorFilter` is the players' accessibility filter (section 9.20.1). `lighting: "studio"` ignores the scene's lights and ambient and lights with a key, fill and rim of its own; with `primary: false` and a `CameraView` widget it is the 3D picture of an item inside a menu ([MENUS.md](MENUS.md) "A camera inside the UI"). With `renderTarget: "book"` it draws live into a texture that `MeshRenderer.texture`, `Sprite.texture`, `Panel.texture` or `Button.icon` show as `"target:book"` (a screen on a model, a mirror, a page whose buttons work through the model; section 9.30). |
+| `Sprite` | `texture` (asset path; empty = solid `color`), `size` (0 = image size), `pivot` (default [0.5, 0.5]), `color`, `flipX`, `flipY`, `layer`, `space`, `anchor`, `blend`, `region`, `pixelArt`, `skew`, `meshColumns` / `meshRows` / `vertexOffsets` / `vertexColors` | An image or a coloured quad. `skew` slants it, `meshColumns` x `meshRows` + `vertexOffsets` bend it (see "Tint, gradient stops, skew and bent sprites"). |
+| `SpriteAnimator` | `clip` (a clip name of the sheet), `mode` (forward, reverse, pingpong), `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet; play a clip by name (`entity.spriteAnimator.play("run")`, event `clipEnded`). |
+| `Tint` | `color` (RGBA, multiplied into the entity and all its descendants) | Fade or colour a group at once: a day/night wash, a hit flash, a menu fading in. |
 | `Video` | `path`, `autoplay`, `loop`, `volume`, `bus`, `fit`, `tint` + the UiBox fields; runtime `playing`, `time`, `duration`, `ended` | An `.mpg` (MPEG-1 + MP2) drawn in a UI rectangle with its sound; time follows the game clock. Script: `entity.video.play()`, `.seek(s)`, `.on("ended", fn)`. Bring any video with `assets.import` (needs ffmpeg). [ASSETS.md](ASSETS.md) "Video", [MENUS.md](MENUS.md) studio intro. |
-| `Shape2D` | `shape` (rectangle, circle, line, triangle, diamond, polygon, star), `size`, `color`, `filled`, `thickness`, `layer`, `space`, `anchor`, `pivot` (default [0.5, 0.5]), `blend`, `sides`, `points`, `innerRadius`, `lit` | Placeholder art and UI panels. No assets needed. For a circle, `size[0]` is the diameter. A `triangle` points up (apex at the top-middle of its `size` box); a `diamond` is a rhombus whose 4 points touch the middles of the box edges (gems, enemies, markers); a `polygon` is a regular polygon with `sides` sides (default 6) and a `star` has `points` tips (default 5) with notches at `innerRadius` (0..1, default 0.5) of the outer radius, both inscribed in the `size` box with the first vertex up. Outlines (`filled: false`) of triangle, diamond, polygon and star grow inward, like the rectangle's. `pivot` is the point of the `size` box that sits on the position and that the entity rotates around: to spin a triangle without it wobbling use `pivot: [0.5, 0.3333]` (its centroid). Circles and diamonds already spin in place at the default pivot. |
+| `Shape2D` | `shape` (rectangle, circle, line, triangle, diamond, polygon, star), `size`, `color`, `filled`, `thickness`, `layer`, `space`, `anchor`, `pivot` (default [0.5, 0.5]), `blend`, `sides`, `points`, `innerRadius`, `lit`, `cornerRadius`, `softness`, `gradient` (none, linear, radial), `color2`, `gradientAngle`, `gradientStops`, `gradientEase` | Placeholder art and UI panels. No assets needed. For a circle, `size[0]` is the diameter. A `triangle` points up (apex at the top-middle of its `size` box); a `diamond` is a rhombus whose 4 points touch the middles of the box edges (gems, enemies, markers); a `polygon` is a regular polygon with `sides` sides (default 6) and a `star` has `points` tips (default 5) with notches at `innerRadius` (0..1, default 0.5) of the outer radius, both inscribed in the `size` box with the first vertex up. Outlines (`filled: false`) of triangle, diamond, polygon and star grow inward, like the rectangle's. `pivot` is the point of the `size` box that sits on the position and that the entity rotates around: to spin a triangle without it wobbling use `pivot: [0.5, 0.3333]` (its centroid). Circles and diamonds already spin in place at the default pivot. |
 | `Text` | `text` (`\n` breaks lines), `fontSize` (default 24), `color`, `align`, `pivot` (default [0, 1]), `maxWidth`, `layer` (default 100), `space`, `anchor`, `font` | Labels, scores and the HUD (`space: "screen"`). Shaped text: Arabic and Hebrew read right to left, `maxWidth` also wraps Chinese, Japanese and Korean without spaces. DejaVu Sans is the default font and has no CJK: ship a Noto font (`docs_read {"name":"text"}`). |
-| `Tilemap` | `tileset`, `tileSize`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty; flat list with `width`/`height`, or an array of rows), `solidTiles`, optional `columns` (0 = derived from the tileset image) | A level from a grid, written together with its coins and enemies by `scene.import_ascii` (section 9.8). Solid tiles get collision. |
+| `Tilemap` | `tileset`, `tileSize`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty; flat list with `width`/`height`, or an array of rows), `solidTiles`, optional `columns` (0 = derived from the tileset image), optional `margin` and `spacing` (pixels around and between the tiles of the tileset image, default 0), optional `projection` (`orthogonal`, or `isometric` for diamond tiles, section 9.8), `groundHeight` and `groundOffset` (isometric only) | A level from a grid, written together with its coins and enemies by `scene.import_ascii` (section 9.8). Solid tiles get collision. |
 | `ParticleEmitter` | `emitting`, `rate`, `burst`, `autoDestroy`, `maxParticles`, `lifetime`, `speed`, `direction` (0 = right, 90 = up), `spread`, `gravity`, `startSize`, `endSize`, `startColor`, `endColor`, `blend`, `texture`, `layer`, `space`, `anchor` | Sparks, dust and explosions (section 9.12). `"space": "screen"` (plus `anchor`) draws them in the HUD pass in design pixels (origin top-left); `direction` and `gravity` keep their meaning (90 = up, negative `gravity` y falls down the screen). Ignored for `is3D`. |
 
-`layer` is the draw order: higher layers draw on top. `space: "screen"` items ignore the camera.
+`layer` is the draw order: higher layers draw on top. Inside one layer, items sort by the entity's `position.y` (the LOWER y is drawn on top, which is what a top-down or isometric scene wants: what stands nearer the viewer is lower on the screen), and items with the same y by creation order (later on top). A `Tilemap` is one item of that order: all its tiles are drawn together, row by row (see section 9.8, isometric maps), so put it on a lower `layer` than the sprites that stand on it. `space: "screen"` items ignore the camera (all of them: they are drawn once over the whole screen, after every camera).
 
 **3D**
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `MeshRenderer` | `mesh` (cube, sphere, plane, cylinder, capsule, cone, quad, or a .glb/.gltf path), `color`, `texture`, `normalMap`, `normalScale`, `metallic`, `roughness`, `emissive`, `unlit`, `castShadows`, `receiveShadows`, `uvScale`, `materialColors` | Visible 3D objects with a PBR material. Primitives need no assets. Unless `unlit`, it needs a light to look right. glTF models bring their own material (section 9.9). |
-| `Animator` | `clip`, `speed`, `loop`, `playing`, `fade`, `events`, and a state machine: `params`, `states`, `transitions` | Plays the clips of a skinned glTF on the entity with the MeshRenderer, blends between them, sends clip events, switches state from parameters. Script: `entity.animator.play("Run", 0.2)`, `.set("speed", 3)`. Section 9.25, [ANIMATION.md](ANIMATION.md). |
+| `MeshRenderer` | `mesh` (cube, sphere, plane, cylinder, capsule, cone, quad, a .glb/.gltf path, or the id `mesh:N` of a procedural mesh from `mesh.create`), `color`, `texture`, `normalMap`, `normalScale`, `metallic`, `roughness`, `emissive`, `unlit`, `castShadows`, `receiveShadows`, `uvScale`, `materialColors` | Visible 3D objects with a PBR material. Primitives need no assets. Unless `unlit`, it needs a light to look right. glTF models bring their own material (section 9.9). |
+| `Animator` | `clip`, `speed`, `loop`, `playing`, `fade`, `events`, and a state machine: `params`, `states`, `transitions` | Plays the clips of a skinned glTF on the entity with the MeshRenderer, or (with `clips` and no `model`) the keyframed 2D clips `*.anim.json` that move the entity's child parts (`layers` with masks play more clips at once); blends between them, sends clip events, switches state from parameters. Script: `entity.animator.play("Run", 0.2)`, `.set("speed", 3)`. Section 9.25, [ANIMATION.md](ANIMATION.md). |
 | `Light` | `type` (directional, point, spot), `color`, `intensity`, `range`, `spotAngle`, `castShadows` (directional only) | Lighting and shadows. A directional light points along the entity's -Z axis after its rotation. Up to 32 lights are used per frame (section 9.9). |
 
 **Physics**
@@ -320,9 +335,9 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | Component | Key fields | Typical use |
 |---|---|---|
 | `RigidBody2D` | `type` (static, dynamic, kinematic), `velocity` [x,y], `angularVelocity` (degrees/s), `gravityScale`, `fixedRotation`, `bullet`, `linearDamping`, `angularDamping` | Moves an entity under 2D physics. A static body never moves. |
-| `Collider2D` | `shape` (box, circle, capsule), `size`, `radius`, `offset`, `isTrigger`, `oneWay`, `friction`, `restitution`, `density`, `layer` (0..31), `mask` (-1 = all layers) | Collision shape. With `isTrigger: true` it reports overlaps and does not block. With `oneWay: true` it is a one-way platform (section 9.5). |
+| `Collider2D` | `shape` (box, circle, capsule), `size`, `radius`, `offset`, `isTrigger`, `enabled`, `oneWay`, `friction`, `restitution`, `density`, `layer` (0..31), `mask` (-1 = all layers) | Collision shape. With `isTrigger: true` it reports overlaps and does not block. With `enabled: false` it is switched off (queries pass through, no contacts), writable at run time. With `oneWay: true` it is a one-way platform (section 9.5). |
 | `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `lockRotation`, `angularDamping`, `rollWithMotion`, `rollingFriction`, `gravityScale`, `linearDamping` | A simple 3D body. A dynamic **box** is a rigid body: collisions and friction turn it (it tips over a ledge, tumbles, settles on a face), so put `"lockRotation": true` on a character or a crate that must stay upright. A sphere is an arcade rolling ball by default (`rollWithMotion`, contacts never turn it); with `"rollWithMotion": false` it is a rigid body too and real friction rolls and spins it. Box colliders follow `Transform.rotation`. Fast bodies are swept against every solid collider, so they do not tunnel. |
-| `Collider3D` | `shape` (box, sphere, capsule, convex, mesh), `size`, `radius`, `height`, `mesh`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. `capsule` is `radius` + `height` (tip to tip) along the entity's local Y. `convex` is the hull of `mesh`'s vertices; `mesh` uses its triangles and is for STATIC level geometry only (section 9.18). `mesh` is a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a .gltf/.glb path, usually the same as `MeshRenderer.mesh`. |
+| `Collider3D` | `shape` (box, sphere, capsule, convex, mesh), `size`, `radius`, `height`, `mesh` (a model path or a procedural `mesh:N` id), `offset`, `isTrigger`, `enabled`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. `capsule` is `radius` + `height` (tip to tip) along the entity's local Y. `convex` is the hull of `mesh`'s vertices; `mesh` uses its triangles and is for STATIC level geometry only (section 9.18). `enabled: false` switches the collider off at run time (queries, contacts and the NavMesh bake ignore it; the component stays). `mesh` is a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a .gltf/.glb path, usually the same as `MeshRenderer.mesh`. |
 | `Joint3D` | `type` (hinge, ball, fixed), `connected` (entity id, empty = the world), `anchor`, `connectedAnchor`, `autoAnchor`, `axis`, `useLimits`, `lowerLimit`, `upperLimit` (degrees), `useMotor`, `motorSpeed` (degrees/s), `maxMotorTorque`, `collideConnected`, `damping`, `angle` and `stalled` (read-only) | Joins this entity's `RigidBody3D` to another body: doors, pendulums, wheels, ragdoll limbs, chains (section 9.18). Needs a `Collider3D` on the same entity. |
 | `CharacterController3D` | `radius`, `height`, `center`, `stepOffset`, `slopeLimit` (degrees), `skin`, `layer`, `mask`, `velocity`, `carriedByPlatforms`, `applyWeight`, `mass`, `pushStrength`, `isGrounded` and `groundNormal` (read-only) | A walking capsule moved by `physics.moveCharacter` (section 9.18): slides along walls, climbs steps, refuses steep slopes, sticks to the ground going down, pushes crates. No `RigidBody3D` or `Collider3D` on the same entity. |
 
@@ -344,7 +359,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | Component | Key fields | Typical use |
 |---|---|---|
 | `AudioSource` | `clip`, `volume` (0..1), `pitch`, `loop`, `playOnStart`, `spatial`, `range`, `playing` (runtime: set true to play) | A sound on an entity. Formats: .wav, .ogg, .mp3. |
-| `AudioListener` | `volume` | The "ears" for spatial sound. Without one, the primary camera listens. |
+| `AudioListener` | `volume`, `zoom` (scales how far spatial sounds are heard: 2 doubles the reach) | The "ears" for spatial sound. Without one, the first camera drawn listens (the primary camera with the lowest `depth`: player one's in a split screen). |
 | `Script` | `path` (module), `props` (values that override the class fields), `enabled` | Attaches a Behaviour to the entity. |
 
 ## 8. Scripts: behaviours and the JavaScript API
@@ -381,17 +396,17 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | Import | Members |
 |---|---|
 | `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, index, props})`, `spawnPrefab(path, {position, rotation, scale, parent, index, props, overrides, childOverrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
-| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `onBack(fn)` (the Back button: return `false` to pass it on; unconsumed it quits), `vibrate(seconds?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
+| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); `player(i)` (local multiplayer: `use({pad})` / `use({keys})`, then `down`, `pressed`, `value`, `axis`, `vector`, `rebind`, `export`, section 9.28); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `onBack(fn)` (the Back button: return `false` to pass it on; unconsumed it quits), `vibrate(seconds?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
 | `screen` | `safeArea` (a `Rect` in design pixels: what a phone's notch, rounded corners and system bars leave free; the whole screen on desktop and headless), `insets` (`{left, top, right, bottom}`), `size`. Put `safeArea: true` beside `anchor` on a Sprite, Shape2D, Text, ParticleEmitter or UI widget to anchor it to the safe area. Test with `game.setSafeArea("phone-portrait")` / `screen_set_safe_area` (`docs_read {"name":"mobile"}`) |
 | `window` | `available`, `fullscreen` / `setFullscreen(on)`, `size` / `setSize(w, h)`, `displaySize`, `resolutions()`, `vsync` / `setVsync(on)`, `frameCap` (0 or 15..1000). Getters work everywhere; setters need a real window (not headless, not tests) and throw a teaching error otherwise, so check `window.available`. Phones and tablets are always full screen. Save the choice with `storage` |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)`, `getVolume(bus)` |
 | `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity`, `moveCharacter(entity, delta)` |
-| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
+| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `camera.all`, `camera.at(point)`, `worldToScreen(v, camera?)`, `screenToWorld(v, depth?, camera?)`, `screenRay(point, camera?)` (with several cameras they default to the camera under the point, section 9.29); `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere`, `debug.bones(root?)` (the `Bone2D` skeleton, docs/ANIMATION.md "Bones and IK") |
 | `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.platform` (`"windows"`, `"android"`...), `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
 | `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
 | `platform` | Store and platform services, every call a Promise: `platform.has("purchases")`, `achievements.unlock(id)`, `stats.add(id, n)`, `leaderboards.submit(id, score)`, `cloud.save(key, value)`, `purchases.buy(id)` / `finish(transactionId)` / `restore()`, `on("purchase" \| "overlay" \| "player", fn)`; ids are declared in `factoria.json` `"platform"`. In tests the fake store answers and `game.platform` (from `factoria:test`) controls it. Details: `docs_read {"name":"platform"}` |
-| `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth, space})` returns `{width, height}`; `ui.layout()` runs the UI layout now (read `Button.size` / `ui.rectOf` right after changing a text); `ui.textScale` (0.5 to 3, not saved) is the player's text size option for screen-space Text and widget labels (`docs_read {"name":"text"}`); `ui.speak(text, {interrupt})` says a line with the system's text to speech in `i18n.language` (`ui.stopSpeaking()`, `ui.speechAvailable`; tests record the lines in `game.spoken()`; recipe and manual check in `docs_read {"name":"menus"}`) |
+| `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth, space, markup, bold})` returns `{width, height}`; `Text.markup` reads `[b]`, `[i]`, `[c:name]` and `[icon:name]`; `Text.font` takes `"builtin:serif"` (book serif with real bold and italic), `"builtin:hand"`, `"builtin:blackletter"`, `"builtin:display"` or `"builtin:pixel"` (`docs_read {"name":"text"}`, "Built-in fonts") (project `text` section, `ui.markupProblems(text)`; `docs_read {"name":"text"}`); `ui.layout()` runs the UI layout now (read `Button.size` / `ui.rectOf` right after changing a text); `ui.textScale` (0.5 to 3, not saved) is the player's text size option for screen-space Text and widget labels (`docs_read {"name":"text"}`); `ui.scale` (0.5 to 3, default from `factoria.json` `"ui": {"scale"}`, not saved) makes every screen-space widget and Text bigger or smaller, and `ui.on("scale" \| "textScale", fn)` runs when either changes; `tooltip` on a widget or Panel (a key, text or `{title, lines}`), `ui.setTooltip(entity, fn)`, `ui.showTooltip(content, {x, y})`, `ui.tooltip` and `"ui": {"tooltipDelay", "tooltip"}` in `factoria.json` make hover tooltips (`docs_read {"name":"menus"}`, "Tooltips"); `draggable` on a widget, `ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel", fn)`, `ui.setDropTarget(widget, rule)`, `ui.setDragImage(widget)`, `ui.dragging` and `game.drag(from, to)` make drag and drop (`docs_read {"name":"menus"}`, "Drag and drop"); a `Chart` component draws `values` as bars or lines (automatic axis including zero, labels in the language's number format) and `ui.on("chartHover", fn)` reports the sample under the pointer (`docs_read {"name":"menus"}`, "Charts"); `ui.speak(text, {interrupt})` says a line with the system's text to speech in `i18n.language` (`ui.stopSpeaking()`, `ui.speechAvailable`; tests record the lines in `game.spoken()`; recipe and manual check in `docs_read {"name":"menus"}`) |
 | `assets` | `assets.textureSize("assets/hero.png")` returns the texture file's pixel size `{width, height}` (32 x 32 for a missing file); works headless |
 | `vec2`, `vec3`, `color` | constructors, for example `vec2(10, 0)`, `vec3([0, 4, 9])` or `color("#ffcc00")` |
 | `ToolError` | `new ToolError(message, hint, data?)` for a failed check in a tool (section A of `docs_read {"name":"extending"}`) |
@@ -399,9 +414,9 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 
 Options worth knowing:
 
-- `world.spawn(json, {parent})` makes the new entity a child. `parent` is an Entity or an id string, and `position` is then local to the parent.
+- `world.spawn(json, {parent})` makes the new entity a child. `parent` is an Entity or an id string, and `position` is then local to the parent. An Entity field (`Interactable.knob` / `fill`, `Joint2D.connected`...) that names an id spawned LATER is left empty with a warning and filled when that entity appears; ids inside the same spawn (`children`) resolve at once.
 - `raycast` and `shapeCast` options: `mask` (layer bits), `ignore` (an Entity or id whose colliders are skipped, including its children), `ignoreTriggers` (default true). Colliders that already contain the ray origin (or overlap the cast shape at its start) are skipped too. The commands `physics.raycast` and `physics.shape_cast` take the same three options (`ignore` is an entity id or name there).
-- `input.touches` entries: `id` (the finger), `position` (Vec2, design pixels, top-left origin), `world` (Vec3 in the world through the main camera) and `pressed` (true only on the first frame of contact). The first finger also drives the mouse (`input.mouse.position`, left button down while it is down), on a phone and in tests (`game.touch`) alike: read the mouse OR the touches for a tap, or make the second reading harmless.
+- `input.touches` entries: `id` (the finger), `position` (Vec2, design pixels, top-left origin), `world` (Vec3 in the world through the camera under the finger: the main camera when there is only one) and `pressed` (true only on the first frame of contact). The first finger also drives the mouse (`input.mouse.position`, left button down while it is down), on a phone and in tests (`game.touch`) alike: read the mouse OR the touches for a tap, or make the second reading harmless.
 - `world.find` no longer returns destroyed entities, and their id can be reused right away.
 
 ## 9. Recipes
@@ -525,6 +540,8 @@ A screen-space panel uses the same fields. A Shape2D rectangle is centred on its
 }
 ```
 
+Children of a Panel are placed from the parent's `Transform.position`: a child's screen position is that position plus the child's own `position` and the point named by the child's own `anchor`. The parent's `anchor` and `pivot` only place the parent's rectangle; they do not move its children, so a Panel with `anchor: [0.5, 0.5]` and `Transform.position` `[0, 0]` has its children at the top-left corner of the screen unless a layout (`layout: "column"`...) or the children's own anchors place them. In a Shape2D with `space: "screen"`, a `line`'s `size.y` points UP (a line `[100, 40]` goes 100 px right and 40 px up) while Panels, Texts and Sprites grow downwards. A chart bar is a rectangle with `pivot: [0, 1]` that hangs from its position: `size: [w, h]` is w to the right and h down.
+
 Text that changes at runtime is written from a behaviour, for example `this.entity.get("Text").text = "Coins: " + n;`. Check the screenshot: a clipped label usually means the wrong pivot.
 
 ### 9.5 Collisions, triggers and one-way platforms
@@ -603,6 +620,25 @@ In the scene the camera entity has `"Script": { "path": "scripts/follow_camera.j
 
 A level that is not a Tilemap keeps its rectangle in a JSON file that the script imports (section 9.16): `import levels from "../data/levels.json"` with `{ "bounds": { "minX": -640, "minY": -360, "maxX": 1000, "maxY": 720 } }`, and the same clamp with those numbers.
 
+### 9.6.1 A strategy camera (drag, edges, wheel zoom to the cursor)
+
+A management, strategy or builder game needs a camera the player moves: drag to pan, the screen edges and WASD scroll, the wheel zooms towards the cursor, and the view never leaves the map. Two ways, both on an orthographic camera that is not rotated:
+
+1. The kit's behaviour. `project.add_menu_kit {"parts":["cameraRig"]}` copies `scripts/camera_rig.js` (and its test) and adds the input actions `camera_drag` (middle button), `camera_left/right/up/down` (WASD and arrows) and `camera_zoom_in/out` (PageUp/PageDown, =/-). Put the script on the camera entity: `"Script": { "path": "scripts/camera_rig.js", "props": { "boundsEntity": "map", "zoomMin": 0.4, "zoomMax": 2.5, "startZoom": 1, "margin": 100 } }`. `boundsEntity` is the id of the Tilemap or background Sprite whose `bounds()` limits the view (section 9.6; "" = no limit), `zoomMin` and `zoomMax` are pixels per world unit, `edgeSize` the width of the scrolling zone at the screen edge (0 = off), `panSpeed` pixels per second. It ignores a wheel turn and a new drag over a widget or Panel (`ui.pointerOverUi`) and the wheel a ScrollList scrolled (`ui.wheelConsumed`); a modal that the UI does not know about sets `rig.wheelBlocked = true`. A script can call `rig.setView(x, y, zoom)`, `rig.moveTo(x, y, zoom)` (eased; `rig.instantMoves = true` jumps, for a "reduced motion" option), `rig.setBounds({ x, y, w, h })`, `rig.screenToWorld(sx, sy)` and read `rig.view` (`{ x, y, zoom }`). Extend the class to change the controls (override `pointer()`, `updateDrag()`, `edgePanAllowed()` or `onInput()`; Tidewater Market's `scripts/game/map_camera.js` adds a gamepad cursor and click-to-latch drag that way).
+2. The helpers, for your own script. `camera.zoomAt(screenPoint, factor, { min, max })` multiplies the zoom (pixels per world unit) and moves the camera so the world point under `screenPoint` stays put; `camera.panBy(screenDelta)` moves the world with a drag; `camera.clampTo(rect, { margin })` keeps the view inside a rectangle (centred when the rectangle is smaller than the view); `camera.zoomOf()`, `camera.setZoom(zoom)` and `camera.orthoSizeFor(zoom, designHeight)` convert between the zoom and `Camera.orthoSize` (= design height / 2 / zoom), so you never do that division by hand.
+
+```js
+// wheel zoom to the cursor, middle-button drag, clamped to the map (a camera script)
+onUpdate() {
+  if (!ui.pointerOverUi && input.mouse.wheel !== 0) camera.zoomAt(input.mouse.position, 1.15 ** input.mouse.wheel, { min: 0.4, max: 2.5 });
+  if (input.mouse.down("middle")) camera.panBy(input.mouse.delta);
+  const map = world.find("map").bounds();
+  if (map) camera.clampTo(map);
+}
+```
+
+The helpers change the camera at once, but `camera.screenToWorld` answers for the last drawn frame: after a change in the same frame use the rig's `screenToWorld(sx, sy)`, or step a frame in a test.
+
 ### 9.7 Sounds and music
 
 ```js
@@ -618,6 +654,35 @@ export default class Jumper extends Behaviour {
 ```
 
 Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in the scene `settings`, or call `audio.music(path, {volume, fade})` from a script. Buses are `master`, `sfx`, `music` and `ui`.
+
+A scene load stops every sound and the music, and then starts the new scene's `settings.music` (the same track again when both scenes name it). Music that should play across scenes (a menu theme into the first level) is started by a script with `audio.music(path, { persist: true })`: it survives scene loads, and a scene whose `settings.music` is the same track does not restart it.
+
+Change a sound while it plays with `audio.setVoiceVolume(id, volume, fadeSeconds)` (`id` from `audio.play`; wind that swells, an engine hum). For music in layers (drums that come in when the fight starts) use `audio.musicLayers({ base: "assets/music/base.ogg", drums: "assets/music/drums.ogg" }, { levels: { drums: 0 } })` and then `audio.setLayer("drums", 1, 2)`: the layers start on the same sample and stay in step while they loop, as long as the clips have the same length.
+
+Make the mix follow the game with bus effects (SCRIPTING.md, "Audio buses"). Music that ducks under every sound effect, and a muffled underwater level:
+
+```js
+audio.bus("music").duck("sfx", 0.5);              // music at half volume while any sound effect plays
+audio.bus("music").lowpass(600).reverb(0.2);      // muffled music in a room
+audio.bus("music").lowpass(null, { fade: 1 });    // opens again over a second
+```
+
+For a state that changes several buses at once, name it in factoria.json and apply it by name (a bus the snapshot does not list goes back to neutral, so `"normal": {}` is the way back):
+
+```json
+"audio": { "snapshots": {
+  "underwater": { "fade": 0.8, "buses": { "sfx": { "lowpass": 600, "reverb": 0.3 }, "music": { "volume": 0.5, "lowpass": 400 } } },
+  "normal": {} } }
+```
+
+```js
+audio.snapshot("underwater");                     // or audio.snapshot("underwater", { fade: 2 })
+audio.snapshot("normal");                         // when the player surfaces
+```
+
+Group sounds on a bus of your own under a parent (`"audio": { "buses": { "ambience": { "parent": "sfx" } } }`), play on it with `audio.play(clip, { bus: "ambience" })` and set it with `audio.setVolume("ambience", 0.5)`; its parent scales it too (SCRIPTING.md, "Project buses"). `audio.play` takes `onEnded` and `audio.activeVoices()` lists what plays.
+
+Effects stay across scene loads, like volumes, so apply `normal` when you leave. `project_validate` checks the catalog (a misspelled bus or key gets a "did you mean"). To check it from outside, call `audio_bus {"bus":"music"}` or `audio_snapshot {}`; the mix is deterministic, so `factoria run --headless --record-audio out.wav` records what the effect does.
 
 Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.23).
 
@@ -659,7 +724,7 @@ factoria call scene.import_ascii @level1.json          # args in a file; or MCP 
 - `rows` is the map: one string per row, ONE CHARACTER PER TILE, all rows the same length, row 0 is the TOP row. `.` and a space are empty tiles unless the legend defines them.
 - `legend` maps each character to a tile index (an integer, `-1` = empty) or to an object `{"tile"?, "flipX"?, "flipY"?, "rotate"?, "prefab"?, "id"?, "overrides"?, "offset"?}`. A glyph with a `tile` draws that tile (`flipX`, `flipY` and `rotate` 0/90/180/270 clockwise turn it, section 9.26). A glyph with a `prefab` spawns that prefab at the CENTRE of its cell (a glyph may have both). `overrides` patches the prefab's components for that glyph (`{"Script": {"props": {"speed": 60}}}`), and `offset` `[dx, dy]` shifts the object from the cell centre in world units (a 96 px flag that must stand on the ground, for instance).
 - `legendFrom` (optional) is a project-relative JSON file with a legend shared by several maps, e.g. `"legendFrom": "levels/legend.json"` holding `{"#": 0, "o": {"prefab": "prefabs/coin.prefab.json"}}` (or `{"legend": {...}}`). It is merged UNDER the map's own `legend`: the map wins for a glyph both define, and `legend` may be left out. Entries that only the shared file defines are never reported as unused; the map's own unused entries still are.
-- `tilemap` holds the Tilemap fields for a new tilemap (`tileset`, `tileSize`, `columns`, `solidTiles`, `color`, `layer`). You do not need `columns`: left at 0 (the default) it is derived from the tileset image, as many whole tiles of `tileSize[0]` as fit across it. Pass it only for an image with another layout. If an earlier import set `columns` explicitly and you now change `tileset` or `tileSize` without `columns`, it goes back to 0 (the result says so in `notes`). The grid (`tiles`, `width`, `height`) always comes from `rows`.
+- `tilemap` holds the Tilemap fields for a new tilemap (`tileset`, `tileSize`, `projection`, `groundHeight`, `groundOffset`, `margin`, `spacing`, `columns`, `solidTiles`, `color`, `layer`). You do not need `columns`: left at 0 (the default) it is derived from the tileset image, as many whole tiles of `tileSize[0]` as fit across it. Pass it only for an image with another layout. If an earlier import set `columns` explicitly and you now change `tileset` or `tileSize` without `columns`, it goes back to 0 (the result says so in `notes`). The grid (`tiles`, `width`, `height`) always comes from `rows`.
 - `entity` (default `"tilemap"`) is the id of the Tilemap entity: created when missing, updated when it exists. Use another id for a second layer, such as a background.
 - `position` and `anchor` (`top-left`, `bottom-left` or `center`) place the map: `anchor` says which point of the map sits at `position`. With `bottom-left` at `[0, 0]` the level's floor starts at y = 0. Without them a new tilemap has its top-left corner at the origin, and an existing one stays where it is.
 - Objects are ordinary top-level entities, saved with the scene. Give unique objects an `id` in the legend (`"id": "player"`). Other objects get ids from the prefab file name in row-major order: `coin_1`, `coin_2`, `crawler_1`. Every object carries the tag `tilemap:<entity>` (for example `tilemap:tilemap`).
@@ -668,6 +733,8 @@ factoria call scene.import_ascii @level1.json          # args in a file; or MCP 
 - `save: true` (only without `path`) also writes the current scene file, so one call is enough. It is refused when the running scene is just the project's `mainScene` that was loaded because nobody chose a scene (see below).
 - The result lists the `spawned` objects (`id`, `prefab`, `cell: [col, row]`, `position`), the `removed` ids, the number of non-empty tiles (`tileCount`) and `warnings` (a legend glyph that is never used, no tileset, no `solidTiles`).
 - Errors name the row and column, the glyph and the legend, with a "did you mean": ragged rows, an unknown glyph, a legend value that is not an integer or an object, a missing prefab, a duplicate fixed `id`, a tile index outside the tileset. A failed import changes nothing.
+
+Change one tile of a running level with `entity.tilemap.setTile(col, row, id)` / `getTile(col, row)` in a script, or the command `tilemap.set_tile` (`{"id":"map","col":3,"row":5,"tile":-1}`); do not rewrite the whole `tiles` array for one tile. 2D physics rebuilds only the colliders that changed. A tileset image with a border or gutters needs `margin` and `spacing` on the `Tilemap`; `assets.slice_sheet` does not take them.
 
 Run `project_validate`, then take a screenshot to check the picture: the tiles, the coins and the player must line up.
 
@@ -694,6 +761,10 @@ factoria call scene.import_ascii @levels/level1.json       # level1.json carries
 The map's world rectangle is `world.find("map").bounds()` (`{ x, y, w, h }`, bottom-left corner and size): use it for camera limits, kill planes and spawn areas instead of repeating `columns * tileSize` in props (section 9.6).
 
 What the command writes is a plain `Tilemap` component. A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is an empty tile. The entity's position is the top-left corner of the map, with +Y up. Tile (col, row) covers x from `px + col*tw` to `px + (col+1)*tw` and y from `py - (row+1)*th` to `py - row*th`, so its centre is `(px + (col+0.5)*tw, py - (row+0.5)*th)`.
+
+`entity.tilemap.cellAt([x, y])` gives the cell under a world point (`{col, row}`, or `null` outside the map) and `entity.tilemap.cellToWorld(col, row)` the world position of a cell's centre; the commands `tilemap.cell_at` and `tilemap.cell_to_world` do the same from outside a script. They follow the entity's position, rotation and scale and the projection, so picking a cell under the mouse is `map.tilemap.cellAt(input.mouse.world)`.
+
+**Isometric maps.** `"projection": "isometric"` draws diamond tiles for a 2:1 city, farm or strategy map, still as one batched mesh. `tileSize` is the size of one tile IMAGE (it may be taller than the diamond: a block, a tree, a house). The diamond itself is `tileSize.x` wide and `groundHeight` tall (0 = `tileSize.y`), and its top corner is `groundOffset` pixels below the top edge of the image. The entity's position is the TOP corner of cell (0, 0); `+col` runs down and to the right and `+row` down and to the left, so cell (c, r) has its centre at `(px + (c - r) * tileSize.x / 2, py - (c + r + 1) * groundHeight / 2)`. Cells are drawn row by row from row 0, left to right, so a tile taller than its diamond overlaps the cells behind it, never the ones in front. Colliders (`solidTiles`), `occludesLight` shadows and `nav.findTilePath` follow the diamonds: a solid cell is a diamond, and a tile path moves between the cell centres. The editor outlines and picks the map by the diamond that holds all its cells. Sprites cannot sit between the rows of a Tilemap: draw the ground as a Tilemap on a low `layer` and the buildings or characters as sprites on a higher one.
 
 ```json
 {
@@ -777,6 +848,16 @@ Production 3D rendering (all automatic; there is nothing to switch on):
 - **Many objects.** Meshes outside the camera frustum are not drawn. Meshes with the same `mesh`, textures and material values (`color`, `metallic`, `roughness`, `emissive`, `unlit`, `receiveShadows`, `uvScale`, `normalMap`, `normalScale`, `material`, `materialParams`, `materialColors`) are drawn with ONE instanced draw call per mesh part, however many there are: 10 000 identical cubes cost one draw. Give each its own `color` and they stop sharing, so for crowds vary the Transform, not the material. `play.report` shows `meshes` (drawn), `meshesCulled`, `meshBatches` (groups drawn with one instanced draw), `drawCalls`, `materials` (custom materials drawn) and `materialFallbacks` (materials that failed to build and are drawn magenta; the error log, `game.logs`, says why). In a test, `game.screenshot(path)` draws a frame and `game.state().renderStats` then has the same numbers ([SHADERS.md](SHADERS.md)). Objects off screen still cast shadows into view while a shadow-casting light is on.
 - **Lights.** Up to 32 lights are used each frame. When a scene has more, the shadow-casting sun comes first, then the other directional lights, then point and spot lights by brightness over distance to the camera (the nearest and brightest are kept); `lightsDropped` in the stats says how many were left out. A light costs every lit pixel, so keep the lights that reach the camera few and give them a small `range`.
 - Custom shaders (full guide with five worked examples: `docs_read {"name":"shaders"}`, [SHADERS.md](SHADERS.md)): `MeshRenderer.material` names a `*.material.json` whose GLSL snippet changes the surface (and optionally moves vertices); `material_info` lists its params, `shader_compile` checks it, `materialParams` overrides params per entity. A material that does not compile draws magenta.
+- Live textures: `MeshRenderer.texture`, `normalMap` and texture `materialParams` accept `"target:<name>"`, the picture of a `Camera` with `renderTarget: "<name>"` (a screen, a mirror, a book page whose `Interactable`s work through the mesh): section 9.30, [RENDERING.md](RENDERING.md).
+- **Procedural meshes.** Geometry built at run time (terrain, a deformed body, generated plants) without writing a file:
+  `const m = mesh.create({ positions, indices, uvs?, normals?, submeshes? })`, then `MeshRenderer.mesh = m.id`; `m.update({ positions })`
+  every frame is cheap (GPU buffers are reused), `m.destroy()` frees it, `m.save("assets/models/x.glb")` writes a `.glb` that loads back as
+  a normal model. Missing normals and tangents are computed; glTF conventions (+Y up, counter-clockwise faces front, uv (0, 0) top-left).
+  Bounds, culling, shadows, picking and the editor follow the real geometry; `Collider3D` shape `convex` or `mesh` takes the id too (a
+  mesh collider rebuilds on every update: do not deform one each frame). The mesh belongs to the running scene and is released when a
+  scene loads: after an `await`, compare `scene.generation`. `colors` (per vertex, rgb or rgba) multiply the material's base color like glTF `COLOR_0`; the pointer reaches a render target shown on a procedural mesh too.
+  Commands: `mesh.create`, `mesh.update`, `mesh.destroy`, `mesh.save`, `mesh.list`, `mesh.info`. Full guide: `docs_read {"name":"scripting"}`,
+  "Procedural meshes".
 - Not available yet: an environment map image for reflections, shadows from point and spot lights.
 
 ### 9.10 Save data
@@ -1216,16 +1297,22 @@ export default class Menu extends Behaviour {
 
 - **Navigation is automatic.** Up / down / left / right (keys, d-pad, left stick) move the focus to the nearest widget
   in that direction (widgets lined up with the focused one first, so Right along a row of tabs stays on the row),
-  `ui_submit` (Enter, Space, pad A) clicks, `ui_cancel` (Escape, pad B) sends `ui.cancel`; the mouse works too. Nothing is
+  `ui_submit` (Enter, Space, pad A) clicks, `ui_cancel` (Escape, pad B) sends `ui.cancel`; the mouse works too. An entity made of sprites, shapes or text that is not a Button gets all of this with the `Interactable` component (docs/MENUS.md, "Widgets from your own entities"). Nothing is
   focused until an `autoFocus` widget or `ui.focus(entity)` takes the focus, which keeps Space / A (jump) from clicking HUD
-  buttons during play. Rebind the six `ui_*` actions in `factoria.json` `input.actions` if you want other keys.
+  buttons during play. Tab and Shift+Tab (`ui_next`, `ui_previous`) walk the widgets in reading order from a focused one. Rebind the eight `ui_*` actions in `factoria.json` `input.actions` if you want other keys.
 - **Looks.** A plain widget is a translucent dark rectangle with a label; give `texture` + `slice` (9-slice borders in
   texture pixels) for a themed one, and `color`, `textColor`, `accentColor` to restyle. Everything is design pixels, so
-  `size`, `padding` and `spacing` do not change with the window size; use `anchor` and `pivot` to pin a panel to a corner
+  `size`, `padding` and `spacing` do not change with the window size (only with the interface size, `ui.scale`, which the player may change); use `anchor` and `pivot` to pin a panel to a corner
   or the centre.
+- **Lay out for every interface size.** Players choose the interface size (`ui.scale`, 0.5 to 3; the menu kit's Options has
+  it) and the text size (`ui.textScale`). Anchor panels, let a `Panel` with `fit: true` grow with its rows (and give it
+  `minSize` / `maxSize` for a look that does not jump with the language), `autoSize` on the widgets, a `ScrollList` with
+  `fill` where the list may be long, and never space widgets with empty `Panel` or `Text` spacers or move them by hand
+  when the size changes: `padding`, `spacing` and the layout already scale. Redo script maths with `ui.on("scale", ...)`
+  and `ui.on("textScale", ...)`. Prove it with `ui.check_layout {"uiScales":[1,1.5], "textScales":[1,2]}` (`docs_read
+  {"name":"text"}`, "Interface size").
 - **Pause menu.** The UI keeps working while `game.paused` (`time.scale` 0); section 9.24 has the pause menu.
-- **Find and click things from outside.** `ui.state` lists every widget with its `rect` (so `game.input` can click its
-  centre), `focused` and `value`. To test a menu without a mouse, tap the pad: `game.gamepad().tap("DpadDown")`,
+- **Find and click things from outside.** `ui.state` lists every widget with its `rect`, `focused` and `value`. Click with `game_click {"id":"play"}` (the centre of a widget), `{"position":[x,y]}` or `{"world":[x,y]}`: it moves the mouse, presses, steps one frame, releases and steps one more, so a script sees `input.mouse.pressed` and then `released`, and a Button sends `click`. `game_input {"mouse":{"position":[x,y],"left":true}}` followed by `game_step` also gives the script a press, but it leaves the button held until a call sets `left:false` (needed for a drag, not for a click). To test a menu without a mouse, tap the pad: `game.gamepad().tap("DpadDown")`,
   `.tap("A")`, then assert on `ui.focused`, widget values or `ui.on` events (see `SCRIPTING.md`, UI).
 - **Long lists** go in a `ScrollList`: the wheel scrolls it, moving the focus to an item scrolls it into view, and
   everything inside is clipped to its rectangle.
@@ -1261,6 +1348,63 @@ speech: `assets.generate_voice {text, path, voice}`, models: `assets.generate_mo
   writes it as `AI_CONTENT_DISCLOSURE.md`. Fix the "Assets without provenance" list first.
 - **Tests.** A test project uses the `fake` provider, so the check is offline and deterministic.
 
+**Art without an image provider.** When `assets.generate_image` fails with `no_provider`, do not draw pixels by hand and do
+not stop: the error lists which providers can make images and which keys would enable one (tell the user which), and two
+commands make art offline, free, with a provenance record:
+
+```
+assets_generate_texture {"path":"assets/textures/desk.png","preset":"planks","width":1280,"height":720,"seed":4}
+assets_rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M50 6 L90 22 V52 C90 76 70 90 50 96 C30 90 10 76 10 52 V22 Z' fill='#8b1e1e' stroke='#e8c66a' stroke-width='4'/></svg>"}
+```
+
+- **Surfaces** (backgrounds, desks, covers, pages, floors, walls) are `assets_generate_texture`: `preset` is `paper`,
+  `parchment`, `wood`, `planks`, `leather`, `fabric`, `linen`, `stone`, `value`, `fbm`, `cellular`, `gradient`, `radial` or
+  `vignette`. `color` and `accent` recolour, `scale` and `roughness` tune, `tileable: true` makes it repeat with no seam,
+  `normalMap: true` also writes `<name>_n.png` for lit sprites. Another `seed` is another take.
+- **Subjects** (a crest, a silhouette, an ornament, a map symbol) are shapes you write as SVG for
+  `assets_rasterize_svg`. `clip-path`, `mask` and `<pattern>` fills (line hatching) work; no text, filters, `<use>` or CSS classes (they are drawn as
+  nothing and named in `warnings`); in gradients write coordinates in percent (`x2="100%"`). Keep the SVG in the project
+  (`assets/art/crest.svg`, then `source`) so you can edit it and rasterize again.
+- **Effects and animated art** you build from entities (Shape2D with gradients and strokes, particles, tweens, a scripted
+  explosion) are baked into a sprite sheet with `assets_bake_sheet {"path":"assets/fx/burst.png","prefab":"prefabs/burst.prefab.json","frames":16,"fps":24}`:
+  it plays the prefab alone in a private world and captures frames, and the sheet is one `Sprite` with a `SpriteAnimator`.
+  **Bake effects to save draw calls on mobile**: a glow of five shapes or a burst of particles is many draw calls on every
+  frame, a baked one is one. `clips` bakes named clips (`{"name":"die","call":"die"}` runs the behaviour's `die()`), `pivot`
+  keeps the origin still (feet: `[0.5, 1]`), `frameWidth` / `frameHeight` fix the cell. Its `pivot` is counted from the
+  top-left of the frame and `Sprite.pivot` from the bottom-left: set `Sprite.pivot` to `[x, 1 - y]`. It needs a GPU.
+- **Look at the picture** in the result, change one thing and call again with `overwrite: true`. The icon and the store
+  images are `assets_draw_icon` and `assets_draw_capsules`; sounds are `assets_synth_sound`.
+- **Provenance** is recorded: a texture is `original` (not AI); an SVG you wrote counts as AI-made unless you pass
+  `ai: false`. These are plain materials and vector shapes: say so to the user, who may want a real provider (or an
+  artist) for the final art.
+
+**Animations drawn with code.** Motion that follows rules (a coin that turns, a pulsing orb, a flame, a loader, rain, waves, a
+UI sparkle) is code, not a drawing: `assets_animate_svg` bakes it into a sprite sheet and its `sheet` entry in one call, with
+no provider and no key. Write a module `art/coin_spin.anim.js` whose default export returns the SVG of one frame from
+`{t, frame, frames, fps, progress, params, rng}`, then bake it:
+
+```
+assets_animate_svg {"path":"assets/art/coin_spin.png","source":"art/coin_spin.anim.js","frames":12,"fps":12,"frameWidth":64,"padding":1,"params":{"face":"#f2c94c","back":"#b8902b"}}
+```
+
+- **Pick the way to make the motion.** Rule-based motion that stays inside a picture (spin, bob, pulse, sparkle, flicker,
+  waves, loaders, a UI shimmer): draw it with code (`assets_animate_svg`). It is deterministic, small, editable (change the
+  module and bake again) and free. Something the engine already animates (Shape2D, tweens, particles, scripts, a prefab that
+  moves): bake it from the engine into a sheet instead of redrawing it (`assets_bake_sheet`), or just play it live. Painted
+  frame-by-frame art, characters with a drawn style, anything a rule cannot express: ask an image provider (the cost is
+  one call per sheet: look, then decide); with no provider, tell the user.
+- **Write `progress`-driven frames.** `progress` is `frame / frames` for a looping clip, so the last frame leads into the first;
+  do not use `t` for a loop unless the period divides the clip. `rng()` changes every frame (flicker); `rngFor("key")` is the same
+  on every frame (what must stay put). `Math.random` and `Date` are seeded and fixed, never the real ones.
+- **Look and fix.** The result has the sheet as an image, the layout and warnings (a frame that draws nothing, shapes on the
+  cell edge, a loop that jumps). An error names `art/coin_spin.anim.js:LINE:COL` and the frame; the module sees only the
+  language (no engine API, no DOM, no files), so take data from `params`. `clips` makes `idle` and `run` from one module; `pivot`,
+  `padding`, `palette` (snap to the game's colours) and `style` (the painterly look of `assets_rasterize_svg`) are arguments.
+- **SMIL.** If you already have an animated SVG (`<animate>`, `<animateTransform>`, `<animateMotion>`), give it as `svg` (or as a
+  project `.svg` in `source`): it is sampled at each frame; what cannot be sampled (click events, CSS animations) is a warning.
+- **Provenance** is recorded as AI-made unless you pass `ai: false`, with a `recipe` (the module and its imports, hashed) that
+  makes the same sheet again.
+
 **Importing.** A file made elsewhere (downloaded, from an artist, exported from a tool) comes in with `assets.import`
 (MCP tool `assets_import`). It copies or converts the file into `assets/` and records the provenance in `assets.json`:
 
@@ -1274,9 +1418,10 @@ assets_import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"A
 - **Formats.** Aseprite becomes a PNG sheet with its tags as clips, PSD a PNG, OBJ (with its MTL and textures) a `.gltf`,
   FBX a `.glb` (through FBX2glTF or Blender; the error says where to get one), a video (`.mp4`, `.mov`, `.webm`...) an
   `.mpg` (MPEG-1 + MP2, through ffmpeg: `factoria setup ffmpeg`) for the `Video` component. Images, sounds, fonts, GLB and
-  glTF are copied. Not read: `.blend`, WebP, GIF, SVG. The full list is in `docs_read {"name":"assets"}`.
+  glTF are copied. Not read: `.blend`, WebP, GIF, SVG (`assets_rasterize_svg` makes the PNG). The full list is in `docs_read {"name":"assets"}`.
+- **Check a sheet before wiring it in.** `assets_preview_sheet {"path":"assets/art/coin_spin.png","clip":"spin","onion":true}` draws the labelled grid (frame numbers, cell edges, pivot) and warns about empty frames, ink on the edge of a cell and a loop that jumps; play the clip by name with `SpriteAnimator {"clip":"spin"}`.
 - **Read `nextSteps` and `warnings`.** They hold the `Sprite` and `SpriteAnimator` fields to use for a sheet (columns,
-  rows, first and last frame, fps), the size of a model, and what could not be carried over (ping-pong tags, blend
+  rows, first and last frame, fps), the size of a model, and what could not be carried over (the direction of a tag, blend
   modes, a missing texture).
 - **A sheet that is not a clean grid** (frames of different sizes, a solid background, as generated and downloaded
   sheets often are): `assets_slice_sheet {"path":"assets/walk_raw.png","auto":true,"frames":8,"align":"bottom","background":"auto"}`
@@ -1328,6 +1473,10 @@ When you write menus of your own, the same rules apply:
   UI keeps working. Unpause in the pause behaviour's next `onUpdate`, not in the "Resume" click handler, or the A /
   Space press that clicked it also jumps. `time.scale` outlives scene loads: set `game.paused = false` before
   `scene.load`.
+- **A screen that owns the input.** `Panel.modal: true` on the root Panel of a dialog: while it is active only its widgets
+  get the mouse, the wheel, the arrows and the pad, nothing under it is hovered, clicked or dropped on, and
+  `ui.pointerOverUi` is true everywhere. The kit's `card` part is a choice card built on it (title, wrapped body, choices
+  with a detail line, a choice disabled with its reason, a result stage, `holdClock`): `factoria docs read menus`, "A choice card".
 - **Settings.** Keep them in `storage` and apply them when the game starts (`session` remembers that it was done).
   `window.*` setters throw when there is no window (headless runs, tests): check `window.available`.
 - **Controls.** Rebind with `input.rebind(action, list)` from the next `input.lastPressed()`, and name buttons with
@@ -1372,11 +1521,115 @@ Animation runs in the fixed step, so headless tests and replays match (`game.ste
 The model is drawn deformed on the GPU (up to 64 joints; more joints = bind pose plus a warning), shadows included.
 Each animated model is its own draw call, so keep crowds of animated characters modest.
 
+### 9.25.2 Building a character in parts, and animating it with commands
+
+A 2D character made of separate parts (head, body, arms, legs) animates better than a flat sheet and you can fix one pose
+without redrawing everything. The recipe, in order:
+
+1. **Parts as child Sprites, pivots at the joints.** One entity per part under the character entity; the pivot of each Sprite is
+   the point it turns around (the shoulder for an arm: `pivot [0.5, 1]` for an arm that hangs down), and the child's
+   `Transform.position` is where that joint sits on its parent. Order the layers with `Sprite.layer` (the far arm and leg
+   behind the body, the near ones in front). Names matter: clips find parts by the names from the character down (`"body/arm_l"`).
+2. **Bones where a limb must bend** (a leg, a tail, a scarf), not for rigid parts: `bones.create {parent, points: [[0,40],[0,20],[0,0]],
+   names: ["thigh","shin"]}`, then `skin.bind {entity: "leg", root: "thigh", mesh: [4, 8]}` skins the leg Sprite to them at the pose
+   they have now. `skin.auto_weights` writes the automatic weights out and `skin.set_weights {vertices: {rect: [x0,y0,x1,y1]},
+   bone: "shin", weight: 1}` paints them (`mode: "smooth"` blends the seams). Keep the grid small.
+3. **IK for feet and hands** that must touch something: an `IK2D` on the last bone with `target` an empty entity, and let the
+   clip move the target instead of the bones (`{"path": "foot_target", "field": "position"}`).
+4. **Clips with commands.** `anim.create_clip` then `anim.set_keys`, one track per part and field; first and last key equal for a
+   loop. Hook it up: `scene.set_component {id: "hero", component: "Animator", fields: {clips: {walk: "anim/hero_walk.anim.json"}}}`.
+5. **Look, then check.** `anim.filmstrip {entity: "hero", clip: "walk", frames: 8, onionSkin: true}` draws the whole motion in one
+   picture; judge the arc of the limbs and any jump between poses. `anim.check {entity: "hero"}` lists what is wrong in words
+   (`loop_jump`, `unknown_part`, `leaves_view`, `ik_out_of_reach`, `no_change`). Fix with `anim.set_keys`, `anim.move_keys`,
+   `anim.set_interp`; every command returns an `undo`. `factoria validate` repeats the file and part checks.
+
+```json
+{"command":"anim.create_clip","args":{"path":"anim/hero_walk.anim.json","duration":0.8,"loop":true}}
+{"command":"anim.set_keys","args":{"path":"anim/hero_walk.anim.json","entity":"hero","track":{"path":"body/arm_l","field":"rotation.z"},
+  "keys":[{"t":0,"value":-30},{"t":0.4,"value":30,"interp":"quadInOut"},{"t":0.8,"value":-30}]}}
+{"command":"anim.set_keys","args":{"path":"anim/hero_walk.anim.json","entity":"hero","track":{"path":"body/arm_r","field":"rotation.z"},
+  "keys":[{"t":0,"value":30},{"t":0.4,"value":-30,"interp":"quadInOut"},{"t":0.8,"value":30}]}}
+{"command":"anim.set_keys","args":{"path":"anim/hero_walk.anim.json","entity":"hero","track":{"path":"body","field":"position.y"},
+  "keys":[{"t":0,"value":0},{"t":0.2,"value":3},{"t":0.4,"value":0},{"t":0.6,"value":3},{"t":0.8,"value":0}]}}
+{"command":"anim.add_event","args":{"path":"anim/hero_walk.anim.json","t":0.4,"name":"footstep"}}
+{"command":"anim.filmstrip","args":{"entity":"hero","clip":"walk","frames":8,"onionSkin":true}}
+{"command":"anim.check","args":{"entity":"hero"}}
+```
+
+Full reference: `docs_read {"name":"animation"}`, sections "2D clips", "Commands for clips" and "Bones and IK".
+
+### 9.25.1 Analytics with consent and remote config
+
+For a game that must count what players do or tune values without a new build ([ANALYTICS.md](ANALYTICS.md); `docs_read {"name":"analytics"}`).
+Nothing is sent before the player says yes, so ask first, and say in the privacy policy what is sent.
+
+1. `factoria.json`: `"network": {"hosts": ["stats.example.com"], "purpose": "..."}`, `"analytics": {"endpoint": "https://stats.example.com/events"}`
+   and, for values, `"remoteConfig": {"url": "https://stats.example.com/game.json"}`. `factoria validate` checks the hosts and the numbers.
+2. The question: add the menu kit part `analyticsConsent` (`project.add_menu_kit {"parts":["analyticsConsent"]}`) or call
+   `analytics.setConsent(true | false)` from your own button. `analytics.consent()` is `"unknown"` until the player answers.
+3. Events: `analytics.event("level_done", { level: 3, won: true })` (flat props, short codes and numbers, never typed text). It returns `false` and keeps nothing
+   without consent. Batches go out at `batch` events, after `flushSeconds`, on suspend and on quit (the quit waits up to 3 seconds).
+4. Values: `remoteConfig.get("enemySpeed", 1.5)` always works (cache, then the fallback). To wait for the first answer at a loading screen,
+   check that the scene is still current: `const here = scene.current; remoteConfig.ready().then(() => { if (scene.current !== here) return; ... })`.
+5. Tests: `game.platform.respond("http.fetch", { status: 204 })` plays the server, `game.analytics.sent()` shows what it accepted, `game.analytics.queued()` what waits,
+   `game.remoteConfig.restart()` starts a new run from the cache. A test that loads a main menu in a game with analytics sets the answer first
+   (`analytics.setConsent(true)`), or the question is on screen.
+
 ### 9.26 2D production: flipped tiles, 9-slice, lights, parallax, joints
 
 - **Flipped and rotated tiles.** A tile value in `Tilemap.tiles` is the index plus flag bits: `+268435456` flip X, `+536870912` flip Y, `+1073741824` transpose (applied first, then X, then Y). Turn 90 degrees clockwise = `1342177280 + i`, 180 = `805306368 + i`, 90 counter-clockwise = `1610612736 + i`. `solidTiles`, the tileset range check and collision use the plain index only. In `scene.import_ascii` a legend object takes `{"tile": 3, "flipX": true, "flipY": false, "rotate": 90}` (rotate is clockwise: 0, 90, 180, 270) so you never write the numbers.
 - **9-slice sprites.** `Sprite.slice` = `[left, top, right, bottom]` in pixels of the picture (of the `region` when set). The corners keep their size, the edges and centre stretch to `size`. Works with `flipX/flipY`, `region` and atlas textures. A size smaller than the corners shrinks them evenly.
-- **Lights.** Add `Light2D` entities (`type` point or directional, `color`, `intensity`, `radius`, `falloff`, `height` for point lights, `direction` and `elevation` for directional ones). Only a `Sprite`, `Tilemap` or `Shape2D` (world space) with `lit: true` is lit (a lit shape is flat: no normal map, outlines and lines included); the base brightness is `SceneSettings.ambientLight`. `Sprite.normalMap` (needs `lit`) gives bumps; the normal map may be another size or packed in an atlas. At most 16 lights per frame (WebGL2 and GLES3 uniform limit): directional lights first, then the point lights nearest the camera. Lights ignore layers and cast no shadows. Unlit sprites cost nothing extra.
+- **Lights.** Add `Light2D` entities (`type` point or directional, `color`, `intensity`, `radius`, `falloff`, `height` for point lights, `direction` and `elevation` for directional ones). Only a `Sprite`, `Tilemap` or `Shape2D` (world space) with `lit: true` is lit (a lit shape is flat: no normal map, outlines and lines included); the base brightness is `SceneSettings.ambientLight`. `Sprite.normalMap` (needs `lit`) gives bumps; the normal map may be another size or packed in an atlas. Point lights are added up in a light buffer, so a frame keeps up to 256 lights: directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the brighter ones; an off-view light is never kept over one in view). More than 256 in view logs one warning per scene; `game.renderStats().lights2d` and `lights2dDropped` show what was kept and left out, and `perf.measure`'s `lights` (so `maxLights`) counts 2D and 3D lights together. A lit sprite or tile WITH a normal map is still shaded per pixel by the first 16 lights of that order (the light's direction matters there). Lights ignore layers. Unlit sprites cost nothing extra, and a scene without Light2D pays nothing. Shadows: see the recipe below.
+- **Lights and shadows from tiles.** A dungeon or cave: `Tilemap.occludesLight = true` makes the tiles of `solidTiles` (the ones that already collide) block light, and `Light2D.castShadows = true` on a point light makes it cast: the far side of a wall stays dark, the wall's own face stays lit, and editing a tile at run time (`tilemap.setTile`, the command `tilemap.set_tile`) moves the shadows on the next frame. Both default to false. At most 32 point lights per frame cast shadows (the ones ranked first, `renderStats().lights2dShadowed` counts them; the others shine through walls and the engine warns once per scene): give `castShadows` to the torch the player carries and the few that matter, not to every candle. A light that does not move does not recompute its shadow rays (only its pixels cost, frame after frame). `SceneSettings.lightScale` (0.25 to 1, default 1) is the size of the light buffer as a fraction of the picture: use 0.5 on phones and the web with many lights. Costs: PERFORMANCE.md, "2D lights".
+  ```js
+  // a wall of solid tiles that blocks light, a torch that casts shadows
+  const map = game.find("walls");
+  map.get("Tilemap").occludesLight = true;          // solidTiles already says which tiles are walls
+  world.spawn({ name: "Torch", components: {
+    Transform: { position: [120, 80, 0] },
+    Light2D: { radius: 260, intensity: 1.2, castShadows: true } } });
+  map.tilemap.setTile(5, 3, -1);                      // a wall opens: the light flows through next frame
+  ```
+- **Rounded corners, soft shadows, gradients and vignettes (one Shape2D each, no stacking).** `cornerRadius` rounds a `rectangle` (clamped to half the short side: a big value makes a pill). `softness` is the width in world units of a blurred edge, centred on the outline (the shape grows by `softness / 2` on every side), for a `rectangle` or `circle`. `gradient` (`"linear"` or `"radial"`) blends `color` into `color2` per pixel, dithered, so there is no banding: linear along `gradientAngle` degrees (0 = left to right, 90 = bottom to top, box corner to corner), radial from the centre to the edge of the box; both colours' alpha counts, so `color2: [0, 0, 0, 0]` fades out. All default to off and cost nothing then; triangles, diamonds, polygons, stars and lines ignore them, and an outline (`filled: false`) takes `cornerRadius` and `softness` but no gradient. Lit shapes (`lit: true`) and `blend` work with them.
+  ```js
+  // paper page with a soft drop shadow, a gutter shading and a vignette over the whole desk (layers: shadow 1, page 2, gutter 3, vignette 90)
+  world.spawn({ name: "PageShadow", components: { Transform: { position: [6, -8, 0] },
+    Shape2D: { size: [300, 200], cornerRadius: 10, softness: 24, color: [0, 0, 0, 0.45], layer: 1 } } });
+  world.spawn({ name: "Page", components: { Transform: { position: [0, 0, 0] },
+    Shape2D: { size: [300, 200], cornerRadius: 8, color: [1, 0.97, 0.88, 1], layer: 2 } } });
+  world.spawn({ name: "Gutter", components: { Transform: { position: [140, 0, 0] },   // darkens towards the spine on the right
+    Shape2D: { size: [24, 200], gradient: "linear", color: [0.4, 0.3, 0.2, 0], color2: [0.4, 0.3, 0.2, 0.5], layer: 3 } } });
+  world.spawn({ name: "Vignette", components: { Transform: { position: [0, 0, 0] },    // clear in the middle (a transparent `color` is fine: only a shape whose colours are all transparent is skipped), dark at the edge of the box
+    Shape2D: { size: [1600, 900], gradient: "radial", color: [0, 0, 0, 0], color2: [0, 0, 0, 0.6], layer: 90 } } });
+  // a light pool: a circle, white at the centre fading to nothing, additive
+  // Shape2D: { shape: "circle", size: [240, 240], gradient: "radial", color: [1, 0.8, 0.4, 0.8], color2: [1, 0.8, 0.4, 0], blend: "additive" }
+  ```
+- **Tint, gradient stops, skew and bent sprites.**
+  - `gradientStops` (a Shape2D with `gradient`, rectangle or circle) lists up to 8 `[position 0..1, colour]` pairs and replaces the
+    `color` -> `color2` blend; `gradientEase` (`"smoothstep"`, `"quadOut"`, `"cubicInOut"`, ... the names of the tween easings in
+    `docs_read {"name":"animation"}`) bends the position first. Stops are sorted by position; two at the same position make a hard
+    edge; colours blend premultiplied, so fading to a transparent colour does not grey. Up to 256 different gradients are on screen
+    at once (more draw as the first and last stop blended linearly). A malformed stop is skipped with a warning.
+  - `Tint` multiplies its colour and opacity into the entity and everything under it (Sprite, Shape2D, Text with rich colours, Tilemap,
+    ParticleEmitter, screen-space UI widgets; not 3D meshes, lights or debug draw). A nested `Tint` multiplies with its parent's.
+    Do not use it as a replacement for `Sprite.color` on one sprite; it is for a group.
+  - `Sprite.skew = [20, 0]` leans the top edge right (degrees, about the pivot, clamped to +-80). `meshColumns` / `meshRows` make a
+    sprite a grid of cells (at most 128 per side, 4096 cells) and `vertexOffsets` moves its vertices: a flat `[dx0, dy0, dx1, dy1, ...]`,
+    top row first, +y up, `(meshColumns + 1) * (meshRows + 1)` pairs. The texture stretches with the vertices; still one entity and one
+    draw call; `slice` is ignored. A script writes the whole array each frame (a changed element of the array it read does not write back).
+    `vertexColors` is a flat `[r, g, b, a, ...]` with one RGBA per grid vertex in the same order (exactly `(meshColumns + 1) * (meshRows + 1) * 4`
+    numbers, else a scene load error / one warning), multiplied with `color`: light and dark along a bent page without an overlay sprite.
+  ```js
+  // a flag: 8 columns x 4 rows waving (a script's onUpdate; `time.elapsed` counts fixed steps in seconds)
+  world.spawn({ name: "Flag", components: { Transform: { position: [0, 0, 0] },
+    Sprite: { texture: "assets/flag.png", size: [96, 64], meshColumns: 8, meshRows: 4 } } });
+  // each frame:
+  const flag = world.find("Flag").get("Sprite"), offsets = [];
+  for (let r = 0; r <= 4; ++r) for (let c = 0; c <= 8; ++c) offsets.push(0, Math.sin(time.elapsed * 4 + c * 0.7) * 2 * (c / 8));
+  flag.vertexOffsets = offsets;
+  // fade a whole menu in: world.find("Menu").get("Tint").color.a = progress;   // Tint on the menu's root entity
+  // a shadow without a visible edge: Shape2D { gradient: "linear", gradientAngle: 90, gradientEase: "quadOut", color: [0,0,0,0.5], color2: [0,0,0,0] }
+  ```
 - **Parallax.** `Parallax.factor` 1 follows the world, 0 sticks to the screen, 0.5 moves at half the camera's speed (use a value above 1 for a foreground). `repeatX` / `repeatY` with `repeatSize` tile a Sprite endlessly over the view. It works with the camera follow of 9.6: the offset is computed from the camera position each frame, so `entity.bounds()` and the editor pick follow it and replays stay deterministic.
 - **Joints.** `Joint2D` goes on the body entity. `connected` is another entity with a body, or empty to pin to the world (then `connectedAnchor` is a world position). `anchor` is on this entity, `connectedAnchor` on the other, in local pixels. Types: `revolute` (hinge; `enableLimit` with `lowerLimit`/`upperLimit` in degrees, 0 = the pose at creation), `distance` (a rope of `length`, 0 = the starting distance; `enableSpring` with `springHertz`/`dampingRatio` makes it elastic), `prismatic` (slides along `axis`, limits in pixels), `weld` (glue). `enableMotor` with `motorSpeed` (degrees/s or px/s) and `maxMotorTorque`. Limits, motor and spring change live from scripts; the type, anchors, axis and `connected` rebuild the joint. `reactionForce`, `reactionTorque`, `angle` and `translation` are read-only runtime fields.
 
@@ -1385,6 +1638,179 @@ const j = this.entity.get("Joint2D");
 j.enableMotor = true; j.motorSpeed = 180;        // a wheel starts spinning
 if (Math.hypot(j.reactionForce.x, j.reactionForce.y) > 5000) this.world.destroy(this.entity); // a rope that takes too much
 ```
+
+### 9.27 Enemies that think and find their way: `bt` plus `nav.findTilePath`
+
+A behaviour tree (`bt`, SCRIPTING.md "AI: behaviour trees") picks WHAT the enemy does; `nav.findTilePath` (NAVIGATION.md,
+section 7) says WHERE to step on a tile map. Search again only when the goal's cell changed or the map did
+(`nav.tileVersion(map)`, which also counts a whole `tiles` replacement), not every frame. Many enemies heading for the same
+place (a crowd chasing the player, walkers going to a building) share one `nav.flowField(grid, goals)` over a grid from
+`nav.createGrid`: `field.stepToward(col, row)` is the next cell in O(1), and `grid.setCost` keeps the grid current. `bt.parallel` runs
+several children at once (move and shoot) and `bt.repeat(child, times?)` repeats one (SCRIPTING.md).
+
+```js
+import { Behaviour, bt, nav, world } from "factoria";
+const { RUNNING, FAILURE, selector, sequence, condition, action } = bt;
+
+export default class Enemy extends Behaviour {
+  speed = 40;                                   // world units per second
+  onStart() {
+    this.map = world.find("ground");            // a Tilemap whose solidTiles are the walls
+    this.player = world.find("player");
+    this.path = []; this.goalKey = ""; this.version = -1;
+    this.tree = new bt.Tree(selector(
+      sequence(condition((e) => e.distanceTo(e.player) < 200), action((e, dt) => e.chase(dt))),   // sees the player
+      action(() => RUNNING),                                                                      // otherwise idle
+    ), this);                                   // the blackboard is this behaviour
+  }
+  onUpdate(dt) { this.tree.tick(dt); }
+  distanceTo(other) { return other.position.sub(this.entity.position).length(); }
+  cellOf(p) {                                   // world position -> { col, row } (the map's top-left corner is its position)
+    const o = this.map.position, t = this.map.component.tileSize;
+    return { col: Math.floor((p.x - o.x) / t.x), row: Math.floor((o.y - p.y) / t.y) };
+  }
+  chase(dt) {
+    const goal = this.cellOf(this.player.position), key = `${goal.col},${goal.row}`;
+    if (key !== this.goalKey || this.version !== nav.tileVersion(this.map)) {
+      const r = nav.findTilePath(this.map, this.cellOf(this.entity.position), goal, { diagonals: true, closest: true });
+      this.path = r.found ? r.points.slice(1) : [];                 // points[0] is the cell we stand on
+      this.goalKey = key; this.version = nav.tileVersion(this.map);
+    }
+    if (this.path.length === 0) return FAILURE;
+    const to = this.path[0], p = this.entity.position, dx = to.x - p.x, dy = to.y - p.y, d = Math.hypot(dx, dy);
+    if (d < 1) { this.path.shift(); return RUNNING; }
+    const step = Math.min(d, this.speed * dt);
+    this.entity.position = [p.x + dx / d * step, p.y + dy / d * step, p.z];
+    return RUNNING;
+  }
+}
+```
+
+
+Digging or building (`entity.tilemap.setTile`) bumps the version, so the next `chase` finds the new way. A game whose real
+map is not a Tilemap passes its own `{width, height, cost}` grid instead of `this.map`.
+
+### 9.28 Local multiplayer: one player per pad or key block
+
+Two to four people on one machine, each with their own controls and the same action names. Do not read `input.gamepad(i)` button by button and do not write a second set of key tables: declare the actions once in `factoria.json`, give each player a device, and read `input.player(i)`.
+
+```json
+"input": {
+  "actions": { "move_left": ["A", "Left", "GamepadDpadLeft", "GamepadLeftStickLeft"], "move_right": ["D", "Right", "GamepadDpadRight", "GamepadLeftStickRight"], "jump": ["Space", "Up", "GamepadA"] },
+  "schemes": { "arrows": { "extends": "right", "actions": { "jump": ["Enter"] } } }
+}
+```
+
+- **Devices.** `input.player(i).use({ pad: 0 })` (a gamepad slot), `use({ padId: input.gamepad(0).id })` (follow that physical pad if it returns in another slot) and `use({ keys: "left" })` (a key scheme). A player may have a pad and a key scheme; with neither (`use()`) it reads nothing. The schemes are `"all"`, `"left"` (the WASD half of the keyboard), `"right"` (the arrows half) and the ones in `factoria.json` `input.schemes` (`extends` a built-in one, `keys` to add keys, `actions` to give a scheme its own keys for some actions); `input.keySchemes()` lists them. A bad slot or scheme throws and says what exists. Assign the devices every time your scene starts: a test starts with none.
+- **Reading.** `down`, `pressed`, `released`, `value`, `axis(neg, pos)` and `vector(left, right, down, up)` have the names of the global `input`, and answer only for that player's device: pad bindings of an action read that pad alone, key bindings count only keys of the player's scheme (`"left"`: `A` and `D` yes, `Left` no), and the mouse and touch belong to nobody. The global `input.down("jump")` still hears every device, which is right for menus.
+- **Bindings per player.** Defaults are the project's bindings filtered to the device. `input.player(i).rebind("jump", ["Q"])` changes this player only (all names keys, or all pad buttons; pass `"keys"` or `"pad"` as the third argument to say which list, also when the player has no such device yet). `bindings(action, family)`, `reset(action?)` and `lastPressed()` are per player too. Save with `storage.set("p" + i, input.player(i).export())` and restore with `input.player(i).import(saved)`, which returns what it had to skip.
+- **Tests.** `game.keyDown("A")` and `game.gamepad(1).press("A")` drive them; assert that each player's action moves only their character.
+
+```js
+import { Behaviour, input } from "factoria";
+
+export default class Runner extends Behaviour {
+  index = 0;       // the player: set per instance in the scene with Script.props
+  speed = 300;
+  jumpSpeed = 620;
+
+  onStart() {
+    this.me = input.player(this.index);
+    this.body = this.entity.get("RigidBody2D");
+    // players 0 and 1 on pads 0 and 1, player 2 on the left half of the keyboard, player 3 on the "arrows" scheme of factoria.json (jump is Enter there)
+    this.me.use(this.index < 2 ? { pad: this.index } : { keys: this.index === 2 ? "left" : "arrows" });
+  }
+
+  onUpdate() {
+    this.body.velocity.x = this.me.axis("move_left", "move_right") * this.speed;
+    if (this.me.pressed("jump") && this.entity.isGrounded()) this.body.velocity.y = this.jumpSpeed;
+  }
+}
+```
+
+### 9.29 Split screen: two or four players, one camera each
+
+Every active `Camera` with `primary: true` draws into its own `viewport` (`[x, y, width, height]`, each 0..1, `[0, 0]` is the
+TOP-LEFT of the screen, +Y down), in ascending `depth`. A split screen is two or more cameras whose viewports share the screen;
+each one culls, sorts and lights its own view (a `Light2D` only lights the cameras it reaches, a 3D camera has its own 3D
+lights), and each clears its own rectangle. The UI and every `space: "screen"` item is drawn once over the WHOLE screen after
+the cameras, so a shared HUD stays in the middle or the corners of the screen, not in each view. Bloom and `colorFilter` are
+applied once to the finished frame with the settings of the lowest-`depth` camera (the other cameras' values are ignored). At
+most 8 cameras are drawn (the ones with the lowest `depth`; one warning names the rest).
+
+```json
+{ "id": "cam1", "components": {
+    "Transform": { "position": [0, 0, 0] },
+    "Camera": { "projection": "orthographic", "orthoSize": 200, "primary": true, "depth": 0, "viewport": [0, 0, 0.5, 1], "clearColor": [0.05, 0.05, 0.08, 1] },
+    "Script": { "path": "scripts/follow_target.js", "props": { "target": "p1" } } } },
+{ "id": "cam2", "components": {
+    "Transform": { "position": [0, 0, 0] },
+    "Camera": { "projection": "orthographic", "orthoSize": 200, "primary": true, "depth": 1, "viewport": [0.5, 0, 0.5, 1], "clearColor": [0.05, 0.05, 0.08, 1] },
+    "Script": { "path": "scripts/follow_target.js", "props": { "target": "p2" } } } }
+```
+
+Two players side by side: viewports `[0, 0, 0.5, 1]` and `[0.5, 0, 0.5, 1]`. Four players: `[0, 0, 0.5, 0.5]`, `[0.5, 0, 0.5, 0.5]`,
+`[0, 0.5, 0.5, 0.5]` and `[0.5, 0.5, 0.5, 0.5]`. An inset (a minimap) is a second camera on top (a higher `depth`) with a small
+viewport such as `[0.72, 0.04, 0.24, 0.24]` and `clear: true`. Give the cameras the SAME `orthoSize` so every player has the same
+zoom: the visible HEIGHT is `2 * orthoSize` in every viewport and the visible width follows the rectangle (a half-width view
+sees half the width). With `orthoSize: 0` the camera keeps one world unit per design pixel, so a half-width view sees half the
+world. A `viewport` outside 0..1 or without size makes the scene fail to load with the entity and the field in the message.
+
+The fractions count the GAME TARGET: the design resolution, grown on the long axis by `display.scaleMode: "expand"` (the letterbox
+bars of `fit` are not part of it). With `viewportSpace: "design"` they count the design area from its top-left corner
+instead, so a minimap placed with `[0.72, 0.04, 0.24, 0.24]` keeps the same design pixels when Expand makes the window wider
+(the camera is kept inside the target). `Camera.viewport` is ignored by a camera a `CameraView` shows: the view's own rectangle
+decides ([MENUS.md](MENUS.md), "A camera inside the UI").
+
+```js
+// scripts/follow_target.js (one per camera; `target` is the id of the player it follows)
+import { Behaviour, world } from "factoria";
+export default class FollowTarget extends Behaviour {
+  target = "";
+  catchUp = 8;
+  onLateUpdate(dt) {
+    const t = world.find(this.target);
+    if (!t) return;
+    const k = Math.min(1, this.catchUp * dt), p = this.entity.position;
+    p.x += (t.position.x - p.x) * k;
+    p.y += (t.position.y - p.y) * k;
+  }
+}
+```
+
+Per-player input: each player's script reads `input.player(i)` (section 9.28) with its own pad or key scheme, so the
+camera scripts only follow the players and the controls stay the same with one screen or four.
+
+Screen points and cameras: `camera.all` lists the cameras drawn (draw order), `camera.at(point)` is the one whose viewport
+contains a screen point (the one drawn last, on top, when viewports overlap; a point outside every viewport gives the first camera), and `camera.screenToWorld(point)`,
+`camera.screenRay(point)`, `input.mouse.world` and the `world` of a touch use that camera by default, so a click picks what
+the player under the pointer sees. Name the camera to convert for another one: `camera.worldToScreen(p, cam2)` (inside `cam2`'s
+viewport when `p` is in its view) and `camera.screenToWorld(point, 0, cam2)`. `camera.main` is the first camera drawn (player
+one's). Tools that read "the camera" (screenshots, `game.screenshot`, the editor viewport, `perf.measure`) see the whole frame.
+`game.renderStats()`: `drawCalls`, `triangles`, `lights` and the rest are per FRAME, added up over every camera, so a four-camera
+frame costs about four times a one-camera frame in `drawCalls` (docs/PERFORMANCE.md). Screen-space visuals with `lit: true` get
+only the scene's ambient light (no `Light2D`) in a split-screen frame. Keep it to two or three cameras on phones.
+
+### 9.30 A camera in a texture: a screen on a model, a mirror, a book with working pages
+
+Full guide: `docs_read {"name":"rendering"}` ([RENDERING.md](RENDERING.md)). The short version:
+
+1. Make the page out of ordinary WORLD-space entities (`Sprite`, `Text`, `Shape2D`, children of one `Transform`) far from
+   anything the main camera sees (x = 5000): a target camera has no culling mask and the screen-space UI (`Panel`, `Button`,
+   `space: "screen"`) is not drawn into it. Give the buttons, toggles and sliders of the page an `Interactable`.
+2. Add a `Camera` with `renderTarget: "book"` and `renderTargetSize: [512, 768]` over the page (orthographic, `orthoSize` half
+   the page height in world units, or 0 for one unit per texture pixel). It never draws to the screen and is never `camera.main`.
+3. Show it: `MeshRenderer { mesh: "quad", texture: "target:book", unlit: true }` (or a curved glTF model, or a custom material's
+   `materialParams`), `Sprite.texture`, `Panel.texture`, `Button.icon`. The target is drawn before the cameras that show it.
+4. The pointer over the mesh reaches the page's Interactables through the mesh's UV (hover, click, toggles, slider drags, even off
+   a curved surface). Only meshes with UVs (primitives, glTF); the nearest page mesh wins; Sprite/Panel/Button showing a target
+   forward nothing; in a test aim with a screen position (`game.click(camera.worldToScreen(p))`), not an id.
+5. A camera that sees the model showing its own target draws a checker there with one error; two targets that show each other
+   are fine (one frame late).
+
+Photographs: `render.captureTexture({ entity | rect, space: "world", scale })` draws a hidden, covered or off-camera part of
+the world into a transparent texture of `ceil(size * scale)` pixels (at most 4096 a side), with no frame drawn first. The HUD is
+not in it. Details in RENDERING.md, "Off-screen capture".
 
 ## 10. Tests
 
@@ -1416,6 +1842,7 @@ The `game` object under test:
 - Touch: `touch(screenPos, frames)` for a finger held for some frames, `touchStart(screenPos, id?)`, `touchMove(screenPos, id?)`, `touchEnd(id?)`. `input.touches[0].pressed` is true on the first frame only. As on a device, the first finger also moves the mouse and holds the left button (`input.mouse.pressed("left")` is true on that first frame), so a touch test also covers the mouse branch of your code: do not add a `click` to simulate it. A script that handles both the mouse and `input.touches` sees one tap twice, so make the second handling harmless (for example, act on the target cell only if it is not already taken).
 - Queries: `find(idOrName)`, `world`, `time`, `state()`, `screenshot(path)` (needs graphics).
 - Store: `game.platform` controls the fake store every test run uses (not the `game.platform` of the `factoria` module, which is the OS name): `respond(method, answer, times = 1)` makes the next `"purchases.buy"` fail (`{ error: "network" }`), cancel (`{ status: "cancelled" }`) or answer something else, `emit("purchase" | "overlay" | "player", data)`, `set({ signedIn, delayFrames, backend })` (`backend: "none"` plays a game without a store until `reset()`: `platform.has` is false and calls reject `unavailable`), `state()`, `calls()`, `reset()`; `await platform.purchases.buy(...)` works in a test (`docs_read {"name":"platform"}`).
+- Web requests: `http.fetch(url, { method, headers, body, timeout })` (`import { http } from "factoria"`) needs the hosts in `factoria.json` `"network": {"hosts": ["api.example.com"], "purpose": "..."}` (https only; an undeclared host throws). Tests never reach the network: `game.platform.respond("http.fetch", { status: 200, json: {...} })` (or `{ error: "network" }`) scripts the next answer, `game.platform.calls()` shows the requests. The answer may come after the scene changed: check `scene.current` before using it (`docs_read {"name":"networking"}`).
 - Sound: `audioLog()` lists the sounds played since the test started (`{frame, time, path, volume, pitch, pan, bus, loop, music, source, ok}`, oldest first); it is cleared before each test, and `clearAudioLog()` clears it by hand.
 
 Assert sounds with `toContainPlayed` (alias `toHavePlayed`). The path can be the full project path, just the file name, or a RegExp; options `times` (exact count), `bus` and `source` (entity or id) narrow it. Plays whose clip failed to load do not count, and the failure message lists what did play:
@@ -1460,8 +1887,9 @@ For your game: do not assert an exact frame count or an exact position after a l
 |---|---|---|
 | `factoria validate`, `project.validate` | `project_validate` | Structure and references, before anything runs. |
 | `script.errors` | `script_errors` | Exceptions thrown by scripts, with file, line and stack. |
-| `game.logs` | `game_logs` | Log lines. `console.log/warn/error` in scripts appear with category `script`. |
+| `game.logs` | `game_logs` | Log lines, each with `wallTime` (local ISO 8601). `console.log/warn/error` in scripts appear with category `script`. |
 | `audio.log` | `audio_log` | Which sounds played, on which frame and bus, and whether the clip loaded. |
+| `audio.bus`, `audio.snapshot` | `audio_bus`, `audio_snapshot` | The mixer's effects and snapshots: what a bus is set to, and which snapshot is applied. |
 | `game.state` | `game_state` | Entities, components, physics, logs and errors of the running game. |
 | `scene.get_entity` | `scene_get_entity` | One entity by id. |
 | `script.trace` | `script_trace` | Run the project headless and record the stack, locals and watch expressions every time given script lines run (with an optional condition), or collect logpoint lines: `{"points":[{"file":"scripts/player.js","line":17,"condition":"this.body.velocity.y > 0","watch":["this.body.velocity","dt"]}],"frames":300,"maxHits":20}`. Returns `hits`, `logs`, `errors`, `framesRun`, `truncated`. Use it instead of adding `console.log` and re-running. `docs_read {"name":"debugging"}`. |
@@ -1498,6 +1926,8 @@ Inside `script.eval`, the globals are the `"factoria"` names: `world`, `input`, 
 - `keys`: raw keys, `{"Space": true}` for down, `false` for up.
 - `mouse`: `{"position": [x, y], "left": true, "right": false, "middle": false}` in design pixels.
 - `gamepad`: `{"index": 0, "buttons": {"A": true, "DpadLeft": false}, "axes": {"LeftX": -1, "RightTrigger": 0.5}}`, or an array of those for several pads. `index` is 0 to 3 (default 0), `"connected": false` unplugs the pad. Buttons are `A B X Y Start Back Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes are `LeftX LeftY RightX RightY` (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). The state stays until a later frame sets it again, so set an axis back to 0 to release the stick.
+- `clipboard`: a string put on the (in-memory) clipboard before the frame; a focused TextField reads it when `keys` presses Ctrl+V.
+- `http`: an array of answers to the game's `http.fetch` calls from this frame on, first in first out: `{"result": {"status": 200, "headers": {}, "text": "{}"}}` or `{"error": "network", "message": "timed out", "hint": "Try again."}`. The headless run uses the fake backend, so a request nobody has an answer for is rejected with `network`. Editor play sessions record what the server said ([NETWORKING.md](NETWORKING.md), "Replays").
 - `touch`: `{"id": 1, "position": [x, y], "down": true}`, or an array for several fingers. `down` defaults to true: a new `id` begins a finger, a known `id` moves it; `"down": false` lifts it (`position` is not needed then). The first finger also drives the mouse, as on a device.
 
 ```json
@@ -1524,6 +1954,23 @@ The same format works with `factoria call --input` and `factoria session --input
 - Results differ between runs: look for `Math.random`, `Date.now`, or timing. Headless runs are deterministic only when those are absent.
 - Tool errors: a tool that throws `ToolError` returns `code` `tool_error`, the `message` and the `hint`. The hint is how to fix the data. Extra `data` appears in the JSON error of `factoria session` and `call --batch`, and as `e.data` on the Error that `fa.call` throws inside a script or test; MCP shows only the code, message and hint, so put the facts a fixer needs in the hint.
 
+### 11.4 REVIEW.md: make the game easy to review
+
+When the user asks for an art critique or a game review (editor AI panel, `factoria ai review`), read-only agents play the
+build in a few minutes and give a score ([AI_PROVIDERS.md](AI_PROVIDERS.md), "Reviews"). They can only look and play, so
+the game must show itself to them. Keep these in place as the game grows:
+
+- **`REVIEW.md` at the project root**, the note they read first. It is never exported. Sections: *How to play* (controls,
+  the goal, what a session looks like), *Status* (what is finished and what is a placeholder, so nobody judges a
+  placeholder as final), *Reach everything fast* (every scene, level and state and how to get there in one step),
+  *Bot-playable flows* (input replays or tests that play the first minutes, a whole level, the ending) and *Known issues*
+  (what not to report again).
+- **Every scene and state reachable in one call**: a boss, the shop, game over or the last level must not need an hour of
+  play. Name the way in REVIEW.md: scene paths for `scene_load`, a project tool in `tools/*.js`, a debug key or cheat
+  action, start-scene props, saved states under `review/`.
+- **Stable screenshots**: a fixed seed, and no random camera shake or fade at the moment a picture is taken.
+- **No debug overlay in normal play**: cheats and debug entry points live behind a key, an action or a tool that REVIEW.md names.
+
 ## 12. Common mistakes
 
 - Reading raw keys in gameplay. Declare an action in `factoria.json` and read the action.
@@ -1547,11 +1994,11 @@ The same format works with `factoria call --input` and `factoria session --input
 
 ## 13. Performance
 
-- Build a level with one `Tilemap` rather than hundreds of sprites. Its solid tiles become a small number of merged colliders.
+- Build a level with one `Tilemap` rather than hundreds of sprites. Its solid tiles become a small number of merged colliders. An isometric ground (`projection: "isometric"`) is also one Tilemap, not a sprite per cell (Tidewater Market went from about 2700 ground entities to one).
 - Use `burst` with `autoDestroy` for one-shot effects, and set `maxParticles` for continuous ones.
 - Look up entities once in `onStart` and keep the references. Calling `world.find` every frame adds up.
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
-- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`).
+- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep. Path finding over 3D ground (around walls, up ramps): a `NavMesh3D` component baked from the static colliders and `nav.findPath(from, to)` in scripts, see [NAVIGATION.md](NAVIGATION.md) (`docs_read {"name":"navigation"}`). 2D tile maps: `nav.findTilePath(map, from, to)` (A* over a Tilemap or your own cost grid) and `import { bt } from "factoria"` for behaviour trees, section 9.27.
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
 
 ## 14. Where to read more
@@ -1574,4 +2021,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - `factoria docs read ai-costs` (MCP `docs_read {"name":"ai-costs"}`): what a whole game cost in tokens and money
   (measured), what drives the cost, the `limits` that cap it and where to see what was spent. Tell the user when a
   task is going to be long or dear.
+- `factoria docs read analytics` (MCP `docs_read {"name":"analytics"}`): usage events sent after the player consents,
+  values read from your server with an offline cache, the menu kit's question, tests without a server and what to tell the
+  stores. `factoria docs read networking` has the `http.fetch` they stand on.
 - The project's `AGENTS.md`: short rules for this game.

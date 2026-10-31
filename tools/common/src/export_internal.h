@@ -31,6 +31,11 @@
 namespace fa::export_detail {
 
 namespace stdfs = std::filesystem;
+
+constexpr int kAtlasPadding = 2;  // pixels around each packed texture, filled by repeating its edge pixels
+// Draws `m` at (x, y) of `page` with `pad` pixels of its own edge repeated around it (export_textures.cpp).
+void blit_extruded(Image& page, const Image& m, int x, int y, int pad = kAtlasPadding);
+
 // Every file system call on the output folder goes through fs::os_path: an export lands deep (a macOS .app nests four
 // folders), and Windows refuses paths over MAX_PATH without its \\?\ prefix (docs/EXPORTING.md, "Long paths on Windows").
 using fs::os_path;
@@ -55,6 +60,7 @@ struct Project {
         std::string name;
         stdfs::path build;  // <plugin folder>/<platform> (plugin_build): what the export copies or links
     };
+    std::vector<std::string> pluginsLeftOut;  // allowMissingPlugins: the plugins whose build for this platform is missing
     std::vector<Plugin> plugins;             // the native plugins of the platform being exported
     std::vector<stdfs::path> pluginFolders;  // every plugin's folder: the ones inside the project stay out of game/
     // Shipped path -> the file copy_game copies instead of <dir>/<path>: what the asset steps converted (export_assets.cpp).
@@ -130,7 +136,7 @@ Result<std::string> select_sections(const std::string& text, bool source, const 
 
 Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platform);
 // The player must come from the same build as this factoria (fa/core/build_info.h): its fingerprint is read from the file's
-// bytes. A different one stops the export unless ExportOptions::allowPlayerMismatch (then `warnings` says so). Files that
+// bytes (the desktop executable, the web .wasm, the Android .so, the iOS .a). A different one stops the export unless ExportOptions::allowPlayerMismatch (then `warnings` says so). Files that
 // are no executable (a test's stand-in) and a factoria or player built outside git ("unknown") are not compared; the same
 // commit with "-dirty" on one side only is a warning.
 Result<void> check_player_build(const ExportOptions& o, const stdfs::path& player, const std::string& platform,
@@ -163,8 +169,10 @@ struct WebPlayer {
                        // "build" (a web build of the engine source)
 };
 
-// --player (a folder or factoria_player.js), else <factoria dir>/web, else `factoria setup players --platforms web`, else a
-// web build next to the factoria binary or in the checkout `sourceRoot`; an error that says how to get one.
+// --player (a folder or factoria_player.js), else the web player whose build fingerprint is this factoria's among
+// <factoria dir>/web, the web build in the checkout `sourceRoot` (build/web-release) and the one `factoria setup players
+// --platforms web` installed, else the first of those found (check_player_build then stops on the mismatch); an error that
+// says how to get one when there is none.
 Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sourceRoot);
 
 // <outRoot>/{index.html, factoria_player.js, factoria_player.wasm, game.pak}. The page is platforms/web/shell.html with its
@@ -301,5 +309,9 @@ Result<void> convert_shaders(ExportAssets& ea);
 Result<void> convert_textures(ExportAssets& ea);
 // Audio conversion and loudness by the import settings (export_audio.cpp).
 Result<void> convert_audio(ExportAssets& ea);
+// The built-in fonts the project names ("builtin:serif", ...): their files ship as builtin-fonts/<file> (export_fonts.cpp).
+Result<void> stage_builtin_fonts(ExportAssets& ea);
+// The names of those fonts, sorted: found in the project's scenes, prefabs, scripts, data files and factoria.json.
+std::vector<std::string> builtin_fonts_used(const Project& p, const std::vector<std::string>& files);
 
 }  // namespace fa::export_detail

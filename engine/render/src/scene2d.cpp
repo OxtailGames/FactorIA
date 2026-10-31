@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "fa/core/log.h"
+#include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/tilemap.h"
@@ -12,7 +13,25 @@
 
 namespace fa::render {
 
-bool entity_active(const World& w, Entity e) { return w.active_in_hierarchy(e); }
+bool entity_active(const World& w, Entity e) { return w.active_in_hierarchy(e) && !w.pending_destroy(e); }
+
+bool entity_active(const World& w, const Frame& f, Entity e) {
+    if (f.scopeRoot == kNullEntity) return entity_active(w, e);
+    if (!w.alive(e) || w.pending_destroy(e)) return false;
+    for (Entity x = e; x != kNullEntity; x = w.parent(x)) {
+        if (x == f.scopeRoot) return true;  // reached the subject: what is above it does not matter
+        if (!w.info(x).active) return false;
+    }
+    return false;  // not part of the subject
+}
+
+Color inherited_tint(const World& world, const Frame& f, Entity e) {
+    if (!f.anyTint) return Color{1, 1, 1, 1};
+    Color out{1, 1, 1, 1};
+    for (Entity x = e; x != kNullEntity; x = world.parent(x))
+        if (const Tint* t = world.get<Tint>(x)) out = out * t->color;
+    return out;
+}
 
 float matrix_scale_x(const Mat4& m) {
     return std::sqrt(m.at(0, 0) * m.at(0, 0) + m.at(0, 1) * m.at(0, 1) + m.at(0, 2) * m.at(0, 2));
@@ -35,6 +54,49 @@ void line_quad(const QuadEmitter& em, Vec2 a, Vec2 b, float t) {
         return Vertex2D{w.x, w.y, w.z, 0, 0, em.color, kModeTextured, 0};
     };
     em.list.quad(v(a + n), v(a - n), v(b - n), v(b + n));
+}
+
+// Rounded rectangle / circle drawn by the SDF shader path (mode kModeShape): corner radius, soft edge, gradient. `cx, cy` is
+// the centre and `hw, hh` the half size in local units. The quad is padded by half the softness: the soft edge fades from
+// inside the outline to that far outside it. Vertex fields: see Vertex2D and the header of shaders/quad.glsl.
+// `color2` is the packed gradient end colour; `rampRow` >= 0 reads the gradient from that row of the ramp texture instead
+// (gradient_ramp.h: the item's texture is the ramp texture, color2 holds the row).
+void sdf_shape(QuadEmitter& em, const Shape2D& s, float cx, float cy, float hw, float hh, float radius, float t,
+               std::uint32_t color2, int rampRow) {
+    const float soft = std::max(0.0f, s.softness);
+    const float pad = soft * 0.5f;
+    hw = std::max(hw, 1e-3f);
+    hh = std::max(hh, 1e-3f);
+    em.mode = float(kModeShape);
+    if (!s.filled) {
+        em.aux = -2.0f - std::clamp(t, 0.0f, std::min(hw, hh));  // outline of that thickness, growing inward
+    } else if (s.gradient == ShapeGradient::Linear) {
+        float a = std::fmod(radians(s.gradientAngle), kTau);
+        if (a < 0.0f) a += kTau;
+        em.aux = a;
+    } else if (s.gradient == ShapeGradient::Radial) {
+        em.aux = 10.0f;
+    } else {
+        em.aux = -1.0f;
+    }
+    std::uint32_t c2 = color2;
+    if (rampRow >= 0 && em.aux > -0.5f) {
+        em.aux += 20.0f;  // the shader reads the gradient from the ramp texture, row = color2.r
+        c2 = std::uint32_t(rampRow);
+    }
+    const std::uint16_t rb = float_to_half_bits(radius), sb = float_to_half_bits(soft);
+    const float ux = (hw + pad) / hw, uy = (hh + pad) / hh;
+    // rect() gives its (x0, y1) corner the uv (u0, v0): v0 is the uv of the top edge, so uv.y grows upwards like local y.
+    const std::size_t first = em.list.raw.size();
+    em.rect(cx - hw - pad, cy - hh - pad, cx + hw + pad, cy + hh + pad, -ux, uy, ux, -uy);
+    for (std::size_t i = first; i < em.list.raw.size(); ++i) {
+        Vertex2D& v = em.list.raw[i];
+        v.color2 = c2;
+        v.halfW = hw;
+        v.halfH = hh;
+        v.radius = rb;
+        v.softness = sb;
+    }
 }
 
 constexpr int kMaxPolygonTips = 64;                      // Shape2D.sides / .points limit
@@ -75,7 +137,12 @@ void polygon_shape(const QuadEmitter& em, const Vec2* p, int n, Vec2 centre, boo
 }
 
 // Screen-space anchoring: moves the entity's translation to the anchor point (the safe area when `safeArea`).
-void apply_anchor(Mat4& m, Vec2 anchor, bool safeArea, const World& world, const Frame& f) {
+// `mirrored` (ui_mirrored, ui.mirrorRtl): the mirror image, anchor.x and the translation x flipped; the caller flips the pivot.
+void apply_anchor(Mat4& m, Vec2 anchor, bool safeArea, const World& world, const Frame& f, bool mirrored = false) {
+    if (mirrored) {
+        anchor.x = 1.0f - anchor.x;
+        m.at(3, 0) = -m.at(3, 0);
+    }
     const Vec2 a = anchor_point(anchor, safeArea, Vec2{float(f.targetW), float(f.targetH)}, world.safe_insets());
     m.at(3, 0) += a.x;
     m.at(3, 1) += a.y;
@@ -86,9 +153,12 @@ bool axis_aligned(const Mat4& m) {
            std::fabs(m.at(1, 2)) < 1e-4f && std::fabs(m.at(2, 0)) < 1e-4f && std::fabs(m.at(2, 1)) < 1e-4f;
 }
 
-// The matrix a world-space visual is drawn with: its world matrix moved by Parallax.offset (screen space ignores it).
+// The matrix a world-space visual is drawn with: its world matrix moved by Parallax.offset (screen space ignores it). A
+// screen-space visual is authored in UI units, so its matrix is scaled by the interface scale (ui_rect.h) here, before the
+// anchor point (not scaled) is added: sizes, offsets and glyphs all grow, the anchor stays.
 Mat4 draw_matrix(const World& world, Entity e, bool screen) {
-    return screen ? world.world_matrix(e) : visual_world_matrix(world, e);
+    return screen ? Mat4::scale({ui_scale_clamped(world.ui_scale()), ui_scale_clamped(world.ui_scale()), 1.0f}) * world.world_matrix(e)
+                  : visual_world_matrix(world, e);
 }
 
 // The light frame of a lit quad: `right` and `up` are the directions the picture's right and top edges point to, in the
@@ -131,20 +201,33 @@ void update_parallax(World& world, Vec2 camPos) {
 
 namespace {
 
-// Collects the Light2D entities of the frame into f.lights2d: directional lights first, then point lights nearest to
-// the camera, at most kMaxLights2D.
+// Collects the Light2D entities of the frame into f.lights2d, at most kMaxLights2D: directional lights first, then the
+// point lights that light the view. A point light whose radius does not reach the camera's visible rectangle shades nothing
+// on screen: it is left out and counted as dropped. Among those in view the ones with more of their radius inside the
+// rectangle come first, then the more intense ones, then the nearest to the camera, so the lights over the budget are the
+// ones that matter least. Counts what it kept and dropped in the frame's stats, then gives the lights with castShadows
+// their shadow rows (light2d.cpp).
 void gather_lights(World& world, Frame& f) {
     f.lights2d.clear();
+    f.shadowData.clear();
+    f.shadowRows = 0;
     f.ambient2d = world.settings().ambientLight;
     struct Candidate {
         Light2DData data;
-        float key;  // -1 directional, else the squared distance to the camera
+        bool directional = false;
+        bool inView = true;
+        float inside = 1.0f;     // share of the light's bounding square (2 * radius) that is inside the view
+        float intensity = 0.0f;
+        float dist2 = 0.0f;      // squared distance to the camera
     };
     std::vector<Candidate> found;
     const Vec2 cam = f.cam.position.xy();
+    const Rect view = f.cam.visible;
+    const bool useView = !f.cam.perspective && view.w > 0.0f && view.h > 0.0f;
     world.each<Light2D>([&](Entity e, Light2D& l) {
         if (!entity_active(world, e) || l.intensity <= 0.0f) return;
         Candidate c{};
+        c.intensity = l.intensity;
         c.data.color[0] = l.color.r * l.intensity;
         c.data.color[1] = l.color.g * l.intensity;
         c.data.color[2] = l.color.b * l.intensity;
@@ -155,7 +238,7 @@ void gather_lights(World& world, Frame& f) {
             c.data.pos[1] = -std::sin(d) * std::cos(el);
             c.data.pos[2] = std::sin(el);
             c.data.pos[3] = -1.0f;
-            c.key = -1.0f;
+            c.directional = true;
         } else {
             if (l.radius <= 0.0f) return;
             const Vec3 p = world.world_matrix(e).translation();
@@ -163,41 +246,71 @@ void gather_lights(World& world, Frame& f) {
             c.data.pos[1] = p.y;
             c.data.pos[2] = std::max(l.height, 0.0f);
             c.data.pos[3] = l.radius;
-            c.key = (p.x - cam.x) * (p.x - cam.x) + (p.y - cam.y) * (p.y - cam.y);
+            c.data.extra[1] = l.castShadows ? 1.0f : 0.0f;
+            c.dist2 = (p.x - cam.x) * (p.x - cam.x) + (p.y - cam.y) * (p.y - cam.y);
+            if (useView) {
+                // The light must reach the rectangle itself; "inside" is its bounding square against the view.
+                const float cx = std::clamp(p.x, view.x, view.x + view.w), cy = std::clamp(p.y, view.y, view.y + view.h);
+                const float dx = p.x - cx, dy = p.y - cy;
+                c.inView = dx * dx + dy * dy < l.radius * l.radius;
+                const float ox = std::max(0.0f, std::min(p.x + l.radius, view.x + view.w) - std::max(p.x - l.radius, view.x));
+                const float oy = std::max(0.0f, std::min(p.y + l.radius, view.y + view.h) - std::max(p.y - l.radius, view.y));
+                c.inside = ox * oy / (4.0f * l.radius * l.radius);
+            }
         }
         found.push_back(c);
     });
-    std::stable_sort(found.begin(), found.end(), [](const Candidate& a, const Candidate& b) { return a.key < b.key; });
-    if (found.size() > std::size_t(kMaxLights2D)) found.resize(std::size_t(kMaxLights2D));
+    std::stable_sort(found.begin(), found.end(), [](const Candidate& a, const Candidate& b) {
+        if (a.directional != b.directional) return a.directional;
+        if (a.directional) return false;
+        if (a.inView != b.inView) return a.inView;
+        if (a.inside != b.inside) return a.inside > b.inside;
+        if (a.intensity != b.intensity) return a.intensity > b.intensity;
+        return a.dist2 < b.dist2;
+    });
+    int inViewCount = 0;
+    for (const Candidate& c : found) inViewCount += (c.directional || c.inView) ? 1 : 0;
+    const int total = int(found.size());
+    // The off-view lights come last and shade nothing on screen, so they never take a place.
+    found.resize(std::size_t(std::min(inViewCount, kMaxLights2D)));
     for (const Candidate& c : found) f.lights2d.push_back(c.data);
+    if (f.stats) {
+        f.stats->lights2d += int(f.lights2d.size());
+        f.stats->lights2dDropped += total - int(f.lights2d.size());
+    }
+    if (inViewCount > kMaxLights2D && f.warnedLights2d && !*f.warnedLights2d) {
+        *f.warnedLights2d = true;
+        FA_WARN("render", "{} Light2D lights are in view but a frame shades at most {}; the others (the ones with the least of "
+                "their radius in view, then the dimmest) are left out. Use fewer or smaller lights, or move them out of view",
+                inViewCount, kMaxLights2D);
+    }
+    assign_shadow_rows(world, f);
 }
 
+}  // namespace
+
+namespace {
+// The plan of an animator for this frame: the sheet entry of its texture is looked up once per texture per frame.
+SpriteAnimPlan animator_plan(Frame& f, const SpriteAnimator& a, const std::string& texture) {
+    if (texture.empty()) return resolve_sprite_animator(a, texture, nullptr);
+    auto it = f.sheets.find(texture);
+    if (it == f.sheets.end()) it = f.sheets.emplace(texture, assets::sheet(texture)).first;
+    return resolve_sprite_animator(a, texture, it->second);
+}
 }  // namespace
 
 void update_animators(World& world, Frame& f, bool advance) {
     const float dt = advance ? f.dt : 0.0f;
     world.each<SpriteAnimator, Sprite>([&](Entity e, SpriteAnimator& a, Sprite& s) {
-        if (!entity_active(world, e)) return;
-        int count = std::max(1, a.lastFrame - a.firstFrame + 1);
-        if (a.playing && dt > 0) {
-            a.time += dt;
-            int n = int(std::floor(a.time * std::max(0.0f, a.fps)));
-            if (a.loop) {
-                a.frame = a.firstFrame + (n % count);
-            } else if (n >= count) {
-                a.frame = a.lastFrame;
-                a.playing = false;
-            } else {
-                a.frame = a.firstFrame + n;
-            }
-        } else if (a.frame < a.firstFrame || a.frame > a.lastFrame) {
-            a.frame = a.firstFrame;
-        }
+        if (!entity_active(world, f, e)) return;
+        const SpriteAnimPlan plan = animator_plan(f, a, s.texture);
+        if (!plan.error.empty() && f.warnedSpriteClip && f.warnedSpriteClip->insert(world.id_of(e) + "|" + a.clip).second)
+            FA_WARN("render", "entity '{}': {}", world.id_of(e), plan.error);
+        // The draw pass (advance false) only re-applies the frame; the clip events belong to the step that reached the end.
+        const bool ended = sprite_animator_step(a, plan, dt);
+        if (ended && advance) world.events().game.push_back(GameEvent{"clipEnded", Json::object({{"id", world.id_of(e)}, {"clip", a.clip}}), e});
         TextureAsset* tex = f.assets->texture(s.texture);
-        int cols = std::max(1, a.columns), rows = std::max(1, a.rows);
-        float fw = float(tex->width) / float(cols), fh = float(tex->height) / float(rows);
-        int fr = std::max(0, a.frame);
-        s.region = Rect{float(fr % cols) * fw, float((fr / cols) % rows) * fh, fw, fh};
+        s.region = sprite_frame_rect(plan, a.frame, tex->width, tex->height);
     });
 }
 
@@ -205,12 +318,22 @@ void gather_2d(World& world, Frame& f) {
     Assets& assets = *f.assets;
     auto pick = [&](RenderSpace sp) -> QuadList& { return sp == RenderSpace::Screen ? f.screen : f.world; };
 
-    update_parallax(world, f.cam.position.xy());
-    gather_lights(world, f);
+    f.anyTint = !world.entities_with(&World::type_of<Tint>()).empty();
+    if (f.wantWorld) {
+        update_parallax(world, f.cam.position.xy());
+        gather_lights(world, f);
+    }
+
+    // A SpriteSkin that has not recorded its bind pose yet does it now, at the pose the bones have (the engine already did it at
+    // the start of the step; this covers a scene drawn without stepping, e.g. a screenshot of a freshly loaded scene).
+    if (!world.entities_with(&World::type_of<SpriteSkin>()).empty()) bind_pending_skins(world);
 
     // ---- sprites ----
     world.each<Sprite>([&](Entity e, Sprite& s) {
-        if (!entity_active(world, e) || s.color.a <= 0.0f) return;
+        if (!entity_active(world, f, e) || s.color.a <= 0.0f) return;
+        if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
+        const Color spriteColor = s.color * inherited_tint(world, f, e);
+        if (spriteColor.a <= 0.0f) return;
         TextureAsset* tex = assets.texture(s.texture);
         Rect r = s.region;
         if (r.w <= 0 || r.h <= 0) r = Rect{0, 0, float(tex->width), float(tex->height)};
@@ -223,18 +346,104 @@ void gather_2d(World& world, Frame& f) {
         Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
-        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f);
+        const bool mirrored = screen && ui_mirrored(world, e);
+        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, mirrored);
         QuadList& list = pick(s.space);
         list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend, clip);
         const bool lit = s.lit && !screen;
         if (lit) list.set_lit(s.normalMap.empty() ? nullptr : assets.texture(s.normalMap));
         const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
-        const float bx0 = -s.pivot.x * size.x, bx1 = (1 - s.pivot.x) * size.x, by0 = -s.pivot.y * size.y, by1 = (1 - s.pivot.y) * size.y;
+        Vec2 spritePivot = s.pivot;
+        if (const SpriteAnimator* anim = world.get<SpriteAnimator>(e)) spritePivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
+        const float pivotX = mirrored ? 1.0f - spritePivot.x : spritePivot.x;
+        const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -spritePivot.y * size.y, by1 = (1 - spritePivot.y) * size.y;
+        // A deformable sprite (meshColumns x meshRows cells, vertexOffsets) and the shear (skew). Both leave the pivot where it is.
+        int meshCols = 0, meshRows = 0;
+        std::vector<float> meshOffsets, meshColors;
+        if (sprite_mesh_grid(s, meshCols, meshRows)) {
+            meshOffsets = sprite_vertex_offsets(s, meshCols, meshRows);
+            meshColors = sprite_vertex_colors(s, meshCols, meshRows);
+            if (meshColors.empty() && f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
+                if (const std::string problem = sprite_vertex_colors_problem(s); !problem.empty()) {
+                    *f.warnedSpriteMesh = true;
+                    FA_WARN("render", "on '{}': {}. The colours are ignored.", world.info(e).name, problem);
+                }
+            }
+        } else if (s.meshColumns > 0 && s.meshRows > 0 && f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
+            *f.warnedSpriteMesh = true;
+            FA_WARN("render", "Sprite meshColumns {} x meshRows {} on '{}' is more than {} cells (at most {} columns, {} rows): it is "
+                    "drawn as a plain quad. Use fewer cells; 16 x 1 bends a page, 8 x 8 a flag.",
+                    s.meshColumns, s.meshRows, world.info(e).name, kMaxSpriteMeshCells, kMaxSpriteMeshSide, kMaxSpriteMeshSide);
+        }
+        // A skinned sprite (SpriteSkin): the mesh is built from the bones on the CPU into the same vertex stream, so it batches like
+        // a mesh sprite. World space only; a screen-space sprite with a SpriteSkin draws as the plain mesh/quad.
+        SkinMesh skinMesh;
+        bool skinned = false;
+        if (!screen && world.has<SpriteSkin>(e)) {
+            std::string problem;
+            skinned = build_skin_mesh(world, e, s, SkinBox{bx0, by0, bx1, by1}, skinMesh, &problem);
+            if (!problem.empty()) {
+                SpriteSkin* skin = world.get<SpriteSkin>(e);
+                if (skin && !skin->warned) {
+                    skin->warned = true;
+                    FA_WARN("render", "{} (reported once)", problem);
+                }
+            }
+            if (skinned) meshCols = 0;  // the skin replaces the plain mesh
+        }
+        const bool skewed = s.skew.x != 0.0f || s.skew.y != 0.0f;
+        const Mat4 shear = skewed ? sprite_shear_matrix(s.skew) : Mat4::identity();
 
         // One copy of the sprite drawn with matrix `mm`.
-        auto draw = [&](const Mat4& mm) {
-            QuadEmitter em{list, mm, screen, pack_color(s.color), kModeTextured, 0};
+        auto draw = [&](const Mat4& placed) {
+            const Mat4 mm = skewed ? placed * shear : placed;
+            QuadEmitter em{list, mm, screen, pack_color(spriteColor), kModeTextured, 0};
             if (lit) set_light_frame(em, mm, {s.flipX ? -1.0f : 1.0f, 0.0f}, {0.0f, s.flipY ? -1.0f : 1.0f});
+            if (skinned) {
+                // The cells of the deformed skin mesh: each vertex shows the fraction of the region it was cut from.
+                const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
+                float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
+                if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
+                if (s.flipX) std::swap(u0, u1);
+                if (s.flipY) std::swap(v0, v1);
+                auto vert = [&](std::uint32_t i) {
+                    const Vec2 pos = skinMesh.position[i], fr = skinMesh.uv[i];
+                    const Vec3 p = em.xf(pos.x, pos.y);
+                    return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fr.x, v0 + (v1 - v0) * fr.y, em.color, em.mode, em.aux};
+                };
+                for (const auto& q : skinMesh.quads) list.quad(vert(q[0]), vert(q[1]), vert(q[2]), vert(q[3]));
+                return;
+            }
+            if (meshCols > 0) {
+                // A grid of cells: vertex (c, r) lies c / meshCols across and r / meshRows down the sprite box (row 0 = the top
+                // edge), moved by its offset; each cell is a quad that shows the matching part of the region.
+                const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
+                float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
+                if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
+                if (s.flipX) std::swap(u0, u1);
+                if (s.flipY) std::swap(v0, v1);
+                const std::size_t stride = std::size_t(meshCols) + 1;
+                auto vert = [&](int c, int rw) {
+                    const float fx = float(c) / float(meshCols), fy = float(rw) / float(meshRows);
+                    float x = bx0 + (bx1 - bx0) * fx, y = by1 + (by0 - by1) * fy;
+                    if (!meshOffsets.empty()) {
+                        const std::size_t k = (std::size_t(rw) * stride + std::size_t(c)) * 2;
+                        x += meshOffsets[k];
+                        y += meshOffsets[k + 1];
+                    }
+                    const Vec3 p = em.xf(x, y);
+                    std::uint32_t col = em.color;
+                    if (!meshColors.empty()) {
+                        const std::size_t k = (std::size_t(rw) * stride + std::size_t(c)) * 4;
+                        col = pack_color(spriteColor * Color{meshColors[k], meshColors[k + 1], meshColors[k + 2], meshColors[k + 3]});
+                    }
+                    return Vertex2D{p.x, p.y, p.z, u0 + (u1 - u0) * fx, v0 + (v1 - v0) * fy, col, em.mode, em.aux};
+                };
+                for (int rw = 0; rw < meshRows; ++rw)
+                    for (int c = 0; c < meshCols; ++c)
+                        list.quad(vert(c, rw), vert(c, rw + 1), vert(c + 1, rw + 1), vert(c + 1, rw));
+                return;
+            }
             if (nine) {
                 // 9-slice: the borders keep their texture size (1 pixel = 1 unit), the rest stretches. Geometry is laid out
                 // unflipped from the top row down, then mirrored about the sprite box for flipX / flipY.
@@ -301,24 +510,59 @@ void gather_2d(World& world, Frame& f) {
 
     // ---- shapes ----
     world.each<Shape2D>([&](Entity e, Shape2D& s) {
-        if (!entity_active(world, e) || s.color.a <= 0.0f) return;
+        // Invisible only when every colour the shape draws with is transparent: a gradient fill also uses color2 (the
+        // documented vignette starts at alpha 0 and ends opaque).
+        const bool usesColor2 = s.filled && s.gradient != ShapeGradient::None;
+        if (!entity_active(world, f, e)) return;
+        if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
+        const Color tint = inherited_tint(world, f, e);
+        Color color1 = s.color * tint, color2 = s.color2 * tint;
+        // A gradient with stops or an easing is read from a row of the ramp texture (gradient_ramp.h); only the shapes the SDF
+        // path draws (rectangle, circle) have a gradient.
+        GradientSpec spec;
+        int rampRow = -1;
+        const bool rampShape = usesColor2 && (s.shape == ShapeType::Rectangle || s.shape == ShapeType::Circle);
+        if (rampShape) {
+            std::string problem;
+            if (gradient_spec(s, tint, spec, &problem)) {
+                if (!problem.empty() && f.warnedGradientStops && !*f.warnedGradientStops) {
+                    *f.warnedGradientStops = true;
+                    FA_WARN("render", "{} (entity '{}'; reported once per scene)", problem, world.info(e).name);
+                }
+                if (f.ramps) rampRow = f.ramps->acquire(spec);
+                if (rampRow < 0) {  // no ramp room (all rows used by this frame's shapes): the first and last stop, blended linearly
+                    color1 = spec.color[0];
+                    color2 = spec.color[std::size_t(spec.count - 1)];
+                }
+            }
+        }
+        bool visible = color1.a > 0.0f || (usesColor2 && color2.a > 0.0f);
+        if (rampRow >= 0)
+            for (int i = 0; i < spec.count; ++i) visible = visible || spec.color[std::size_t(i)].a > 0.0f;
+        if (!visible) return;
         bool screen = s.space == RenderSpace::Screen;
         Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
-        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f);
+        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, screen && ui_mirrored(world, e));
+        if (screen && ui_mirrored(world, e)) m = m * Mat4::scale({-1.0f, 1.0f, 1.0f});  // every shape is symmetric about its box, but a line
         QuadList& list = pick(s.space);
-        list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
+        if (rampRow >= 0) list.begin_item(s.layer, secondary_key(f, m, false), f.ramps->texture(), SamplerKind::LinearClamp, s.blend, clip);
+        else list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
         if (s.lit && !screen) list.set_lit(nullptr);
-        QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
+        QuadEmitter em{list, m, screen, pack_color(color1), kModeTextured, 0};
         // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
         float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
         float by0 = -s.pivot.y * s.size.y, by1 = by0 + s.size.y;
         float hw = s.size.x * 0.5f, hh = s.size.y * 0.5f;
         float t = std::max(0.0f, s.thickness);
+        // Rounded corners, a soft edge or a gradient go through the SDF shader; plain shapes keep the batched fast path.
+        const bool fx = s.softness > 0.0f || (s.filled && s.gradient != ShapeGradient::None);
         switch (s.shape) {
             case ShapeType::Rectangle:
-                if (s.filled) {
+                if (fx || s.cornerRadius > 0.0f) {
+                    sdf_shape(em, s, bx0 + hw, by0 + hh, hw, hh, std::min(s.cornerRadius, std::min(hw, hh)), t, pack_color(color2), rampRow);
+                } else if (s.filled) {
                     em.rect(bx0, by0, bx1, by1, 0, 0, 1, 1);
                 } else {
                     t = std::min(t, std::min(hw, hh));
@@ -331,6 +575,10 @@ void gather_2d(World& world, Frame& f) {
             case ShapeType::Circle: {
                 float r = hw;  // diameter = size.x; the pivot refers to the circle's bounding square
                 float cx = bx0 + r, cy = -s.pivot.y * s.size.x + r;
+                if (fx) {
+                    sdf_shape(em, s, cx, cy, r, r, r, t, pack_color(color2), rampRow);
+                    break;
+                }
                 em.mode = float(s.filled ? kModeCircle : kModeRing);
                 em.aux = s.filled ? 0.0f : std::clamp(1.0f - t / std::max(r, 1e-4f), 0.0f, 1.0f);
                 em.rect(cx - r, cy - r, cx + r, cy + r, -1, -1, 1, 1);
@@ -377,10 +625,13 @@ void gather_2d(World& world, Frame& f) {
 
     // ---- tilemaps ----
     world.each<Tilemap>([&](Entity e, Tilemap& tm) {
-        if (!entity_active(world, e) || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return;
-        // The same grid 2D physics collides with (rows form: the rows; flat form: width/height).
-        const TilemapGrid grid = tilemap_grid(tm);
+        if (!f.wantWorld || !entity_active(world, f, e) || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return;
+        // The same size 2D physics collides with (rows form: the rows; flat form: width/height). The tiles are read in
+        // place from the component each frame: nothing is copied out of the Json.
+        const TilemapSize grid = tilemap_size(tm);
         if (grid.empty()) return;
+        const Color tmColor = tm.color * inherited_tint(world, f, e);
+        if (f.anyTint && tmColor.a <= 0.0f) return;  // a Tint that hides the map
         const int w = grid.width, h = grid.height;
         TextureAsset* tex = assets.texture(tm.tileset);
         float tw = tm.tileSize.x, th = tm.tileSize.y;
@@ -390,23 +641,57 @@ void gather_2d(World& world, Frame& f) {
         QuadList& list = f.world;
         list.begin_item(tm.layer, secondary_key(f, m, false), tex, SamplerKind::Nearest);
         if (tm.lit) list.set_lit(tm.normalMap.empty() ? nullptr : assets.texture(tm.normalMap));
-        QuadEmitter em{list, m, false, pack_color(tm.color), kModeTextured, 0};
+        QuadEmitter em{list, m, false, pack_color(tmColor), kModeTextured, 0};
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
         bool cull = !f.cam.perspective;
         Rect view = f.cam.visible;
         view.x -= 1; view.y -= 1; view.w += 2; view.h += 2;
-        for (int r = 0; r < h; ++r) {
-            for (int c = 0; c < w; ++c) {
-                const int value = grid.tiles[std::size_t(r) * std::size_t(w) + std::size_t(c)];
+        // An isometric map is drawn row by row from the top corner: back to front, so a tile covers the edge of the ones
+        // behind it. Its tiles are diamonds placed by tilemap_cell_center(); the picture hangs from the diamond's top corner
+        // by groundOffset (a taller picture shows the side of a block, or a tree that rises above the ground).
+        const bool iso = tilemap_isometric(tm);
+        const float isoHw = tw * 0.5f, isoHh = tilemap_ground_height(tm) * 0.5f;
+        int c0 = 0, c1 = w - 1, r0 = 0, r1 = h - 1;
+        if (iso && cull) {
+            // The cells whose picture can reach the view: the view's corners in cell space, widened by the picture's extent.
+            float lm[4];
+            tilemap_local_to_cell(tm, lm);
+            const Mat4 inv = m.inverse();
+            float minA = 1e30f, maxA = -1e30f, minB = 1e30f, maxB = -1e30f;
+            // The view grows by one picture (tw, th) in every direction, so a picture centred outside still counts.
+            const Rect wide{view.x - tw, view.y - th, view.w + 2 * tw, view.h + 2 * th};
+            for (int k = 0; k < 4; ++k) {
+                const Vec3 q = inv.transform_point({wide.x + ((k & 1) ? wide.w : 0.0f), wide.y + ((k & 2) ? wide.h : 0.0f), 0.0f});
+                const float a = lm[0] * q.x + lm[1] * q.y, b = lm[2] * q.x + lm[3] * q.y;
+                minA = std::min(minA, a); maxA = std::max(maxA, a);
+                minB = std::min(minB, b); maxB = std::max(maxB, b);
+            }
+            if (std::isfinite(minA + maxA + minB + maxB)) {
+                c0 = std::max(0, int(std::floor(minA)) - 1); c1 = std::min(w - 1, int(std::ceil(maxA)) + 1);
+                r0 = std::max(0, int(std::floor(minB)) - 1); r1 = std::min(h - 1, int(std::ceil(maxB)) + 1);
+            }
+        }
+        for (int r = r0; r <= r1; ++r) {
+            for (int c = c0; c <= c1; ++c) {
+                const int value = tilemap_tile_at(tm, grid, c, r);
                 if (value < 0) continue;
                 const int idx = tile_index(value), flags = tile_flags(value);
-                float x0 = float(c) * tw, y1 = -float(r) * th, x1 = x0 + tw, y0 = y1 - th;
+                float x0, x1, y0, y1;
+                if (iso) {
+                    x0 = float(c - r) * isoHw - isoHw;
+                    x1 = x0 + tw;
+                    y1 = -float(c + r) * isoHh + tm.groundOffset;
+                    y0 = y1 - th;
+                } else {
+                    x0 = float(c) * tw; y1 = -float(r) * th; x1 = x0 + tw; y0 = y1 - th;
+                }
                 if (cull) {
                     Vec3 a = em.xf(x0, y0), b = em.xf(x1, y1);
                     Rect box{std::min(a.x, b.x), std::min(a.y, b.y), std::fabs(a.x - b.x), std::fabs(a.y - b.y)};
                     if (!box.overlaps(view)) continue;
                 }
-                float px = float(idx % cols) * tw, py = float(idx / cols) * th;
+                float px = float(tm.margin) + float(idx % cols) * (tw + float(tm.spacing));
+                float py = float(tm.margin) + float(idx / cols) * (th + float(tm.spacing));
                 if (tm.lit) {  // a turned tile turns its normals with it
                     Vec2 right, up;
                     tile_axes(flags, right, up);
@@ -430,10 +715,59 @@ void gather_2d(World& world, Frame& f) {
     });
 
     // ---- text ----
+    // Text.lit: the 3D lights, gathered the first time a lit Text is drawn this frame.
+    struct TextLight { int type; Vec3 pos; Vec3 dir; Vec3 color; float range, cosOuter; };
+    std::vector<TextLight> textLights;
+    bool textLightsGathered = false;
+    // What a flat surface at `pos` facing `normal` receives: SceneSettings.ambientLight + the Lambert term of every Light with the
+    // mesh shader's fall-off (mesh_common.glsl), once per Text.
+    auto text_light_factor = [&](Vec3 pos, Vec3 normal) {
+        if (!textLightsGathered) {
+            textLightsGathered = true;
+            world.each<Light>([&](Entity le, Light& l) {
+                if (!entity_active(world, le)) return;
+                const Mat4 lm = world.world_matrix(le);
+                const Vec3 d = normalize(lm.transform_dir(kForward));
+                textLights.push_back({int(l.type == LightType::Directional ? 0 : l.type == LightType::Point ? 1 : 2), lm.translation(), d,
+                                      Vec3{l.color.r, l.color.g, l.color.b} * l.intensity, l.range, std::cos(radians(l.spotAngle))});
+            });
+        }
+        const Color amb = world.settings().ambientLight;
+        Vec3 total{amb.r, amb.g, amb.b};
+        for (const TextLight& l : textLights) {
+            Vec3 toLight = -l.dir;
+            float atten = 1.0f;
+            if (l.type != 0) {
+                const Vec3 d = l.pos - pos;
+                const float dist = length(d);
+                toLight = d / std::max(dist, 1e-4f);
+                const float range = std::max(l.range, 1e-3f), q = dist / range;
+                const float x = std::clamp(1.0f - q * q, 0.0f, 1.0f);
+                atten = x * x;
+                if (l.type == 2) {
+                    const float ca = dot(-toLight, l.dir);
+                    const float t = std::clamp((ca - l.cosOuter) / std::max(0.25f * (1.0f - l.cosOuter), 1e-6f), 0.0f, 1.0f);
+                    atten *= t * t * (3.0f - 2.0f * t);
+                }
+            }
+            total += l.color * (std::max(dot(normal, toLight), 0.0f) * atten);
+        }
+        return Color{std::min(total.x, 1.0f), std::min(total.y, 1.0f), std::min(total.z, 1.0f), 1.0f};
+    };
     world.each<Text>([&](Entity e, Text& t) {
-        if (!entity_active(world, e) || t.text.empty() || t.color.a <= 0.0f || t.fontSize <= 0.0f) return;
+        if (!entity_active(world, f, e) || t.text.empty() || t.color.a <= 0.0f || t.fontSize <= 0.0f) return;
+        Color textTint = inherited_tint(world, f, e);
+        if (textTint.a <= 0.0f) return;
+        if (t.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
         bool screen = t.space == RenderSpace::Screen;
         Mat4 m = draw_matrix(world, e, screen);
+        if (t.lit && !screen && !f.cam.studio) {
+            // The text is a flat surface whose front is its local +Z; seen from behind, the side facing the camera is lit.
+            Vec3 n = normalize(m.transform_dir(Vec3{0, 0, 1}));
+            const Vec3 pos = m.translation();
+            if (dot(n, f.cam.position - pos) < 0.0f) n = -n;
+            textTint = textTint * text_light_factor(pos, n);
+        }
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
         float scale = matrix_scale_x(m);
@@ -441,7 +775,7 @@ void gather_2d(World& world, Frame& f) {
         if (screen) ppu = f.renderScale;
         else if (f.cam.perspective) {
             float dist = std::max(0.1f, length(m.translation() - f.cam.position));
-            ppu = (float(f.targetH) * 0.5f) / (std::tan(radians(f.cam.fov) * 0.5f) * dist);
+            ppu = (float(f.targetH) * f.cam.viewport.h * 0.5f) / (std::tan(radians(f.cam.fov) * 0.5f) * dist);
         } else ppu = f.cam.pixelsPerUnit;
         float eff = ppu * scale * (screen ? 1.0f : f.renderScale);
         // Layout in LOCAL units (the entity scale is applied by the matrix), so the raster size uses eff. Screen-space Text
@@ -449,18 +783,24 @@ void gather_2d(World& world, Frame& f) {
         // align start / end are the edges of the current language's direction; the font layer only knows left / right.
         Text resolved;
         const Text* drawn = &t;
-        if (t.align == Align::Start || t.align == Align::End) {
+        const bool mirrored = screen && ui_mirrored(world, e);
+        const TextDirection dir = world.language().empty() ? t.direction : text_paragraph_direction(t, world.rtl());
+        if (t.align == Align::Start || t.align == Align::End || mirrored || dir != t.direction) {
             resolved = t;
-            resolved.align = (t.align == Align::Start) != world.rtl() ? Align::Left : Align::Right;
+            if (t.align == Align::Start || t.align == Align::End)
+                resolved.align = (t.align == Align::Start) != text_starts_right(t, world.rtl()) ? Align::Left : Align::Right;
+            if (mirrored) resolved.pivot.x = 1.0f - t.pivot.x;
+            resolved.direction = dir;
             drawn = &resolved;
         }
         // The size comes from fit_text (text_fit.h): the player's text size capped by maxTextScale, shrunk by autoShrink.
-        const TextExtent extent = frame_text_extent(f);
+        const TextExtent extent = frame_text_extent(f, screen ? f.uiScale : 1.0f);
         const float px = t.autoShrink ? fit_text(text_fit_spec(t), t.text, t.font, f.textScale, extent).px
                                       : t.fontSize * (screen ? effective_text_scale(f.textScale, t.maxTextScale) : 1.0f);
         TextLayout lay = f.fonts->layout(*drawn, px, eff);
-        if (lay.quads.empty()) return;
-        if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f);
+        if (lay.quads.empty() && lay.icons.empty()) return;
+        if (t.visibleCharacters == 0) return;
+        if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f, mirrored);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
         if ((screen || !f.cam.perspective) && axis_aligned(m)) {
             float ox = screen ? 0.0f : f.cam.visible.x, oy = screen ? 0.0f : f.cam.visible.y;
@@ -468,12 +808,8 @@ void gather_2d(World& world, Frame& f) {
             m.at(3, 0) = std::round((m.at(3, 0) - ox) * k) / k + ox;
             m.at(3, 1) = std::round((m.at(3, 1) - oy) * k) / k + oy;
         }
-        QuadList& list = pick(t.space);
-        list.begin_item(t.layer, secondary_key(f, m, false), f.fonts->atlas(), SamplerKind::Linear, BlendMode::Alpha, clip);
-        QuadEmitter em{list, m, screen, pack_color(t.color), kModeGlyph, 0};
-        for (const auto& q : lay.quads) em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);
-        list.end_item();
-        f.stats->textGlyphs += int(lay.quads.size());
+        f.stats->textGlyphs += emit_text(pick(t.space), m, screen, lay, t.color * textTint, *f.fonts, assets, t.layer,
+                                         secondary_key(f, m, false), clip, t.visibleCharacters, textTint);
     });
 }
 
@@ -509,47 +845,52 @@ void gather_debug(DebugDrawData& dd, Frame& f) {
         if (persp) gl_line(a, b, c); else quad_line(a, b, c, thick);
     };
 
-    for (const auto& l : dd.lines) line(l.a, l.b, l.c, l.thickness);
-    for (const auto& r : dd.rects) {
-        if (r.filled) {
-            wl.begin_item(0, 0, assets.white(), SamplerKind::Nearest);
-            QuadEmitter em{wl, Mat4::identity(), false, pack_color(r.c), kModeTextured, 0};
-            em.rect(r.r.x, r.r.y, r.r.x + r.r.w, r.r.y + r.r.h, 0, 0, 1, 1);
-            wl.end_item();
-        } else {
-            Vec3 a{r.r.x, r.r.y, 0}, b{r.r.x + r.r.w, r.r.y, 0}, c{r.r.x + r.r.w, r.r.y + r.r.h, 0}, d{r.r.x, r.r.y + r.r.h, 0};
-            line(a, b, r.c, 1); line(b, c, r.c, 1); line(c, d, r.c, 1); line(d, a, r.c, 1);
+    // The world-space drawings go into every camera's frame, the screen-space text only into the frame of the screen.
+    if (f.wantWorld) {
+        for (const auto& l : dd.lines) line(l.a, l.b, l.c, l.thickness);
+        for (const auto& r : dd.rects) {
+            if (r.filled) {
+                wl.begin_item(0, 0, assets.white(), SamplerKind::Nearest);
+                QuadEmitter em{wl, Mat4::identity(), false, pack_color(r.c), kModeTextured, 0};
+                em.rect(r.r.x, r.r.y, r.r.x + r.r.w, r.r.y + r.r.h, 0, 0, 1, 1);
+                wl.end_item();
+            } else {
+                Vec3 a{r.r.x, r.r.y, 0}, b{r.r.x + r.r.w, r.r.y, 0}, c{r.r.x + r.r.w, r.r.y + r.r.h, 0}, d{r.r.x, r.r.y + r.r.h, 0};
+                line(a, b, r.c, 1); line(b, c, r.c, 1); line(c, d, r.c, 1); line(d, a, r.c, 1);
+            }
         }
-    }
-    for (const auto& c : dd.circles) {
-        if (c.filled && !persp) {
-            wl.begin_item(0, 0, assets.white(), SamplerKind::Nearest);
-            QuadEmitter em{wl, Mat4::identity(), false, pack_color(c.c), kModeCircle, 0};
-            em.rect(c.center.x - c.radius, c.center.y - c.radius, c.center.x + c.radius, c.center.y + c.radius, -1, -1, 1, 1);
-            wl.end_item();
-        } else {
-            const int seg = 48;
-            for (int i = 0; i < seg; ++i) {
-                float a0 = float(i) / seg * kTau, a1 = float(i + 1) / seg * kTau;
-                line({c.center.x + std::cos(a0) * c.radius, c.center.y + std::sin(a0) * c.radius, 0},
-                     {c.center.x + std::cos(a1) * c.radius, c.center.y + std::sin(a1) * c.radius, 0}, c.c, 1);
+        for (const auto& c : dd.circles) {
+            if (c.filled && !persp) {
+                wl.begin_item(0, 0, assets.white(), SamplerKind::Nearest);
+                QuadEmitter em{wl, Mat4::identity(), false, pack_color(c.c), kModeCircle, 0};
+                em.rect(c.center.x - c.radius, c.center.y - c.radius, c.center.x + c.radius, c.center.y + c.radius, -1, -1, 1, 1);
+                wl.end_item();
+            } else {
+                const int seg = 48;
+                for (int i = 0; i < seg; ++i) {
+                    float a0 = float(i) / seg * kTau, a1 = float(i + 1) / seg * kTau;
+                    line({c.center.x + std::cos(a0) * c.radius, c.center.y + std::sin(a0) * c.radius, 0},
+                         {c.center.x + std::cos(a1) * c.radius, c.center.y + std::sin(a1) * c.radius, 0}, c.c, 1);
+                }
             }
         }
     }
     // Text (screen space, top-left origin).
-    for (const auto& t : dd.texts) {
-        Text tx;
-        tx.text = t.text;
-        tx.fontSize = t.size;
-        tx.color = t.c;
-        tx.pivot = {0, 1};
-        TextLayout lay = f.fonts->layout(tx, t.size, f.renderScale);  // a developer overlay: the text scale does not apply
-        f.debugScreen.begin_item(0, 0, f.fonts->atlas(), SamplerKind::Linear);
-        QuadEmitter em{f.debugScreen, Mat4::translate({std::round(t.pos.x), std::round(t.pos.y), 0}), true,
-                       pack_color(t.c), kModeGlyph, 0};
-        for (const auto& q : lay.quads) em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);
-        f.debugScreen.end_item();
-        f.stats->textGlyphs += int(lay.quads.size());
+    if (f.wantScreen) {
+        for (const auto& t : dd.texts) {
+            Text tx;
+            tx.text = t.text;
+            tx.fontSize = t.size;
+            tx.color = t.c;
+            tx.pivot = {0, 1};
+            TextLayout lay = f.fonts->layout(tx, t.size, f.renderScale);  // a developer overlay: the text scale does not apply
+            f.debugScreen.begin_item(0, 0, f.fonts->atlas(), SamplerKind::Linear);
+            QuadEmitter em{f.debugScreen, Mat4::translate({std::round(t.pos.x), std::round(t.pos.y), 0}), true,
+                           pack_color(t.c), kModeGlyph, 0};
+            for (const auto& q : lay.quads) em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);
+            f.debugScreen.end_item();
+            f.stats->textGlyphs += int(lay.quads.size());
+        }
     }
 }
 

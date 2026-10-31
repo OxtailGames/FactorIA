@@ -1,0 +1,93 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Ending",
+    "components": {
+      "Transform": {
+        "position": [0, 0, 0]
+      },
+      "Panel": {
+        "size": [1, 1],
+        "color": [0.01, 0.01, 0.03, 1],
+        "layer": 1010,
+        "layout": "none",
+        "modal": true
+      }
+    },
+    "children": [
+      {
+        "id": "ending_card",
+        "components": {
+          "Transform": {
+            "position": [0, 0, 0]
+          },
+          "Panel": {
+            "anchor": [0.5, 0.5],
+            "pivot": [0.5, 0.5],
+            "layer": 1011,
+            "color": [0, 0, 0, 0],
+            "layout": "column",
+            "spacing": 18,
+            "padding": [0, 0, 0, 0],
+            "align": "center",
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "ending_label",
+            "components": {
+              "Text": {
+                "text": "Ending",
+                "key": "ending.label",
+                "fontSize": 26,
+                "layer": 1012,
+                "space": "screen",
+                "color": [0.6, 0.66, 0.8, 1]
+              }
+            }
+          },
+          {
+            "id": "ending_title",
+            "components": {
+              "Text": {
+                "text": " ",
+                "fontSize": 56,
+                "layer": 1012,
+                "space": "screen",
+                "color": [1, 0.95, 0.85, 1]
+              }
+            }
+          },
+          {
+            "id": "ending_text",
+            "components": {
+              "Text": {
+                "text": " ",
+                "fontSize": 30,
+                "maxWidth": 900,
+                "layer": 1012,
+                "space": "screen",
+                "align": "center",
+                "color": [0.9, 0.9, 0.92, 1]
+              }
+            }
+          },
+          {
+            "id": "ending_menu",
+            "components": {
+              "Button": {
+                "text": "Main menu",
+                "key": "ending.menu",
+                "autoSize": true,
+                "layer": 1013,
+                "fontSize": 28,
+                "autoFocus": true
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

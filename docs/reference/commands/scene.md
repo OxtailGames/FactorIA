@@ -2,6 +2,21 @@
 
 # Commands: scene
 
+## `bones.create` (modifies state)
+
+Since 0.7.0.
+
+Create a chain of Bone2D entities along points, under a parent.
+
+`points` are [x, y] positions in the PARENT's local space (at least 2); N points make N-1 bones. Bone 1 is a child of `parent`, placed at the first point and turned to face the second; every later bone is a child of the one before, placed at its tip, with the rotation that turns it toward the next point. Each Bone2D.length is the distance between its two points. `names` (N-1) names them, default prefix_1, prefix_2... (`prefix` default "bone"); two bones may not share a name under one parent, since clip paths and skins find them by name. Pose bones through Transform.rotation.z (clips, IK2D). Result: {parent, bones: [{id, name, length}]}. Example: bones.create {"parent":"hero","points":[[0,40],[0,20],[0,0]],"names":["thigh","shin"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `parent` | string | yes | Entity the first bone is a child of (id or name). |
+| `points` | array | yes | Joint positions [x, y] in the parent's local space, from the root of the chain to its tip. |
+| `names` | array | no | One name per bone (points - 1). |
+| `prefix` | string | no | Name prefix when `names` is not given. Default "bone". |
+
 ## `prefab.save` (modifies state)
 
 Save an entity of the running world, with its children, as a prefab file.
@@ -66,14 +81,14 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 
 Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 
-Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
+Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width, tileSize.x, margin and spacing). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere; an isometric map's position is its TOP corner, and objects stand at the centres of its diamonds); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `legendFrom` names a JSON file with a legend shared by several maps (e.g. "levels/legend.json"); it is merged under `legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend object is written as {"id", "prefab", "tags", "components": {the legend overrides + Transform.position}} and the prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's range is refused; Script.props is replaced as a whole unless the edit has "$merge": true next to its fields, e.g. {"level": {"Script": {"$merge": true, "props": {"levelIndex": 3}}}}, which merges the given props into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `rows` | array | yes | The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length. |
 | `legend` | object | no | Glyph -> tile index (integer, -1 = empty) or {tile?: int, rotate?: 0\|90\|180\|270 (clockwise), flipX?: bool, flipY?: bool, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here. |
 | `legendFrom` | string | no | Project-relative JSON file with a SHARED legend (e.g. levels/legend.json: {"#": 0, "o": {"prefab": "prefabs/coin.prefab.json"}}), merged UNDER `legend`: the map's own entries win for the same glyph. Entries only the shared file defines are not warned about when unused. `legend` may then be omitted. |
-| `tilemap` | object | no | Tilemap field values (tileset, tileSize, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
+| `tilemap` | object | no | Tilemap field values (tileset, tileSize, projection, groundHeight, groundOffset, margin, spacing, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
 | `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
 | `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
 | `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
@@ -101,17 +116,18 @@ Filters: name (substring, case-insensitive), tag (exact), component (name). limi
 
 Replace the running scene with a scene file.
 
-Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. Example: scene.load {"path":"scenes/level2.scene.json"}
+Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. `props` (a JSON object) is handed to the new scene's scripts: game.sceneProps() returns it from their first start(). A reload (scene.reload, hot reload) keeps the props; a scene.load without props gives the scene none. Example: scene.load {"path":"scenes/level2.scene.json","props":{"difficulty":"hard"}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Project-relative scene path. |
+| `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
 
 ## `scene.reload` (modifies state)
 
 Reload the current scene from disk (discards runtime changes).
 
-Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing them), factoria.json input actions, fixedHz and deadzone; script errors are cleared. Example: scene.reload {}
+Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing them), factoria.json input actions, fixedHz, deadzone and ui.scale; script errors are cleared. Example: scene.reload {}
 
 ## `scene.remove_component` (modifies state)
 
@@ -128,11 +144,12 @@ Transform and EntityInfo cannot be removed. Example: scene.remove_component {"id
 
 Save the running world to a scene file (current scene path by default).
 
-Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a scene FILE without touching the running world use scene.import_ascii with `path`. Example: scene.save {"path":"scenes/snapshot.scene.json"}
+Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a scene FILE without touching the running world use scene.import_ascii with `path`. Example: scene.save {"path":"scenes/snapshot.scene.json"}. Entities a script created at runtime (world.spawn, world.spawnPrefab) and their children are NOT written: the script builds them again when the scene loads, so saving them would duplicate them. The result lists them under `skippedSpawned` (count, first ids) with a hint; pass includeSpawned:true only to bake them into the file on purpose (then the script must not spawn them again). Entities made with scene.spawn, the editor or other authoring commands are always saved.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | no | Project-relative output path. Default: the current scene. |
+| `includeSpawned` | boolean | no | Also write the entities scripts spawned at runtime (world.spawn / world.spawnPrefab) and their children. Default false: they are left out, because the script spawns them again on load. Default false. |
 
 ## `scene.set_component` (modifies state)
 
@@ -180,4 +197,90 @@ Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, posit
 | `id` | string | no |  |
 | `tags` | array | no |  |
 | `components` | object | no | Component name -> field object. |
+
+## `skin.auto_weights` (modifies state)
+
+Since 0.7.0.
+
+Write the skin's automatic weights out as explicit ones, to paint over with skin.set_weights.
+
+Computes what SpriteSkin.weights "auto" would give every vertex of the full mesh grid (each vertex follows its nearest bones, up to 4) and stores it in SpriteSkin.weights as [boneIndex, weight, ...] per vertex, row-major from the top row (vertex = row * (columns + 1) + column). The picture does not change. The skin must be bound (skin.bind). Result: {entity, vertices, columns, rows, bones}. Example: skin.auto_weights {"entity":"leg"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The skinned Sprite entity (id or name). |
+
+## `skin.bind` (modifies state)
+
+Since 0.7.0.
+
+Skin a Sprite to bones: add the SpriteSkin, name its bones and bind it at the pose they have now.
+
+Adds a SpriteSkin to the Sprite entity `entity` if it has none, sets its bones and records the bind pose (skin_bind): the sprite looks the same until a bone moves from where it is now. Name the bones with `bones` (ids or names, the order is the weight order) or give `root`, a bone: it and every Bone2D below it, depth first. `mesh` [columns, rows] sets Sprite.meshColumns / meshRows (a skin needs a mesh grid, or SpriteSkin.outline). The weights stay as they are ("auto" by default; skin.auto_weights writes them out to paint). Result: {entity, bones: [ids], mesh: [columns, rows] | null, note?}. Example: skin.bind {"entity":"leg","root":"thigh","mesh":[4,8]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The Sprite entity to skin (id or name). |
+| `bones` | array | no | Bone ids or names, in weight order. |
+| `root` | string | no | A bone: use it and all the Bone2D entities below it. |
+| `mesh` | array | no | [columns, rows] of the Sprite's mesh grid. |
+
+## `skin.set_weights` (modifies state)
+
+Since 0.7.0.
+
+Paint the bone weights of chosen vertices: set, add or smooth.
+
+`vertices` are grid vertex numbers (row * (columns + 1) + column, row 0 on top), "all", or {"rect": [x0, y0, x1, y1]} (every vertex inside that rectangle of the sprite's local space, +Y up). `bone` is a bone index in SpriteSkin.bones or its name. Modes: `set` gives the bone `weight` (0..1) and scales the vertex's other bones to fill the rest; `add` adds `weight` (negative removes) to the bone's weight; `smooth` moves every weight `weight` (default 0.5, 0..1) of the way toward the average of the vertex's grid neighbours (`bone` is not needed). Afterwards each vertex keeps its 4 heaviest bones, weights under 0.001 dropped, summing to 1. Automatic weights are written out first when the skin still says "auto". Result: {entity, changed, mode}. Example: skin.set_weights {"entity":"leg","vertices":{"rect":[-8,0,8,12]},"bone":"thigh","weight":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The skinned Sprite entity (id or name). |
+| `vertices` | any | yes | Array of vertex numbers, "all", or {"rect": [x0, y0, x1, y1]} in the sprite's local space. |
+| `bone` | any | no | Bone index in SpriteSkin.bones, or the bone's name or id. Not needed for smooth. |
+| `weight` | number | no | set: the new weight 0..1. add: the amount to add (may be negative). smooth: how far toward the neighbours' average, 0..1 (default 0.5). |
+| `mode` | string ["set","add","smooth"] | no | How the weight is applied. Default "set". |
+
+## `tilemap.cell_at`
+
+Since 0.3.0.
+
+The cell of a Tilemap under a world point (orthogonal squares or isometric diamonds).
+
+Returns {id, col, row, inside, tile} for the Tilemap on entity `id`: the cell that contains the world point (`x`, `y`), by the entity's world transform (position, rotation, scale) and the map's `projection`. `inside` is false when the cell lies outside the map (col and row are then still the cell numbers the point falls in, so negative or past the edge) and `tile` is -1. Pair it with `camera.screenToWorld` to pick the cell under the mouse; the script form is `entity.tilemap.cellAt(point)`. Example: tilemap.cell_at {"id":"ground","x":120,"y":-80}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `x` | number | yes | World x. |
+| `y` | number | yes | World y (+Y up). |
+
+## `tilemap.cell_to_world`
+
+Since 0.3.0.
+
+The world position of the centre of a Tilemap cell (orthogonal squares or isometric diamonds).
+
+Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position of the centre of cell (`col`, `row`) (0-based, row 0 = TOP row), by the entity's world transform and the map's `projection`. The cell may lie outside the map. It is the inverse of tilemap.cell_at for the cell's centre; the script form is `entity.tilemap.cellToWorld(col, row)`. Example: tilemap.cell_to_world {"id":"ground","col":3,"row":4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `col` | integer | yes | Tile column, 0 = leftmost. |
+| `row` | integer | yes | Tile row, 0 = TOP row. |
+
+## `tilemap.set_tile` (modifies state)
+
+Since 0.3.0.
+
+Change one tile of a Tilemap in the running scene, in place.
+
+Writes tile `tile` (a tileset index plus optional flip flags, or -1 for empty) at column `col`, row `row` of the Tilemap on entity `id` (0-based, row 0 = TOP row). Only that element of `tiles` changes: the array is not rewritten, the renderer reads it directly and 2D physics rebuilds only the colliders of the changed tiles on the next step. This is the command form of `entity.tilemap.setTile(col, row, tile)` in scripts. It changes the RUNNING world only (not the scene file; use scene.save to keep it, scene.import_ascii to rebuild a level file). A cell outside the map or a value that is not a tile is refused and nothing changes. Returns {id, col, row, tile, previous}. Example: tilemap.set_tile {"id":"map","col":12,"row":7,"tile":-1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `col` | integer | yes | Tile column, 0 = leftmost. |
+| `row` | integer | yes | Tile row, 0 = TOP row. |
+| `tile` | integer | yes | Tileset index (plus optional flip flags, see Tilemap.tiles), or -1 to empty the cell. |
 

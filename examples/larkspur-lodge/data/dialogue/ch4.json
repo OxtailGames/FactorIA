@@ -1,0 +1,424 @@
+{
+  "format": "larkspur.dialogue/1",
+  "conversations": {
+    "ch4_haas": {
+      "doc": "Haas in the cellar: the adit behind the third shelf. Needs item:cellar_lantern and item:lamp_oil to open. Ends with Vale found.",
+      "start": "dlg.ch4_haas.start",
+      "nodes": {
+        "dlg.ch4_haas.start": {
+          "route": [
+            {
+              "if": [
+                "vale_found"
+              ],
+              "to": "dlg.ch4_haas.done"
+            },
+            {
+              "if": [
+                "adit_open"
+              ],
+              "to": "dlg.ch4_haas.done"
+            },
+            {
+              "if": [
+                "adit_known"
+              ],
+              "to": "dlg.ch4_haas.ready"
+            },
+            {
+              "if": [
+                "survey_known"
+              ],
+              "to": "dlg.ch4_haas.greet_knows"
+            },
+            {
+              "to": "dlg.ch4_haas.greet"
+            }
+          ]
+        },
+        "dlg.ch4_haas.greet": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_greet",
+          "next": "dlg.ch4_haas.confess"
+        },
+        "dlg.ch4_haas.greet_knows": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_greet_knows",
+          "next": "dlg.ch4_haas.confess"
+        },
+        "dlg.ch4_haas.confess": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_confess",
+          "effects": [
+            {
+              "set": "adit_known"
+            }
+          ],
+          "next": "dlg.ch4_haas.why"
+        },
+        "dlg.ch4_haas.why": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_why",
+          "choices": [
+            {
+              "id": "reason",
+              "text": "dlg.ch4_haas.why_c1",
+              "next": "dlg.ch4_haas.reason"
+            },
+            {
+              "id": "angry",
+              "text": "dlg.ch4_haas.why_c2",
+              "next": "dlg.ch4_haas.angry"
+            },
+            {
+              "id": "calm",
+              "text": "dlg.ch4_haas.why_c3",
+              "effects": [
+                {
+                  "add": "trust"
+                }
+              ],
+              "next": "dlg.ch4_haas.calm"
+            }
+          ]
+        },
+        "dlg.ch4_haas.reason": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_reason",
+          "next": "dlg.ch4_haas.plan"
+        },
+        "dlg.ch4_haas.angry": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_angry",
+          "next": "dlg.ch4_haas.plan"
+        },
+        "dlg.ch4_haas.calm": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_calm",
+          "next": "dlg.ch4_haas.plan"
+        },
+        "dlg.ch4_haas.ready": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_ready",
+          "next": "dlg.ch4_haas.plan"
+        },
+        "dlg.ch4_haas.plan": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_plan",
+          "next": "@end",
+          "choices": [
+            {
+              "id": "open",
+              "text": "dlg.ch4_haas.plan_c1",
+              "if": [
+                "item:cellar_lantern",
+                "item:lamp_oil",
+                "fuse_fixed"
+              ],
+              "effects": [
+                {
+                  "set": "adit_open"
+                },
+                {
+                  "cutscene": "adit_descent"
+                }
+              ],
+              "next": "dlg.ch4_haas.descend"
+            },
+            {
+              "id": "nolantern",
+              "text": "dlg.ch4_haas.plan_c2",
+              "if": [
+                "!item:cellar_lantern"
+              ],
+              "next": "dlg.ch4_haas.hint_lantern"
+            },
+            {
+              "id": "nooil",
+              "text": "dlg.ch4_haas.plan_c3",
+              "if": [
+                "item:cellar_lantern",
+                "!item:lamp_oil"
+              ],
+              "next": "dlg.ch4_haas.hint_oil"
+            },
+            {
+              "id": "nopower",
+              "text": "dlg.ch4_haas.plan_c4",
+              "if": [
+                "item:cellar_lantern",
+                "item:lamp_oil",
+                "!fuse_fixed"
+              ],
+              "next": "dlg.ch4_haas.hint_power"
+            }
+          ]
+        },
+        "dlg.ch4_haas.hint_lantern": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_hint_lantern",
+          "next": "@end"
+        },
+        "dlg.ch4_haas.hint_power": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_hint_power",
+          "next": "@end"
+        },
+        "dlg.ch4_haas.hint_oil": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_hint_oil",
+          "next": "@end"
+        },
+        "dlg.ch4_haas.descend": {
+          "speaker": "narrator",
+          "next": "dlg.ch4_haas.found"
+        },
+        "dlg.ch4_haas.found": {
+          "speaker": "vale",
+          "voice": "vale_ch4_haas_found",
+          "next": "dlg.ch4_haas.found2"
+        },
+        "dlg.ch4_haas.found2": {
+          "speaker": "vale",
+          "voice": "vale_ch4_haas_found2",
+          "effects": [
+            {
+              "set": "page_recovered"
+            }
+          ],
+          "next": "dlg.ch4_haas.found3"
+        },
+        "dlg.ch4_haas.found3": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_found3",
+          "next": "dlg.ch4_haas.found4"
+        },
+        "dlg.ch4_haas.found4": {
+          "speaker": "vale",
+          "voice": "vale_ch4_haas_found4",
+          "next": "dlg.ch4_haas.up"
+        },
+        "dlg.ch4_haas.up": {
+          "speaker": "narrator",
+          "effects": [
+            {
+              "set": "vale_found"
+            },
+            {
+              "cutscene": "adit_rescue"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch4_haas.done": {
+          "speaker": "haas",
+          "voice": "haas_ch4_haas_done",
+          "next": "@end"
+        }
+      }
+    },
+    "ch4_mara": {
+      "doc": "Mara in the hall: the porter may tell her what he knows; telling her the truth earns trust.",
+      "start": "dlg.ch4_mara.start",
+      "nodes": {
+        "dlg.ch4_mara.start": {
+          "route": [
+            {
+              "if": [
+                "talked.mara.4"
+              ],
+              "to": "dlg.ch4_mara.again"
+            },
+            {
+              "to": "dlg.ch4_mara.greet"
+            }
+          ]
+        },
+        "dlg.ch4_mara.greet": {
+          "speaker": "mara",
+          "voice": "mara_ch4_mara_greet",
+          "choices": [
+            {
+              "id": "truth",
+              "text": "dlg.ch4_mara.greet_c1",
+              "if": [
+                "survey_known"
+              ],
+              "effects": [
+                {
+                  "add": "trust"
+                }
+              ],
+              "next": "dlg.ch4_mara.truth"
+            },
+            {
+              "id": "cellar",
+              "text": "dlg.ch4_mara.greet_c2",
+              "next": "dlg.ch4_mara.cellar"
+            },
+            {
+              "id": "nothing",
+              "text": "dlg.ch4_mara.greet_c3",
+              "next": "dlg.ch4_mara.nothing"
+            }
+          ]
+        },
+        "dlg.ch4_mara.truth": {
+          "speaker": "mara",
+          "voice": "mara_ch4_mara_truth",
+          "next": "dlg.ch4_mara.bye"
+        },
+        "dlg.ch4_mara.cellar": {
+          "speaker": "mara",
+          "voice": "mara_ch4_mara_cellar",
+          "next": "dlg.ch4_mara.bye"
+        },
+        "dlg.ch4_mara.nothing": {
+          "speaker": "mara",
+          "voice": "mara_ch4_mara_nothing",
+          "next": "dlg.ch4_mara.bye"
+        },
+        "dlg.ch4_mara.bye": {
+          "speaker": "mara",
+          "voice": "mara_ch4_mara_bye",
+          "effects": [
+            {
+              "set": "talked.mara.4"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch4_mara.again": {
+          "speaker": "mara",
+          "voice": "mara_ch4_mara_again",
+          "next": "@end"
+        }
+      }
+    },
+    "ch4_hedda": {
+      "doc": "Hedda on the landing owns up to the letter if the porter has not already made her.",
+      "start": "dlg.ch4_hedda.start",
+      "nodes": {
+        "dlg.ch4_hedda.start": {
+          "route": [
+            {
+              "if": [
+                "hedda_letter"
+              ],
+              "to": "dlg.ch4_hedda.known"
+            },
+            {
+              "to": "dlg.ch4_hedda.confess"
+            }
+          ]
+        },
+        "dlg.ch4_hedda.confess": {
+          "speaker": "hedda",
+          "voice": "hedda_ch4_hedda_confess",
+          "next": "dlg.ch4_hedda.sorry"
+        },
+        "dlg.ch4_hedda.sorry": {
+          "speaker": "hedda",
+          "voice": "hedda_ch4_hedda_sorry",
+          "effects": [
+            {
+              "set": "hedda_letter"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch4_hedda.known": {
+          "speaker": "hedda",
+          "voice": "hedda_ch4_hedda_known",
+          "next": "@end"
+        }
+      }
+    },
+    "ch4_tobias": {
+      "doc": "Tobias at the stove: where the second can of lamp oil is. Also sets know_oil for a porter who skipped him in chapter 2.",
+      "start": "dlg.ch4_tobias.greet",
+      "nodes": {
+        "dlg.ch4_tobias.greet": {
+          "speaker": "tobias",
+          "voice": "tobias_ch4_tobias_greet",
+          "effects": [
+            {
+              "set": "know_oil"
+            }
+          ],
+          "next": "dlg.ch4_tobias.bread"
+        },
+        "dlg.ch4_tobias.bread": {
+          "speaker": "tobias",
+          "voice": "tobias_ch4_tobias_bread",
+          "next": "@end"
+        }
+      }
+    },
+    "ch4_lucian": {
+      "doc": "Lucian at the foot of the stairs: he promises to keep his pencil in his pocket.",
+      "start": "dlg.ch4_lucian.start",
+      "nodes": {
+        "dlg.ch4_lucian.start": {
+          "route": [
+            {
+              "if": [
+                "talked.lucian.4"
+              ],
+              "to": "dlg.ch4_lucian.again"
+            },
+            {
+              "to": "dlg.ch4_lucian.greet"
+            }
+          ]
+        },
+        "dlg.ch4_lucian.greet": {
+          "speaker": "lucian",
+          "voice": "lucian_ch4_lucian_greet",
+          "choices": [
+            {
+              "id": "please",
+              "text": "dlg.ch4_lucian.greet_c1",
+              "effects": [
+                {
+                  "add": "trust"
+                }
+              ],
+              "next": "dlg.ch4_lucian.thanks"
+            },
+            {
+              "id": "later",
+              "text": "dlg.ch4_lucian.greet_c2",
+              "next": "dlg.ch4_lucian.later"
+            }
+          ]
+        },
+        "dlg.ch4_lucian.thanks": {
+          "speaker": "lucian",
+          "voice": "lucian_ch4_lucian_thanks",
+          "effects": [
+            {
+              "set": "talked.lucian.4"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch4_lucian.later": {
+          "speaker": "lucian",
+          "voice": "lucian_ch4_lucian_later",
+          "effects": [
+            {
+              "set": "talked.lucian.4"
+            }
+          ],
+          "next": "@end"
+        },
+        "dlg.ch4_lucian.again": {
+          "speaker": "lucian",
+          "voice": "lucian_ch4_lucian_again",
+          "next": "@end"
+        }
+      }
+    }
+  }
+}

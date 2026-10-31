@@ -13,6 +13,7 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         {"stb", "https://github.com/nothings/stb", "MIT OR Unlicense", "external/stb/LICENSE",
          "image decoding and encoding, TrueType fonts, rectangle packing, Ogg Vorbis", true},
         {"cgltf", "https://github.com/jkuhlmann/cgltf", "MIT", "external/cgltf/LICENSE", "glTF 2.0 models", true},
+        {"nanosvg", "https://github.com/memononen/nanosvg", "zlib", "external/nanosvg/LICENSE", "SVG rasterizer of assets.rasterize_svg", false},
         {"Basis Universal", "https://github.com/BinomialLLC/basis_universal", "Apache-2.0", "external/basis_universal/LICENSE",
          "GPU texture compression: games decode KTX2 textures, `factoria export` encodes them", true},
         // Parts of the Basis Universal encoder, which only the developer tools contain.
@@ -39,6 +40,18 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
          "engine/render/assets/fonts/DejaVu-LICENSE.txt", "built-in font", true},
         {"Press Start 2P", "https://github.com/codeman38/PressStart2P", "OFL-1.1",
          "engine/render/assets/fonts/PressStart2P-OFL.txt", "built-in pixel font", true},
+        // The fonts that ship in a game only when it names them (fa/render/builtin_fonts.h): the export copies the files and lists
+        // the component in that game's notices.
+        {"Crimson Text", "https://github.com/googlefonts/Crimson", "OFL-1.1", "engine/render/assets/fonts/extra/CrimsonText-OFL.txt",
+         "built-in font builtin:serif, in games that use it", false, "builtin:serif"},
+        {"Kalam", "https://fonts.google.com/specimen/Kalam", "OFL-1.1", "engine/render/assets/fonts/extra/Kalam-OFL.txt",
+         "built-in font builtin:hand, in games that use it", false, "builtin:hand"},
+        {"UnifrakturMaguntia", "https://fonts.google.com/specimen/UnifrakturMaguntia", "OFL-1.1",
+         "engine/render/assets/fonts/extra/UnifrakturMaguntia-OFL.txt", "built-in font builtin:blackletter, in games that use it", false,
+         "builtin:blackletter"},
+        {"IM Fell English", "https://fonts.google.com/specimen/IM+Fell+English", "OFL-1.1",
+         "engine/render/assets/fonts/extra/IMFellEnglish-OFL.txt", "built-in font builtin:display, in games that use it", false,
+         "builtin:display"},
         {"Dear ImGui", "https://github.com/ocornut/imgui", "MIT", "external/imgui/LICENSE.txt", "the editor's UI", false},
         // gradlew, gradlew.bat and gradle-wrapper.jar are embedded in factoria and written into every Android export, so
         // that the project builds itself (platforms/android). They end up in the Gradle project, not in the game.

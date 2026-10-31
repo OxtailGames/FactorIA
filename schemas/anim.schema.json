@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/anim.schema.json",
+  "title": "FactorIA keyframed 2D clip (*.anim.json)",
+  "description": "A clip of keyframed tracks the Animator plays when it has no glTF model: Animator.clips maps a clip name to this file. Each track drives one field of one entity under the entity that plays the clip (the entity itself or a child found by names). Numbers, vectors, colours and angles interpolate between keys; bools, ints, enums, assets and rects only step. Errors name the file and the JSON pointer; docs/ANIMATION.md, \"2D clips\", explains the format and the Animator side.",
+  "type": "object",
+  "required": [
+    "format",
+    "duration",
+    "tracks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.anim/1",
+      "description": "File format identifier. Always \"factoria.anim/1\"."
+    },
+    "doc": {
+      "type": "string",
+      "description": "What the clip shows and when it is used."
+    },
+    "duration": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Length of the clip in seconds. No key or event is later than this. A looping clip wraps here."
+    },
+    "loop": {
+      "type": "boolean",
+      "default": true,
+      "description": "true repeats the clip, false stops on its last pose and sends \"anim.finished\". An Animator state's own `loop` overrides it."
+    },
+    "tracks": {
+      "type": "array",
+      "description": "The animated fields. Two tracks may not drive the same field channel.",
+      "items": {
+        "$ref": "#/$defs/track"
+      }
+    },
+    "events": {
+      "type": "array",
+      "description": "Game events sent when the clip's time passes `t` (once per loop). They reach world.on(name, fn) and entity.animator.on(name, fn) with {id, clip, time} plus `data`.",
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    }
+  },
+  "$defs": {
+    "track": {
+      "type": "object",
+      "required": [
+        "field",
+        "keys"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "default": "",
+          "description": "Names (EntityInfo `name`) of the entities from the one that plays the clip down to the one to animate, joined with '/': \"body/arm_l/hand\". \"\" (the default) is the entity itself."
+        },
+        "component": {
+          "type": "string",
+          "default": "Transform",
+          "description": "Reflected component name on that entity: \"Transform\", \"Sprite\"..."
+        },
+        "field": {
+          "type": "string",
+          "description": "Reflected field of the component, optionally with one channel: \"rotation.z\", \"position\", \"color.a\", \"flipX\". Channels are x y z w, or r g b a for a Color."
+        },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Keys in ascending order of `t`, one per time.",
+          "items": {
+            "$ref": "#/$defs/key"
+          }
+        }
+      }
+    },
+    "key": {
+      "type": "object",
+      "required": [
+        "t",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds from the start of the clip, at most the clip's `duration`."
+        },
+        "value": {
+          "description": "The value at `t`, shaped like the field: a number, an array of 2 to 4 numbers for a vector or colour, a bool, an integer, an enum name, an asset path or a rect. Before the first key and after the last the track holds that key's value."
+        },
+        "interp": {
+          "description": "How the value reaches the next key. \"linear\" (default), \"step\" (holds until the next key), \"bezier\" (cubic Hermite curve using this key's `out` and the next key's `in`), or an easing name of tween(). Ignored by fields that only step.",
+          "anyOf": [
+            {
+              "enum": [
+                "linear",
+                "step",
+                "bezier"
+              ]
+            },
+            {
+              "enum": [
+                "quadIn",
+                "quadOut",
+                "quadInOut",
+                "cubicIn",
+                "cubicOut",
+                "cubicInOut",
+                "quartIn",
+                "quartOut",
+                "quartInOut",
+                "quintIn",
+                "quintOut",
+                "quintInOut",
+                "sineIn",
+                "sineOut",
+                "sineInOut",
+                "expoIn",
+                "expoOut",
+                "expoInOut",
+                "circIn",
+                "circOut",
+                "circInOut",
+                "backIn",
+                "backOut",
+                "backInOut",
+                "elasticIn",
+                "elasticOut",
+                "elasticInOut",
+                "bounceIn",
+                "bounceOut",
+                "bounceInOut"
+              ]
+            }
+          ]
+        },
+        "in": {
+          "description": "bezier: slope arriving at this key, in field units per second; a number or an array shaped like the value. Missing tangents are made smooth from the neighbouring keys.",
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "maxItems": 4
+            }
+          ]
+        },
+        "out": {
+          "description": "bezier: slope leaving this key, in field units per second; a number or an array shaped like the value.",
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "maxItems": 4
+            }
+          ]
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": [
+        "t",
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds from the start of the clip, at most the clip's `duration`."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The game event name."
+        },
+        "data": {
+          "type": "object",
+          "description": "Extra fields sent with the event. The keys id, clip and time are the engine's and cannot be used.",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "id"
+                ]
+              },
+              {
+                "required": [
+                  "clip"
+                ]
+              },
+              {
+                "required": [
+                  "time"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

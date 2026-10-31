@@ -9,33 +9,51 @@
     "quit": "Salir",
     "back": "Atrás"
   },
-  "loading": { "text": "Cargando..." },
+  "loading": { "progress": "Cargando... {percent}%" },
   "captions": { "welcome": "Bienvenido, viajero.", "hint": "¡Cuidado con el borde!", "guide": "Guía" },
   "pause": { "title": "En pausa", "resume": "Reanudar", "mainMenu": "Menú principal" },
   "options": {
     "title": "Opciones",
     "tab": { "video": "Vídeo", "audio": "Audio", "controls": "Controles", "language": "Idioma" },
-    "fullscreen": "Pantalla completa",
+    "windowMode": "Modo de ventana: {mode}",
+    "mode": {
+      "windowed": "ventana",
+      "borderless": "sin bordes",
+      "fullscreen": "pantalla completa"
+    },
+    "monitor": "Monitor: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "Tamaño de ventana: {width} x {height}",
     "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
     "frameCap": "Límite de fotogramas: {fps} fps",
     "frameCapOff": "Límite de fotogramas: sin límite",
+    "uiScale": "Tamaño de la interfaz: {percent}%",
     "colorFilter": "Filtro de color: {filter}",
     "filter": { "none": "desactivado", "greyscale": "escala de grises", "highContrast": "alto contraste", "protanopia": "protanopia (rojo)", "deuteranopia": "deuteranopia (verde)", "tritanopia": "tritanopia (azul)" },
     "videoNote": "Los ajustes de vídeo se aplican cuando el juego se ejecuta en su propia ventana.",
     "volume": { "master": "General", "music": "Música", "effects": "Efectos", "interface": "Interfaz" },
     "action": { "move_left": "Mover a la izquierda", "move_right": "Mover a la derecha", "jump": "Saltar", "pause": "Pausa" },
     "binding": "{action}: {button}",
+    "player": "Jugador {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
     "language": "Idioma: {language}",
     "readAloud": "Leer los menús en voz alta",
     "subtitles": "Subtítulos",
     "privacyOptions": "Privacidad de los anuncios",
+    "analytics": "Compartir datos de uso anónimos",
     "on": "activado",
     "off": "desactivado",
-    "percent": "{value} por ciento"
+    "percent": "{value} por ciento",
+    "textSpeed": "Velocidad del texto: {speed}",
+    "speed": {
+      "slow": "lenta",
+      "normal": "normal",
+      "fast": "rápida",
+      "instant": "instantánea",
+      "custom": "personalizada"
+    }
   },
   "credits": {
     "madeWith": "Hecho con FactorIA",
@@ -66,5 +84,39 @@
     "year": "Año de nacimiento",
     "continue": "Continuar",
     "skip": "Prefiero no decirlo"
+  },
+  "analyticsConsent": {
+    "title": "¿Nos ayudas a mejorar el juego?",
+    "what": "Nos gustaría contar qué niveles se juegan y cómo terminan, y qué versión del juego usas. Nunca recogemos tu nombre, tus contactos ni nada de lo que escribes.",
+    "change": "Puedes cambiar de opinión en Opciones cuando quieras. Si dices que no, no se envía nada.",
+    "allow": "Permitir",
+    "deny": "No, gracias"
+  },
+  "card": {
+    "continue": "Continuar"
+  },
+  "slots": {
+    "titleSave": "Guardar partida",
+    "titleLoad": "Cargar partida",
+    "empty": "Ranura {n}: vacía",
+    "emptyAuto": "Autoguardado: vacío",
+    "used": "Ranura {n}: {name}\nCapítulo {chapter}, {time}",
+    "usedAuto": "Autoguardado: {name}\nCapítulo {chapter}, {time}",
+    "damaged": "Ranura {n}: dañada (bórrala para liberar la ranura)",
+    "damagedAuto": "Autoguardado: dañado (bórralo)",
+    "damagedNote": "No se puede leer una ranura. Bórrala o carga otra.",
+    "unnamed": "Sin nombre",
+    "autoName": "autoguardado",
+    "delete": "Borrar",
+    "nameTitle": "Nombre de la partida en la ranura {n}",
+    "namePlaceholder": "Ponle un nombre a la partida",
+    "confirmSave": "Guardar",
+    "cancel": "Cancelar",
+    "deleteTitle": "¿Borrar la ranura {n}?",
+    "confirmDelete": "Borrar",
+    "saved": "Guardado en la ranura {n}.",
+    "noGame": "Todavía no hay ninguna partida que guardar.",
+    "busy": "Ahora no se puede guardar.",
+    "noSave": "Aquí no se puede guardar."
   }
 }

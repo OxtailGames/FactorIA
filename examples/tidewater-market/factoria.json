@@ -1,0 +1,227 @@
+{
+  "format": "factoria.project/1",
+  "name": "Tidewater Market",
+  "id": "com.oxtailgames.tidewatermarket",
+  "version": "0.1.0",
+  "icon": "assets/icon.png",
+  "engine": "0.2.0",
+  "mainScene": "scenes/menu.scene.json",
+  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
+  "audio": { "buses": { "ambience": { "parent": "sfx" } } },
+  "text": {
+    "colors": {
+      "normal": [0.92, 0.93, 0.95, 1],
+      "good": [0.5, 0.86, 0.5, 1],
+      "bad": [1, 0.48, 0.42, 1],
+      "gold": [1, 0.82, 0.29, 1],
+      "muted": [0.66, 0.69, 0.75, 1],
+      "sea": [0.45, 0.75, 1, 1]
+    },
+    "icons": {
+      "fish": {"texture": "assets/atlas.png", "region": [210,1989,28,28]},
+      "grain": {"texture": "assets/atlas.png", "region": [614,482,28,28]},
+      "wood": {"texture": "assets/atlas.png", "region": [664,1496,28,28]},
+      "stone": {"texture": "assets/atlas.png", "region": [614,1334,28,28]},
+      "planks": {"texture": "assets/atlas.png", "region": [614,514,28,28]},
+      "bread": {"texture": "assets/atlas.png", "region": [210,1925,28,28]},
+      "tools": {"texture": "assets/atlas.png", "region": [614,1366,28,28]},
+      "flour": {"texture": "assets/atlas.png", "region": [1006,2004,28,28]},
+      "smoked_fish": {"texture": "assets/atlas.png", "region": [768,767,28,28]},
+      "pop": {"texture": "assets/atlas.png", "region": [614,546,28,28]},
+      "coin": {"texture": "assets/atlas.png", "region": [210,1957,28,28]},
+      "star": {"texture": "assets/atlas.png", "region": [768,799,28,28]},
+      "ship": {"texture": "assets/atlas.png", "region": [614,578,28,28]}
+    }
+  },
+  "ui": {
+    "tooltipDelay": 0.4,
+    "tooltip": {
+      "color": [0.03, 0.04, 0.07, 0.96],
+      "titleColor": [1, 0.82, 0.38, 1],
+      "textColor": [0.92, 0.94, 0.97, 1],
+      "titleSize": 18,
+      "fontSize": 15,
+      "maxWidth": 300,
+      "spacing": 3,
+      "padding": [10, 8, 10, 8],
+      "gap": 16,
+      "layer": 300
+    }
+  },
+  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "input": {
+    "actions": {
+      "primary": ["MouseLeft", "Touch", "GamepadA"],
+      "primary_shift": ["Shift+MouseLeft"],
+      "pan_drag": ["MouseRight"],
+      "pan_latch": ["MouseMiddle"],
+      "pan_left": ["A", "Left", "GamepadRightStickLeft"],
+      "pan_right": ["D", "Right", "GamepadRightStickRight"],
+      "pan_up": ["W", "Up", "GamepadRightStickUp"],
+      "pan_down": ["S", "Down", "GamepadRightStickDown"],
+      "zoom_in": ["PageUp", "GamepadRightTrigger"],
+      "zoom_out": ["PageDown", "GamepadLeftTrigger"],
+      "rotate": ["R", "GamepadY"],
+      "undo": ["Ctrl+Z", "Z"],
+      "redo": ["Ctrl+Y", "Y"],
+      "tool_cancel": ["Q", "GamepadB"],
+      "tool_demolish": ["X", "GamepadX"],
+      "tool_next": ["E"],
+      "tool_prev": ["C"],
+      "speed_pause": ["1"],
+      "speed_1": ["2"],
+      "speed_2": ["3"],
+      "speed_3": ["4"],
+      "pause_toggle": ["Space"],
+      "build_menu": ["B"],
+      "delete": ["Delete"],
+      "goods_table": ["G"],
+      "charts": ["T"],
+      "overlay": ["M"],
+      "notice_jump": ["N"],
+      "help": ["F1"],
+      "escape": ["Escape", "GamepadB"],
+      "order_board": ["O"],
+      "pause": ["Escape", "P", "GamepadStart", "GamepadB"],
+      "cursor_left": ["GamepadLeftStickLeft"],
+      "cursor_right": ["GamepadLeftStickRight"],
+      "cursor_up": ["GamepadLeftStickUp"],
+      "cursor_down": ["GamepadLeftStickDown"],
+      "cat_prev": ["GamepadLeftShoulder", "Home"],
+      "cat_next": ["GamepadRightShoulder", "End"],
+      "ui_up": ["Up", "GamepadDpadUp"],
+      "ui_down": ["Down", "GamepadDpadDown"],
+      "ui_left": ["Left", "GamepadDpadLeft"],
+      "ui_right": ["Right", "GamepadDpadRight"],
+      "ui_submit": ["Enter", "Space", "GamepadA"],
+      "ui_cancel": ["Escape", "GamepadB"]
+    }
+  },
+  "platform": {
+    "achievements": [
+      {
+        "id": "first_ship",
+        "nameKey": "achievement.first_ship.name",
+        "descriptionKey": "achievement.first_ship.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_FIRST_SHIP"
+        }
+      },
+      {
+        "id": "ten_orders",
+        "nameKey": "achievement.ten_orders.name",
+        "descriptionKey": "achievement.ten_orders.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_TEN_ORDERS"
+        }
+      },
+      {
+        "id": "harbour_master",
+        "nameKey": "achievement.harbour_master.name",
+        "descriptionKey": "achievement.harbour_master.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_HARBOUR_MASTER"
+        }
+      },
+      {
+        "id": "no_debt_year",
+        "nameKey": "achievement.no_debt_year.name",
+        "descriptionKey": "achievement.no_debt_year.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_NO_DEBT_YEAR"
+        }
+      },
+      {
+        "id": "story_first_harbour",
+        "nameKey": "achievement.story_first_harbour.name",
+        "descriptionKey": "achievement.story_first_harbour.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_STORY_FIRST_HARBOUR"
+        }
+      },
+      {
+        "id": "story_river_mills",
+        "nameKey": "achievement.story_river_mills.name",
+        "descriptionKey": "achievement.story_river_mills.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_STORY_RIVER_MILLS"
+        }
+      },
+      {
+        "id": "story_winter_trade",
+        "nameKey": "achievement.story_winter_trade.name",
+        "descriptionKey": "achievement.story_winter_trade.desc",
+        "hidden": false,
+        "ids": {
+          "steam": "ACH_STORY_WINTER_TRADE"
+        }
+      }
+    ],
+    "stats": [
+      {
+        "id": "ships_docked",
+        "type": "int",
+        "ids": {
+          "steam": "ShipsDocked"
+        }
+      },
+      {
+        "id": "orders_filled",
+        "type": "int",
+        "ids": {
+          "steam": "OrdersFilled"
+        }
+      },
+      {
+        "id": "orders_missed",
+        "type": "int",
+        "ids": {
+          "steam": "OrdersMissed"
+        }
+      },
+      {
+        "id": "events_resolved",
+        "type": "int",
+        "ids": {
+          "steam": "EventsResolved"
+        }
+      },
+      {
+        "id": "coins_earned",
+        "type": "int",
+        "ids": {
+          "steam": "CoinsEarned"
+        }
+      },
+      {
+        "id": "stories_finished",
+        "type": "int",
+        "ids": {
+          "steam": "StoriesFinished"
+        }
+      }
+    ]
+  },
+  "platforms": ["web", "windows", "macos", "linux"],
+  "export": {
+    "exclude": ["store/**", "assets/src/**"],
+    "android": {
+      "adaptiveIcon": {
+        "foreground": "assets/icon_fg.png",
+        "background": "#7fc6dc"
+      }
+    }
+  },
+  "feedbackFile": "ENGINE_FEEDBACK.json",
+  "localization": {
+    "defaultLanguage": "en",
+    "languages": ["en", "es", "fr", "zh-Hans"],
+    "fallbackFonts": ["assets/fonts/NotoSansSC-Regular-subset.ttf"]
+  }
+}

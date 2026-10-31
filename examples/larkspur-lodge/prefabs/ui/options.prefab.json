@@ -1,0 +1,643 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "components": {
+      "Panel": {
+        "size": [1100, 650],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "row",
+        "direction": "auto",
+        "align": "start",
+        "spacing": 16,
+        "padding": [20, 20, 20, 20]
+      },
+      "Script": {
+        "path": "scripts/ui/options.js",
+        "props": {
+          "actions": [
+            "move_forward", "move_back", "move_left", "move_right", "run", "interact",
+            "camera_left", "camera_right", "camera_up", "camera_down", "zoom_in", "zoom_out",
+            "inventory", "notebook", "dialogue_log", "skip_cutscene", "pause"
+          ]
+        }
+      }
+    },
+    "children": [
+      {
+        "name": "Tabs",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "column",
+            "direction": "auto",
+            "align": "start",
+            "spacing": 8,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "tab_video",
+            "components": {
+              "Button": {
+                "text": "Video",
+                "key": "options.tab.video",
+                "size": [210, 50],
+                "layer": 302,
+                "autoShrink": true,
+                "minFontSize": 12,
+                "autoFocus": true
+              }
+            }
+          },
+          {
+            "id": "tab_audio",
+            "components": {
+              "Button": {
+                "text": "Audio",
+                "key": "options.tab.audio",
+                "size": [210, 50],
+                "layer": 302,
+                "autoShrink": true,
+                "minFontSize": 12
+              }
+            }
+          },
+          {
+            "id": "tab_access",
+            "components": {
+              "Button": {
+                "text": "Accessibility",
+                "key": "options.tab.access",
+                "size": [210, 50],
+                "layer": 302,
+                "autoShrink": true,
+                "minFontSize": 12
+              }
+            }
+          },
+          {
+            "id": "tab_controls",
+            "components": {
+              "Button": {
+                "text": "Controls",
+                "key": "options.tab.controls",
+                "size": [210, 50],
+                "layer": 302,
+                "autoShrink": true,
+                "minFontSize": 12
+              }
+            }
+          },
+          {
+            "id": "tab_language",
+            "components": {
+              "Button": {
+                "text": "Language",
+                "key": "options.tab.language",
+                "size": [210, 50],
+                "layer": 302,
+                "autoShrink": true,
+                "minFontSize": 12
+              }
+            }
+          },
+          {
+            "id": "options_back",
+            "tags": ["back"],
+            "components": {
+              "Button": {
+                "text": "Back",
+                "key": "menu.back",
+                "size": [210, 50],
+                "layer": 302,
+                "autoShrink": true,
+                "minFontSize": 12
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "Page",
+        "components": {
+          "Panel": {
+            "size": [820, 610],
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "column",
+            "direction": "auto",
+            "align": "start",
+            "spacing": 10,
+            "padding": [0, 0, 0, 0]
+          }
+        },
+        "children": [
+          {
+            "name": "Title",
+            "components": {
+              "Text": {
+                "text": "Options",
+                "key": "options.title",
+                "fontSize": 40,
+                "space": "screen",
+                "layer": 301,
+                "maxTextScale": 1.3
+              }
+            }
+          },
+          {
+            "id": "video_section",
+            "components": {
+              "ScrollList": {
+                "size": [800, 540],
+                "layer": 301,
+                "color": [0, 0, 0, 0.25],
+                "spacing": 10,
+                "padding": [12, 12, 12, 12],
+                "fill": true
+              }
+            },
+            "children": [
+              {
+                "id": "window_mode",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Window mode",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "monitor",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Monitor",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "resolution",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Window size",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "vsync",
+                "components": {
+                  "Toggle": {
+                    "autoSize": true,
+                    "label": "VSync",
+                    "key": "options.vsync",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "frame_cap",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Frame cap",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "ui_scale",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Interface size",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "video_note",
+                "components": {
+                  "Text": {
+                    "text": "Video settings apply when the game runs in its own window.",
+                    "key": "options.videoNote",
+                    "fontSize": 18,
+                    "color": [0.75, 0.8, 0.9, 1],
+                    "space": "screen",
+                    "align": "start",
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "audio_section",
+            "components": {
+              "ScrollList": {
+                "size": [800, 540],
+                "layer": 301,
+                "color": [0, 0, 0, 0.25],
+                "spacing": 10,
+                "padding": [12, 12, 12, 12],
+                "fill": true
+              }
+            },
+            "children": [
+              {
+                "id": "master_volume",
+                "components": {
+                  "Slider": {
+                    "autoSize": true,
+                    "label": "Master",
+                    "key": "options.volume.master",
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
+                    "labelAbove": true,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "music_volume",
+                "components": {
+                  "Slider": {
+                    "autoSize": true,
+                    "label": "Music",
+                    "key": "options.volume.music",
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
+                    "labelAbove": true,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "sfx_volume",
+                "components": {
+                  "Slider": {
+                    "autoSize": true,
+                    "label": "Effects",
+                    "key": "options.volume.effects",
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
+                    "labelAbove": true,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "ambience_volume",
+                "components": {
+                  "Slider": {
+                    "autoSize": true,
+                    "label": "Ambience",
+                    "key": "options.volume.ambience",
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
+                    "labelAbove": true,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "voiceover_volume",
+                "components": {
+                  "Slider": {
+                    "autoSize": true,
+                    "label": "Voices",
+                    "key": "options.volume.voiceover",
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
+                    "labelAbove": true,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "ui_volume",
+                "components": {
+                  "Slider": {
+                    "autoSize": true,
+                    "label": "Interface",
+                    "key": "options.volume.interface",
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
+                    "labelAbove": true,
+                    "layer": 302
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "access_section",
+            "components": {
+              "ScrollList": {
+                "size": [800, 540],
+                "layer": 301,
+                "color": [0, 0, 0, 0.25],
+                "spacing": 10,
+                "padding": [12, 12, 12, 12],
+                "fill": true
+              }
+            },
+            "children": [
+              {
+                "id": "text_scale",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Text size",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "reduced_motion",
+                "components": {
+                  "Toggle": {
+                    "autoSize": true,
+                    "label": "Reduced motion",
+                    "key": "options.reducedMotion",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "color_filter",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Color filter",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "subtitles",
+                "components": {
+                  "Toggle": {
+                    "autoSize": true,
+                    "label": "Subtitles",
+                    "key": "options.subtitles",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "caption_bg",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Caption background",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "caption_speakers",
+                "components": {
+                  "Toggle": {
+                    "autoSize": true,
+                    "label": "Speaker names",
+                    "key": "options.captionSpeakers",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "text_speed",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Text speed",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "auto_advance",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Auto-advance",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "glyphs",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Prompt glyphs",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "read_aloud",
+                "components": {
+                  "Toggle": {
+                    "autoSize": true,
+                    "label": "Read menus aloud",
+                    "key": "options.readAloud",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "controls_section",
+            "components": {
+              "ScrollList": {
+                "size": [800, 540],
+                "layer": 301,
+                "color": [0, 0, 0, 0.25],
+                "spacing": 10,
+                "padding": [12, 12, 12, 12],
+                "fill": true
+              }
+            },
+            "children": [
+              {
+                "id": "camera_sensitivity",
+                "components": {
+                  "Slider": {
+                    "autoSize": true,
+                    "label": "Camera sensitivity",
+                    "key": "options.cameraSensitivity",
+                    "size": [560, 56],
+                    "maxWidth": 520,
+                    "maxTextScale": 1.5,
+                    "labelAbove": true,
+                    "layer": 302,
+                    "min": 0.25,
+                    "max": 2,
+                    "step": 0.05,
+                    "value": 1
+                  }
+                }
+              },
+              {
+                "id": "camera_invert_x",
+                "components": {
+                  "Toggle": {
+                    "autoSize": true,
+                    "label": "Invert camera left-right",
+                    "key": "options.cameraInvertX",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "camera_invert_y",
+                "components": {
+                  "Toggle": {
+                    "autoSize": true,
+                    "label": "Invert camera up-down",
+                    "key": "options.cameraInvertY",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "bindings",
+                "components": {
+                  "Panel": {
+                    "layer": 301,
+                    "color": [0, 0, 0, 0],
+                    "layout": "column",
+                    "padding": [0, 0, 0, 0],
+                    "fit": true,
+                    "spacing": 8,
+                    "align": "start"
+                  }
+                }
+              },
+              {
+                "id": "reset_controls",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Reset to defaults",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302,
+                    "key": "options.resetControls"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "language_section",
+            "components": {
+              "ScrollList": {
+                "size": [800, 540],
+                "layer": 301,
+                "color": [0, 0, 0, 0.25],
+                "spacing": 10,
+                "padding": [12, 12, 12, 12],
+                "fill": true
+              }
+            },
+            "children": [
+              {
+                "id": "language",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Language: English",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "analytics_toggle",
+                "components": {
+                  "Toggle": {
+                    "autoSize": true,
+                    "label": "Share anonymous usage data",
+                    "key": "options.analytics",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302
+                  }
+                }
+              },
+              {
+                "id": "privacy_options",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Ad privacy settings",
+                    "size": [740, 44],
+                    "maxWidth": 700,
+                    "layer": 302,
+                    "key": "options.privacyOptions"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

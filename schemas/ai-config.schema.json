@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "FactorIA AI config (~/.factoria/ai.json)",
-  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles orchestrator/worker/fast, and the asset providers that generate images, sounds and 3D models. Lives in the user's home, NEVER inside a game project.",
+  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), the asset providers that generate images, sounds and 3D models, the websites the AI should search for assets, and the external tool servers (MCP) the AI may use (mcpServers). Lives in the user's home, NEVER inside a game project.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -26,13 +26,35 @@
       },
       "additionalProperties": false
     },
+    "assetSources": {
+      "type": "object",
+      "description": "Websites the AI should look at when it searches for assets (images, 3D models, audio, fonts...), instead of searching the whole internet. Each category is a list of sites: a plain domain or address (\"opengameart.org\"), or an object with an optional note. The editor's AI settings window (AI Assistant > AI settings...) edits this section. With no sites the AI searches the internet as it wishes. Example: {\"images\": [{\"url\": \"https://opengameart.org\", \"note\": \"CC0 packs\"}], \"models\": [\"kenney.nl\"], \"onlyListed\": true}.",
+      "properties": {
+        "images": { "$ref": "#/$defs/siteList", "description": "Images and textures." },
+        "models": { "$ref": "#/$defs/siteList", "description": "3D models." },
+        "audio": { "$ref": "#/$defs/siteList", "description": "Sound effects and music." },
+        "fonts": { "$ref": "#/$defs/siteList", "description": "Fonts." },
+        "other": { "$ref": "#/$defs/siteList", "description": "Anything else the AI may need (tilesets, icon packs, shaders...)." },
+        "onlyListed": { "type": "boolean", "default": false, "description": "false: the AI looks at these sites first and may also search the internet. true: the AI uses ONLY these sites for assets (no general web search, no other site). The rule goes into the prompt of every role; Claude Code is also started with WebSearch switched off and WebFetch allowed for these domains only. See docs/AI_PROVIDERS.md, \"Asset sources\"." }
+      },
+      "additionalProperties": false
+    },
+    "mcpServers": {
+      "type": "object",
+      "description": "External tool servers (MCP) the AI may use when it helps the game, for example Scenario (AI game art) or a local program. The key is the server's name ([A-Za-z0-9_-], not \"factoria\"). The shape follows Claude Code's .mcp.json (type, url, headers, command, args, env) plus FactorIA's apiKeyEnv, apiKey, note, roles, enabled and timeoutSeconds. Only this user file can add servers, never a game project. The editor's AI settings window (External tools tab) edits this section. Example: {\"scenario\": {\"type\": \"http\", \"url\": \"https://mcp.scenario.com/mcp\", \"headers\": {\"Authorization\": \"Basic {key}\"}, \"apiKeyEnv\": \"SCENARIO_MCP_KEY\", \"note\": \"AI game art: sprites, textures, icons\"}}. See docs/AI_PROVIDERS.md, \"External tools (MCP servers)\".",
+      "additionalProperties": { "$ref": "#/$defs/toolServer" }
+    },
     "roles": {
       "type": "object",
-      "description": "Which provider/model plays each role. orchestrator plans and delegates, worker implements, fast does small mechanical tasks.",
+      "description": "Which provider/model plays each role. orchestrator plans and delegates, worker implements, fast does small mechanical tasks, artist makes the game's art, audio makes its sound and music, artCritic and reviewer (read-only) give opinions on the art and on the whole game when the user asks for a review. A role that is not listed gets a default that follows the provider and model of orchestrator (artist, artCritic, reviewer) or worker (audio), so an ai.json written before these roles existed keeps working on the same provider.",
       "properties": {
         "orchestrator": { "$ref": "#/$defs/role" },
         "worker": { "$ref": "#/$defs/role" },
-        "fast": { "$ref": "#/$defs/role" }
+        "fast": { "$ref": "#/$defs/role" },
+        "artist": { "$ref": "#/$defs/role" },
+        "audio": { "$ref": "#/$defs/role" },
+        "artCritic": { "$ref": "#/$defs/role" },
+        "reviewer": { "$ref": "#/$defs/role" }
       },
       "additionalProperties": false
     },
@@ -42,13 +64,52 @@
       "properties": {
         "maxTurns": { "type": "integer", "minimum": 1, "default": 40 },
         "maxCostUsd": { "type": "number", "minimum": 0, "description": "0 = unlimited." },
-        "maxTotalTokens": { "type": "integer", "minimum": 0, "description": "0 = unlimited." }
+        "maxTotalTokens": { "type": "integer", "minimum": 0, "description": "0 = unlimited." },
+        "stuckAfterSeconds": { "type": "integer", "minimum": 0, "default": 180, "description": "The editor's AI panel warns that the agent may be stuck after this many seconds without any sign of activity (an event from the agent or a sub-agent), and offers Stop and Check activity. 0 = never warn." },
+        "maxConcurrentRuns": { "type": "integer", "minimum": 1, "default": 3, "description": "How many AI chats the editor lets run at the same time (1 to 8; a value outside that range is brought into it with a warning). Each chat has its own agent, progress, usage and Stop; the plan limits of a provider are shared by all of them." }
       },
       "additionalProperties": false
     }
   },
   "additionalProperties": false,
   "$defs": {
+    "toolServer": {
+      "type": "object",
+      "description": "One external tool server (MCP). type \"http\" (needs url) talks Streamable HTTP to a remote server; type \"stdio\" (needs command) starts a local program and talks to it through its standard input and output. When type is left out it is \"stdio\" if command is set, else \"http\". {key} in a header value, an argument or an env value is replaced by the key (apiKeyEnv's variable, else apiKey); ${NAME} and ${NAME:-default} by an environment variable.",
+      "properties": {
+        "type": { "enum": ["http", "stdio"], "description": "http = a remote server at url (Streamable HTTP; the older SSE transport is not supported). stdio = a local program (command)." },
+        "url": { "type": "string", "minLength": 1, "description": "http: the server's address, for example https://mcp.scenario.com/mcp." },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "http: extra request headers, for example {\"Authorization\": \"Basic {key}\"}. Values may use {key} and ${ENV}." },
+        "command": { "type": "string", "minLength": 1, "description": "stdio: the program to start (npx, uvx, node, python, a path)." },
+        "args": { "type": "array", "items": { "type": "string" }, "description": "stdio: its arguments. May use {key} and ${ENV}." },
+        "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "stdio: environment variables added for the program. Values may use {key} and ${ENV}." },
+        "apiKeyEnv": { "type": "string", "description": "Name of the environment variable that holds the key used for {key}. Preferred over apiKey: the key stays out of this file." },
+        "apiKey": { "type": "string", "description": "The key itself, used for {key} when apiKeyEnv is not set or not found. Only this user file can hold it; the file is kept readable by you only." },
+        "note": { "type": "string", "description": "Goes to the AI's prompt: what this server is good for and when to use it (\"AI game art: sprites, textures, icons\")." },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/roleName" }, "description": "Which roles may use the server. Default: orchestrator, worker, fast, artist, audio. artCritic and reviewer get a server only when listed here (they never change the project, and a server may cost credits)." },
+        "enabled": { "type": "boolean", "default": true, "description": "false keeps the entry but nobody uses it." },
+        "timeoutSeconds": { "type": "number", "minimum": 1, "default": 120, "description": "How long one tool call may take before it fails (generating an image can take a minute or two)." }
+      },
+      "additionalProperties": false
+    },
+    "roleName": { "enum": ["orchestrator", "worker", "fast", "artist", "audio", "artCritic", "reviewer"] },
+    "siteList": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1, "description": "A domain or a web address: opengameart.org, https://kenney.nl/assets." },
+          {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+              "url": { "type": "string", "minLength": 1, "description": "A domain or a web address: opengameart.org, https://kenney.nl/assets, github.com/KhronosGroup. No spaces." },
+              "note": { "type": "string", "description": "What the site is good for or its license (\"CC0 packs\"); shown to the AI." }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
     "assetRoute": {
       "type": "object",
       "required": ["provider"],
@@ -65,6 +126,11 @@
         "provider": { "type": "string", "description": "Name of an entry in providers (or a built-in)." },
         "model": { "type": "string", "description": "Model id, e.g. claude-sonnet-5-5." },
         "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false turns the role off: the orchestrator does that work itself (worker, fast, artist, audio), or a review runs on the orchestrator's provider and model (artCritic, reviewer). The orchestrator cannot be turned off (an error). The editor's Roles window has an Enabled checkbox for it."
+        },
         "maxTokens": { "type": "integer", "minimum": 1 },
         "maxContextTokens": {
           "type": "integer",

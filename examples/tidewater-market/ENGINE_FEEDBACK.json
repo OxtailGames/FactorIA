@@ -1,0 +1,1300 @@
+{
+  "format": "factoria.feedback/1",
+  "project": "Tidewater Market",
+  "engineVersion": "0.2.0",
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "No isometric tilemap or picking helpers",
+      "missing": "Tilemap is orthogonal only, so a 40x40 isometric map is one Sprite entity per cell and per object (2655 entities with trees) and the cell-under-the-mouse maths (iso cell <-> world, diamond hit test) has to be written by hand and checked against camera.screenToWorld. The docs do not say how sprites of one layer are ordered (it is lower y on top, then creation order); I found it by experiment, and it is what makes depth sorting work.",
+      "workaround": "scripts/game/iso.js (cell <-> world, rounding in the iso axes), scripts/game/map_view.js (one entity per cell and object, same layer so lower y draws on top, one atlas so the whole map is about 20 draw calls), tests/camera_picking.test.js checks the picking at zooms 0.4 to 2.5 against camera.screenToWorld.",
+      "workaroundFiles": [
+        "scripts/game/iso.js",
+        "scripts/game/map_view.js",
+        "scripts/game/camera_math.js",
+        "tests/camera_picking.test.js"
+      ],
+      "suggestion": "An optional Tilemap projection 'isometric' (tile 100x50) with cellAt(worldPoint) and cellToWorld(c, r), drawn as one batched mesh instead of one entity per cell; document the sprite draw order inside a layer in the sprites section.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in ca5f3025 (M31.25): Tilemap.projection \"isometric\" (groundHeight, groundOffset) with entity.tilemap.cellAt and cellToWorld exists, and the sprite draw order inside a layer is in the sprites section of the AI guide. map_view.js now draws the ground (terrain, trees, roads) as ONE Tilemap whose tileset is one PNG per season (assets/src/make_terrain_tiles.py); a season swaps the PNG, a road or a cut forest rewrites one tile. Map entities went from 2826 to 246 (game), 2712 to 112 (title) and 4840 to 1029 (stress); draw calls are +1 on the title and the stress scene (the tileset is a second texture). iso.js stays as the pure maths of the picking (tests/map_view.test.js checks it against cellAt). Trees are now part of the ground layer, so a building covers the trees in front of it."
+      ]
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "No strategy camera helper (edge pan, wheel zoom to cursor, bounds)",
+      "missing": "A mouse-driven management game needs drag pan, edge pan, wheel zoom towards the cursor and a clamp to the map. There is no helper or documented recipe; the follow camera of the guide does not cover it, and Camera.orthoSize has to be derived from the design height by hand.",
+      "workaround": "scripts/game/camera_math.js (pure: zoomAt, clampView, screenToWorld) and scripts/game/camera_rig.js (the behaviour), both tested.",
+      "workaroundFiles": [
+        "scripts/game/camera_math.js",
+        "scripts/game/camera_rig.js",
+        "tests/camera_picking.test.js"
+      ],
+      "suggestion": "A documented recipe or a built-in CameraRig behaviour with panSpeed, edgePan, zoomMin/zoomMax, bounds from entity.bounds().",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 3c69d82a (M31.21): camera.zoomAt, panBy, clampTo, zoomOf, setZoom and orthoSizeFor exist, and the menu kit's cameraRig part (scripts/camera_rig.js). The game keeps scripts/game/map_camera.js, a subclass with its gamepad cursor and latched drag; camera_math.js and the old camera_rig.js are gone."
+      ]
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "No undo/redo or data-table validation helpers for game state",
+      "missing": "Undo/redo and drag-to-build are game features with no engine support or recipe: transactions, an undo limit, refusing an undo that no longer fits. Likewise a data table (data/*.json) imported by scripts is only checked by the game's own code, so a typo in a cross-reference (a recipe naming a good that does not exist) has no file/pointer/did-you-mean error unless the game writes it.",
+      "workaround": "scripts/game/state.js (transactions with exact deltas, undo and redo refuse and emit action.rejected), scripts/game/data.js (validateTables with file, JSON pointer, hint and didYouMean) and the project tool project.validate_data.",
+      "workaroundFiles": [
+        "scripts/game/state.js",
+        "scripts/game/data.js",
+        "tools/validate_data.js",
+        "tests/data_tables.test.js"
+      ],
+      "suggestion": "Document a recipe for validating data tables in a project tool (file, pointer, hint, did-you-mean), and offer a did-you-mean helper to scripts so each game does not write its own; optionally a small history helper.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open",
+      "notes": [
+        "2026-10-27 (M31.6, 88d1b741): part fixed. didYouMean(word, choices) is exported from \"factoria\" and docs/EXTENDING.md has the recipe for a project tool that validates data tables with file, JSON pointer, hint and did-you-mean (the game's data.js and project.validate_data could use them). Still open: the optional history helper (transactions, an undo limit) is out of M31; the game keeps state.js."
+      ],
+      "engineIssue": "M31.6 (the validation recipe and did-you-mean only)"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No node to run pure JS modules outside factoria test",
+      "missing": "Game logic written as pure modules (no engine imports) cannot be run on its own: node is not part of the toolchain, and factoria test is the only runner, which starts the engine for every file. A quick check of a generator took a full test run.",
+      "workaround": "Everything pure is tested through factoria test (tests/map_generation.test.js, rules.test.js) and previewed through the project tool project.map_preview.",
+      "workaroundFiles": [
+        "tools/map_preview.js",
+        "tests/map_generation.test.js"
+      ],
+      "suggestion": "factoria eval <file.js> or script.eval on a module path that runs a pure module headless without loading a scene, or documenting that factoria test FILE --filter is the quick way.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 88d1b741 (M31.6): script.eval takes module, call and args, so `factoria call script.eval` runs a pure module with no scene."
+      ]
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "Menu kit loading screen writes an English string over a localised Text",
+      "missing": "templates/menus/scripts/loading.js sets the Text to the hard-coded string `Loading... N%` every frame, while its scene gives that Text a key (loading.text). The progress line is therefore English in every language, and the key is only used until the first frame. The kit's own locale string cannot carry the percentage.",
+      "workaround": "scripts/loading.js builds the line with i18n.t('loading.progress', {percent}) (locales/en.json) and the Text in the scene has no key.",
+      "workaroundFiles": [
+        "scripts/loading.js",
+        "scenes/loading.scene.json",
+        "locales/en.json"
+      ],
+      "suggestion": "Ship the kit's loading.js with i18n.t and a 'loading.progress' string with a {percent} placeholder, and a Text without key.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 56053954 (M31.23): the menu kit's loading.js writes i18n.t('loading.progress', {percent}) and its scene's Text has no key; loading.progress is in the kit's en, es and ar tables. The game keeps its own copy until it takes the kit's."
+      ]
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "major",
+      "title": "nav.findTilePath costs the size of the grid on every call, no reusable grid or flow field",
+      "missing": "A strategy game with hundreds of walkers asks for many routes on the same road grid. nav.findTilePath({width, height, cost}, from, to) converts the whole cost array on every call, so a short route costs the same as a long one and the cost grows with the map: measured in a debug build, one call on a 10x10 grid takes 0.18 ms, 60x60 3.2 ms, 120x120 13 ms, 240x240 51 ms, however short the path. There is no handle to build the grid once and query it many times, and no multi-goal or flow-field query (one search from a building's doors that every walker heading there can follow).",
+      "workaround": "scripts/game/roadnet.js keeps one distance field (BFS) per goal building, cached until the roads change, and walkers descend it one cell at a time. 75 ticks of 600 walkers cost 442 ms with the fields and 5978 ms through nav.findTilePath on a 60x60 map (tests/stress.test.js compares both; scripts/game/nav_backend.js is the plug-in that uses the engine's finder).",
+      "workaroundFiles": [
+        "scripts/game/roadnet.js",
+        "scripts/game/nav_backend.js",
+        "tests/stress.test.js"
+      ],
+      "suggestion": "nav.createGrid({width, height, cost}) returning a handle that findTilePath(grid, from, to) reuses (update cells with grid.setCost(col, row, cost)), and nav.flowField(grid, goals) returning a distance field that nav.stepToward(field, col, row) reads in O(1).",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in cad41749 (M31.12): nav.createGrid keeps the cost grid in the engine; nav.findTilePath(grid, from, to) reuses it; nav.flowField(grid, goals) gives stepToward, distance and pathFrom in O(1). In a debug build 600 walkers on a 60x60 map for 75 ticks cost about 228 s with the array form, 8.2 s with the kept grid and 0.16 s with flow fields. The game's own distance fields are now nav.flowField over a nav.createGrid."
+      ]
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No tooltip: a widget cannot show a hint after the pointer rests on it",
+      "missing": "A management game explains every button, number and menu item. The UI has hover state (ui.hovered) but no tooltip widget, no hover delay and no placement that keeps a popup on screen; ui.hovered is also not set for things that are not widgets (a building under the pointer on the map).",
+      "workaround": "Fixed in the engine (M31.13): `tooltip` on any widget or Panel, ui.setTooltip(entity, fn) for text computed when it shows, ui.setWorldTooltip(fn) for what is not a widget and ui.showTooltip(content, {x, y}); delay, slop, placement and look are the engine's (ui.tooltipDelay and the `ui` section of factoria.json). The Tooltips class and placeTooltip of ui_kit.js are deleted (about 115 lines and the ten entities of its pool); ui_hud.js registers its functions with ui.setTooltip, the top bar numbers (Text, which has no tooltip) through the bar's Panel.",
+      "workaroundFiles": [
+        "scripts/game/ui_kit.js",
+        "scripts/game/ui_hud.js",
+        "tests/ui_mouse.test.js"
+      ],
+      "suggestion": "A Tooltip field on Panel/Button (text key or `tooltip: {title, lines}`), with `ui.tooltipDelay`, placement inside the window and a setting to turn it off for touch.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in ed67f982 (M31.13): tooltips exist in the engine. Text has no tooltip field and is not hit by the pointer, so the top bar texts are answered by the bar's Panel."
+      ]
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No drag and drop between widgets and the world",
+      "missing": "Moving a villager to a workplace is naturally a drag from the inspector onto the map. Widgets only click; there is no drag source, drop target or drag payload, and no way to tell the map that the press started on the UI.",
+      "workaround": "ui_hud.js watches ui.hovered on the press, starts after a 6 px slop, draws a follow-the-pointer chip Panel, asks the model (canDropWorker) while the mouse moves to colour the target, and swallows the click the release would otherwise produce on the chip or map.",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js",
+        "tests/ui_dragdrop.test.js"
+      ],
+      "suggestion": "Button.draggable plus ui.onDrag(start|over|drop) events carrying the source entity and screen position, and a ui.dragging flag that input consumers can read.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 4b7da894 (M31.14): draggable, ui.on(dragStart|dragOver|drop|dragCancel), ui.setDropTarget, ui.dragging and game.drag exist in the engine. ui_hud.js uses them; only the hold-free carry mode stays its own."
+      ]
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No chart or graph widget",
+      "missing": "The charts panel shows coins, one good's stock and what was made per day over the last days. There is no line/bar chart component; every bar has to be a Shape2D with a hand-computed size.",
+      "workaround": "Charts are rectangles built in a pool in ui_hud.js (bars scaled to the maximum, a baseline rule, axis labels as Text). Position maths in the Hud, data in the Recorder (ui_model.js).",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js",
+        "scripts/game/ui_model.js"
+      ],
+      "suggestion": "A Chart component (values array, kind bar/line, colour, axis min/max auto) drawn by the UI layer, with hover reporting the sample under the pointer.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 666de009 (M31.15): the Chart component exists (values, kind bar/line, colors, automatic axis, baseline, marks, number-format labels, ui.on(\"chartHover\")). ui_hud.js spawns one Chart per chart instead of about 80 rectangles; the Recorder stays in ui_model.js."
+      ]
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No rich text or inline icons in a Text or Button label",
+      "missing": "A goods line such as '[wood icon] 12 / 40' or a cost with coloured missing items needs several colours and a sprite inside one line. A Text has one colour and no inline sprites, so every line is a pool of separate labels and icons laid out in rows. (P3) Event cards and orders (P5) need lines like '+40 [coin icon]  -4 [planks icon]' with green and red numbers and bold words that wrap with the text; Text has one colour, one font weight and no inline pictures.",
+      "workaround": "Fixed in the engine (M31.8): Text.markup (and Button.markup) reads [b], [c:..] and [icon:name], the colours and icons are the `text` section of factoria.json, and the engine wraps and measures the runs (CJK too). The card and board lines of trade_ui.js are now one Text each; the 400-line markup parser, layout and entity pool (richtext.js, rich_view.js) were deleted. P3's cost and tooltip rows still use icon Sprite + Text children in a row-layout Panel (they work and are not text that wraps).",
+      "workaroundFiles": [
+        "factoria.json",
+        "scripts/game/ui_kit.js",
+        "scripts/game/ui_hud.js",
+        "scripts/game/trade_ui.js",
+        "scripts/game/trade_text.js",
+        "tests/rich_text.test.js"
+      ],
+      "suggestion": "Text.markup: true with [b], [c:..] and [icon:atlasFrame], wrapping handled by the engine and drawn as one batch (or a runs: [{text, color} | {sprite}] field).",
+      "effort": "large",
+      "occurrences": 2,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 47e73975 (M31.8): Text.markup, Button.markup and the project `text` section (colors, icons, fonts bold) exist. The glyphs of a line, whatever their colour or weight, are one draw call; each icon texture adds one batch."
+      ]
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Buttons are text only: no icon or icon plus text button",
+      "missing": "The build menu wants an icon above a name and cost on every item. A Button draws a label only.",
+      "workaround": "An item is a column Panel holding a Sprite and a Button whose label is the name and cost; the Sprite does not take clicks, so a click on the icon does nothing unless the Panel forwards it (Panel hover is not a click target).",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "Button.icon (sprite region) with iconPosition left/top, drawn inside the hit area.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "M31.17",
+      "notes": [
+        "Fixed in 90a88faa (M31.17): Button.icon, iconRegion, iconSize and iconPosition (left, top, alone) draw an icon inside the hit area; autoSize and autoShrink count it. The build menu items are icon Buttons (two entities fewer per item). Not done: the icon has a fixed iconSize, no tint, and a right-to-left layout does not flip it."
+      ]
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "No modifier chords: an action binds to one key only",
+      "missing": "Ctrl+Z / Ctrl+Y for undo and redo, Shift+click to place several are the habits of players of this genre. An input action takes a list of single bindings.",
+      "workaround": "Plain Z and Y keys, and the buttons; Shift and Ctrl are not used by the game.",
+      "workaroundFiles": [
+        "factoria.json",
+        "scripts/game/game_controller.js"
+      ],
+      "suggestion": "Bindings like \"Ctrl+Z\" and input.down(\"Shift\") as modifier state in action bindings.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 47c076b1 (M31.18): Bindings take modifiers (\"Ctrl+Z\", \"Shift+MouseLeft\"); the chord wins over its plain key. The game binds Ctrl+Z, Ctrl+Y (with the plain Z and Y it had) and Shift+click through the engine."
+      ]
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "input",
+      "severity": "major",
+      "title": "The mouse wheel reaches the game under a UI panel: no way to say the UI consumed it",
+      "missing": "A scrolling goods table must scroll with the wheel and not zoom the map under it. input exposes the wheel as a value with no consumer, and ScrollList does not report that it used the delta.",
+      "workaround": "camera_rig.js has a wheelBlocked field the Hud sets each frame from the rectangles of the open panels (this.over(mouse)). Every script that reads the wheel must remember to check it.",
+      "workaroundFiles": [
+        "scripts/game/camera_rig.js",
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "input.wheelConsumed / ui.consumedWheel: true when the pointer is over a scrolling widget, or input.wheel() returning 0 over a widget that handles it.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 399e06d6 (M31.1): A ScrollList that scrolls keeps the wheel: input.mouse.wheel reads 0 that frame and ui.wheelConsumed is true, and ui.pointerOverUi says the pointer is over a widget. The game dropped its panel-rectangle wheel flag."
+      ]
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Shape2D line with a positive size.y draws upwards in screen space",
+      "missing": "Screen-space layout is +Y down everywhere (Panel, Text, Sprite), but a Shape2D line's size.y grows up, so a chart bar or rule placed from its top-left corner appears mirrored vertically. A rectangle with pivot [0,1] behaves as expected.",
+      "workaround": "Charts use rectangles with pivot [0,1] and never lines; a first version with lines had bars drawn in the wrong place.",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "Document it next to Shape2D.size, or make screen-space shapes +Y down like everything else in space: \"screen\".",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs only: Shape2D.size says that in screen space a line's size.y points up, unlike Panels, Texts and Sprites, and that a chart bar is a rectangle with pivot [0, 1]. The line itself is unchanged."
+      ]
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "game.setAccessibility does not change ui.textScale in tests (withdrawn: documented behaviour)",
+      "missing": "Withdrawn in P6. docs/SCRIPTING.md and COMPONENTS.md say game.setAccessibility only pretends the SYSTEM settings (game.accessibility); 'The engine applies none of them'. ui.textScale is the game's own setting, so a test sets ui.textScale (or goes through the options screen). The entry was a misreading of the docs.",
+      "workaround": "Tests set ui.textScale directly, or click the text size button on the options screen (tests/options.test.js).",
+      "workaroundFiles": [
+        "tests/ui_layout.test.js"
+      ],
+      "suggestion": "None needed.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "wont-fix"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Children of a hidden Panel still report active = true",
+      "missing": "entity.active on a child is its own flag: after hiding the panel, the child's active stays true, so a script that asks 'is this shown' gets the wrong answer, and game.click on it throws only in the test API. activeInHierarchy exists but is easy to miss.",
+      "workaround": "ui_kit.js isActive and the tests' shown() use activeInHierarchy.",
+      "workaroundFiles": [
+        "scripts/game/ui_kit.js",
+        "tests/ui_helper.js"
+      ],
+      "suggestion": "Mention activeInHierarchy under Entity.active in the scripting docs, or make ui.rectOf return null for entities hidden by a parent.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs and one behaviour: Entity.active and activeInHierarchy have doc strings (a child of a hidden Panel keeps active true; ask activeInHierarchy), and ui.rectOf now returns null for a widget hidden by a parent, as ui.state already left it out."
+      ]
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A fit Panel in a column has no minimum width: a rule spacer is the only way to widen it",
+      "missing": "A right-hand column of buttons (fit: true) should be as wide as its widest child but also never narrower than the inspector above. Panel has size or fit, no minSize, so a thin invisible Panel with a fixed width is placed in the column.",
+      "workaround": "rule() in ui_kit.js (a 2 px high Panel of the right width); used by the inspector and the right column.",
+      "workaroundFiles": [
+        "scripts/game/ui_kit.js",
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "Panel.minSize (and maxSize) that also apply when fit is true.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in ff667322 (M31.5): Panel.minSize and Panel.maxSize (0 = no limit on an axis) bound a Panel's size, also one with fit: true. The game dropped its rule spacers."
+      ]
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Button font size is fixed, not fitted: long localised labels overflow",
+      "missing": "Item labels such as 'Smoked fish' with a cost must stay on two lines in a 108 px button. autoSize widens the button and maxWidth wraps it, but there is no shrink-to-fit, so every label length has to be checked by hand when a language is added.",
+      "workaround": "maxWidth on item buttons plus the tests that assert the build bar stays inside 1280x720 (tests/ui_mouse.test.js).",
+      "workaroundFiles": [
+        "scripts/game/ui_hud.js",
+        "tests/ui_mouse.test.js"
+      ],
+      "suggestion": "Button.fitText: 'shrink' with a minimum font size.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in cceb927e (M31.4): Button.autoShrink and minFontSize already existed (since 0.2.0). M31.4 added Toggle.autoShrink and minFontSize, and a wrapped text now measures its widest line, so autoShrink no longer shrinks a short label for nothing."
+      ]
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "No screenshot of the running game as a texture, for a save slot picture",
+      "missing": "A save slot should show a picture of the town at the moment of the save. A script cannot capture the frame (game.screenshot exists only in tests and as a CLI command, and writes a file) and cannot create a texture at run time from pixels or a file it wrote, so a Sprite cannot show it.",
+      "workaround": "scripts/game/thumbnail.js saves a top-down map of at most 48 x 48 cells (one colour per cell, run-length text, about 0.3 KB) and the slot screen draws it as coloured Panel quads in layout rows.",
+      "workaroundFiles": [
+        "scripts/game/thumbnail.js",
+        "scripts/ui/slots_screen.js"
+      ],
+      "suggestion": "render.captureTexture({width, height}) returning a texture id a Sprite or Image can use (and storage-friendly PNG bytes), or a Sprite field that takes a data URL.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 54565fbd (M31.24): render.captureTexture({width, height, fit}) returns a Texture whose id a Sprite, Panel or Button takes; texture.toPNG() gives Base64 text for storage and render.textureFromPNG(text) loads it back. Save slots and the autosave store a 156 x 156 picture under <slot>.pic and the slots screen shows it; a save with no picture (older saves, a headless run) keeps the run-length map of thumbnail.js."
+      ]
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "No documented hide or close signal on the web for an autosave",
+      "missing": "An autosave on leaving needs a signal before the tab is hidden or closed. game.on('quit') is raised on desktop only (docs/MENUS.md says mobile apps never quit by themselves); game.on('blur'/'suspend') are what a script has otherwise. Nothing in the docs says what a web export raises when a tab is hidden or closed, and a test cannot show it (this package could not run a web export).",
+      "workaround": "scripts/save_controller.js saves on blur, suspend and quit, and the autosaver also writes at the end of every season and every 120 s of play when the town changed, so a tab closed without any signal loses at most that.",
+      "workaroundFiles": [
+        "scripts/save_controller.js",
+        "scripts/game/autosave.js"
+      ],
+      "suggestion": "Document which of blur / suspend / quit each platform raises (web: visibilitychange and pagehide), and raise suspend on a hidden tab and quit on pagehide in the web runtime.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in e8b12dcc (M31.16): A web export raises suspend/resume on visibilitychange and quit on pagehide (not cancellable), and copies the save folder to IndexedDB right after the handlers run, so a storage.set inside one is kept. SCRIPTING.md (Window close), MOBILE.md and EXPORTING.md list which of blur, suspend and quit each platform raises."
+      ]
+    },
+    {
+      "id": "FB-0022",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "Large saves: storage is one file, no size query, no compression, the write runs inside a frame",
+      "missing": "The stress town (640 villagers) saves to 281 KB of JSON; a write (serialize, stringify, storage.set) took 143 ms and a read with the restore 75 ms in a debug build on an Apple M5 (tests/stress.test.js prints them), a one-frame hitch when the game saves. docs say all of storage lives in one storage.json, so with 3 slots, an autosave each and a cloud copy, a full set of big towns is a file of about 1.7 MB (computed from the sizes, not measured on disk) that is rewritten on every save. There is no storage size query, no compression and no way to write off the frame.",
+      "workaround": "Save format v2 packs terrain as run lengths and road runs as one array each; saves are written at the end of the frame, never inside a clock step, and an unchanged town is not autosaved.",
+      "workaroundFiles": [
+        "scripts/game/savegame.js",
+        "scripts/game/autosave.js",
+        "tests/stress.test.js"
+      ],
+      "suggestion": "storage.set(key, value, {compress: true}) or per-key files, storage.size(key), and an asynchronous storage.setAsync that does the write on a worker thread.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in e8b12dcc (M31.16): storage writes one file per key (an old storage.json is split and renamed storage.migrated.json), storage.size(key), storage.set(key, value, {compress: true}) and storage.setAsync (a worker thread; between frames on the web). The game autosaves with setAsync (compressed) and saves at once on blur, suspend and quit."
+      ]
+    },
+    {
+      "id": "FB-0030",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No rich text in Text (inline icons, colours, bold)",
+      "missing": "Event cards and orders need lines like '+40 [coin icon]  -4 [planks icon]' with green/red numbers and bold words that wrap with the text. Text has one colour and one font, and no inline pictures.",
+      "workaround": "A small markup (parse, layout with ui.measureText, line breaking incl. CJK) and a pool of Text and Sprite entities per line piece; bold is the same text drawn twice 1 px apart. About 400 lines of JS plus tests.",
+      "workaroundFiles": [
+        "scripts/game/richtext.js",
+        "scripts/game/rich_view.js",
+        "scripts/game/trade_text.js",
+        "tests/rich_text.test.js"
+      ],
+      "suggestion": "Text.markup: true with [b], [c:..], [icon:atlasFrame] and wrapping handled by the engine, drawn as one batch.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "duplicate",
+      "notes": [
+        "2026-10-26 (M30 close-out): duplicate of FB-0010, the same gap met by P5's event cards; its occurrence, workaround and files were merged there."
+      ]
+    },
+    {
+      "id": "FB-0031",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No bold or font weight for Text",
+      "missing": "Emphasis in a card body (a good's name, an amount) needs a heavier face; Text only has fontSize and color.",
+      "workaround": "Fixed in the engine (M31.8): [b] in a Text with markup, and Text.bold, use the bold face a project lists next to a font (factoria.json text.fonts.<font>.bold); a font with none is emboldened by the engine, and `factoria validate` suggests adding a bold file. Tidewater Market has no bold font file in the repository, so it relies on the engine's emboldening.",
+      "workaroundFiles": [
+        "factoria.json",
+        "scripts/game/trade_ui.js"
+      ],
+      "suggestion": "A Text.weight or a bold font slot in the project font settings.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 47e73975 (M31.8): Text.bold and [b] use the bold face listed in factoria.json text.fonts; a font without one is emboldened by the engine and factoria validate suggests adding one. The game dropped its fake bold."
+      ]
+    },
+    {
+      "id": "FB-0032",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "rng.create state cannot be read or set, so a saved game cannot resume its random stream",
+      "missing": "A seeded stream (ships, events) must continue exactly after loading a save. rng.create(seed) has no state getter/setter; rng.seed(n) restarts from the beginning, and the world rng is shared with everything else.",
+      "workaround": "My own mulberry32 Rng with a public 32-bit state (same algorithm as the engine's), three separate streams so a new draw in one does not shift the others.",
+      "workaroundFiles": [
+        "scripts/game/rng.js",
+        "tests/trade.test.js"
+      ],
+      "suggestion": "rng.state getter and setter (a number) on generators from rng.create, documented as stable like the algorithm.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 88d1b741 (M31.6): Generators from rng.create have a state getter and setter (a 32-bit integer), stable like the algorithm. The game uses rng.create streams and saves their state; old saves load (same algorithm and state)."
+      ]
+    },
+    {
+      "id": "FB-0033",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No choice or dialogue card system",
+      "missing": "Event cards with 2-3 choices, a result stage, modal behaviour and keyboard/mouse focus are common in management games. Everything (layout, buttons disabled when unaffordable, pausing the clock, result stage) is hand written.",
+      "workaround": "trade_ui.js builds the card from a Panel prefab plus buttons spawned per choice and holds the clock at speed 0 while a card is open.",
+      "workaroundFiles": [
+        "scripts/game/trade_ui.js",
+        "prefabs/ui/event_card.prefab.json"
+      ],
+      "suggestion": "A documented modal 'card' widget in the menu kit: title, wrapped body, N choice buttons with a detail line.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in dc5013d1 (M31.19): Panel.modal (a focus scope: the pointer, the wheel and navigation reach only the panel's widgets; nothing under it is hovered, clicked, given a tooltip or taken as a drop target) and the menu kit's card part (scripts/ui/card.js, prefabs/ui/card.prefab.json): title, wrapped body, choices with a detail line, a choice disabled with its reason, a result stage and an optional game.paused hold. trade_ui.js uses it; the game keeps its own clock hold (its speed buttons), so it does not pass holdClock."
+      ]
+    },
+    {
+      "id": "FB-0034",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Atlas grows as pictures are added, and the frame table is hand kept",
+      "missing": "Adding the pier, star and three ship classes with four headings each took the atlas from 2048x1024 to 2048x2048 (107 frames). There is no packer, so make_atlas.py lays the frames out and writes data/atlas.json by hand.",
+      "workaround": "make_atlas.py (Python) builds the PNG and the rect/pivot table; the game reads frame rects from data/atlas.json.",
+      "workaroundFiles": [
+        "assets/src/make_atlas.py",
+        "data/atlas.json"
+      ],
+      "suggestion": "An atlas.pack command that packs a folder of images and writes the frame table the Sprite region field can use.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 6777c93b (M31.22): assets.pack_atlas packs a folder of images into one PNG and writes data/atlas.json (rect and pivot per frame); packing again keeps the frames that did not change where they were. make_atlas.py is gone: the 107 frames are PNGs in assets/src/frames (pivots.json beside them) and the atlas is 1268x2048 instead of 2048x2048. The game keeps roadFrames in the same table (the command leaves unknown keys alone) and the icon regions of factoria.json, which rich_text.test.js checks."
+      ]
+    },
+    {
+      "id": "FB-0035",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Children of a screen-space Panel with layout none are placed from the panel's top-left, which the UI docs do not say",
+      "missing": "I first placed card children with absolute screen positions and they came out shifted by the panel position. Moving the panel moves its children, which is good, but I found it only by a screenshot.",
+      "workaround": "Child positions are relative to the panel (prefab children at [24,16] etc.).",
+      "workaroundFiles": [
+        "prefabs/ui/order_board.prefab.json",
+        "prefabs/ui/event_card.prefab.json"
+      ],
+      "suggestion": "One sentence plus an example in the guide's screen-space section: children of a Panel are offset from its corner.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs only: AI_GUIDE.md (screen space) says a Panel's children are offset from the parent's Transform.position; neither the parent's anchor nor its pivot moves them."
+      ]
+    },
+    {
+      "id": "FB-0036",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "A Behaviour field named 'on' silently breaks the behaviour",
+      "missing": "I named a field 'on' (a flag) and the class's own Behaviour.on method was replaced, so event subscriptions failed with no error naming the cause.",
+      "workaround": "Renamed the field to tradeOn.",
+      "workaroundFiles": [
+        "scripts/game/trade_ui.js"
+      ],
+      "suggestion": "Validate script classes: warn when an instance field shadows a Behaviour method (on, emit, get...).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 88d1b741 (M31.6): The first instance of a class with a field named on, after, every or world logs one warning naming the field, and factoria validate reports it."
+      ]
+    },
+    {
+      "id": "FB-0037",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "The fake store reports stats.add as stats.get plus stats.set",
+      "missing": "A test that wants to assert a stat was counted has to know the fake implements add as get + set; the call log does not show a 'stats.add' call.",
+      "workaround": "Assert fake.stats.<id> and the 'stats.set' call.",
+      "workaroundFiles": [
+        "tests/trade_ui.test.js"
+      ],
+      "suggestion": "Log the call the script made (stats.add) and the nested ones apart, or document the mapping in the platform test section.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "M31.9",
+      "notes": [
+        "Fixed in dc4dbb92 (M31.9): PLATFORM.md's test section says game.platform.calls() shows a stats.add as a stats.get and a stats.set."
+      ]
+    },
+    {
+      "id": "FB-0040",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "Positional audio ignores the camera zoom",
+      "missing": "Ambience that follows a zoomable top-down camera needs the distance heard to depend on what is in view. audio.play with a position attenuates by world distance to the listener only, so zooming out does not bring far sounds closer.",
+      "workaround": "The engine now has AudioListener.zoom, which scales the falloff of AudioSource sounds. The soundscape still works from screen positions: it plays its sounds with audio.play (not AudioSource) and also weights them by distance from the middle of the screen.",
+      "workaroundFiles": [
+        "scripts/game/soundscape.js",
+        "scripts/game/sfx.js"
+      ],
+      "suggestion": "A listener height or zoom factor for 2D audio (audio.setListener({position, zoom})) that scales the falloff distance.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 51c723a0 (M31.7): AudioListener.zoom (default 1) scales how far positional sounds reach: a zoom of 2 doubles the distance. The game does not use it yet (soundmix.js computes its ambience volume and pan itself)."
+      ]
+    },
+    {
+      "id": "FB-0041",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "Only four audio buses",
+      "missing": "The game wants master, music, ambience, effects and UI volumes. The engine has four buses, so there is no ambience bus.",
+      "workaround": "factoria.json declares \"audio\": { \"buses\": { \"ambience\": { \"parent\": \"sfx\" } } }; the beds play on it and the options slider is audio.setVolume(\"ambience\", v).",
+      "workaroundFiles": [
+        "factoria.json",
+        "scripts/settings.js",
+        "scripts/game/soundscape.js"
+      ],
+      "suggestion": "Let a project declare extra buses in factoria.json (audio.buses) with a parent, or add an ambience bus.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 51c723a0 (M31.7): factoria.json audio.buses declares buses with a parent; the game has a real ambience bus under sfx. factoria validate checks the names with a did-you-mean."
+      ]
+    },
+    {
+      "id": "FB-0042",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No UI scale, only a text scale",
+      "missing": "The options screen needs an interface size that grows panels, buttons and spacing together. ui.textScale scales text only, so the layout breaks (overlaps, overflow) at large text and there is no way to enlarge the rest.",
+      "workaround": "ui_kit.js keeps a registry of the widgets it creates and rescales their sizes, fonts, paddings and label widths itself when the scale changes; the HUD places panels from the scaled sizes.",
+      "workaroundFiles": [
+        "scripts/game/ui_kit.js",
+        "scripts/game/ui_hud.js"
+      ],
+      "suggestion": "A ui.scale (or a Canvas scale) that multiplies sizes, offsets and fonts of every screen-space widget, with text scale on top.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in ff667322 (M31.5): ui.scale (0.5 to 3; \"ui\": {\"scale\"}, the ui.set_scale command) multiplies size, offset, padding, spacing, margins and font size of every screen-space widget, with ui.textScale on top. The menu kit's Options has an Interface size button; the game offers 100 % and 125 % and dropped its widget registry."
+      ]
+    },
+    {
+      "id": "FB-0043",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "major",
+      "title": "No UI hit test or virtual cursor API for gamepads",
+      "missing": "A gamepad cursor must know which widget is under a screen point, press it, and show a hover. There is no ui.widgetAt(x, y), no way to inject a pointer click on a widget, and no clip query for widgets inside a ScrollList.",
+      "workaround": "scripts/game/pointer.js scans the widgets itself with ui.rectOf, tests the clipping of ScrollLists by hand and focuses the widget under the cursor so the submit action presses it.",
+      "workaroundFiles": [
+        "scripts/game/pointer.js",
+        "scripts/ui/pad_cursor.js"
+      ],
+      "suggestion": "ui.widgetAt(x, y) returning the topmost visible, unclipped widget, and ui.setPointer(x, y) that drives hover and click like a mouse.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 399e06d6 (M31.1): ui.widgetAt(x, y) and ui.pointerOverUi give the topmost visible widget or Panel under a point; ui.setPointer(x, y, {down}) drives hover, press and click like the mouse. The game dropped its widget scan for the pad cursor."
+      ]
+    },
+    {
+      "id": "FB-0044",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "autoFocus takes the focus back when a script clears it",
+      "missing": "With a virtual cursor over empty space the focus must rest on nothing. ui.focus(null) is undone by the autoFocus rule of an open panel on the next frame, which pulled the cursor back to the panel's first button.",
+      "workaround": "A 2 px invisible sink button off the screen takes the focus while the cursor is over nothing (pad_cursor.js, pointer.js).",
+      "workaroundFiles": [
+        "scripts/ui/pad_cursor.js",
+        "scripts/game/pointer.js"
+      ],
+      "suggestion": "Honour an explicit ui.focus(null) until the next navigation input, or a ui.autoFocus = false switch.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 399e06d6 (M31.1): ui.focus(null) holds until the next arrow or D-pad press: an open panel's autoFocus no longer takes the focus back. The game dropped its focus sink."
+      ]
+    },
+    {
+      "id": "FB-0045",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "minor",
+      "title": "No voice count, no end-of-voice event, setVoiceVolume not in the audio log",
+      "missing": "A voice cap for building sounds needs to know how many voices play. There is no audio.voices count and no event when a voice ends; a volume change through setVoiceVolume does not show in game.audioLog(), so tests cannot assert that a bed followed the camera.",
+      "workaround": "VoiceBook asks audio.activeVoices() which voices still play; tests/sound.test.js reads the setVoiceVolume entries of game.audioLog() and audio.play onEnded.",
+      "workaroundFiles": [
+        "scripts/game/soundmix.js",
+        "tests/sound.test.js"
+      ],
+      "suggestion": "audio.activeVoices(), an onEnded callback, and setVoiceVolume entries in the audio log.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 51c723a0 (M31.7): audio.activeVoices() lists the sounds that play, audio.play takes onEnded (finish, stop or eviction; not stopAll or a scene load), and game.audioLog() has setVoiceVolume entries. The game's voice book reads audio.activeVoices() instead of clip lengths."
+      ]
+    },
+    {
+      "id": "FB-0046",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "game.press on a held action clicks the same focused widget only once",
+      "missing": "In a test, game.press(\"ui_submit\") twice on one focused widget pressed it only the first time; tapKey(\"Enter\") and gamepad.tap work. Surprising when scripting menu tests.",
+      "workaround": "Tests use pad.tap(\"A\") or game.tapKey(\"Enter\").",
+      "workaroundFiles": [
+        "tests/gamepad_game.test.js"
+      ],
+      "suggestion": "Document it, or make game.press release the action at the end of the step like tapKey.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs only: MENUS.md says game.tap(\"ui_submit\") presses the focused widget for one frame, while game.press holds the action until release, so pressing it again presses nothing."
+      ]
+    },
+    {
+      "id": "FB-0050",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "Web export does not check the web player against the engine build",
+      "missing": "factoria export refuses a Windows or Linux player with no build fingerprint, but the web export used the installed web player (older than the engine) without a word. The exported game then failed in the browser: scripts/ui/options.js could not import `analytics`, scene.preload was missing, and after patching those, game.sceneProps and the audio bus API were missing too, so the game never left a dark loading screen.",
+      "workaround": "Build the web player from the checkout (cmake --preset web-release; cmake --build --preset web-release) and export with --player build/web-release/player. With it the game runs in the browser and new game, build, save, reload, continue works (SHIPPING.md, \"Web\").",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Apply the same fingerprint check to the web (and mobile) players, and print the missing API when a script fails to import or call something the player lacks.",
+      "effort": "small",
+      "occurrences": 2,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 973e7e72 (M31.2): check_player_build runs for the web wasm and the prebuilt Android and iOS players too; a player of another build stops the export and says what to do (factoria setup players, the checkout's build/web-release, or allowPlayerMismatch); the web export prefers the player whose fingerprint matches. A script import or call the player lacks names the module or object and says the player may be older."
+      ]
+    },
+    {
+      "id": "FB-0051",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "No way to get players for a development build",
+      "missing": "`factoria setup players --force` fails for a development build ('this factoria 0.2.0 has no release v0.2.0 on GitHub'), and the web player needs emcc, which a Mac does not have by default. So a developer on a development checkout cannot export Windows, Linux or a current web build from a Mac.",
+      "workaround": "Exported macOS (the engine's own player) and an old web player; Windows and Linux exports were refused. Later the orchestrator built the web player with the emsdk in ~/emsdk (Emscripten 6.0.10, the CI version); Windows and Linux are still refused.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "Let setup players fetch the latest release or CI artifact for a development build, and document the emcc setup next to the web export.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open",
+      "engineIssue": "M31.11 (the web player and a fallback to the newest release only)",
+      "notes": [
+        "2026-10-27 (M31.11, 9f03b101): `factoria setup webplayer` builds the web player from the checkout (finding or fetching Emscripten 6.0.10 into .cache/emsdk) and `setup players` takes the newest release's players for a development build, with a fingerprint warning (the export then needs allowPlayerMismatch); the web export uses build/web-release first and EXPORTING.md has the Emscripten setup. Still open: Windows and Linux players of a development build from CI artifacts (they need a GitHub token), so those exports are still refused here."
+      ]
+    },
+    {
+      "id": "FB-0052",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Export packs the whole project folder unless export.exclude is set",
+      "missing": "The first web export of Tidewater Market packed 21.7 MB because the generated store images (store/, 17 MB) and assets/src were in the pak; the web zip would have been four times larger. Nothing warned about it.",
+      "workaround": "export.exclude: [\"store/**\", \"assets/src/**\"] in factoria.json; the pak is 3.5 MB.",
+      "workaroundFiles": [
+        "factoria.json"
+      ],
+      "suggestion": "Print the largest folders that went into the pak, and warn when a folder named store/, screenshots/ or src/ is packed.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in bcfb468e (M31.10): Every export names the five heaviest folders that went into the pak (largestFolders in --json) and warns when a store/, screenshots/ or src/ folder is packed, pointing at export.exclude."
+      ]
+    },
+    {
+      "id": "FB-0053",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Export gives no compressed size or load-time estimate for the web",
+      "missing": "For itch.io the number that matters is what the player downloads. The export prints file counts only; I measured gzip with a script (sizes.py) and brotli was not available at all.",
+      "workaround": "A small script gzipped each file: total 10.9 MB raw, 5.7 MB gzip. Load time was read from the browser pane.",
+      "workaroundFiles": [],
+      "suggestion": "Print raw and gzip sizes per file at the end of a web export, and the time budget of a download at a few connection speeds.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in bcfb468e (M31.10): A web export lists the raw and gzip size of each file and the download time of the gzip total at 1, 5, 20 and 100 Mbit/s (webFiles, webBytes, webGzipBytes, webDownloadSeconds in --json). Brotli sizes are not reported."
+      ]
+    },
+    {
+      "id": "FB-0054",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "minor",
+      "title": "Web player audio uses the deprecated ScriptProcessorNode",
+      "missing": "The browser logs 'The ScriptProcessorNode is deprecated. Use AudioWorkletNode instead' on every start of the web player; it will stop working when browsers remove it and it runs audio on the main thread.",
+      "workaround": "None; it still plays.",
+      "workaroundFiles": [],
+      "suggestion": "Move the sokol_audio web backend to an AudioWorklet.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in df5c4392 (M31.20): the web player plays through an AudioWorkletNode fed by messages (ScriptProcessorNode only as the fallback); no deprecation warning. Latency in EXPORTING.md."
+      ]
+    },
+    {
+      "id": "FB-0055",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "A trailer needs a custom director script and a long recording",
+      "missing": "There is no camera path, caption or fade component for a recorded trailer. store/trailer/trailer.js moves the camera, fades captions and a black cover by frame count; the 18 s video took 2 min 13 s to record, with no progress output, and the result is only seen after the run.",
+      "workaround": "store/trailer/trailer.js and make_trailer.py.",
+      "workaroundFiles": [
+        "store/trailer/trailer.js",
+        "store/trailer/make_trailer.py"
+      ],
+      "suggestion": "A Timeline or Cutscene component (camera keys, text cards, fades) and a progress line for --record-video.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open",
+      "engineIssue": "M31.9 (progress line of --record-video only)",
+      "notes": [
+        "2026-10-27 (M31.9, dc4dbb92): --record-video prints its progress (frames written of the total) on stderr. Still open: a Timeline or Cutscene component (camera keys, text cards, fades) for a trailer; out of M31, next to the editor's animation timeline in M20's left-open list."
+      ]
+    },
+    {
+      "id": "FB-0056",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p7",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "A perf file holds one scene, and the example test checks one file",
+      "missing": "A game with a title, a game scene and a stress scene needs three budgets, but tools/cli/CMakeLists.txt runs perf.check on tests/perf/<example>.perf.json only. The extra files (title, game) are not run by ctest.",
+      "workaround": "tests/perf/tidewater-market.perf.json checks the stress scene (the heaviest); -title and -game files are checked by hand.",
+      "workaroundFiles": [],
+      "suggestion": "Let a perf file list several scenes (scenes: [{scene, budgets}]) or let the CMake loop pick up every <example>*.perf.json.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "M31.9",
+      "notes": [
+        "Fixed in dc4dbb92 (M31.9): ctest runs every <example>.perf.json and <example>-*.perf.json of an example (not <example>*, which would catch another example with the same prefix); the game has a perf file for its title, game and stress scenes."
+      ]
+    },
+    {
+      "id": "FB-0060",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "ui.overflowed flags a short autoSize + maxWidth Toggle or Button",
+      "missing": "A Toggle with autoSize and maxWidth is reported overflowed (ui.overflowed, ui.check_layout) even when its label is one short word like \"VSync\": the measured label width is maxWidth itself, so the widget counts as too wide unless maxWidth plus the box and margins (the box grows with the text size) is at most the design size. The documented 'wraps at maxWidth' does not say that the wrapped width is always the full maxWidth.",
+      "workaround": "Toggles in the options screen use maxWidth 440 in a 560 px design size, which leaves room for the box and margins at the 1.5 text cap; found by trial at 200% text.",
+      "workaroundFiles": [
+        "prefabs/ui/options.prefab.json",
+        "tests/languages_layout.test.js"
+      ],
+      "suggestion": "Measure the wrapped label by its widest line, or document that maxWidth + box + margins must fit the design size.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in cceb927e (M31.4): With a renderer a wrapped text measures its widest line, like headless, so ui.overflowed and ui.check_layout no longer flag a short autoSize + maxWidth label."
+      ]
+    },
+    {
+      "id": "FB-0061",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "No grammatical gender, case or agreement in the string tables",
+      "missing": "Spanish and French need the adjective and the article to agree with a data-driven noun (a ship called \"Ligera\" with \"Esquife\"; \"el/la/los/las {name}\"). A string table has plurals and number formats but nothing for gender, so a sentence built from a name taken from another table can be ungrammatical.",
+      "workaround": "Names are chosen so that no agreement is needed (ship names are nouns: Brisa, Brise), and sentences are phrased around the noun (\"Edificio: {name}\" style) instead of using articles. Anything else has to be written as a whole sentence per name.",
+      "workaroundFiles": [
+        "locales/es.json",
+        "locales/fr.json"
+      ],
+      "suggestion": "Let a string carry a gender tag (\"name.gender\": \"f\") and select forms with it, like plural entries do with count; or document the recommended phrasing for languages with gender.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 56053954 (M31.23): a string can have a gender ({text, gender}) and a select entry (f, m, n, other forms) picks its form by args.gender; i18n.gender(key), validate and i18n.export/import follow (docs/LOCALIZATION.md, 5c). Grammatical case stays out: phrase around it. The game's es and fr tables still use noun-first phrasing."
+      ]
+    },
+    {
+      "id": "FB-0062",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "No command that builds a CJK font subset from the locale strings",
+      "missing": "Chinese needs a CJK font. The CJK fonts are 10-17 MB; shipping one whole is not reasonable for a small game, and the engine has the glyph check (factoria validate) but nothing that makes a smaller font to pass it.",
+      "workaround": "assets/fonts/make_subset.py (fontTools: pins the variable font to wght 400, keeps the characters of locales/*.json plus punctuation and Latin) builds a 340 KB Noto Sans SC subset; factoria validate is the check that fails on a missing glyph. fontTools is needed only to run the script, not by the game.",
+      "workaroundFiles": [
+        "assets/fonts/make_subset.py",
+        "assets/fonts/NotoSansSC-Regular-subset.ttf"
+      ],
+      "suggestion": "A command like assets.subset_font {source, locales} that does the same, so a game needs no Python.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in c5f926a3 (M31.26): assets.subset_font {source, locales, keep, out, axes} keeps the characters of the locale tables plus Latin and punctuation, pins a variable font to wght 400 and keeps the shaping tables, with HarfBuzz's subsetter (no Python). assets/fonts/make_subset.py is gone; the Noto Sans SC subset is rebuilt by the command from the 17 MB NotoSansSC[wght].ttf: 340064 bytes (the script made 339988)."
+      ]
+    },
+    {
+      "id": "FB-0063",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "ui.state and i18n.state are not reachable from scripts and tests",
+      "missing": "A test cannot ask the engine for the overflow, overlap and off-screen problems of what is open, nor for the languages' missing keys: both are commands (ui.state, ui.check_layout, i18n.state), and a test script only has ui.rectOf, ui.overflowed and the i18n API.",
+      "workaround": "tests/layout_helper.js walks world.entities(), takes the rectangle of each text and label with ui.rectOf, asks ui.overflowed and finds overlaps itself; the key parity test imports the locale JSON files and compares them.",
+      "workaroundFiles": [
+        "tests/layout_helper.js",
+        "tests/languages.test.js"
+      ],
+      "suggestion": "Expose ui.check_layout() (the problems of the current frame) and i18n.state to scripts, or let a test call any command.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 77f3acbf (M31.3): Docs: SCRIPTING.md's test section shows fa.call(\"ui.state\"), fa.call(\"ui.check_layout\") and fa.call(\"i18n.state\") from a test (fa.call runs any command; the entry's suggestion is met that way). Not done: ui.check_layout reloads the scenes it checks, so it does not see the current frame's state.",
+        "Fixed in 6c596066 (M33.8): game.checkLayout() (ui.check_layout with current: true) measures the current frame with the panels a test has opened and loads nothing, so the whole entry is covered."
+      ]
+    },
+    {
+      "id": "FB-0064",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A Toggle's box and its autoSize do not follow maxTextScale",
+      "missing": "At 200% text a Toggle with a long label grows far beyond its design size (one of 1877 px in Spanish) and leaves the screen: autoSize makes room for the full label and a Toggle has no autoShrink while it grows. A Panel with a fixed size cannot hold it.",
+      "workaround": "The three toggles of the Access tab have short labels; the explanation moved to the note under them, which wraps. Options panels have fixed sizes that were enlarged for the 1.5 cap.",
+      "workaroundFiles": [
+        "prefabs/ui/options.prefab.json",
+        "locales/en.json"
+      ],
+      "suggestion": "Let a Toggle with maxWidth wrap by default when its label is longer, or make autoSize honour a maximum width.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in cceb927e (M31.4): A Toggle's box is one line of its label high, no longer the widget's height, and Toggle.autoShrink and minFontSize fit the label into the room right of it, so a long localised label no longer pushes the Toggle off the screen."
+      ]
+    },
+    {
+      "id": "FB-0065",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "worker-tidewater-p8",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Script-built rich text and absolute layouts need their own text-size cap",
+      "missing": "Text.maxTextScale caps one Text, but the order board and the cards lay their text out with positions computed in a script (layoutRich): the lines, the icons and the buttons under them do not follow ui.textScale by themselves, so at 200% a card's title overlapped its first line and the row heights were wrong. RichView also used 1x line heights and icon sizes at any text size.",
+      "workaround": "RichView now caps the scale it uses (RICH_CAP 1.25), scales the line height and icons with it, and the card and board rebuild when ui.textScale or the language changes (an onUpdate check, since there is no event for the text size).",
+      "workaroundFiles": [
+        "scripts/game/rich_view.js",
+        "scripts/game/trade_ui.js"
+      ],
+      "suggestion": "An event when ui.textScale changes (ui.on(\"textScale\")), and layout containers that stack Texts of different heights without a script.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in ff667322 (M31.5): ui.on(\"textScale\") and ui.on(\"scale\") fire once per change with { value, previous }, so a script-laid-out card relays itself; Panel.minSize and maxSize bound the rows, and Text.markup lets the engine lay out rich text (M31.8)."
+      ]
+    },
+    {
+      "id": "FB-0070",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "orchestrator-m30",
+        "model": "claude-opus-5-5"
+      },
+      "category": "platform",
+      "severity": "major",
+      "title": "Web page downloaded the 8 MB wasm twice",
+      "missing": "platforms/web/shell.html downloads factoria_player.wasm itself (for the progress bar) and passed it as Module.wasmBinary, which Emscripten 6 no longer reads. The runtime then fetched the wasm again: every load of every web game cost 3 MB of gzip twice and the progress bar ended before the real download.",
+      "workaround": "Fixed in the engine while testing the export: the page hands its copy to the player through Module.instantiateWasm, which Emscripten still reads. The server log shows one GET of the wasm per load.",
+      "workaroundFiles": [
+        "SHIPPING.md"
+      ],
+      "suggestion": "A test that exports a game, serves it and counts the requests per file, so the next Emscripten update cannot bring this back.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine"
+    },
+    {
+      "id": "FB-0071",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "orchestrator-m30",
+        "model": "claude-opus-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Web export does not use the game icon in the browser tab",
+      "missing": "The game has an icon (assets/icon.png, used by the macOS export), but the web page declares an empty icon (<link rel=\"icon\" href=\"data:,\">, so that hosts without a favicon log no 404), and the browser tab shows a blank icon. (The /favicon.ico 404s in the local server log came from the app's browser pane, which asks for it anyway; the page itself requests none.)",
+      "workaround": "None in the game; a host can edit index.html to link an icon placed next to it.",
+      "workaroundFiles": [],
+      "suggestion": "Write the game's icon as a small favicon.png in the web export and link it from index.html instead of data:,.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in bcfb468e (M31.10): A web export links a 64x64 favicon.png made from the game's icon in index.html, instead of an empty icon (a game without an icon keeps the empty one)."
+      ]
+    },
+    {
+      "id": "FB-0072",
+      "date": "2026-10-26",
+      "reporter": {
+        "kind": "ai",
+        "agent": "orchestrator-m30",
+        "model": "claude-opus-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "feedback collect merges different gaps whose titles share a few words",
+      "missing": "`factoria feedback collect` ranks FB-0010 ('No rich text or inline icons in a Text or Button label') and FB-0011 ('Buttons are text only: no icon or icon plus text button') as one gap: the titles share 'no', 'icon', 'text' and 'button', and the title similarity (tools/common/src/feedback.cpp) passes the merge threshold. They are different features (styled runs inside a label; a Button that draws a sprite). The ranked list then under-counts distinct gaps and hides one of them behind the other's suggestion, and there is no way to say 'these two are not the same'.",
+      "workaround": "None: the ranked list in feedback/ROADMAP.md shows both ids under one heading; the triage reads both entries.",
+      "workaroundFiles": [],
+      "suggestion": "Weigh the `missing` text and the category more than shared short words of the title, or let an entry list ids it must never merge with (\"distinctFrom\": [\"FB-0011\"]), and print the merged groups with their scores so a triage can check them.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "M31.9",
+      "notes": [
+        "Fixed in dc4dbb92 (M31.9): feedback collect needs four shared tokens for the contained similarity, weighs the missing text in, honours distinctFrom ids, and prints each merged entry's score; FB-0010 and FB-0011 are no longer merged."
+      ]
+    }
+  ]
+}

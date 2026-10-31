@@ -2,6 +2,10 @@
 
 #include <cstring>
 
+#include "fa/core/asset_manifest.h"
+#include "fa/scene/sprite_animator.h"
+#include "fa/scene/tilemap.h"
+
 using namespace fa;
 using namespace fa::test;
 
@@ -259,6 +263,51 @@ TEST_CASE("tilemap: columns left unset is derived from the tileset width") {
     Color explicitGot = img.pixel(8, 80 + 8);
     CHECK(std::fabs(explicitGot.r - tileColor[5].r) < 0.03f);
     CHECK(std::fabs(explicitGot.g - tileColor[5].g) < 0.03f);
+}
+
+TEST_CASE("tilemap: a tileset with margin 1 and spacing 2 reads each tile from its own rectangle") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    make(w, "cam");
+    w.add<Camera>(w.find("cam"));
+    // 22x22 image: a 1 px margin, then 2x2 tiles of 8x8 px separated by 2 px gutters; the margin and gutters are magenta.
+    // Tile origins: 1 and 11 in both axes. A packed reading (no margin, no spacing) would hit magenta or the wrong tile.
+    const Color tileColor[4] = {Color::hex(0x3b7d3b), Color::hex(0x4a90d9), Color::hex(0xd9c24a), Color::hex(0xd94a4a)};
+    Image img;
+    img.width = 22;
+    img.height = 22;
+    img.rgba.resize(22 * 22 * 4);
+    for (int y = 0; y < 22; ++y)
+        for (int x = 0; x < 22; ++x) {
+            Color c = Color::hex(0xff00ff);
+            const int tx = (x - 1) / 10, ty = (y - 1) / 10;
+            if (x >= 1 && y >= 1 && (x - 1) % 10 < 8 && (y - 1) % 10 < 8 && tx < 2 && ty < 2) c = tileColor[ty * 2 + tx];
+            img.set_pixel(x, y, c);
+        }
+    REQUIRE(save_png(img, "assets/margin_tiles.png").ok());
+    Entity e = make(w, "map", {-160, 90, 0});
+    auto& tm = w.add<Tilemap>(e);
+    tm.tileset = "assets/margin_tiles.png";
+    tm.tileSize = {8, 8};
+    tm.margin = 1;
+    tm.spacing = 2;
+    tm.width = 4;
+    tm.height = 1;
+    tm.tiles = Json::array({0, 1, 2, 3});
+    CHECK(tileset_columns(tm, 22) == 2);
+    CHECK(tileset_tile_count(tm, 22, 22) == 4);
+    Image out = g.render(w);
+    for (int t = 0; t < 4; ++t) {
+        for (int dy : {0, 7})
+            for (int dx : {0, 7}) {
+                Color got = out.pixel(t * 8 + dx, dy);
+                INFO("tile " << t << " pixel (" << dx << ", " << dy << ") got rgb " << got.r << " " << got.g << " " << got.b);
+                CHECK(std::fabs(got.r - tileColor[t].r) < 0.03f);
+                CHECK(std::fabs(got.g - tileColor[t].g) < 0.03f);
+                CHECK(std::fabs(got.b - tileColor[t].b) < 0.03f);
+            }
+    }
 }
 
 TEST_CASE("text: sizes, alignment, wrapping, accents, pixel font, screen space") {
@@ -730,4 +779,73 @@ TEST_CASE("particles: is3D ignores the screen space") {
     w.get<ParticleEmitter>(e)->space = RenderSpace::Screen;   // documented: treated as world, the billboard stays put
     Image screen3d = g.render(w);
     CHECK(screen3d.rgba == world3d.rgba);
+}
+
+TEST_CASE("SpriteAnimator plays a named clip of the sheet entry: padding, pivot and clipEnded") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // 3 columns x 1 row of 10 px cells with 1 px of gutter: the 8x8 picture of frame i is red, green, blue.
+    Image img;
+    img.width = 30;
+    img.height = 10;
+    img.rgba.assign(std::size_t(30) * 10 * 4, 0);
+    const Color colors[3] = {Color::hex(0xff0000), Color::hex(0x00ff00), Color::hex(0x0000ff)};
+    for (int f = 0; f < 3; ++f)
+        for (int y = 1; y < 9; ++y)
+            for (int x = 1; x < 9; ++x) img.set_pixel(f * 10 + x, y, colors[f]);
+    REQUIRE(save_png(img, "assets/clipsheet.png").ok());
+    REQUIRE(assets::update_entry("assets/clipsheet.png", [](Json& e) {
+        e["sheet"] = Json::parse(R"({"columns":3,"rows":1,"frameWidth":8,"frameHeight":8,"frames":3,"padding":1,"pivot":[0.5,1],
+            "clips":[{"name":"all","firstFrame":0,"lastFrame":2,"fps":10,"loop":false},{"name":"blue","firstFrame":2,"lastFrame":2,"fps":10,"loop":true,"pivot":[0,0]}]})");
+    }).ok());
+    World w;
+    make(w, "cam");
+    w.add<Camera>(w.find("cam"));
+    Entity e = make(w, "fx", {0, 0, 0});
+    auto& s = w.add<Sprite>(e);
+    s.texture = "assets/clipsheet.png";
+    s.size = {16, 16};
+    auto& a = w.add<SpriteAnimator>(e);
+    a.clip = "all";
+    g.renderer.clear_asset_cache();
+    g.renderer.update(w, 0.0f);
+    CHECK(w.get<Sprite>(e)->region.x == doctest::Approx(1.0f));  // the first cell starts after the gutter
+    CHECK(w.get<Sprite>(e)->region.w == doctest::Approx(8.0f));
+    Image first = g.render(w, 0.0f);
+    // the sheet's pivot [0.5, 1] from the top is the bottom edge: the sprite sits above its position
+    CHECK(first.pixel(160, 90 - 4).r > 0.9f);
+    CHECK(first.pixel(160, 90 - 4).g < 0.1f);
+    CHECK(first.pixel(160, 90 + 4).r < 0.2f);
+    g.renderer.update(w, 0.11f);
+    CHECK(w.get<Sprite>(e)->region.x == doctest::Approx(11.0f));
+    CHECK(w.get<SpriteAnimator>(e)->frame == 1);
+    g.renderer.update(w, 0.1f);
+    CHECK(w.get<SpriteAnimator>(e)->frame == 2);
+    CHECK_FALSE(w.get<SpriteAnimator>(e)->ended);
+    g.renderer.update(w, 0.1f);
+    CHECK(w.get<SpriteAnimator>(e)->ended);
+    int ended = 0;
+    for (const GameEvent& ev : w.events().game)
+        if (ev.name == "clipEnded") {
+            ++ended;
+            CHECK(ev.data["clip"] == "all");
+            CHECK(ev.data["id"] == w.id_of(e));
+        }
+    CHECK(ended == 1);
+    g.renderer.update(w, 0.5f);
+    ended = 0;
+    for (const GameEvent& ev : w.events().game) ended += ev.name == "clipEnded" ? 1 : 0;
+    CHECK(ended == 1);  // once, not once per frame
+    // a sprite that sets its own pivot keeps it; another clip has its own pivot
+    w.get<Sprite>(e)->pivot = {0.25f, 0.25f};
+    CHECK(sprite_effective_pivot(*w.get<Sprite>(e), *w.get<SpriteAnimator>(e), sprite_animator_plan(*w.get<SpriteAnimator>(e), "assets/clipsheet.png")).x == doctest::Approx(0.25f));
+    w.get<Sprite>(e)->pivot = {0.5f, 0.5f};
+    w.get<SpriteAnimator>(e)->clip = "blue";
+    const auto plan = sprite_animator_plan(*w.get<SpriteAnimator>(e), "assets/clipsheet.png");
+    REQUIRE(plan.pivot);
+    CHECK(plan.pivot->x == doctest::Approx(0.0f));
+    CHECK(plan.pivot->y == doctest::Approx(1.0f));  // [0, 0] from the top-left is the top-left corner
+    g.renderer.update(w, 0.0f);
+    CHECK(w.get<SpriteAnimator>(e)->frame == 2);
+    CHECK(w.get<SpriteAnimator>(e)->playing);
 }

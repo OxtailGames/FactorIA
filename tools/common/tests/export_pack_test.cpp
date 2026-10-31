@@ -35,6 +35,7 @@ std::string make_project(const testing::TempDir& tmp, const std::string& tpl = "
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     testing::write_all(stdfs::path(dir) / "data" / "README.md", "credits the game shows");
     testing::write_all(stdfs::path(dir) / ".factoria" / "cache.bin", "x");
+    testing::write_all(stdfs::path(dir) / "ENGINE_FEEDBACK.archive.json", "{}");  // the feedback archive is not shipped either
     return dir;
 }
 
@@ -106,6 +107,7 @@ TEST_CASE("export --release: a desktop game is one game.pak, with no loose scrip
         CHECK_FALSE(p.contains("README.md"));
         CHECK_FALSE(p.contains("AGENTS.md"));
         CHECK_FALSE(p.contains("ENGINE_FEEDBACK.json"));
+        CHECK_FALSE(p.contains("ENGINE_FEEDBACK.archive.json"));
         CHECK(p.list(".factoria", true).empty());
         CHECK(p.list("tests", true).empty());
         CHECK(p.list("tools", true).empty());
@@ -132,6 +134,26 @@ TEST_CASE("export --release: a desktop game is one game.pak, with no loose scrip
     // The project itself is untouched.
     CHECK(stdfs::exists(stdfs::path(proj) / "README.md"));
     CHECK(testing::read_all(stdfs::path(proj) / "scripts" / "player.js").find("export default") != std::string::npos);
+}
+
+TEST_CASE("export --release: the files a glob import names are packed, and the compiled script reads them from game.pak") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    testing::write_all(stdfs::path(proj) / "data" / "tables" / "one.json", "{\"n\": 1}");
+    testing::write_all(stdfs::path(proj) / "data" / "tables" / "two.json", "{\"n\": 2}");
+    testing::write_all(stdfs::path(proj) / "scripts" / "tables.js",
+                       "import tables from \"../data/tables/*.json\";\nexport const names = Object.keys(tables);\n");
+    auto r = export_project(options_for(tmp, proj, "linux", true));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    auto pack = PackReader::open(tmp.sub("out/pack-test-linux/game.pak"));
+    REQUIRE(pack.ok());
+    const PackReader& p = *pack.value();
+    CHECK(p.contains("data/tables/one.json"));
+    CHECK(p.contains("data/tables/two.json"));
+    CHECK(p.list("data/tables", false).size() == 2);  // what the glob import lists at run time
+    auto script = p.read("scripts/tables.js");
+    REQUIRE(script.ok());
+    CHECK(is_script_bytecode(std::string_view(reinterpret_cast<const char*>(script->data()), script->size())));
 }
 
 TEST_CASE("export --release: export.scriptBytecode false packs the scripts as the source they are") {
@@ -195,6 +217,15 @@ TEST_CASE("export: the project's own README.md is not part of any export, a READ
     CHECK_FALSE(stdfs::exists(game + "/README.md"));
     CHECK_FALSE(stdfs::exists(game + "/Readme.MD"));
     CHECK(stdfs::exists(game + "/data/README.md"));
+}
+
+TEST_CASE("export: REVIEW.md (the note the AI reviewers read first) is not part of any export") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    testing::write_all(stdfs::path(proj) / "REVIEW.md", "# How to play\n");
+    auto r = export_project(options_for(tmp, proj, "windows", false));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK_FALSE(stdfs::exists(tmp.sub("out/pack-test-windows/game") + "/REVIEW.md"));
 }
 
 TEST_CASE("export.exclude: the files and folders it names are in neither the game folder nor game.pak") {

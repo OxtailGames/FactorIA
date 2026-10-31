@@ -10,6 +10,9 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/scene/components.h"
+
+#include "clip_animator.h"
 
 namespace fa {
 
@@ -428,10 +431,18 @@ void update_one(World& w, Entity e, Animator& a, float dt) {
 
 }  // namespace
 
+namespace animdetail {
+bool condition_holds(const std::string& expr, const Json& values, const std::vector<std::string>& triggers) {
+    return fa::eval_condition(expr, values, triggers);
+}
+void emit_game_event(World& w, const std::string& name, Entity source, Json data) { fa::emit(w, name, source, std::move(data)); }
+}  // namespace animdetail
+
 void update_animators(World& world, float dt) {
     world.each<Animator>([&](Entity e, Animator& a) {
         if (!world.active_in_hierarchy(e)) return;
-        update_one(world, e, a, dt);
+        if (clipanim::uses_clip_files(world, e, a)) clipanim::update(world, e, a, dt);
+        else update_one(world, e, a, dt);
     });
 }
 
@@ -449,6 +460,7 @@ Result<Animator*> animator_of(World& w, Entity e, const char* what) {
 Result<void> animator_play(World& w, Entity e, std::string_view clip, float fade) {
     auto a = animator_of(w, e, "animator.play");
     if (!a) return a.error();
+    if (clipanim::uses_clip_files(w, e, **a)) return clipanim::play(w, e, **a, clip, std::max(0.0f, fade));
     return play_clip(w, e, **a, clip, std::max(0.0f, fade));
 }
 
@@ -456,6 +468,7 @@ Result<void> animator_stop(World& w, Entity e) {
     auto an = animator_of(w, e, "animator.stop");
     if (!an) return an.error();
     Animator* a = *an;
+    if (clipanim::uses_clip_files(w, e, *a)) return clipanim::stop(w, e, *a);
     a->clip.clear();
     a->rt.activeClip.clear();
     a->rt.clipIndex = -1;
@@ -494,11 +507,43 @@ Result<void> animator_trigger(World& w, Entity e, std::string_view name) {
 Result<Json> animator_clips(World& w, Entity e) {
     auto a = animator_of(w, e, "animator.clips");
     if (!a) return a.error();
+    if (clipanim::uses_clip_files(w, e, **a)) return clipanim::clips(w, e, **a);
     std::string why;
     if (!resolve_skeleton(w, e, **a, &why)) return make_error("no clips: " + why);
     Json out = Json::array();
     for (const AnimClip& c : (*a)->rt.skeleton->clips) out.push_back(Json::object({{"name", c.name}, {"duration", c.duration}}));
     return out;
+}
+
+
+namespace {
+Result<Animator*> clip_animator_of(World& w, Entity e, const char* what) {
+    auto a = animator_of(w, e, what);
+    if (!a) return a.error();
+    if (!clipanim::uses_clip_files(w, e, **a))
+        return make_error(std::format("{}: this Animator does not play 2D clips", what),
+                          "2D clips are the *.anim.json files of `clips` and need an Animator with no glTF model: "
+                          "entity.add(\"Animator\", {clips: {walk: \"anim/walk.anim.json\"}, clip: \"walk\"}).");
+    return a;
+}
+}  // namespace
+
+Result<void> animator_sample(World& w, Entity e, std::string_view clip, float time) {
+    auto a = clip_animator_of(w, e, "animator.sample");
+    if (!a) return a.error();
+    return clipanim::sample(w, e, **a, clip, time);
+}
+
+Result<void> animator_set_layer_weight(World& w, Entity e, std::string_view layer, float weight) {
+    auto a = clip_animator_of(w, e, "animator.setLayerWeight");
+    if (!a) return a.error();
+    return clipanim::set_layer_weight(w, e, **a, layer, weight);
+}
+
+Result<void> animator_play_layer(World& w, Entity e, std::string_view layer, std::string_view clip, float fadeSeconds) {
+    auto a = clip_animator_of(w, e, "animator.playLayer");
+    if (!a) return a.error();
+    return clipanim::play_layer(w, e, **a, layer, clip, std::max(0.0f, fadeSeconds));
 }
 
 }  // namespace fa

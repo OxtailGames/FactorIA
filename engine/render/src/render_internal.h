@@ -2,7 +2,9 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -17,6 +19,7 @@
 #include "fa/core/math.h"
 #include "fa/core/video.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/rich_text.h"
 #include "fa/scene/world.h"
 
 namespace fa::render {
@@ -28,15 +31,31 @@ namespace fa::render {
 // one 32-byte vertex; `mode` selects the fragment path (see shaders/quad.glsl).
 // kModeLit (+1 for a left-handed normal-map frame) is a textured quad shaded by the 2D lights; `aux` is then the angle of
 // the picture's right axis in the world (radians). See set_lit() and shaders/quad.glsl.
-enum QuadMode : int { kModeTextured = 0, kModeCircle = 1, kModeRing = 2, kModeSoft = 3, kModeGlyph = 4, kModeLit = 5 };
+enum QuadMode : int { kModeTextured = 0, kModeCircle = 1, kModeRing = 2, kModeSoft = 3, kModeGlyph = 4, kModeLit = 5, kModeShape = 7 };
 
+// kModeShape (Shape2D rounded rectangle / circle with a soft edge or a gradient) uses the fields after `aux`; every other
+// mode leaves them zero. The `aux` encoding is documented in shaders/quad.glsl.
 struct Vertex2D {
     float x, y, z;
     float u, v;
     std::uint32_t color;  // 0xAABBGGRR
     float mode, aux;
+    std::uint32_t color2 = 0;           // kModeShape: gradient end colour
+    float halfW = 0, halfH = 0;         // kModeShape: half size of the shape's box in local units
+    std::uint16_t radius = 0, softness = 0;  // kModeShape: corner radius and soft edge width in local units, as IEEE half floats
 };
-static_assert(sizeof(Vertex2D) == 32, "Vertex2D must be 32 bytes");
+static_assert(sizeof(Vertex2D) == 48, "Vertex2D must be 48 bytes");
+
+// float -> IEEE binary16 bits (round to nearest, saturating, no NaN/denormal care: shape sizes are finite and >= 0).
+inline std::uint16_t float_to_half_bits(float f) {
+    if (!(f > 0.0f)) return 0;
+    if (f >= 65504.0f) return 0x7BFF;
+    if (f < 6.1035e-5f) return std::uint16_t(f / 5.9604645e-8f + 0.5f);  // subnormal: units of 2^-24
+    int e = 0;
+    const float m = std::frexp(f, &e);  // f = m * 2^e, m in [0.5, 1)
+    const int mant = int(std::lround((m * 2.0f - 1.0f) * 1024.0f));
+    return std::uint16_t(((e + 14) << 10) + mant);  // a mantissa of 1024 carries into the exponent, as it should
+}
 
 // Vertex buffer 0 of every mesh pipeline. Per-instance data (the model matrix) is vertex buffer 1; skinning will add
 // joint indices and weights as a second per-vertex buffer (see Gpu::mesh_pipeline), leaving this struct alone.
@@ -45,8 +64,15 @@ struct MeshVertex {
     float nx, ny, nz;
     float u, v;
     float tx = 0, ty = 0, tz = 0, tw = 1;  // tangent (xyz) and handedness (w = +1 / -1): bitangent = cross(normal, tangent) * w
+    std::uint32_t color = 0xFFFFFFFFu;     // vertex color, rgba as four normalized bytes (r in the lowest byte): white = no tint
 };
-static_assert(sizeof(MeshVertex) == 48, "MeshVertex must be 48 bytes");
+static_assert(sizeof(MeshVertex) == 52, "MeshVertex must be 52 bytes");
+
+// The four bytes of MeshVertex::color for a color (each channel clamped to 0..1 and rounded).
+inline std::uint32_t pack_vertex_color(float r, float g, float b, float a) {
+    auto q = [](float x) { return std::uint32_t(std::lround(std::fmin(std::fmax(x, 0.0f), 1.0f) * 255.0f)); };
+    return q(r) | (q(g) << 8) | (q(b) << 16) | (q(a) << 24);
+}
 
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
 constexpr int kMaxLights = 32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
@@ -61,14 +87,36 @@ struct SkinVertex {
 };
 static_assert(sizeof(SkinVertex) == 20, "SkinVertex must be 20 bytes");
 
-constexpr int kMaxLights2D = 16;  // Light2D entities shading one frame; the size of the light arrays in quad.glsl (35 vec4s)
+// Light2D budget of one frame (docs/PERFORMANCE.md): the point lights are added up in a light buffer, one quad each, so the
+// count is bounded by what the vertex stream and the fill rate can take, not by uniforms.
+constexpr int kMaxLights2D = 256;
+// Lit visuals with a normal map still shade per pixel in the fragment shader (the direction of every light matters there),
+// with the first kDirectLights2D lights: the size of the light arrays in quad.glsl (51 vec4s, far below the WebGL2 / GLES3
+// minimum of 224). The same loop shades every lit visual when the light buffer cannot be used (a perspective camera, or a
+// GPU that can render to neither a half-float nor an 8-bit target).
+constexpr int kDirectLights2D = 16;
+// Point lights with castShadows that get a shadow row (one row of kShadowAngles distances in a data texture); the rest shine
+// through walls.
+constexpr int kMaxShadowLights2D = 32;
+constexpr int kShadowAngles = 1024;
 
 // One Light2D as the quad shader reads it. pos: xyz + w = radius (point, xyz = position with z the height) or -1
-// (directional, xyz = unit vector towards the light); color: rgb * intensity, w = falloff exponent.
+// (directional, xyz = unit vector towards the light); color: rgb * intensity, w = falloff exponent; extra: x = the row of
+// the light's shadows in the shadow texture (-1 = none), y = 1 when the Light2D asked for shadows.
 struct Light2DData {
     float pos[4];
     float color[4];
+    float extra[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
 };
+
+// One corner of a point light's quad in the light buffer pass (light.glsl): the same values at the four corners.
+struct LightVertex {
+    float corner[2];  // -1 or 1: where the corner lies from the light, in radii
+    float pos[4];     // xy position, z height, w radius
+    float color[4];   // rgb * intensity, w falloff
+    float shadow[4];  // x = shadow row or -1
+};
+static_assert(sizeof(LightVertex) == 56, "LightVertex is 14 floats");
 
 // ---------------------------------------------------------------------------
 // GPU resources
@@ -135,6 +183,7 @@ struct SubMesh {
     sg_buffer skinVb{};               // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
     int skin = -1;                    // index of the glTF skin that deforms it (-1 = not skinned)
     sg_buffer ib{};
+    int ibOffset = 0;                 // byte offset of this part's first index in `ib` (a procedural mesh's submeshes share one pair)
     int vertexCount = 0;
     int indexCount = 0;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
@@ -177,11 +226,24 @@ struct FontMetrics {
 struct TextQuad {
     float x0, y0, x1, y1;  // local units, y UP, relative to the entity origin after pivot
     float u0, v0, u1, v1;
+    std::uint16_t color = 0;  // rich text: 0 = the Text's colour, k = palette[k - 1] of the layout
+    std::int32_t grapheme = 0;  // the grapheme cluster of the text (markup tags not counted) this glyph belongs to: Text.visibleCharacters
+};
+
+// A picture of a rich text ([icon:name]): the rectangle it fills, in the units of TextQuad.
+struct IconQuad {
+    float x0, y0, x1, y1;
+    int def;  // index into TextLayout::iconDefs
+    std::int32_t grapheme = 0;  // as TextQuad::grapheme
 };
 
 struct TextLayout {
     std::vector<TextQuad> quads;
     Vec2 size{0, 0};  // width/height of the laid out box in local units
+    // Rich text only (Text.markup): the colours the quads name and the pictures between the glyphs.
+    std::vector<Color> palette;
+    std::vector<IconQuad> icons;
+    std::vector<RichIcon> iconDefs;
 };
 
 // ---------------------------------------------------------------------------
@@ -332,6 +394,12 @@ struct BloomSettings {
 };
 
 struct CameraInfo {
+    Entity entity = kNullEntity;            // the Camera entity (null for the default camera of a world without one)
+    int depth = 0;                          // Camera.depth
+    // Camera.viewport after sanitizing: [x, y, w, h] as fractions of the target, top-left origin, +Y down. proj maps the
+    // view onto THIS rectangle (its aspect is the rectangle's), so ndc -1..1 is the viewport, not the whole target.
+    Rect viewport{0, 0, 1, 1};
+    bool fullViewport() const { return viewport.x == 0.0f && viewport.y == 0.0f && viewport.w == 1.0f && viewport.h == 1.0f; }
     Mat4 view, proj, viewProj, invViewProj;
     Vec3 position{0, 0, 0};
     bool perspective = false;
@@ -343,6 +411,8 @@ struct CameraInfo {
     Vec3 right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
     Color clearColor{0.08f, 0.08f, 0.12f, 1};
     bool clear = true;
+    bool studio = false;          // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
+    float studioIntensity = 1.0f; // Camera.studioIntensity after clamping
     BloomSettings bloom;  // Camera.bloom* after clamping to the supported ranges
     int colorFilter = 0;  // Camera.colorFilter as an int (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
 };
@@ -354,7 +424,23 @@ public:
     ~Assets();
     TextureAsset* texture(const std::string& path);       // never null (placeholder on failure)
     TextureAsset* white();                                 // 1x1 white
+    TextureAsset* placeholder() { return placeholderTex_.get(); }  // the missing-texture checker
+    // Answers the render-target ids ("target:<name>", Camera.renderTarget): the resolver returns the live texture of the target or
+    // null when no camera renders into that name (texture() then answers the checker and logs why, once per name).
+    using TargetResolver = std::function<TextureAsset*(const std::string& name)>;
+    void set_target_resolver(TargetResolver r) { targetResolver_ = std::move(r); }
+    // True while Renderer::render() runs: only then does a target id nobody renders into count as a failure (a query made
+    // before the first frame, such as an entity's bounds, only gets the checker).
+    void set_drawing(bool on) { drawing_ = on; }
+    static bool is_target_id(const std::string& path) { return path.rfind("target:", 0) == 0; }
     MeshAsset* mesh(const std::string& name);             // never null (cube placeholder on failure)
+    // The procedural meshes ("mesh:N" ids of MeshRenderer.mesh, fa/scene/mesh_store.h) are looked up in `store`, the store of the
+    // world being drawn: call this before mesh() once per frame. It frees the GPU copy of every mesh that left the store (destroyed,
+    // or its scene unloaded) and all of them when `store` is another one than last time. mesh("mesh:N") uploads the mesh on first use
+    // and again when its version changed (the buffers are reused when the new data fits); an id the store does not know gives the
+    // placeholder cube and a failure that teaches (once per id).
+    void set_mesh_store(const MeshStore* store);
+    std::size_t procedural_mesh_count() const { return procedural_.size(); }
     // A custom material (a *.material.json), built on first use; never null. A material that failed to build has ok == false
     // (the failure is in report() and logged once) and is drawn with the error material.
     MaterialAsset* material(const std::string& path);
@@ -373,6 +459,13 @@ public:
     // Makes a texture from CPU pixels (RGBA8) with an optional mip chain.
     TextureAsset* make_texture(const std::string& name, const Image& img, bool mips);
 
+    // A texture made at run time from CPU pixels (Renderer::create_texture), named "runtime:N" (N counts from 1 and is never
+    // reused). texture("runtime:N") answers it. It lives until destroy_runtime_texture (or the Assets object): clear() keeps
+    // it, because a script holds the id. destroy_runtime_texture returns false for an id that does not exist.
+    std::string make_runtime_texture(const Image& img);
+    bool destroy_runtime_texture(const std::string& id);
+    static bool is_runtime_id(const std::string& path) { return path.rfind("runtime:", 0) == 0; }
+
     // The texture that shows the current picture of a Video's decoder: made on first use (one write-transient image, made
     // again only when the picture size changes; the TextureAsset pointer stays valid) and written with the decoder's
     // picture once per sokol frame that draws it. Never null. end_video_frame() frees the textures of decoders no
@@ -390,6 +483,18 @@ private:
     void use_placeholder(TextureAsset& t);
     MeshAsset* load_mesh(const std::string& name);
     void destroy_mesh(MeshAsset& m);
+    struct ProceduralMesh {
+        std::unique_ptr<MeshAsset> asset;
+        std::uint64_t version = 0;       // MeshStore::Entry::version the GPU copy was made from
+        sg_buffer vb{}, ib{};            // shared by every part
+        sg_buffer vbStage{}, ibStage{};  // write-transient staging buffers of an updatable pair (id 0 = immutable buffers)
+        std::size_t vbCap = 0, ibCap = 0;  // bytes the buffers hold
+        std::uint64_t stagedFrame = 0;   // Gpu::frame() + 1 of the last write into the staging buffers, 0 = never
+        std::vector<std::string> partTextures;  // base color texture of each part ("" = none), resolved again on every use
+    };
+    MeshAsset* procedural_mesh(const std::string& id);
+    void upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e);
+    void destroy_procedural(ProceduralMesh& pm);
     void build_material(MaterialAsset& m);
     Result<void> build_material_checked(MaterialAsset& m);
     std::string missing_hint(const std::string& path, std::string_view ext) const;
@@ -405,11 +510,18 @@ private:
         bool seen = false;
     };
     std::unordered_map<const VideoDecoder*, VideoTexture> videoTextures_;
+    std::unordered_map<std::string, std::unique_ptr<TextureAsset>> runtime_;  // make_runtime_texture
+    int nextRuntime_ = 1;
     std::unique_ptr<TextureAsset> white_;
     std::unique_ptr<TextureAsset> placeholderTex_;
+    TargetResolver targetResolver_;
+    bool drawing_ = false;
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;
     std::unordered_map<std::string, std::string> meshSources_;  // mesh key -> source file (for reload)
+    std::map<std::string, ProceduralMesh> procedural_;          // "mesh:N" -> its GPU copy
+    const MeshStore* meshStore_ = nullptr;
+    std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
     ShaderCompiler shaderCompiler_;
 };
@@ -430,20 +542,34 @@ public:
     // wrapping at t.maxWidth local units; glyphs are rasterized at fontSize * pixelsPerUnit pixels (4..400). Quads and
     // size are in local units, y up, with t.pivot and t.align applied. t.fontSize is NOT read: the caller scales it
     // (screen-space Text and UI labels multiply it by the text scale).
-    TextLayout layout(const Text& t, float fontSize, float pixelsPerUnit);
+    // `tightBox`: the lines of a wrapped Text are aligned inside its widest line, not inside the maxWidth box (UI labels:
+    // their size is the box they are placed by).
+    // `t.markup` / `t.bold` make it rich text (fa/scene/rich_text.h): tags are not characters, a run colour is a palette entry
+    // of the layout and an icon is a rectangle in TextLayout::icons. The glyphs of any mix of colours and weights are
+    // quads of the one glyph atlas.
+    TextLayout layout(const Text& t, float fontSize, float pixelsPerUnit, bool tightBox = false);
+    // The project's "text" section: colours, icons and bold faces. Takes effect on the next layout.
+    void set_rich_style(const RichTextStyle& style);
     // The fonts every Text falls back to after its own font; the built-in DejaVu Sans stays last. Project paths, or
     // "builtin:pixel". Takes effect on the next layout.
     void set_fallback_fonts(std::vector<std::string> fonts);
     // Uploads the atlas if new glyphs were rasterized. Call after layout, before drawing.
     void sync();
+    // Counts the times the glyph atlas was cleared or grown: quads laid out before a change hold UVs of the old atlas.
+    unsigned atlas_epoch() const;
+    int atlas_size() const;
     TextureAsset* atlas() { return &atlasTex_; }
     void clear();
     Json report() const;
 
 private:
     FontFace* load(const std::string& font);  // the face of that file even when it failed to load (ok == false)
-    GlyphInfo glyph(FontFace* face, int px, std::uint32_t gid);
+    GlyphInfo glyph(FontFace* face, int px, std::uint32_t gid, bool synthBold = false);
+    // The face of `regular` for bold and/or italic text: the project's text.fonts entry, else the built-in family's own face
+    // (builtin:serif has bold, italic and bold italic), else null. boldDrawn: the face returned is a bold one.
+    FontFace* variant_face(FontFace* regular, bool bold, bool italic, bool& boldDrawn);
     void warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<char32_t>& missing);
+    void warn_markup(const std::string& source, const MarkupText& m);
 
     struct Impl;
     Gpu& gpu_;
@@ -485,6 +611,17 @@ public:
     bool colorfilter_ready();
     sg_pipeline colorfilter_pipeline();
 
+    // The 2D light buffer (light.glsl). Its shader is created on first use, like the bloom ones; false + one logged error
+    // when it cannot be created, and lit visuals then shade with the per-pixel path (the first kDirectLights2D lights).
+    bool light_ready();
+    // The format the light buffer is drawn in: RGBA16F where the GPU renders to it with blending and filtering, else RGBA8
+    // (half the range, see light_range()), else NONE: no light buffer. The environment variable FA_LIGHT_FORMAT (rgba16f,
+    // rgba8 or none) narrows the choice to that one, to test a path on a GPU that would pick another.
+    sg_pixel_format light_format() const { return lightFormat_; }
+    // How much light one texel of the light buffer holds: 1 in RGBA16F, 2 in RGBA8 (written as light / 2).
+    float light_range() const { return lightFormat_ == SG_PIXELFORMAT_RGBA8 ? 2.0f : 1.0f; }
+    sg_pipeline light_pipeline();
+
     sg_buffer quad_index_buffer() const { return quadIndices_; }
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
@@ -514,6 +651,7 @@ public:
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
     sg_shader colorfilter_shader_{};
+    sg_shader light_shader_{};
 
 private:
         sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);
@@ -522,6 +660,8 @@ private:
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
     int bloomState_ = 0;  // 0 = shaders not created yet, 1 = ready, -1 = creation failed
     int colorfilterState_ = 0;  // same meaning as bloomState_
+    int lightState_ = 0;        // same meaning as bloomState_
+    sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
     sg_sampler samplers_[int(SamplerKind::Count)]{};
     sg_buffer quadIndices_{}, fsTriangle_{};
     std::map<PipelineKey, sg_pipeline> pipelines_;

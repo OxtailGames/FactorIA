@@ -55,12 +55,12 @@ command between frames. So:
 
 * the viewport shows each edit while the agent works, and each one is a Ctrl+Z step;
 * the agent works in edit mode only, and Play / Step wait until it finishes (see `docs/EDITOR.md`);
-* `ai_run` (delegation) runs the worker or fast role inside the editor too; a CLI sub-agent gets the same endpoint.
+* `ai_run` (delegation) runs the worker, fast, artist or audio role inside the editor too; a CLI sub-agent gets the same endpoint.
 
 The endpoint speaks MCP Streamable HTTP without a server stream or a session (a POST with one JSON-RPC message gets its
 reply as `application/json`, a notification gets 202, GET gets 405). A call that runs longer than 10 s, such as an `ai_run`
-that hands a task to the worker, is answered as an event stream kept alive every 15 s, so the CLI does not give up on it
-after its HTTP timeout (5 minutes). Only the token's path is served, so other programs on
+that hands a task to the worker, is answered as an event stream that carries `notifications/progress` (what the sub-agent just did, at most one every 3 s,
+and a heartbeat every 15 s), so the CLI does not give up on it after 5 minutes of silence. Only the token's path is served, so other programs on
 the machine cannot drive the editor. **Codex** still starts its own `factoria mcp` (its argv names the command, not a
 config file): its scene edits happen in that process, not in the open scene.
 
@@ -150,21 +150,55 @@ Built-in providers exist without being listed: `anthropic`, `openai`,
 `openrouter`, `gemini`, `groq`, `deepseek`, `ollama`, `lmstudio`, `claude-code`,
 `codex`, and the asset providers `elevenlabs`, `meshy` and `fake`. Listing one overrides only the fields you give.
 A top-level `"assets"` section assigns asset providers to the kinds of asset
-(see [Asset providers](#asset-providers)); roles cannot use asset-only providers.
+(see [Asset providers](#asset-providers)); roles cannot use asset-only providers. A top-level `"assetSources"` section lists
+the websites the AI should look at when it searches for assets (see [Asset sources](#asset-sources)). A top-level
+`"mcpServers"` section connects external tool servers such as Scenario (see [External tools](#external-tools-mcp-servers)). The
+editor's **AI settings** window edits all three ([below](#the-ai-settings-window)), so none has to be written by hand.
 
 ## Roles
 
-| Role | Job | Default (Anthropic) |
-|---|---|---|
-| `orchestrator` | plans, reviews, delegates with the `agent_delegate` tool | `claude-opus-5-5`, effort `xhigh` |
-| `worker` | implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
-| `fast` | small mechanical edits | `claude-haiku-5-5`, effort `max` |
+The editor shows the roles in three groups with readable names; the `ai.json` keys are the ones in code font.
 
-Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?}`. `effort` is one of
+| Group | Role (name shown) | Job | Default (Anthropic) |
+|---|---|---|---|
+| Orchestration and code | `orchestrator` (Orchestrator) | plans, reviews, delegates with the `agent_delegate` tool | `claude-opus-5-5`, effort `xhigh` |
+| Orchestration and code | `worker` (Worker) | implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
+| Orchestration and code | `fast` (Fast) | small mechanical edits | `claude-haiku-5-5`, effort `max` |
+| Art and audio | `artist` (Artist) | makes all the art: sprites, models, textures, palettes, animation, VFX, UI look | `claude-opus-5-5`, effort `high` |
+| Art and audio | `audio` (Audio) | sound effects, music, buses and mixing | `claude-sonnet-5-5`, effort `medium` |
+| Critics and reviewers | `artCritic` (Art critic) | **read-only**: looks at the game and the art, gives an opinion and a score | `claude-opus-5-5`, effort `high` |
+| Critics and reviewers | `reviewer` (Reviewer) | **read-only**: plays the game, gives an opinion and a score | `claude-opus-5-5`, effort `high` |
+
+The role names are the keys of `roles` in `ai.json`. A role that is missing from `ai.json` follows the provider you
+already use instead of falling back to an Anthropic API key: `artist` and `audio` get the provider of `worker`, and
+`artCritic` and `reviewer` the one of `orchestrator`, with the model of the Anthropic default (as a tier: `opus`,
+`sonnet`, `haiku`, for the CLI providers). So a file with only `orchestrator` / `worker` / `fast` on `claude-code` keeps
+all seven roles on Claude Code, and old files keep working. Saving from the Roles window writes only the roles you set.
+
+Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?, enabled?}`. `effort` is one of
 `low|medium|high|xhigh|max` and is always sent explicitly to Anthropic. For
 `openai-compatible` providers it is ignored unless `"sendReasoningEffort": true`
 (then mapped to `low|medium|high`). A CLI provider runs its own loop and
 ignores `effort` (set the CLI's own option in `argv` if it has one).
+
+### Turning a role off
+
+`"enabled": false` (default `true`) turns a role off; in the editor's Roles window it is the **Enabled** checkbox of each
+role. For people who do not want sub-agents, or want to spend less. The orchestrator cannot be turned off (it is always
+there, and `"enabled": false` on it is an error); every other role can.
+
+* **`worker`, `fast`, `artist`, `audio` off:** nothing is delegated to that role and the orchestrator does the work
+  itself. Its system prompt lists only the roles that are on and says which ones are off ("artist is off: make the art
+  yourself with the asset tools"); when `artist` or `audio` is off it also gets the guidance that role's own prompt
+  would have given (art direction, listening with the analysis tools, and so on). With all four off the orchestrator
+  has no `agent_delegate` tool (nor `ai_run`, for a CLI orchestrator) and does everything itself. A delegation that asks
+  for a role that is off (`agent_delegate`, `ai.run` / `ai_run`) fails with the error `role_off`, which says what is off
+  and where to turn it on, so the orchestrator then does the task itself; `factoria ai run --role <role>` refuses it the
+  same way.
+* **`artCritic`, `reviewer` off:** the review buttons (and `factoria ai review`) still work, but the review runs on the
+  orchestrator's provider, model, effort and limits instead of the role's own. It keeps the read-only critic prompt and
+  tools. The button tooltip and the confirmation say so.
+* A role that is off keeps its provider and model in the file for when you turn it on again.
 
 `maxContextTokens` (at least 100000) caps how much context a session of that
 role keeps, e.g. `400000` on a 1M model: when it gets there, the earlier turns
@@ -185,13 +219,46 @@ Code, Codex) is told to use the `ai_run {role, task}` tool of the FactorIA MCP
 server instead, which runs the `worker` or `fast` role from `ai.json` and returns
 its report. So `orchestrator: claude-code/opus`, `worker: claude-code/sonnet`,
 `fast: claude-code/haiku` works on a Claude subscription alone. `--no-delegate`
-turns delegation off.
+turns delegation off. The delegable roles are `worker`, `fast`, `artist` and `audio`: the orchestrator sends the art to
+`artist` and the sound to `audio` (it can write a brief and judge the result, but the art and the audio are not its own
+work). `artCritic` and `reviewer` are not delegable: they run only when the user asks (see [Reviews](#reviews)), and
+`ai_run` / `agent_delegate` refuse them. They also refuse a delegable role that is turned off (see
+[Turning a role off](#turning-a-role-off)).
+
+**Only `ai_run` delegates.** Claude Code has sub-agent tools of its own (`Agent`, `Task`) that would run a model
+nobody configured, outside FactorIA's roles, costs and live view. FactorIA starts Claude Code with
+`--disallowedTools Agent,Task` (and `mcp__factoria__ai_review`, so the orchestrator cannot start a review either), and the
+orchestrator's prompt says to use `ai_run`. Codex has no such switch in its
+command line: there the rule is only in the prompt.
+
+`ai_run` blocks: the orchestrator's tool call returns when the sub-agent has finished, which can take many minutes, and the
+orchestrator is told so (it waits for the result and never promises to continue later or polls with Bash). While it runs:
+
+* **in the editor** the sub-agent's steps (its messages and tool calls) appear in the chat as they happen, indented under
+  the orchestrator's `ai_run` call, and the panel shows how long the run has lasted and when the agent last did something
+  (see `docs/EDITOR.md`, AI Assistant);
+* **toward the MCP client** the call reports progress (`notifications/progress`, `docs/MCP.md`), so Claude Code does not
+  abort it after 5 minutes of silence, and the MCP config the editor and `factoria new` write carries a four-hour
+  `timeout` for one tool call;
+* **in a terminal**, `factoria ai run` prints `  | worker > ...` lines for the sub-agent's steps (with `--json`, events
+  `{"event":"progress","text":...}`). The `ai_run` call runs in the `factoria mcp` process that the CLI orchestrator
+  starts, so that process appends the lines to `.factoria/ai/progress.log` of the project, and the terminal follows the
+  file while the run lasts. The file only grows; delete it any time.
+
+If the orchestrator's turn ends while the sub-agent still runs (the CLI cut the call off, for instance), the editor keeps
+the sub-agent going, and when it finishes it puts the report in the chat and continues the orchestrator's conversation
+with it (the same Claude Code session, resumed): see `docs/EDITOR.md`. Outside the editor nothing continues the
+orchestrator, so the report is only in the sub-agent's own output.
+
+An agent that stops producing events is not necessarily stuck: a model can think for minutes before its next step. The
+editor warns after `limits.stuckAfterSeconds` of silence (default 180, 0 = never; `docs/AI_COSTS.md`) and lets you check
+what the agent's process is doing before you decide.
 
 `factoria ai run "task"` and the `ai.run` command use the `orchestrator` role
-unless told otherwise (`role`, `provider`, `model` options). The editor AI panel
-always sends your messages to the orchestrator; its **Roles...** button sets the
-provider, model, effort and context limit of the three roles and saves them in `ai.json` (only
-`roles` is rewritten: providers, limits and a role's `maxTokens` stay). The button is disabled
+unless told otherwise (`role`: orchestrator, worker, fast, artist or audio; `provider`, `model` options). The editor AI
+panel always sends your messages to the orchestrator; its **AI > Roles...** menu item (the Roles tab of the AI settings window) sets the
+provider, model, effort and context limit of the seven roles and saves them in `ai.json` (only
+`roles` is rewritten: providers, limits and a role's `maxTokens` stay). The item is disabled
 until the first provider detection has read `ai.json`.
 
 ### Choosing a model
@@ -212,9 +279,16 @@ The dropdown starts with `default` (the model setting is left empty: the role's 
 CLI's own for Claude Code, whose real default it shows when you hover it). Each model shows as `Display name  (id)`
 (just the id when the provider gives no name); hover one for its description and, for an alias, the model it stands
 for. **Other...** at the end turns that role's cell into a text box, for a name that is not in the list (clear it, or
-type a listed name, to get the list back). When a provider's list could not be fetched the cell is a text box with the
-reason as its tooltip; fix it (a key, a server that is down) and press **Refresh models**. Changing a role's
-provider resets its model to `default`.
+type a listed name, to get the list back). A provider that is not available on this computer (its CLI is not
+installed, no API key) shows **Provider not available** in the cell, with the reason and how to set it up as its
+tooltip. When an available provider's list could not be fetched the cell is a text box with the reason as its tooltip;
+fix it (a key, a server that is down) and press **Refresh models**. Claude Code's cell is a dropdown even then, with
+the aliases it always accepts (`default`, `opus`, `sonnet`, `haiku`). Changing a role's provider resets its model to
+`default`.
+
+CLI providers are looked up in `PATH` and then in the folders their installers use (`~/.local/bin`, `~/.claude/local`,
+the npm, bun, volta and nvm bins, Homebrew, `%APPDATA%\npm`): an editor opened from Finder or the Dock gets a shorter
+`PATH` than a terminal, and the CLI would otherwise look missing.
 
 The same lists are available to tools and AIs as the read-only command `ai.models {provider?}` (a CLI call, an MCP
 tool `ai_models`):
@@ -230,10 +304,56 @@ tool `ai_models`):
 Without `provider` it asks every available provider; one provider's failure is in its own entry (`error`, `hint`)
 and does not fail the call. `resolved` is empty for a full model name.
 
+## Reviews
+
+Two roles do not build anything: they look, play and judge. `artCritic` looks at the art (screenshots of every scene, the
+sprites and models, the UI) and `reviewer` plays the game like a press reviewer. Each writes a report with a **score from
+0 to 10** and sub-scores (for art: direction, consistency, readability, polish; for a game: fun, game feel, design,
+UX, stability, polish, art, audio), what works, what does not, and what to fix first.
+
+**They run only when you ask.** The orchestrator, the worker and the other roles cannot start them (`ai_run` and
+`agent_delegate` refuse these roles, and the orchestrator is told so). Ask from the editor's AI Assistant (the **Art
+critique** and **Game review** buttons, see `docs/EDITOR.md`), from a terminal or from a script:
+
+```bash
+factoria ai review game                      # one reviewer, the all-rounder
+factoria ai review art --count 3 --focus "the main menu"
+factoria ai reviews --kind game --limit 10   # the saved ones, newest first, with their scores
+```
+
+The commands are `ai.review {kind: art|game, count?, focus?, provider?, model?, maxTurns?, maxCostUsd?}` (it blocks until
+all the reviewers are done and returns `{reviews, averageScore, costUsd, errors}`) and `ai.reviews {kind?, limit?,
+includeText?}`. `ai.review` is not read-only: it spends tokens and writes the review files.
+
+* **Several reviewers.** `count` (default 1, at most 5) starts that many one after the other, each with its own persona.
+  The first is always the all-rounder, so one reviewer is comparable from build to build. The art personas are
+  all-rounder, art director, first impression, technical artist, and UI and accessibility designer; the game personas are
+  all-rounder, genre veteran, newcomer, QA tester and design critic. Each works alone and writes its own opinion.
+* **Saved.** Every review is returned and also written to `<project>/.factoria/ai/reviews/<time>-<role>.json`
+  (`-2`, `-3` ... for the further reviewers of one request) with the text, the score, the sub-scores, the persona, the
+  provider and model, the focus, the cost, the engine version and the game version from `factoria.json`, so you can see
+  whether the score goes up between builds. A reviewer that gives no score is saved with `score: null`.
+* **Read-only is enforced, not requested.** The reviewer keeps only the tools that look and play (listing and reading,
+  `game.step`, `game.input`, `game.click`, `game.screenshot`, `scene.load`, UI scale and language checks, ...). With the
+  built-in loop the other tools are not offered to the model. Claude Code runs with `--disallowedTools` for `Edit`, `MultiEdit`,
+  `Write`, `NotebookEdit` and `Bash`, plus every FactorIA MCP tool that changes something, and Codex with `--sandbox read-only` and a
+  `factoria mcp --read-only` server (Codex is the least tested of the three). Loading a scene to look at it does not
+  change the project on disk.
+* **REVIEW.md.** The reviewers read the `REVIEW.md` of the project first: controls, the goal, what is finished and what
+  is a placeholder, and how to reach every scene and state quickly. A game that is easy to test gets a more useful review
+  (`docs/AI_GUIDE.md`, "Keep the game reviewable"). `factoria export` leaves `REVIEW.md` out of the player's build.
+* **Send to the orchestrator.** A review is only an opinion. In the editor you press **Send to orchestrator** on the
+  report to post it into an orchestrator chat as your message (the active chat, or a new one); the orchestrator then
+  plans the fixes and delegates them. Nothing is sent unless you press it.
+
+The models come from the `artCritic` and `reviewer` roles (or from the orchestrator when you turned the role off, see
+[Turning a role off](#turning-a-role-off)); the cost of a review is counted like any other run
+(`docs/AI_COSTS.md`).
+
 ## How the built-in agent behaves (API providers)
 
 * Tools: every registered command (`scene.spawn` -> `scene_spawn`), plus
-  `agent_delegate {role: worker|fast, task}` for the orchestrator. `ai.*`
+  `agent_delegate {role: worker|fast|artist|audio, task}` for the orchestrator. `ai.*`
   commands are hidden from the model.
 * Safety limits: `limits.maxTurns`, `maxCostUsd`, `maxTotalTokens`, Ctrl+C /
   cancel flag. Transient errors (429, 5xx, 529) are retried with backoff and
@@ -244,7 +364,17 @@ and does not fail the call. `resolved` is empty for a full model name.
   category and explanation.
 * Transcripts: `<project>/.factoria/ai/sessions/<time>-<role>.jsonl`
   (one JSON object per line: messages, tool results, usage). They contain what
-  the model saw, never your API keys.
+  the model saw, never your API keys. The last line is the `end` event; a run that was cancelled has `"cause"` there
+  (`user_stop`, `stuck_stop`, `watchdog_process_gone`, `project_closed`, `editor_closing`, `editor_restart`...) and an
+  `error` like `cancelled: the user pressed Stop`, which `ai.run` also returns to its caller.
+* Times in the transcript: every line has `t`, the UTC time it was written (`2026-10-30T14:03:22.481Z`). A CLI agent's
+  `tool_end` has `ms`, how long the tool ran; its `thinking` lines have `ms`, the time since the line before them (the
+  model thought that long, also when its text is hidden and the line has none). The built-in agent's `assistant` lines
+  have `ms` (the model call) and each entry of `tool_results` has `tool` and `ms`. Logs written before this have no `t`.
+  `ai.session_timeline {session?, minGapSeconds?}` (CLI: `factoria call ai.session_timeline`) reads one transcript (the
+  newest by default) and returns the gaps of at least `minGapSeconds` (default 30) with what was going on (`tool`,
+  `thinking`, `model` = waiting for the model, `user` = waiting for the user), plus `totals` per kind and per tool, so you
+  can tell a long think from a slow tool. For a log without times it returns `hasTimes: false` and a note.
 * Screenshots: a command result `{"image": {"mediaType": "image/png", "data": "<base64>"}}`
   is attached to the model as an image.
 
@@ -283,15 +413,19 @@ The AI panel shows what the provider reports, never a guess:
   use the same plan in between, so old numbers would be wrong. Until the first message of a run the panel shows a dim
   "Plan usage updates after the first message.".
 * **Context**: tokens in the model's context window now (the last request, not the sum of the run), for example `47k / 1M`.
-* **Tokens** (in / out / cache) and **Cost** of the chat. Cost is an estimate (`est.`): the CLI's own number for subscription
-  plans, which are not billed per token.
+* **Tokens** (in / out / cache) and **API cost est.** of the chat. The cost is an estimate of what the same tokens would cost
+  on the provider's pay-per-token API (the CLI's own number when it reports one); on a subscription plan (Claude Code /
+  Codex sign-in) none of it is billed on top of the plan, and the line says so. Both are live while an agent works (every assistant message adds its usage once,
+  sub-agents included; Codex adds each turn); the cost is the engine's price-table estimate until the CLI's final totals
+  replace it. The plan windows are not refreshed during a run: Claude Code emits `rate_limit_event` once per message.
 
 ## Asset providers
 
 The `assets.generate_*` commands ([ASSETS.md](ASSETS.md)) make images, sprite sheets, sounds, music, voices and 3D models
 through **asset providers**. They are configured here, in `ai.json`, next to the LLM providers, but they are not roles:
 the `assets` section maps each kind of asset (`image`, `sound`, `music`, `voice`, `model3d`) to the provider, and
-optionally the model and voice, that makes it.
+optionally the model and voice, that makes it. In the editor, the [AI settings window](#the-ai-settings-window) does this
+without editing the file.
 
 ```json
 {
@@ -306,7 +440,10 @@ optionally the model and voice, that makes it.
 ```
 
 There is **no default provider**. Generation costs money, so a kind that is not listed is an error that shows the JSON to add
-(and mentions the `fake` provider). Every command also takes `provider` and `model` for one call. Keys come from the
+(and mentions the `fake` provider); the `no_provider` error also lists which configured providers can make that kind
+and which cannot (and why), the environment variables that would enable one, and the offline commands that make something
+without a provider (`assets.generate_texture` and `assets.rasterize_svg` for images, `assets.synth_sound` and
+`assets.generate_loop` for sounds). Every command also takes `provider` and `model` for one call. Keys come from the
 environment, like the LLM keys.
 
 | Provider | Makes | Key (env var) | Endpoints (official docs) |
@@ -383,6 +520,191 @@ provider's pricing page.
 `factoria ai doctor` lists the asset providers (`[makes image, voice]`, whether a key was found) and which provider each kind
 of asset is assigned to.
 
+## The AI settings window
+
+**AI > AI Settings...** (the AI menu of the menu bar) is where the roles and the asset side of `ai.json` are set up. Its
+**Roles** tab (also **AI > Roles...**) has the role table and its own **Save**; the **Assets** tab has two sections and one
+**Save** button:
+
+* **Asset generation.** One row per kind of asset (Image, Sound, Music, Voice, 3D model): the provider that makes it (only
+  providers that can make that kind are listed, and **None (made procedurally)** leaves the kind to the offline commands), the
+  model (the hint is the provider's default), for Voice the voice id, and a status: the key was found (and where), or what is
+  missing, the same checks as `factoria ai doctor`. `fake` and `asset-command` can be chosen too; for `asset-command` the window
+  asks for the program and its arguments line (`{prompt}`, `{output}` and the other placeholders, see
+  [Asset providers](#asset-providers)). Under **API keys** each provider in use has a masked box: a key pasted there is stored
+  as that provider's `apiKey`. An environment variable is still the better place for a key, and the window says which one the
+  provider reads; **Remove stored key** takes a stored one out again.
+* **Asset sources.** The websites the AI looks at for assets, per category, and **Use only these sites**
+  ([next section](#asset-sources)).
+
+Save rewrites only `assets`, `assetSources` and the provider fields these need (`apiKey`; `type`, `command` and `argv` of an
+`asset-command` provider). Providers, roles, limits and every other key of the file stay as they are, and a file that is not valid
+JSON is left alone (the window says so instead of overwriting it). Then it reloads the file: the next asset the AI makes and the
+next message use the new settings; nothing else needs a restart. The window always edits the user's `ai.json` (the one in
+`FACTORIA_AI_CONFIG`, if set), never a file of the game project.
+
+The **External tools** tab (between Roles and Assets) sets up the `mcpServers` of [External tools](#external-tools-mcp-servers):
+
+* **Servers.** One row per server: a checkbox to turn it on or off, its name, where it lives (a web address or a program), which
+  roles get it (`default`, or how many were chosen), and a status. **Test** connects to that server in the background (the editor
+  stays usable) and shows what it said: `Connected to <server>: N tools (the first twelve names)`, or the error with its hint. It only
+  asks for the tool list; no tool is called and nothing is spent. **Edit** opens the form, **Remove** drops the row (until Save).
+* **Add server** / **Edit.** Name; Kind (Web service (HTTP) or Program on this computer); the Address and Headers (one
+  `Name: value` per line), or the Program, Arguments (one line, quote what has spaces) and Environment (`NAME=value` per line);
+  the Key (a masked box, stored as `apiKey`) or the name of the environment variable that holds it (the window suggests
+  `<NAME>_API_KEY` and says an environment variable is the better place); a Note for the AI; checkboxes for who may use the server
+  (the review roles are off unless ticked); and how long to wait per call. **Test these settings** tries the form before it is
+  applied; **Apply** checks it the way the loader does and puts it in the table; **Cancel** drops it.
+* **Paste JSON...** takes what a service's documentation shows for Claude Code: a whole `{"mcpServers": {...}}` or one server
+  (then a name is taken from the address or program unless you type one). Keys FactorIA does not use (such as `disabled`) are
+  listed and skipped. A server with a name already in the table replaces it.
+* **Save** rewrites only `mcpServers` (the file is made private first when it holds a key) and reloads the file; every other key
+  stays and a file that is not valid JSON is left alone. The next message uses the servers. **Close** drops what was not saved.
+
+## Asset sources
+
+`assetSources` tells the AI where to get assets that it does not generate: websites for images and textures, 3D models, audio,
+fonts and the rest. Without it the AI searches the internet as it wishes.
+
+```json
+{
+  "assetSources": {
+    "images": [{ "url": "https://opengameart.org", "note": "CC0 packs" }, "kenney.nl"],
+    "models": ["https://kenney.nl/assets/category:3D"],
+    "audio":  [{ "url": "freesound.org", "note": "CC0 only" }],
+    "fonts":  ["fonts.google.com"],
+    "other":  [],
+    "onlyListed": true
+  }
+}
+```
+
+Each entry is a web address or just a domain (a string, or `{ "url", "note" }`; the note tells the AI what the site is good
+for or its license). `onlyListed` is `false` by default:
+
+* **Off** (the checkbox is clear): the listed sites come first; the AI may search the internet too when none of them has
+  what the game needs, as before.
+* **On** (**Use only these sites**): the AI searches and fetches assets only on the listed sites.
+
+An empty list (or no section) changes nothing. A site that is not a web address is an error that names its JSON pointer
+(`/assetSources/images/0/url`) and what to write instead.
+
+**What the AI is told.** The orchestrator, worker, fast, artist and audio roles get an "Asset sources" section in their system
+prompt: the sites per category with their notes and the rule above. Whatever the AI takes from a site, it is told to check the
+license, bring the file in with `assets.import` and pass `sourceUrl`, `license` and `author`, so `assets.json` keeps them
+([ASSETS.md](ASSETS.md)). The reviewers do not get the section: they do not bring assets in.
+
+**What is enforced.** Telling the model is not a guarantee. Where the provider lets FactorIA restrict the tools, it does:
+
+| Provider | `onlyListed` off | `onlyListed` on |
+|---|---|---|
+| Claude Code | WebFetch of the listed sites is allowed up front (the host and its `www.` twin) | the same, and **WebSearch is disallowed**; Claude Code in `-p` mode denies any WebFetch outside the allow list, so only the listed sites can be fetched |
+| Codex, generic CLI agents | the prompt rule | the prompt rule only: FactorIA cannot restrict their web access |
+| API providers (the built-in agent) | the prompt rule | the prompt rule; the built-in agent has no web tool, so it cannot browse at all and tells you which site to download from |
+
+Limits of the enforcement, so it is not trusted for more than it does: it covers Claude Code's WebFetch and WebSearch tools,
+not `curl` or a script run through Bash, and a domain rule matches that exact host (`kenney.nl` and `www.kenney.nl` are covered,
+a subdomain such as `cdn.kenney.nl` has to be listed as its own entry). A WebFetch allowed globally in the user's own Claude Code
+settings still works. Use the prompt rule as the user's wish and the allow list as a safety net.
+
+## External tools (MCP servers)
+
+`mcpServers` in your `ai.json` connects the AI to services and programs of your own choosing: an image generator such as
+[Scenario](https://www.scenario.com) (game art), a search or file tool, anything that speaks the Model Context Protocol (MCP). The
+AI calls their tools when it sees fit, next to the engine's own tools. FactorIA does not know any service in particular: a server
+is an address (or a program) plus the key it wants, so Scenario is one entry among whatever you add.
+
+The shape is the one Claude Code's `.mcp.json` uses, so the JSON a service's documentation gives for Claude Code can be pasted
+(the editor has a button for it, [below](#the-ai-settings-window)):
+
+```json
+{
+  "mcpServers": {
+    "scenario": {
+      "type": "http",
+      "url": "https://mcp.scenario.com/mcp",
+      "headers": { "Authorization": "Basic {key}" },
+      "apiKeyEnv": "SCENARIO_API_KEY",
+      "note": "AI game art: sprites, textures, icons, consistent styles. Costs Scenario credits.",
+      "roles": ["orchestrator", "artist"],
+      "timeoutSeconds": 300
+    },
+    "files": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${ART_DIR:-./art-references}"],
+      "env": { "SOME_TOKEN": "${SOME_TOKEN:-none}" }
+    }
+  }
+}
+```
+
+The server name is the key (`[A-Za-z0-9_-]`, up to 40 characters, not `factoria`: that is the engine's own server).
+
+| Field | Meaning |
+|---|---|
+| `type` | `http` (a web service, Streamable HTTP) or `stdio` (a program on this computer). Left out: `command` means `stdio`, `url` means `http`. The old SSE transport (`type: "sse"`) is not supported. |
+| `url` | `http`: the server's endpoint, usually ending in `/mcp`. `https://`, or `http://` for a server on this computer. |
+| `headers` | `http`: extra headers (name to value), usually the one that carries the key. |
+| `command`, `args`, `env` | `stdio`: the program, its arguments and extra environment variables (added to the editor's own). |
+| `apiKeyEnv`, `apiKey` | Where `{key}` comes from: the environment variable named by `apiKeyEnv`, otherwise `apiKey` (the key written in this file). Prefer the variable. |
+| `note` | One or two lines for the AI's prompt: what the server is good for and what it costs. The AI reads it, so write for it. |
+| `roles` | Who may use the server (role names, see [Roles](#roles)). Left out: orchestrator, worker, fast, artist and audio. The review roles (`artCritic`, `reviewer`) get a server only when listed here. |
+| `enabled` | `false` keeps the entry without using it. |
+| `timeoutSeconds` | How long one tool call may take (default 120; generating an image takes a while). |
+
+`{key}` in a header value, an argument or an environment value is replaced by the key, and `${NAME}` or `${NAME:-default}` by
+an environment variable. A reference with nothing to fill it in is not guessed: the server is left out of the run and the error
+says which variable to set (restart the editor, or open a new shell, after setting one).
+
+**Scenario.** Create an API key and secret in your Scenario account (see Scenario's documentation for the current address and
+header; the entry above is its `Basic` scheme). The header carries `base64(KEY:SECRET)` and FactorIA puts `{key}` in as it
+is, so store that value, not the two halves:
+
+```bash
+export SCENARIO_API_KEY="$(printf '%s' 'YOUR_KEY:YOUR_SECRET' | base64)"
+```
+
+On Windows PowerShell: `[Environment]::SetEnvironmentVariable("SCENARIO_API_KEY", [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("YOUR_KEY:YOUR_SECRET")), "User")`.
+Then run `factoria ai doctor` (it lists the server and where its key was found) or press **Test** in the editor (below).
+
+**What each provider does with the servers**
+
+| Provider | How the server is used |
+|---|---|
+| `claude-code` | Claude Code connects itself: the run gets the servers in the `--mcp-config` file and `mcp__<name>` in `--allowedTools` (tools show up as `mcp__<name>__<tool>`). The file holds the keys, so it is created readable only by you (Linux, macOS), is named per run and is deleted when the run ends. Servers that want OAuth work here after you log in once inside Claude Code (`/mcp`); FactorIA never touches those credentials. |
+| `codex` (default `argv`) | Codex connects itself: `-c mcp_servers.<name>.*` arguments. The key never appears in the argument list (anyone can read it with `ps`): headers and a program's environment travel through environment variables that the arguments only name. With your own `argv` Codex is not given the servers (the run says so). |
+| `generic-cli` | A CLI whose `argv` has the `{mcp_config}` placeholder gets the same file as Claude Code (every server for that role, in `.mcp.json` shape); one without it is not given the servers, and the run says so. |
+| `anthropic`, `openai-compatible` | The built-in agent connects: at the start of each run FactorIA starts the program or opens the session, asks for the tool list, adds the tools as `<name>__<tool>` (reduced to letters, digits, `_` and `-`, at most 64 characters) and passes the model's calls to the server. Results come back as text, and as pictures when the server returns png, jpeg, gif or webp. Everything closes when the run ends. |
+
+A server that cannot be used (a missing key, unreachable, a program that is not installed, refused credentials) is left out of
+that run with a one-line note in the chat; the run goes on without it. Every run connects for itself: a worker handed a task by
+the orchestrator uses the servers listed for the `worker` role, not the orchestrator's.
+
+**What is not supported.** OAuth: a server must take a header or a key, except through Claude Code as said above (`401` with a
+`WWW-Authenticate` header is reported as "this server may want OAuth" with that advice). The old SSE transport. Server-initiated
+requests other than `ping`. Resources and prompts: only tools are used.
+
+**Permission, cost and privacy.**
+
+* Listing a server in `roles` is the permission: FactorIA does not ask before each call (the CLI agents run non-interactively and
+  the engine's own tools are not asked about either). A tool that generates content can spend credits on the service's side and
+  FactorIA cannot see what it costs (`limits.maxCostUsd` covers model tokens only). The prompt tells the AI to try one small call
+  first, to stop on an error instead of retrying, and to bring what a tool makes into the project with `assets_import`, giving the
+  source and license so the credits stay right. Keep `roles` narrow and put the price in `note`.
+* Only your own `ai.json` is read for servers: a game project cannot add one (that would let a downloaded project run a program
+  or send data to a host you did not pick). `apiKey` and header or environment values written in full are secrets like the provider keys:
+  the file is saved readable only by you, the key box of the settings window shows dots, and `ai.tool_servers`, `factoria ai doctor`
+  and the config dumps leave keys out (`***`) or never list them. Prefer `apiKeyEnv` and write `{key}` in the header instead of the
+  secret itself, so the header box of the window holds no secret either.
+* What goes to a server is what the AI puts in its calls (prompts, file names, sometimes images) and the key; the service's own
+  privacy terms apply to it. A server of type `stdio` runs with your permissions: add only programs you trust.
+* `http://` to another computer with a key is allowed but `factoria ai doctor` and the loader warn that it travels unencrypted.
+
+`factoria ai doctor` lists each server with `[ok]` (ready), `[--]` (what is missing) or `[off]`, its address (without any query
+string), where its key was found and which roles get it. The command `ai.tool_servers` returns the same as JSON and, with
+`{"test": true}`, connects to every enabled server that is ready and lists its tools (it only asks for the tool list: no tool is
+called and nothing is spent).
+
 ## Costs
 
 Estimated from reported token usage (input, output, cache read/write):
@@ -406,10 +728,18 @@ What a whole game cost, what drives it and how to see it: [AI_COSTS.md](AI_COSTS
   warns (`ai.run`, `factoria ai doctor`) when a project file contains something
   that looks like a key (`sk-...`, `sk-ant-...`, `AIza...`, `gsk_...`).
 * Prefer `apiKeyEnv` over `apiKey`; if the file holds a key, `chmod 600` it
-  (FactorIA warns when it is world-readable).
+  (FactorIA warns when it is world-readable). A key pasted into the editor's
+  [AI settings window](#the-ai-settings-window) is stored as `apiKey` in this same
+  user-level file, which the window writes readable only by you (Linux and macOS: the
+  file is created private before the key goes in), and the box never shows a stored key
+  again. The key is not written to a game project, a log, a notification or a command
+  result, and is forgotten from the window once saved or closed.
 * Keys are sent only to the provider's `baseUrl`, in headers (never in URLs or
   logs). With the `curl` fallback they go through a private temp file, not the
   command line.
+* External tool servers (`mcpServers`) are read from your user-level `ai.json` only, and the same rules hold for their keys:
+  environment variable first, owner-only file, never in a log, a command result or an argument list
+  ([External tools](#external-tools-mcp-servers) says what each provider does).
 * What is sent to providers: your task, the system prompt, project file
   names, `factoria.json`, feedback titles and the results of tools the model
   calls (which can include file contents and screenshots). Use a local
@@ -439,3 +769,7 @@ What a whole game cost, what drives it and how to see it: [AI_COSTS.md](AI_COSTS
 | `'assets/a.wav' ends in '.wav', but the provider 'elevenlabs' makes sound as .mp3 files` | Use the extension the error names; it is checked before anything is paid for. |
 | `Meshy task ... was still IN_PROGRESS after N seconds` | Raise `timeoutSeconds` of the `meshy` provider; the task keeps running on Meshy's side. |
 | `... exited without writing asset.png` | The `asset-command` program must write to the path `{output}` stands for: put `{output}` in its `argv`. |
+| `External tool server 'scenario' skipped: Tool server 'scenario': ... uses {key}, which has no value` | Set the environment variable `apiKeyEnv` names (and restart the editor or open a new shell), or put the key in `apiKey`. `factoria ai doctor` shows it as `[--]` with the missing variable. |
+| `... refused the credentials (HTTP 401)` from a tool server | The key is wrong, or the header is not what the service wants (for Scenario: `Basic` plus `base64(KEY:SECRET)`). If the answer carries a `WWW-Authenticate` header the server may want OAuth: use it through Claude Code, or a key if it offers one. |
+| `... HTTP 404 ...` or `not an MCP reply` from a tool server | The address is not the server's Streamable HTTP endpoint (often ending in `/mcp`; an address ending in `/sse` is the old transport, not supported). |
+| A tool server works in Claude Code but not in the built-in agent or Codex | It uses OAuth; the built-in agent and Codex (through FactorIA) need a key or header. See [External tools](#external-tools-mcp-servers). |

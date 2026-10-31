@@ -9,6 +9,7 @@
 #include "export_internal.h"
 #include "fa/core/i18n.h"
 #include "fa/core/json.h"
+#include "fa/services/network.h"
 #include "fa/services/platform.h"
 #include "fa/tooling/ads_release.h"
 #include "fa/tooling/bundle.h"
@@ -243,7 +244,7 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
                         auto table = parse_string_table(*doc, tag, file);
                         if (!table.ok()) return out;
                         for (const auto& [key, entry] : table->entries)
-                            out[key] = entry.plural() ? entry.forms.at(PluralCategory::Other) : entry.text;
+                            out[key] = entry.fallback_text();
                         return out;
                     };
                     const auto base = read_strings(localization.defaultLanguage);
@@ -269,7 +270,29 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
         if (auto r = write_ios_app_icon(generic(outRoot / "Assets.xcassets"), icon, icon_color_from_hex(ios.iconBackground)); !r.ok()) return r;
     // The privacy manifest next to build_ios.sh, which hands it to CMake (-DFA_GAME_PRIVACY_MANIFEST) so that it lands in the app
     // bundle: App Store Connect rejects an upload whose app uses required-reason APIs without declaring them.
-    if (auto r = write_text(outRoot / kIosPrivacyManifestFile, ios_privacy_manifest(ios.privacy)); !r.ok()) return r;
+    // A game with an "analytics" section sends usage events once the player agrees (docs/ANALYTICS.md): the manifest declares
+    // them as ProductInteraction for Analytics, not linked to the user and not used for tracking, unless export.ios.privacy
+    // already lists that data type with that purpose.
+    IosPrivacySettings privacy = ios.privacy;
+    {
+        auto project = load_json_file(generic(p.dir / "factoria.json"));
+        if (project.ok() && project->is_object() && project->contains(kAnalyticsKey)) {
+            const NetworkParse network = parse_network(project->contains(kNetworkKey) ? (*project)[kNetworkKey] : Json());
+            const AnalyticsParse analytics = parse_analytics((*project)[kAnalyticsKey], network.policy);
+            const auto lists = [&](const IosPrivacyCollectedData& d) {
+                return d.type == "ProductInteraction" && std::find(d.purposes.begin(), d.purposes.end(), "Analytics") != d.purposes.end();
+            };
+            if (analytics.settings.configured && std::none_of(privacy.collectedData.begin(), privacy.collectedData.end(), lists)) {
+                IosPrivacyCollectedData d;
+                d.type = "ProductInteraction";
+                d.purposes = {"Analytics"};
+                privacy.collectedData.push_back(std::move(d));
+                report.nextSteps.push_back("PrivacyInfo.xcprivacy declares the analytics events (ProductInteraction, purpose Analytics, not linked, no tracking): "
+                                       "the game has an \"analytics\" section. Answer \"Product Interaction\" under Usage Data in App Store Connect (docs/LEGAL.md).");
+            }
+        }
+    }
+    if (auto r = write_text(outRoot / kIosPrivacyManifestFile, ios_privacy_manifest(privacy)); !r.ok()) return r;
     // The team id is 10 letters/digits (validated with the settings): it goes into the script as it is, inside "${VAR:-...}" where
     // single quotes would be kept literally.
     std::string team;

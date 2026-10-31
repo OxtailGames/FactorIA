@@ -1,0 +1,669 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/ambience/market.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_ambience.py",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_ambience.py)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/ambience/sea.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_ambience.py",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_ambience.py)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/ambience/wind.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_ambience.py",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_ambience.py)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/atlas.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-26",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces; the rest is placeholder art drawn for the project",
+        "source": "assets.pack_atlas of assets/src/frames/*.png (the Kenney terrain, road and tree pieces, and the placeholder buildings, pier, rock tile, goods, star and ship icons, villager and carrier walkers and three ship classes in four headings)"
+      }
+    },
+    "assets/tiles/spring.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces",
+        "source": "assets/src/make_terrain_tiles.py: the frames of assets/src/frames laid out as the cells of the isometric terrain Tilemap, with the spring tint of data/seasons.json on the sand, grass and trees"
+      }
+    },
+    "assets/tiles/summer.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces",
+        "source": "assets/src/make_terrain_tiles.py: the frames of assets/src/frames laid out as the cells of the isometric terrain Tilemap, with the summer tint of data/seasons.json on the sand, grass and trees"
+      }
+    },
+    "assets/tiles/autumn.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces",
+        "source": "assets/src/make_terrain_tiles.py: the frames of assets/src/frames laid out as the cells of the isometric terrain Tilemap, with the autumn tint of data/seasons.json on the sand, grass and trees"
+      }
+    },
+    "assets/tiles/winter.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-27",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl) for the terrain, road and tree pieces",
+        "source": "assets/src/make_terrain_tiles.py: the frames of assets/src/frames laid out as the cells of the isometric terrain Tilemap, with the winter tint of data/seasons.json on the sand, grass and trees"
+      }
+    },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-26",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "date": "2026-10-26",
+        "notes": "Drawn from shapes and text by assets.draw_icon."
+      }
+    },
+    "assets/fonts/NotoSansSC-Regular-subset.ttf": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://github.com/google/fonts/tree/main/ofl/notosanssc",
+        "license": "OFL-1.1",
+        "author": "Google Fonts / Adobe (Noto Sans SC)",
+        "notes": "Variable font NotoSansSC[wght].ttf instanced to wght 400 and subset to the characters of locales/*.json with assets.subset_font. Used for Chinese, and for the language name in the language list, through localization.fallbackFonts. Licence text: assets/fonts/OFL.txt."
+      }
+    },
+    "assets/music/autumn.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_music.py (python3 -I assets/src/make_music.py OUT_DIR)",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_music.py)",
+        "ai": false
+      }
+    },
+    "assets/music/spring.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_music.py (python3 -I assets/src/make_music.py OUT_DIR)",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_music.py)",
+        "ai": false
+      }
+    },
+    "assets/music/summer.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_music.py (python3 -I assets/src/make_music.py OUT_DIR)",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_music.py)",
+        "ai": false
+      }
+    },
+    "assets/music/winter.wav": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "assets/src/make_music.py (python3 -I assets/src/make_music.py OUT_DIR)",
+        "license": "CC0-1.0",
+        "author": "Tidewater Market (original, synthesised by assets/src/make_music.py)",
+        "ai": false
+      },
+      "analysis": {
+        "loudnessLufs": -16.87,
+        "peakDb": -5.19,
+        "seconds": 15.0,
+        "bytes": 480044,
+        "sha256": "ff6baed1862c7224a972329bf388ac933122b77894b091c8da341a96b4947ddc"
+      }
+    },
+    "assets/sfx/cart_creak.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/demolish.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/event_card.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/order_filled.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/place.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/ui_click.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/ui_confirm.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/ui_error.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/ui_notice.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/interface-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/walker_step.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_bakery.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_farm.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_fisher_dock.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_lumber_camp.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_market.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_mill.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_pier.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_quarry.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_sawmill.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_smokehouse.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_warehouse.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/rpg-audio",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/sfx/work_workshop.ogg": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/impact-sounds",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)",
+        "ai": false
+      },
+      "import": {
+        "normalize": true,
+        "targetLufs": -20
+      }
+    },
+    "assets/src/kenney/beach.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/coniferAltShort.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/coniferAltTall.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/coniferShort.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/coniferTall.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroad.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroadESW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroadNES.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroadNEW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/crossroadNSW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/grass.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/road.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadES.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadEW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadNE.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadNS.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadNW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/roadSW.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/treeShort.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/treeTall.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    },
+    "assets/src/kenney/water.png": {
+      "provenance": {
+        "origin": "imported",
+        "date": "2026-10-26",
+        "source": "https://kenney.nl/assets/isometric-roads",
+        "license": "CC0-1.0",
+        "author": "Kenney (www.kenney.nl)"
+      }
+    }
+  }
+}

@@ -86,8 +86,21 @@ void Editor::draw_feedback_panel() {
     if (fbCategory_ > 0) filter.category = feedback_categories()[size_t(fbCategory_ - 1)];
     if (fbSeverity_ > 0) filter.severity = feedback_severities()[size_t(fbSeverity_ - 1)];
 
+    int closedCount = 0;
+    for (const auto& en : feedbackDoc_["entries"]) if (en.value("status", "open") != "open") ++closedCount;
+    if (closedCount > 0) {
+        if (ImGui::SmallButton("Archive closed")) {
+            if (auto r = archive_closed_feedback_file(path); !r) notify(r.error().to_string(), 2);
+            else notify("Archived " + std::to_string(r->moved) + " closed entries", 0);
+            feedbackMtime_ = INT64_MIN;
+            feedbackPolled_ = -10;
+        }
+        ImGui::SetItemTooltip("Move the entries that are not open to ENGINE_FEEDBACK.archive.json");
+    }
     Json entries = list_feedback(feedbackDoc_, filter);
-    ImGui::BeginChild("##fbbody", ImVec2(0, 0), ImGuiChildFlags_None);
+    // The panel keeps its size whatever an entry says: this area never scrolls or grows. Only the entries table and the
+    // detail of the selected entry (their own children) scroll; the Add entry form sits in a third child at the bottom.
+    ImGui::BeginChild("##fbbody", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     const float tableH = std::min(180.0f, ImGui::GetTextLineHeightWithSpacing() * float(entries.size() + 2) + 8);
     if (ImGui::BeginTable("##fbt", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, std::max(60.0f, tableH)))) {
@@ -112,10 +125,14 @@ void Editor::draw_feedback_panel() {
         }
         ImGui::EndTable();
     }
-    // Detail of the selected entry.
+    // Detail of the selected entry: a child that takes what the Add entry section leaves, and scrolls by itself.
+    const float addH = fbAddOpen_ ? std::clamp(ImGui::GetContentRegionAvail().y * 0.5f, ImGui::GetFrameHeight() * 2.0f,
+                                               ImGui::GetTextLineHeightWithSpacing() * 18.0f)
+                                  : ImGui::GetFrameHeightWithSpacing();
+    ImGui::BeginChild("##fbdetail", ImVec2(0, -(addH + ImGui::GetStyle().ItemSpacing.y)), ImGuiChildFlags_Borders);
+    at_track("feedback:detail");
     for (const auto& en : entries) {
         if (en.value("id", "") != fbSelected_) continue;
-        ImGui::Separator();
         ImGui::PushTextWrapPos(0);
         ImGui::TextColored(ImVec4(0.6f, 0.8f, 1, 1), "%s  [%s]  x%d", en.value("title", "").c_str(), en.value("category", "").c_str(), en.value("occurrences", 1));
         ImGui::PopTextWrapPos();
@@ -135,16 +152,20 @@ void Editor::draw_feedback_panel() {
         for (size_t i = 0; i < st.size(); ++i) if (st[i] == curStatus) cur = int(i);
         ImGui::SetNextItemWidth(160);
         if (combo_strings("status##detail", &cur, st, false) && st[size_t(cur)] != curStatus) {
-            if (auto r = update_feedback_entry(feedbackDoc_, fbSelected_, st[size_t(cur)], ""); !r) notify(r.error().to_string(), 2);
-            else if (auto s = save_feedback(path, feedbackDoc_); !s) notify(s.error().to_string(), 2);
-            feedbackMtime_ = fs::modified_time(engine_->project().feedbackFile);
+            if (auto r = update_feedback_file(path, fbSelected_, st[size_t(cur)], ""); !r) notify(r.error().to_string(), 2);
+            feedbackMtime_ = INT64_MIN;  // reload both files next poll
+            feedbackPolled_ = -10;
         }
         ImGui::SetItemTooltip("Change the status of this entry (saved immediately)");
         break;
     }
+    ImGui::EndChild();
 
-    ImGui::Separator();
-    if (ImGui::CollapsingHeader("Add entry")) {
+    ImGui::BeginChild("##fbadd", ImVec2(0, 0), ImGuiChildFlags_None, fbAddOpen_ ? ImGuiWindowFlags_None : ImGuiWindowFlags_NoScrollbar);
+    ImGui::SetNextItemOpen(fbAddOpen_, ImGuiCond_Always);
+    fbAddOpen_ = ImGui::CollapsingHeader("Add entry");
+    at_track("feedback:add");
+    if (fbAddOpen_) {
         const auto& cats = feedback_categories();
         const auto& sevs = feedback_severities();
         ImGui::SetNextItemWidth(w3 * 1.2f);
@@ -187,6 +208,7 @@ void Editor::draw_feedback_panel() {
         ImGui::SameLine();
         ImGui::TextWrapped("%s", fbMessage_.c_str());
     }
+    ImGui::EndChild();
     ImGui::EndChild();
     ImGui::End();
 }

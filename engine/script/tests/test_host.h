@@ -4,9 +4,11 @@
 #include <fstream>
 
 #include "fa/audio/audio.h"
+#include "fa/audio/snapshots.h"
 #include "fa/core/fs.h"
 #include "fa/core/i18n.h"
 #include "fa/physics/physics.h"
+#include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/localize.h"
@@ -51,11 +53,15 @@ struct TestHost : ScriptHost {
                                                                      {"move_left", Json::array({"A"})},
                                                                      {"move_right", Json::array({"D"})}})}});
         in.set_actions(proj["input"]["actions"]);
+        if (proj["input"].contains("schemes")) in.set_key_schemes(proj["input"]["schemes"]);
         au.init(false, nullptr);
         au.set_clock(&w);
+        if (proj.contains("audio")) au.set_snapshots(parse_audio_settings(proj["audio"]).snapshots);  // as the Engine does
         ph.init(PhysicsSettings{});
         if (auto catalog = load_platform_catalog(proj.contains("platform") ? proj["platform"] : Json()); catalog.ok())
             platformServices.set_catalog(std::move(catalog.value()));
+        if (auto network = load_network(proj.contains("network") ? proj["network"] : Json()); network.ok())
+            platformServices.set_network(std::move(network.value()));  // the hosts http.fetch may call: proj["network"]
         platformServices.set_date_source([this] { return scripts.today(); });  // as the Engine does
         platformServices.set_backend(std::make_unique<FakeBackend>(), "the test host always uses the fake");
         register_platform_commands(cmds, platformServices);
@@ -80,6 +86,8 @@ struct TestHost : ScriptHost {
     Input& input() override { return in; }
     Audio& audio() override { return au; }
     Physics& physics() override { return ph; }
+    MemoryClipboard clip;  // clipboard.* in tests: in memory, like a headless run
+    Clipboard* clipboard() override { return &clip; }
     Renderer* renderer() override { return nullptr; }
     PlatformServices* platform_services() override { return &platformServices; }
     const I18n* i18n() override { return &loc; }
@@ -121,6 +129,7 @@ struct TestHost : ScriptHost {
             platformServices.frame();
             scripts.dispatch_platform();
             scripts.dispatch_back();
+            scripts.dispatch_gamepads();
             scripts.fixed_update(dt);
             ph.step(w, dt);
             update_animators(w, dt);

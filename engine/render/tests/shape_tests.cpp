@@ -1,6 +1,8 @@
 // Shape2D: the diamond, polygon and star primitives, the inward triangle outline and the triangle pivot (centroid) recipe.
 #include "test_util.h"
 
+#include "fa/scene/serialize.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -472,4 +474,171 @@ TEST_CASE("Shape2D polygon and star: golden image next to the other shapes") {
     shape_at(w, ShapeType::Triangle, {100, -40, 0}, {50, 50}, Color::hex(0xe0e050), false, 5.0f);
     shape_at(w, ShapeType::Star, {24, 156, 0}, {28, 28}, Color::hex(0xffffff), true, 2.0f, {0.5f, 0.5f}, RenderSpace::Screen);
     expect_golden(g.render(w), "2d_polygons");
+}
+
+// ---- cornerRadius, softness and gradients (the SDF shader path, mode 7) ----
+
+namespace {
+Entity fx_rect(World& w, Vec3 p, Vec2 size, Color c, float radius, float softness = 0.0f) {
+    Entity e = shape_at(w, ShapeType::Rectangle, p, size, c);
+    w.get<Shape2D>(e)->cornerRadius = radius;
+    w.get<Shape2D>(e)->softness = softness;
+    return e;
+}
+}  // namespace
+
+TEST_CASE("Shape2D FX fields: defaults leave a shape flat and crisp, json round trip") {
+    Shape2D s;
+    CHECK(s.cornerRadius == 0.0f);
+    CHECK(s.softness == 0.0f);
+    CHECK(s.gradient == ShapeGradient::None);
+    CHECK(s.gradientAngle == 0.0f);
+    World w;
+    Entity e = fx_rect(w, {}, {40, 20}, Color::white(), 6.0f, 3.0f);
+    w.get<Shape2D>(e)->gradient = ShapeGradient::Radial;
+    w.get<Shape2D>(e)->color2 = Color{0, 0, 1, 0.5f};
+    Json j = component_to_json(w, e, World::type_of<Shape2D>());
+    CHECK(j["cornerRadius"].get<float>() == doctest::Approx(6.0f));
+    CHECK(j["softness"].get<float>() == doctest::Approx(3.0f));
+    CHECK(j["gradient"] == "radial");
+}
+
+TEST_CASE("Shape2D cornerRadius: corners are cut, edge middles and the centre stay filled") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    black_camera(w);
+    // 100x60 box centred on the target: pixels x 110..209, y 60..119; radius 20.
+    fx_rect(w, {0, 0, 0}, {100, 60}, Color::white(), 20.0f);
+    Image img = g.render(w);
+    CHECK(drawn(img, 160, 90));
+    CHECK(drawn(img, 160, 61));  CHECK(drawn(img, 160, 118));    // edge middles, a pixel in
+    CHECK(drawn(img, 111, 90));  CHECK(drawn(img, 208, 90));
+    CHECK_FALSE(drawn(img, 111, 61));  CHECK_FALSE(drawn(img, 208, 61));    // the corner pixels are outside the arc
+    CHECK_FALSE(drawn(img, 111, 118)); CHECK_FALSE(drawn(img, 208, 118));
+    CHECK(drawn(img, 118, 68));  // 8 px in along both axes: 16.3 px from the arc's centre, inside the radius 20
+    CHECK(dark_outside(img, 110, 60, 209, 119));
+    // A radius larger than half the short side is clamped: a pill whose ends are semicircles of radius 30.
+    World p;
+    black_camera(p);
+    fx_rect(p, {0, 0, 0}, {100, 60}, Color::white(), 500.0f);
+    Image pill = g.render(p);
+    CHECK(drawn(pill, 160, 90));
+    CHECK_FALSE(drawn(pill, 111, 61));
+    CHECK(drawn(pill, 140, 61));
+}
+
+TEST_CASE("Shape2D softness: the edge fades over its width, centred on the outline; the footprint reaches softness/2 out") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    black_camera(w);
+    fx_rect(w, {0, 0, 0}, {100, 60}, Color::white(), 0.0f, 20.0f);  // box x 110..209; the fade runs x 100..119 and 200..219
+    Image img = g.render(w);
+    CHECK(img.pixel(160, 90).r > 0.99f);                     // the middle is solid
+    CHECK(img.pixel(209, 90).r == doctest::Approx(0.5f).epsilon(0.15));  // half way across the outline
+    float prev = 2.0f;
+    for (int x = 200; x <= 219; ++x) {  // monotonic fall-off across the right edge
+        float r = img.pixel(x, 90).r;
+        CHECK(r <= prev + 0.02f);
+        prev = r;
+    }
+    CHECK(img.pixel(219, 90).r < 0.05f);
+    CHECK(img.pixel(100, 90).r < 0.06f);
+    CHECK(img.pixel(205, 90).r > img.pixel(214, 90).r);
+    CHECK(dark_outside(img, 98, 48, 221, 131));
+}
+
+TEST_CASE("Shape2D gradient: linear runs colour to colour2 along the angle, radial from the centre out") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    {
+        World w;
+        black_camera(w);
+        Entity e = shape_at(w, ShapeType::Rectangle, {0, 0, 0}, {200, 100}, Color{1, 0, 0, 1});
+        Shape2D& s = *w.get<Shape2D>(e);
+        s.gradient = ShapeGradient::Linear;
+        s.color2 = Color{0, 0, 1, 1};  // 0 degrees: left red -> right blue; box x 60..259
+        Image img = g.render(w);
+        CHECK(img.pixel(62, 90).r > 0.95f);   CHECK(img.pixel(62, 90).b < 0.06f);
+        CHECK(img.pixel(257, 90).b > 0.95f);  CHECK(img.pixel(257, 90).r < 0.06f);
+        CHECK(img.pixel(160, 90).r == doctest::Approx(0.5f).epsilon(0.05));
+        CHECK(img.pixel(160, 90).b == doctest::Approx(0.5f).epsilon(0.05));
+        CHECK(img.pixel(160, 41).r == doctest::Approx(img.pixel(160, 139).r).epsilon(0.05));  // no change along y
+        s.gradientAngle = 90.0f;  // bottom (colour) -> top (colour2)
+        Image up = g.render(w);
+        CHECK(up.pixel(160, 138).r > 0.9f);
+        CHECK(up.pixel(160, 41).b > 0.9f);
+        CHECK(up.pixel(70, 90).r == doctest::Approx(up.pixel(250, 90).r).epsilon(0.05));
+    }
+    {
+        World w;
+        black_camera(w);
+        Entity e = shape_at(w, ShapeType::Circle, {0, 0, 0}, {100, 100}, Color{1, 1, 1, 1});
+        Shape2D& s = *w.get<Shape2D>(e);
+        s.gradient = ShapeGradient::Radial;
+        s.color2 = Color{1, 1, 1, 0};  // white centre fading to nothing: a light pool
+        Image img = g.render(w);
+        CHECK(img.pixel(160, 90).r > 0.97f);
+        const float a = img.pixel(160 + 15, 90).r, b = img.pixel(160 + 30, 90).r, c = img.pixel(160 + 45, 90).r;
+        CHECK(a > b);  CHECK(b > c);
+        CHECK(c < 0.2f);
+        CHECK(b == doctest::Approx(0.5f).epsilon(0.1));
+        CHECK(img.pixel(160, 90 + 30).r == doctest::Approx(b).epsilon(0.08));  // the same all round
+    }
+}
+
+TEST_CASE("Shape2D gradient: a transparent start colour still draws the colour2 end (ai-guide vignette recipe)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    black_camera(w);
+    Entity e = shape_at(w, ShapeType::Circle, {0, 0, 0}, {100, 100}, Color{0, 0, 0, 0});
+    Shape2D& s = *w.get<Shape2D>(e);
+    s.color = Color{1, 1, 1, 0};
+    s.gradient = ShapeGradient::Radial;
+    s.color2 = Color{1, 1, 1, 1};  // transparent centre, opaque rim
+    Image img = g.render(w);
+    CHECK(img.pixel(160, 90).r < 0.1f);
+    CHECK(img.pixel(160 + 45, 90).r > 0.7f);
+    s.color2 = Color{1, 1, 1, 0};  // every colour transparent: nothing drawn
+    Image none = g.render(w);
+    CHECK(none.pixel(160 + 45, 90).r < 0.01f);
+    s.gradient = ShapeGradient::None;
+    s.color2 = Color{1, 1, 1, 1};  // no gradient: color2 is unused, still invisible
+    Image flat = g.render(w);
+    CHECK(flat.pixel(160 + 45, 90).r < 0.01f);
+}
+
+TEST_CASE("Shape2D FX: outline of a rounded rectangle, soft circle, additive light pool, golden image") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    Entity cam = make(w, "cam");
+    w.add<Camera>(cam).clearColor = Color::hex(0xd8cba8);  // paper
+    // Drop shadow under a rounded card, then the card with a gradient, then an outlined rounded rect.
+    Entity shadow = fx_rect(w, {-78, 22, 0}, {90, 70}, Color{0, 0, 0, 0.45f}, 12.0f, 18.0f);
+    w.get<Shape2D>(shadow)->layer = 0;
+    Entity card = fx_rect(w, {-84, 30, 0}, {90, 70}, Color::hex(0xfff6dc), 12.0f);
+    w.get<Shape2D>(card)->gradient = ShapeGradient::Linear;
+    w.get<Shape2D>(card)->color2 = Color::hex(0xe0cfa0);
+    w.get<Shape2D>(card)->gradientAngle = 0.0f;
+    w.get<Shape2D>(card)->layer = 1;
+    Entity ring = shape_at(w, ShapeType::Rectangle, {50, 30, 0}, {80, 50}, Color::hex(0x3a2a1a), false, 4.0f);
+    w.get<Shape2D>(ring)->cornerRadius = 14.0f;
+    // A soft dark circle (vignette blob) and a radial additive glow.
+    Entity blob = shape_at(w, ShapeType::Circle, {-60, -52, 0}, {60, 60}, Color{0.1f, 0.05f, 0, 0.6f});
+    w.get<Shape2D>(blob)->softness = 30.0f;
+    Entity glow = shape_at(w, ShapeType::Circle, {60, -48, 0}, {90, 90}, Color{1, 0.8f, 0.4f, 0.9f});
+    w.get<Shape2D>(glow)->gradient = ShapeGradient::Radial;
+    w.get<Shape2D>(glow)->color2 = Color{1, 0.8f, 0.4f, 0};
+    w.get<Shape2D>(glow)->blend = BlendMode::Additive;
+    // Screen space version (y down) next to the world ones.
+    Entity hud = shape_at(w, ShapeType::Rectangle, {300, 20, 0}, {30, 20}, Color::hex(0x336699), true, 2.0f, {0.5f, 0.5f},
+                          RenderSpace::Screen);
+    w.get<Shape2D>(hud)->cornerRadius = 8.0f;
+    Image img = g.render(w);
+    CHECK(img.pixel(210, 37).r < 0.4f);    // the ring's top edge: 4 px of dark inside its box (centre pixel y 60, box y 35..84)
+    CHECK(img.pixel(210, 60).r > 0.7f);    // its hollow middle shows the paper
+    expect_golden(img, "2d_shape_fx", 0.008);
 }

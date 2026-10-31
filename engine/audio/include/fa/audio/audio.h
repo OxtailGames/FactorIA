@@ -6,6 +6,12 @@
 // is also kept in a play log (play_log()) that tests and the `audio.log`
 // command read to assert which sounds played, when, and on which bus.
 //
+// Buses: every voice is summed into the buffer of its bus before the master, and a bus can have a low-pass, a reverb and
+// ducking, or be moved to a named snapshot (set_bus_lowpass ... apply_snapshot, below). The buses are a table: sfx, music, ui
+// and the master always exist, a project adds its own with a parent (factoria.json "audio.buses", set_buses). A bus is
+// mixed, with its effects and volume, and then summed into its parent. All of it runs in the same mixer on the null device,
+// so the result is deterministic.
+//
 // Memory: a clip is decoded whole to 44.1 kHz stereo float when it loads, except the long ones. A clip streams when its
 // import setting `stream` (assets.json) is "always", or "auto" and it lasts more than 10 seconds: it keeps its encoded
 // file and every voice playing it decodes a few thousand frames at a time, so a 3-minute track holds about 100 KB of
@@ -13,12 +19,15 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "fa/core/json.h"
+#include "fa/core/types.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -30,12 +39,23 @@ struct PlayParams {
     float pitch = 1.0f;
     float pan = 0.0f;  // -1 left .. 1 right
     bool loop = false;
-    std::string bus = "sfx";  // "sfx" | "music" | "ui" — each bus has its own volume
+    std::string bus = "sfx";  // "sfx" | "music" | "ui" or a bus of the project — each bus has its own volume
+    bool notifyEnd = false;   // the voice's end is queued for take_ended_voices()
 };
 
-// One play request, as recorded in the play log: play() calls (scripts), AudioSource components starting a clip and
-// play_music() (scripts and SceneSettings.music). Failed requests are logged too, with ok = false.
+// A bus a project declares (factoria.json "audio.buses"): `parent` is "sfx", "music", "ui", "master" or another project bus.
+struct AudioBusDef {
+    std::string name;
+    std::string parent = "master";
+};
+
+// One entry of the play log: a play request (kind "play": play() calls from scripts, AudioSource components starting a clip
+// and play_music(); failed requests are logged too, with ok = false) or a volume change of a voice that plays (kind
+// "setVoiceVolume", set_voice_volume: `volume` is the target, `fade` the seconds it takes, `path` the voice's clip).
 struct AudioEvent {
+    std::string kind = "play";  // "play" | "setVoiceVolume"
+    VoiceId voice = 0;          // the voice the request started (0 = it did not start), or changed
+    float fade = 0.0f;          // setVoiceVolume: seconds
     std::uint64_t seq = 0;    // increasing id (1, 2, ...); never reused, survives clear_play_log()
     std::uint64_t frame = 0;  // World::frame() of the clock world when requested (what scripts see as time.frame)
     double time = 0.0;        // World::time() of the clock world
@@ -46,8 +66,39 @@ struct AudioEvent {
     bool music = false;   // started through play_music()
     std::string source;   // entity id when an AudioSource component started it, "" otherwise
     bool ok = true;       // false when the clip could not be loaded (the error is logged once)
+    std::string layer;    // the layer name when audio.musicLayers started it, "" otherwise
     Json to_json() const;
 };
+
+// One stem of layered music (Audio::play_music_layers).
+struct MusicLayer {
+    std::string name;
+    std::string path;
+    float level = 1.0f;  // 0..1 starting level; the voice plays at the music volume times it
+};
+
+// Ducking: the bus lowers itself while the bus `by` is loud (Audio::set_bus_duck).
+struct DuckSettings {
+    std::string by;         // the bus that triggers it: any bus but the master
+    float amount = 0.0f;    // the fraction of the volume removed while `by` plays, 0..1 (0.5 = half as loud, 1 = silent); 0 = no ducking
+    float attack = 0.05f;   // time constant in seconds going down once `by` starts (63% of the way in this time)
+    float release = 0.5f;   // time constant in seconds coming back once `by` has stopped
+};
+
+// What a snapshot says about one bus. The defaults are the neutral values: a bus a snapshot does not list gets all of them.
+struct BusSnapshot {
+    float volume = 1.0f;  // a scale on the bus's own volume (the one the player's options set), 0..4
+    float lowpass = 0.0f; // low-pass cutoff in Hz; 0 = off
+    float reverb = 0.0f;  // wet mix 0..1; 0 = off
+    std::optional<DuckSettings> duck;
+};
+
+// One entry of the snapshot catalog (factoria.json "audio.snapshots").
+struct AudioSnapshot {
+    float fade = 0.5f;                          // seconds audio.snapshot takes when the caller gives no time
+    std::map<std::string, BusSnapshot> buses;   // by bus name: "sfx", "music", "ui", "master" or a project bus
+};
+using AudioSnapshots = std::map<std::string, AudioSnapshot>;
 
 class Audio {
 public:
@@ -72,19 +123,78 @@ public:
     void clear_pcm(VoiceId voice);  // drops the samples that wait (after a seek)
     void set_voice_bus(VoiceId voice, std::string_view bus);
     void stop(VoiceId voice);
-    void stop_all();
+    void stop_all();  // every voice, music included (a persisted track too)
+    // What a scene load does: stops every voice except music started with persist, and forgets the scene music the last
+    // scene had, so update() starts the new scene's SceneSettings.music even when it is the same track.
+    void on_scene_load();
     bool is_playing(VoiceId voice) const;
-    void set_voice_volume(VoiceId voice, float volume);
-    void set_bus_volume(std::string_view bus, float volume);
-    float bus_volume(std::string_view bus) const;  // "master", "sfx", "music" or "ui"; -1 for an unknown bus
+    // The voices that play now, oldest first: [{id, path, bus, volume, pitch, pan, loop, music, source}]. `volume` is the voice's
+    // own volume as last set (a fade in progress reports the volume it moves to), `music` is true for the music track and its layers,
+    // `source` the id of the entity whose AudioSource or Video plays it ("" for scripts).
+    Json active_voices() const;
+    // The voices played with notifyEnd that ended since the last call, in the order they ended: the clip finished, a fade-out
+    // reached 0, stop() was called, or a full mixer evicted them. stop_all() and a scene load drop the list instead (the
+    // scene that asked is gone).
+    std::vector<VoiceId> take_ended_voices();
+    // Sets the voice's own volume (the bus and master volumes still apply); with fadeSeconds > 0 it moves there in a
+    // straight line over that time of audio. A voice that plays gets a "setVoiceVolume" entry in the play log unless `log` is false (the engine's own
+    // per-frame calls, like a Video's level).
+    void set_voice_volume(VoiceId voice, float volume, float fadeSeconds = 0.0f, bool log = true);
+    // Every change of a bus moves its gain in a short ramp (about 10 ms) so it never clicks; with fadeSeconds > 0 it moves in a
+    // straight line over that time. An unknown bus logs an error with a "did you mean".
+    void set_bus_volume(std::string_view bus, float volume, float fadeSeconds = 0.0f);
+    float bus_volume(std::string_view bus) const;  // "master", "sfx", "music", "ui" or a project bus; -1 for an unknown bus
     void set_master_volume(float volume);
+
+    // The project's buses (factoria.json "audio.buses"; the engine calls it when a project loads). Replaces the previous
+    // list: a bus that stays keeps its volume and effects, a new one starts neutral, a removed one sends its voices to "sfx".
+    // The names must be valid (parse_audio_settings checks them): a bus with a parent that is unknown, a loop or a built-in
+    // name is skipped with a log line.
+    void set_buses(const std::vector<AudioBusDef>& buses);
+    // Every bus: sfx, music, ui, master and then the project's in the order set_buses got them.
+    std::vector<std::string> bus_names() const;
+    // Bus effects (docs/SCRIPTING.md, "Audio buses"). Every voice of a bus (and the buses under it) is summed into its own
+    // buffer; the effects run on that sum, in this order: low-pass, reverb, volume, ducking. A bus with no effect costs
+    // nothing extra. `bus` is any bus name, "master" included (not for ducking); an unknown bus or a value out of range is an
+    // error that says what to use.
+    // A 12 dB/octave low-pass at `hz` (20..20000; 0 = off). With fadeSeconds the cutoff slides (in octaves) from where it is
+    // (a bus without a filter starts open).
+    Result<void> set_bus_lowpass(std::string_view bus, float hz, float fadeSeconds = 0.0f);
+    // A small room reverb: the bus is heard as (1 - mix) dry + mix wet, mix 0..1 (0 = off).
+    Result<void> set_bus_reverb(std::string_view bus, float mix, float fadeSeconds = 0.0f);
+    // Ducking: lowers `bus` by duck.amount while duck.by is louder than -40 dBFS (measured after its own effects and volume,
+    // before its ducking). amount 0 or an empty `by` turns it off.
+    Result<void> set_bus_duck(std::string_view bus, const DuckSettings& duck);
+    // The state of one bus: volume, snapshotVolume, lowpass, reverb and duck (null when it has none). Null for an unknown bus.
+    Json bus_state(std::string_view bus) const;
+
+    // Snapshots: named sets of bus settings (the catalog is factoria.json "audio.snapshots", loaded by the engine). Applying
+    // one moves every bus to the snapshot's state over `fadeSeconds` (a negative time = the snapshot's own `fade`): the
+    // snapshot's volume scale, low-pass and reverb slide; ducking switches at once. A bus the snapshot does not list goes
+    // back to neutral (no effect, scale 1), so the snapshot is the whole picture; the volumes the player set
+    // (set_bus_volume) are not touched. An unknown name is an error with a "did you mean".
+    Result<void> apply_snapshot(std::string_view name, float fadeSeconds = -1.0f);
+    void set_snapshots(AudioSnapshots catalog);
+    std::vector<std::string> snapshot_names() const;
+    std::string current_snapshot() const;  // the last one applied ("" = none)
+    // Switches off every low-pass, reverb and ducking and puts the snapshot scales back to 1, at once (the volumes stay).
+    // The test runner calls it before each test.
+    void reset_bus_effects();
     // Pauses the whole mix (every voice, music included, keeps its position and plays on from there) while the app is in the
     // background (ScriptSystem::app_event, project setting pauseOnSuspend). Not a game option: the game's own pause menu
     // keeps using buses and volumes.
     void set_paused(bool paused);
     bool paused() const;
-    void play_music(std::string_view clipPath, float volume = 0.6f, float fadeSeconds = 0.5f);
-    void stop_music(float fadeSeconds = 0.5f);
+    // Looping music on the "music" bus. The same track again only retunes it. persist = the track survives scene loads.
+    void play_music(std::string_view clipPath, float volume = 0.6f, float fadeSeconds = 0.5f, bool persist = false);
+    // Layered music: every layer starts on the same mixed sample (one lock), loops, and is faded with set_layer. Replaces
+    // the current music. All or nothing: false (and nothing plays) when a clip fails to load. `volume` scales every layer.
+    bool play_music_layers(const std::vector<MusicLayer>& layers, float volume = 0.6f, float fadeSeconds = 0.5f,
+                           bool persist = false);
+    // Moves a layer of the current layered music to `level` (0..1) over fadeSeconds; false for an unknown layer.
+    bool set_layer(std::string_view name, float level, float fadeSeconds = 0.0f);
+    std::vector<std::string> layer_names() const;  // names of the current layers, in start order
+    void stop_music(float fadeSeconds = 0.5f);  // the track and every layer
 
     // Play log (game thread). Entries are stamped with the frame/time of `world` (the engine passes its World; null =
     // the world of the last update()). The log keeps the newest 4096 entries; play_log_dropped() counts the rest.
@@ -106,7 +216,8 @@ public:
                         int* rateOut = nullptr);
 
     // Active voices, loaded clips, peak level of the last frame, decodedBytes (PCM held by loaded clips plus the buffers
-    // of the voices that stream) and streamedClips (the loaded clips that stream).
+    // of the voices that stream) and streamedClips (the loaded clips that stream), busEffects (the bus_state of every bus,
+    // master included) and snapshot (the last one applied, "" = none).
     Json stats() const;
 
     void reload_clip(std::string_view path);  // hot reload

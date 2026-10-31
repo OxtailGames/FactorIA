@@ -23,6 +23,14 @@
     return bd <= Math.max(2, Math.floor(String(name).length / 3)) ? best : "";
   }
 
+  // didYouMean(word, choices): the choice closest to `word`, or "" when none is near. Exported from "factoria".
+  function didYouMean(word, choices) {
+    if (typeof word !== "string" || !Array.isArray(choices)) {
+      throw new Error(`didYouMean(word, choices) expects a string and an array of strings, e.g. didYouMean("woood", ["wood", "stone"]), but got ${typeof word} and ${Array.isArray(choices) ? "an array" : typeof choices}`);
+    }
+    return closest(word, choices.map(String));
+  }
+
   // ======================================================================================================= console
   function inspect(x, depth = 0) {
     if (typeof x === "string") return x;
@@ -494,6 +502,16 @@
         throw new Error(`entity '${this.id}' has no Animator component; add one next to a MeshRenderer with a skinned glTF: entity.add("Animator", {clip: "Idle"})`);
       return new AnimatorApi(this.$h);
     }
+    get spriteAnimator() {
+      if (!N.hasComp(this.$h, "SpriteAnimator"))
+        throw new Error(`entity '${this.id}' has no SpriteAnimator component; add one next to a Sprite whose texture has a sheet: entity.add("SpriteAnimator", {clip: "idle"})`);
+      return new SpriteAnimatorApi(this.$h);
+    }
+    get tilemap() {
+      if (!N.hasComp(this.$h, "Tilemap"))
+        throw new Error(`entity '${this.id}' has no Tilemap component; add one with entity.add("Tilemap", {...}) or build it with scene.import_ascii`);
+      return new TilemapApi(this.$h);
+    }
     get video() {
       if (!N.hasComp(this.$h, "Video"))
         throw new Error(`entity '${this.id}' has no Video component; add one: entity.add("Video", {path: "assets/video/intro.mpg"})`);
@@ -504,13 +522,16 @@
   }
 
   // ===================================================================================================== animator
-  // entity.animator: skeletal animation of a skinned glTF. The Animator component (scene JSON) holds the state; the
+  // entity.animator: skeletal animation of a skinned glTF or keyframed 2D clips (*.anim.json). The Animator component (scene JSON) holds the state; the
   // engine advances it in the fixed step. Everything here is a thin wrapper over that component.
   class AnimatorApi {
     constructor(h) { this.$h = h; }
     get component() { return viewOf(this.$h, typeOf("Animator")); }
     play(clip, fadeSeconds = this.component.fade) { N.animCall(this.$h, "play", String(clip), fadeSeconds); }
     stop() { N.animCall(this.$h, "stop"); }
+    sample(clip, time) { N.animCall(this.$h, "sample", String(clip), time); }
+    setLayerWeight(layer, weight) { N.animCall(this.$h, "layerWeight", String(layer), weight); }
+    playLayer(layer, clip, fadeSeconds = this.component.fade) { N.animCall(this.$h, "layerPlay", String(layer), String(clip), fadeSeconds); }
     set(name, value) { N.animCall(this.$h, "set", String(name), value); }
     get(name) {
       const c = this.component, v = c.values;
@@ -541,6 +562,72 @@
     set loop(v) { this.component.loop = v; }
     get playing() { return this.component.playing; }
     set playing(v) { this.component.playing = v; }
+  }
+
+  // ============================================================================================== sprite animator
+  // entity.spriteAnimator: plays the named clips of a sprite sheet (the `sheet` entry of the texture in assets.json). The
+  // SpriteAnimator component holds the state; the renderer steps it with the frame time.
+  class SpriteAnimatorApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("SpriteAnimator")); }
+    play(name, restart = false) { N.spriteAnimCall(this.$h, "play", String(name), !!restart); }
+    stop() { this.component.playing = false; }
+    resume() { this.component.playing = true; }
+    get clips() { return N.spriteAnimCall(this.$h, "clips").map((c) => c.name); }
+    clipInfo(name) {
+      const all = N.spriteAnimCall(this.$h, "clips");
+      const c = all.find((x) => x.name === name);
+      if (!c) { const names = all.map((x) => x.name); throw new Error(`no sprite clip '${name}'; the sheet has: ${names.join(", ") || "(none)"}${closest(name, names) ? `. Did you mean '${closest(name, names)}'?` : ""}`); }
+      return c;
+    }
+    on(name, fn) {
+      const id = N.idOf(this.$h);
+      return addListener(name, (data, source) => { if (data && data.id === id) fn(data, source); }, null);
+    }
+    get clip() { return this.component.clip; }
+    set clip(v) { this.component.clip = v; }
+    get mode() { return this.component.mode; }
+    set mode(v) { this.component.mode = v; }
+    get frame() { return this.component.frame; }
+    get time() { return this.component.time; }
+    set time(v) { this.component.time = v; }
+    get playing() { return this.component.playing; }
+    set playing(v) { this.component.playing = v; }
+    get ended() { return this.component.ended; }
+  }
+
+  // ======================================================================================================== tilemap
+  // entity.tilemap: reads and writes single tiles of a Tilemap component in place (the tiles array is not copied or
+  // replaced), so a script can dig, build or open doors every frame. 2D physics rebuilds only the colliders it changes.
+  class TilemapApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("Tilemap")); }
+    // The size drawing and collision use, read natively: `tiles` is not copied to the script.
+    get width() { return N.tileDims(this.$h)[0]; }
+    get height() { return N.tileDims(this.$h)[1]; }
+    getTile(x, y) {
+      if (typeof x !== "number" || typeof y !== "number") throw new Error(`tilemap.getTile(x, y) expects two cell numbers, got ${inspect(x)}, ${inspect(y)}`);
+      return N.tileGet(this.$h, x, y);
+    }
+    setTile(x, y, tile) {
+      if (typeof x !== "number" || typeof y !== "number" || typeof tile !== "number")
+        throw new Error(`tilemap.setTile(x, y, tile) expects three numbers (cell column, cell row, tile index or -1), got ${inspect(x)}, ${inspect(y)}, ${inspect(tile)}`);
+      N.tileSet(this.$h, x, y, tile);
+    }
+    // The cell under a WORLD point (a Vec2, {x, y} or [x, y]; for the mouse use camera.screenToWorld first), by the entity's
+    // transform and the map's projection (square or diamond). null when the point is outside the map.
+    cellAt(point) {
+      const p = vecArr(point, 2, "tilemap.cellAt(point)");
+      const [col, row, inside] = N.tileCellAt(this.$h, p[0], p[1]);
+      return inside ? { col, row } : null;
+    }
+    // The WORLD position of the centre of cell (col, row); the cell may lie outside the map.
+    cellToWorld(col, row) {
+      if (typeof col !== "number" || typeof row !== "number" || !Number.isFinite(col) || !Number.isFinite(row))
+        throw new Error(`tilemap.cellToWorld(col, row) expects two cell numbers, got ${inspect(col)}, ${inspect(row)}`);
+      const w = N.tileCellToWorld(this.$h, col, row);
+      return vec2(w[0], w[1]);
+    }
   }
 
   // ========================================================================================================== video
@@ -599,12 +686,20 @@
   }
   const CHANNELS = ["x", "y", "z", "w", "r", "g", "b", "a"];
 
-  const tweens = { list: [], cancelAll() { for (const t of this.list.slice()) t.cancel(); this.list = []; } };
+  // list: the running tweens. allPaused / timeScale: tween.pauseAll() and tween.timeScale. A tween that is DROPPED (its target
+  // or its owning Behaviour was destroyed, or the scene was reloaded) leaves `finished` pending forever, so the code that awaits
+  // it never resumes; the promise and everything it holds become garbage as soon as nothing else refers to them.
+  const tweens = {
+    list: [], allPaused: false, timeScale: 1,
+    dropAll() { for (const t of this.list.slice()) t.$drop(); this.list = []; },
+    reset() { this.dropAll(); this.allPaused = false; this.timeScale = 1; },
+  };
 
   class Tween {
     constructor(target, props, o) {
       this.target = target; this.props = props; this.o = o;
       this.elapsed = 0; this.started = false; this.paused = false; this.done = false; this.cancelled = false;
+      this.dropped = false; this.owner = null;
       this.parts = []; this.nexts = [];
       this.finished = new Promise((res) => { this.$resolve = res; });
     }
@@ -612,6 +707,22 @@
     get progress() { const d = this.o.duration * (this.o.repeat + 1); return d > 0 ? Math.min(1, Math.max(0, (this.elapsed - this.o.delay) / d)) : (this.done ? 1 : 0); }
     pause() { this.paused = true; return this; }
     resume() { this.paused = false; return this; }
+    // Ends the tween without settling `finished` (see tweens above): used when the target, the owner or the scene is gone.
+    $drop() {
+      if (this.done || this.cancelled) return this;
+      this.cancelled = true; this.dropped = true;
+      const i = tweens.list.indexOf(this); if (i >= 0) tweens.list.splice(i, 1);
+      for (const n of this.nexts) n.$drop();
+      return this;
+    }
+    // Jumps to `seconds` after the tween was created (the delay counts) and applies the values there, paused or not.
+    seek(seconds) {
+      if (!(seconds >= 0)) throw new Error(`tween.seek(seconds) expects a number of seconds >= 0 but got ${inspect(seconds)}`);
+      if (this.done || this.cancelled) throw new Error("tween.seek: this tween is already " + (this.done ? "complete" : "cancelled") + "; seek only works on a tween that is still active. Start the tween again to replay it.");
+      this.elapsed = seconds;
+      this.$tick(0, true);
+      return this;
+    }
     cancel() {
       if (this.done || this.cancelled) return this;
       this.cancelled = true;
@@ -623,7 +734,8 @@
     onComplete(fn) { this.o.onComplete = ((prev) => () => { if (prev) prev(this); fn(this); })(this.o.onComplete); return this; }
     next(target, props, options) {
       const t = makeTween(target, props, options);
-      if (this.cancelled) { t.cancelled = true; t.$resolve(false); return t; }
+      if (this.cancelled) { t.cancelled = true; if (this.dropped) t.dropped = true; else t.$resolve(false); return t; }
+      t.owner = this.owner;
       if (this.done) tweens.list.push(t); else this.nexts.push(t);
       return t;
     }
@@ -664,8 +776,8 @@
       }
       if (this.o.onUpdate) this.o.onUpdate(f, this);
     }
-    $tick(dt) {
-      if (this.paused) return;
+    $tick(dt, force) {
+      if (this.paused && !force) return;
       this.elapsed += dt;
       const o = this.o;
       const local = this.elapsed - o.delay;
@@ -710,17 +822,32 @@
     return t;
   }
   function tickTweens(dt) {
-    if (tweens.list.length === 0) return;
+    if (tweens.list.length === 0 || tweens.allPaused) return;
+    dt *= tweens.timeScale;
+    if (!(dt > 0)) return;
     for (const t of tweens.list.slice()) {
       if (!t.active) continue;
       N.guardBegin("tween", 2.0);
       try { t.$tick(dt); } catch (e) {
-        t.cancel();
-        if (!/destroyed/.test(String(e && e.message))) N.reportError(e, "", "tween update");  // a destroyed target just ends its tween
+        if (/destroyed/.test(String(e && e.message))) t.$drop();  // a destroyed target ends its tween; whoever awaits it is not resumed
+        else { t.cancel(); N.reportError(e, "", "tween update"); }
       }
       N.guardEnd();
     }
   }
+  function dropOwnedTweens(owner) { for (const t of tweens.list.slice()) if (t.owner === owner) t.$drop(); }
+  Object.defineProperties(tween, {
+    pauseAll: { value() { tweens.allPaused = true; } },
+    resumeAll: { value() { tweens.allPaused = false; } },
+    paused: { get() { return tweens.allPaused; } },
+    timeScale: {
+      get() { return tweens.timeScale; },
+      set(v) {
+        if (typeof v !== "number" || !(v >= 0) || !Number.isFinite(v)) throw new Error(`tween.timeScale must be a number >= 0 (1 = normal speed, 0 freezes every tween) but is ${inspect(v)}`);
+        tweens.timeScale = v;
+      },
+    },
+  });
   function cancelTweens(target) {
     for (const t of tweens.list.slice()) if (target === undefined || t.target === target) t.cancel();
   }
@@ -802,6 +929,14 @@
     after(seconds, fn) { return timers.add(this.entity.$h, seconds, fn, false); }
     every(seconds, fn) { return timers.add(this.entity.$h, seconds, fn, true); }
     on(name, fn) { return addListener(name, fn, this.entity.$h); }
+    // Like tween(), but owned by this behaviour: when the entity is destroyed (or the scene unloads) the tween is dropped and
+    // `await this.tween(...).finished` never resumes, so the code after it needs no alive check.
+    tween(target, props, options) { const t = tween(target, props, options); t.owner = this.entity.$h; return t; }
+    // Resolves after `seconds` of scaled game time; never resolves if this entity is destroyed first (or the scene unloads).
+    wait(seconds) {
+      if (!(seconds >= 0)) throw new Error(`this.wait(seconds) expects a number of seconds >= 0 but got ${inspect(seconds)}`);
+      return new Promise((res) => { timers.add(this.entity.$h, seconds, () => res(), false); });
+    }
   }
 
   function isBehaviourClass(c) { return typeof c === "function" && c.prototype instanceof Behaviour; }
@@ -813,8 +948,17 @@
     onCollisionEnter: 2, onCollisionExit: 1, onTriggerEnter: 1, onTriggerExit: 1, onEvent: 3 };
   // Methods that were meant to be hooks but are never called: a hook without its `on` (update, fixedUpdate, Start) or a
   // near-miss of a name that starts with `on` (onupdate, onStrat). Helpers (loadLevel, clickCell) are not near a hook.
+  // `factoria validate`: the same, plus the fields that shadow a Behaviour member (needs a throw-away instance).
   function checkHooks(Cls) {
     if (!isBehaviourClass(Cls)) return [];
+    const out = [];
+    const dummy = new Entity(-2);
+    binding = dummy;
+    try { out.push(...checkShadowed(Cls, new Cls())); } catch (e) { /* checkProps reports a constructor that throws */ }
+    finally { binding = null; timers.dropOwner(-2); }
+    return out.concat(hookTypos(Cls));
+  }
+  function hookTypos(Cls) {
     const out = [];
     for (const m of Object.getOwnPropertyNames(Cls.prototype)) {
       const fn = Object.getOwnPropertyDescriptor(Cls.prototype, m).value;
@@ -831,6 +975,20 @@
   }
   const checkedHookClasses = new WeakSet();
 
+  // Fields of `inst` that replace a method or getter of Behaviour (on, after, every, world): the class field is an own
+  // property, so it wins over the prototype and the base member silently stops working.
+  const BEHAVIOUR_MEMBERS = Object.getOwnPropertyNames(Behaviour.prototype).filter((m) => m !== "constructor");
+  function checkShadowed(Cls, inst) {
+    const out = [];
+    for (const k of Object.keys(inst)) {
+      if (!BEHAVIOUR_MEMBERS.includes(k)) continue;
+      out.push(`class ${Cls.name}: the field '${k}' shadows Behaviour.${k}, so this.${k} is the field and not the Behaviour member. ` +
+        `Rename the field (for example '${k}Flag').`);
+    }
+    return out;
+  }
+
+  const checkedShadowClasses = new WeakSet();
   const warnedProps = new Set();
   function unknownProps(inst, props) {
     const out = [];
@@ -846,11 +1004,15 @@
   function instantiate(Cls, h, props, entityId, path) {
     if (!checkedHookClasses.has(Cls)) {  // once per class (a hot reload is a new class)
       checkedHookClasses.add(Cls);
-      for (const t of checkHooks(Cls)) N.log(3, `${path}: ${t}`);
+      for (const t of hookTypos(Cls)) N.log(3, `${path}: ${t}`);
     }
     binding = entityOf(h);
     let inst;
     try { inst = new Cls(); } finally { binding = null; }
+    if (!checkedShadowClasses.has(Cls)) {  // once per class, from the first instance
+      checkedShadowClasses.add(Cls);
+      for (const t of checkShadowed(Cls, inst)) N.log(3, `${path}: ${t}`);
+    }
     const bad = unknownProps(inst, props);
     if (bad.length) {
       const key = `${path}|${bad.map((b) => b.key).join(",")}`;
@@ -912,8 +1074,13 @@
   };
 
   const KEY_DOC = null;
+  const players = [];  // input.player(i) objects, made on first use
   const input = {
     down: (a) => N.inAction(0, a), pressed: (a) => N.inAction(1, a), released: (a) => N.inAction(2, a),
+    // consume(action): this frame's press of the action is handled; later readers (input.pressed of the same action or of any
+    // action that shares one of its bindings) read false until the next frame. The UI consumes ui_submit when it clicks a
+    // focused Button or Toggle, and ui_cancel when a ui.on("cancel") handler returns true or a drag takes it.
+    consume: (a) => N.inConsume(a),
     // value(action): 0..1, analog for gamepad sticks and triggers (the action is "down" from 0.5). axis() and vector() are analog too.
     value: (a) => N.inValue(a),
     axis: (neg, pos) => N.inAxis(neg, pos),
@@ -926,10 +1093,53 @@
         get connected() { return N.inPad(0, index, ""); },
         // "xbox" | "playstation" | "nintendo" | "steamdeck" | "generic": the family of a connected pad, from its vendor id and name.
         get type() { return N.inPadType(index); },
+        // The stable id of the pad in this slot (the same physical pad gives the same id every time; "" for a slot that never had a
+        // pad) and the name the OS gave it. Both are kept after the pad is unplugged, until another pad takes the slot.
+        get id() { return N.inPadInfo(index).id; },
+        get name() { return N.inPadInfo(index).name; },
         down: (b) => N.inPad(1, index, b), pressed: (b) => N.inPad(2, index, b), released: (b) => N.inPad(3, index, b),
         axis: (a) => N.inPad(4, index, a), rawAxis: (a) => N.inPad(5, index, a),
       };
     },
+    // ---- players (M29.15): local multiplayer. player(i) reads the project's actions (the same names as input.down, ...)
+    // through ONE player's own devices: its gamepad (use({pad: 0}) or use({padId: gamepad.id})) and/or a key scheme
+    // (use({keys: "left"}): the left half of the keyboard; "right", "all" and the factoria.json input.schemes are the others).
+    // A player with no device reads nothing; the global input.down(...) keeps hearing every device.
+    maxPlayers: 4,
+    player(index) {
+      if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= 4)
+        throw new Error(`input.player(index) expects a whole number from 0 to 3 (a player, the first is 0), e.g. input.player(1).down("jump"), but got ${inspect(index)}`);
+      let p = players[index];
+      if (!p) {
+        p = players[index] = {
+          index,
+          // Assigns the devices ({pad, padId, keys}; null or {} for none) or reads them back: { pad, padId, keys, slot }, where
+          // slot is the pad the player reads now (-1 for none, or for a padId pad that is unplugged). A bad scheme or slot throws.
+          use(device) { N.inPlayerDevice(index, device === undefined ? null : plain(device)); },
+          get device() { return N.inPlayerDevice(index); },
+          get pad() { return N.inPlayerDevice(index).slot; },
+          down: (a) => N.inPlayerRead(0, index, a), pressed: (a) => N.inPlayerRead(1, index, a), released: (a) => N.inPlayerRead(2, index, a),
+          value: (a) => N.inPlayerRead(3, index, a),
+          axis: (neg, pos) => N.inPlayerRead(4, index, neg, pos),
+          vector(l, r, d, u) { const v = N.inPlayerRead(5, index, l, r, d, u); return new Vec2(v[0], v[1]); },
+          // The bindings of an action for this player, one family ("keys" or "pad") or those of the devices it has now. Defaults:
+          // the project's bindings that belong to the player's key scheme and to a pad.
+          bindings: (action, family) => N.inPlayerBindings(index, action, family),
+          // Replaces one family of an action for this player only (names of one family, or pass "keys" / "pad"); all or nothing.
+          rebind(action, bindings, family) { N.inPlayerRebind(index, action, bindings, family); },
+          reset(action) { N.inPlayerReset(index, action); },
+          lastPressed: () => N.inPlayerLastPressed(index),
+          // What the player rebound ({keys: {...}, pad: {...}}), for the game to save; import() takes it back and returns the
+          // problems of the entries it skipped (an action the project dropped, a bad name).
+          export: () => N.inPlayerData(index),
+          import: (data) => N.inPlayerData(index, plain(data === undefined || data === null ? {} : data)),
+        };
+      }
+      return p;
+    },
+    // The key schemes players can use: "all", "left", "right" and the project's. keySchemeKeys(name) lists a scheme's keys.
+    keySchemes: () => N.inKeySchemes(),
+    keySchemeKeys: (name) => N.inKeySchemes(name),
     // ---- settings an options menu needs (M10): text, rebinding, last input, button names, cursor, on-screen keyboard
     // Characters typed this frame (UTF-8), from the keyboard or the on-screen keyboard.
     get text() { return N.inText(); },
@@ -938,6 +1148,12 @@
     // True while the platform shows its own keyboard for the focused TextField (the Steam Deck's, through a native plugin):
     // the menu kit's on-screen keyboard stays closed then. Read-only; false without such a plugin.
     get platformKeyboard() { return N.inCursor(3); },
+    // Text input mode: true while a TextField has the focus (the engine sets it) or a script turned it on. Actions bound to
+    // printable keys (letters, digits, Space, punctuation) read as not down / pressed meanwhile, so typing P does not pause. A
+    // script that runs its own text entry (the menu kit's on-screen keyboard) sets it true while it is open and false after;
+    // setting it never turns off the TextField's own mode, and a scene load turns the script's flag off.
+    get textInputMode() { return N.inCursor(4); },
+    set textInputMode(on) { N.inCursor(4, !!on); },
     // The system Back button or gesture (Android). Handlers run newest first at the start of the frame; the first one that
     // does not return false consumes the press. When none does (or there is none), the game quits, as Back always did.
     // Handlers end with the scene, like ui.on. Returns the function that removes the handler.
@@ -961,7 +1177,8 @@
     bindings: (action) => N.inBindings(action),
     rebind(action, bindings) { N.inRebind(action, bindings); },
     resetBindings(action) { N.inResetBindings(action); },
-    // The binding that went down this frame ("Space", "MouseLeft", "GamepadA"...) or null: for "press a key" screens.
+    // The binding that went down this frame ("Space", "MouseLeft", "GamepadA", or a chord with the modifiers held: "Ctrl+Z",
+    // "Shift+MouseLeft") or null: for "press a key" screens. A modifier pressed alone is reported when released.
     lastPressed: () => N.inLastPressed(),
     get lastDevice() { return N.inLastDevice(); },
     // The label a player sees for a binding or an action: "Space", "Cross" (PlayStation A), "ZL"...
@@ -969,6 +1186,8 @@
     // Deadzone of sticks (radial) and triggers, from factoria.json input.deadzone (default 0.2). Assign to offer calibration.
     get deadzone() { return N.inDeadzone(); },
     set deadzone(v) { N.inDeadzone(v); },
+    // keyDown / keyPressed / keyReleased take a key name ("Space", "LeftShift") or a modifier ("Ctrl", "Shift", "Alt", "Super"),
+    // which names either side's key.
     keyDown: (k) => N.inKey(0, k), keyPressed: (k) => N.inKey(1, k), keyReleased: (k) => N.inKey(2, k),
     mouse: {
       get position() { const m = N.inMouse().position; return new Vec2(m[0], m[1]); },
@@ -1003,7 +1222,24 @@
   const windowApi = {
     get available() { return N.windowInfo().available; },
     get fullscreen() { return N.windowInfo().fullscreen; },
-    setFullscreen(on) { needBool("setFullscreen", on); winSet("setFullscreen", 0, on); },
+    setFullscreen(on) { needBool("setFullscreen", on); winSet("setFullscreen", 0, on ? "fullscreen" : "windowed"); },
+    get mode() { return N.windowInfo().mode; },
+    setMode(mode) {
+      const modes = ["windowed", "borderless", "fullscreen"];
+      if (!modes.includes(mode)) {
+        const sug = typeof mode === "string" ? closest(mode, modes) : "";
+        throw new Error(`window.setMode(mode) expects "windowed", "borderless" or "fullscreen", e.g. window.setMode("borderless"), but got ${inspect(mode)}${sug ? ` (did you mean "${sug}"?)` : ""}`);
+      }
+      winSet("setMode", 0, mode);
+    },
+    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current })); },
+    get monitor() { const i = N.windowMonitors().findIndex((m) => m.current); return i < 0 ? 0 : i; },
+    setMonitor(index) {
+      if (!Number.isInteger(index) || index < 0) {
+        throw new Error(`window.setMonitor(index) expects the number of a monitor from window.monitors(), counted from 0, e.g. window.setMonitor(1), but got ${inspect(index)}`);
+      }
+      winSet("setMonitor", 4, index);
+    },
     get size() { const w = N.windowInfo(); return new Vec2(w.width, w.height); },
     get displaySize() { const w = N.windowInfo(); return new Vec2(w.displayWidth, w.displayHeight); },
     setSize(width, height) {
@@ -1042,20 +1278,59 @@
       const err = N.renderScaleSet(v);
       if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
     },
-    // supports("frameCap" | "renderScale" | "fullscreen" | "resize"): whether this run can do it, so an options menu hides what a
+    // supports("frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
     // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
     // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws
     // with a "did you mean".
     supports(feature) {
-      const names = ["frameCap", "renderScale", "fullscreen", "resize"];
+      const names = ["frameCap", "renderScale", "fullscreen", "borderless", "monitors", "resize", "clipboard"];
       if (!names.includes(feature)) {
         const sug = typeof feature === "string" ? closest(feature, names) : "";
         throw new Error(`window.supports(feature): unknown feature ${inspect(feature)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${names.map((n) => `"${n}"`).join(", ")}`);
       }
       if (feature === "renderScale") return true;
+      if (feature === "clipboard") return N.clipboardSupported();
+      if (feature === "borderless") return N.windowInfo().supportsModes;
+      if (feature === "monitors") return N.windowInfo().supportsMonitors;
       return N.windowInfo().available && N.deviceInfo().formFactor === "desktop";
     },
   };
+
+  // The clipboard. A game with a window reads and writes the system's (Windows, macOS, Linux, web); headless runs and tests have
+  // an in-memory one; phones and tablets have none (window.supports("clipboard") is false, read() rejects with code "unsupported").
+  const clipboardApi = {
+    // read(): a Promise of the text on the clipboard ("" when it holds none). On the web the browser lets a page read only inside a
+    // paste, so it resolves with the text of the last paste.
+    read() {
+      if (!N.clipboardSupported()) return clipboardUnsupported("clipboard.read()");
+      const text = N.clipboardGet();
+      return Promise.resolve().then(() => text);
+    },
+    // write(text): puts a string on the clipboard. Throws on a non-string; does nothing where there is no clipboard.
+    write(text) {
+      if (typeof text !== "string") throw new Error(`clipboard.write(text) expects a string, e.g. clipboard.write("ABC123"), but got ${inspect(text)}`);
+      N.clipboardSet(text);
+    },
+  };
+  function clipboardUnsupported(label) {
+    const e = new Error(`${label} failed: this platform has no clipboard for games (hint: check window.supports("clipboard") first)`);
+    e.code = "unsupported";
+    e.hint = 'check window.supports("clipboard") first';
+    return Promise.reject(e);
+  }
+
+  // audio.play(path, { onEnded }): voice id -> callback. The engine reports the ends (tickVoices, once per fixed step); a scene load
+  // forgets them: the sounds were cut with the scene that asked.
+  const voiceEnded = new Map();
+  function tickVoices() {
+    if (voiceEnded.size === 0) return;
+    for (const id of N.audioTakeEnded()) {
+      const fn = voiceEnded.get(id);
+      if (!fn) continue;
+      voiceEnded.delete(id);
+      try { fn(id); } catch (err) { N.reportError(err, "", "audio.play onEnded"); }
+    }
+  }
 
   const audio = {
     // play(path, { volume, pitch, pan, loop, bus, caption, captionKey, speaker, captionSeconds }) -> voice id. A caption (plain
@@ -1073,17 +1348,102 @@
         throw new Error(`audio.play(path, { ${o.speaker !== undefined ? "speaker" : "captionSeconds"} }) has no caption to apply it to: add caption: "text" or captionKey: "your.key" (a localization key, docs/TEXT.md, "Captions")`);
       if (hasCaption && o.loop && o.captionSeconds === undefined)
         throw new Error(`audio.play(${inspect(path)}, { loop: true, caption }): a looping sound never ends, so its caption would never go. Add captionSeconds: 5 (how long it shows), or play the sound without a caption`);
-      return N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0);
+      if (o.onEnded !== undefined && typeof o.onEnded !== "function")
+        throw new Error(`audio.play(path, { onEnded }): onEnded must be a function, e.g. { onEnded: (id) => console.log("done", id) }, but got ${inspect(o.onEnded)}`);
+      const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded);
+      if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
+      return id;
     },
-    stop: (id) => N.audioStop(id), stopAll: () => N.audioStopAll(),
-    music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5); },
+    // activeVoices() -> [{ id, path, bus, volume, pitch, pan, loop, music, source }], oldest first: the sounds that play now.
+    activeVoices: () => N.audioActiveVoices(),
+    stop: (id) => N.audioStop(id), stopAll: () => { voiceEnded.clear(); N.audioStopAll(); },
+    // music(path, { volume, fade, persist }): looping music on the "music" bus. A scene load stops it unless persist is true.
+    music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5, o.persist ? 1 : 0); },
+    // musicLayers({ name: path }, { volume, fade, persist, levels }) -> true when every layer started. All layers start on the
+    // same sample and loop; setLayer fades them in and out. levels = starting level per name (default 1).
+    musicLayers(layers, o = {}) {
+      if (layers === null || typeof layers !== "object" || Array.isArray(layers)) throw new Error(`audio.musicLayers(layers, options): layers is an object of layer name to clip path, e.g. { base: "assets/music/base.ogg", drums: "assets/music/drums.ogg" }, but got ${inspect(layers)}`);
+      const names = Object.keys(layers);
+      if (names.length === 0) throw new Error("audio.musicLayers(layers): needs at least one layer, e.g. { base: \"assets/music/base.ogg\" }");
+      const levels = o.levels ?? {};
+      for (const n of Object.keys(levels)) {
+        if (!(n in layers)) throw new Error(`audio.musicLayers(layers, { levels }): '${n}' is not a layer; the layers are ${names.join(", ")}`);
+      }
+      const list = names.map((name) => {
+        if (typeof layers[name] !== "string") throw new Error(`audio.musicLayers(layers): layer '${name}' must be a clip path string, e.g. "assets/music/${name}.ogg", but got ${inspect(layers[name])}`);
+        return { name, path: layers[name], level: levels[name] ?? 1 };
+      });
+      return N.audioMusicLayers(list, o.volume ?? 0.6, o.fade ?? 0.5, o.persist ? 1 : 0);
+    },
+    setLayer(name, level, fade = 0) {
+      if (!N.audioSetLayer(name, level, fade)) {
+        const current = N.audioLayerNames();
+        throw new Error(`audio.setLayer(${inspect(name)}, ...): no such music layer. ${current.length ? "The layers playing are " + current.join(", ") : "No layered music is playing: start it with audio.musicLayers({ name: path, ... })"}`);
+      }
+    },
+    setVoiceVolume(id, volume, fade = 0) { return N.audioSetVoiceVolume(id, volume, fade); },
     stopMusic: (fade = 0.5) => N.audioStopMusic(fade),
     setVolume: (bus, v) => N.audioVolume(bus, v),
     getVolume: (bus) => N.audioGetVolume(bus),
+    // Bus effects (docs/SCRIPTING.md, "Audio buses"). audio.bus("music") is a handle on the bus "sfx", "music", "ui", "master" or a bus of factoria.json "audio"."buses";
+    // its methods return the handle, so audio.bus("music").lowpass(800).reverb(0.2) chains. Each takes an optional { fade }
+    // (seconds): the value slides instead of jumping. Ducking has no fade (it follows the other bus on its own).
+    //   .lowpass(hz, { fade })    12 dB per octave low-pass at hz (20..20000); 0 or null = off.
+    //   .reverb(mix, { fade })    small room reverb, wet mix 0..1; 0 = off.
+    //   .duck(byBus, amount = 0.5, attack = 0.05, release = 0.5)  lowers this bus by `amount` while byBus plays; duck(null) or
+    //                             .unduck() = off.
+    //   .volume(v, { fade })      the bus volume, like audio.setVolume (the player's volume; snapshots scale on top of it).
+    //   .state()                  { volume, snapshotVolume, lowpass, reverb, duck } as they are now.
+    bus(name) {
+      if (typeof name !== "string") throw new Error(`audio.bus(name): name is "sfx", "music", "ui", "master" or a project bus, but got ${inspect(name)}`);
+      const bus = name.toLowerCase();
+      N.audioBusState(bus);  // throws for an unknown bus, with a did-you-mean
+      const fadeOf = (fn, o) => {
+        if (o === undefined || o === null) return 0;
+        if (typeof o !== "object" || (o.fade !== undefined && (typeof o.fade !== "number" || !(o.fade >= 0))))
+          throw new Error(`audio.bus(${inspect(name)}).${fn}(value, options): options is { fade: seconds }, e.g. { fade: 0.5 }, but got ${inspect(o)}`);
+        return o.fade ?? 0;
+      };
+      const num = (fn, v, what) => {
+        if (typeof v !== "number" || !Number.isFinite(v))
+          throw new Error(`audio.bus(${inspect(name)}).${fn}(${what}): ${what} must be a number, but got ${inspect(v)}`);
+        return v;
+      };
+      const handle = {
+        name: bus,
+        lowpass(hz, o) {
+          N.audioBusLowpass(bus, hz === null || hz === undefined ? 0 : num("lowpass", hz, "hz"), fadeOf("lowpass", o));
+          return handle;
+        },
+        reverb(mix, o) { N.audioBusReverb(bus, num("reverb", mix, "mix"), fadeOf("reverb", o)); return handle; },
+        duck(by, amount = 0.5, attack = 0.05, release = 0.5) {
+          if (by === null || by === undefined) { N.audioBusDuck(bus, "", 0, 0, 0); return handle; }
+          if (typeof by !== "string")
+            throw new Error(`audio.bus(${inspect(name)}).duck(byBus, amount, attack, release): byBus is the bus that ducks this one (any bus but the master: "sfx", "music", "ui" or a project bus), e.g. audio.bus("music").duck("sfx", 0.5), but got ${inspect(by)}. Pass null to switch ducking off.`);
+          N.audioBusDuck(bus, by.toLowerCase(), num("duck", amount, "amount"), num("duck", attack, "attack"), num("duck", release, "release"));
+          return handle;
+        },
+        unduck() { N.audioBusDuck(bus, "", 0, 0, 0); return handle; },
+        volume(v, o) { N.audioBusVolume(bus, num("volume", v, "volume"), fadeOf("volume", o)); return handle; },
+        state() { return N.audioBusState(bus); },
+      };
+      return handle;
+    },
+    // snapshot(name, { fade }): moves every bus to the named snapshot of factoria.json "audio"."snapshots" (a bus the snapshot
+    // does not list goes back to neutral). `fade` is in seconds; without it the snapshot's own "fade" (0.5 by default) applies.
+    // An unknown name throws with a did-you-mean. snapshots() -> { names, current }.
+    snapshot(name, o) {
+      if (typeof name !== "string") throw new Error(`audio.snapshot(name, options): name is a snapshot of factoria.json "audio"."snapshots", e.g. audio.snapshot("underwater", { fade: 1 }), but got ${inspect(name)}`);
+      if (o !== undefined && o !== null && (typeof o !== "object" || (o.fade !== undefined && (typeof o.fade !== "number" || !(o.fade >= 0)))))
+        throw new Error(`audio.snapshot(${inspect(name)}, options): options is { fade: seconds }, e.g. { fade: 1 }, but got ${inspect(o)}`);
+      N.audioSnapshot(name, o && o.fade !== undefined ? o.fade : -1);
+    },
+    snapshots() { return N.audioSnapshots(); },
   };
 
   const maskOf = (o) => (o && typeof o.mask === "number" ? o.mask : -1);
   const ignoreOf = (o) => (o && o.ignore !== undefined && o.ignore !== null ? entityHandle(o.ignore, "physics option `ignore`") : null);
+  const maxHitsOf = (o) => (o && typeof o.maxHits === "number" ? Math.max(0, Math.floor(o.maxHits)) : 32);
   const trigOf = (o) => !(o && o.ignoreTriggers === false);
   function hitOf(r, is2d) {
     if (!r) return null;
@@ -1110,6 +1470,15 @@
     raycast3d(origin, dir, maxDistance = 1000, o) {
       const a = vecArr(origin, 3, "physics.raycast3d(origin, dir) `origin`"), d = vecArr(dir, 3, "physics.raycast3d(origin, dir) `dir`");
       return hitOf(N.raycast3d(a[0], a[1], a[2], d[0], d[1], d[2], maxDistance, maskOf(o), ignoreOf(o), trigOf(o)), false);
+    },
+    // raycast2dAll / raycast3dAll: every collider the ray crosses, nearest first (see api.json).
+    raycast2dAll(from, to, o) {
+      const a = vecArr(from, 2, "physics.raycast2dAll(from, to) `from`"), b = vecArr(to, 2, "physics.raycast2dAll(from, to) `to`");
+      return N.raycast2dAll(a[0], a[1], b[0], b[1], maskOf(o), ignoreOf(o), trigOf(o), maxHitsOf(o)).map((r) => hitOf(r, true));
+    },
+    raycast3dAll(origin, dir, maxDistance = 1000, o) {
+      const a = vecArr(origin, 3, "physics.raycast3dAll(origin, dir) `origin`"), d = vecArr(dir, 3, "physics.raycast3dAll(origin, dir) `dir`");
+      return N.raycast3dAll(a[0], a[1], a[2], d[0], d[1], d[2], maxDistance, maskOf(o), ignoreOf(o), trigOf(o), maxHitsOf(o)).map((r) => hitOf(r, false));
     },
     // shapeCast(shape, from, to, { mask, ignore, ignoreTriggers }): sweeps a shape from `from` to `to` (2D when `from` is 2D, else 3D)
     // and returns the first collider it touches like raycast does ({ entity, point, normal, distance } | null). distance = how far the
@@ -1154,10 +1523,97 @@
     get unscaledDt() { return N.timeInfo()[5]; },
   };
 
+  // The camera argument of a conversion: an Entity (or its id) naming one of the drawn cameras, or none (null for "the one
+  // under the point, else the first").
+  const cameraArg = (c, what) => (c === undefined || c === null ? null : entityHandle(c, what));
+  // The camera entity a helper works on: the one given, the one under the point, or the first drawn.
+  const cameraView = (what, cam, point) => {
+    let e = cam === undefined || cam === null ? null : entityOf(entityHandle(cam, what));
+    if (!e && point) e = camera.at(point);
+    if (!e) e = camera.main;
+    if (!e) throw new Error(`${what}: there is no camera in the scene (add an entity with a Camera component)`);
+    const c = e.get("Camera");
+    if (!c || c.projection !== "orthographic") throw new Error(`${what}: the camera '${e.id}' is not orthographic; these helpers are for 2D cameras`);
+    const s = N.screenSize();
+    const vp = c.viewport;
+    const w = s[0] * vp.w, h = s[1] * vp.h;
+    const ortho = c.orthoSize > 0 ? c.orthoSize : h / 2; // orthoSize 0 = one world unit per design pixel
+    return { e, c, cx: s[0] * (vp.x + vp.w / 2), cy: s[1] * (vp.y + vp.h / 2), w, h, ppu: h / 2 / ortho };
+  };
   const camera = {
+    // The first camera drawn (lowest depth) among the active cameras with primary = true; null when there is none.
     get main() { return entityOf(N.cameraMain()); },
-    worldToScreen(v) { const a = vecArr(v, 3, "camera.worldToScreen(v)"); const s = N.worldToScreen(a[0], a[1], a[2]); return new Vec2(s[0], s[1]); },
-    screenToWorld(v, depth = 0) { const a = vecArr(v, 2, "camera.screenToWorld(v)"); const w = N.screenToWorld(a[0], a[1], depth); return new Vec3(w[0], w[1], w[2]); },
+    // Every camera drawn, in draw order (ascending depth): one per player view in a split screen.
+    get all() { return N.cameraAll().map(entityOf); },
+    // The camera whose viewport contains the screen point (design pixels), else the first one. Null when no camera is active.
+    at(v) { const a = vecArr(v, 2, "camera.at(v)"); return entityOf(N.cameraAt(a[0], a[1])); },
+    // World point to design pixels, as seen by `cam` (default: the first camera drawn).
+    worldToScreen(v, cam) {
+      const a = vecArr(v, 3, "camera.worldToScreen(v)");
+      const s = N.worldToScreen(a[0], a[1], a[2], cameraArg(cam, "camera.worldToScreen(v, camera)"));
+      return new Vec2(s[0], s[1]);
+    },
+    // Design pixels to a world point. `depth` is the world z of a 2D view (default 0), or the distance along the ray of a
+    // perspective view. `cam` defaults to the camera whose viewport contains the point; either argument may be the camera:
+    // screenToWorld(v, cam) is screenToWorld(v, 0, cam).
+    screenToWorld(v, depth = 0, cam) {
+      const a = vecArr(v, 2, "camera.screenToWorld(v)");
+      if (typeof depth !== "number") { cam = depth; depth = 0; }
+      const w = N.screenToWorld(a[0], a[1], depth, cameraArg(cam, "camera.screenToWorld(v, camera)"));
+      return new Vec3(w[0], w[1], w[2]);
+    },
+    // The ray under a screen point: where it starts and where it points, through `cam` (default: the camera under the point).
+    screenRay(v, cam) {
+      const a = vecArr(v, 2, "camera.screenRay(v)");
+      const r = N.screenRay(a[0], a[1], cameraArg(cam, "camera.screenRay(v, camera)"));
+      return { origin: new Vec3(r[0], r[1], r[2]), direction: new Vec3(r[3], r[4], r[5]) };
+    },
+    // --- the 2D strategy-camera helpers (an orthographic camera that is not rotated) ---
+    // Pixels per world unit of a camera (how many design pixels one world unit covers): 1 at the pixel-perfect orthoSize 0.
+    zoomOf(cam) { return cameraView("camera.zoomOf(camera)", cam).ppu; },
+    // Sets the pixels per world unit: orthoSize = (the viewport's height in design pixels) / 2 / zoom.
+    setZoom(zoom, cam) {
+      if (!(zoom > 0) || !Number.isFinite(zoom)) throw new Error(`camera.setZoom(zoom): zoom must be a positive number but got ${inspect(zoom)}`);
+      const v = cameraView("camera.setZoom(zoom, camera)", cam);
+      v.c.orthoSize = v.h / 2 / zoom;
+    },
+    // orthoSize that shows `designHeight` design pixels of the screen at `zoom` pixels per world unit (default: the whole
+    // screen height, zoom 1): designHeight / 2 / zoom.
+    orthoSizeFor(zoom = 1, designHeight) {
+      if (!(zoom > 0)) throw new Error(`camera.orthoSizeFor(zoom): zoom must be a positive number but got ${inspect(zoom)}`);
+      return (designHeight === undefined ? N.screenSize()[1] : designHeight) / 2 / zoom;
+    },
+    // Multiplies the zoom by `factor` and moves the camera so the world point under the screen point stays under it.
+    zoomAt(point, factor, opts = {}) {
+      const p = vecArr(point, 2, "camera.zoomAt(screenPoint, factor)");
+      if (!(factor > 0) || !Number.isFinite(factor)) throw new Error(`camera.zoomAt(screenPoint, factor): factor must be a positive number but got ${inspect(factor)}`);
+      const v = cameraView("camera.zoomAt(screenPoint, factor)", opts.camera, p);
+      let ppu = v.ppu * factor;
+      if (opts.min !== undefined && ppu < opts.min) ppu = opts.min;
+      if (opts.max !== undefined && ppu > opts.max) ppu = opts.max;
+      const pos = v.e.position;
+      const wx = pos.x + (p[0] - v.cx) / v.ppu, wy = pos.y - (p[1] - v.cy) / v.ppu;
+      v.c.orthoSize = v.h / 2 / ppu;
+      v.e.position = [wx - (p[0] - v.cx) / ppu, wy + (p[1] - v.cy) / ppu, pos.z];
+      return ppu;
+    },
+    // Moves the camera so the world follows a screen movement (a drag): a delta of (+10, 0) shows what was 10 pixels to the left.
+    panBy(delta, cam) {
+      const d = vecArr(delta, 2, "camera.panBy(screenDelta)");
+      const v = cameraView("camera.panBy(screenDelta, camera)", cam);
+      const pos = v.e.position;
+      v.e.position = [pos.x - d[0] / v.ppu, pos.y + d[1] / v.ppu, pos.z];
+    },
+    // Keeps the view inside the world rectangle (grown by `margin`); an axis where the view is wider than the rectangle is centred on it.
+    clampTo(rect, opts = {}) {
+      const r = rectArr(rect, "camera.clampTo(rect)");
+      const v = cameraView("camera.clampTo(rect)", opts.camera);
+      const m = opts.margin || 0;
+      const hw = v.w / 2 / v.ppu, hh = v.h / 2 / v.ppu;
+      const axis = (pos, lo, hi, half) => (lo + half > hi - half ? (lo + hi) / 2 : Math.min(Math.max(pos, lo + half), hi - half));
+      const p = v.e.position;
+      v.e.position = [axis(p.x, r[0] - m, r[0] + r[2] + m, hw), axis(p.y, r[1] - m, r[1] + r[3] + m, hh), p.z];
+    },
   };
 
   const colorArg = (c) => (c === undefined ? [1, 1, 1, 1] : toFloats(c, "color", "debug color"));
@@ -1172,6 +1628,11 @@
     text(pos, str, c) { const p = vecArr(pos, 2, "debug.text(pos, str) `pos`"); N.debugDraw(3, p[0], p[1], String(str), colorArg(c)); },
     box(center, size, c) { const p = vecArr(center, 3, "debug.box(center, size) `center`"), q = vecArr(size, 3, "debug.box(center, size) `size`", 1); N.debugDraw(4, p[0], p[1], p[2], q[0], q[1], q[2], colorArg(c)); },
     sphere(center, r, c) { const p = vecArr(center, 3, "debug.sphere(center, r) `center`"); N.debugDraw(5, p[0], p[1], p[2], r, colorArg(c)); },
+    // bones(root?, color?): the Bone2D entities of `root` and everything under it (every bone of the scene without `root`).
+    bones(root, c) {
+      if (root !== undefined && root !== null && typeof root !== "object") throw new Error("debug.bones(root, color): `root` must be an entity (or omitted to draw every bone), not " + typeof root + ". Example: debug.bones(world.find(\"hip\"));");
+      N.debugDraw(6, root === undefined || root === null ? null : root.$h, colorArg(c));
+    },
   };
 
   // scene.preload / assets.preload: a handle for a job the engine advances a little every frame (script_system.cpp
@@ -1241,12 +1702,14 @@
       if (typeof path !== "string" || path === "") throw new Error(`scene.preload(path) expects a scene path such as "scenes/level1.scene.json", got ${inspect(path)}`);
       return preloadStart(0, path, `scene.preload(${JSON.stringify(path)})`);
     },
-    load(path) { N.requestScene(path); },
+    // load(path, props?): props is a plain object the new scene's scripts read with game.sceneProps() from their first start().
+    load(path, props) { N.requestScene(path, props); },
     reload() { N.requestScene(""); },
     get current() { return N.scenePath(); },
+    get generation() { return N.sceneGeneration(); },
   };
 
-  const APP_EVENTS = ["suspend", "resume", "focus", "blur"];
+  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit", "gamepadConnected", "gamepadDisconnected"];
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -1256,31 +1719,58 @@
       else { N.setTimeScale(s === 0 ? (pausedScale || 1) : s); pausedScale = null; }
     },
     get project() { return Object.freeze(N.project()); },
-    // The calendar date: { year, month, day, weekday (0 = Sunday), utcOffsetMinutes, iso: "YYYY-MM-DD" }. The player's real local
-    // date in a game with a window; a fixed date (2026-01-01, or --date) in tests and headless runs; the recorded one in a replay.
+    // The props the running scene was started with (scene.load(path, props), `factoria run --props`, game.load(path, props)): a
+    // fresh plain object every call, {} when there are none. Valid from the first onStart.
+    sceneProps() { return N.sceneProps(); },
+    // The calendar date: { year, month, day, weekday (0 = Sunday), hour, minute, second (the local time of day), utcOffsetMinutes,
+    // iso: "YYYY-MM-DD", utc: { year, month, day, iso } (the date in UTC, the day stores use for their daily boards) }. The player's
+    // real local date and time in a game with a window (read again about once a minute, see game.on("dayChanged")); a fixed date
+    // (2026-01-01 00:00:00, or --date) in tests and headless runs; the recorded one in a replay.
     today() {
       const t = N.today();
       const pad = (n, w) => String(n).padStart(w, "0");
-      return Object.freeze({ year: t[0], month: t[1], day: t[2], weekday: t[3], utcOffsetMinutes: t[4], iso: `${pad(t[0], 4)}-${pad(t[1], 2)}-${pad(t[2], 2)}` });
+      const utc = Object.freeze({ year: t[8], month: t[9], day: t[10], iso: `${pad(t[8], 4)}-${pad(t[9], 2)}-${pad(t[10], 2)}` });
+      return Object.freeze({ year: t[0], month: t[1], day: t[2], weekday: t[3], hour: t[5], minute: t[6], second: t[7], utcOffsetMinutes: t[4],
+        iso: `${pad(t[0], 4)}-${pad(t[1], 2)}-${pad(t[2], 2)}`, utc });
     },
     // True while the game's window has the focus (always true on a phone that is in the foreground).
     get focused() { return N.appState()[0]; },
     // on(event, fn): "suspend" (the app goes to the background), "resume" (comes back), "focus" and "blur" (the window gains or
-    // loses the keyboard focus). fn gets no arguments. Returns the function that stops listening; listeners end with the scene,
+    // loses the keyboard focus), "dayChanged" (the local calendar day changed while the game ran: past midnight, or the clock was
+    // set; fn gets game.today()). fn gets no arguments otherwise. Returns the function that stops listening; listeners end with the scene,
     // like world.on. With factoria.json "pauseOnSuspend" (default true) the engine freezes the game and the music after the
     // "suspend" handlers ran (unless a handler paused it already) and unfreezes it before the "resume" handlers.
+    // "quit" (desktop windows only: the close button, Cmd+Q, Alt+F4) gets an event { cancel(), cancelled }: event.cancel() keeps
+    // the window open, for a "Really quit?" menu or a last save; call game.quit() later to close it. A quit the game asked for
+    // with game.quit() does not raise "quit".
+    // "gamepadConnected" and "gamepadDisconnected" (a pad was plugged in or out, or paired or lost over Bluetooth) get
+    // { slot, id, name, type }: the slot is the pad number input.gamepad(slot) answers for, the id stays the same for the same
+    // physical pad every time (use it to give a player their pad back), the name is what the OS calls it and the type is
+    // "xbox" | "playstation" | "nintendo" | "steamdeck" | "generic". A pad that comes back takes the slot it had when that is
+    // free. Pads that are already plugged in when the first scene starts are not announced: read input.gamepad(i).connected.
     on(event, fn) {
       if (!APP_EVENTS.includes(event)) {
         const sug = closest(String(event), APP_EVENTS);
         throw new Error(`game.on(event, fn): unknown event ${inspect(event)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${APP_EVENTS.map((n) => `"${n}"`).join(", ")}`);
       }
       if (typeof fn !== "function") throw new Error(`game.on("${event}", fn) expects a function, e.g. game.on("${event}", () => console.log("${event}")), but got ${inspect(fn)}`);
-      return addListener("app." + event, () => fn(), null);
+      if (event === "quit") {
+        // The player's close button, Cmd+Q or Alt+F4 (desktop only). event.cancel() keeps the window open; game.quit() closes it
+        // for good (it does not come back to this handler).
+        return addListener("app.quit", () => {
+          const ev = { cancelled: false, cancel() { ev.cancelled = true; N.quitCancel(); } };
+          fn(ev);
+        }, null);
+      }
+      if (event === "gamepadConnected" || event === "gamepadDisconnected")
+        return addListener("app." + event, (data) => fn(Object.freeze({ slot: data.slot, id: data.id, name: data.name, type: data.type })), null);
+      return addListener("app." + event, () => (event === "dayChanged" ? fn(game.today()) : fn()), null);
     },
     // The device the game runs on, to pick a graphics preset: { formFactor: "desktop" | "phone" | "tablet", gpuBackend ("metal",
     // "d3d11", "glcore", "gles3", "wgpu", "vulkan", or "headless" in headless runs and tests), memoryGB (physical memory), tier:
-    // "low" | "medium" | "high" from the graphics backend and the memory }. Headless runs and tests always read
-    // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } (tests change it with game.setDevice).
+    // "low" | "medium" | "high" from the graphics backend and the memory, steamDeck: true on a Steam Deck, handheld: true on a Steam Deck,
+    // a phone or a tablet }. Headless runs and tests always read
+    // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false } (tests change it with game.setDevice).
     get device() { return Object.freeze(N.deviceInfo()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
@@ -1303,11 +1793,43 @@
     },
   };
 
+  // storage.setAsync: the writes the engine is doing between frames or on its worker thread, by job id (script_system.cpp
+  // dispatch_platform -> storageDeliver).
+  const storageJobs = new Map();
+  function storageDeliver(list) {
+    for (const j of list) {
+      const p = storageJobs.get(j.id);
+      if (!p) continue;  // asked for by an earlier test file or run
+      storageJobs.delete(j.id);
+      if (j.ok) p.resolve(j.bytes);
+      else p.reject(new Error(`storage.setAsync(${JSON.stringify(p.key)}) could not write the file: ${j.error}`));
+    }
+  }
+  function storageReset() { storageJobs.clear(); }
+  function storageCompress(fn, options) {
+    if (options === undefined || options === null) return false;
+    if (!isObj(options)) throw new Error(`${fn}: the options must be an object like { compress: true }, but got ${inspect(options)}`);
+    for (const k of Object.keys(options)) {
+      if (k === "compress") continue;
+      const sug = closest(k, ["compress"]);
+      throw new Error(`${fn}: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} The only option is compress.`);
+    }
+    if (options.compress !== undefined && typeof options.compress !== "boolean") throw new Error(`${fn}: compress must be true or false, but got ${inspect(options.compress)}`);
+    return options.compress === true;
+  }
   const storage = {
     get(key, fallback) { const v = N.storageGet(key); return v === undefined ? fallback : v; },
-    set(key, value) { N.storageSet(key, plain(value)); },
+    set(key, value, options) { N.storageSet(key, plain(value), storageCompress("storage.set(key, value, options)", options)); },
+    setAsync(key, value, options) {
+      const compress = storageCompress("storage.setAsync(key, value, options)", options);
+      const id = N.storageSetAsync(key, plain(value), compress);
+      return new Promise((resolve, reject) => { storageJobs.set(id, { key, resolve, reject }); });
+    },
+    size(key) { return N.storageSize(key); },
     remove(key) { N.storageRemove(key); },
-    keys() { return N.storageKeys(); },
+    // The keys of the game's own values; the engine's ("factoria.analytics", "factoria.remoteConfig": the player's analytics
+    // answer and the cached remote config) are not listed. clear() removes them too: the player is asked again.
+    keys() { return N.storageKeys().filter((k) => !k.startsWith("factoria.")); },
     clear() { N.storageClear(); },
     get corrupt() { return N.storageCorrupt(); },
   };
@@ -1346,6 +1868,14 @@
       chance(p = 0.5) { return next() < p; },
       pick(arr) { if (!arr || arr.length === 0) return undefined; return arr[Math.floor(next() * arr.length)]; },
       shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(next() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; },
+      // The 32-bit state (an integer 0..4294967295): store it in a save, assign it to resume the stream where it stopped.
+      get state() { return state; },
+      set state(n) {
+        if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > 4294967295) {
+          throw new Error(`generator.state expects an integer from 0 to 4294967295 (a value read from generator.state), but got ${inspect(n)}`);
+        }
+        state = n;
+      },
       seed(n) {
         if (typeof n !== "number" || !Number.isFinite(n)) throw new Error(`generator.seed(n) expects a finite number, e.g. generator.seed(12345), but got ${inspect(n)}`);
         state = n >>> 0;
@@ -1366,7 +1896,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); storageReset(); servicesReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -1383,23 +1913,28 @@
     burst(entity, count = 10) { N.particlesBurst(entityHandle(entity, "particles.burst"), count); },
   };
 
-  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel"];
+  const DRAG_EVENTS = ["dragStart", "dragOver", "drop", "dragCancel"];
+  const UI_EVENTS = ["click", "change", "submit", "focus", "blur", "hover", "press", "release", "cancel", "scale", "textScale", "chartHover", "viewPointer", ...DRAG_EVENTS];
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
     // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
     // maxTextScale caps that scale; autoShrink (with minFontSize, maxHeight and maxWidth as the box) shrinks the font to fit,
-    // exactly as Text does; `fontSize` in the result is the size it would be drawn at.
+    // exactly as Text does; `fontSize` in the result is the size it would be drawn at. markup / bold: the Text fields of
+    // the same names (tags are not measured as characters, an icon is as tall as the line).
     measureText(text, o = {}) {
       const space = o.space ?? "screen";
       if (space !== "screen" && space !== "world") throw new Error(`ui.measureText(text, { space }): space must be "screen" or "world", got ${inspect(space)}`);
       const m = N.measureText(String(text), o.fontSize ?? 16, o.font ?? "", o.maxWidth ?? 0, space === "screen", o.maxTextScale ?? 0,
-        o.autoShrink ?? false, o.minFontSize ?? 10, o.maxHeight ?? 0);
+        o.autoShrink ?? false, o.minFontSize ?? 10, o.maxHeight ?? 0, o.markup ?? false, o.bold ?? false);
       return { width: m[0], height: m[1], fontSize: m[2] };
     },
+    // What is wrong with the markup of `text` (Text.markup): an unknown tag, a "[" without "]", an unclosed [b] or [c:], a colour
+    // or icon the project's "text" section does not define. [] = clean. Each entry says where and how to fix it.
+    markupProblems(text) { return N.markupProblems(String(text)); },
     // True when the text of a Text entity (with a maxWidth / maxHeight box) or the label of a widget still does not fit its box at
     // the size it is drawn at (autoShrink and maxTextScale applied). Read it after game.step or ui.layout().
     overflowed(entityOrId) { return N.overflowed(entityHandle(entityOrId, "ui.overflowed")); },
-    // Where a widget or a screen-space Text really is: a Rect { x, y, w, h } in design pixels, (x, y) the TOP-LEFT corner, y down,
+    // Where a widget, an Interactable (a world-space one as the camera shows it) or a screen-space Text really is: a Rect { x, y, w, h } in design pixels, (x, y) the TOP-LEFT corner, y down,
     // the safe area included (not the +Y-up convention of entity.bounds()). Takes an Entity or an id/name; null for anything
     // that is neither (a world-space sprite). Layout runs each frame: read it after game.step or ui.layout().
     rectOf(entityOrId) {
@@ -1408,12 +1943,36 @@
     },
     // The player's "text size" option, 0.5 .. 3 (1 = normal): screen-space Text and the labels of UI widgets are drawn and
     // measured at their font size times this; world-space Text is not scaled. Not saved by the engine: store it with `storage`.
-    // Setting a number outside 0.5 .. 3 throws.
+    // Setting a number outside 0.5 .. 3 throws. Changing it sends the "textScale" event (ui.on).
     get textScale() { return N.textScale(); },
     set textScale(v) { N.setTextScale(v); },
+    // The interface scale, 0.5 .. 3 (1 = as authored; the `ui.scale` of factoria.json is where a game starts): every screen-space
+    // widget (Panel, Button, Toggle, Slider, TextField, ScrollList...) and screen-space Text and Sprite is laid out in UI units and
+    // drawn this many times as big: size, offset, padding, spacing, margins and font size. Anchors stay put. Not saved by the engine:
+    // store it with `storage`. Setting a number outside 0.5 .. 3 throws. Changing it sends the "scale" event (ui.on).
+    get scale() { return N.uiScale(); },
+    set scale(v) { N.setUiScale(v); },
+    // Whether the screen-space UI is mirrored in a right-to-left language (i18n.direction "rtl"): anchor.x, pivot.x and position.x
+    // flip, Toggle boxes and Sliders run right to left; a widget with `mirror: false` stays. The `ui.mirrorRtl` of factoria.json
+    // (default true) is where a game starts. Not saved by the engine.
+    get mirrorRtl() { return N.uiMirrorRtl(); },
+    set mirrorRtl(v) { N.setUiMirrorRtl(v); },
     // on(type, fn) / on(type, target, fn): the widget events the engine sends as "ui.<type>" (see world.on), with the id
     // of the widget in `e.id` and, for "change" and "submit", the new value in `e.value`. `target` (an Entity or an entity
     // id) limits it to one widget. Returns the function that stops listening.
+    // "hover", "blur", "press" and "release" are sent by Interactable widgets (the Interactable component, docs/MENUS.md "Widgets from your
+    // own entities"), not by Button, Toggle or Slider: "hover" has `e.value` true when the pointer came over the widget and false when
+    // it left; "blur" is the focus leaving (the counterpart of "focus"); "press" is the pointer going down on it; "release" is the pointer
+    // going up, with `e.value` true when it was still over the widget (then "click" follows). An Interactable also sends "click",
+    // "focus", "submit" (confirm on the focused one), "change" (its toggle or slider value in `e.value`) and "cancel".
+    // "chartHover": the sample of a Chart under the pointer changed; the event has `index` (0 = the first value of the series), `series`
+    // and `value`; index and series are -1 (and there is no value) when the pointer left the chart.
+    // "viewPointer": the pointer pressed, dragged, released or turned the wheel over a CameraView; the event has `phase` ("down", "drag", "up" or
+    // "wheel"), `x` and `y` (the pointer in design pixels), `u` and `v` (where it is in the view, 0..1 from its top-left corner), `dx` and `dy`
+    // (how far it moved since the last event of the press) and `wheel` (the steps of a "wheel" event).
+    // "scale" and "textScale" are about no widget: they fire once each time ui.scale / ui.textScale changes to another value,
+    // with `e.value` the new one and `e.previous` the old one (no target; like i18n.on("change")). They arrive with the
+    // game events of the frame, after the script that changed the option has returned.
     on(type, a, b) {
       const fn = typeof a === "function" ? a : b, target = typeof a === "function" ? undefined : a;
       if (!UI_EVENTS.includes(type)) {
@@ -1422,14 +1981,32 @@
       }
       if (typeof fn !== "function") throw new Error(`ui.on("${type}", [target,] fn) expects a function as its last argument, e.g. ui.on("${type}", (e) => console.log(e.id)), but got ${inspect(fn)}`);
       let id = null;
+      if (target !== undefined && (type === "scale" || type === "textScale"))
+        throw new Error(`ui.on("${type}", target, fn): the "${type}" event is about no widget, so it takes no target; use ui.on("${type}", (e) => console.log(e.value, e.previous))`);
       if (target !== undefined && target !== null) {
         if (target instanceof Entity) id = target.id;
         else if (typeof target === "string") { const h = N.find(target); id = h === null ? target : N.idOf(h); }
         else throw new Error(`ui.on("${type}", target, fn): target must be an Entity or an entity id such as "play_button", but got ${inspect(target)}`);
       }
+      if (DRAG_EVENTS.includes(type)) {
+        // The target filter of dragOver / drop is the drop target; of dragStart / dragCancel it is the dragged widget.
+        const byTarget = type === "dragOver" || type === "drop";
+        return addListener(`ui.${type}`, (data, source) => {
+          if (id !== null && (!data || (byTarget ? data.target : data.id) !== id)) return;
+          const targetHandle = data.target === null || data.target === undefined ? null : N.find(data.target);
+          fn({ type, id: data.id, entity: source, source, payload: data.payload, x: data.x, y: data.y,
+            target: targetHandle === null ? null : entityOf(targetHandle), accepts: data.accepts, reason: data.reason });
+        }, null);
+      }
       return addListener(`ui.${type}`, (data, source) => {
         if (id !== null && (!data || data.id !== id)) return;
-        fn({ type, id: data?.id ?? null, entity: source, value: data?.value });
+        if (type === "cancel") {  // a handler that returns true handled the press: input.pressed("ui_cancel" | "pause"...) reads false after it
+          if (fn({ type, id: data?.id ?? null, entity: source, value: data?.value, previous: data?.previous }) === true) N.inConsume("ui_cancel");
+          return;
+        }
+        if (type === "viewPointer") fn({ type, id: data?.id ?? null, entity: source, phase: data?.phase, x: data?.x ?? 0, y: data?.y ?? 0, u: data?.u ?? 0, v: data?.v ?? 0, dx: data?.dx ?? 0, dy: data?.dy ?? 0, wheel: data?.wheel ?? 0 });
+        else if (type === "chartHover") fn({ type, id: data?.id ?? null, entity: source, index: data?.index ?? -1, series: data?.series ?? -1, value: data?.value });
+        else fn({ type, id: data?.id ?? null, entity: source, value: data?.value, previous: data?.previous });
       }, null);
     },
     // Runs the UI layout now (autoSize sizes, fit sizes, positions, fallbackLayout), exactly what each frame does.
@@ -1463,12 +2040,117 @@
     stopSpeaking() { N.stopSpeaking(); },
     // True when the system can speak (headless runs and tests: always true, they record). Hide a "read menus aloud" option when false.
     get speechAvailable() { return N.speechAvailable(); },
-    // Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears it). Throws, saying why, when
-    // the entity cannot take focus.
-    focus(target) { N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
+    // Gives keyboard / gamepad focus to a Button, Toggle, Slider, TextField or Interactable (null clears it). Returns false for a
+    // disabled one. Throws, saying why, when the entity cannot take focus.
+    focus(target) { return N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
+    // The topmost visible widget (Button, Toggle, Slider, TextField, Panel, ScrollList... or an Interactable, also one in world space,
+    // seen through the camera that draws at the point; a screen-space widget wins over a world one) under the screen point, or null over
+    // empty space or what a ScrollList clips away. x, y in design pixels, y down, like ui.rectOf.
+    widgetAt(x, y) {
+      if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`ui.widgetAt(x, y) expects two numbers (design pixels, y down), e.g. ui.widgetAt(640, 360), but got ${inspect(x)}, ${inspect(y)}`);
+      return entityOf(N.uiWidgetAt(x, y));
+    },
+    // Drives hover, press and click like the mouse from a point of your own (a gamepad cursor, a test), from the next UI update on.
+    // setPointer(null) gives the pointer back to the real mouse.
+    setPointer(x, y, o = {}) {
+      if (x === null && y === undefined) { N.uiSetPointer(); return; }
+      if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`ui.setPointer(x, y, { down }) expects two numbers (design pixels, y down), e.g. ui.setPointer(640, 360, { down: true }), or null to give the pointer back to the mouse, but got ${inspect(x)}, ${inspect(y)}`);
+      if (o === null || typeof o !== "object" || (o.down !== undefined && typeof o.down !== "boolean")) throw new Error(`ui.setPointer(x, y, { down }): the third argument is an options object such as { down: true }, but got ${inspect(o)}`);
+      N.uiSetPointer(x, y, o.down ?? false);
+    },
+    // True when the pointer (the mouse, or the one of setPointer) is over a visible widget or Panel at the last UI update.
+    get pointerOverUi() { return N.uiPointerState()[0]; },
+    // True when the wheel of this frame scrolled a ScrollList: input.mouse.wheel reads 0 then.
+    get wheelConsumed() { return N.uiPointerState()[1]; },
     get focused() { return entityOf(N.uiState()[0]); },
     get hovered() { return entityOf(N.uiState()[1]); },
+    // The drag in progress, or null: { source: Entity, payload, from: {x, y}, x, y, target: Entity | null, accepts }. Truthy exactly while
+    // a draggable widget is being dragged, so a script that reads the pointer for the map can test `if (ui.dragging) return;`.
+    get dragging() {
+      const d = N.uiDragState();
+      if (d === null) return null;
+      const th = d.target === null ? null : N.find(d.target), sh = N.find(d.id);
+      return { source: sh === null ? null : entityOf(sh), payload: d.payload, from: { x: d.from[0], y: d.from[1] }, x: d.x, y: d.y,
+        target: th === null ? null : entityOf(th), accepts: d.accepts };
+    },
+    // Says whether a widget takes drops: true, false, a function ({ source, payload, x, y }) => boolean asked while a drag is over it, or
+    // null to remove the rule. A drag over a widget with no rule (or a descendant of one) is refused; the nearest ancestor with a rule counts.
+    setDropTarget(target, rule) {
+      const h = entityHandle(target, "ui.setDropTarget(widget, rule)");
+      if (rule !== null && typeof rule !== "boolean" && typeof rule !== "function") throw new Error(`ui.setDropTarget(widget, rule): rule is true, false, a function ({ source, payload }) => boolean, or null to remove it, but got ${inspect(rule)}`);
+      dropFns.delete(h);
+      if (typeof rule === "function") dropFns.set(h, rule);
+      N.uiSetDropTarget(h, rule === null ? 0 : typeof rule === "function" ? 3 : rule ? 1 : 2);
+    },
+    // The same for a drop over no widget (the map): true by default; false refuses; a function ({ source, payload, x, y }) => boolean can look at the map.
+    setWorldDropTarget(rule) {
+      if (rule !== null && typeof rule !== "boolean" && typeof rule !== "function") throw new Error(`ui.setWorldDropTarget(rule): rule is true, false, a function ({ source, payload, x, y }) => boolean, or null for the default (true), but got ${inspect(rule)}`);
+      worldDropFn = typeof rule === "function" ? rule : null;
+      N.uiSetDropTarget(null, rule === null ? 0 : typeof rule === "function" ? 3 : rule ? 1 : 2);
+    },
+    // The widget that follows the pointer during the drag (its centre under the pointer, ignored by hit tests). Call it from the
+    // dragStart handler; the engine only moves it, so hide or destroy it in drop / dragCancel. null stops it.
+    setDragImage(target) { N.uiSetDragImage(target === null || target === undefined ? null : entityHandle(target, "ui.setDragImage(widget)")); },
+    // Ends the drag in progress with a dragCancel event (reason "script"). Does nothing when nothing is dragged.
+    cancelDrag() { N.uiCancelDrag(); },
+    // The tooltip on screen now, or null: { title, lines: [text], rect: [x, y, w, h] in pixels, source, widget }.
+    get tooltip() { return N.uiTooltipView(); },
+    // Seconds the pointer rests on a widget before its tooltip shows (factoria.json "ui": {"tooltipDelay"}, default 0.5).
+    get tooltipDelay() { return N.uiTooltipDelay(); },
+    set tooltipDelay(v) { N.uiSetTooltipDelay(v); },
+    // Shows a tooltip now at a screen point (design pixels): for what is not a widget. `content` is a string (a locale key or the
+    // text) or { title, lines: [text | { text, color }], args }. It stays until ui.hideTooltip(), the pointer moving more than 5 px or a scene load.
+    showTooltip(content, at) {
+      if (at === null || typeof at !== "object" || typeof at.x !== "number" || typeof at.y !== "number" || !Number.isFinite(at.x) || !Number.isFinite(at.y))
+        throw new Error(`ui.showTooltip(content, { x, y }) expects the screen point (design pixels, y down) as the second argument, e.g. ui.showTooltip("Market", { x: 640, y: 360 }), but got ${inspect(at)}`);
+      N.uiTooltipShow(plain(content), at.x, at.y);
+    },
+    hideTooltip() { N.uiTooltipHide(); },
+    // The tooltip of a widget: content (the same shapes as the widget's `tooltip` field), a function that returns the content (or null
+    // for none) each time the tooltip is about to show, or null to remove it. A function is asked every frame while the pointer is on the widget.
+    setTooltip(target, what) {
+      const h = entityHandle(target, "ui.setTooltip(entity, tooltip)");
+      tooltipFns.delete(h);
+      N.uiSetTooltipFn(h, false);
+      if (typeof what === "function") {
+        tooltipFns.set(h, what);
+        N.uiSetTooltipFn(h, true);
+        return;
+      }
+      if (what !== null && typeof what !== "string" && (typeof what !== "object" || Array.isArray(what)))
+        throw new Error(`ui.setTooltip(entity, tooltip): tooltip is a string, { title, lines }, a function that returns one, or null, but got ${inspect(what)}`);
+      const e = entityOf(h);
+      const kind = ["Button", "Toggle", "Slider", "TextField", "Panel", "ScrollList", "TouchStick", "TouchButton", "Captions", "Video", "Chart", "CameraView"].find((k) => e.has(k));
+      if (!kind) throw new Error(`ui.setTooltip(entity, tooltip): '${e.id}' is not a widget (it has no Panel, Button, Toggle, Slider, TextField or ScrollList component), so it has no tooltip. For something else use ui.setWorldTooltip or ui.showTooltip.`);
+      e.set(kind, { tooltip: what });
+    },
+    // A function (x, y) => content | null asked while the pointer rests on no widget, for what the player points at in the world (a building).
+    // null removes it. It lasts until the scene unloads.
+    setWorldTooltip(fn) {
+      if (fn !== null && typeof fn !== "function") throw new Error(`ui.setWorldTooltip(fn) expects a function (x, y) => content | null, or null to remove it, but got ${inspect(fn)}`);
+      worldTooltipFn = fn;
+      N.uiSetWorldTooltipFn(fn !== null);
+    },
   };
+  const tooltipFns = new Map();  // widget handle -> function, ui.setTooltip
+  const dropFns = new Map();     // widget handle -> function, ui.setDropTarget
+  let worldDropFn = null;
+  // What the engine asks while a drag is over a target whose rule is a function (UiSystem drop hooks): the answer as a boolean.
+  function dropInfo(d) {
+    const sh = N.find(d.id);
+    return { source: sh === null ? null : entityOf(sh), payload: d.payload, x: d.x, y: d.y };
+  }
+  function dropAccepts(h, d) { const fn = dropFns.get(h); return fn ? fn(dropInfo(d)) === true : false; }
+  function worldDropAccepts(d) { return worldDropFn ? worldDropFn(dropInfo(d)) === true : false; }
+  let worldTooltipFn = null;
+  // What the engine asks when the pointer rests (UiSystem tooltip hooks): the answer as plain data, null for none or an error.
+  function tooltipFor(h) {
+    const fn = tooltipFns.get(h);
+    return fn ? plain(fn(entityOf(h))) ?? null : null;
+  }
+  function worldTooltip(x, y) {
+    return worldTooltipFn ? plain(worldTooltipFn(x, y)) ?? null : null;
+  }
 
   const assets = {
     // Reads the files ahead of time, a few per frame: returns a handle { progress, done, promise, ... } like scene.preload.
@@ -1547,8 +2229,8 @@
   // (docs/PLATFORM.md). Every call returns a Promise. A programmer's mistake (an id the catalog in factoria.json does not
   // declare, a wrong argument) throws at once; a store failure rejects with an Error that has .code and .hint. Answers that
   // arrive later settle the promises, and events reach platform.on listeners, at the start of the next engine frame.
-  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads"];
-  const PLATFORM_EVENTS = ["purchase", "overlay", "player"];
+  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "remotePlay", "http"];
+  const PLATFORM_EVENTS = ["purchase", "overlay", "player", "remotePlay"];
   const platformPending = new Map();  // request id -> { resolve, reject, label, map }
   let purchaseBacklog = [];           // purchase events nobody was listening for: a paid transaction is never lost
   const quotedList = (names) => names.map((n) => `"${n}"`).join(", ");
@@ -1620,10 +2302,12 @@
   const platformStats = {
     get(id) { return platformCall("stats.get", platformLabel("stats.get", [id]), { id }, (r) => r.value); },
     set(id, value) { return platformCall("stats.set", platformLabel("stats.set", [id, value]), { id, value }, (r) => r.value); },
-    // get, then set: resolves with the new value. An int stat needs a whole delta.
+    // Resolves with the new value. An int stat needs a whole delta. The fake store (development, tests) adds on the value it holds
+    // when it serves the request, so two adds made in one frame both count; a real store gets a get, then a set.
     add(id, delta) {
       if (typeof delta !== "number" || !Number.isFinite(delta))
         throw new Error(`${platformLabel("stats.add", [id, delta])}: delta must be a finite number, e.g. platform.stats.add("wins", 1), got ${platformArg(delta)}`);
+      if (N.platformInfo().backend === "fake") return platformCall("stats.add", platformLabel("stats.add", [id, delta]), { id, delta }, (r) => r.value);
       return platformStats.get(id).then((v) => platformStats.set(id, v + delta));
     },
   };
@@ -1635,7 +2319,7 @@
     // True in a shipped game, false in development runs and tests: switch off what is only for development with it.
     get release() { return N.platformInfo().release === true; },
     // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-    // "presence", "integrity", "ads".
+    // "presence", "integrity", "ads", "remotePlay", "http" (http.fetch: false when the system's HTTP client cannot run on this computer).
     has(service) {
       if (!PLATFORM_SERVICES.includes(service)) {
         const sug = closest(String(service), PLATFORM_SERVICES);
@@ -1646,7 +2330,8 @@
     // The last known player { id, name, signedIn } (from signIn and "player" events).
     get player() { return N.platformInfo().player; },
     signIn() { return platformCall("player.signIn", "platform.signIn()", {}); },
-    // on(event, fn): "purchase" { status, productId, transactionId, receipt }, "overlay" { open }, "player" { id, name, signedIn }.
+    // on(event, fn): "purchase" { status, productId, transactionId, receipt }, "overlay" { open }, "player" { id, name, signedIn },
+    // "remotePlay" { status: "connected" | "disconnected", session }.
     // Returns the function that stops listening. Listeners end with the scene, like ui.on.
     on(event, fn) {
       if (!PLATFORM_EVENTS.includes(event)) {
@@ -1670,11 +2355,17 @@
     },
     stats: platformStats,
     leaderboards: {
-      submit(id, score) { return platformCall("leaderboards.submit", platformLabel("leaderboards.submit", [id, score]), { id, score }); },
-      // range: "top" (default), "around" (the player's neighbours) or "friends"; count 1..100 (default 10).
+      // options.day: "YYYY-MM-DD" on a daily board, to write the board of another day (default: the local date, game.today().iso;
+      // game.today().utc.iso, passed to submit and entries alike, gives one board worldwide).
+      submit(id, score, options = {}) {
+        const o = isObj(options) ? options : {};
+        return platformCall("leaderboards.submit", platformLabel("leaderboards.submit", [id, score]), { id, score, day: o.day });
+      },
+      // range: "top" (default), "around" (the player's neighbours) or "friends"; count 1..100 (default 10); day: "YYYY-MM-DD" on a
+      // daily board (the board of that day instead of today's, keyed as submit wrote it).
       entries(id, options = {}) {
         const o = isObj(options) ? options : {};
-        return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count }, leaderboardEntries);
+        return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count, day: o.day }, leaderboardEntries);
       },
     },
     cloud: {
@@ -1687,6 +2378,12 @@
       load(key) { return platformCall("cloud.load", platformLabel("cloud.load", [key]), { key }, (r) => (r === null || r === undefined ? undefined : JSON.parse(r.data))); },
       list() { return platformCall("cloud.list", "platform.cloud.list()", {}); },
       remove(key) { return platformCall("cloud.remove", platformLabel("cloud.remove", [key]), { key }, noResult); },
+      // stat(key): { exists: false }, or { exists: true, size (bytes), modified (Unix seconds, or null when the store keeps no time) }.
+      stat(key) { return platformCall("cloud.stat", platformLabel("cloud.stat", [key]), { key }); },
+    },
+    remotePlay: {
+      // sessions(): the guests connected through Remote Play Together now: [{ id, guestName, guestId, deviceName, formFactor, resolution }].
+      sessions() { return platformCall("remotePlay.sessions", "platform.remotePlay.sessions()", {}); },
     },
     purchases: {
       // Titles and prices as the store shows them (ids: catalog ids; all products when omitted).
@@ -1731,6 +2428,349 @@
     },
   };
 
+  // ======================================================================================================== http
+  // http.fetch(url, options): one HTTP request to a host that factoria.json "network" declares (docs/NETWORKING.md). It is a
+  // platform request like the store calls above: a mistake in the call (an undeclared host, a bad header) throws at once, a
+  // failure of the network rejects with an Error that has .code ("network", "unavailable") and .hint, and the answer settles
+  // at the start of an engine frame. A server's error status (404, 500) is NOT a failure: the promise resolves with it.
+  const HTTP_OPTIONS = ["method", "headers", "body", "timeout"];
+  const httpLabel = (url) => `http.fetch(${platformArg(url)})`;
+  function httpResponse(label, r) {
+    const text = r.text;
+    const response = {
+      status: r.status,
+      ok: r.status >= 200 && r.status < 300,
+      // Header names in lower case; a header the server sent twice is joined with ", ".
+      headers: Object.freeze(Object.assign({}, r.headers)),
+      text,
+      // The body parsed as JSON. Throws an Error that says what came back when it is not JSON.
+      json() {
+        try { return JSON.parse(text); }
+        catch (e) {
+          const shown = text.length > 60 ? text.slice(0, 57) + "..." : text;
+          throw new Error(`${label}: the response body is not JSON (${e.message}); it starts with ${JSON.stringify(shown)}` +
+            ` (hint: check response.status and response.headers["content-type"] before response.json())`);
+        }
+      },
+    };
+    return Object.freeze(response);
+  }
+  const http = {
+    // fetch(url, { method?, headers?, body?, timeout? }) -> Promise<{ status, ok, headers, text, json() }>
+    // method: "GET" (default), "HEAD", "POST", "PUT", "PATCH" or "DELETE". headers: an object of strings. body: a string, or an
+    // object / array that is sent as JSON (with Content-Type application/json unless you set one). timeout: seconds, 15 by default.
+    fetch(url, options) {
+      if (options !== undefined && options !== null && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`${httpLabel(url)}: options must be an object like { method: "POST", body: { score: 10 } }, but got ${platformArg(options)}`);
+      const o = options || {};
+      for (const k of Object.keys(o)) {
+        if (HTTP_OPTIONS.includes(k)) continue;
+        const sug = closest(k, HTTP_OPTIONS);
+        throw new Error(`${httpLabel(url)}: unknown option '${k}'${sug ? ` (did you mean '${sug}'?)` : ""}; use ${quotedList(HTTP_OPTIONS)}`);
+      }
+      const args = { url };
+      if (o.method !== undefined) args.method = o.method;
+      let headers = o.headers;
+      if (isObj(headers) && !Array.isArray(headers)) headers = Object.assign({}, headers);
+      if (o.body !== undefined && o.body !== null) {
+        if (typeof o.body === "string") args.body = o.body;
+        else if (typeof o.body === "object" || typeof o.body === "number" || typeof o.body === "boolean") {
+          args.body = JSON.stringify(plain(o.body));
+          if (isObj(headers) && !Array.isArray(headers)) {
+            if (!Object.keys(headers).some((h) => h.toLowerCase() === "content-type")) headers["Content-Type"] = "application/json";
+          } else if (headers === undefined || headers === null) {
+            headers = { "Content-Type": "application/json" };
+          }
+        } else {
+          throw new Error(`${httpLabel(url)}: body must be a string or something JSON can hold (an object, an array), but got ${platformArg(o.body)}`);
+        }
+      }
+      if (headers !== undefined && headers !== null) args.headers = headers;
+      if (o.timeout !== undefined) args.timeout = o.timeout;
+      const label = httpLabel(url);
+      return platformCall("http.fetch", label, args, (r) => httpResponse(label, r));
+    },
+  };
+
+  // ============================================================================================ analytics, remoteConfig
+  // Two services on top of http.fetch (docs/ANALYTICS.md): analytics.event(name, props) queues a small event and sends the
+  // queue in batches, only after the player consented; remoteConfig.get(key, default) reads values the game's server hands out,
+  // cached for offline runs. Both read their section of factoria.json ("analytics", "remoteConfig"); both keep their state in
+  // this closure (a scene change does not touch it) and the player's choices in storage under "factoria.*" keys. The engine
+  // calls serviceTick every frame with the unscaled dt (the engine clock, never the wall clock), serviceSuspend when the app is
+  // suspended and serviceQuit when the game is about to close.
+  const SVC_KEY_CONSENT = "factoria.analytics";
+  const SVC_KEY_CONFIG = "factoria.remoteConfig";
+  const AN_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
+  const AN_LIMITS = Object.freeze({ nameLength: 64, props: 20, keyLength: 40, stringLength: 200, eventBytes: 2048, queue: 500, batch: 100, attempts: 3 });
+  const AN_DEFAULTS = Object.freeze({ batch: 20, flushSeconds: 30, timeoutSeconds: 10 });
+  const RC_LIMITS = Object.freeze({ bytes: 65536, keys: 500 });
+  let anGen = 0, rcGen = 0;        // bumped by a reset: an answer that arrives after it belongs to the old run and is ignored
+  let svcClock = 0;                // seconds of engine time since the session started, whatever the time scale
+  let svcConfig = null;            // the sections of game.project, read once per session
+  const an = { queue: [], inflight: null, failures: 0, retryAt: 0, dropped: 0, requests: [], sent: [], adsAnswer: null, adsAsked: false, warned: false };
+  const rc = { started: false, values: {}, source: "default", loading: false, waiters: [], fetched: false };
+
+  function svcSettings() {
+    if (svcConfig) return svcConfig;
+    const p = N.project() || {};
+    svcConfig = { analytics: isObj(p.analytics) ? p.analytics : null, remoteConfig: isObj(p.remoteConfig) ? p.remoteConfig : null,
+                  id: typeof p.id === "string" ? p.id : "", version: typeof p.version === "string" ? p.version : "" };
+    return svcConfig;
+  }
+  function svcInTest() { return N.inTestRun(); }  // not cached: a frame may run before the tests start
+  function analyticsCfg(what) {
+    const a = svcSettings().analytics;
+    if (!a || typeof a.endpoint !== "string" || !a.endpoint)
+      throw new Error(`${what}: this game has no analytics. Add the section to factoria.json: "analytics": { "endpoint": "https://stats.example.com/events" } ` +
+        `(and the endpoint's host to "network".hosts); see docs/ANALYTICS.md. Check analytics.configured before calling it from code shared with other games`);
+    // factoria validate rejects a bad number; a game that runs anyway gets the default
+    const num = (v, lo, hi, dflt) => (typeof v === "number" && v >= lo && v <= hi ? v : dflt);
+    return { endpoint: a.endpoint, batch: Math.floor(num(a.batch, 1, AN_LIMITS.batch, AN_DEFAULTS.batch)), flushSeconds: num(a.flushSeconds, 1, 3600, AN_DEFAULTS.flushSeconds),
+             timeoutSeconds: num(a.timeoutSeconds, 0.5, 120, AN_DEFAULTS.timeoutSeconds) };
+  }
+  function ownConsent() {
+    const v = N.storageGet(SVC_KEY_CONSENT);
+    return isObj(v) && (v.consent === "granted" || v.consent === "denied") ? v.consent : "unknown";
+  }
+  // The rule for a game that also shows ads and sets "consentFromAds": until the player answers the analytics question
+  // themselves, analytics counts as granted exactly when the ads consent is (gdpr "granted" and tracking "authorized" or
+  // "notRequired"). The player's own answer always wins, in both directions; a missing, unknown or refused ads consent never grants.
+  function adsGrants() {
+    const c = an.adsAnswer;
+    return !!c && c.gdpr === "granted" && (c.tracking === "authorized" || c.tracking === "notRequired");
+  }
+  function analyticsConsent() {
+    const own = ownConsent();
+    if (own !== "unknown") return own;
+    const a = svcSettings().analytics;
+    return a && a.consentFromAds === true && adsGrants() ? "granted" : "unknown";
+  }
+  function analyticsAllowed() { return svcSettings().analytics !== null && analyticsConsent() === "granted"; }
+  function askAds() {
+    if (an.adsAsked) return;
+    const a = svcSettings().analytics;
+    if (!a || a.consentFromAds !== true || ownConsent() !== "unknown" || !N.platformInfo().services.includes("ads")) return;
+    an.adsAsked = true;
+    try { platformCall("ads.consent", "analytics: platform.ads.consent()", {}).then((c) => { an.adsAnswer = isObj(c) ? c : null; }, () => {}); }
+    catch (e) { /* no ads here */ }
+  }
+
+  function checkEvent(name, props) {
+    const L = AN_LIMITS;
+    if (typeof name !== "string" || !AN_NAME.test(name))
+      throw new Error(`analytics.event(name, props): name must be 1 to ${L.nameLength} characters, start with a letter and use only letters, digits, "_", "." and "-" (like "level_done"), but got ${inspect(name)}`);
+    if (props === undefined || props === null) return {};
+    if (!isObj(props) || Array.isArray(props))
+      throw new Error(`analytics.event("${name}", props): props must be a flat object of strings, numbers and booleans like { level: 3, won: true }, but got ${inspect(props)}`);
+    const keys = Object.keys(props);
+    if (keys.length > L.props)
+      throw new Error(`analytics.event("${name}", props): ${keys.length} props, at most ${L.props} are allowed. Send fewer, or split the event in two`);
+    const out = {};
+    for (const k of keys) {
+      if (!AN_NAME.test(k) || k.length > L.keyLength)
+        throw new Error(`analytics.event("${name}", props): the prop name ${inspect(k)} must be 1 to ${L.keyLength} characters, start with a letter and use only letters, digits, "_", "." and "-"`);
+      const v = props[k];
+      if (typeof v === "number") {
+        if (!Number.isFinite(v)) throw new Error(`analytics.event("${name}", props): prop '${k}' is ${v}; numbers must be finite (JSON has no NaN or Infinity)`);
+      } else if (typeof v === "string") {
+        if (v.length > L.stringLength)
+          throw new Error(`analytics.event("${name}", props): prop '${k}' is a text of ${v.length} characters, at most ${L.stringLength} are allowed. Send a short code, never what the player typed`);
+      } else if (typeof v !== "boolean" && v !== null) {
+        throw new Error(`analytics.event("${name}", props): prop '${k}' is ${inspect(v)}; a prop is a string, a number, a boolean or null (no objects, arrays or undefined). Flatten it into several props`);
+      }
+      out[k] = v;
+    }
+    const size = JSON.stringify(out).length;
+    if (size > L.eventBytes)
+      throw new Error(`analytics.event("${name}", props): the props take ${size} characters, at most ${L.eventBytes} are allowed. Send fewer or shorter props`);
+    return out;
+  }
+
+  function analyticsFlush(why) {
+    let cfg;
+    try { cfg = analyticsCfg("analytics.flush()"); } catch (e) { return Promise.reject(e); }
+    if (!analyticsAllowed() || an.queue.length === 0) return Promise.resolve({ sent: 0, ok: true });
+    if (an.inflight) return an.inflight;
+    const batch = an.queue.splice(0, AN_LIMITS.batch);
+    const s = svcSettings();
+    const body = { game: s.id, version: s.version, sentOn: game.today().utc.iso,
+                   events: batch.map((e) => ({ name: e.name, props: e.props, t: e.t })) };
+    const copy = () => body.events.map((e) => ({ name: e.name, props: Object.assign({}, e.props), t: e.t }));
+    const gen = anGen;
+    const settle = (ok, status, error) => {
+      if (gen !== anGen) return { sent: 0, ok: false };  // the session was reset (a new test run) while the request was on its way
+      an.inflight = null;
+      if (svcInTest()) {  // a log for game.analytics.sent() / requests(); a shipped game keeps none
+        an.requests.push({ endpoint: cfg.endpoint, reason: why, ok, status, error, events: copy() });
+        if (an.requests.length > 200) an.requests.shift();
+        if (ok) { an.sent.push(...copy()); if (an.sent.length > 1000) an.sent.splice(0, an.sent.length - 1000); }
+      }
+      if (ok) { an.failures = 0; return { sent: batch.length, ok: true }; }
+      const retriable = status === undefined || status === 408 || status === 429 || status >= 500;
+      if (!retriable) {  // the server refused the batch: sending it again cannot help
+        console.warn(`analytics: ${cfg.endpoint} answered ${status}; the ${batch.length} events were dropped (a 4xx answer is a refusal). Check the endpoint in factoria.json`);
+        an.dropped += batch.length;
+        return { sent: 0, ok: false };
+      }
+      an.failures++;
+      an.retryAt = svcClock + Math.min(cfg.flushSeconds * Math.pow(2, an.failures - 1), 600);
+      const keep = [];
+      for (const e of batch) { e.attempts++; if (e.attempts < AN_LIMITS.attempts) keep.push(e); else an.dropped++; }
+      if (analyticsAllowed()) {  // a refusal while the request was on its way forgets the batch, it is not put back
+        an.queue = keep.concat(an.queue);
+        while (an.queue.length > AN_LIMITS.queue) { an.queue.shift(); an.dropped++; }
+      }
+      return { sent: 0, ok: false };
+    };
+    let p;
+    try { p = http.fetch(cfg.endpoint, { method: "POST", body, timeout: cfg.timeoutSeconds }); }
+    catch (e) { an.queue = batch.concat(an.queue); return Promise.reject(e); }
+    an.inflight = p.then((r) => settle(r.ok, r.status), (e) => settle(false, undefined, e && e.message));
+    return an.inflight;
+  }
+  function analyticsAuto(why) {
+    analyticsFlush(why).catch((e) => { if (!an.warned) { an.warned = true; console.warn(`analytics: ${e.message}`); } });
+  }
+  function analyticsReset() {
+    anGen++;
+    Object.assign(an, { queue: [], inflight: null, failures: 0, retryAt: 0, dropped: 0, requests: [], sent: [], adsAnswer: null, adsAsked: false, warned: false });
+  }
+
+  const analytics = {
+    // True when factoria.json has an "analytics" section with an endpoint. event(), flush() and setConsent() throw without it.
+    get configured() { const a = svcSettings().analytics; return !!a && typeof a.endpoint === "string" && a.endpoint.length > 0; },
+    // The player's answer: "granted", "denied" or "unknown" (never asked: nothing is queued or sent). Kept across runs.
+    consent() { askAds(); return svcSettings().analytics ? analyticsConsent() : "unknown"; },
+    // setConsent(true | false): the player's answer, kept across runs. false forgets everything waiting to be sent.
+    setConsent(yes) {
+      analyticsCfg("analytics.setConsent(yes)");
+      if (typeof yes !== "boolean") throw new Error(`analytics.setConsent(yes) expects true or false, but got ${inspect(yes)}`);
+      N.storageSet(SVC_KEY_CONSENT, { consent: yes ? "granted" : "denied", on: game.today().utc.iso });
+      if (!yes) an.queue = [];
+    },
+    // event(name, props?): queues one event; true when queued, false when the player has not consented (nothing is kept).
+    event(name, props) {
+      const cfg = analyticsCfg("analytics.event(name, props)");
+      const clean = checkEvent(name, props);
+      askAds();
+      if (!analyticsAllowed()) return false;
+      an.queue.push({ name, props: clean, t: Math.round(svcClock * 1000) / 1000, attempts: 0 });
+      while (an.queue.length > AN_LIMITS.queue) { an.queue.shift(); an.dropped++; }
+      if (an.queue.length >= cfg.batch && svcClock >= an.retryAt && !an.inflight) analyticsAuto("batch");
+      return true;
+    },
+    // flush(): sends what waits now (one request of at most 100 events). Resolves { sent, ok }; a network failure is ok: false.
+    flush() { return analyticsFlush("flush"); },
+    // status(): { configured, consent, queued, inFlight, dropped, failures, retryInSeconds, endpoint } for debugging.
+    status() {
+      const a = svcSettings().analytics;
+      return { configured: analytics.configured, consent: analytics.consent(), queued: an.queue.length, inFlight: an.inflight !== null,
+               dropped: an.dropped, failures: an.failures, retryInSeconds: Math.max(0, Math.ceil(an.retryAt - svcClock)), endpoint: a && a.endpoint ? a.endpoint : "" };
+    },
+    limits: AN_LIMITS,
+  };
+
+  // ---- remote config
+  function rcCfg() {
+    const c = svcSettings().remoteConfig;
+    return c && typeof c.url === "string" && c.url
+      ? { url: c.url, timeoutSeconds: typeof c.timeoutSeconds === "number" && c.timeoutSeconds >= 0.5 && c.timeoutSeconds <= 30 ? c.timeoutSeconds : 5 } : null;
+  }
+  function rcSettleWaiters() {
+    const ws = rc.waiters; rc.waiters = [];
+    for (const w of ws) w.resolve(rc.source);
+  }
+  const rcValid = (o) => isObj(o) && !Array.isArray(o) && Object.keys(o).length <= RC_LIMITS.keys;
+  function rcFetch() {
+    const cfg = rcCfg();
+    if (!cfg || rc.loading) return;
+    rc.loading = true;
+    const gen = rcGen;
+    let p;
+    try { p = http.fetch(cfg.url, { timeout: cfg.timeoutSeconds }); }
+    catch (e) { rc.loading = false; rc.fetched = true; console.warn(`remoteConfig: ${e.message}`); rcSettleWaiters(); return; }
+    p.then((r) => {
+      if (gen !== rcGen) return;  // a reset or a restart happened while the request was on its way
+      rc.loading = false; rc.fetched = true;
+      let obj = null;
+      if (r.ok && r.text.length <= RC_LIMITS.bytes) { try { obj = r.json(); } catch (e) { obj = null; } }
+      if (rcValid(obj)) {  // the whole answer or nothing: a bad answer never reaches the values
+        rc.values = obj; rc.source = "remote";
+        N.storageSet(SVC_KEY_CONFIG, { values: obj, on: game.today().utc.iso });
+      } else {
+        console.warn(`remoteConfig: ${cfg.url} ${r.ok ? `did not answer a JSON object of at most ${RC_LIMITS.keys} keys and ${RC_LIMITS.bytes} bytes` : `answered status ${r.status}`}: keeping the ${rc.source} values`);
+      }
+      rcSettleWaiters();
+    }, () => { if (gen !== rcGen) return; rc.loading = false; rc.fetched = true; rcSettleWaiters(); });  // offline: the cache (or the defaults) stay
+  }
+  function rcStart() {
+    if (rc.started) return;
+    rc.started = true;
+    if (!rcCfg()) return;
+    const cached = N.storageGet(SVC_KEY_CONFIG);
+    if (isObj(cached) && rcValid(cached.values)) { rc.values = cached.values; rc.source = "cache"; }
+    rcFetch();
+  }
+  function rcReset() { rcGen++; Object.assign(rc, { started: false, values: {}, source: "default", loading: false, waiters: [], fetched: false }); }
+
+  const remoteConfig = {
+    // True when factoria.json has a "remoteConfig" section with a url.
+    get configured() { return rcCfg() !== null; },
+    // get(key, fallback): the server's value, else the cached one (offline), else fallback. A value whose type differs from the
+    // fallback's (a number where you expect text) counts as missing, so a bad server file cannot break the game.
+    get(key, fallback) {
+      if (typeof key !== "string" || !key) throw new Error(`remoteConfig.get(key, fallback) expects the name of a value, e.g. remoteConfig.get("enemySpeed", 1), but got ${inspect(key)}`);
+      rcStart();
+      if (!Object.prototype.hasOwnProperty.call(rc.values, key)) return fallback;
+      const v = rc.values[key];
+      if (fallback !== undefined && fallback !== null && v !== null) {
+        const kind = (x) => (Array.isArray(x) ? "array" : typeof x);
+        if (kind(v) !== kind(fallback)) return fallback;
+      }
+      return v === undefined ? v : JSON.parse(JSON.stringify(v));
+    },
+    // source(): where the values come from now: "remote" (this run's fetch), "cache" (the last good answer, from an earlier run) or "default".
+    source() { rcStart(); return rc.source; },
+    // ready(timeoutSeconds = 3): a Promise of source() once the first fetch ended or the timeout (engine seconds) passed. Never rejects.
+    ready(timeoutSeconds = 3) {
+      if (typeof timeoutSeconds !== "number" || !(timeoutSeconds >= 0)) throw new Error(`remoteConfig.ready(timeoutSeconds) expects a number of seconds, 0 or more, but got ${inspect(timeoutSeconds)}`);
+      rcStart();
+      if (!rcCfg() || rc.fetched) return Promise.resolve(rc.source);
+      return new Promise((resolve) => { rc.waiters.push({ resolve, deadline: svcClock + timeoutSeconds }); });
+    },
+    // refresh(): fetches again; resolves with source() when the answer (or the failure) arrived.
+    refresh() {
+      rcStart();
+      if (!rcCfg()) return Promise.resolve(rc.source);
+      rc.fetched = false;
+      const p = new Promise((resolve) => { rc.waiters.push({ resolve, deadline: Infinity }); });
+      rcFetch();
+      return p;
+    },
+  };
+
+  function serviceTick(dt) {
+    svcClock += dt;
+    if (!svcInTest()) { rcStart(); askAds(); }  // tests fetch on first use, so an unscripted answer never lands in the call log
+    if (rc.waiters.length) {
+      const due = rc.waiters.filter((w) => svcClock >= w.deadline);
+      if (due.length) { rc.waiters = rc.waiters.filter((w) => svcClock < w.deadline); for (const w of due) w.resolve(rc.source); }
+    }
+    if (an.queue.length && !an.inflight && svcClock >= an.retryAt && analytics.configured && analyticsAllowed()) {
+      if (svcClock - an.queue[0].t >= analyticsCfg("analytics").flushSeconds) analyticsAuto("timer");
+    }
+  }
+  function serviceSuspend() { if (an.queue.length && !an.inflight && analytics.configured) analyticsAuto("suspend"); }
+  // Called when the game is about to close: sends what waits and tells how many requests are in flight (the engine then waits
+  // for them, 3 seconds at most).
+  function serviceQuit() {
+    if (an.queue.length && !an.inflight && analytics.configured) analyticsAuto("quit");
+    return an.inflight ? 1 : 0;
+  }
+  function servicePending() { return an.inflight ? 1 : 0; }
+  function servicesReset() { analyticsReset(); rcReset(); svcConfig = null; svcClock = 0; }
+
   // ======================================================================================================= i18n
   // Localization (docs/LOCALIZATION.md): the string tables are locales/<language>.json, the languages are listed in factoria.json
   // "localization". Without that section the game is not localized: t(key) returns the key, languages is [].
@@ -1770,6 +2810,12 @@
     },
     // Is `key` in some table of the current language's fallback chain? (t never throws; has tells a real string from the key.)
     has(key) { return N.i18nHas(String(key)); },
+    // The grammatical gender of a string ("f", "m", "n"; "" when it has none): pass it as args.gender to a select entry.
+    gender(key) {
+      if (typeof key !== "string")
+        throw new Error(`i18n.gender(key): key must be a string like "ship.light", but got ${platformArg(key)}`);
+      return N.i18nGender(key);
+    },
     // The current language: one of `languages` ("" when the game has no localization).
     get language() { return N.i18nInfo().language; },
     // Switches now: every Text and widget with a `key` is rewritten, and the "change" listeners run. Accepts the tag as written in
@@ -1801,8 +2847,334 @@
     },
   };
 
+  // ---- render: pictures made at run time (docs/SCRIPTING.md, "Render") ----
+  const RT_MAX_SIDE = 2048;
+  class Texture {
+    constructor(info) {
+      Object.defineProperty(this, "id", { value: info[0], enumerable: true });
+      Object.defineProperty(this, "width", { value: info[1], enumerable: true });
+      Object.defineProperty(this, "height", { value: info[2], enumerable: true });
+      Object.defineProperty(this, "placeholder", { value: info[3], enumerable: true });
+      Object.defineProperty(this, "$alive", { value: true, writable: true });
+    }
+    get destroyed() { return !this.$alive; }
+    toPNG() {
+      if (!this.$alive) throw new Error(`texture.toPNG(): ${this.id} was destroyed with texture.destroy(); make the picture again`);
+      return N.renderPng(this.id);
+    }
+    destroy() {
+      if (!this.$alive) return;
+      this.$alive = false;
+      N.renderDestroy(this.id);
+    }
+    toString() { return `Texture(${this.id}, ${this.width}x${this.height}${this.$alive ? "" : ", destroyed"})`; }
+  }
+  // captureTexture({ entity | rect, space: "world", scale? }): the world drawn off-screen at a pixel scale (RenderAPI.captureTexture).
+  const captureWorldTexture = (o) => {
+    const label = "render.captureTexture({ entity | rect, space: \"world\", scale })";
+    for (const k of Object.keys(o))
+      if (!["entity", "rect", "space", "scale"].includes(k)) {
+        const hint = k === "width" || k === "height" || k === "fit"
+          ? ` The size of the picture is the area times scale, so drop ${k}; or drop entity/rect to capture the whole frame the player sees at a width and height.`
+          : "";
+        throw new Error(`${label}: unknown option '${k}'; the options are entity, rect, space and scale.${hint}`);
+      }
+    if (o.space !== undefined && o.space !== "world")
+      throw new Error(`${label}: space must be "world" (the only space that can be photographed off-screen), but got ${inspect(o.space)}. Screen-space UI is drawn over the frame: capture the frame with render.captureTexture({ width, height }) to include it`);
+    if ((o.entity === undefined || o.entity === null) === (o.rect === undefined || o.rect === null))
+      throw new Error(`${label}: give exactly one of entity (photograph its subtree) or rect ([x, y, width, height] in world units), but got ${o.entity !== undefined && o.entity !== null ? "both" : "neither"}`);
+    if (o.scale !== undefined && (typeof o.scale !== "number" || !(o.scale > 0) || !Number.isFinite(o.scale)))
+      throw new Error(`${label}: scale must be a number above 0 (pixels per world unit, default 1), e.g. scale: 2 for a picture twice as wide as the area is in world units, but got ${inspect(o.scale)}`);
+    const scale = o.scale === undefined ? 1 : o.scale;
+    if (o.rect !== undefined && o.rect !== null) {
+      const r = o.rect;
+      if (!Array.isArray(r) || r.length !== 4 || !r.every((v) => typeof v === "number" && Number.isFinite(v)) || !(r[2] > 0) || !(r[3] > 0))
+        throw new Error(`${label}: rect must be [x, y, width, height] in world units (x, y the bottom-left corner, +Y up; entity.bounds() gives one), with a positive width and height, but got ${inspect(r)}`);
+      return new Texture(N.renderCaptureWorld(null, r[0], r[1], r[2], r[3], scale));
+    }
+    return new Texture(N.renderCaptureWorld(entityHandle(o.entity, label + " entity"), 0, 0, 0, 0, scale));
+  };
+  const render = {
+    // captureTexture({ width, height, fit? }) or ({ entity | rect, space, scale? }): the picture the player sees now, as a texture; see RenderAPI.
+    captureTexture(o) {
+      if (o && typeof o === "object" && (o.entity !== undefined || o.rect !== undefined || o.space !== undefined || o.scale !== undefined))
+        return captureWorldTexture(o);
+      const label = "render.captureTexture({ width, height })";
+      if (!o || typeof o !== "object")
+        throw new Error(`${label}: expected an options object, e.g. render.captureTexture({ width: 320, height: 180 }) or render.captureTexture({ entity, scale: 2 }), but got ${inspect(o)}`);
+      for (const k of ["width", "height"])
+        if (!Number.isInteger(o[k]) || o[k] < 1 || o[k] > RT_MAX_SIDE)
+          throw new Error(`${label}: ${k} must be a whole number from 1 to ${RT_MAX_SIDE}, e.g. render.captureTexture({ width: 320, height: 180 }), but got ${inspect(o[k])}`);
+      if (o.fit !== undefined && o.fit !== "cover" && o.fit !== "stretch")
+        throw new Error(`${label}: fit must be "cover" (default: crop to the aspect ratio) or "stretch" (squeeze the whole frame), but got ${inspect(o.fit)}`);
+      return new Texture(N.renderCapture(o.width, o.height, o.fit === "stretch"));
+    },
+    // textureFromPNG(png): the text texture.toPNG() returned, as a texture again.
+    textureFromPNG(png) {
+      if (typeof png !== "string" || png === "")
+        throw new Error(`render.textureFromPNG(png): expected the text texture.toPNG() returned (Base64), e.g. render.textureFromPNG(storage.get("slot1.png")), but got ${inspect(png)}`);
+      return new Texture(N.renderFromPng(png));
+    },
+  };
+
+  // ---- mesh: procedural meshes (docs/SCRIPTING.md, "Procedural meshes") ----
+  // The arrays become a Float32Array (indices: Uint32Array) here, whatever the script gave, so the native side reads bytes.
+  const MESH_FIELDS = ["positions", "normals", "uvs", "tangents", "colors", "indices", "submeshes"];
+  const MESH_SIZES = { positions: [3, 3], normals: [3, 3], uvs: [2, 2], tangents: [3, 4], colors: [3, 4] };
+  const meshRow = (e) => {
+    if (Array.isArray(e) || ArrayBuffer.isView(e)) return Array.from(e);
+    if (isObj(e)) {
+      if (e.x !== undefined) return e.w !== undefined ? [e.x, e.y, e.z, e.w] : e.z !== undefined ? [e.x, e.y, e.z] : [e.x, e.y];
+      if (e.r !== undefined) return e.a !== undefined ? [e.r, e.g, e.b, e.a] : [e.r, e.g, e.b];
+    }
+    return null;
+  };
+  function meshFloats(label, field, v) {
+    if (v === undefined || v === null) return undefined;
+    const [lo, hi] = MESH_SIZES[field];
+    const example = field === "uvs" ? "[u, v, u, v, ...]" : "[x, y, z, x, y, z, ...] or [[x, y, z], [x, y, z], ...]";
+    if (v instanceof Float32Array) return v;
+    if (ArrayBuffer.isView(v) && !(v instanceof DataView)) return Float32Array.from(v);
+    if (!Array.isArray(v))
+      throw new Error(`${label}: ${field} must be an array or a Float32Array like ${example}, but got ${inspect(v)}`);
+    if (v.length === 0) throw new Error(`${label}: ${field} is an empty array; leave it out to not give it`);
+    if (typeof v[0] === "number") return Float32Array.from(v);
+    const out = [];
+    for (let i = 0; i < v.length; i++) {
+      const row = meshRow(v[i]);
+      if (!row || row.length < lo || row.length > hi)
+        throw new Error(`${label}: ${field}[${i}] must be ${lo === hi ? lo : lo + " or " + hi} numbers (a [..] array or an object with ${field === "colors" ? "r, g, b" : field === "uvs" ? "x, y" : "x, y, z"}), but got ${inspect(v[i])}`);
+      for (const n of row) out.push(n);
+    }
+    return Float32Array.from(out);
+  }
+  function meshIndices(label, v) {
+    if (v === undefined || v === null) return undefined;
+    if (v instanceof Uint32Array) return v;
+    if (v instanceof Uint16Array || v instanceof Uint8Array) return Uint32Array.from(v);
+    if (!Array.isArray(v) && !(ArrayBuffer.isView(v) && !(v instanceof DataView)))
+      throw new Error(`${label}: indices must be an array or a Uint32Array of vertex numbers, three per triangle, e.g. [0, 1, 2, 0, 2, 3], but got ${inspect(v)}`);
+    let flat = Array.isArray(v) && v.length && typeof v[0] !== "number" ? [] : v;
+    if (flat !== v) for (let i = 0; i < v.length; i++) {
+      const row = meshRow(v[i]);
+      if (!row || row.length !== 3) throw new Error(`${label}: indices[${i}] must be a triangle [a, b, c] of three vertex numbers, but got ${inspect(v[i])}`);
+      for (const n of row) flat.push(n);
+    }
+    for (let i = 0; i < flat.length; i++)
+      if (!Number.isInteger(flat[i]) || flat[i] < 0 || flat[i] > 4294967295)
+        throw new Error(`${label}: indices[${i}] is ${inspect(flat[i])}, but an index is a whole number from 0 up (the position of a vertex in positions)`);
+    return Uint32Array.from(flat);
+  }
+  const MESH_MATERIAL_KEYS = ["name", "color", "texture", "metallic", "roughness", "emissive", "doubleSided", "blend"];
+  function meshMaterial(label, m) {
+    if (m === undefined || m === null) return {};
+    if (typeof m === "string") return { name: m };
+    if (!isObj(m) || Array.isArray(m))
+      throw new Error(`${label}: material must be a name or an object { name, color, texture, metallic, roughness, emissive, doubleSided, blend }, but got ${inspect(m)}`);
+    for (const k of Object.keys(m))
+      if (!MESH_MATERIAL_KEYS.includes(k)) {
+        const sug = closest(k, MESH_MATERIAL_KEYS);
+        throw new Error(`${label}: material has no field '${k}'.${sug ? ` Did you mean '${sug}'?` : ""} Fields: ${MESH_MATERIAL_KEYS.join(", ")}`);
+      }
+    const out = { ...m };
+    if (m.color !== undefined) out.color = color(m.color).toArray();
+    if (m.emissive !== undefined) out.emissive = color(m.emissive).toArray();
+    if (m.texture instanceof Texture) out.texture = m.texture.id;
+    return out;
+  }
+  function meshArgs(label, o) {
+    if (!isObj(o) || Array.isArray(o))
+      throw new Error(`${label}: expected an options object, e.g. mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2] }), but got ${inspect(o)}`);
+    for (const k of Object.keys(o))
+      if (!MESH_FIELDS.includes(k)) {
+        const sug = closest(k, MESH_FIELDS);
+        throw new Error(`${label}: unknown field '${k}'.${sug ? ` Did you mean '${sug}'?` : ""} Fields: ${MESH_FIELDS.join(", ")}`);
+      }
+    const arrays = {};
+    for (const k of Object.keys(MESH_SIZES)) arrays[k] = meshFloats(label, k, o[k]);
+    arrays.indices = meshIndices(label, o.indices);
+    let subs;
+    if (o.submeshes !== undefined && o.submeshes !== null) {
+      if (!Array.isArray(o.submeshes) || o.submeshes.length === 0)
+        throw new Error(`${label}: submeshes must be a non-empty array of { material, start, count }, but got ${inspect(o.submeshes)}`);
+      subs = o.submeshes.map((sm, i) => {
+        if (!isObj(sm)) throw new Error(`${label}: submeshes[${i}] must be an object { material, start, count }, but got ${inspect(sm)}`);
+        return { material: meshMaterial(`${label}: submeshes[${i}]`, sm.material), start: sm.start, count: sm.count };
+      });
+    }
+    return [arrays, subs];
+  }
+  const meshIdOf = (label, x) => {
+    if (x instanceof Mesh) {
+      if (!x.$alive) throw new Error(`${label}: mesh ${x.id} was destroyed with mesh.destroy(); make it again with mesh.create()`);
+      return x.id;
+    }
+    if (typeof x !== "string")
+      throw new Error(`${label}: expected a mesh (what mesh.create returned) or its id like "mesh:1", but got ${inspect(x)}`);
+    return x;
+  };
+  class Mesh {
+    constructor(info) {
+      Object.defineProperty(this, "id", { value: info.id, enumerable: true });
+      Object.defineProperty(this, "$info", { value: info, writable: true });
+      Object.defineProperty(this, "$alive", { value: true, writable: true });
+    }
+    get vertexCount() { return this.$info.vertices; }
+    get triangleCount() { return this.$info.triangles; }
+    get bounds() { const b = this.$info.bounds; return { min: vec3(b.min), max: vec3(b.max) }; }
+    get submeshes() { return this.$info.submeshes.map((s) => ({ material: s.material, start: s.start, count: s.count })); }
+    get destroyed() { return !this.$alive; }
+    // False after destroy() and also when the scene that made the mesh was unloaded.
+    get alive() { return this.$alive && N.meshInfo(this.id) !== null; }
+    update(o) { return mesh.update(this, o); }
+    save(path) { return mesh.save(this, path); }
+    destroy() { mesh.destroy(this); }
+    toString() { return `Mesh(${this.id}, ${this.$info.vertices} vertices${this.$alive ? "" : ", destroyed"})`; }
+  }
+  const mesh = {
+    // create({ positions, indices, ... }): a mesh the renderer, physics and the editor use as MeshRenderer.mesh = m.id; see MeshAPI.
+    create(o) {
+      const label = "mesh.create({ positions, indices })";
+      const [arrays, subs] = meshArgs(label, o);
+      return new Mesh(N.meshCreate(arrays, subs));
+    },
+    // update(mesh, { positions?, ... }): new data for a live mesh; arrays left out are kept (normals and tangents are computed again).
+    update(m, o) {
+      const label = "mesh.update(mesh, { positions })";
+      const id = meshIdOf(label, m);
+      const [arrays, subs] = meshArgs(label, o);
+      const info = N.meshUpdate(id, arrays, subs);
+      if (m instanceof Mesh) { m.$info = info; return m; }
+      return info;
+    },
+    // destroy(mesh): frees the mesh; an entity that still names it draws the missing-mesh placeholder.
+    destroy(m) {
+      if (m instanceof Mesh && !m.$alive) return;  // twice is fine
+      const id = meshIdOf("mesh.destroy(mesh)", m);
+      if (m instanceof Mesh) {
+        if (N.meshInfo(id) === null) { m.$alive = false; return; }  // its scene was unloaded: already released
+        m.$alive = false;
+      }
+      N.meshDestroy(id);
+    },
+    // save(mesh, path): writes the mesh as a .glb that loads back as a normal model; returns the path written.
+    save(m, path) {
+      const id = meshIdOf("mesh.save(mesh, path)", m);
+      if (typeof path !== "string" || path === "")
+        throw new Error(`mesh.save(mesh, path): path must be a project-relative file name ending in .glb, e.g. mesh.save(m, "assets/models/tree.glb"), but got ${inspect(path)}`);
+      return N.meshSave(id, path);
+    },
+    // exists(idOrMesh): true while the mesh is alive in the current scene.
+    exists(m) {
+      const id = m instanceof Mesh ? m.id : m;
+      return typeof id === "string" && N.meshInfo(id) !== null;
+    },
+    list() { return N.meshList(); },
+  };
+
   // ---- nav: path finding on the baked NavMesh3D (docs/NAVIGATION.md) ----
+  // A grid kept natively (nav.createGrid) and flow fields over it (nav.flowField); docs/NAVIGATION.md, "Reusable grids".
+  const navCellArgs = (label, a, b) => {
+    let c = a, r = b;
+    if (b === undefined && a && typeof a === "object") { if (Array.isArray(a)) { c = a[0]; r = a[1]; } else { c = a.col; r = a.row; } }
+    if (!Number.isFinite(c) || !Number.isFinite(r))
+      throw new Error(`${label}: expected a cell (col, row) of two numbers, or { col, row }, but got ${inspect(a)}${b === undefined ? "" : ", " + inspect(b)}`);
+    return [Math.floor(c), Math.floor(r)];
+  };
+  const navPathResult = (r) => {
+    const out = { found: r.found, complete: r.complete, cells: r.cells.map((c) => ({ col: c[0], row: c[1] })),
+                  points: r.points.map((p) => new Vec2(p[0], p[1])), cost: r.cost, length: r.length };
+    if (!r.found) { out.reason = r.reason; out.message = r.message; out.hint = r.hint; }
+    return out;
+  };
+  const navTileOpts = (o) => {
+    const args = {};
+    if (o) for (const k of ["diagonals", "maxNodes", "closest", "allowBlockedGoal"]) if (o[k] !== undefined) args[k] = o[k];
+    return args;
+  };
+  class NavGrid {
+    constructor(h, width, height) {
+      Object.defineProperty(this, "$h", { value: h });
+      Object.defineProperty(this, "width", { value: width, enumerable: true });
+      Object.defineProperty(this, "height", { value: height, enumerable: true });
+    }
+    get version() { return N.navGridVersion(this.$h)[0]; }
+    setCost(col, row, cost) {
+      const [c, r] = navCellArgs("grid.setCost(col, row, cost)", col, row);
+      if (c < 0 || r < 0 || c >= this.width || r >= this.height)
+        throw new Error(`grid.setCost(col, row, cost): cell (${c}, ${r}) is outside the ${this.width} x ${this.height} grid (cells are 0-based, row 0 = top)`);
+      if (cost !== null && typeof cost !== "number") throw new Error(`grid.setCost(col, row, cost): cost must be a number >= 0 (Infinity or null blocks the cell), but got ${inspect(cost)}`);
+      N.navGridSet(this.$h, c, r, cost);
+    }
+    getCost(col, row) {
+      const [c, r] = navCellArgs("grid.getCost(col, row)", col, row);
+      if (c < 0 || r < 0 || c >= this.width || r >= this.height)
+        throw new Error(`grid.getCost(col, row): cell (${c}, ${r}) is outside the ${this.width} x ${this.height} grid (cells are 0-based, row 0 = top)`);
+      const v = N.navGridGet(this.$h, c, r);
+      return v < 0 ? Infinity : v;
+    }
+    setCosts(cost) {
+      if (!cost || cost.length !== this.width * this.height)
+        throw new Error(`grid.setCosts(cost): expected ${this.width * this.height} numbers (${this.width} x ${this.height}, row-major), but got ${cost && cost.length !== undefined ? cost.length + " entries" : inspect(cost)}`);
+      N.navGridFill(this.$h, cost);
+    }
+    findPath(from, to, o) { return nav.findTilePath(this, from, to, o); }
+  }
+  class NavFlowField {
+    constructor(h, grid, goals, diagonals) {
+      Object.defineProperty(this, "$h", { value: h });
+      Object.defineProperty(this, "grid", { value: grid, enumerable: true });
+      Object.defineProperty(this, "goals", { value: goals, enumerable: true });
+      Object.defineProperty(this, "diagonals", { value: diagonals, enumerable: true });
+    }
+    get rebuilds() { return N.navGridVersion(this.$h)[1]; }
+    distance(col, row) {
+      const [c, r] = navCellArgs("field.distance(col, row)", col, row);
+      return N.navFlowDist(this.$h, c, r);
+    }
+    stepToward(col, row) {
+      const [c, r] = navCellArgs("field.stepToward(col, row)", col, row);
+      const n = N.navFlowStep(this.$h, c, r);
+      return n ? { col: n[0], row: n[1] } : null;
+    }
+    pathFrom(col, row) {
+      const [c, r] = navCellArgs("field.pathFrom(col, row)", col, row);
+      const flat = N.navFlowPath(this.$h, c, r);
+      const out = new Array(flat.length >> 1);
+      for (let i = 0; i < out.length; i++) out[i] = { col: flat[2 * i], row: flat[2 * i + 1] };
+      return out;
+    }
+  }
   const nav = {
+    // createGrid({ width, height, cost?, origin?, cellSize? }): the cost grid kept natively; see NavGrid.
+    createGrid(o) {
+      const label = "nav.createGrid({ width, height, cost })";
+      if (!o || typeof o !== "object" || !Number.isInteger(o.width) || !Number.isInteger(o.height) || o.width < 1 || o.height < 1)
+        throw new Error(`${label}: width and height must be whole numbers >= 1, but got ${inspect(o)}`);
+      if (o.cost !== undefined && (!o.cost || typeof o.cost.length !== "number" || o.cost.length !== o.width * o.height))
+        throw new Error(`${label}: cost must hold width * height = ${o.width * o.height} numbers (row-major, row 0 = top), but got ${o.cost && o.cost.length !== undefined ? o.cost.length + " entries" : inspect(o.cost)}`);
+      const origin = o.origin !== undefined ? vecArr(o.origin, 2, `${label} origin`) : [0, 0];
+      const cs = o.cellSize === undefined ? [1, 1] : typeof o.cellSize === "number" ? [o.cellSize, o.cellSize] : vecArr(o.cellSize, 2, `${label} cellSize`);
+      return new NavGrid(N.navGridNew(o.width, o.height, o.cost, origin[0], origin[1], cs[0], cs[1]), o.width, o.height);
+    },
+    // flowField(grid, goals, { diagonals }): the cost to the nearest goal from every cell; see NavFlowField.
+    flowField(grid, goals, o) {
+      const label = "nav.flowField(grid, goals)";
+      if (!(grid instanceof NavGrid)) throw new Error(`${label}: \`grid\` must come from nav.createGrid, but got ${inspect(grid)}`);
+      if (Array.isArray(goals) && goals.length === 0) throw new Error(`${label}: pass at least one goal cell, e.g. nav.flowField(grid, [{ col: 3, row: 2 }])`);
+      const list = Array.isArray(goals) && goals.length > 0 && (typeof goals[0] === "object") ? goals : [goals];
+      const flat = [], cells = [];
+      for (const g of list) {
+        const [c, r] = navCellArgs(`${label} goal`, g);
+        if (c < 0 || r < 0 || c >= grid.width || r >= grid.height)
+          throw new Error(`${label}: goal (${c}, ${r}) is outside the ${grid.width} x ${grid.height} grid (cells are 0-based, row 0 = top)`);
+        flat.push(c, r);
+        cells.push({ col: c, row: r });
+      }
+      if (cells.length === 0) throw new Error(`${label}: pass at least one goal cell, e.g. nav.flowField(grid, [{ col: 3, row: 2 }])`);
+      const diagonals = !!(o && o.diagonals);
+      return new NavFlowField(N.navFlowNew(grid.$h, flat, diagonals), grid, cells, diagonals);
+    },
     // findPath(from, to, { radius, snap, closest, mesh }): { found, points: Vec3[], length, complete, mesh } or
     // { found: false, reason, message, hint, nearest?, nearestDistance? }. Never throws for "no route".
     findPath(from, to, o) {
@@ -1819,14 +3191,230 @@
       }
       return out;
     },
+    // findTilePath(map, from, to, { costs, diagonals, maxNodes, closest, allowBlockedGoal }): A* over the cells of a Tilemap
+    // entity (or its id) or of a grid { width, height, cost, origin?, cellSize? } (docs/NAVIGATION.md, "Tile paths").
+    // Cells are { col, row } or [col, row], row 0 = top. Result { found, complete, cells: {col,row}[], points: Vec2[], cost,
+    // length } or { found: false, reason, message, hint }. Never throws for "no route".
+    findTilePath(map, from, to, o) {
+      const label = "nav.findTilePath(map, from, to)";
+      const cell = (c, what) => {
+        const a = Array.isArray(c) ? c : (c && typeof c === "object" && "col" in c && "row" in c) ? [c.col, c.row] : null;
+        if (!a || a.length !== 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1]))
+          throw new Error(`${label}: \`${what}\` must be a cell { col, row } or [col, row] (0-based, row 0 = top), but got ${inspect(c)}`);
+        return [a[0], a[1]];
+      };
+      const args = { from: cell(from, "from"), to: cell(to, "to") };
+      if (map instanceof NavGrid) return navPathResult(N.navGridPath(map.$h, args.from, args.to, navTileOpts(o)));
+      if (typeof map === "string") args.tilemap = map;
+      else if (map instanceof Entity) args.tilemap = map.id;
+      else if (map && typeof map === "object" && Array.isArray(map.cost)) {
+        const cost = new Array(map.cost.length);
+        for (let i = 0; i < cost.length; i++) { const c = map.cost[i]; cost[i] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : -1; }
+        args.grid = { width: map.width, height: map.height, cost };
+        if (map.origin !== undefined) args.grid.origin = vecArr(map.origin, 2, `${label} grid.origin`);
+        if (map.cellSize !== undefined) args.grid.cellSize = typeof map.cellSize === "number" ? map.cellSize : vecArr(map.cellSize, 2, `${label} grid.cellSize`);
+      } else throw new Error(`${label}: \`map\` must be an entity with a Tilemap (or its id), a grid made by nav.createGrid, or a grid { width, height, cost: number[] }, but got ${inspect(map)}`);
+      if (o) {
+        for (const k of ["diagonals", "maxNodes", "closest", "allowBlockedGoal"]) if (o[k] !== undefined) args[k] = o[k];
+        if (o.costs !== undefined) {
+          const costs = {};
+          for (const k of Object.keys(o.costs)) { const c = o.costs[k]; costs[k] = (typeof c === "number" && c >= 0 && c !== Infinity) ? c : null; }
+          args.costs = costs;
+        }
+      }
+      return navPathResult(N.navFindTilePath(args));
+    },
+    // tileVersion(tilemap): a counter that goes up whenever the Tilemap's tiles change (setTile, tilemap.set_tile or a write
+    // that replaces `tiles`); compare it with the value you saw when you searched to know a path is stale.
+    tileVersion(tilemap) {
+      const e = typeof tilemap === "string" ? world.find(tilemap) : tilemap;
+      if (!(e instanceof Entity)) throw new Error(`nav.tileVersion(tilemap) expects an entity with a Tilemap or its id, but got ${inspect(tilemap)}`);
+      return N.tileVersion(e.$h);
+    },
     // bake(mesh?): bakes now (autoBake does it by itself) and returns the stats.
     bake(mesh) { return N.navBake(mesh === undefined ? "" : String(mesh)); },
   };
 
+  // ================================================================================================================== bt
+  // bt: a small behaviour tree in plain JS (docs/SCRIPTING.md, "AI: behaviour trees"). Deterministic: time only advances by
+  // the dt the script passes to tick().
+  const BT_SUCCESS = "success", BT_FAILURE = "failure", BT_RUNNING = "running";
+  const btNode = (label, node) => node;
+  function btChildren(label, list) {
+    list.forEach((c, i) => {
+      if (!c || typeof c.type !== "string") throw new Error(`bt.${label}: child ${i} is not a node (${inspect(c)}); build nodes with bt.sequence, bt.selector, bt.parallel, bt.condition, bt.action, bt.wait, bt.cooldown, bt.repeat, bt.inverter or bt.succeeder`);
+    });
+    return list;
+  }
+  // bt.parallel's optional first argument: { succeed: "all" | "any" }. Returns [options, children].
+  function btParallelArgs(args) {
+    let succeed = "all", children = args;
+    const first = args[0];
+    if (first !== undefined && first !== null && typeof first === "object" && typeof first.type !== "string") {
+      for (const k of Object.keys(first))
+        if (k !== "succeed") throw new Error(`bt.parallel: unknown option '${k}'; the only option is succeed ("all" or "any"), e.g. bt.parallel({ succeed: "any" }, childA, childB)`);
+      if (first.succeed !== undefined) succeed = first.succeed;
+      children = args.slice(1);
+    }
+    if (succeed !== "all" && succeed !== "any") throw new Error(`bt.parallel: option succeed must be "all" or "any", but got ${inspect(succeed)}; it fails as soon as one child fails either way`);
+    return [{ succeed }, btChildren("parallel", children)];
+  }
+  function btTimes(times) {
+    if (times !== undefined && !(Number.isInteger(times) && times >= 1))
+      throw new Error(`bt.repeat(child, times): times must be a whole number >= 1 (or left out to repeat forever), but got ${inspect(times)}`);
+    return times;
+  }
+  function btFn(label, fn) {
+    if (typeof fn !== "function") throw new Error(`bt.${label} expects a function, e.g. bt.${label}((bb) => bb.ready), but got ${inspect(fn)}`);
+    return fn;
+  }
+  function btSeconds(label, s) {
+    if (!(typeof s === "number" && s >= 0)) throw new Error(`bt.${label}(seconds): seconds must be a number >= 0, but got ${inspect(s)}`);
+    return s;
+  }
+  class BtTree {
+    // `blackboard` is the object every condition and action receives: the state of the thing the tree drives.
+    constructor(root, blackboard = {}) {
+      if (!root || typeof root.type !== "string") throw new Error(`new bt.Tree(root, blackboard): root must be a node built with bt.sequence, bt.selector, bt.action..., but got ${inspect(root)}`);
+      this.root = root; this.blackboard = blackboard; this.clock = 0; this.count = 0; this.dt = 0;
+      this.memory = new Map(); this.status = BT_FAILURE;
+    }
+    tick(dt) {
+      if (!(typeof dt === "number" && dt >= 0)) throw new Error(`tree.tick(dt): dt must be a number of seconds >= 0 (pass the dt of onUpdate), but got ${inspect(dt)}`);
+      this.clock += dt; this.count++; this.dt = dt;
+      this.status = this.run(this.root);
+      for (const [node, mem] of this.memory)
+        if (node.type === "action" && mem.running && mem.seen !== this.count) { mem.running = false; node.hooks?.onExit?.(this.blackboard, "aborted"); }
+      return this.status;
+    }
+    reset() {
+      for (const [node, mem] of this.memory) if (node.type === "action" && mem.running) node.hooks?.onExit?.(this.blackboard, "aborted");
+      this.memory.clear();
+    }
+    // Stops everything running under `node` (a child a bt.parallel ends while it still runs): running actions get
+    // onExit(bb, "aborted") and every other node starts fresh the next time it is ticked (a cooldown keeps its timer).
+    halt(node) {
+      const m = this.memory.get(node);
+      if (m) {
+        if (node.type === "action") { if (m.running) { m.running = false; node.hooks?.onExit?.(this.blackboard, "aborted"); } }
+        else m.seen = -10;
+      }
+      if (node.children) for (const c of node.children) this.halt(c);
+    }
+    mem(node) {
+      let m = this.memory.get(node);
+      if (!m) { m = { seen: -10 }; this.memory.set(node, m); }
+      if (m.seen !== this.count - 1 && m.seen !== this.count) {
+        const keep = node.type === "cooldown" ? m.until : undefined;
+        for (const k of Object.keys(m)) if (k !== "seen" && k !== "running") delete m[k];
+        if (keep !== undefined) m.until = keep;
+      }
+      m.seen = this.count;
+      return m;
+    }
+    run(node) {
+      const bb = this.blackboard;
+      switch (node.type) {
+        case "condition": this.mem(node); return node.fn(bb) ? BT_SUCCESS : BT_FAILURE;
+        case "action": {
+          const m = this.mem(node);
+          if (!m.running) { m.running = true; node.hooks?.onEnter?.(bb); }
+          const st = node.fn(bb, this.dt, this);
+          if (st !== BT_SUCCESS && st !== BT_FAILURE && st !== BT_RUNNING)
+            throw new Error(`bt.action: the function returned ${inspect(st)}; it must return bt.SUCCESS, bt.FAILURE or bt.RUNNING`);
+          if (st !== BT_RUNNING) { m.running = false; node.hooks?.onExit?.(bb, st); }
+          return st;
+        }
+        case "sequence": {
+          const m = this.mem(node);
+          for (let i = m.index ?? 0; i < node.children.length; i++) {
+            const st = this.run(node.children[i]);
+            if (st === BT_RUNNING) { m.index = i; return BT_RUNNING; }
+            if (st === BT_FAILURE) { m.index = 0; return BT_FAILURE; }
+          }
+          m.index = 0; return BT_SUCCESS;
+        }
+        case "selector": {
+          this.mem(node);
+          for (const child of node.children) { const st = this.run(child); if (st !== BT_FAILURE) return st; }
+          return BT_FAILURE;
+        }
+        case "parallel": {
+          // Ticks the children in order every tick. A child that succeeded is not ticked again until the node finishes.
+          // The first FAILURE fails the node; "all" succeeds when every child has succeeded, "any" at the first success.
+          const m = this.mem(node);
+          const done = m.done ?? (m.done = new Set());
+          let result = BT_RUNNING;
+          const running = [];
+          for (let i = 0; i < node.children.length; i++) {
+            if (done.has(i)) continue;
+            const st = this.run(node.children[i]);
+            if (st === BT_FAILURE) { result = BT_FAILURE; break; }
+            if (st === BT_SUCCESS) { done.add(i); if (node.succeed === "any") { result = BT_SUCCESS; break; } }
+            else running.push(i);
+          }
+          if (result === BT_RUNNING && node.succeed === "all" && done.size === node.children.length) result = BT_SUCCESS;
+          if (result === BT_RUNNING && node.children.length === 0) result = node.succeed === "all" ? BT_SUCCESS : BT_FAILURE;
+          if (result !== BT_RUNNING) { for (const i of running) this.halt(node.children[i]); m.done = undefined; }
+          return result;
+        }
+        case "repeat": {
+          // One run of the child per tick: after a SUCCESS the next run starts on the NEXT tick, so a child that succeeds
+          // at once cannot loop forever inside one tick.
+          const m = this.mem(node);
+          const st = this.run(node.children[0]);
+          if (st === BT_FAILURE) { m.count = 0; return BT_FAILURE; }
+          if (st === BT_SUCCESS) {
+            m.count = (m.count ?? 0) + 1;
+            if (node.times !== undefined && m.count >= node.times) { m.count = 0; return BT_SUCCESS; }
+          }
+          return BT_RUNNING;
+        }
+        case "wait": {
+          const m = this.mem(node);
+          m.waited = (m.waited ?? 0) + this.dt;
+          if (m.waited >= node.seconds) { m.waited = 0; return BT_SUCCESS; }
+          return BT_RUNNING;
+        }
+        case "cooldown": {
+          const m = this.mem(node);
+          if (m.until !== undefined && this.clock < m.until) return BT_FAILURE;
+          const st = this.run(node.children[0]);
+          if (st !== BT_RUNNING) m.until = this.clock + node.seconds;
+          return st;
+        }
+        case "inverter": {
+          this.mem(node);
+          const st = this.run(node.children[0]);
+          return st === BT_SUCCESS ? BT_FAILURE : st === BT_FAILURE ? BT_SUCCESS : BT_RUNNING;
+        }
+        case "succeeder": {
+          this.mem(node);
+          const st = this.run(node.children[0]);
+          return st === BT_RUNNING ? BT_RUNNING : BT_SUCCESS;
+        }
+      }
+      throw new Error(`bt: unknown node type '${node.type}'; build nodes with bt.sequence, bt.selector, bt.parallel, bt.condition, bt.action, bt.wait, bt.cooldown, bt.repeat, bt.inverter or bt.succeeder`);
+    }
+  }
+  const bt = {
+    SUCCESS: BT_SUCCESS, FAILURE: BT_FAILURE, RUNNING: BT_RUNNING, Tree: BtTree,
+    sequence: (...children) => btNode("sequence", { type: "sequence", children: btChildren("sequence", children) }),
+    selector: (...children) => btNode("selector", { type: "selector", children: btChildren("selector", children) }),
+    parallel: (...args) => { const [o, children] = btParallelArgs(args); return { type: "parallel", succeed: o.succeed, children }; },
+    condition: (fn) => ({ type: "condition", fn: btFn("condition", fn) }),
+    action: (fn, hooks = {}) => ({ type: "action", fn: btFn("action", fn), hooks }),
+    wait: (seconds) => ({ type: "wait", seconds: btSeconds("wait", seconds) }),
+    cooldown: (seconds, child) => ({ type: "cooldown", seconds: btSeconds("cooldown", seconds), children: btChildren("cooldown", [child]) }),
+    repeat: (child, times) => ({ type: "repeat", times: btTimes(times), children: btChildren("repeat", [child]) }),
+    inverter: (child) => ({ type: "inverter", children: btChildren("inverter", [child]) }),
+    succeeder: (child) => ({ type: "succeeder", children: btChildren("succeeder", [child]) }),
+  };
+
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, nav, time, camera, debug, scene, game, screen, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
-    window: windowApi, tween, ease, cancelTweens,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
+    window: windowApi, clipboard: clipboardApi, render, mesh, tween, ease, cancelTweens, bt,
   };
 
   // ============================================================================================ eval serialization
@@ -1915,7 +3503,7 @@
       const want = path instanceof RegExp ? path : String(path).replace(/^\.\//, "");
       const pathOk = (p) => (want instanceof RegExp ? p.search(want) >= 0 : p === want || p.endsWith("/" + want));
       const source = o.source instanceof Entity ? o.source.id : o.source;
-      const hits = received.filter((x) => x.ok !== false && pathOk(x.path) && (o.bus === undefined || x.bus === o.bus) &&
+      const hits = received.filter((x) => x.kind !== "setVoiceVolume" && x.ok !== false && pathOk(x.path) && (o.bus === undefined || x.bus === o.bus) &&
         (source === undefined || x.source === source));
       const pass = o.times === undefined ? hits.length > 0 : hits.length === o.times;
       let expectedText = `a play of ${want instanceof RegExp ? want : JSON.stringify(want)}`;
@@ -1924,6 +3512,7 @@
       if (source !== undefined) expectedText += ` from entity "${source}"`;
       const groups = new Map();
       for (const x of received) {
+        if (x.kind === "setVoiceVolume") continue;
         const key = x.path + (x.ok === false ? " (FAILED TO LOAD: see the audio error in the log)" : ` [${x.bus}]`);
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(x.frame);
@@ -2083,11 +3672,16 @@
   }
 
   const stepN = (n) => N.testStep(n);
-  // A position, or a widget id / Entity: the centre of its laid-out rectangle (the safe area is included; a widget moves one
-  // game.step after game.setSafeArea).
-  const posArg = (p, what) => {
+  // A position, or a widget id / Entity (an Interactable too, also one in world space): the centre of its laid-out rectangle (the
+  // safe area is included; a widget moves one game.step after game.setSafeArea).
+  // A widget is laid out first (a panel opened since the last step has no rectangle yet) and one that cannot be clicked throws.
+  const posArg = (p, what, check = true) => {
     if (typeof p === "string" || p instanceof Entity) {
-      const r = N.screenRect(entityHandle(p, what));
+      const h = entityHandle(p, what);
+      N.uiLayout();
+      const why = what === "game.mouseMove" || !check ? null : N.uiUnclickable(h);
+      if (why) throw new Error(`${what}: ${inspect(p)} cannot be clicked: ${why}`);
+      const r = N.screenRect(h);
       if (r === null) throw new Error(`${what}: ${inspect(p)} has no screen rectangle: pass a UI widget or a screen-space Text, or a position {x, y}`);
       return [r[0] + r[2] / 2, r[1] + r[3] / 2];
     }
@@ -2102,32 +3696,77 @@
     get focused() { return game.focused; },
     // setDate("2026-10-23"): the date game.today() answers until the test ends (every test starts from the date of the run:
     // 2026-01-01, or --date). An impossible date (2026-02-29) or a wrong shape throws and says what is wrong.
-    setDate(iso) {
-      if (typeof iso !== "string") throw new Error(`game.setDate(iso) expects a string like "2026-10-23", but got ${inspect(iso)}`);
-      const err = N.testSetDate(iso);
+    // The string may carry a time ("2026-10-23T23:59:30"; midnight otherwise) and options.utcOffsetMinutes sets the time zone. A move
+    // to another local day sends the "dayChanged" event to game.on listeners once.
+    setDate(iso, options = {}) {
+      if (typeof iso !== "string") throw new Error(`game.setDate(iso) expects a string like "2026-10-23" or "2026-10-23T23:59:30", but got ${inspect(iso)}`);
+      const off = isObj(options) ? options.utcOffsetMinutes : undefined;
+      if (off !== undefined && !Number.isInteger(off)) throw new Error(`game.setDate(iso, { utcOffsetMinutes }) expects a whole number of minutes east of UTC (60 = UTC+1), but got ${inspect(off)}`);
+      const err = N.testSetDate(iso, off);
       if (err) throw new Error(err);
     },
     // suspend() / resume(): the app goes to the background and comes back, as on a phone: sends the "suspend" / "resume" event to
     // game.on listeners at once and, with pauseOnSuspend (default), freezes the game and the music in between. focus() / blur():
     // the window gains or loses the focus (game.focused). Every test starts focused and running.
+    // closeWindow(): the player clicks the window's close button (Cmd+Q, Alt+F4): sends the game.on("quit") event at once.
+    // Returns true when the window would close (game.quitRequested is then true), false when a handler cancelled it.
+    closeWindow() { return N.testCloseWindow(); },
     suspend() { N.testAppEvent(0); },
     resume() { N.testAppEvent(1); },
     focus() { N.testAppEvent(2); },
     blur() { N.testAppEvent(3); },
-    load(path) {
-      const err = N.testLoad(path);
+    load(path, props) {
+      const err = N.testLoad(path, props);
       if (err) throw new Error(`game.load('${path}') failed: ${err}`);
     },
     setStorageText(text) { N.testStorageText(text === null || text === undefined ? null : String(text)); },
     step(frames = 1) { stepN(frames); },
     press(action) { N.inSetAction(action, true); },
     release(action) { N.inSetAction(action, false); },
-    tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
+    // Taps what a player would press for the action: its first key binding (a chord such as "Ctrl+Z" included), else its first
+    // gamepad button, held over one step and let go over the next. The UI and every other action bound to the same key or button
+    // see it too, so game.tap("ui_submit") presses the focused Button or Toggle and game.tap("interact") does what Space does when
+    // Space is also ui_submit. An action with no key or button binding (a stick, the mouse, no binding at all) is held as the
+    // action itself, which only that action's readers see.
+    tap(action) {
+      const list = N.inBindings(action);
+      const key = list.find((b) => !/^(Mouse|Touch|Gamepad)/.test(b.split("+").pop()));
+      if (key !== undefined) { gameApiBase.tapKey(key); return; }
+      const pad = list.find((b) => /^Gamepad(?!.*(Stick|Trigger))/.test(b));
+      if (pad !== undefined) {
+        const button = pad.slice("Gamepad".length);
+        let pressed = false;
+        try { N.testPad(0, 0, button, 0); pressed = true; } catch (e) { /* not a button */ }
+        if (pressed) { stepN(1); N.testPad(1, 0, button, 0); stepN(1); return; }
+      }
+      N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1);
+    },
+    // Presses a key and releases it over one frame, like tap does for an action (keyDown / keyUp hold it): game.tapKey("Enter")
+    // submits the focused TextField. `key` is a key name such as "Enter", "Escape", "A", or a chord: tapKey("Ctrl+Z") holds Ctrl
+    // while Z is tapped and lets go of it after. keyDown/keyUp take "Ctrl", "Shift", "Alt" and "Super" (the left key) too, so a
+    // test holds a modifier over several steps: keyDown("Shift"); click(pos); keyUp("Shift").
+    tapKey(key) {
+      const parts = typeof key === "string" && key.includes("+") && key.trim() !== "+" ? key.split("+").map((p) => p.trim()) : [key];
+      const main = parts.pop();
+      for (const m of parts) N.inKeyEvent(m, true);
+      N.inKeyEvent(main, true); stepN(1); N.inKeyEvent(main, false);
+      for (const m of parts.reverse()) N.inKeyEvent(m, false);
+      stepN(1);
+    },
+    // The layout problems of what is on screen now, panels a test opened included, without reloading the scene: the command
+    // ui.check_layout with current: true. options (all optional): languages, textScales, uiScales, pseudo, settleFrames, as in the
+    // command. It steps a few frames per case and puts the language, text size and interface scale back. Returns
+    // { ok, issueCount, issues: [{ kind: "overflow" | "overlap" | "offscreen" | "tooltip", entity, path, key, text, rect, cases }] }:
+    // expect(game.checkLayout().issues).toEqual([]) after opening a panel.
+    checkLayout(options = {}) {
+      if (!isObj(options)) throw new Error(`game.checkLayout(options) expects an object like { textScales: [1, 2] }, but got ${inspect(options)}`);
+      return fa.call("ui.check_layout", { ...plain(options), current: true });
+    },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
     // Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change
     // {id, value} is sent when the number changed (to ui.on listeners at the next step). Writing Slider.value from a script
-    // sends nothing; this does. Throws when the entity is no Slider, or is inactive or not interactable.
+    // sends nothing; this does. Works on an Interactable of kind "slider" too. Throws when the entity is no slider, or is inactive or not interactable.
     setSlider(id, value) {
       if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`game.setSlider(id, value) expects a number, but got ${inspect(value)}`);
       fa.call("ui.set_slider", { id: typeof id === "string" ? id : (id && id.id) || String(id), value });
@@ -2144,7 +3783,23 @@
         release(button) { N.testPad(1, index, button, 0); },
         tap(button) { N.testPad(0, index, button, 0); stepN(1); N.testPad(1, index, button, 0); stepN(1); },
         axis(name, value) { N.testPad(2, index, name, value); },
-        connect() { N.testPad(3, index, "", 0); },
+        // connect(info?): info = { id?, name?, type?, vendor?, product? } says who the pad is (the "gamepadConnected" event and
+        // input.gamepad(i).id carry it); one left out keeps what the slot had. Without an id one is made from vendor, product and name.
+        connect(info) {
+          if (info !== undefined) {
+            const keys = ["id", "name", "type", "vendor", "product"];
+            if (!isObj(info)) throw new Error(`game.gamepad(${index}).connect(info) expects { id?, name?, type?, vendor?, product? }, but got ${inspect(info)}`);
+            for (const k of Object.keys(info)) {
+              if (keys.includes(k)) continue;
+              const sug = closest(k, keys);
+              throw new Error(`game.gamepad(${index}).connect: unknown field '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use ${keys.join(", ")}.`);
+            }
+            for (const k of ["id", "name", "type"]) if (info[k] !== undefined && typeof info[k] !== "string") throw new Error(`game.gamepad(${index}).connect: ${k} must be a string, but got ${inspect(info[k])}`);
+            for (const k of ["vendor", "product"]) if (info[k] !== undefined && !(Number.isInteger(info[k]) && info[k] >= 0 && info[k] <= 65535)) throw new Error(`game.gamepad(${index}).connect: ${k} must be an integer from 0 to 65535 (a USB id), but got ${inspect(info[k])}`);
+            if (info.type !== undefined) N.testPad(6, index, info.type, 0);  // validates the family
+          }
+          N.testPad(3, index, "", 0, info === undefined ? undefined : plain(info));
+        },
         disconnect() { N.testPad(4, index, "", 0); },
         // Plugs the pad in as this family, for input.buttonName("jump") and input.gamepad(i).type: "xbox", "playstation",
         // "nintendo", "steamdeck" or "generic". Tests start with "generic" pads.
@@ -2164,21 +3819,24 @@
         throw new Error(`game.setSystemLanguages(list) expects an array of language tags like ["es-ES", "en"], but got ${inspect(list)}`);
       N.testSystemLanguages(list.slice());
     },
-    // Resets what tests of one file share: { storage = true, platform = true }. storage clears the save data (what storage.get
-    // sees) and any game.setStorageText text; platform runs platform.reset (nothing bought, unlocked or scripted, signed in, no
-    // leaderboard scores) and puts the test ad and consent answers back. Each test file already starts clean.
+    // Resets what tests of one file share: { storage = true, platform = true, audio = true }. storage clears the save data (what
+    // storage.get sees) and any game.setStorageText text; platform runs platform.reset (nothing bought, unlocked or scripted,
+    // signed in, no leaderboard scores) and puts the test ad and consent answers back; audio stops the music (persist: true
+    // included, at once, no fade) and every voice, so the next audio.music of the same track starts it again and shows in
+    // game.audioLog(). The play log itself is cleared before each test, not here. Each test file already starts clean.
     resetState(options) {
       const o = options === undefined ? {} : options;
-      if (!isObj(o)) throw new Error(`game.resetState(options) expects { storage?: boolean, platform?: boolean }, but got ${inspect(options)}`);
+      if (!isObj(o)) throw new Error(`game.resetState(options) expects { storage?: boolean, platform?: boolean, audio?: boolean }, but got ${inspect(options)}`);
       for (const k of Object.keys(o)) {
-        if (k === "storage" || k === "platform") {
+        if (k === "storage" || k === "platform" || k === "audio") {
           if (typeof o[k] !== "boolean") throw new Error(`game.resetState: ${k} must be true or false, but got ${inspect(o[k])}`);
           continue;
         }
-        const sug = closest(k, ["storage", "platform"]);
-        throw new Error(`game.resetState: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use storage and platform.`);
+        const sug = closest(k, ["storage", "platform", "audio"]);
+        throw new Error(`game.resetState: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use storage, platform and audio.`);
       }
       if (o.storage !== false) { N.testStorageText(null); N.storageClear(); }
+      if (o.audio !== false) { voiceEnded.clear(); N.audioStopAll(); N.audioStopMusic(0); }
       if (o.platform !== false) {
         try { fa.call("platform.reset"); fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); }
         catch (e) { /* a real backend: nothing to reset */ }
@@ -2231,11 +3889,20 @@
       const a = posArg(p, "game.click");
       N.inMouseMove(a[0], a[1]); N.inMouseEvent(button, true); stepN(1); N.inMouseEvent(button, false); stepN(1);
     },
+    // Drags with the left mouse button from a position or widget (its centre) to another: presses, moves in four steps of one frame
+    // (past the slop of a draggable widget, so dragStart and dragOver fire), then releases and steps once more. The target may be any
+    // widget, such as a Panel, or a position over the world.
+    drag(from, to) {
+      const a = posArg(from, "game.drag"), b = posArg(to, "game.drag", false);
+      N.inMouseMove(a[0], a[1]); N.inMouseEvent("left", true); stepN(1);
+      for (let i = 1; i <= 4; i++) { N.inMouseMove(a[0] + (b[0] - a[0]) * i / 4, a[1] + (b[1] - a[1]) * i / 4); stepN(1); }
+      N.inMouseEvent("left", false); stepN(1);
+    },
     // Files the engine has read from disk since the run started (a file warmed by preload and read later does not count
     // again). Compare two values: expect(game.fileReads()).toBe(before) proves that a load read nothing.
     fileReads() { return N.testDiskReads(); },
-    loadJson(scene) {
-      const err = N.testLoadJson(plain(scene));
+    loadJson(scene, props) {
+      const err = N.testLoadJson(plain(scene), props === undefined ? undefined : plain(props));
       if (err) throw new Error(`game.loadJson failed: ${err}`);
     },
     touchStart(p, id = 1) { const a = posArg(p, "game.touchStart"); N.testTouch(0, id, a[0], a[1]); },
@@ -2249,10 +3916,11 @@
     get world() { return world; },
     get time() { return time; },
     // Pretends to be another device: game.device follows (and window.supports for the window features). Takes any of
-    // { formFactor, gpuBackend, memoryGB, tier }; one left out keeps the headless value. Reset before every test.
+    // { formFactor, gpuBackend, memoryGB, tier, steamDeck, handheld }; one left out keeps the headless value (handheld follows a
+    // phone, tablet or Steam Deck). Reset before every test.
     setDevice(overrides) {
-      const keys = ["formFactor", "gpuBackend", "memoryGB", "tier"];
-      if (!isObj(overrides)) throw new Error(`game.setDevice(overrides) expects { formFactor?, gpuBackend?, memoryGB?, tier? }, e.g. game.setDevice({ formFactor: "phone", tier: "low" }), but got ${inspect(overrides)}`);
+      const keys = ["formFactor", "gpuBackend", "memoryGB", "tier", "steamDeck", "handheld"];
+      if (!isObj(overrides)) throw new Error(`game.setDevice(overrides) expects { formFactor?, gpuBackend?, memoryGB?, tier?, steamDeck?, handheld? }, e.g. game.setDevice({ formFactor: "phone", tier: "low" }), but got ${inspect(overrides)}`);
       for (const k of Object.keys(overrides)) {
         if (keys.includes(k)) continue;
         const sug = closest(k, keys);
@@ -2263,11 +3931,16 @@
       if (overrides.tier !== undefined && !tiers.includes(overrides.tier)) throw new Error(`game.setDevice: tier must be one of ${tiers.map((n) => `"${n}"`).join(", ")}, but got ${inspect(overrides.tier)}`);
       if (overrides.gpuBackend !== undefined && typeof overrides.gpuBackend !== "string") throw new Error(`game.setDevice: gpuBackend must be a string such as "metal", but got ${inspect(overrides.gpuBackend)}`);
       if (overrides.memoryGB !== undefined && (typeof overrides.memoryGB !== "number" || !(overrides.memoryGB >= 0))) throw new Error(`game.setDevice: memoryGB must be a number of gigabytes, but got ${inspect(overrides.memoryGB)}`);
-      N.testDevice(plain(overrides));
+      for (const k of ["steamDeck", "handheld"]) if (overrides[k] !== undefined && typeof overrides[k] !== "boolean") throw new Error(`game.setDevice: ${k} must be true or false, but got ${inspect(overrides[k])}`);
+      const o = plain(overrides);
+      // A Steam Deck is a handheld, and a phone or tablet is too, unless the test says otherwise.
+      if (o.handheld === undefined && (o.steamDeck === true || (o.formFactor !== undefined && o.formFactor !== "desktop"))) o.handheld = true;
+      N.testDevice(o);
     },
     // What the renderer drew in the picture now (draws a frame first when none was drawn yet, which a headless test may not
-    // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles,
-    // shadowCasters, lights, lightsDropped, materials, materialFallbacks, textureMB, width, height, renderScale }. Throws
+    // have done): { drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views,
+    // shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialFallbacks, textureMB, width, height,
+    // renderScale }. lights are the 3D lights, lights2d the Light2D ones (lights2dShadowed: those with a shadow). Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
     renderStats() {
       const s = N.renderStatsNow();
@@ -2306,14 +3979,38 @@
       // ad(outcome, options): how the fake's test ad ends from now on: "watched" (default), "closedEarly", "noFill" or
       // "consentRefused"; options { gdpr, tracking } are what platform.ads.consent() answers. reset() restores the defaults.
       ad(outcome, options = {}) { fa.call("platform.set_ad", { outcome, ...plain(options) }); },
+      // remotePlayConnect(info?): a guest joins Remote Play Together: info { guestName?, guestId?, deviceName?, formFactor?, resolution? }
+      // (what is left out is made up); remotePlay.sessions() lists the guest and platform.on("remotePlay") listeners get
+      // { status: "connected", session } at the next game.step(). Returns the session, with its id.
+      remotePlayConnect(info = {}) { return fa.call("platform.remote_play_connect", plain(info)); },
+      // remotePlayDisconnect(id): the guest with that session id leaves; listeners get { status: "disconnected", session }.
+      remotePlayDisconnect(id) { return fa.call("platform.remote_play_disconnect", { id }); },
       reset() { fa.call("platform.reset"); },
-      // set({ signedIn, delayFrames, backend }): signedIn false rejects everything with notSignedIn; delayFrames holds each
+      // set({ signedIn, delayFrames, backend, cloudClock }): signedIn false rejects everything with notSignedIn; delayFrames holds each
       // answer; backend "none" behaves as a game without a store (platform.has false, calls reject unavailable) until reset().
       // An unknown option throws with a "did you mean".
       set(options) { fa.call("platform.set_fake", plain(options)); },
       state() { return fa.call("platform.state"); },
       // Every request the game made: [{ seq, frame, method, args, ok, result | error }], oldest first.
       calls() { const s = fa.call("platform.state"); return s.fake ? s.fake.calls : []; },
+    },
+    // What analytics (docs/ANALYTICS.md) did in this test run, without a network: the batches go through http.fetch, so script the
+    // server with game.platform.respond("http.fetch", ...) (an unscripted request fails like an offline player and is retried).
+    analytics: {
+      // The events the server accepted (a 2xx answer), oldest first: [{ name, props, t }] (t = engine seconds since the run started).
+      sent() { return an.sent.map((e) => ({ name: e.name, props: Object.assign({}, e.props), t: e.t })); },
+      // Every request made: [{ endpoint, reason: "batch" | "timer" | "suspend" | "quit" | "flush", ok, status?, error?, events }].
+      requests() { return an.requests.map((r) => Object.assign({}, r, { events: r.events.map((e) => Object.assign({}, e)) })); },
+      // The events waiting for the next batch: [{ name, props, t }].
+      queued() { return an.queue.map((e) => ({ name: e.name, props: Object.assign({}, e.props), t: e.t })); },
+      // restart(): the next run of the game: the queue and the logs are forgotten, the player's consent stays (it is in storage).
+      restart() { analyticsReset(); },
+    },
+    // The remote config of this test run (docs/ANALYTICS.md): script the server with game.platform.respond("http.fetch", { json: {...} }).
+    remoteConfig: {
+      // restart(): the next run of the game: what remoteConfig holds in memory is forgotten and it fetches again at its next use,
+      // starting from the cache that earlier runs left in storage (an unscripted fetch fails: that is an offline player).
+      restart() { rcReset(); },
     },
   };
   // An unknown member (game.pasued) throws with a "did you mean" instead of being undefined.
@@ -2337,14 +4034,16 @@
       testCurrentName = t.name;
       N.resetInput();
       N.audioLog(true);
+      N.audioFxReset();
       N.spokenLog(true);
       N.captionClear();
       N.testAccessibility();
       N.testQuit(true);
+      N.clipboardSet("");
       N.testSystemLanguages();
       N.testDevice();
       if (N.renderScaleGet() !== 1) N.renderScaleSet(1);
-      N.setTimeScale(1); pausedScale = null;
+      N.setTimeScale(1); pausedScale = null; tweens.reset();
       N.testAppReset();
       // The fake's test ad ends "watched" and the consent sheets say granted again (the rest of the fake lasts the file).
       try { fa.call("platform.set_ad", { outcome: "watched", gdpr: "granted", tracking: "authorized" }); } catch (e) { /* a real backend: nothing to reset */ }
@@ -2379,23 +4078,26 @@
       results.push({ name: t.name, passed, message, ms: N.nowMs() - start, seq0, seq1: N.logSeq() });
     }
     N.resetInput();
-    N.setTimeScale(1); pausedScale = null;
+    N.setTimeScale(1); pausedScale = null; tweens.reset();
     testCurrentName = "";
     return results;
   }
 
   function resetScene() {
-    timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
+    voiceEnded.clear(); timers.reset(); tweens.reset(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; N.inCursor(4, false); pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
+    tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
   }
 
   return {
+    tooltipFor, worldTooltip, dropAccepts, worldDropAccepts,
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, back: deliverBack,
-    tick: (dt) => { timers.tick(dt); tickTweens(dt); },
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, storageDeliver, back: deliverBack,
+    tick: (dt) => { timers.tick(dt); tickTweens(dt); tickVoices(); },
+    serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),
-    entityDestroyed: (h) => { timers.dropOwner(h); entityCache.delete(h); },
+    entityDestroyed: (h) => { timers.dropOwner(h); dropOwnedTweens(h); entityCache.delete(h); tooltipFns.delete(h); dropFns.delete(h); },
     entity: (h) => entityOf(h),
     emit: emitToListeners,
     testBegin, testRun, testCurrent,

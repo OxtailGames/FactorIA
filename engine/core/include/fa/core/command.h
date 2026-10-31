@@ -45,6 +45,30 @@ struct CommandInfo {
 
 using CommandHandler = std::function<Json(const Json& args)>;
 
+// Progress of a long-running command (ai.run...). The code that calls the registry (the MCP server answering a
+// tools/call that carries a progressToken) installs a sink with a CommandProgressScope on the calling thread; the
+// handler reports short human-readable messages ("worker: Bash cmake --build") through report_command_progress().
+// The sink forwards them (MCP notifications/progress) and returns false when nobody listens any more. With no sink
+// installed, reporting is a no-op, so handlers call it unconditionally. The scope is per thread: a handler that moves
+// its work to another thread must report from the thread the registry called it on.
+using CommandProgressSink = std::function<bool(std::string_view message)>;
+
+class CommandProgressScope {
+public:
+    explicit CommandProgressScope(CommandProgressSink sink);
+    ~CommandProgressScope();
+    CommandProgressScope(const CommandProgressScope&) = delete;
+    CommandProgressScope& operator=(const CommandProgressScope&) = delete;
+
+private:
+    CommandProgressSink previous_;
+};
+
+// True if the calling thread is inside a CommandProgressScope (someone listens).
+bool command_progress_active();
+// Sends `message` to the installed sink; returns false if there is none or it reported that nobody listens.
+bool report_command_progress(std::string_view message);
+
 // Outcome of a call. `result` is the handler's JSON on success; on failure
 // `error` = {"code": .., "message": .., "hint": ..}.
 struct CommandResult {
@@ -70,12 +94,19 @@ public:
     // [{name, summary, description, inputSchema, readOnly, category}, ...]
     Json describe() const;
 
+    // Called at the start of every outermost call() (not for calls made from inside a running handler), before the
+    // command is looked up, with the command name. The script system uses it to re-import project tools edited on disk,
+    // which replaces commands: that is only safe while no handler is running. Empty = none.
+    void set_before_call(std::function<void(std::string_view)> hook) { beforeCall_ = std::move(hook); }
+
 private:
     struct Entry {
         CommandInfo info;
         CommandHandler handler;
     };
     std::map<std::string, Entry, std::less<>> commands_;
+    std::function<void(std::string_view)> beforeCall_;
+    mutable int callDepth_ = 0;
 };
 
 }  // namespace fa

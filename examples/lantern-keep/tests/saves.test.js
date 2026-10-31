@@ -112,7 +112,7 @@ test("a locked level does not start", () => {
   fresh();
   pad().tap("A");
   pad().tap("A");
-  expect(() => ui.focus(game.find("lvl_2-3"))).toThrow(/interactable/); // the pad cannot reach a locked level
+  expect(ui.focus(game.find("lvl_2-3"))).toBe(false); // the pad cannot reach a locked level
   pad().tap("A");
   waitForScene("scenes/levels/1-1.scene.json");
 });

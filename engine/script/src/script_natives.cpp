@@ -1,5 +1,6 @@
 // Native functions exposed to the JavaScript prelude as the object `N`. Everything the engine offers to scripts
 // goes through here; ergonomics (views, classes, timers, matchers) live in src/js/factoria.js.
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -17,11 +18,14 @@
 #include "fa/core/notices.h"
 #include "fa/core/strings.h"
 #include "fa/platform/accessibility.h"
+#include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
 #include "fa/platform/system_language.h"
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/camera_query.h"
 #include "fa/scene/animation.h"
+#include "fa/scene/sprite_animator.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/localize.h"
 #include "fa/scene/text_fit.h"
@@ -228,64 +232,212 @@ std::filesystem::path corrupt_keep_path() {
 }
 }  // namespace
 
-void Impl::load_storage() {
-    if (storageLoaded) return;
-    storageLoaded = true;
-    storage = Json::object();
-    storageCorrupt = false;
-    const bool hooked = storageTextHook.has_value();
-    if (storageMode == StorageMode::Memory && !hooked) return;
-    const std::filesystem::path file = fs::user_dir() / "storage.json";
-    std::string text;
-    if (hooked) {
-        text = *storageTextHook;
-    } else {
-        std::ifstream f(file, std::ios::binary);
-        if (!f) return;  // no save yet
-        std::stringstream ss;
-        ss << f.rdbuf();
-        text = ss.str();
-    }
-    Json j = Json::parse(text, nullptr, false);
-    if (j.is_object()) {
-        storage = std::move(j);
-        return;
-    }
-    // Damaged. Keep the bytes: the next save would otherwise replace them with the new data.
-    storageCorrupt = true;
-    if (hooked) {  // a test: nothing is on disk to keep
-        log(LogLevel::Warn, "script",
-            "the text game.setStorageText gave does not parse: storage.corrupt is true and storage starts empty (a test never "
-            "writes the real save)");
-        return;
-    }
+namespace {
+std::string read_whole_file(const std::filesystem::path& file, bool& ok) {
+    std::ifstream f(file, std::ios::binary);
+    ok = bool(f);
+    std::stringstream ss;
+    if (f) ss << f.rdbuf();
+    return ss.str();
+}
+
+// Keeps a damaged file under a name nothing else uses, and says so. Returns false when it could not be kept.
+bool keep_damaged(const std::filesystem::path& file, const std::string& text, const std::string& what) {
     const std::filesystem::path keep = corrupt_keep_path();
     std::error_code ec;
     std::filesystem::rename(file, keep, ec);
     if (ec) {  // e.g. another volume: copy the bytes instead
         auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
         if (!w) {
-            log(LogLevel::Warn, "script", "storage.json does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
+            log(LogLevel::Warn, "script", what + " does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
                                               ". The next save will replace it; copy it by hand now if it matters.");
-            return;
+            return false;
         }
     }
     fs::user_dir_changed();
     log(LogLevel::Warn, "script",
-        "storage.json does not parse (damaged by a crash or a bad edit?); it was kept as " + keep.filename().string() + " in " +
-            fs::user_dir().string() + " and the game starts with empty save data. A script can check storage.corrupt at start to tell the player.");
+        what + " does not parse (damaged by a crash or a bad edit?); it was kept as " + keep.filename().string() + " in " + fs::user_dir().string() +
+            " and the game starts without it. A script can check storage.corrupt at start to tell the player.");
+    return true;
 }
+}  // namespace
 
-void Impl::save_storage() {
-    if (storageMode == StorageMode::Memory) return;
-    // Atomic (temporary file, then rename): a crash during the save leaves the previous storage.json intact.
-    const std::string text = dump_json(storage);
-    auto r = fs::write_bytes((fs::user_dir() / "storage.json").generic_string(), text.data(), text.size());
+void Impl::storage_write(const std::string& key, bool compress) {
+    const std::string valueText = storage[key].dump(-1, ' ', false, Json::error_handler_t::replace);
+    const std::string text = storage_files::encode(key, valueText, compress);
+    const std::filesystem::path file = storage_files::dir() / storage_files::file_name(key);
+    auto r = fs::write_bytes(file.generic_string(), text.data(), text.size());  // temporary file, then rename: atomic
     if (!r) {
-        log(LogLevel::Warn, "script", "cannot write storage.json in " + fs::user_dir().string() + ": " + r.error().message);
+        log(LogLevel::Warn, "script", "cannot write " + file.string() + " for storage key '" + key + "': " + r.error().message);
         return;
     }
+    storageMeta[key] = {compress, static_cast<std::int64_t>(text.size())};
     fs::user_dir_changed();  // the web build copies the save folder to the browser's storage
+}
+
+void Impl::storage_remove_file(const std::string& key) {
+    if (storageMode == StorageMode::Memory) return;
+    std::error_code ec;
+    std::filesystem::remove(storage_files::dir() / storage_files::file_name(key), ec);
+    fs::user_dir_changed();
+}
+
+void Impl::storage_drain() { storageWriter.drain(); }
+
+void Impl::load_storage() {
+    if (storageLoaded) return;
+    storageLoaded = true;
+    storage_drain();
+    storage = Json::object();
+    storageMeta.clear();
+    storageCorrupt = false;
+    const bool hooked = storageTextHook.has_value();
+    if (storageMode == StorageMode::Memory && !hooked) return;
+    if (hooked) {  // a test: the text stands for an old storage.json; nothing is on disk to read or keep
+        Json j = Json::parse(*storageTextHook, nullptr, false);
+        if (j.is_object()) {
+            storage = std::move(j);
+            return;
+        }
+        storageCorrupt = true;
+        log(LogLevel::Warn, "script",
+            "the text game.setStorageText gave does not parse: storage.corrupt is true and storage starts empty (a test never "
+            "writes the real save)");
+        return;
+    }
+    // One file per key.
+    std::error_code ec;
+    std::vector<std::filesystem::path> files;
+    for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_regular_file(ec) && it->path().extension() == ".json") files.push_back(it->path());
+    std::sort(files.begin(), files.end());
+    for (const std::filesystem::path& file : files) {
+        bool ok = false;
+        const std::string text = read_whole_file(file, ok);
+        if (!ok) continue;
+        storage_files::Decoded d;
+        std::string problem;
+        if (!storage_files::decode(text, d, problem)) {
+            storageCorrupt = true;
+            keep_damaged(file, text, "the storage file " + file.filename().string() + " (" + problem + ")");
+            continue;
+        }
+        storageMeta[d.key] = {d.compressed, static_cast<std::int64_t>(text.size())};
+        storage[d.key] = std::move(d.value);
+    }
+    // An older storage.json (every key in one file) is split into key files, then set aside: keys that already have a
+    // file keep it. The old file is renamed only after every key file is written, so an interruption loses nothing.
+    const std::filesystem::path legacy = fs::user_dir() / "storage.json";
+    if (!std::filesystem::exists(legacy, ec)) return;
+    bool ok = false;
+    const std::string text = read_whole_file(legacy, ok);
+    if (!ok) return;
+    Json j = Json::parse(text, nullptr, false);
+    if (!j.is_object()) {
+        storageCorrupt = true;
+        keep_damaged(legacy, text, "storage.json");
+        return;
+    }
+    bool allWritten = true;
+    for (auto it = j.begin(); it != j.end(); ++it) {
+        if (it.key().empty() || storage.contains(it.key())) continue;
+        storage[it.key()] = it.value();
+        storage_write(it.key(), false);
+        if (!storageMeta.count(it.key())) allWritten = false;
+    }
+    if (!allWritten) return;  // keep storage.json where it is; the next start tries again
+    std::filesystem::rename(legacy, fs::user_dir() / "storage.migrated.json", ec);
+    if (ec) log(LogLevel::Warn, "script", "storage.json was split into " + storage_files::dir().string() + " but could not be set aside: " + ec.message());
+    else log(LogLevel::Info, "script", "storage.json was split into one file per key in " + storage_files::dir().string() + "; the old file is now storage.migrated.json");
+    fs::user_dir_changed();
+}
+
+Json Impl::storage_report() {
+    storage_drain();
+    load_storage();
+    struct Row {
+        bool inMemory = false, onDisk = false, compressed = false;
+        std::int64_t bytes = -1;
+    };
+    std::map<std::string, Row> rows;
+    for (auto it = storage.begin(); it != storage.end(); ++it) {
+        Row& r = rows[it.key()];
+        r.inMemory = true;
+        auto m = storageMeta.find(it.key());
+        if (m != storageMeta.end()) {
+            r.compressed = m->second.compressed;
+            r.bytes = m->second.bytes;
+        }
+    }
+    Json damaged = Json::array();
+    if (!inTestRun) {  // a test run never looks at the real save folder
+        std::error_code ec;
+        std::vector<std::filesystem::path> files;
+        for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
+            if (it->is_regular_file(ec) && it->path().extension() == ".json") files.push_back(it->path());
+        std::sort(files.begin(), files.end());
+        for (const std::filesystem::path& file : files) {
+            bool ok = false;
+            const std::string text = read_whole_file(file, ok);
+            storage_files::Decoded d;
+            std::string problem;
+            if (!ok || !storage_files::decode(text, d, problem)) {
+                damaged.push_back(Json::object({{"file", file.generic_string()}, {"problem", ok ? problem : "cannot be read"}}));
+                continue;
+            }
+            Row& r = rows[d.key];
+            r.onDisk = true;
+            r.compressed = d.compressed;
+            r.bytes = static_cast<std::int64_t>(text.size());
+        }
+    }
+    Json keys = Json::array();
+    for (const auto& [key, r] : rows) {
+        Json row = Json::object({{"key", key}, {"inMemory", r.inMemory}, {"onDisk", r.onDisk}, {"compressed", r.compressed}});
+        if (r.bytes >= 0) row["bytes"] = r.bytes;
+        keys.push_back(std::move(row));
+    }
+    return Json::object({{"mode", storageMode == StorageMode::Persistent ? "persistent" : "memory"},
+                         {"dir", storage_files::dir().generic_string()},
+                         {"keys", keys},
+                         {"damaged", damaged}});
+}
+
+Json Impl::storage_clear_keys(const std::string& key, bool all) {
+    storage_drain();
+    load_storage();
+    std::set<std::string> removed;
+    std::error_code ec;
+    const std::filesystem::path root = storage_files::dir();
+    if (all) {
+        for (auto it = storage.begin(); it != storage.end(); ++it) removed.insert(it.key());
+        storage = Json::object();
+        storageMeta.clear();
+    } else if (storage.erase(key) > 0) {
+        storageMeta.erase(key);
+        removed.insert(key);
+    }
+    if (!inTestRun) {
+        if (all) {
+            std::vector<std::filesystem::path> files;
+            for (std::filesystem::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec))
+                if (it->is_regular_file(ec) && it->path().extension() == ".json") files.push_back(it->path());
+            for (const auto& f : files) {
+                bool ok = false;
+                storage_files::Decoded d;
+                std::string problem;
+                if (storage_files::decode(read_whole_file(f, ok), d, problem) && ok) removed.insert(d.key);
+                std::filesystem::remove(f, ec);
+            }
+        } else {
+            const std::filesystem::path f = root / storage_files::file_name(key);
+            if (std::filesystem::remove(f, ec)) removed.insert(key);
+        }
+        fs::user_dir_changed();
+    }
+    Json list = Json::array();
+    for (const std::string& k : removed) list.push_back(k);
+    return Json::object({{"removed", list}});
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -436,7 +588,9 @@ NATIVE(findByTag) {
 
 NATIVE(entities) {
     SETUP;
-    return entities_array(ctx, W.entities());
+    std::vector<Entity> all = W.entities();
+    all.erase(std::remove_if(all.begin(), all.end(), [&](Entity e) { return W.pending_destroy(e); }), all.end());
+    return entities_array(ctx, all);
 }
 
 NATIVE(tags) {
@@ -617,12 +771,15 @@ NATIVE(spawn) {
         index = static_cast<int>(arg_num(ctx, argc, argv, 2, -1.0));
     }
     LoadReport report;
-    Entity e = entity_from_json(W, j, parent, report, "world.spawn", "", index);
+    Entity e = entity_from_json(W, j, parent, report, "world.spawn", "", index, true);
     if (!report.ok() || e.is_null()) {
         return throw_err(ctx, "world.spawn failed:\n" + report.summary());
     }
     for (const auto& m : report.messages)
         if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
+    for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
+    for (const DeferredRef& d : report.deferred) I->waitingRefs.push_back({d, 0});
+    I->resolve_waiting_refs(false);  // this spawn may be the knob an earlier slider is waiting for
     I->construct_for(report.created);  // entity.behaviour exists right away; onStart runs before the first update
     localize_created(I, report.created);
     return ent_val(ctx, e);
@@ -643,6 +800,7 @@ NATIVE(spawnPrefab) {
     LoadReport report;
     Entity e = instantiate_prefab(W, path, parent, report, overrides, index);
     if (!report.ok() || e.is_null()) return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
+    for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
     I->construct_for(report.created);
     localize_created(I, report.created);
     return ent_val(ctx, e);
@@ -673,7 +831,7 @@ NATIVE(isTouching) {  // (entity, x, y, z, tolerance)
 }
 
 // Animator calls of entity.animator: (entity, method, a, b). Methods: play(clip, fade), stop, set(name, value),
-// trigger(name), clips. Returns the clips for "clips", nothing else; failures throw a teaching Error.
+// trigger(name), sample(clip, time), layerWeight(layer, weight), layerPlay(layer, clip, fade), clips. Returns the clips for "clips", nothing else; failures throw a teaching Error.
 NATIVE(animCall) {
     SETUP;
     ENTITY(e, 0);
@@ -687,6 +845,12 @@ NATIVE(animCall) {
         r = animator_set(W, e, arg_str(ctx, argc, argv, 2), I->to_json(argc > 3 ? argv[3] : JS_UNDEFINED));
     } else if (m == "trigger") {
         r = animator_trigger(W, e, arg_str(ctx, argc, argv, 2));
+    } else if (m == "sample") {
+        r = animator_sample(W, e, arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0.0)));
+    } else if (m == "layerWeight") {
+        r = animator_set_layer_weight(W, e, arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 1.0)));
+    } else if (m == "layerPlay") {
+        r = animator_play_layer(W, e, arg_str(ctx, argc, argv, 2), arg_str(ctx, argc, argv, 3), static_cast<float>(arg_num(ctx, argc, argv, 4, 0.2)));
     } else if (m == "clips") {
         auto c = animator_clips(W, e);
         if (!c) return throw_err(ctx, c.error().to_string());
@@ -696,6 +860,25 @@ NATIVE(animCall) {
     }
     if (!r) return throw_err(ctx, r.error().to_string());
     return JS_UNDEFINED;
+}
+
+// SpriteAnimator calls of entity.spriteAnimator: (entity, method, a, b). Methods: play(name, restart), clips. Failures throw a
+// teaching Error (the clip names, "did you mean").
+NATIVE(spriteAnimCall) {
+    SETUP;
+    ENTITY(e, 0);
+    const std::string m = arg_str(ctx, argc, argv, 1);
+    if (m == "play") {
+        auto r = sprite_animator_play(W, e, arg_str(ctx, argc, argv, 2), argc > 3 && JS_ToBool(ctx, argv[3]) == 1);
+        if (!r) return throw_err(ctx, r.error().to_string());
+        return JS_UNDEFINED;
+    }
+    if (m == "clips") {
+        auto c = sprite_animator_clips(W, e);
+        if (!c) return throw_err(ctx, c.error().to_string());
+        return I->from_json(*c);
+    }
+    return throw_err(ctx, "internal error: unknown spriteAnimator call '" + m + "'");
 }
 
 NATIVE(particlesBurst) {
@@ -734,7 +917,7 @@ VisualMeasure script_measure(Impl* I, const char* what) {
     return m;
 }
 
-NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextScale, autoShrink, minFontSize, maxHeight) -> [w, h, size]
+NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold) -> [w, h, size]
     SETUP;
     Text t;
     t.text = arg_str(ctx, argc, argv, 0);
@@ -746,9 +929,20 @@ NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextS
     t.autoShrink = arg_bool(ctx, argc, argv, 6, false);
     t.minFontSize = static_cast<float>(arg_num(ctx, argc, argv, 7, 10));
     t.maxHeight = static_cast<float>(arg_num(ctx, argc, argv, 8, 0));
+    t.markup = arg_bool(ctx, argc, argv, 9, false);
+    t.bold = arg_bool(ctx, argc, argv, 10, false);
     const VisualMeasure measure = script_measure(I, "ui.measureText");
     const TextFit fit = fit_text(text_fit_spec(t), t.text, t.font, measure.textScale, text_extent_of(measure));
     return array_of(ctx, {fit.size.x, fit.size.y, fit.px});
+}
+
+NATIVE(markupProblems) {  // (text) -> string[]: what is wrong with the markup of `text` (tags, unknown colours and icons)
+    SETUP;
+    const std::vector<std::string> problems = markup_problems(arg_str(ctx, argc, argv, 0), I->host->rich_text_style());
+    JSValue a = JS_NewArray(ctx);
+    uint32_t i = 0;
+    for (const std::string& p : problems) JS_SetPropertyUint32(ctx, a, i++, JS_NewStringLen(ctx, p.data(), p.size()));
+    return a;
 }
 
 NATIVE(textScale) {  // () -> the player's text size option
@@ -766,6 +960,38 @@ NATIVE(setTextScale) {  // (scale): 0.5 .. 3, throws saying what is accepted
                                           "ui.textScale = math.clamp(saved, {}, {}).",
                                           arg_str(ctx, argc, argv, 0), kMinTextScale, kMaxTextScale, kMinTextScale, kMaxTextScale));
     I->host->set_text_scale(float(v));
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiScale) {  // () -> the interface scale
+    SETUP;
+    return float_to_js(ctx, I->host->ui_scale());
+}
+
+NATIVE(setUiScale) {  // (scale): 0.5 .. 3, throws saying what is accepted
+    SETUP;
+    double v = 0;
+    const bool number = argc > 0 && JS_IsNumber(argv[0]) && JS_ToFloat64(ctx, &v, argv[0]) == 0 && std::isfinite(v);
+    if (!number || v < double(kMinUiScale) || v > double(kMaxUiScale))
+        return throw_err(ctx, std::format("ui.scale = {}: expected a number from {} to {} (1 is the size the UI was authored at, 1.5 is 50% bigger). A saved "
+                                          "option from an older version or a hand-edited file may be out of range: clamp it first, e.g. "
+                                          "ui.scale = math.clamp(saved, {}, {}).",
+                                          arg_str(ctx, argc, argv, 0), kMinUiScale, kMaxUiScale, kMinUiScale, kMaxUiScale));
+    I->host->set_ui_scale(float(v));
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiMirrorRtl) {  // () -> whether a right-to-left language mirrors the UI
+    SETUP;
+    return JS_NewBool(ctx, W.ui_mirror_rtl());
+}
+
+NATIVE(setUiMirrorRtl) {  // (on: boolean)
+    SETUP;
+    if (argc < 1 || !JS_IsBool(argv[0]))
+        return throw_err(ctx, std::format("ui.mirrorRtl = {}: expected true or false (true mirrors the screen-space UI in a right-to-left language, "
+                                          "docs/LOCALIZATION.md, \"Right to left\").", arg_str(ctx, argc, argv, 0)));
+    W.set_ui_mirror_rtl(JS_ToBool(ctx, argv[0]) != 0);
     return JS_UNDEFINED;
 }
 
@@ -808,7 +1034,131 @@ NATIVE(uiState) {  // () -> [focused, hovered]: entity handles, null for none (o
     return a;
 }
 
-NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot take focus
+NATIVE(uiWidgetAt) {  // (x, y) -> entity | null: the topmost visible widget or Interactable at a screen point (UiSystem::widget_at)
+    SETUP;
+    const Vec2 p{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
+    UiSystem* U = I->host->ui();
+    const Entity e = U ? U->widget_at(W, I->host->design_size(), p, script_measure(I, "ui.widgetAt()"))
+                       : ui_widget_at(W, I->host->design_size(), p);
+    return e ? ent_val(ctx, e) : JS_NULL;
+}
+
+NATIVE(uiSetPointer) {  // (x, y, down) | (): the virtual pointer; no arguments gives the pointer back to the mouse
+    SETUP;
+    UiSystem* U = I->host->ui();
+    if (!U) return throw_err(ctx, "ui.setPointer: this run has no UI system");
+    if (argc < 2) U->clear_pointer();
+    else U->set_pointer({static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))},
+                        arg_bool(ctx, argc, argv, 2, false));
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiPointerState) {  // () -> [pointerOverUi, wheelConsumed, virtualPointerOn]
+    SETUP;
+    const UiSystem* U = I->host->ui();
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewBool(ctx, U && U->pointer_over_ui()));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewBool(ctx, U && U->wheel_consumed()));
+    JS_SetPropertyUint32(ctx, a, 2, JS_NewBool(ctx, U && U->has_pointer()));
+    return a;
+}
+
+// ---- tooltips (ui_tooltip.h, docs/MENUS.md "Tooltips") -----------------------------------------------------------------------
+NATIVE(uiTooltipShow) {  // (content, x, y): throws when the content is not a tooltip
+    SETUP;
+    UiSystem* U = I->host->ui();
+    if (!U) return throw_err(ctx, "ui.showTooltip: this run has no UI system");
+    const Json content = argc > 0 ? I->to_json(argv[0]) : Json(nullptr);
+    const Vec2 at{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    const VisualMeasure measure = script_measure(I, "ui.showTooltip");
+    Result<void> r = U->show_tooltip(W, content, at, I->host->design_size(), measure);
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiTooltipHide) {
+    SETUP;
+    if (UiSystem* U = I->host->ui()) U->hide_tooltip(W);
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiTooltipView) {  // () -> null | {title, lines, rect, source, widget}
+    SETUP;
+    return I->from_json(ui_tooltip_json(W.ui_tooltip(), ui_scale_clamped(W.ui_scale())));
+}
+
+NATIVE(uiTooltipDelay) {  // () -> seconds
+    SETUP;
+    return float_to_js(ctx, W.ui_tooltip_settings().delay);
+}
+
+NATIVE(uiSetTooltipDelay) {  // (seconds): 0 .. 60
+    SETUP;
+    double v = 0;
+    const bool number = argc > 0 && JS_IsNumber(argv[0]) && JS_ToFloat64(ctx, &v, argv[0]) == 0 && std::isfinite(v);
+    if (!number || v < 0.0 || v > 60.0)
+        return throw_err(ctx, std::format("ui.tooltipDelay = {}: expected a number of seconds from 0 to 60 (0 shows a tooltip at once, the default is 0.5).",
+                                          arg_str(ctx, argc, argv, 0)));
+    UiTooltipSettings s = W.ui_tooltip_settings();
+    s.delay = float(v);
+    W.set_ui_tooltip_settings(s);
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiSetTooltipFn) {  // (entity, on): the entity has a script function for its tooltip
+    SETUP;
+    ENTITY(e, 0);
+    if (UiSystem* U = I->host->ui()) U->set_script_tooltip(e, arg_bool(ctx, argc, argv, 1, true));
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiSetWorldTooltipFn) {  // (on)
+    SETUP;
+    if (UiSystem* U = I->host->ui()) U->set_world_tooltip(arg_bool(ctx, argc, argv, 0, true));
+    return JS_UNDEFINED;
+}
+
+// ---- drag and drop (docs/MENUS.md "Drag and drop") ---------------------------------------------------------------------------
+NATIVE(uiDragState) {  // () -> null | {id, payload, from, x, y, target, accepts}
+    SETUP;
+    const UiSystem* U = I->host->ui();
+    return U ? I->from_json(U->drag_json(W)) : JS_NULL;
+}
+
+NATIVE(uiSetDropTarget) {  // (entity | null for the world, mode 0 none / 1 accept / 2 reject / 3 script function)
+    SETUP;
+    UiSystem* U = I->host->ui();
+    if (!U) return throw_err(ctx, "ui.setDropTarget: this run has no UI system");
+    Entity e;
+    if (argc > 0 && !JS_IsNull(argv[0]) && !JS_IsUndefined(argv[0])) {
+        JSValue exc = JS_UNDEFINED;
+        if (!need_entity(I, ctx, argv[0], e, exc)) return exc;
+    }
+    const int mode = int(arg_num(ctx, argc, argv, 1));
+    U->set_drop_target(e, mode == 1 ? UiDropMode::Accept : mode == 2 ? UiDropMode::Reject : mode == 3 ? UiDropMode::Script : UiDropMode::None);
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiSetDragImage) {  // (entity | null)
+    SETUP;
+    UiSystem* U = I->host->ui();
+    if (!U) return throw_err(ctx, "ui.setDragImage: this run has no UI system");
+    Entity e;
+    if (argc > 0 && !JS_IsNull(argv[0]) && !JS_IsUndefined(argv[0])) {
+        JSValue exc = JS_UNDEFINED;
+        if (!need_entity(I, ctx, argv[0], e, exc)) return exc;
+    }
+    U->set_drag_image(e);
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiCancelDrag) {
+    SETUP;
+    if (UiSystem* U = I->host->ui()) U->cancel_drag(W, "script");
+    return JS_UNDEFINED;
+}
+
+NATIVE(uiFocus) {  // (entity | null): true when focused; false for a disabled widget; throws saying why for any other entity that cannot take focus
     SETUP;
     UiSystem* U = I->host->ui();
     if (!U) return throw_err(ctx, "ui.focus: this run has no UI system");
@@ -817,16 +1167,23 @@ NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot 
         JSValue exc = JS_UNDEFINED;
         if (!need_entity(I, ctx, argv[0], e, exc)) return exc;
     }
-    if (U->set_focus(W, e)) return JS_UNDEFINED;
+    if (U->set_focus(W, e)) return JS_TRUE;
     const UiKind kind = ui_kind(W, e);
+    if (ui_is_control(kind) && W.active_in_hierarchy(e)) {
+        const UiControl* ctl = ui_control(W, e);
+        if (ctl && !ctl->interactable) return JS_FALSE;  // greyed out: a screen that restores focus falls back itself
+    }
     std::string why;
-    if (!ui_is_control(kind))
-        why = kind == UiKind::None ? "it has no Button, Toggle, Slider or TextField component"
+    if (ui_is_interactable(W, e)) {
+        if (W.active_in_hierarchy(e)) return JS_FALSE;  // set_focus refused an active one: it is disabled, like a greyed-out built-in widget
+        why = "it is inactive (itself or an ancestor), so set active = true first";
+    } else if (!ui_is_control(kind))
+        why = kind == UiKind::None ? "it has no Button, Toggle, Slider, TextField or Interactable component"
                                    : std::string("a ") + ui_kind_name(kind) +
                                          (kind == UiKind::Panel || kind == UiKind::ScrollList ? " is a container and" : " is touch-only and") +
-                                         " cannot be focused; focus a Button, Toggle, Slider or TextField";
+                                         " cannot be focused; focus a Button, Toggle, Slider, TextField or Interactable";
     else if (!W.active_in_hierarchy(e)) why = "it is inactive (itself or an ancestor), so set active = true first";
-    else why = "its interactable is false; set interactable = true first";
+    else why = "it cannot take focus";
     return throw_err(ctx, "ui.focus(target): '" + W.id_of(e) + "' cannot take focus: " + why);
 }
 
@@ -838,6 +1195,8 @@ NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot 
 // Pixel size of a texture file as the renderer sees it: 32 x 32 (the missing-texture checker) when the file is missing or
 // unreadable. Cached per file and modification time, so a script may ask every frame.
 Vec2 texture_pixel_size(Impl* I, const std::string& path) {
+    if (auto rt = I->runtimeTextures.find(path); rt != I->runtimeTextures.end())  // a texture of render.captureTexture
+        return {static_cast<float>(rt->second.width), static_cast<float>(rt->second.height)};
     std::string key = fs::normalize(path);
     if (key.empty()) key = path;
     const std::int64_t mtime = fs::modified_time(key);
@@ -856,6 +1215,283 @@ NATIVE(textureSize) {  // (path) -> [w, h]; assets.textureSize
     return array_of(ctx, {s.x, s.y});
 }
 
+// ---- render.captureTexture / render.textureFromPNG ------------------------------------------------------------------------
+constexpr int kMaxRuntimeTextures = 32;
+constexpr int kMaxRuntimeTextureSide = 2048;  // render.captureTexture of the whole frame
+constexpr int kMaxWorldTextureSide = Renderer::kMaxWorldCaptureSide;  // of the world, and what textureFromPNG takes (4096)
+
+// Registers `img` as a run-time texture: uploaded when the run has a renderer (the id is the renderer's), kept in
+// I->runtimeTextures either way. Returns the id; "" with *error set when it cannot be made.
+std::string add_runtime_texture(Impl* I, Image img, std::string* error) {
+    if (I->runtimeTextures.size() >= std::size_t(kMaxRuntimeTextures)) {
+        *error = std::format("{} textures are alive already (the limit). Call texture.destroy() on the ones you no longer show, "
+                             "for example the picture of a slot that was overwritten", kMaxRuntimeTextures);
+        return {};
+    }
+    std::string id;
+    if (Renderer* r = I->host->renderer(); r && r->initialized()) {
+        id = r->create_runtime_texture(img, error);
+        if (id.empty()) return {};
+    } else {
+        id = "runtime:" + std::to_string(I->nextPlainTexture++);
+    }
+    I->runtimeTextures[id] = std::move(img);
+    return id;
+}
+
+JSValue runtime_texture_info(JSContext* ctx, const std::string& id, const Image& img, bool placeholder) {
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewString(ctx, id.c_str()));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewInt32(ctx, img.width));
+    JS_SetPropertyUint32(ctx, a, 2, JS_NewInt32(ctx, img.height));
+    JS_SetPropertyUint32(ctx, a, 3, JS_NewBool(ctx, placeholder));
+    return a;
+}
+
+NATIVE(renderCapture) {  // (width, height, stretch) -> [id, width, height, placeholder]; render.captureTexture
+    SETUP;
+    const int w = int(arg_num(ctx, argc, argv, 0)), h = int(arg_num(ctx, argc, argv, 1));
+    if (w < 1 || h < 1 || w > kMaxRuntimeTextureSide || h > kMaxRuntimeTextureSide)
+        return throw_err(ctx, std::format("render.captureTexture({{ width, height }}): both must be whole numbers from 1 to {}, but got {} x {}", kMaxRuntimeTextureSide, w, h));
+    Image img;
+    bool placeholder = false;
+    if (Renderer* r = I->host->renderer(); r && r->initialized()) {
+        std::string err;
+        Image full;
+        if (!I->host->capture_frame(full, &err)) return throw_err(ctx, "render.captureTexture: " + err);
+        img = arg_bool(ctx, argc, argv, 2) ? resize_image(full, w, h) : cover_image(full, w, h);
+    } else {  // no graphics (headless run, test without a GPU): a flat picture of the size asked, so the game's code runs on
+        placeholder = true;
+        img.width = w;
+        img.height = h;
+        img.rgba.resize(std::size_t(w) * std::size_t(h) * 4);
+        for (std::size_t i = 0; i < img.rgba.size(); i += 4) {
+            img.rgba[i] = 0x2a;
+            img.rgba[i + 1] = 0x2e;
+            img.rgba[i + 2] = 0x3a;
+            img.rgba[i + 3] = 0xff;
+        }
+    }
+    std::string err;
+    const std::string id = add_runtime_texture(I, std::move(img), &err);
+    if (id.empty()) return throw_err(ctx, "render.captureTexture: " + err);
+    return runtime_texture_info(ctx, id, I->runtimeTextures[id], placeholder);
+}
+
+// The union of the world-space visuals of `root` and its descendants (entity.bounds() of each), nullopt when none draws.
+std::optional<Rect> subtree_world_rect(Impl* I, Entity root, const VisualMeasure& measure) {
+    World& W = I->host->world();
+    std::optional<Rect> out;
+    std::vector<Entity> stack{root};
+    while (!stack.empty()) {
+        const Entity e = stack.back();
+        stack.pop_back();
+        if (const std::optional<Rect> b = entity_world_rect(W, e, measure)) {
+            if (!out) out = *b;
+            else {
+                const float x0 = std::min(out->x, b->x), y0 = std::min(out->y, b->y);
+                const float x1 = std::max(out->x + out->w, b->x + b->w), y1 = std::max(out->y + out->h, b->y + b->h);
+                out = Rect{x0, y0, x1 - x0, y1 - y0};
+            }
+        }
+        for (Entity c : W.children(e)) stack.push_back(c);
+    }
+    return out;
+}
+
+// (entity | null, x, y, w, h, scale) -> [id, width, height, placeholder]; render.captureTexture({ entity | rect, scale }). With an
+// entity the rectangle is the union of the bounds of its subtree (x, y, w, h are ignored).
+NATIVE(renderCaptureWorld) {
+    SETUP;
+    const char* label = "render.captureTexture({ entity | rect, space: \"world\", scale })";
+    Entity subject;
+    Rect rect{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)),
+              static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4))};
+    const float scale = static_cast<float>(arg_num(ctx, argc, argv, 5, 1.0));
+    if (argc > 0 && !JS_IsNull(argv[0])) {
+        ENTITY(e, 0);
+        subject = e;
+        VisualMeasure measure = script_measure(I, "render.captureTexture() of a Text");
+        measure.textureSize = [I](const std::string& path) { return texture_pixel_size(I, path); };
+        const std::optional<Rect> box = subtree_world_rect(I, subject, measure);
+        if (!box)
+            return throw_err(ctx, std::format("{}: entity '{}' and its children draw nothing in world space (no Sprite, Shape2D, Text or Tilemap "
+                                              "with space \"world\", or an empty one), so there is no area to photograph. Give the area yourself with rect: [x, y, width, height] "
+                                              "in world units (that draws everything inside it, not only this entity)", label, W.id_of(subject)));
+        rect = *box;
+    }
+    if (!std::isfinite(rect.x) || !std::isfinite(rect.y) || !(rect.w > 0.0f) || !(rect.h > 0.0f) || !std::isfinite(rect.w) || !std::isfinite(rect.h))
+        return throw_err(ctx, std::format("{}: the area [{}, {}, {}, {}] is empty. rect is [x, y, width, height] in world units, +Y up, with a "
+                                          "positive width and height", label, rect.x, rect.y, rect.w, rect.h));
+    if (!std::isfinite(scale) || !(scale > 0.0f))
+        return throw_err(ctx, std::format("{}: scale must be a number above 0 (pixels per world unit, default 1), but got {}", label, scale));
+    const double pw = std::ceil(double(rect.w) * double(scale) - 1e-4), ph = std::ceil(double(rect.h) * double(scale) - 1e-4);
+    if (pw > kMaxWorldTextureSide || ph > kMaxWorldTextureSide)
+        return throw_err(ctx, std::format("{}: the picture would be {} x {} pixels ({} x {} world units at scale {}), more than the {} a side a texture "
+                                          "may have. Use a smaller scale (at most {}) or a smaller area", label, static_cast<long long>(pw),
+                                          static_cast<long long>(ph), rect.w, rect.h, scale, kMaxWorldTextureSide,
+                                          static_cast<double>(kMaxWorldTextureSide) / std::max(rect.w, rect.h)));
+    const int w = std::max(1, static_cast<int>(pw)), h = std::max(1, static_cast<int>(ph));
+    Image img;
+    bool placeholder = false;
+    if (Renderer* r = I->host->renderer(); r && r->initialized()) {
+        std::string err;
+        Renderer::WorldCapture spec;
+        spec.rect = rect;
+        spec.scale = scale;
+        spec.subject = subject;
+        if (!r->capture_world(W, spec, img, &err)) return throw_err(ctx, std::string(label) + ": " + err);
+    } else {  // no graphics: a flat picture of the size the capture would have, so the game's code runs on
+        placeholder = true;
+        img.width = w;
+        img.height = h;
+        img.rgba.resize(std::size_t(w) * std::size_t(h) * 4);
+        for (std::size_t i = 0; i < img.rgba.size(); i += 4) {
+            img.rgba[i] = 0x2a;
+            img.rgba[i + 1] = 0x2e;
+            img.rgba[i + 2] = 0x3a;
+            img.rgba[i + 3] = 0xff;
+        }
+    }
+    std::string err;
+    const std::string id = add_runtime_texture(I, std::move(img), &err);
+    if (id.empty()) return throw_err(ctx, std::string(label) + ": " + err);
+    return runtime_texture_info(ctx, id, I->runtimeTextures[id], placeholder);
+}
+
+NATIVE(renderFromPng) {  // (base64 text) -> [id, width, height, false]; render.textureFromPNG
+    SETUP;
+    std::string text = arg_str(ctx, argc, argv, 0);
+    if (const std::size_t comma = text.find(','); text.rfind("data:", 0) == 0 && comma != std::string::npos) text.erase(0, comma + 1);
+    const std::vector<unsigned char> bytes = base64_decode(text);
+    if (bytes.empty())
+        return throw_err(ctx, "render.textureFromPNG(png): the text is not Base64 (or is empty). Pass what texture.toPNG() returned, "
+                              "for example render.textureFromPNG(storage.get(\"slot1.png\"))");
+    auto img = decode_image(bytes.data(), bytes.size());
+    if (!img.ok()) return throw_err(ctx, "render.textureFromPNG(png): the bytes are not an image: " + img.error().message + (img.error().hint.empty() ? "" : " " + img.error().hint));
+    if (img->width > kMaxWorldTextureSide || img->height > kMaxWorldTextureSide)
+        return throw_err(ctx, std::format("render.textureFromPNG(png): the picture is {} x {}, more than the {} pixels a side a run-time texture may have", img->width, img->height, kMaxWorldTextureSide));
+    std::string err;
+    const std::string id = add_runtime_texture(I, std::move(*img), &err);
+    if (id.empty()) return throw_err(ctx, "render.textureFromPNG: " + err);
+    return runtime_texture_info(ctx, id, I->runtimeTextures[id], false);
+}
+
+NATIVE(renderPng) {  // (id) -> Base64 text of the PNG; texture.toPNG
+    SETUP;
+    auto it = I->runtimeTextures.find(arg_str(ctx, argc, argv, 0));
+    if (it == I->runtimeTextures.end()) return throw_err(ctx, "texture.toPNG(): the texture was destroyed");
+    const std::vector<std::uint8_t> png = encode_png(it->second);
+    return JS_NewString(ctx, base64_encode(png.data(), png.size()).c_str());
+}
+
+NATIVE(renderDestroy) {  // (id) -> bool; texture.destroy
+    SETUP;
+    const std::string id = arg_str(ctx, argc, argv, 0);
+    if (I->runtimeTextures.erase(id) == 0) return JS_FALSE;
+    if (Renderer* r = I->host->renderer()) r->destroy_runtime_texture(id);
+    return JS_TRUE;
+}
+
+// ---- mesh.create / update / destroy / save ---------------------------------------------------------------------------------
+// The JS side (factoria.js, `mesh`) turns every array into a Float32Array (Uint32Array for indices) and every material into
+// a plain object, so the arrays are read here as bytes.
+// Reads `v` (a typed array of 4-byte elements) into `out`; false when `v` is undefined or null (not given).
+bool typed_array_words(JSContext* ctx, JSValueConst v, std::vector<std::uint32_t>& out) {
+    if (JS_IsUndefined(v) || JS_IsNull(v)) return false;
+    std::size_t off = 0, len = 0, per = 0;
+    JSValue buf = JS_GetTypedArrayBuffer(ctx, v, &off, &len, &per);
+    if (JS_IsException(buf)) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        return false;
+    }
+    std::size_t size = 0;
+    const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, buf);
+    if (data && per == 4 && off + len <= size) {
+        out.resize(len / 4);
+        if (len) std::memcpy(out.data(), data + off, len);
+    }
+    JS_FreeValue(ctx, buf);
+    return true;
+}
+
+// The MeshInput a script call gives: (arrays, submeshes) -> *in; "" or a message.
+std::string mesh_input_of(Impl* I, JSContext* ctx, JSValueConst arrays, JSValueConst submeshes, MeshInput* in) {
+    auto floats = [&](const char* key, std::vector<float>& dst) {
+        JSValue v = JS_GetPropertyStr(ctx, arrays, key);
+        std::vector<std::uint32_t> words;
+        if (typed_array_words(ctx, v, words)) {
+            dst.resize(words.size());
+            if (!words.empty()) std::memcpy(dst.data(), words.data(), words.size() * 4);
+        }
+        JS_FreeValue(ctx, v);
+    };
+    floats("positions", in->positions);
+    floats("normals", in->normals);
+    floats("uvs", in->uvs);
+    floats("tangents", in->tangents);
+    floats("colors", in->colors);
+    JSValue ix = JS_GetPropertyStr(ctx, arrays, "indices");
+    in->hasIndices = typed_array_words(ctx, ix, in->indices);
+    JS_FreeValue(ctx, ix);
+    if (!JS_IsUndefined(submeshes) && !JS_IsNull(submeshes)) {
+        Json args = Json::object({{"submeshes", I->to_json(submeshes)}});
+        auto parsed = mesh_input_from_json(args);
+        if (!parsed.ok()) return parsed.error().to_string();
+        in->submeshes = std::move(parsed->submeshes);
+    }
+    return {};
+}
+
+NATIVE(meshCreate) {  // (arrays, submeshes) -> info; mesh.create
+    SETUP;
+    MeshInput in;
+    if (std::string e = mesh_input_of(I, ctx, argv[0], argc > 1 ? argv[1] : JS_UNDEFINED, &in); !e.empty()) return throw_err(ctx, "mesh.create: " + e);
+    auto id = W.meshes().create(in);
+    if (!id.ok()) return throw_err(ctx, "mesh.create: " + id.error().to_string());
+    return I->from_json(mesh_info_json(*W.meshes().find(*id)));
+}
+
+NATIVE(meshUpdate) {  // (id, arrays, submeshes) -> info; mesh.update
+    SETUP;
+    const std::string id = arg_str(ctx, argc, argv, 0);
+    MeshInput in;
+    if (std::string e = mesh_input_of(I, ctx, argv[1], argc > 2 ? argv[2] : JS_UNDEFINED, &in); !e.empty()) return throw_err(ctx, "mesh.update: " + e);
+    auto r = W.meshes().update(id, in);
+    if (!r.ok()) return throw_err(ctx, "mesh.update: " + r.error().to_string());
+    return I->from_json(mesh_info_json(*W.meshes().find(id)));
+}
+
+NATIVE(meshDestroy) {  // (id) -> bool; mesh.destroy
+    SETUP;
+    const std::string id = arg_str(ctx, argc, argv, 0);
+    auto r = W.meshes().destroy(id);
+    if (!r.ok()) return throw_err(ctx, "mesh.destroy: " + r.error().to_string());
+    return JS_TRUE;
+}
+
+NATIVE(meshInfo) {  // (id) -> info, or null when the mesh is not alive; mesh.info
+    SETUP;
+    const MeshStore::Entry* e = W.meshes().find(arg_str(ctx, argc, argv, 0));
+    return e ? I->from_json(mesh_info_json(*e)) : JS_NULL;
+}
+
+NATIVE(meshList) {  // () -> [info]; mesh.list
+    SETUP;
+    Json out = Json::array();
+    for (const std::string& id : W.meshes().ids()) out.push_back(mesh_info_json(*W.meshes().find(id)));
+    return I->from_json(out);
+}
+
+NATIVE(meshSave) {  // (id, path) -> the path written; mesh.save
+    SETUP;
+    auto got = W.meshes().get(arg_str(ctx, argc, argv, 0));
+    if (!got.ok()) return throw_err(ctx, "mesh.save: " + got.error().to_string());
+    auto path = save_mesh_glb((*got)->data, arg_str(ctx, argc, argv, 1));
+    if (!path.ok()) return throw_err(ctx, path.error().to_string());
+    return JS_NewString(ctx, path->c_str());
+}
+
 NATIVE(uiLayout) {  // () -> undefined: the per-frame UI layout, now
     SETUP;
     UiSystem* U = I->host->ui();
@@ -865,11 +1501,36 @@ NATIVE(uiLayout) {  // () -> undefined: the per-frame UI layout, now
     return JS_UNDEFINED;
 }
 
+NATIVE(uiUnclickable) {  // (entity) -> null | string: why a widget cannot be clicked now (game.click throws it), null when it can
+    SETUP;
+    ENTITY(e, 0);
+    const Vec2 design = I->host->design_size();
+    if (ui_is_interactable(W, e)) {
+        if (!W.active_in_hierarchy(e)) return JS_NewString(ctx, "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks");
+        UiSystem* U = I->host->ui();
+        if (U && !U->interactable_rect(W, e, design, script_measure(I, "ui.unclickable()")))
+            return JS_NewString(ctx, "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from");
+        return JS_NULL;
+    }
+    if (ui_kind(W, e) == UiKind::None) return JS_NULL;
+    if (!W.active_in_hierarchy(e)) return JS_NewString(ctx, "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks");
+    const std::optional<Rect> r = ui_rect(W, e, design);
+    if (!r || !(r->w > 0) || !(r->h > 0))
+        return JS_NewString(ctx, "it has no area (its size is 0), so it was never laid out: give it a size, or make it a child of a Panel with a layout");
+    if (const std::optional<Rect> clip = ui_clip_rect(W, e, design))
+        if (!(clip->w > 0) || !(clip->h > 0) || !clip->overlaps(*r))
+            return JS_NewString(ctx, "it is scrolled out of its ScrollList, so it is clipped away: scroll it into view first (ui.focus(widget) scrolls to it)");
+    return JS_NULL;
+}
+
 NATIVE(screenRect) {  // (entity) -> [x, y, w, h] in design pixels, top-left origin | null
     SETUP;
     ENTITY(e, 0);
+    if (!W.active_in_hierarchy(e)) return JS_NULL;  // hidden by itself or a parent: not on screen, like ui.state
     const VisualMeasure measure = script_measure(I, "ui.rectOf() of a Text");
-    const std::optional<Rect> box = ui_screen_rect(W, e, I->host->design_size(), measure);
+    UiSystem* U = I->host->ui();
+    const std::optional<Rect> box = ui_is_interactable(W, e) ? (U ? U->interactable_rect(W, e, I->host->design_size(), measure) : std::nullopt)
+                                                              : ui_screen_rect(W, e, I->host->design_size(), measure);
     if (!box) return JS_NULL;
     JSValue a = JS_NewArray(ctx);
     const float v[4] = {box->x, box->y, box->w, box->h};
@@ -895,6 +1556,84 @@ NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
     const float v[4] = {box->x, box->y, box->w, box->h};
     for (uint32_t i = 0; i < 4; ++i) JS_SetPropertyUint32(ctx, a, i, float_to_js(ctx, v[i]));
     return a;
+}
+
+// Tilemap tile access of entity.tilemap: (entity, col, row[, tile]). The array of `tiles` is neither copied to JS nor
+// replaced: one element changes in place (see set_tilemap_tile).
+Tilemap* script_tilemap(Impl* I, JSContext* ctx, Entity e, JSValue* exc) {
+    Tilemap* tm = I->host->world().get<Tilemap>(e);
+    if (!tm) *exc = throw_err(ctx, "entity '" + I->host->world().id_of(e) + "' has no Tilemap component; add one: entity.add(\"Tilemap\", {tileset: \"assets/tiles.png\", tileSize: [16, 16], width: 8, height: 8, tiles: [...]})");
+    return tm;
+}
+
+NATIVE(tileGet) {  // (entity, col, row) -> tile value (index + flag bits), -1 = empty or outside the map
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const int col = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))), row = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0)));
+    return JS_NewInt32(ctx, tilemap_tile_at(*tm, tilemap_size(*tm), col, row));
+}
+
+NATIVE(tileDims) {  // (entity) -> [width, height] in tiles, the size drawing and collision use (tilemap_size)
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const TilemapSize size = tilemap_size(*tm);
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewInt32(ctx, size.width));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewInt32(ctx, size.height));
+    return a;
+}
+
+NATIVE(tileCellAt) {  // (entity, x, y) -> [col, row, inside]: the cell under the WORLD point (x, y), even outside the map
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const Vec3 local = W.world_matrix(e).inverse().transform_point({float(arg_num(ctx, argc, argv, 1, 0)), float(arg_num(ctx, argc, argv, 2, 0)), 0.0f});
+    int col = 0, row = 0;
+    if (!tilemap_cell_at_local(*tm, {local.x, local.y}, col, row))
+        return throw_err(ctx, "tilemap.cellAt: the Tilemap on '" + W.id_of(e) + "' has no positive tileSize, so it has no cells; set Tilemap.tileSize to [width, height] in world units");
+    const TilemapSize size = tilemap_size(*tm);
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, JS_NewInt32(ctx, col));
+    JS_SetPropertyUint32(ctx, a, 1, JS_NewInt32(ctx, row));
+    JS_SetPropertyUint32(ctx, a, 2, JS_NewBool(ctx, col >= 0 && row >= 0 && col < size.width && row < size.height));
+    return a;
+}
+
+NATIVE(tileCellToWorld) {  // (entity, col, row) -> [x, y]: the WORLD position of the centre of the cell
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const Vec2 local = tilemap_cell_center(*tm, static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0))));
+    const Vec3 w = W.world_matrix(e).transform_point({local.x, local.y, 0.0f});
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, float_to_js(ctx, w.x));
+    JS_SetPropertyUint32(ctx, a, 1, float_to_js(ctx, w.y));
+    return a;
+}
+
+NATIVE(tileSet) {  // (entity, col, row, tile) -> void; throws when outside the map or the value is not a tile
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    const double c = arg_num(ctx, argc, argv, 1, 0), r = arg_num(ctx, argc, argv, 2, 0), v = arg_num(ctx, argc, argv, 3, -1);
+    if (!set_tilemap_tile(*tm, static_cast<int>(std::floor(c)), static_cast<int>(std::floor(r)), static_cast<int>(v))) {
+        const TilemapSize size = tilemap_size(*tm);
+        return throw_err(ctx, std::format("tilemap.setTile({}, {}, {}) failed: the cell must be inside the {} x {} map (0-based, row 0 = top) and the tile -1 (empty) or a tile index (plus optional flip flags)",
+                                          c, r, v, size.width, size.height));
+    }
+    return JS_UNDEFINED;
 }
 
 // ---- components ---------------------------------------------------------------------------------------------------
@@ -1201,16 +1940,37 @@ NATIVE(scenePath) {
     return JS_NewString(ctx, W.scene_path().c_str());
 }
 
+NATIVE(sceneGeneration) {
+    SETUP;
+    return JS_NewFloat64(ctx, static_cast<double>(W.scene_generation()));
+}
+
 NATIVE(requestScene) {
     SETUP;
     std::string path = arg_str(ctx, argc, argv, 0);
-    if (path.empty()) path = W.scene_path();
+    const bool reload = path.empty();
+    if (reload) path = W.scene_path();
     if (!fs::exists(path)) {
         std::vector<std::string> scenes = fs::list("scenes", true, ".json");
         return throw_err(ctx, "scene '" + path + "' does not exist. " + did_you_mean(path, scenes));
     }
-    I->host->request_scene_change(path);
+    if (argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+        Json props = I->to_json(argv[1]);
+        if (!props.is_object())
+            return throw_err(ctx, "scene.load(path, props): props must be a plain object like { level: 3, difficulty: \"hard\" }, got " +
+                                      describe_json_value(props));
+        I->host->request_scene_change_with_props(path, props);
+    } else if (reload) {
+        I->host->request_scene_reload(path);  // a reload keeps the props the scene was started with
+    } else {
+        I->host->request_scene_change(path);  // a load without props: the next scene has none
+    }
     return JS_UNDEFINED;
+}
+
+NATIVE(sceneProps) {
+    SETUP;
+    return I->from_json(I->host->scene_props());
 }
 
 NATIVE(rngFloat) {
@@ -1258,6 +2018,15 @@ NATIVE(inAction) {
     return JS_NewBool(ctx, kind == 0 ? in.action_down(a) : kind == 1 ? in.action_pressed(a) : in.action_released(a));
 }
 
+NATIVE(inConsume) {  // (action): the press of the action is handled; later readers this frame see it as not pressed
+    SETUP;
+    std::string a = arg_str(ctx, argc, argv, 0);
+    JSValue exc = JS_UNDEFINED;
+    if (!check_action(I, ctx, a, exc)) return exc;
+    I->host->input().consume_action(a);
+    return JS_UNDEFINED;
+}
+
 NATIVE(inAxis) {
     SETUP;
     std::string n = arg_str(ctx, argc, argv, 0), p = arg_str(ctx, argc, argv, 1);
@@ -1278,10 +2047,13 @@ NATIVE(inVector) {
 
 Key parse_key(Impl*, JSContext* ctx, const std::string& name, JSValue& exc, bool& ok) {
     Key k = key_from_name(name);
+    if (k == Key::Unknown)  // "Ctrl", "Shift", "Alt", "Super": a test presses the left key
+        if (std::uint8_t bit = modifier_from_name(name)) k = modifier_key(bit);
     ok = k != Key::Unknown;
     if (!ok) {
         std::vector<std::string> names;
         for (int i = 1; i < static_cast<int>(Key::Count); ++i) names.push_back(key_name(static_cast<Key>(i)));
+        for (const char* m : {"Ctrl", "Shift", "Alt", "Super"}) names.emplace_back(m);
         exc = throw_err(ctx, "unknown key '" + name + "'. " + did_you_mean(name, names, 20));
     }
     return k;
@@ -1292,9 +2064,12 @@ NATIVE(inKey) {
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     JSValue exc = JS_UNDEFINED;
     bool ok = false;
+    Input& in = I->host->input();
+    if (key_from_name(arg_str(ctx, argc, argv, 1)) == Key::Unknown)  // "Ctrl", "Shift", "Alt", "Super": either side's key
+        if (std::uint8_t bit = modifier_from_name(arg_str(ctx, argc, argv, 1)))
+            return JS_NewBool(ctx, kind == 0 ? in.modifier_down(bit) : kind == 1 ? in.modifier_pressed(bit) : in.modifier_released(bit));
     Key k = parse_key(I, ctx, arg_str(ctx, argc, argv, 1), exc, ok);
     if (!ok) return exc;
-    Input& in = I->host->input();
     return JS_NewBool(ctx, kind == 0 ? in.key_down(k) : kind == 1 ? in.key_pressed(k) : in.key_released(k));
 }
 
@@ -1496,6 +2271,173 @@ NATIVE(inResetBindings) {  // (action?)
     return JS_UNDEFINED;
 }
 
+// ---- players: input.player(i) (M29.15) ------------------------------------------------------------------------------
+// The player number of argument `i`: an integer 0..kMaxPlayers-1, else a teaching error in `exc`.
+bool check_player(JSContext* ctx, int argc, JSValueConst* argv, int i, int& player, JSValue& exc) {
+    double d = arg_num(ctx, argc, argv, i);
+    if (!(d >= 0 && d < kMaxPlayers) || d != std::floor(d)) {
+        exc = throw_err(ctx, "input.player(index): index must be a whole number from 0 to " + std::to_string(kMaxPlayers - 1) +
+                                 " (a player; the first is 0), got " + arg_str(ctx, argc, argv, i));
+        return false;
+    }
+    player = static_cast<int>(d);
+    return true;
+}
+
+bool check_player_action(Impl* I, JSContext* ctx, const std::string& a, JSValue& exc) {
+    Input& in = I->host->input();
+    if (in.has_player_action(a)) return true;
+    auto names = in.action_names();
+    exc = throw_err(ctx, "unknown input action '" + a + "'. " +
+                             (names.empty() ? std::string("No actions are defined; add them to factoria.json under input.actions.")
+                                            : did_you_mean(a, names)));
+    return false;
+}
+
+NATIVE(inPlayerRead) {  // (kind, player, action...) kind: 0 down, 1 pressed, 2 released, 3 value, 4 axis, 5 vector
+    SETUP;
+    int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 1, player, exc)) return exc;
+    std::string a[4] = {arg_str(ctx, argc, argv, 2), arg_str(ctx, argc, argv, 3), arg_str(ctx, argc, argv, 4), arg_str(ctx, argc, argv, 5)};
+    const int count = kind == 5 ? 4 : kind == 4 ? 2 : 1;
+    for (int i = 0; i < count; ++i)
+        if (!check_player_action(I, ctx, a[i], exc)) return exc;
+    Input& in = I->host->input();
+    switch (kind) {
+        case 0: return JS_NewBool(ctx, in.player_action_down(player, a[0]));
+        case 1: return JS_NewBool(ctx, in.player_action_pressed(player, a[0]));
+        case 2: return JS_NewBool(ctx, in.player_action_released(player, a[0]));
+        case 3: return float_to_js(ctx, in.player_action_value(player, a[0]));
+        case 4: return float_to_js(ctx, in.player_axis(player, a[0], a[1]));
+        default: {
+            Vec2 v = in.player_vector(player, a[0], a[1], a[2], a[3]);
+            return array_of(ctx, {v.x, v.y});
+        }
+    }
+}
+
+NATIVE(inPlayerDevice) {  // (player, spec?) with a spec: assigns; without: { pad, padId, keys, slot }
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    Input& in = I->host->input();
+    if (argc < 2 || JS_IsUndefined(argv[1])) {
+        const PlayerDevice& d = in.player_device(player);
+        Json out = {{"pad", d.pad}, {"padId", d.padId}, {"keys", d.keys}, {"slot", in.player_pad(player)}};
+        return I->from_json(out);
+    }
+    Json spec = I->to_json(argv[1]);
+    PlayerDevice device;
+    std::vector<std::string> problems;
+    const std::string who = "input.player(" + std::to_string(player) + ").use";
+    if (spec.is_null()) {
+        // no device
+    } else if (!spec.is_object()) {
+        problems.push_back(who + "(device) expects an object like {pad: 0, keys: \"left\"} or {padId: gamepad.id}, or null for no device; got " +
+                           describe_json_value(spec));
+    } else {
+        const std::vector<std::string> fields = {"pad", "padId", "keys"};
+        for (auto it = spec.begin(); it != spec.end(); ++it) {
+            if (it.key() == "pad") {
+                if (it.value().is_number_integer()) device.pad = it.value().get<int>();
+                else if (!it.value().is_null()) problems.push_back(who + ": pad must be a gamepad slot (a whole number from 0 to " + std::to_string(kMaxGamepads - 1) + "), got " + describe_json_value(it.value()));
+            } else if (it.key() == "padId") {
+                if (it.value().is_string()) device.padId = it.value().get<std::string>();
+                else if (!it.value().is_null()) problems.push_back(who + ": padId must be the id string of a pad (input.gamepad(i).id), got " + describe_json_value(it.value()));
+            } else if (it.key() == "keys") {
+                if (it.value().is_string()) device.keys = it.value().get<std::string>();
+                else if (!it.value().is_null()) problems.push_back(who + ": keys must be the name of a key scheme (input.keySchemes()), got " + describe_json_value(it.value()));
+            } else {
+                problems.push_back(who + ": unknown field '" + it.key() + "'. " + did_you_mean(it.key(), fields));
+            }
+        }
+    }
+    if (problems.empty()) problems = in.use_player_device(player, device);
+    if (!problems.empty()) return throw_err(ctx, join(problems, "\n"));
+    return JS_UNDEFINED;
+}
+
+NATIVE(inPlayerBindings) {  // (player, action, family?)
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    std::string a = arg_str(ctx, argc, argv, 1);
+    if (!check_player_action(I, ctx, a, exc)) return exc;
+    std::string family = argc > 2 && JS_IsString(argv[2]) ? arg_str(ctx, argc, argv, 2) : "";
+    if (!family.empty() && family != "keys" && family != "pad")
+        return throw_err(ctx, "input.player(i).bindings(action, family): family must be \"keys\" or \"pad\" (or left out), got '" + family + "'");
+    return I->from_json(Json(I->host->input().player_bindings(player, a, family)));
+}
+
+NATIVE(inPlayerRebind) {  // (player, action, bindings[], family?)
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    std::string a = arg_str(ctx, argc, argv, 1);
+    if (!check_player_action(I, ctx, a, exc)) return exc;
+    Json list = argc > 2 ? I->to_json(argv[2]) : Json(nullptr);
+    std::vector<std::string> names;
+    bool ok = list.is_array();
+    if (ok)
+        for (const Json& item : list) {
+            if (item.is_string()) names.push_back(item.get<std::string>());
+            else ok = false;
+        }
+    if (!ok)
+        return throw_err(ctx, "input.player(i).rebind(action, bindings) expects an array of binding names, e.g. "
+                              "input.player(1).rebind(\"" + a + "\", [\"Space\"]); got " + (list.is_null() ? "nothing" : describe_json_value(list)));
+    std::string family = argc > 3 && JS_IsString(argv[3]) ? arg_str(ctx, argc, argv, 3) : "";
+    std::vector<std::string> problems = I->host->input().player_rebind(player, a, names, family);
+    if (!problems.empty()) return throw_err(ctx, join(problems, "\n"));
+    return JS_UNDEFINED;
+}
+
+NATIVE(inPlayerReset) {  // (player, action?)
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    std::string a = argc > 1 && !JS_IsUndefined(argv[1]) ? arg_str(ctx, argc, argv, 1) : "";
+    if (!a.empty() && !check_player_action(I, ctx, a, exc)) return exc;
+    I->host->input().player_reset(player, a);
+    return JS_UNDEFINED;
+}
+
+NATIVE(inPlayerLastPressed) {
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    std::string s = I->host->input().player_last_pressed(player);
+    return s.empty() ? JS_NULL : JS_NewString(ctx, s.c_str());
+}
+
+NATIVE(inPlayerData) {  // (player, data?) without data: what the player rebound; with data: imports it, returns the problems
+    SETUP;
+    int player = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!check_player(ctx, argc, argv, 0, player, exc)) return exc;
+    Input& in = I->host->input();
+    if (argc < 2 || JS_IsUndefined(argv[1])) return I->from_json(in.player_export(player));
+    return I->from_json(Json(in.player_import(player, I->to_json(argv[1]))));
+}
+
+NATIVE(inKeySchemes) {  // () -> names; (name) -> the keys of that scheme
+    SETUP;
+    Input& in = I->host->input();
+    if (argc < 1 || JS_IsUndefined(argv[0])) return I->from_json(Json(in.key_scheme_names()));
+    std::string name = arg_str(ctx, argc, argv, 0);
+    auto names = in.key_scheme_names();
+    if (std::find(names.begin(), names.end(), name) == names.end())
+        return throw_err(ctx, "input.keySchemeKeys: unknown key scheme '" + name + "'. " + did_you_mean(name, names));
+    return I->from_json(Json(in.key_scheme_keys(name)));
+}
+
 NATIVE(inLastPressed) {
     SETUP;
     std::string s = I->host->input().last_pressed();
@@ -1513,6 +2455,15 @@ NATIVE(inPadType) {  // (index)
     JSValue exc = JS_UNDEFINED;
     if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
     return JS_NewString(ctx, gamepad_type_name(I->host->input().gamepad_type(i)));
+}
+
+NATIVE(inPadInfo) {  // (index): { id, name } of the pad in that slot (the last one it had when it is unplugged)
+    SETUP;
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+    const GamepadInfo& info = I->host->input().gamepad_info(i);
+    return I->from_json(Json::object({{"id", info.id}, {"name", info.name}}));
 }
 
 NATIVE(inButtonName) {  // (bindingOrAction, pad)
@@ -1568,6 +2519,43 @@ NATIVE(testQuit) {  // (reset?): whether a quit was requested in this test; true
     return JS_NewBool(ctx, was);
 }
 
+NATIVE(inTestRun) {  // whether `factoria test` (or a test run of the editor) is running the scripts
+    SETUP;
+    return JS_NewBool(ctx, I->inTestRun);
+}
+
+NATIVE(quitCancel) {  // event.cancel() of game.on("quit"): the window stays open
+    SETUP;
+    I->quitCancelled = true;
+    return JS_UNDEFINED;
+}
+
+NATIVE(testCloseWindow) {  // the player clicks the close button: true when the window would close (and a quit is then requested)
+    SETUP;
+    const bool closes = I->owner->close_requested();
+    if (closes) I->request_quit();
+    return JS_NewBool(ctx, closes);
+}
+
+NATIVE(clipboardSupported) {
+    SETUP;
+    Clipboard* c = I->host->clipboard();
+    return JS_NewBool(ctx, c && c->supported());
+}
+
+NATIVE(clipboardGet) {
+    SETUP;
+    Clipboard* c = I->host->clipboard();
+    const std::string text = c && c->supported() ? c->get() : std::string();
+    return JS_NewStringLen(ctx, text.data(), text.size());
+}
+
+NATIVE(clipboardSet) {  // (text)
+    SETUP;
+    if (Clipboard* c = I->host->clipboard(); c && c->supported()) c->set(arg_str(ctx, argc, argv, 0));
+    return JS_UNDEFINED;
+}
+
 NATIVE(testSystemLanguages) {  // (list): the languages the device pretends to have; no argument clears
     SETUP;
     I->testSystemLanguages.clear();
@@ -1590,7 +2578,7 @@ NATIVE(testVibrations) {
     return I->from_json(Json(I->host->input().vibrations()));
 }
 
-NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown|3 platform keyboard (read-only), value?): sets when given; returns the state
+NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown|3 platform keyboard (read-only)|4 text input mode (sets the script flag), value?): sets when given; returns the state
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     Input& in = I->host->input();
@@ -1599,9 +2587,11 @@ NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown|3 p
         if (kind == 0) in.set_mouse_visible(v);
         else if (kind == 1) in.set_mouse_locked(v);
         else if (kind == 2) in.set_keyboard_shown(v);
+        else if (kind == 4) in.set_script_text_input(v);
     }
     return JS_NewBool(ctx, kind == 0 ? in.mouse_visible() : kind == 1 ? in.mouse_locked()
-                                                          : kind == 3 ? in.platform_keyboard() : in.keyboard_shown());
+                                                          : kind == 3 ? in.platform_keyboard()
+                                                          : kind == 4 ? in.text_input_mode() : in.keyboard_shown());
 }
 
 // ---- window -----------------------------------------------------------------------------------------------------------
@@ -1613,8 +2603,13 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     int w = display.value("width", 1280), h = display.value("height", 720);
     bool fullscreen = display.value("fullscreen", false), vsync = display.value("vsync", true);
     int dw = w, dh = h, cap = 0;
+    std::string mode = fullscreen ? "fullscreen" : "windowed";
+    bool modes = false, monitors = false;
     if (win) {
-        fullscreen = win->fullscreen();
+        mode = win->mode();
+        fullscreen = mode != "windowed";
+        modes = win->supports_modes();
+        monitors = win->supports_monitors();
         win->size(w, h);
         win->display_size(dw, dh);
         vsync = win->vsync();
@@ -1623,6 +2618,9 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     JSValue o = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, o, "available", JS_NewBool(ctx, win != nullptr));
     JS_SetPropertyStr(ctx, o, "fullscreen", JS_NewBool(ctx, fullscreen));
+    JS_SetPropertyStr(ctx, o, "mode", JS_NewString(ctx, mode.c_str()));
+    JS_SetPropertyStr(ctx, o, "supportsModes", JS_NewBool(ctx, modes));
+    JS_SetPropertyStr(ctx, o, "supportsMonitors", JS_NewBool(ctx, monitors));
     JS_SetPropertyStr(ctx, o, "width", JS_NewInt32(ctx, w));
     JS_SetPropertyStr(ctx, o, "height", JS_NewInt32(ctx, h));
     JS_SetPropertyStr(ctx, o, "displayWidth", JS_NewInt32(ctx, dw));
@@ -1632,7 +2630,32 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     return o;
 }
 
-NATIVE(windowSet) {  // (kind 0 fullscreen|1 size|2 vsync|3 frame cap, a, b) -> "" or the reason it did not happen
+NATIVE(windowMonitors) {  // [{ name, width, height, primary, current }]: the window's monitors, or the one display of a run without one
+    SETUP;
+    (void)argc;
+    (void)argv;
+    std::vector<WindowMonitor> list;
+    if (WindowControl* win = I->host->window()) {
+        list = win->monitors();
+    } else {
+        Json p = I->host->project_settings();
+        const Json display = p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
+        list.push_back({"Display", display.value("width", 1280), display.value("height", 720), true, true});
+    }
+    JSValue arr = JS_NewArray(ctx);
+    for (size_t i = 0; i < list.size(); ++i) {
+        JSValue m = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, m, "name", JS_NewString(ctx, list[i].name.c_str()));
+        JS_SetPropertyStr(ctx, m, "width", JS_NewInt32(ctx, list[i].width));
+        JS_SetPropertyStr(ctx, m, "height", JS_NewInt32(ctx, list[i].height));
+        JS_SetPropertyStr(ctx, m, "primary", JS_NewBool(ctx, list[i].primary));
+        JS_SetPropertyStr(ctx, m, "current", JS_NewBool(ctx, list[i].current));
+        JS_SetPropertyUint32(ctx, arr, static_cast<uint32_t>(i), m);
+    }
+    return arr;
+}
+
+NATIVE(windowSet) {  // (kind 0 mode|1 size|2 vsync|3 frame cap|4 monitor, a, b) -> "" or the reason it did not happen
     SETUP;
     WindowControl* win = I->host->window();
     if (!win)
@@ -1640,9 +2663,10 @@ NATIVE(windowSet) {  // (kind 0 fullscreen|1 size|2 vsync|3 frame cap, a, b) -> 
                                  "apply to a windowed run (factoria run, an exported game); check window.available first.");
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     std::string err;
-    if (kind == 0) err = win->set_fullscreen(arg_bool(ctx, argc, argv, 1));
+    if (kind == 0) err = win->set_mode(arg_str(ctx, argc, argv, 1));
     else if (kind == 1) err = win->set_size(static_cast<int>(arg_num(ctx, argc, argv, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2)));
     else if (kind == 2) err = win->set_vsync(arg_bool(ctx, argc, argv, 1));
+    else if (kind == 4) err = win->set_monitor(static_cast<int>(arg_num(ctx, argc, argv, 1)));
     else err = win->set_frame_cap(static_cast<int>(arg_num(ctx, argc, argv, 1)));
     return JS_NewString(ctx, err.c_str());
 }
@@ -1658,6 +2682,7 @@ NATIVE(audioPlay) {
     pp.loop = arg_bool(ctx, argc, argv, 4, false);
     std::string bus = arg_str(ctx, argc, argv, 5);
     if (!bus.empty()) pp.bus = bus;
+    pp.notifyEnd = arg_bool(ctx, argc, argv, 10, false);
     const VoiceId voice = I->host->audio().play(path, pp);
     // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
     // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s.
@@ -1682,6 +2707,16 @@ NATIVE(audioStop) {
     I->host->audio().stop(voice);
     I->host->captions().remove_voice(voice);
     return JS_UNDEFINED;
+}
+NATIVE(audioActiveVoices) {  // () -> [{ id, path, bus, volume, pitch, pan, loop, music, source }], oldest first
+    SETUP;
+    return I->from_json(I->host->audio().active_voices());
+}
+NATIVE(audioTakeEnded) {  // () -> ids of the voices played with onEnded that ended since the last call
+    SETUP;
+    Json ids = Json::array();
+    for (const VoiceId id : I->host->audio().take_ended_voices()) ids.push_back(id);
+    return I->from_json(ids);
 }
 NATIVE(audioStopAll) {
     SETUP;
@@ -1715,21 +2750,64 @@ NATIVE(captionList) {  // () -> [{text, speaker, key, source}], oldest first
 }
 NATIVE(audioMusic) {
     SETUP;
-    I->host->audio().play_music(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0.6)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5)));
+    I->host->audio().play_music(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0.6)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5)),
+                                  arg_num(ctx, argc, argv, 3, 0) != 0);
     return JS_UNDEFINED;
+}
+NATIVE(audioMusicLayers) {  // ([{name, path, level}], volume, fade, persist) -> true when every layer started
+    SETUP;
+    const Json list = I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED);
+    std::vector<MusicLayer> layers;
+    if (list.is_array()) {
+        for (const Json& j : list) {
+            MusicLayer l;
+            l.name = j.value("name", std::string());
+            l.path = j.value("path", std::string());
+            l.level = j.value("level", 1.0f);
+            layers.push_back(std::move(l));
+        }
+    }
+    const bool ok = I->host->audio().play_music_layers(layers, static_cast<float>(arg_num(ctx, argc, argv, 1, 0.6)),
+                                                       static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5)),
+                                                       arg_num(ctx, argc, argv, 3, 0) != 0);
+    return JS_NewBool(ctx, ok);
+}
+NATIVE(audioSetLayer) {  // (name, level, fade) -> false for an unknown layer
+    SETUP;
+    return JS_NewBool(ctx, I->host->audio().set_layer(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 1)),
+                                                      static_cast<float>(arg_num(ctx, argc, argv, 2, 0))));
+}
+NATIVE(audioLayerNames) {
+    SETUP;
+    Json names = Json::array();
+    for (const std::string& n : I->host->audio().layer_names()) names.push_back(n);
+    return I->from_json(names);
+}
+NATIVE(audioSetVoiceVolume) {  // (voice, volume, fade) -> true while the voice plays
+    SETUP;
+    Audio& a = I->host->audio();
+    const VoiceId voice = static_cast<VoiceId>(arg_num(ctx, argc, argv, 0));
+    if (!a.is_playing(voice)) return JS_NewBool(ctx, false);
+    a.set_voice_volume(voice, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return JS_NewBool(ctx, true);
 }
 NATIVE(audioStopMusic) {
     SETUP;
     I->host->audio().stop_music(static_cast<float>(arg_num(ctx, argc, argv, 0, 0.5)));
     return JS_UNDEFINED;
 }
+// "unknown audio bus 'x'. Did you mean ...? The buses are ...": the buses of the project included.
+static JSValue throw_unknown_bus(JSContext* ctx, const Audio& a, const std::string& bus) {
+    const std::vector<std::string> names = a.bus_names();
+    return throw_err(ctx, "unknown audio bus '" + bus + "'. " + did_you_mean(bus, names) + " The buses are " + join(names, ", ") +
+                              " (a project declares its own in factoria.json \"audio\".\"buses\").");
+}
 NATIVE(audioVolume) {
     SETUP;
     std::string bus = to_lower(arg_str(ctx, argc, argv, 0));
     float v = static_cast<float>(arg_num(ctx, argc, argv, 1, 1));
-    if (bus == "master") I->host->audio().set_master_volume(v);
-    else if (bus == "sfx" || bus == "music" || bus == "ui") I->host->audio().set_bus_volume(bus, v);
-    else return throw_err(ctx, "unknown audio bus '" + bus + "'; use \"master\", \"sfx\", \"music\" or \"ui\"");
+    if (I->host->audio().bus_volume(bus) < 0) return throw_unknown_bus(ctx, I->host->audio(), bus);
+    I->host->audio().set_bus_volume(bus, v);
     return JS_UNDEFINED;
 }
 
@@ -1737,7 +2815,7 @@ NATIVE(audioGetVolume) {
     SETUP;
     const std::string bus = to_lower(arg_str(ctx, argc, argv, 0));
     const float v = I->host->audio().bus_volume(bus);
-    if (v < 0) return throw_err(ctx, "unknown audio bus '" + bus + "'; use \"master\", \"sfx\", \"music\" or \"ui\"");
+    if (v < 0) return throw_unknown_bus(ctx, I->host->audio(), bus);
     return JS_NewFloat64(ctx, v);
 }
 
@@ -1747,6 +2825,65 @@ NATIVE(audioLog) {  // (clear) -> play log entries, oldest first
     for (const AudioEvent& ev : I->host->audio().play_log()) list.push_back(ev.to_json());
     if (arg_bool(ctx, argc, argv, 0, false)) I->host->audio().clear_play_log();
     return I->from_json(list);
+}
+
+// Bus effects (docs/SCRIPTING.md, "Audio buses"): the audio.bus(name) handle and audio.snapshot call in factoria.js check
+// their arguments; these natives throw the Audio error (what is wrong and what to use) for anything that gets past them.
+JSValue throw_audio_error(JSContext* ctx, const Error& e) {
+    return throw_err(ctx, e.hint.empty() ? e.message : e.message + " " + e.hint);
+}
+NATIVE(audioBusVolume) {  // (bus, volume, fade)
+    SETUP;
+    const std::string bus = arg_str(ctx, argc, argv, 0);
+    Audio& a = I->host->audio();
+    if (a.bus_volume(bus) < 0) return throw_unknown_bus(ctx, a, bus);
+    a.set_bus_volume(bus, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return JS_UNDEFINED;
+}
+NATIVE(audioBusLowpass) {  // (bus, hz, fade): hz 0 = off
+    SETUP;
+    const auto r = I->host->audio().set_bus_lowpass(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
+                                                    static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioBusReverb) {  // (bus, mix, fade): mix 0 = off
+    SETUP;
+    const auto r = I->host->audio().set_bus_reverb(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
+                                                   static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioBusDuck) {  // (bus, by, amount, attack, release): by "" = off
+    SETUP;
+    DuckSettings d;
+    d.by = arg_str(ctx, argc, argv, 1);
+    d.amount = static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5));
+    d.attack = static_cast<float>(arg_num(ctx, argc, argv, 3, 0.05));
+    d.release = static_cast<float>(arg_num(ctx, argc, argv, 4, 0.5));
+    const auto r = I->host->audio().set_bus_duck(arg_str(ctx, argc, argv, 0), d);
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioBusState) {  // (bus) -> { volume, snapshotVolume, lowpass, reverb, duck }
+    SETUP;
+    const std::string bus = arg_str(ctx, argc, argv, 0);
+    const Json s = I->host->audio().bus_state(bus);
+    if (!s.is_null()) return I->from_json(s);
+    return throw_unknown_bus(ctx, I->host->audio(), bus);
+}
+NATIVE(audioSnapshot) {  // (name, fade): fade < 0 = the snapshot's own
+    SETUP;
+    const auto r = I->host->audio().apply_snapshot(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, -1)));
+    return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
+}
+NATIVE(audioSnapshots) {  // () -> { names, current }
+    SETUP;
+    Json names = Json::array();
+    for (const std::string& n : I->host->audio().snapshot_names()) names.push_back(n);
+    return I->from_json(Json::object({{"names", names}, {"current", I->host->audio().current_snapshot()}}));
+}
+NATIVE(audioFxReset) {  // () the test harness: every effect off, snapshot scales back to 1
+    SETUP;
+    I->host->audio().reset_bus_effects();
+    return JS_UNDEFINED;
 }
 
 // ---- physics ------------------------------------------------------------------------------------------------------
@@ -1779,6 +2916,34 @@ NATIVE(raycast3d) {
     opt.ignore = ent_from(ctx, argc > 8 ? argv[8] : JS_NULL);
     opt.ignoreTriggers = arg_bool(ctx, argc, argv, 9, true);
     return hit_to_js(ctx, I->host->physics().raycast3d(W, o, d, static_cast<float>(arg_num(ctx, argc, argv, 6, 1000)), opt));
+}
+JSValue hits_to_js(JSContext* ctx, const std::vector<RaycastHit>& hits) {
+    JSValue arr = JS_NewArray(ctx);
+    std::uint32_t i = 0;
+    for (const RaycastHit& h : hits) JS_SetPropertyUint32(ctx, arr, i++, hit_to_js(ctx, std::optional<RaycastHit>(h)));
+    return arr;
+}
+NATIVE(raycast2dAll) {
+    SETUP;
+    Vec2 a{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
+    Vec2 b{static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
+    RaycastOptions o;
+    o.mask = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 4, -1));
+    o.ignore = ent_from(ctx, argc > 5 ? argv[5] : JS_NULL);
+    o.ignoreTriggers = arg_bool(ctx, argc, argv, 6, true);
+    o.maxHits = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 7, 32));
+    return hits_to_js(ctx, I->host->physics().raycast2d_all(W, a, b, o));
+}
+NATIVE(raycast3dAll) {
+    SETUP;
+    Vec3 o{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    Vec3 d{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4)), static_cast<float>(arg_num(ctx, argc, argv, 5))};
+    RaycastOptions opt;
+    opt.mask = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 7, -1));
+    opt.ignore = ent_from(ctx, argc > 8 ? argv[8] : JS_NULL);
+    opt.ignoreTriggers = arg_bool(ctx, argc, argv, 9, true);
+    opt.maxHits = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 10, 32));
+    return hits_to_js(ctx, I->host->physics().raycast3d_all(W, o, d, static_cast<float>(arg_num(ctx, argc, argv, 6, 1000)), opt));
 }
 // Shape casts. The shape arrives as the plain object the script wrote; cast_shape_from_json teaches what is wrong with it.
 bool cast_shape_arg(Impl* I, JSContext* ctx, int argc, JSValueConst* argv, bool is3d, CastShape& out, JSValue& exc) {
@@ -1832,6 +2997,178 @@ NATIVE(navFindPath) {  // ({ from: [x,y,z], to: [x,y,z], radius?, snap?, closest
     auto r = I->host->physics().nav_find_path(W, pt("from"), pt("to"), o);
     if (!r.ok()) return throw_err(ctx, "nav.findPath(from, to): " + r.error().to_string());
     return I->from_json(r.value().to_json());
+}
+NATIVE(navFindTilePath) {  // ({ tilemap | grid, from, to, costs?, diagonals?, maxNodes?, closest?, allowBlockedGoal? })
+    SETUP;
+    auto r = nav_tile_query(W, I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED));
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return I->from_json(r.value());
+}
+// ---- reusable tile grids and flow fields (nav.createGrid / nav.flowField in factoria.js) ----------------------------
+// One JS object class holds either a cost grid or a flow field (which keeps its grid alive). The finalizer frees them, so a
+// script never has to release anything.
+struct NavHandle {
+    std::shared_ptr<NavCostGrid> grid;
+    std::shared_ptr<NavFlowField> field;
+};
+void nav_handle_finalizer(JSRuntime*, JSValue val) { delete static_cast<NavHandle*>(JS_GetOpaque(val, g_navHandleClass)); }
+
+NavHandle* nav_handle(JSContext* ctx, JSValueConst v, bool wantField, JSValue* exc) {
+    auto* h = static_cast<NavHandle*>(JS_GetOpaque(v, g_navHandleClass));
+    if (!h || (wantField ? !h->field : !h->grid))
+        *exc = throw_err(ctx, wantField ? "expected a flow field made by nav.flowField" : "expected a grid made by nav.createGrid");
+    return wantField ? (h && h->field ? h : nullptr) : (h && h->grid ? h : nullptr);
+}
+
+// A cost from a script: a finite number >= 0 is a cost, anything else (null, undefined, Infinity, negative) blocks.
+float nav_cost_arg(JSContext* ctx, JSValueConst v) {
+    if (!JS_IsNumber(v)) return -1.0f;
+    double d = 0;
+    JS_ToFloat64(ctx, &d, v);
+    return (std::isfinite(d) && d >= 0.0) ? static_cast<float>(d) : -1.0f;
+}
+
+JSValue nav_new_handle(JSContext* ctx, NavHandle* h) {
+    JSValue obj = JS_NewObjectClass(ctx, static_cast<int>(g_navHandleClass));
+    if (JS_IsException(obj)) {
+        delete h;
+        return obj;
+    }
+    JS_SetOpaque(obj, h);
+    return obj;
+}
+
+NATIVE(navGridNew) {  // (width, height, costs | undefined, originX, originY, cellW, cellH) -> grid handle
+    SETUP;
+    const int w = static_cast<int>(arg_num(ctx, argc, argv, 0)), h = static_cast<int>(arg_num(ctx, argc, argv, 1));
+    if (w <= 0 || h <= 0) return throw_err(ctx, "nav.createGrid: width and height must be at least 1");
+    auto g = std::make_shared<NavCostGrid>(w, h, Vec2{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4))},
+                                           Vec2{static_cast<float>(arg_num(ctx, argc, argv, 5, 1)), static_cast<float>(arg_num(ctx, argc, argv, 6, 1))});
+    if (argc > 2 && JS_IsObject(argv[2])) {
+        std::vector<float> costs(static_cast<std::size_t>(w) * static_cast<std::size_t>(h));
+        for (std::size_t i = 0; i < costs.size(); ++i) {
+            JSValue v = JS_GetPropertyUint32(ctx, argv[2], static_cast<uint32_t>(i));
+            costs[i] = nav_cost_arg(ctx, v);
+            JS_FreeValue(ctx, v);
+        }
+        g->assign(costs);
+    }
+    return nav_new_handle(ctx, new NavHandle{std::move(g), nullptr});
+}
+NATIVE(navGridSet) {  // (grid, col, row, cost) -> false when the cell is off the map
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    return JS_NewBool(ctx, h->grid->set_cost(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))),
+                                             static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))),
+                                             nav_cost_arg(ctx, argc > 3 ? argv[3] : JS_UNDEFINED)));
+}
+NATIVE(navGridFill) {  // (grid, costs) replaces every cost
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    std::vector<float> costs(static_cast<std::size_t>(h->grid->width()) * static_cast<std::size_t>(h->grid->height()));
+    for (std::size_t i = 0; i < costs.size(); ++i) {
+        JSValue v = JS_GetPropertyUint32(ctx, argv[1], static_cast<uint32_t>(i));
+        costs[i] = nav_cost_arg(ctx, v);
+        JS_FreeValue(ctx, v);
+    }
+    h->grid->assign(costs);
+    return JS_UNDEFINED;
+}
+NATIVE(navGridGet) {  // (grid, col, row) -> the cost, -1 for a blocked cell or one off the map
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    return float_to_js(ctx, h->grid->cost(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2)))));
+}
+NATIVE(navGridVersion) {  // (grid | field) -> [version of the grid, rebuilds of the field (0 for a grid)]
+    SETUP;
+    auto* h = static_cast<NavHandle*>(JS_GetOpaque(argc > 0 ? argv[0] : JS_UNDEFINED, g_navHandleClass));
+    if (!h) return throw_err(ctx, "expected a grid made by nav.createGrid or a field made by nav.flowField");
+    const NavCostGrid& g = h->field ? h->field->cost_grid() : *h->grid;
+    return array_of(ctx, {static_cast<double>(g.version()), static_cast<double>(h->field ? h->field->rebuilds() : 0)});
+}
+NATIVE(navGridPath) {  // (grid, from [c,r], to [c,r], opts) -> the nav.findTilePath result
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    auto cell = [&](int i) {
+        JSValue c = JS_GetPropertyUint32(ctx, argv[i], 0), r = JS_GetPropertyUint32(ctx, argv[i], 1);
+        double dc = 0, dr = 0;
+        JS_ToFloat64(ctx, &dc, c);
+        JS_ToFloat64(ctx, &dr, r);
+        JS_FreeValue(ctx, c);
+        JS_FreeValue(ctx, r);
+        return std::make_pair(static_cast<int>(std::floor(dc)), static_cast<int>(std::floor(dr)));
+    };
+    auto r = nav_tile_run(h->grid->grid(), nullptr, I->to_json(argc > 3 ? argv[3] : JS_UNDEFINED), cell(1), cell(2));
+    if (!r.ok()) return throw_err(ctx, r.error().to_string());
+    return I->from_json(r.value());
+}
+NATIVE(navFlowNew) {  // (grid, goals [c0, r0, c1, r1, ...], diagonals) -> flow field handle
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
+    if (!h) return exc;
+    std::vector<std::pair<int, int>> goals;
+    uint32_t n = 0;
+    JSValue len = JS_GetPropertyStr(ctx, argv[1], "length");
+    JS_ToUint32(ctx, &n, len);
+    JS_FreeValue(ctx, len);
+    for (uint32_t i = 0; i + 1 < n; i += 2) {
+        JSValue c = JS_GetPropertyUint32(ctx, argv[1], i), r = JS_GetPropertyUint32(ctx, argv[1], i + 1);
+        double dc = 0, dr = 0;
+        JS_ToFloat64(ctx, &dc, c);
+        JS_ToFloat64(ctx, &dr, r);
+        JS_FreeValue(ctx, c);
+        JS_FreeValue(ctx, r);
+        goals.push_back({static_cast<int>(std::floor(dc)), static_cast<int>(std::floor(dr))});
+    }
+    auto f = std::make_shared<NavFlowField>(h->grid, std::move(goals), arg_bool(ctx, argc, argv, 2));
+    return nav_new_handle(ctx, new NavHandle{h->grid, std::move(f)});
+}
+NATIVE(navFlowDist) {  // (field, col, row) -> cost to the nearest goal, Infinity when none can be reached
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, true, &exc);
+    if (!h) return exc;
+    return float_to_js(ctx, h->field->distance(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2)))));
+}
+NATIVE(navFlowStep) {  // (field, col, row) -> [col, row] of the next cell, or null
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, true, &exc);
+    if (!h) return exc;
+    int nc = 0, nr = 0;
+    if (!h->field->step_toward(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))), nc, nr)) return JS_NULL;
+    return array_of(ctx, {static_cast<double>(nc), static_cast<double>(nr)});
+}
+NATIVE(navFlowPath) {  // (field, col, row) -> [c0, r0, c1, r1, ...] from the cell to its goal, [] when none can be reached
+    SETUP;
+    JSValue exc = JS_UNDEFINED;
+    NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, true, &exc);
+    if (!h) return exc;
+    const auto cells = h->field->path_from(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))));
+    JSValue a = JS_NewArray(ctx);
+    uint32_t i = 0;
+    for (const auto& c : cells) {
+        JS_SetPropertyUint32(ctx, a, i++, JS_NewInt32(ctx, c.first));
+        JS_SetPropertyUint32(ctx, a, i++, JS_NewInt32(ctx, c.second));
+    }
+    return a;
+}
+NATIVE(tileVersion) {  // (entity) -> change counter of this Tilemap's tiles (setTile and whole replacements)
+    SETUP;
+    ENTITY(e, 0);
+    JSValue exc = JS_UNDEFINED;
+    Tilemap* tm = script_tilemap(I, ctx, e, &exc);
+    if (!tm) return exc;
+    return JS_NewUint32(ctx, tilemap_version(*tm));
 }
 NATIVE(navBake) {  // (mesh)
     SETUP;
@@ -1900,13 +3237,13 @@ NATIVE(moveCharacter) {  // (entity, dx, dy, dz) -> { position, moved, isGrounde
 // ---- camera / debug -----------------------------------------------------------------------------------------------
 NATIVE(cameraMain) {
     SETUP;
-    Entity best = kNullEntity;
-    int bestDepth = 0;
-    W.each<Camera>([&](Entity e, Camera& c) {
-        if (!c.primary || !W.active_in_hierarchy(e)) return;
-        if (best.is_null() || c.depth < bestDepth) { best = e; bestDepth = c.depth; }
-    });
-    return ent_val(ctx, best);
+    const std::vector<Entity> cams = rendering_cameras(W);
+    return ent_val(ctx, cams.empty() ? kNullEntity : cams.front());
+}
+
+NATIVE(cameraAll) {
+    SETUP;
+    return entities_array(ctx, rendering_cameras(W));
 }
 
 Vec2 design_size(Impl* I) {
@@ -1914,48 +3251,66 @@ Vec2 design_size(Impl* I) {
     return I->host->design_size();
 }
 
-float camera_scale(Impl* I, World& W, Entity cam, Vec2 size) {
-    const Camera* c = cam.is_null() ? nullptr : W.get<Camera>(cam);
-    float ortho = c && c->orthoSize > 0 ? c->orthoSize : size.y * 0.5f;
-    (void)I;
-    return size.y * 0.5f / ortho;
+// Without a renderer (no GPU at all): the same maths as the renderer for an orthographic camera, with the camera's viewport.
+using FallbackView = OrthoView;
+
+FallbackView fallback_view(Impl* I, World& W, Entity named, const Vec2* point) {
+    return ortho_view(W, design_size(I), named, point);
+}
+
+// The optional camera argument of the conversions at index `i`.
+Entity arg_camera(JSContext* ctx, int argc, JSValueConst* argv, int i) {
+    return i < argc ? ent_from(ctx, argv[i]) : kNullEntity;
 }
 
 NATIVE(worldToScreen) {
     SETUP;
     Vec3 p{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    const Entity camera = arg_camera(ctx, argc, argv, 3);
     if (Renderer* r = I->host->renderer(); r && r->initialized()) {
-        Vec2 s = r->world_to_screen(p);
+        Vec2 s = r->world_to_screen(p, camera);
         return array_of(ctx, {s.x, s.y});
     }
-    Vec2 size = design_size(I);
-    Entity cam = kNullEntity;
-    int bestDepth = 0;
-    W.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && W.active_in_hierarchy(e) && (cam.is_null() || c.depth < bestDepth)) { cam = e; bestDepth = c.depth; }
-    });
-    Vec3 cp = cam.is_null() ? Vec3{} : W.world_position(cam);
-    float s = camera_scale(I, W, cam, size);
-    return array_of(ctx, {size.x * 0.5f + (p.x - cp.x) * s, size.y * 0.5f - (p.y - cp.y) * s});
+    const FallbackView fv = fallback_view(I, W, camera, nullptr);
+    return array_of(ctx, {fv.center.x + (p.x - fv.position.x) * fv.scale, fv.center.y - (p.y - fv.position.y) * fv.scale});
 }
 
 NATIVE(screenToWorld) {
     SETUP;
     Vec2 sp{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
     float depth = static_cast<float>(arg_num(ctx, argc, argv, 2));
+    const Entity camera = arg_camera(ctx, argc, argv, 3);
     if (Renderer* r = I->host->renderer(); r && r->initialized()) {
-        Vec3 w = r->screen_to_world(sp, depth);
+        Vec3 w = r->screen_to_world(sp, depth, camera);
         return array_of(ctx, {w.x, w.y, w.z});
     }
-    Vec2 size = design_size(I);
-    Entity cam = kNullEntity;
-    int bestDepth = 0;
-    W.each<Camera>([&](Entity e, Camera& c) {
-        if (c.primary && W.active_in_hierarchy(e) && (cam.is_null() || c.depth < bestDepth)) { cam = e; bestDepth = c.depth; }
-    });
-    Vec3 cp = cam.is_null() ? Vec3{} : W.world_position(cam);
-    float s = camera_scale(I, W, cam, size);
-    return array_of(ctx, {cp.x + (sp.x - size.x * 0.5f) / s, cp.y - (sp.y - size.y * 0.5f) / s, depth});
+    const FallbackView fv = fallback_view(I, W, camera, &sp);
+    return array_of(ctx, {fv.position.x + (sp.x - fv.center.x) / fv.scale, fv.position.y - (sp.y - fv.center.y) / fv.scale, depth});
+}
+
+NATIVE(screenRay) {
+    SETUP;
+    Vec2 sp{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
+    const Entity camera = arg_camera(ctx, argc, argv, 2);
+    Vec3 o, d;
+    if (Renderer* r = I->host->renderer(); r && r->initialized()) {
+        r->screen_ray(sp, o, d, camera);
+    } else {
+        const FallbackView fv = fallback_view(I, W, camera, &sp);
+        o = {fv.position.x + (sp.x - fv.center.x) / fv.scale, fv.position.y - (sp.y - fv.center.y) / fv.scale, fv.position.z};
+        d = kForward;
+    }
+    return array_of(ctx, {o.x, o.y, o.z, d.x, d.y, d.z});
+}
+
+NATIVE(cameraAt) {
+    SETUP;
+    Vec2 sp{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
+    if (Renderer* r = I->host->renderer(); r && r->initialized() && !r->cameras().empty()) {
+        const Entity e = r->camera_at(sp);
+        if (!e.is_null() && W.alive(e)) return ent_val(ctx, e);
+    }
+    return ent_val(ctx, camera_containing(W, design_size(I), sp));
 }
 
 Color arg_color(JSContext* ctx, int argc, JSValueConst* argv, int i) {
@@ -1985,6 +3340,15 @@ NATIVE(debugDraw) {  // (kind, ...)
         case 3: d.text({n(1), n(2)}, arg_str(ctx, argc, argv, 3), arg_color(ctx, argc, argv, 4), argc > 5 ? n(5) : 16.0f); break;
         case 4: d.box({n(1), n(2), n(3)}, {n(4), n(5), n(6)}, arg_color(ctx, argc, argv, 7)); break;
         case 5: d.sphere({n(1), n(2), n(3)}, n(4), arg_color(ctx, argc, argv, 5)); break;
+        case 6: {  // bones(root | null, color): the Bone2D kites of a subtree, or of the whole scene
+            Entity root = kNullEntity;
+            if (argc > 1 && !JS_IsNull(argv[1]) && !JS_IsUndefined(argv[1])) {
+                ENTITY(e, 1);
+                root = e;
+            }
+            debug_draw_bones(d, W, root, arg_color(ctx, argc, argv, 2));
+            break;
+        }
         default: break;
     }
     return JS_UNDEFINED;
@@ -2085,20 +3449,58 @@ NATIVE(storageGet) {
     if (!I->storage.contains(key)) return JS_UNDEFINED;
     return I->from_json(I->storage[key]);
 }
-NATIVE(storageSet) {
+NATIVE(storageSet) {  // (key, value, compress?)
     SETUP;
     I->load_storage();
     std::string key = arg_str(ctx, argc, argv, 0);
     if (key.empty()) return throw_err(ctx, "storage.set(key, value): key must be a non-empty string");
+    const bool compress = arg_bool(ctx, argc, argv, 2, false);
+    I->storage_drain();  // an earlier setAsync of this key must not land after this write
     I->storage[key] = I->to_json(argc > 1 ? argv[1] : JS_NULL);
-    I->save_storage();
+    I->storageMeta[key] = {compress, -1};
+    if (I->storageMode == StorageMode::Persistent) I->storage_write(key, compress);
     return JS_UNDEFINED;
+}
+NATIVE(storageSetAsync) {  // (key, value, compress?) -> job id; the answer comes back through storageDeliver
+    SETUP;
+    I->load_storage();
+    std::string key = arg_str(ctx, argc, argv, 0);
+    if (key.empty()) return throw_err(ctx, "storage.setAsync(key, value): key must be a non-empty string");
+    const bool compress = arg_bool(ctx, argc, argv, 2, false);
+    I->storage[key] = I->to_json(argc > 1 ? argv[1] : JS_NULL);  // reads see it at once; the file follows
+    I->storageMeta[key] = {compress, -1};
+    storage_files::Job job;
+    job.id = I->nextStorageJob++;
+    job.key = key;
+    job.valueText = I->storage[key].dump(-1, ' ', false, Json::error_handler_t::replace);
+    job.compress = compress;
+    job.persist = I->storageMode == StorageMode::Persistent;
+    if (job.persist) job.file = storage_files::dir() / storage_files::file_name(key);
+    const int id = job.id;
+    I->storageWriter.submit(std::move(job), I->storageMode == StorageMode::Persistent);
+    return JS_NewInt32(ctx, id);
+}
+NATIVE(storageSize) {  // (key) -> bytes of the key's file, 0 when the key is not stored
+    SETUP;
+    I->load_storage();
+    I->storage_drain();
+    std::string key = arg_str(ctx, argc, argv, 0);
+    if (!I->storage.contains(key)) return JS_NewInt32(ctx, 0);
+    Impl::StorageMeta& m = I->storageMeta[key];
+    if (m.bytes < 0)
+        m.bytes = static_cast<std::int64_t>(
+            storage_files::encode(key, I->storage[key].dump(-1, ' ', false, Json::error_handler_t::replace), m.compressed).size());
+    return JS_NewFloat64(ctx, static_cast<double>(m.bytes));
 }
 NATIVE(storageRemove) {
     SETUP;
     I->load_storage();
-    I->storage.erase(arg_str(ctx, argc, argv, 0));
-    I->save_storage();
+    I->storage_drain();
+    const std::string key = arg_str(ctx, argc, argv, 0);
+    if (I->storage.erase(key) > 0) {
+        I->storageMeta.erase(key);
+        I->storage_remove_file(key);
+    }
     return JS_UNDEFINED;
 }
 NATIVE(storageKeys) {
@@ -2117,9 +3519,18 @@ NATIVE(storageCorrupt) {
 NATIVE(storageClear) {
     SETUP;
     I->load_storage();  // a damaged file is kept before the cleared data replaces it
+    I->storage_drain();
     I->storage = Json::object();
+    I->storageMeta.clear();
     I->storageLoaded = true;
-    I->save_storage();
+    if (I->storageMode == StorageMode::Persistent) {
+        std::error_code ec;
+        std::vector<std::filesystem::path> files;
+        for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
+            if (it->path().extension() == ".json") files.push_back(it->path());
+        for (const auto& f : files) std::filesystem::remove(f, ec);
+        fs::user_dir_changed();
+    }
     return JS_UNDEFINED;
 }
 
@@ -2259,6 +3670,13 @@ NATIVE(i18nHas) {
     return JS_NewBool(ctx, L && L->has(arg_str(ctx, argc, argv, 0)));
 }
 
+NATIVE(i18nGender) {  // (key) -> "f", "m", "n" or ""
+    SETUP;
+    const I18n* L = I->host->i18n();
+    const std::string gender = L ? L->gender(arg_str(ctx, argc, argv, 0)) : std::string();
+    return JS_NewStringLen(ctx, gender.data(), gender.size());
+}
+
 NATIVE(i18nSet) {  // (language) -> "" when done, else why not
     SETUP;
     return JS_NewString(ctx, I->host->set_language(arg_str(ctx, argc, argv, 0)).c_str());
@@ -2269,7 +3687,14 @@ NATIVE(testLoad) {
     SETUP;
     std::string path = arg_str(ctx, argc, argv, 0);
     if (path.empty()) path = W.scene_path();
-    std::string err = I->host->load_scene_now(path);
+    Json props;
+    const bool hasProps = argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1]);
+    if (hasProps) {
+        props = I->to_json(argv[1]);
+        if (!props.is_object())
+            return JS_NewString(ctx, ("game.load(path, props): props must be a plain object like { level: 3 }, got " + describe_json_value(props)).c_str());
+    }
+    std::string err = hasProps ? I->host->load_scene_now_with_props(path, props) : I->host->load_scene_now(path);
     if (!err.empty()) return JS_NewString(ctx, err.c_str());
     I->after_test_load();
     return JS_NewString(ctx, "");
@@ -2288,7 +3713,15 @@ NATIVE(testLoadJson) {
     SETUP;
     Json scene = argc > 0 ? I->to_json(argv[0]) : Json(nullptr);
     if (!scene.is_object()) return JS_NewString(ctx, "game.loadJson(scene) expects a scene object like { format: \"factoria.scene/1\", entities: [...] }");
-    std::string err = I->host->load_scene_json_now(scene, "game.loadJson");
+    Json props;
+    const bool hasProps = argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1]);
+    if (hasProps) {
+        props = I->to_json(argv[1]);
+        if (!props.is_object())
+            return JS_NewString(ctx, ("game.loadJson(scene, props): props must be a plain object like { level: 3 }, got " + describe_json_value(props)).c_str());
+    }
+    std::string err = hasProps ? I->host->load_scene_json_now_with_props(scene, "game.loadJson", props)
+                               : I->host->load_scene_json_now(scene, "game.loadJson");
     if (!err.empty()) return JS_NewString(ctx, err.c_str());
     I->after_test_load();
     return JS_NewString(ctx, "");
@@ -2306,7 +3739,7 @@ NATIVE(testTouch) {  // (kind 0 begin|1 move|2 end, id, x, y)
     return JS_UNDEFINED;
 }
 
-NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type, index, name, value)
+NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type|6 validate a pad type, index, name, value, info)
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     int i = 0;
@@ -2323,13 +3756,30 @@ NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 se
         if (!pad_axis_name(ctx, name, a, exc)) return exc;
         if (argc < 4 || !JS_IsNumber(argv[3])) return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").axis('" + name + "', value): value must be a number (-1..1, triggers 0..1)");
         in.on_gamepad_axis(i, a, static_cast<float>(arg_num(ctx, argc, argv, 3)));
+    } else if (kind == 6) {  // only checks that `name` is a pad family
+        GamepadType t{};
+        if (!gamepad_type_from_name(name, t))
+            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").connect: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
     } else if (kind == 5) {
         GamepadType t{};
         if (!gamepad_type_from_name(name, t))
             return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").setType: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
+        in.set_gamepad_type(i, t);  // first: a pad that is announced by this call carries its type
         in.on_gamepad_connected(i, true);  // a type only means something for a pad that is there
-        in.set_gamepad_type(i, t);
     } else {
+        if (kind == 3 && argc > 4 && JS_IsObject(argv[4])) {  // connect(info): who the pad is, before it is announced
+            const Json j = I->to_json(argv[4]);
+            GamepadInfo info = in.gamepad_info(i);
+            if (j.contains("name")) info.name = j["name"].get<std::string>();
+            if (j.contains("vendor")) info.vendor = std::uint16_t(j["vendor"].get<int>());
+            if (j.contains("product")) info.product = std::uint16_t(j["product"].get<int>());
+            if (j.contains("type")) gamepad_type_from_name(j["type"].get<std::string>(), info.type);
+            info.id = j.contains("id") ? j["id"].get<std::string>() : std::string();  // empty: made from the ids and the name
+            if (info.id.empty() && (j.contains("name") || j.contains("vendor") || j.contains("product")))
+                info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name, "");
+            if (info.id.empty()) info.id = in.gamepad_info(i).id;
+            in.set_gamepad_info(i, std::move(info));
+        }
         in.on_gamepad_connected(i, kind == 3);
     }
     return JS_UNDEFINED;
@@ -2342,15 +3792,19 @@ NATIVE(testText) {  // (codePoint): one typed character, as the keyboard would s
 }
 
 // ---- the date and the app's life ------------------------------------------------------------------------------------
-NATIVE(today) {  // [year, month, day, weekday, utcOffsetMinutes]
+NATIVE(today) {  // [year, month, day, weekday, utcOffsetMinutes, hour, minute, second, utcYear, utcMonth, utcDay]
     SETUP;
     const CalendarDate d = I->owner->today();
-    return array_of(ctx, {double(d.year), double(d.month), double(d.day), double(d.weekday()), double(d.utcOffsetMinutes)});
+    const CalendarDate u = d.utc();
+    return array_of(ctx, {double(d.year), double(d.month), double(d.day), double(d.weekday()), double(d.utcOffsetMinutes), double(d.hour),
+                          double(d.minute), double(d.second), double(u.year), double(u.month), double(u.day)});
 }
 
-NATIVE(testSetDate) {  // (iso): "" when set, else the teaching error
+NATIVE(testSetDate) {  // (iso, utcOffsetMinutes | undefined): "" when set, else the teaching error
     SETUP;
-    return JS_NewString(ctx, I->owner->set_date(arg_str(ctx, argc, argv, 0)).c_str());
+    std::optional<int> offset;
+    if (argc > 1 && JS_IsNumber(argv[1])) offset = static_cast<int>(arg_num(ctx, argc, argv, 1));
+    return JS_NewString(ctx, I->owner->set_date(arg_str(ctx, argc, argv, 0), offset).c_str());
 }
 
 NATIVE(appState) {  // [focused, suspended]
@@ -2480,19 +3934,23 @@ const Reg kRegs[] = {
     R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 4), R(worldPos, 1), R(setWorldPos, 2),
     R(entityJson, 3), R(spawn, 3), R(spawnPrefab, 4), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
     R(compType, 1), R(addComp, 3), R(removeComp, 2), R(compNames, 1), R(compJson, 2), R(patchComp, 3), R(fget, 3),
-    R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 1), R(rngFloat, 0),
-    R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
+    R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(sceneGeneration, 0), R(requestScene, 2), R(sceneProps, 0), R(rngFloat, 0),
+    R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inConsume, 1), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
-    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
+    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 5),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
-    R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
-    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
-    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 10), R(audioStop, 1),
-    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(navFindPath, 1), R(navBake, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 9), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiLayout, 0), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
-    R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
-    R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
+    R(inPlayerRead, 6), R(inPlayerDevice, 2), R(inPlayerBindings, 3), R(inPlayerRebind, 4), R(inPlayerReset, 2),
+    R(inPlayerLastPressed, 1), R(inPlayerData, 2), R(inKeySchemes, 1),
+    R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowMonitors, 0), R(windowSet, 3),
+    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(inTestRun, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
+    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 11), R(audioStop, 1), R(audioActiveVoices, 0), R(audioTakeEnded, 0),
+    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
+    R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
+    R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
+    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navBake, 1), R(navFindTilePath, 1), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
+    R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
+    R(screenSize, 0), R(notices, 0), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 2), R(preloadRelease, 1), R(testDiskReads, 0), R(testScreenshot, 3),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R
@@ -2500,6 +3958,13 @@ const Reg kRegs[] = {
 }  // namespace
 
 void Impl::install_natives(JSValue N) {
+    JSRuntime* rt = JS_GetRuntime(ctx);
+    if (!JS_IsRegisteredClass(rt, g_navHandleClass)) {
+        JSClassDef def{};
+        def.class_name = "FaNavHandle";
+        def.finalizer = nav_handle_finalizer;
+        JS_NewClass(rt, g_navHandleClass, &def);
+    }
     for (const Reg& r : kRegs) JS_SetPropertyStr(ctx, N, r.name, JS_NewCFunction(ctx, r.fn, r.name, r.argc));
 }
 

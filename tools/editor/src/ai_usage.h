@@ -42,4 +42,33 @@ struct ProviderLimits {
 };
 using LimitsByProvider = std::map<std::string, ProviderLimits>;
 
+// Tokens and cost of the run in progress, kept per agent: the orchestrator ("") and each sub-agent run (ai.run's id).
+// An agent's Usage events carry ITS running totals, so a new event replaces that agent's entry (never another's); the
+// panel shows the sum. When the run ends the totals move into the chat's own exactly once.
+class RunUsage {
+public:
+    // The latest totals of agent `run` ("" = the orchestrator itself).
+    void update(const std::string& run, const ai::Usage& usage, double costUsd);
+    // Sum over the agents of what is not in the chat's totals yet.
+    ai::Usage usage() const;
+    double cost() const;
+    bool empty() const { return runs_.empty(); }
+    // The orchestrator's session ended with these final totals (its SessionResult): they replace its live ones and move
+    // into `chatUsage` / `chatCost`. With `all` the sub-agents' totals move too and nothing stays; without it (a worker
+    // outlived the orchestrator's turn and still spends) they stay, and `settle_all` moves what they spent later.
+    void settle_orchestrator(const ai::Usage& finalUsage, double finalCost, ai::Usage& chatUsage, double& chatCost, bool all);
+    void settle_all(ai::Usage& chatUsage, double& chatCost);
+    void clear() { runs_.clear(); }
+
+private:
+    struct Entry {
+        ai::Usage usage;
+        double cost = 0;
+        ai::Usage settled;  // part of it already moved into the chat
+        double settledCost = 0;
+    };
+    static ai::Usage minus(const ai::Usage& a, const ai::Usage& b);
+    std::map<std::string, Entry> runs_;
+};
+
 }  // namespace fa::editor

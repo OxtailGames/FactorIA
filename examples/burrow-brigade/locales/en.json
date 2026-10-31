@@ -89,10 +89,12 @@
     "displayMode": "Window mode: {mode}",
     "mode": {
       "windowed": "windowed",
+      "borderless": "borderless window",
       "fullscreen": "full screen"
     },
-    "monitor": "Monitor: {width} x {height}",
+    "monitor": "Monitor {n}: {name} (click for the next one)",
     "soundCaptions": "Sound captions",
+    "splitScreen": "Split screen when players part",
     "holdMode": "Dig: {mode}",
     "holdModeHold": "hold",
     "holdModeToggle": "press to start, press to stop",

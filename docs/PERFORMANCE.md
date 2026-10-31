@@ -14,7 +14,7 @@ commands.
 | `cpuClock` | `process`, or `wall` on the web, where the browser gives no CPU time (the web numbers are wall-clock and noisier). |
 | `peakMemoryMB` | Peak resident memory of the process. Windows: peak working set. Linux, Android, macOS: `ru_maxrss`. Web: the size of the wasm heap (it never shrinks). |
 | `drawCalls`, `entities` | Maximum over the run. |
-| `triangles`, `lights`, `textureMB` | What the renderer drew: triangles and lights of the main pass, and GPU texture memory in MB. Maximum over the run; 0 without a renderer. The same numbers as `game.renderStats()` in a test. |
+| `triangles`, `lights`, `textureMB` | What the renderer drew: triangles of the main pass, the lights (3D lights of the main pass plus Light2D lights, which a frame keeps at most 256 of, the ones in view first: see "2D lights"), and GPU texture memory in MB. Maximum over the run (`lights` is the largest `lights + lights2d` of a frame); 0 without a renderer. Otherwise the same numbers as `game.renderStats()` in a test. |
 | `graphics` | The GPU used, `none` when there is no renderer (then `drawCalls` is 0). |
 
 `factoria call perf.measure` runs a project the same way (drawing every frame with the GPU renderer) and returns this as a
@@ -74,7 +74,7 @@ A limit is `max(baseline * (1 + ratio), baseline + slack)`; the slack keeps a ti
 | `cpuAvg`, `cpuP95` (ratio) | 1.0, 1.5 | CPU time per frame, average and 95th percentile | Measured: the same run varies by about 5% on one machine, but CI runners are shared and differ by up to 2x between jobs. The budget catches a game that becomes 2-3x slower, not 20%. |
 | `memory` (ratio) | 0.10 | Peak memory | Repeated runs differ by about 1-2%. |
 | `drawCalls`, `entities` (ratio) | 0.10 | Max draw calls / entities | Deterministic for a fixed scene and input. |
-| `triangles`, `lights`, `textureMB` (ratio) | 0.10 | Triangles, lights and texture memory | Deterministic for a fixed scene. Only checked when the runner's baseline has the field: a baseline written before these fields existed keeps passing. |
+| `triangles`, `lights`, `textureMB` (ratio) | 0.10 | Triangles, lights (3D plus Light2D) and texture memory | Deterministic for a fixed scene. Only checked when the runner's baseline has the field: a baseline written before these fields existed keeps passing. |
 | `cpuSlackMs`, `memorySlackMB`, `textureSlackMB`, `countSlack` | 1, 8, 1, 2 | The slack of each kind of limit | |
 
 `cpuMsMax` is recorded but not checked: one slow frame is mostly the machine.
@@ -111,9 +111,81 @@ window) fails with the error `gpu_busy` and says so, instead of crashing: run it
 3. In your CI, after `factoria test`: `factoria call perf.check`. Add the baseline of the CI runner: the first run prints
    `baselineEntry`; paste it under `runners` (or run `perf.baseline` on that machine).
 
+## 2D lights
+
+`Light2D` point lights are added up in a light buffer that lit sprites, tiles and shapes read, so the number of lights costs
+the pixels the lights cover, not a loop per pixel over every light.
+
+A frame with several cameras (`Camera.viewport`, split screen) draws the world once per camera: culling, sorting, 2D lights and
+their light buffer are per camera, so `drawCalls`, `triangles` and `lights` of `game.renderStats()` and `perf.measure` are the sum over
+the cameras of the frame, and a four-camera frame costs about four times a one-camera frame. The screen-space items (UI, HUD) are
+one more job over the whole screen, and the post effects run once. A game with one full-screen camera is unchanged. Budget two or
+three cameras on phones, and give the lights a radius that stays in one view so each camera keeps only the lights that reach it.
+
+What the budget is:
+
+| | Limit | Beyond it |
+| --- | --- | --- |
+| Cameras drawn per frame (`Camera.viewport`, split screen) | 8: the lowest `depth`s | the others are not drawn, one warning |
+| Lights that shade a frame (`lights2d`) | 256: directional first, then the point lights whose radius reaches the camera view | the rest is counted in `lights2dDropped`, one warning per scene |
+| Lights that cast shadows (`lights2dShadowed`) | 32, the ones ranked first, and only lights with a solid tile of an `occludesLight` Tilemap within their radius | the others shine through walls, one warning per scene |
+| Lights on a lit sprite or tile WITH a normal map | the first 16 of the order above (its shading depends on each light's direction) | the others still light flat surfaces |
+
+The `maxLights` budget of `perf.json` counts `lights + lights2d` of one frame (see above): set it to the lights the game
+should ever show, 2D and 3D together. A scene with lit visuals and a point light adds one draw call (the light pass); a
+scene without `Light2D` or without lit visuals pays nothing.
+
+What it costs, measured on one Mac (Apple M5, Metal, a Release build, a 1280x720 picture of one lit floor, lights of
+radius 200 so each covers about 400x400 pixels, a frame read back to the CPU each time). Timings of this size are
+noisy by half a millisecond or more: read the order of magnitude, and measure your own game on your own hardware with
+`factoria call perf.measure`:
+
+| Scene | ms per frame over the same floor with no light |
+| --- | --- |
+| 16 lights | about 0.5 |
+| 64 lights | about 1 |
+| 256 lights | about 2.5 to 3 |
+| 16 to 32 lights that cast shadows, still or moving | about 0.5 more than the same lights without shadows |
+
+That is roughly 0.01 ms per light of this size (it grows with the covered pixels, so a small torch is cheaper and a light
+as big as the screen costs more), and roughly 0.03 ms per shadow-casting light. The rays of a shadow are traced on the CPU
+(1024 per light); the result is kept while the light, its radius and the tiles around it stay the same, so only a light that
+moves, or whose surroundings were edited, pays for its rays again. A still light costs its pixels, not its rays.
+
+Advice for phones, tablets and the web (fill-rate bound GPUs):
+
+- Set `SceneSettings.lightScale` to 0.5: the light buffer has a quarter of the pixels, the light looks a bit softer, and
+  it is the cheapest way to keep many lights.
+- Give `castShadows` to the few lights that matter (the one the player carries, a bonfire), not to every torch, and keep
+  their radius no bigger than needed: a light costs the pixels of its bounding square.
+- A smaller `radius` saves pixels; a smaller `intensity` saves nothing. A light entirely off the view is dropped for free.
+- Which format the light buffer has: RGBA16F where the GPU can blend it (desktops and recent phones). Where it cannot, RGBA8
+  holding half the brightness: the same look, a little coarser, and the lights added at one pixel cannot add up to more than
+  2. Where the GPU cannot render to either, the engine shades per pixel with the first 16 lights, as it did before the
+  light buffer. `FA_LIGHT_FORMAT=rgba16f|rgba8|none` forces one of them, to try it.
+
+## Path finding on tile maps
+
+`nav.findTilePath` with a `{ width, height, cost }` array converts the whole array on every call (to JSON, to a float
+array, and a sweep for the cheapest cell), so one call costs about the size of the map however short the route. Two
+tools change that (NAVIGATION.md, "Reusable grids and flow fields"):
+
+- `nav.createGrid` keeps the cost grid natively: a call no longer converts or sweeps, and `grid.setCost` changes a cell.
+- `nav.flowField(grid, goals)` searches once from the goals; each walker's next step, `field.stepToward(col, row)`, is a
+  table lookup. Walkers heading for the same few goals share one field. After `grid.setCost` the next question redoes the
+  search (one pass over the grid), so a field is worth keeping while the grid changes less often than walkers ask.
+
+Measured by the benchmark test in `engine/script/tests/test_nav_tiles_script.cpp` (600 walkers on a 60 x 60 map with walls,
+75 ticks, each walker asking for its next step toward one of 6 goals every tick; a Debug build on an Apple M5): the array form about 228 000 ms (measured for 3 ticks and scaled; the test prints it), the kept
+grid about 8 200 ms, the flow fields about 160 ms. Tidewater Market, whose roads leave few open cells, measured 5 978 ms for the array form
+against 442 ms for its own distance fields before the engine had these; it now uses `nav.flowField`.
+
 ## The engine's examples
 
 Each example has a ctest, `example_<name>_perf`, comparing a 300-frame run with `tools/cli/tests/perf/<name>.perf.json`.
+An example whose scenes cost differently may add `<name>-<suffix>.perf.json` files (each with its own `scene`): every
+`<name>.perf.json` and `<name>-*.perf.json` becomes the ctest `example_<file name>_perf` (not `<name>*`, which would catch
+another example with the same prefix).
 `perf_regression_detected` proves that the check fails: it uses a baseline lowered far below what the game costs and
 expects `perf_budget_exceeded`. After a change that makes an example heavier on purpose, refresh its entry on each runner
 with `factoria call perf.baseline` (see the file's `runners`) in the same PR.

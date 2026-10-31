@@ -9,33 +9,51 @@
     "quit": "Quit",
     "back": "Back"
   },
-  "loading": { "text": "Loading..." },
+  "loading": { "progress": "Loading... {percent}%" },
   "captions": { "welcome": "Welcome, traveller.", "hint": "Watch the edge!", "guide": "Guide" },
   "pause": { "title": "Paused", "resume": "Resume", "mainMenu": "Main menu" },
   "options": {
     "title": "Options",
     "tab": { "video": "Video", "audio": "Audio", "controls": "Controls", "language": "Language" },
-    "fullscreen": "Full screen",
+    "windowMode": "Window mode: {mode}",
+    "mode": {
+      "windowed": "windowed",
+      "borderless": "borderless",
+      "fullscreen": "full screen"
+    },
+    "monitor": "Monitor: {n} - {name}",
     "vsync": "VSync",
     "windowSize": "Window size: {width} x {height}",
     "windowSizeFullscreen": "Window size: full screen",
     "frameCap": "Frame cap: {fps} fps",
     "frameCapOff": "Frame cap: off",
+    "uiScale": "Interface size: {percent}%",
     "colorFilter": "Color filter: {filter}",
     "filter": { "none": "off", "greyscale": "greyscale", "highContrast": "high contrast", "protanopia": "protanopia (red)", "deuteranopia": "deuteranopia (green)", "tritanopia": "tritanopia (blue)" },
     "videoNote": "Video settings apply when the game runs in its own window.",
     "volume": { "master": "Master", "music": "Music", "effects": "Effects", "interface": "Interface" },
     "action": { "move_left": "Move left", "move_right": "Move right", "jump": "Jump", "pause": "Pause" },
     "binding": "{action}: {button}",
+    "player": "Player {n}",
+    "playerBinding": "{action}: {keys}  |  {pad}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
     "resetControls": "Reset to defaults",
     "language": "Language: {language}",
     "readAloud": "Read menus aloud",
     "subtitles": "Subtitles",
     "privacyOptions": "Ad privacy settings",
+    "analytics": "Share anonymous usage data",
     "on": "on",
     "off": "off",
-    "percent": "{value} percent"
+    "percent": "{value} percent",
+    "textSpeed": "Text speed: {speed}",
+    "speed": {
+      "slow": "slow",
+      "normal": "normal",
+      "fast": "fast",
+      "instant": "instant",
+      "custom": "custom"
+    }
   },
   "credits": {
     "madeWith": "Made with FactorIA",
@@ -66,5 +84,39 @@
     "year": "Birth year",
     "continue": "Continue",
     "skip": "I would rather not say"
+  },
+  "analyticsConsent": {
+    "title": "Help us improve the game?",
+    "what": "We would like to count which levels are played and how they end, and which game version you use. We never collect your name, your contacts or anything you type.",
+    "change": "You can change your mind in Options at any time. If you say no, nothing is sent.",
+    "allow": "Allow",
+    "deny": "No thanks"
+  },
+  "card": {
+    "continue": "Continue"
+  },
+  "slots": {
+    "titleSave": "Save game",
+    "titleLoad": "Load game",
+    "empty": "Slot {n}: empty",
+    "emptyAuto": "Autosave: empty",
+    "used": "Slot {n}: {name}\nChapter {chapter}, {time}",
+    "usedAuto": "Autosave: {name}\nChapter {chapter}, {time}",
+    "damaged": "Slot {n}: damaged (delete it to free the slot)",
+    "damagedAuto": "Autosave: damaged (delete it)",
+    "damagedNote": "A slot cannot be read. Delete it, or load another.",
+    "unnamed": "Unnamed",
+    "autoName": "autosave",
+    "delete": "Delete",
+    "nameTitle": "Name the save in slot {n}",
+    "namePlaceholder": "Name this save",
+    "confirmSave": "Save",
+    "cancel": "Cancel",
+    "deleteTitle": "Delete slot {n}?",
+    "confirmDelete": "Delete",
+    "saved": "Saved to slot {n}.",
+    "noGame": "There is no game to save yet.",
+    "busy": "You cannot save right now.",
+    "noSave": "Saving is not available here."
   }
 }

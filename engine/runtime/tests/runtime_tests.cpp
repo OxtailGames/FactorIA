@@ -1,5 +1,8 @@
 #include <doctest.h>
 
+#include "fa/platform/clipboard.h"
+#include "fa/ui/ui.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -322,7 +325,8 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     CHECK(px.b > px.r);
     r = c.call("game.screenshot", Json::object());  // default path under .factoria/screenshots
     REQUIRE(r.ok);
-    CHECK(stdfs::exists(r.result["path"].get<std::string>()));
+    CHECK(r.result["$image"]["temporary"] == true);  // a temporary picture: no `path` at the top
+    CHECK(stdfs::exists(r.result["$image"]["path"].get<std::string>()));
 
     // scene save / reload / load
     r = c.call("scene.save", Json{{"path", "scenes/saved.scene.json"}});
@@ -1078,6 +1082,41 @@ TEST_CASE("engine: load_scene_json replaces the world but keeps the current scen
     CHECK(e.world().entity_count() == 3);
 }
 
+TEST_CASE("engine: script.eval with module and call runs an exported function of a module, no scene needed") {
+    TempProject p("eval_module", kProject, kScene);
+    p.write("scripts/rules.js",
+            "export function price(good, n) { return { good, total: n * 3 }; }\n"
+            "export default function main() { return 'main'; }\n"
+            "export async function later(x) { return x + 1; }\n"
+            "export const notAFunction = 5;\n");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    CommandRegistry& c = e.commands();
+    auto r = c.call("script.eval", Json::parse(R"({"module":"scripts/rules.js","call":"price","args":["wood",4]})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["value"]["good"] == "wood");
+    CHECK(r.result["value"]["total"] == 12);
+    r = c.call("script.eval", Json::parse(R"({"module":"scripts/rules","call":"default"})"));  // ".js" is optional
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["value"] == "main");
+    r = c.call("script.eval", Json::parse(R"({"module":"scripts/rules.js","call":"later","args":[41]})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["value"] == 42);
+    // Errors teach: a wrong function name, a missing module, a missing call.
+    r = c.call("script.eval", Json::parse(R"({"module":"scripts/rules.js","call":"prise"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("has no exported function 'prise'") != std::string::npos);
+    CHECK(r.error["message"].get<std::string>().find("Did you mean 'price'?") != std::string::npos);
+    r = c.call("script.eval", Json::parse(R"({"module":"scripts/rulez.js","call":"price"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["hint"].get<std::string>().find("scripts/rules.js") != std::string::npos);
+    CHECK_FALSE(c.call("script.eval", Json::parse(R"({"module":"scripts/rules.js"})")).ok);
+    CHECK_FALSE(c.call("script.eval", Json::object()).ok);
+    // The scene is not touched by a call.
+    CHECK(e.state()["scene"] == "scenes/main.scene.json");
+}
+
 TEST_CASE("engine: audio.log lists played sounds with the scene frame, source and hints") {
     const char* scene = R"({
   "format": "factoria.scene/1",
@@ -1422,7 +1461,7 @@ test('the render scale is back at 1 in the next test', () => {
 });
 
 test('device fields are fixed headless', () => {
-  expect(g.device).toEqual({ formFactor: 'desktop', gpuBackend: 'headless', memoryGB: 8, tier: 'high' });
+  expect(g.device).toEqual({ formFactor: 'desktop', gpuBackend: 'headless', memoryGB: 8, tier: 'high', steamDeck: false, handheld: false });
   expect(window.supports('renderScale')).toBe(true);
   expect(window.supports('frameCap')).toBe(false);
   expect(() => window.supports('frameCapp')).toThrow('did you mean "frameCap"');
@@ -1447,6 +1486,13 @@ test('render stats of the fixture scene', () => {
   expect(s.drawCalls).toBeGreaterThan(0);
 });
 )JS");
+    p.write("tests/z_fresh.test.js", R"JS(
+import { test } from 'factoria:test';
+import { render } from 'factoria';
+test('a new test file starts with no textures alive', () => {
+  for (let i = 0; i < 32; i++) render.captureTexture({ width: 2, height: 2 });
+});
+)JS");
     Engine e;
     std::string err;
     EngineConfig cfg = headless_cfg(p);
@@ -1468,5 +1514,166 @@ test('render stats of the fixture scene', () => {
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["width"] == 320);
     CHECK(r.result["triangles"] == 50);
+    e.shutdown();
+}
+
+TEST_CASE("clipboard: a replay's clipboard entry is pasted by Ctrl+V into the focused TextField, and reads are logged") {
+    const char* scene = R"({"format":"factoria.scene/1","entities":[
+      {"id":"cam","name":"Camera","components":{"Camera":{}}},
+      {"id":"name","components":{"TextField":{"size":[200,30],"text":"Ann","maxLength":12,"autoFocus":true}}}]})";
+    TempProject p("engine_clipboard_paste", kPadProject, scene);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    REQUIRE(e.clipboard() != nullptr);
+    CHECK(e.clipboard()->supported());
+    e.log_clipboard_reads(true);
+    Entity field = e.world().find("name");
+    REQUIRE(field != kNullEntity);
+    REQUIRE(e.ui()->set_focus(e.world(), field));
+    e.step(2);
+    std::vector<std::string> problems;
+    e.apply_input_entry(Json::parse(R"({"clipboard":"Bob\nSmith 1234567","keys":{"LeftControl":true,"V":true}})"), problems, 2);
+    CHECK(problems.empty());
+    e.step(1);
+    CHECK(e.world().get<TextField>(field)->text == "AnnBobSmith ");  // 12 code points: the newline is dropped, the rest cut
+    CHECK(e.take_clipboard_reads() == std::vector<std::string>{"Bob\nSmith 1234567"});
+    CHECK(e.take_clipboard_reads().empty());
+
+    e.apply_input_entry(Json::parse(R"({"clipboard":5})"), problems, 3);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].find("'clipboard' must be a string") != std::string::npos);
+    e.shutdown();
+}
+
+// M31.24: render.captureTexture, texture.toPNG, render.textureFromPNG.
+TEST_CASE("render.captureTexture: pixels of the screenshot, a PNG round trip through storage, and a Sprite that draws it") {
+    TempProject p("m31_24_capture");
+    p.write("tests/capture.test.js", R"JS(
+import { test, expect, game } from 'factoria:test';
+import { render, storage, world } from 'factoria';
+
+test('a capture at the game size is the screenshot, and its PNG draws on a Sprite', () => {
+  game.step(3);
+  const tex = render.captureTexture({ width: 320, height: 180 });
+  expect(tex.placeholder).toBe(false);
+  expect(tex.width).toBe(320);
+  expect(tex.id.startsWith('runtime:')).toBe(true);
+  game.screenshot('shots/frame.png');                    // the same frame
+  storage.set('slot.pic', tex.toPNG());                  // storage holds JSON: the PNG is Base64 text
+  expect(typeof storage.get('slot.pic')).toBe('string');
+  tex.destroy();
+  expect(tex.destroyed).toBe(true);
+  expect(() => tex.toPNG()).toThrow('destroyed');
+  tex.destroy();                                         // twice is fine
+  const back = render.textureFromPNG(storage.get('slot.pic'));
+  expect(back.width).toBe(320);
+  expect(back.height).toBe(180);
+  const pic = world.spawn({ components: { Sprite: { texture: back.id, size: [320, 180], layer: 50 } } });
+  expect(pic.bounds()[2]).toBe(320);
+  game.screenshot('shots/shown.png');
+  pic.destroy();
+  game.step(1);                                          // the frame that no longer draws it
+  back.destroy();
+});
+
+test('a small capture keeps the aspect ratio unless it is asked to stretch', () => {
+  const a = render.captureTexture({ width: 64, height: 64 });
+  const b = render.captureTexture({ width: 64, height: 36, fit: 'stretch' });
+  expect([a.width, a.height, b.width, b.height]).toEqual([64, 64, 64, 36]);
+  const again = render.textureFromPNG(a.toPNG());
+  expect(again.height).toBe(64);
+  const sized = world.spawn({ components: { Sprite: { texture: a.id } } });   // no size: the texture's own
+  expect(sized.bounds()[2]).toBe(64);
+  sized.get('Sprite').texture = again.id;                // a live view takes the id too
+  expect(sized.get('Sprite').texture).toBe(again.id);
+  sized.destroy();
+  game.step(1);
+  a.destroy(); b.destroy(); again.destroy();
+});
+
+test('wrong arguments say what to write', () => {
+  expect(() => render.captureTexture()).toThrow('options object');
+  expect(() => render.captureTexture({ width: 0, height: 10 })).toThrow('width must be a whole number from 1 to 2048');
+  expect(() => render.captureTexture({ width: 10, height: 4000 })).toThrow('height must be a whole number from 1 to 2048');
+  expect(() => render.captureTexture({ width: 10, height: 10, fit: 'zoom' })).toThrow('"cover"');
+  expect(() => render.textureFromPNG(5)).toThrow('texture.toPNG()');
+  expect(() => render.textureFromPNG('not base64 !!')).toThrow();
+  expect(() => render.textureFromPNG('aGVsbG8=')).toThrow('not an image');
+});
+
+test('at most 32 textures are alive at a time', () => {
+  const all = [];
+  for (let i = 0; i < 32; i++) all.push(render.captureTexture({ width: 4, height: 4 }));
+  expect(() => render.captureTexture({ width: 4, height: 4 })).toThrow('destroy()');
+  all[0].destroy();
+  all.push(render.captureTexture({ width: 4, height: 4 }));         // room again
+  // left alive on purpose: the next test file must start with none (checked from C++ below)
+});
+)JS");
+    p.write("tests/z_fresh.test.js", R"JS(
+import { test } from 'factoria:test';
+import { render } from 'factoria';
+test('a new test file starts with no textures alive', () => {
+  for (let i = 0; i < 32; i++) render.captureTexture({ width: 2, height: 2 });
+});
+)JS");
+    Engine e;
+    std::string err;
+    EngineConfig cfg = headless_cfg(p);
+    cfg.renderMode = RenderMode::OnDemand;
+    REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+    auto t = e.commands().call("project.test", Json::object());
+    REQUIRE_MESSAGE(t.ok, t.error.dump());
+    CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump());
+    auto frame = load_image((p.dir / "shots/frame.png").generic_string());
+    auto shown = load_image((p.dir / "shots/shown.png").generic_string());
+    REQUIRE(frame.ok());
+    REQUIRE(shown.ok());
+    const ImageDiff d = diff_images(*frame, *shown, 1.0f / 255.0f);
+    INFO("meanError=" << d.meanError << " maxError=" << d.maxError);
+    CHECK(d.sameSize);
+    CHECK(d.meanError < 0.001);  // the picture that went through PNG, storage and a Sprite is the frame
+    e.shutdown();
+}
+
+TEST_CASE("render.captureTexture: without graphics it is a flat placeholder of the size asked, and the PNG still round trips") {
+    TempProject p("m31_24_placeholder");
+    EngineConfig c = headless_cfg(p);
+    c.graphics = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    REQUIRE(e.renderer() == nullptr);
+    auto js = [&](const char* code) {
+        auto r = e.scripts().eval(code);
+        REQUIRE_MESSAGE(r.ok(), std::string(r.ok() ? "" : r.error().message));
+        return r.value();
+    };
+    CHECK(js("render.captureTexture({ width: 40, height: 30 }).placeholder").get<bool>());
+    CHECK(js("render.textureFromPNG(render.captureTexture({ width: 40, height: 30 }).toPNG()).width").get<int>() == 40);
+    CHECK_FALSE(js("render.textureFromPNG(render.captureTexture({ width: 8, height: 8 }).toPNG()).placeholder").get<bool>());
+    e.shutdown();
+}
+
+TEST_CASE("engine: tweens stand still while the game is paused and move only with game.step") {
+    TempProject p("engine_tween_pause");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto eval = [&](const std::string& code) {
+        auto r = e.commands().call("script.eval", Json::object({{"code", code}}));
+        REQUIRE(r.ok);
+        return r.result;
+    };
+    eval("globalThis.o = { x: 0 }; globalThis.t = tween(o, { x: 10 }, { duration: 1 }); 0");
+    e.commands().call("game.pause", Json::object());
+    for (int i = 0; i < 30; ++i) e.frame(1.0 / 60.0);  // a paused engine simulates nothing
+    CHECK(eval("o.x")["value"].get<double>() == 0.0);
+    e.commands().call("game.step", Json::object({{"frames", 30}}));
+    CHECK(eval("o.x")["value"].get<double>() == doctest::Approx(5.0).epsilon(0.05));
+    eval("tween.pauseAll(); 0");
+    e.commands().call("game.step", Json::object({{"frames", 30}}));
+    CHECK(eval("o.x")["value"].get<double>() == doctest::Approx(5.0).epsilon(0.05));
     e.shutdown();
 }

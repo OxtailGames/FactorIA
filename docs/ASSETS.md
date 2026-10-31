@@ -7,6 +7,10 @@ call (MCP tool, `factoria call`, editor console):
    ([AI_PROVIDERS.md](AI_PROVIDERS.md)).
 2. **Import** files made elsewhere (`assets.import`): Aseprite, PSD, OBJ, FBX...
 3. **Write** them directly (`fs.write`), for files the engine already reads (PNG, JPG, WAV, OGG, MP3, glTF, TTF).
+4. **Make** them offline, with no provider and no key: `assets.generate_texture` (materials), `assets.rasterize_svg`
+   (pictures written as SVG), `assets.animate_svg` (animations written as code, baked into a sprite sheet),
+   `assets.bake_sheet` (an entity the engine draws, baked into a sprite sheet), `assets.synth_sound`,
+   `assets.generate_loop`, `assets.draw_icon`.
 
 Whatever the way, `assets.json` at the project root records where each asset came from (provenance) and how the engine
 and `factoria export` treat it (import settings).
@@ -125,7 +129,26 @@ voice id; the default comes from `assets.voice.voice` in `ai.json`), and records
 character can be given the same voice later. `assets.generate_model` makes an untextured mesh (Meshy takes minutes and
 `timeoutSeconds` of its provider is how long to wait); look at it in the scene before building on it.
 
+**Voice without a provider.** `assets.generate_voice` needs `ELEVENLABS_API_KEY` or `OPENAI_API_KEY` (`ai.providers` doctor
+says which is set); without one it fails and names both keys. To test code that waits for a voice line (captions, ducking,
+lip timing) pass `silent: true`: it writes a silent mono WAV with no provider, as long as the line (0.06 s per character, or
+`seconds` for a fixed length) and records it as `origin: "original"`, `ai: false`. Replace the file with the real clip later;
+the path and the length you put in your data stay valid if you give the same `seconds`.
+
 Play a sound with an `AudioSource` (`clip`) or `audio.play(path)`; use a model as the `mesh` of a `MeshRenderer`.
+
+### Loops and Ogg without a provider: assets.generate_loop, assets.convert_audio
+
+`assets.generate_loop {path, kind, seconds, seed}` writes a seamless loop offline (same seed, same bytes). `kind: "noise"`
+is an ambience bed (`color` white, pink or brown; `bass`, `gusts`, `hum`, `crackle`, `ticks` shape it: wind, a fire, a clock)
+and `kind: "drone"` is a score: `chords` (note names such as `A3`, `F#2`, `Eb4`, or Hz) played in turn, each `chordSeconds`
+long; `underNote` (for example `D1`, at `underLevel`) holds one soft note under the whole loop. The loop point is inaudible: filters run circularly and every periodic part fits a whole number of times in `seconds`.
+A `.ogg` path writes Ogg Vorbis (`quality` 0 to 1). Set `loop` on the `AudioSource`. Keep the call as JSON in the project
+(Larkspur Lodge: `assets/src/sound/*.json`) and rerun it with `factoria call assets.generate_loop @file.json`.
+
+`assets.convert_audio {path, to}` converts a WAV to `.ogg` next to it (the WAV stays, with its provenance copied). The encoder
+is the engine's own (no ffmpeg or oggenc needed): Vorbis I, long blocks only, mono or stereo, deterministic. The Ogg is much smaller than
+the 16-bit WAV; the encoder is simple and not tuned for high-quality music.
 
 ### Sound effects without a provider or a kit: assets.synth_sound
 
@@ -139,11 +162,226 @@ assets.synth_sound {"path":"assets/audio/dog_bark.wav","preset":"bark","seed":3}
 
 `preset` is `bark`, `growl`, `meow`, `screech`, `whoosh`, `explosion`, `hit`, `coin`, `pickup`, `jump`, `powerup`, `laser`,
 `blip`, `click`, `error`, `splash` or `footstep` (an unknown name is an error with a "did you mean"). The result is a mono
-16-bit 44.1 kHz WAV that peaks at -3 dBFS, and the same `preset`, `seed` and `seconds` always give the same bytes; change
+16-bit 44.1 kHz WAV levelled to about -18 LUFS (every preset: a square and a sine sound equally loud, the peak stays under
+-1 dBFS, so `factoria validate` has no loudness warning for it), and the same `preset`, `seed` and `seconds` always give the same bytes; change
 `seed` for another take (pitch and timing move a little). `seconds` (0.02 to 10) overrides the preset's length.
 `overwrite` replaces an existing file. The provenance in `assets.json` is origin `original`, `ai` false, license CC0, with
 the preset and the seed. These are synthesizer sounds: fine for a game's feedback, not a replacement for recorded or
 composed audio.
+
+### Materials without a provider: assets.generate_texture
+
+With no image provider (`assets.generate_image` fails with `no_provider`), `assets.generate_texture` paints a material
+offline: no provider, no key, no cost. It makes surfaces, not drawings: backgrounds, desks, book covers and pages, floors,
+walls. The same arguments give the same picture with the same build of factoria (change `seed` for another take); it is
+not promised to be bit-identical between platforms.
+
+```
+assets.generate_texture {"path":"assets/textures/desk.png","preset":"planks","width":1280,"height":720,"seed":4}
+assets.generate_texture {"path":"assets/textures/desk_top.png","preset":"planks","plankCount":7,"plankLength":0,"gapWidth":0.01}
+assets.generate_texture {"path":"assets/textures/cover.png","preset":"leather","color":"#5b2a1a","accent":"#1d0d07","normalMap":true}
+assets.generate_texture {"path":"assets/textures/page.png","preset":"parchment","width":640,"height":900,"vignette":0.6}
+assets.generate_texture {"path":"assets/textures/floor.png","preset":"stone","tileable":true,"scale":2}
+```
+
+`preset` is `paper`, `parchment`, `wood`, `planks`, `leather`, `fabric`, `linen`, `stone`, the noises `value`, `fbm` and `cellular`,
+and `gradient`, `radial` and `vignette`. The command description lists what each one is and its default colours. The
+size is `width` x `height` (up to 2048; the height defaults to the width; 512 when neither is given). Options:
+
+| Field | What it does |
+|---|---|
+| `color`, `accent` | Recolour the material: the main colour and the second one (shadow, late wood, creases, joints, the far end of a gradient). |
+| `scale` | Size of the features, 0.1 to 10 (1 is the preset's natural size for the picture). |
+| `roughness` | 0 smooth and even to 1 worn and uneven. |
+| `tileable` | The picture repeats with no seam at its edges (the materials and the noises; `gradient`, `radial` and `vignette` ignore it and say so in `warnings`). |
+| `vignette` | How strongly the edge is darkened (a worn page); 0.5 by default on `parchment`, 0 on the others. The border is narrow and irregular (see `vignetteWidth`). Not used when tileable. |
+| `vignetteWidth` | How wide the darkened edge is, as a fraction of the picture's short side (0.005 to 0.5). The default 0.035 is a narrow worn edge whose inner border wanders in and out; 0.1 is a visible frame; 0.17 gives the wide uniform frame that earlier versions drew by default. Ignored (with a warning) when no edge is darkened. |
+| `angle` | The direction of a `gradient` in degrees. |
+| `normalMap`, `normalStrength` | Also write `<name>_n.png`, a tangent-space normal map of the same relief (+Y up, the convention of `Sprite.normalMap` and glTF). |
+| `plankCount`, `plankLength`, `gapWidth`, `gapDarkness` | `planks` only (other presets ignore them and say so in `warnings`). `plankCount`: boards stacked from the top to the bottom of the picture (1 to 64; default follows `scale`, 6 at scale 1). `plankLength`: a board's length as a fraction of the width: `0` makes every board run from side to side with no butt joint (a desk top seen from above), `1` (the default) gives each row one staggered joint, `0.5` two boards per row, `0.25` four. `gapWidth`: the seam between boards as a fraction of a board's width (default 0.015, a fine seam; 0.05 is a wide gap). `gapDarkness`: 0 leaves the seam the colour of the wood, 1 makes it as dark as `accent` allows (default 0.55). |
+| `overwrite` | Replace an existing file. |
+
+The result has the `warnings`, the `nextSteps` (the `Sprite` to use, or `tileable` hints) and a preview of the picture:
+look at it and call again with other `seed`, `scale` or `color`. The textures are lit from the upper left, so grooves and
+bumps read. The provenance in `assets.json` is origin `original`, `ai` false, license CC0, with the arguments in the
+notes; the normal map gets its own record. Smooth presets (`gradient`, `radial`, `paper`...) carry a little dither
+against banding, so their PNGs are larger than a flat image.
+
+### Pictures you write as SVG: assets.rasterize_svg
+
+For a subject (a crest, a silhouette, an ornament, a map symbol) an agent with no image provider writes the shapes as SVG
+and rasterizes them: `assets.rasterize_svg` takes the SVG text in `svg` or a project `.svg` file in `source` and writes
+an anti-aliased PNG at `path` on the CPU (nanosvg, vendored in `external/nanosvg`, zlib license).
+
+```
+assets.rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M50 6 L90 22 V52 C90 76 70 90 50 96 C30 90 10 76 10 52 V22 Z' fill='#8b1e1e' stroke='#e8c66a' stroke-width='4'/><circle cx='50' cy='48' r='14' fill='#e8c66a'/></svg>"}
+```
+
+- **Size.** The SVG is fitted inside `width` x `height`, aspect kept and centred; with only one of them the other follows
+  the SVG's proportions; with neither, the size the SVG declares. Up to 4096. `background` puts it over a colour
+  (transparent by default).
+- **Supported.** `path` (every command), `rect` (with `rx` and `ry`), `circle`, `ellipse`, `line`, `polyline`,
+  `polygon`, `g`, `defs`, `linearGradient` and `radialGradient` fills, `fill`, `stroke`, `stroke-width`,
+  `stroke-linecap`, `stroke-linejoin`, `stroke-miterlimit`, `stroke-dasharray`, `fill-rule`, `opacity`, `fill-opacity`,
+  `stroke-opacity`, `transform`, the `style` attribute, `viewBox` and `preserveAspectRatio`.
+- **Clip, mask, pattern.** `clip-path="url(#id)"` on a `g` or on a shape, with a `<clipPath>` of `path`, `rect`,
+  `circle`, `ellipse`, `polygon`, `polyline` or `line` children (their `transform`, `clip-rule` and the clipPath's own
+  `transform` count). Only `clipPathUnits="userSpaceOnUse"` (the default): write real coordinates in the user space of
+  the element that uses the clip, so a transform on that element moves the clip with it. `mask="url(#id)"`: the
+  luminance of the mask's content times its alpha (white shows, black hides, a gradient fades); the mask region
+  (`maskUnits`, `x`, `y`, `width`, `height`) is ignored and `maskContentUnits` is always user space. `fill="url(#id)"` on
+  a `<pattern>` (also inherited from a `g`): `patternUnits` and `patternContentUnits` (`userSpaceOnUse` or
+  `objectBoundingBox`, which is the default for `patternUnits`), `x`, `y`, `width`, `height` and `patternTransform`, so
+  line hatching is a pattern of one stroked line, tilted with `patternTransform="rotate(45)"`. The pattern's tile is not
+  clipped to its width and height; a pattern `viewBox` and `href` chains are ignored (warning for the viewBox); a pattern
+  as `stroke` is not drawn (warning). Each clipped, masked or patterned shape is rendered as its own layer (consecutive
+  shapes with the same clip share one), so hundreds of them slow the call down. The `engrave` style of the game that asked
+  for this (hatching the darker side of each shape) is not built in: draw the hatching with a pattern.
+- **Not supported.** `text` and `tspan` (turn letters into paths, or put a `Text` entity in the scene), filters (blur,
+  drop shadow), embedded images, `<use>`, markers and CSS classes in `<style>`. They are
+  drawn as nothing and named in `warnings`. For a hand-painted look do not simulate it with hundreds of shapes: use
+  `style`.
+- **Style.** `style` adds a painterly look to the pixels after rasterizing, seeded and deterministic (the same SVG,
+  size, `style`, `styleStrength` and `seed` give the same picture; `seed` chooses the take), so the SVG stays small and
+  flat. `watercolor`: wobbling, softened edges, pigment pooled darker along the border of every shape, pale and strong
+  blotches and paper granulation. `ink`: a wobbling dark-brown pen line along every border, thicker and thinner.
+  `inkwash`: both, with a little paper tooth (storybook ink and watercolour). `paper`: only paper fibres and mottling,
+  edges untouched. `styleStrength` (0 to 1, default 1) scales the effect. The effects scale with the picture's size, are
+  applied to the shapes (transparent space stays transparent) and run before `background`; for a paper sheet under the
+  drawing make one with `assets.generate_texture`. Draw flat fills with a few shapes and let the style add the texture.
+  ```
+  assets.rasterize_svg {"path":"assets/art/hill.png","source":"assets/art/hill.svg","width":800,"style":"inkwash","seed":3}
+  ```
+- **Gradients.** Write the coordinates in percent (`x2="100%"`) or with `gradientUnits="userSpaceOnUse"` and real
+  coordinates: nanosvg reads a bare `0` to `1` such as `x2="1"` as pixels.
+- **Provenance.** By default the record is origin `generated`, `ai` true, because the agent that calls the command wrote
+  the SVG (it counts for the store's AI-content disclosure). For an SVG a person drew or licensed pass `ai: false`, with
+  `author` and `license`: the record is then origin `original`. Where the SVG came from is in `source`.
+
+### Animations drawn with code: assets.animate_svg
+
+For motion that follows rules (a coin that turns, a pulsing orb, a flame, a loader, rain, waves) an agent with no image
+provider writes the animation as code and bakes it into a sprite sheet: `assets.animate_svg` draws every frame, lays the
+frames out in a grid and writes the PNG plus its `sheet` entry of `assets.json` in one call, ready for a `Sprite` and a
+`SpriteAnimator`. Two ways to say what each frame looks like:
+
+- **`source`: a JavaScript module** of the project (by convention `art/<name>.anim.js`). Its default export draws one frame
+  and returns the SVG text: `frame({t, frame, frames, fps, progress, params, rng}) => string`.
+- **`svg`: one SVG with SMIL animation** (`<animate>`, `<set>`, `<animateTransform>`, `<animateMotion>`), the kind of
+  animated SVG an AI writes when asked for one. It is sampled at every frame time. A project `.svg` file also works as
+  `source`.
+
+A worked example, a coin turning around its vertical axis. `art/coin_spin.anim.js`:
+
+```js
+// A coin turning around its vertical axis. `progress` runs 0..1 over the clip, so the last frame leads into the first.
+export default function frame({ progress, params, rng }) {
+  const turn = Math.cos(progress * Math.PI * 2);        // 1 = face on, 0 = edge on, -1 = the back
+  const rx = Math.max(3, Math.abs(turn) * 34);          // the coin gets thin when it is edge on
+  const fill = turn >= 0 ? params.face : params.back;
+  const glint = turn > 0.6 ? `<ellipse cx="${50 - rx * 0.45}" cy="36" rx="${rx * 0.18}" ry="9" fill="#fff" opacity="0.55"/>` : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <ellipse cx="50" cy="50" rx="${rx}" ry="38" fill="${fill}" stroke="#7a5a12" stroke-width="4"/>
+    ${glint}
+  </svg>`;
+}
+```
+
+```
+assets.animate_svg {"path":"assets/art/coin_spin.png","source":"art/coin_spin.anim.js","frames":12,"fps":12,"frameWidth":64,"frameHeight":64,"padding":1,"params":{"face":"#f2c94c","back":"#b8902b"}}
+```
+
+The result has the sheet as an image (look at it, edit the module, call again with `overwrite: true`), the `layout`
+(`columns`, `rows`, the cell size, `imageWidth` and `imageHeight`, the clips), the `sheet` entry that was recorded,
+`warnings` and the `nextSteps` to play it. For SMIL: `assets.animate_svg {"path":"assets/art/loader.png","svg":"<svg ...>
+<animateTransform attributeName=\"transform\" type=\"rotate\" from=\"0 50 50\" to=\"360 50 50\" dur=\"1s\"
+repeatCount=\"indefinite\"/> ...</svg>","fps":12,"frameWidth":64}`: without `frames` the sheet takes one pass of the
+animation (`cycleSeconds * fps` frames).
+
+- **Frames.** `frames` frames at `fps`; frame `i` is drawn at `t = i / fps`. `frames` is required with a module; with SMIL
+  it defaults to one pass of the animation. `loop` (default true) is how the clip repeats and how `progress` is read:
+  `progress` is `frame / frames` for a looping clip (it reaches 1 only after the last frame, so the last frame leads into
+  the first) and `frame / (frames - 1)` for `loop: false` (the last frame is the end pose).
+- **What the module receives.** `t` (seconds), `frame` (from 0, inside the clip), `frames` (the clip's length), `fps`,
+  `progress`, `params` (the `params` argument: colours, counts, amplitudes, so one module serves several sheets), `rng`,
+  `seed`, `rngFor`, `clip`, `sheetFrame` (the index in the whole sheet), `width` and `height` (the cell in pixels).
+  `rng()` is a random number in 0..1 seeded from `seed` and the frame (`rng.range(a, b)`, `rng.int(n)`, `rng.pick(list)`,
+  `rng.chance(p)`, `rng.gauss()` too): each frame has its own stream. `rngFor(key)` gives the SAME stream on every frame
+  for one key, for what must stay where it is (the sparkles of a gem: `const r = rngFor("sparkles")`, then draw the same
+  `r()` positions and vary only their brightness with `progress`).
+- **The sandbox.** The module runs in a QuickJS context of its own, thrown away after the call: the language only
+  (`Math`, `JSON`, `Array`, `Map`...), no engine bindings, no DOM, no Node, no timers, no network or files. It may `import`
+  other project files with a relative path (`import { disc } from "./lib/shapes.js"`); the imported files count as inputs of
+  the recipe. `Math.random` is a seeded stream and `Date` is a fixed day moved to the frame's time, so the same module draws
+  the same frames on every run and every machine. Loading the module and each frame have a time limit
+  (`timeLimitMs`, 2000 by default) and the context has a memory limit of 128 MB. `console.log` output comes back in the
+  result's `console`.
+- **Errors teach.** A mistake in the module comes back as `art/coin_spin.anim.js:5:17: ReferenceError: nothing is not
+  defined (while drawing frame 2 of 12, t = 0.1667 s)` followed by the source line and a caret; a frame that returns
+  something that is not an SVG string, a missing default export, an import that leaves the project and an endless loop
+  (named with the limit and the frame) each say what to change.
+- **Rasterizing.** Every frame is rasterized as `assets.rasterize_svg` does it (same renderer, same support and same
+  unsupported list: no text, filters, `<use>` or CSS classes), transparent, fitted inside the `frameWidth` x `frameHeight`
+  cell (default 64 x 64; `frameHeight` defaults to `frameWidth`; at most 1024), aspect kept, centred. `style`,
+  `styleStrength` and `seed` give the painterly look of `rasterize_svg` to every frame; the style's seed is the same for all
+  frames, so the paper texture stays put while the drawing moves. `palette` (a list of `"#rrggbb"`, or the project path of an
+  image whose colours are the palette, at most 256) snaps every pixel to those colours and keeps the alpha.
+- **Layout.** The frames go row by row in a grid of `columns` (default `ceil(sqrt(frames))`). `padding` (pixels, default 0)
+  is a transparent gutter around every cell, so filtered sprites do not pick up their neighbour: cell `i` starts at
+  `x = padding + column * (frameWidth + 2 * padding)`, the same for y, and the PNG is `columns * (frameWidth + 2 * padding)`
+  wide. The sheet may be up to 8192 px a side (a warning over 4096, which some phones cannot sample). The sheet entry records
+  `padding` and `pivot` (`[x, y]` in 0..1 from the top-left, default the centre) beside `columns`, `rows`, `frameWidth`,
+  `frameHeight` and `frames`.
+- **Clips.** `clips: [{"name":"idle","frames":4,"fps":6},{"name":"run","frames":8,"fps":12,"loop":true,"pivot":[0.5,1]}]`
+  makes several animations from one module, laid out one after another in one sheet. Give `frames` per clip, not at the top
+  level. The module receives `clip` (the name) and `frame` counted from 0 inside that clip (a clip's own `params` are merged over
+  the top-level ones), so it draws `idle` or `run`. Each clip becomes a clip of the sheet entry (`firstFrame`, `lastFrame`,
+  `fps`, `loop`, `pivot`). Without `clips` the entry has one clip named like the file, which keeps `fps` and `loop`. Clips need a
+  module: one SMIL SVG has one timeline.
+- **SMIL.** Sampled: `<animate>`, `<set>`, `<animateTransform>` (`translate`, `scale`, `rotate`, `skewX`, `skewY`) and
+  `<animateMotion>` (`path`, `<mpath>`, `values`/`from`/`to`/`by`, `rotate="auto"`), with `begin` (offsets, several values,
+  `id.begin` and `id.end` sync-bases with an offset), `end`, `dur`, `repeatCount`, `repeatDur`, `fill="freeze"`, `values`,
+  `keyTimes`, `keySplines`, `calcMode` (`linear`, `discrete`, `paced`, `spline`), `from`/`to`/`by`, `additive` and
+  `accumulate`. Numbers, lengths, colours (in RGB) and any value that is the same text around numbers (path data of the same
+  structure, `points`, `viewBox`) are interpolated; any other value changes at its key time. Not sampled, each a warning that
+  names the element: event begins (`click`...), CSS animations, `<style>` rules and `restart`/`min`/`max`.
+- **Warnings.** Frames that draw nothing (the shapes sit outside the viewBox, or the module returned an empty drawing), shapes
+  touching the edge of the cell (they may be cut off: draw smaller, enlarge the frame, or add `padding`), a loop whose last
+  frame jumps from the first (a pop when it repeats) or repeats it (a stop for one frame), SMIL that is not sampled, features
+  `rasterize_svg` does not draw. A frame that draws nothing is a warning, not an error: a blink may be empty on purpose.
+- **Provenance.** By default the record is origin `generated`, `ai` true (the agent wrote the code, which counts for the
+  store's AI-content disclosure); pass `ai: false`, `author` and `license` for art a person drew, and the record is origin
+  `original`. It carries a `recipe`: the command, the arguments that make the same bytes again (paths project-relative,
+  `seed` explicit) and the module with every file it imported, each with its SHA-256. Calling the command with the recipe's
+  `args` (and `overwrite: true`) makes the identical sheet; the same module, arguments and seed always give the same bytes.
+
+Playing the sheet: the result's `nextSteps` give the `Sprite` and `SpriteAnimator` settings for the whole sheet and for
+each clip, and the call that checks it (`assets.preview_sheet`). The best way to play a clip is by name:
+`SpriteAnimator {"clip": "run"}` on an entity whose `Sprite.texture` is the sheet, or `entity.spriteAnimator.play("run")`
+from a script. The sheet's grid (`columns`, `rows`), `padding`, the clip's `fps`, `loop` and range all come from the
+`sheet` entry; the numeric fields (`columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`) still work, and when you
+set one on the component it overrides the clip's value. A wrong clip name is an error that lists the clips of the sheet and
+suggests the closest one (`project.validate` finds it in a scene or prefab too). `padding` is skipped by the animator by
+itself whenever its `columns` and `rows` are the sheet's, so a sheet with a gutter needs no extra setting.
+`pivot` of the sheet and of a clip is `[x, y]` in 0..1 counted from the TOP-left of the frame (as in the PNG); `Sprite.pivot`
+counts from the BOTTOM-left, so the animator uses `[x, 1 - y]`. It does so only when the `Sprite` has no pivot of its own
+(`Sprite.pivot` still `[0.5, 0.5]`) and `SpriteAnimator.sheetPivot` is true; a sprite that sets another pivot keeps it. The
+sheet's pivot is applied when the sprite is drawn and measured, it is not written into `Sprite.pivot`.
+
+### Checking a sheet: assets.preview_sheet
+
+`assets.preview_sheet {"path":"assets/art/coin_spin.png"}` draws the sheet as a labelled grid (a temporary picture, returned as
+`$image`, that an AI can look at): the frame numbers (`f0`, `f1`...), the frame rectangle (cyan) and the cell edge (grey,
+which differs from the frame when there is `padding`), and the pivot (a magenta cross). `clip` shows only that clip's frames
+(an unknown name is an error with the clip list and the closest name); `onion: true` overlays the previous frame in red and the
+next in blue at 40% so you can see how far things move between frames. The grid is the `sheet` entry of the texture, or the
+arguments `columns`, `rows`, `frameWidth`, `frameHeight` and `padding` when the sheet has none (without either the error
+`no_grid` says what to pass). `scale` and `tileColumns` set the size and the layout of the picture. It reads the sheet and writes
+only the temporary picture, and its `warnings` are the checks: the grid does not match the image, more frames than the grid
+holds, a clip outside the sheet, an empty frame, ink touching the edge of the cell, the drawing jumping between frames (the
+centre of its ink moves by more than 30% of the frame) and a looping clip whose last frame jumps from the first or repeats it.
+The result also has `frames` (for each shown frame: `empty` and the `bbox` of its ink in frame pixels) and `nextSteps`.
+The Project panel plays the same clips (see [EDITOR.md](EDITOR.md)).
 
 ### The game icon without a provider: assets.draw_icon
 
@@ -204,6 +442,46 @@ of Google Play and the App Store. The result lists every `written` file with its
 ```
 factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern Keep"},"stores":["steam"]}'
 ```
+
+## Recipes: make an asset again
+
+The offline makers (`assets.rasterize_svg`, `assets.draw_icon`, `assets.draw_capsules`, `assets.generate_texture`,
+`assets.synth_sound`, `assets.generate_loop`, `assets.pack_atlas` and `assets.slice_sheet`) write a `recipe` inside the
+asset's `provenance`:
+
+```json
+"assets/art/coin.png": {"provenance": {"origin": "generated", "ai": true, "recipe": {
+  "command": "assets.rasterize_svg",
+  "args": {"path": "assets/art/coin.png", "source": "assets/art/coin.svg", "width": 128, "style": "paper", "seed": 0},
+  "inputs": [{"path": "assets/art/coin.svg", "sha256": "9f2c..."}]}}}
+```
+
+`args` are the arguments that give the same bytes again: paths normalised and relative to the project, the seed written out
+even when you left it at its default, a font named as the engine resolved it. `inputs` are the project files the command
+read, each with the sha256 it had. Files that are only given inline (`svg` text, a built-in font) are inside `args`.
+
+- `assets.regenerate {"path": "assets/art/coin.png"}` runs the recipe again through the command registry with
+  `overwrite: true` and reports per file `pixels changed`, `bytes changed (same pixels)`, `unchanged` or `created`, the
+  size, and for sheets the layout before and after. `{"all": true}` does every asset with a recipe, `{"stale": true}` only
+  those whose `inputs` no longer match (you edited the SVG), and `dryRun: true` lists what would run and changes nothing.
+  There is no list of commands: any `assets.*` command that records a recipe works.
+- An asset that reads another (a sheet sliced from a picture made from an SVG) is made after it, and `stale` looks again at
+  its inputs when its turn comes, so the whole chain follows one edit. Several files made by one call (an icon and its
+  foreground, a texture and its normal map, the capsules of a store) are made once. What a person recorded (license, author,
+  notes) is kept; the recipe and the date are new.
+- Provider-made assets (`assets.generate_image` and the other providers) have no recipe: they would cost money and give a
+  different result. `assets.regenerate` on one is an error that says so.
+- `assets.convert_audio` and the copy `assets.slice_sheet` writes with `out` do not inherit the recipe of their source: they
+  describe another file. A sheet cut in place (no `out`) replaces its own source, so its recipe is removed (the source no
+  longer exists to be read); a sheet cut with `out` from a source that has a provenance record records `assets.slice_sheet` with the source as input (a source with none gives a warning instead). `assets.pack_atlas`
+  records the frames and `pivots.json` as inputs: a frame added to the folder later is not seen as a change, list it in
+  `frames` and run the command again. `assets.set_provenance` keeps an existing recipe.
+- `factoria validate` warns about a stale asset (`assets.json` pointer `/assets/<path>/provenance/recipe`, with the exact
+  `factoria call assets.regenerate '{"path":"..."}'` in the hint) and about an input that no longer exists or cannot be
+  read (restore it, or run the maker again with the new path).
+- In the editor, the Project panel marks a stale made asset with a "stale" badge ("no src" when an input is gone), has a
+  Regenerate button (the selected asset, else every stale one) and a Regenerate item in the right-click menu; when a
+  source of a made asset is saved a banner offers Regenerate or Not now.
 
 ## Provenance and store disclosure
 
@@ -312,6 +590,33 @@ scenes and scripts still name `assets/ui/play.png` and the sprite keeps the size
   packed. A `Tilemap` tileset or a `MeshRenderer` texture in a group would draw the whole atlas, so `factoria validate`
   warns.
 
+**An atlas while developing.** The export's groups are enough when your Sprites can keep naming the source PNGs: you
+write `texture: "assets/ui/play.png"`, the editor and `factoria run` draw that file, and only the export packs. Pack an
+atlas yourself when the game needs to pick frames by name from one texture while you work: a map of thousands of tiles and
+buildings drawn from one texture (`factoria run` batches by texture, so one atlas is a few draw calls and many PNGs
+are thousands), frames that a script chooses by name or by a table (a road mask, a ship's heading), or pictures that
+are an atlas to begin with. `assets.pack_atlas` does it:
+
+```
+factoria call assets.pack_atlas '{"folder":"assets/src/frames","out":"assets/atlas.png","table":"data/atlas.json"}'
+```
+
+- Every image under `folder` (subfolders too) is a frame named by its path without the extension (`ship/0.png` is
+  `ship/0`). They are packed tallest first into the smallest square page up to `maxSize` (default 2048; 4096 on
+  desktop), each with `padding` pixels (default 2) of its own edge repeated around it, like the export's groups.
+- The table is JSON: `{"texture": "assets/atlas.png", "size": [w, h], "frames": {"ship/0": {"rect": [x, y, w, h],
+  "pivot": [px, py]}}}`. `rect` is in texture pixels from the top-left, exactly `Sprite.region`; `pivot` is
+  `Sprite.pivot`. A script imports the table (`import atlas from "../data/atlas.json"`) and sets
+  `Sprite: {texture: atlas.texture, region: atlas.frames[name].rect, pivot: atlas.frames[name].pivot}`.
+- Pivots come from `<folder>/pivots.json` (`{"ship/0": [0.5, 0.2]}`); a frame without one is `[0.5, 0.5]`. Keys of an
+  existing table that are not `texture`, `size` or `frames` stay, so your own data (a road mask table) can live in it.
+- Packing again keeps every frame whose size did not change where it was: a new picture adds one line to the table and
+  scenes that copied a rect keep drawing the same frame. The page grows (existing frames never move) when the new ones do
+  not fit; a frame whose picture has another size, or that no longer fits, is placed again and reported in `moved`. Nothing is
+  written when the result would be the same bytes.
+- Pack again whenever the folder changes, and commit the PNG and the table. Sprites that name the atlas ship it as it
+  is; do not also put those pictures in an `atlas` group.
+
 ### Audio
 
 Sounds are `.wav`, `.ogg`, `.mp3` and `.qoa` files. These settings go under `defaults.audio` (every sound) or under an
@@ -377,7 +682,9 @@ also plays directly, and streams like any other long sound.
 
 `assets.import` brings a file made elsewhere into the project and records where it came from. It reads files on this
 machine (an absolute path, or a path relative to the project); to use something from the web, download it first and pass
-the page it came from as `sourceUrl` so the credits keep it.
+the page it came from as `sourceUrl` so the credits keep it. The websites the AI looks at when it needs such a file
+(and whether it may look anywhere else) are the user's choice: **AI > AI Settings...** in the editor, `assetSources` in `ai.json`
+([AI_PROVIDERS.md](AI_PROVIDERS.md), "Asset sources").
 
 ```
 assets.import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"Ana Lopez"}
@@ -411,8 +718,12 @@ and next steps with the component settings to use. Each written file gets an `as
 | `.mpg` `.mpeg` | Copied into `assets/video/` after the engine opened it (it must be MPEG-1 video; the size, length and frame rate are in `details`). |
 | `.mp4` `.m4v` `.mov` `.webm` `.mkv` `.avi` | An `.mpg` in `assets/video/`, converted by ffmpeg (see "Video" below). |
 
-Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.svg` `.psb`
-(convert to PNG), `.flac` `.m4a` `.aac` (convert to OGG or WAV), and SDF/MSDF font atlases.
+Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.psb`
+(convert to PNG), `.svg` (`assets.rasterize_svg` makes the PNG), `.flac` `.m4a` `.aac` (convert to OGG or WAV), and SDF/MSDF font atlases.
+
+Models do not have to be files: a script can build a mesh at run time with `mesh.create` and keep it as a `.glb` with
+`mesh.save` (a plain `assets/models/` file after that; docs/SCRIPTING.md, "Procedural meshes"). `factoria validate` rejects a
+`mesh:N` id written in a scene or prefab, because the mesh exists only in the running game.
 
 ### Aseprite
 
@@ -432,7 +743,7 @@ To play a clip, use the next steps of the result:
 Leave the Sprite's `region` and `size` empty: SpriteAnimator sets the region, and the frame size is the sprite size.
 
 What is not carried over, with a warning each time: tags that play in reverse or ping-pong (the clip plays forward,
-because `SpriteAnimator` only plays forward), layers with a blend mode other than normal (drawn as normal) and tilemap
+because the sheet keeps no direction; set `SpriteAnimator.mode` to `reverse` or `pingpong`), layers with a blend mode other than normal (drawn as normal) and tilemap
 layers. Slices and user data are ignored. A damaged file is an error that names what is wrong ("frame 3 is cut short").
 
 ### PSD
@@ -487,6 +798,71 @@ the game: shorten it or lower its size). An `.mpg` you made yourself is only che
 A `Video` plays by itself (`autoplay`), follows the game clock and sends the game event `video.ended` when a video that
 does not loop reaches its end; a studio intro that any button skips is in [MENUS.md](MENUS.md).
 
+### Effects drawn by the engine, baked: assets.bake_sheet
+
+A glow made of three Shape2D with gradients, a burst of particles, a badge that pulses with a tween, an explosion a script
+starts: drawn live they cost draw calls and CPU on every frame, and on a phone that adds up. `assets.bake_sheet` plays one
+entity once, offline, and saves it as a sprite sheet; the game then draws ONE `Sprite` with a `SpriteAnimator`. It is
+also the way to make animated art with the engine's own Shape2D (gradients, strokes, additive blending) instead of SVG.
+
+```
+assets.bake_sheet {"path":"assets/fx/burst.png","prefab":"prefabs/burst.prefab.json","frames":16,"fps":24,"warmup":0.5,"pivot":[0.5,0.5]}
+assets.bake_sheet {"path":"assets/fx/boss.png","scene":"scenes/boss.scene.json","entity":"boss","fps":12,
+  "clips":[{"name":"idle","frames":8},{"name":"die","call":"die","frames":24,"loop":false}]}
+```
+
+- **What is baked.** A prefab (`prefab`), or an entity of a scene with its children (`scene` + `entity`, the entity's id),
+  alone in a private world, placed at the origin of the world whatever the scene says. Shape2D, Sprite, SpriteAnimator,
+  Tint, tweens, ParticleEmitter and the entity's scripts run as in the game; nothing else is in the world (no lights: a `lit` sprite
+  is drawn as in a world without lights). It needs a GPU: it draws offscreen with a transparent clear (Metal, Direct3D 11,
+  OpenGL; a headless Linux needs Mesa's EGL). Without one the error is `no_gpu`.
+- **Time.** The world is stepped at the project's fixed step with the world RNG seeded from `seed` (default 1), and a frame
+  is captured every 1/`fps` seconds of simulated time (`fps` cannot exceed the fixed rate, 60 by default). Frame 0 is
+  drawn after one step, so `onStart` has run, and after `warmup` seconds. The same prefab, seed and settings bake the
+  same pixels on the same GPU; two different GPUs can differ by an edge pixel.
+- **Clips.** `clips` is a list of `{name, call | event, args | data, frames, fps, loop, warmup}`. Each clip starts in a
+  fresh world: `call` runs that method of the entity's behaviour (`this.explode(...args)`) after the warm-up, `event` sends
+  a game event the scripts hear with `world.on`, `clip` plays a clip of the entity's Animator (see "Bake by clip name" below),
+  and a clip with none of them just plays. Clips follow each other in the sheet and
+  become the `clips` of its `sheet` entry (`firstFrame`, `lastFrame`, `fps`, `loop`). A method that does not exist is an
+  error that names the prefab, suggests the nearest method and lists the behaviour's methods.
+- **Bake by clip name.** A character built in parts (child Sprites, Bone2D bones, IK2D; docs/ANIMATION.md) is baked from the
+  clips of its Animator, with no script: `clips: [{"name":"crawl","clip":"crawl"},{"name":"alert","clip":"alert"}]`. `clip` is a
+  key of `Animator.clips` (a `*.anim.json` clip, or a glTF animation when the entity has a `model`). The clip plays from time 0
+  with no cross-fade and the state machine is switched off, on the fixed clock, so the same clip gives the same frames every
+  time. `frames` is the clip's duration times `fps`, rounded, when you do not give it (a clip that does not loop gets one more, so
+  its last pose is shown; a looping clip ends one step short of its start), and `loop` is the clip's
+  own when you do not give it; `fps` is the clip's `fps` or the command's. `clip` cannot be combined with `call` or `event`.
+  An unknown clip is an error that lists the entity's clips with "did you mean"; an entity with no Animator says what to
+  add. The recipe in the provenance keeps the `clips` as given, so `assets.regenerate` bakes the sheet again when a clip,
+  a part or the prefab changes. Sky Hopper's crawler is made this way (`assets/crawler_sheet.png`).
+- **Framing.** The scale is pixels per world unit (`scale`, default 1). The cell is the box that holds everything drawn in
+  ANY frame, plus `margin` pixels (default 2), so a burst that grows is never cut, and the entity's origin is the same
+  pixel in every frame: that pixel is the sheet's `pivot` (`[x, y]` from the TOP-LEFT of the frame). Give `pivot` to choose
+  where the origin lands (a character's feet: `[0.5, 1]`, with room below the feet if the animation goes there). Give
+  `frameWidth` and `frameHeight` for a fixed cell: without `scale` the animation is scaled to fit it; with `scale` it must
+  fit, or the error says how big the cell has to be. `padding` (default 1) is the transparent border around each cell,
+  recorded as `sheet.padding`. The bake draws on a canvas of up to 4096 pixels centred on the origin: an animation that reaches beyond it is cut, and a
+  warning says so (lower `scale`).
+- **Colour.** The colours are straight alpha (not premultiplied) and the edge pixels take the colour of the shape behind
+  them, so a sprite scaled with filtering has no dark halo. An additive glow keeps its light: where it adds colour but no
+  alpha, the brightest channel becomes the alpha. `background` puts a colour behind the frames (a sheet with a background is
+  opaque); leave it out for a transparent sheet.
+- **The result** is the sheet as an image, the layout (`frameWidth`, `frameHeight`, `columns`, `scale`, `pivot`), `warnings`
+  (frames that are all identical: nothing moves; empty frames; a canvas that is too small) and `nextSteps`. `assets.json`
+  gets the `sheet` entry and a provenance of origin `generated` with the prefab or scene as `source`; `ai` is true when that
+  file or a texture it draws is recorded as AI-made (override with `ai`, and set `author` and `license`). The provenance
+  holds the recipe (`provenance.recipe`): the arguments and the SHA-256 of the prefab or scene, its scripts, nested prefabs
+  and textures, so `assets.regenerate` makes the sheet again after you edit the prefab and `factoria validate` says
+  when it is stale.
+- **Use it.** A `Sprite` with the texture and a `SpriteAnimator` with the columns, rows and fps from the result. The sheet's
+  `pivot` counts from the top-left, but `Sprite.pivot` counts from the BOTTOM-LEFT (y up): to keep the baked origin where
+  the entity was, set `Sprite.pivot` to `[x, 1 - y]`.
+- **From the editor or MCP.** A process has one graphics device, so when this one already uses it (the editor, an MCP session
+  with graphics) the bake runs in a child `factoria call` process of the same installation; from a terminal it just runs.
+  `factoria call assets.bake_sheet` and a batch whose commands are all `perf.*` or `assets.bake_sheet` start no graphics of
+  their own.
+
 ### Sprite sheets: assets.slice_sheet
 
 SpriteAnimator plays a uniform grid of frames. `assets.slice_sheet` makes an image fit that, in two ways:
@@ -520,6 +896,8 @@ with warnings still runs and exports):
 - **Alpha.** A texture drawn by a `Sprite` whose four corners are the same opaque color is probably a background that
   should be transparent: the hint gives the `assets.slice_sheet` call that clears it. A texture that is fully transparent
   draws nothing. A flat one-color image is left alone (a placeholder rectangle).
+- **Recipes.** A made asset whose recipe inputs changed since it was made (stale), and a recipe whose input no longer exists
+  (see "Recipes: make an asset again"); the hint holds the `assets.regenerate` call.
 - **Weight.** One shipped file over 20 MB, with a hint by kind (convert audio to OGG, compress a texture). The total of
   the shipped files against the limit of each store the game targets: Google Play's 500 MB for the base module of an app
   (`android`), and for `ios` 200 MB, above which an iPhone asks the player before downloading over cellular data, and 4 GB,
@@ -532,7 +910,7 @@ with warnings still runs and exports):
   reuses the `analysis` records of `assets.json` while they are fresh and measures the other sounds on the spot; it
   never writes `assets.json` (run `assets.analyze_audio` to store the measurements, which makes validating fast).
   A sound that cannot be decoded is reported too.
-- **Model files.** An error (not a warning) when a `.gltf` or `.glb` under `assets/` names a texture or a `.bin` buffer by a relative `uri` and the file is not there: the model would draw untextured or fail to load. `assets.import` copies those files.
+- **Model files.** An error (not a warning) when a `.gltf` or `.glb` under `assets/` names a texture or a `.bin` buffer by a relative `uri` and the file is not there: the model would draw untextured or fail to load. The uri is resolved against the model's folder and the message names the project path it reaches (or says it climbs out of the project folder); the hint suggests the uri that works when the file exists in the project (too many leading `..`, or the same file name elsewhere under `assets/`). `assets.import` copies those files.
 - **Videos.** An error when a `Video` names a file under `assets/` that is not there, or when an `.mpg` the project uses cannot be
   played (not an MPEG file, or a different codec such as H.264 inside): the hint has the ffmpeg command that converts it.
 - **Atlas groups.** A texture in an `atlas` group used by a component that cannot draw from an atlas (a `Tilemap`

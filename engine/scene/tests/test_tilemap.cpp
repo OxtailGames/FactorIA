@@ -235,3 +235,102 @@ TEST_CASE("tilemap: columns 0 (the default) is derived from the tileset image") 
     CHECK(w.get<Tilemap>(w.find_by_id("zero"))->columns == 0);
     CHECK(w.get<Tilemap>(w.find_by_id("one"))->columns == 1);
 }
+
+namespace {
+
+Tilemap iso_map(int w, int h) {
+    Tilemap tm;
+    tm.projection = TilemapProjection::Isometric;
+    tm.tileSize = {100, 50};
+    std::vector<int> tiles(std::size_t(w) * std::size_t(h), 0);
+    set_tilemap_grid(tm, w, h, tiles);
+    return tm;
+}
+
+}  // namespace
+
+TEST_CASE("tilemap: isometric cell centres, cell_at and bounds") {
+    Tilemap tm = iso_map(4, 3);
+    // Cell (0, 0) sits under the map's top vertex; +col runs down-right, +row down-left.
+    CHECK(tilemap_cell_center(tm, 0, 0).x == doctest::Approx(0));
+    CHECK(tilemap_cell_center(tm, 0, 0).y == doctest::Approx(-25));
+    CHECK(tilemap_cell_center(tm, 1, 0).x == doctest::Approx(50));
+    CHECK(tilemap_cell_center(tm, 1, 0).y == doctest::Approx(-50));
+    CHECK(tilemap_cell_center(tm, 0, 1).x == doctest::Approx(-50));
+    CHECK(tilemap_cell_center(tm, 0, 1).y == doctest::Approx(-50));
+    CHECK(tilemap_cell_center(tm, 2, 2).x == doctest::Approx(0));
+    CHECK(tilemap_cell_center(tm, 2, 2).y == doctest::Approx(-125));
+    // Every centre maps back to its own cell, and so do points a little off the centre but inside the diamond.
+    for (int r = -2; r < 6; ++r)
+        for (int c = -2; c < 6; ++c) {
+            Vec2 p = tilemap_cell_center(tm, c, r);
+            for (Vec2 d : {Vec2{0, 0}, Vec2{30, 0}, Vec2{-30, 0}, Vec2{0, 15}, Vec2{0, -15}}) {
+                int cc = 99, rr = 99;
+                REQUIRE(tilemap_cell_at_local(tm, {p.x + d.x, p.y + d.y}, cc, rr));
+                CHECK(cc == c);
+                CHECK(rr == r);
+            }
+        }
+    // The ground height decouples the diamond from the image height.
+    tm.groundHeight = 40;
+    CHECK(tilemap_ground_height(tm) == 40);
+    CHECK(tilemap_cell_center(tm, 1, 1).y == doctest::Approx(-60));
+    // The orthogonal map is untouched by the iso fields.
+    Tilemap o = map_with(2, 2, "[0,0,0,0]");
+    o.groundHeight = 99;
+    CHECK(tilemap_ground_height(o) == 16);
+    CHECK(tilemap_cell_center(o, 1, 1).x == doctest::Approx(24));
+    CHECK(tilemap_cell_center(o, 1, 1).y == doctest::Approx(-24));
+    int c = 0, r = 0;
+    REQUIRE(tilemap_cell_at_local(o, {17, -33}, c, r));
+    CHECK(c == 1);
+    CHECK(r == 2);
+
+    // Bounds of the iso map cover every drawn image: the leftmost cell (0, h-1), the rightmost (w-1, 0).
+    Tilemap b = iso_map(4, 3);
+    Rect box = tilemap_local_bounds(b, tilemap_size(b));
+    CHECK(box.x == doctest::Approx(-150));
+    CHECK(box.x + box.w == doctest::Approx(200));
+    CHECK(box.y + box.h == doctest::Approx(0));
+    CHECK(box.y == doctest::Approx(-(4 + 3 - 2) * 25.0f - 50.0f));
+    b.groundOffset = 10;
+    b.tileSize = {100, 60};
+    Rect tall = tilemap_local_bounds(b, tilemap_size(b));
+    CHECK(tall.y + tall.h == doctest::Approx(10));
+}
+
+TEST_CASE("tilemap: isometric ground fields are checked") {
+    Tilemap tm = iso_map(2, 2);
+    CHECK(check_tilemap(tm).empty());
+    tm.groundHeight = 40;
+    tm.groundOffset = 10;
+    CHECK(check_tilemap(tm).empty());
+    tm.groundOffset = 20;  // 20 + 40 > 50: the diamond sticks out of the image
+    auto issues = check_tilemap(tm);
+    REQUIRE(issues.size() == 1);
+    CHECK_FALSE(issues[0].error);
+    CHECK(issues[0].pointer == "/groundOffset");
+    tm.groundHeight = -1;
+    issues = check_tilemap(tm);
+    REQUIRE(issues.size() == 1);
+    CHECK(issues[0].error);
+    CHECK(issues[0].pointer == "/groundHeight");
+}
+
+TEST_CASE("tilemap: the projection is saved and loaded by name") {
+    World w;
+    Json scene = Json::parse(R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "iso", "components": { "Tilemap": { "projection": "isometric", "tileSize": [100, 60], "groundHeight": 50, "groundOffset": 5 } } }
+      ] })");
+    LoadReport r = load_scene(w, scene, "level.scene.json");
+    for (const auto& m : r.messages) MESSAGE(m.to_string());
+    CHECK(r.messages.empty());
+    const Tilemap* tm = w.get<Tilemap>(w.find_by_id("iso"));
+    REQUIRE(tm);
+    CHECK(tm->projection == TilemapProjection::Isometric);
+    CHECK(tm->groundOffset == 5);
+    Json out = save_scene(w);
+    CHECK(out.dump().find("\"isometric\"") != std::string::npos);
+}

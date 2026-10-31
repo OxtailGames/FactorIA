@@ -1,0 +1,11 @@
+{
+  "path": "assets/audio/fire.wav",
+  "kind": "noise",
+  "color": "brown",
+  "cutoff": 600,
+  "crackles": 4,
+  "seconds": 12,
+  "seed": 23,
+  "peak": 0.7,
+  "overwrite": true
+}

@@ -607,6 +607,153 @@ TEST_CASE("fake: cloud saves") {
     CHECK(g.ok("cloud.list") == Json::parse(R"(["a"])"));
 }
 
+TEST_CASE("fake: cloud.stat answers the size and a deterministic time, and a missing key is not an error") {
+    Game g;
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "slot1"})")) == Json::parse(R"({"exists": false})"));
+    g.ok("cloud.save", Json::parse(R"({"key": "slot1", "data": "{\"level\":3}"})"));
+    g.ok("cloud.save", Json::parse(R"({"key": "a", "data": "x"})"));
+    // The clock starts at 2026-01-01T00:00:00Z and moves on one second with each save: no wall clock.
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "slot1"})")) == Json::parse(R"({"exists": true, "size": 11, "modified": 1767225600})"));
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "a"})")) == Json::parse(R"({"exists": true, "size": 1, "modified": 1767225601})"));
+    g.ok("cloud.save", Json::parse(R"({"key": "slot1", "data": "{\"level\":30}"})"));
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "slot1"})")) == Json::parse(R"({"exists": true, "size": 12, "modified": 1767225602})"));
+    // Reading does not change the time, and stat does not read.
+    g.ok("cloud.load", Json::parse(R"({"key": "a"})"));
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "a"})"))["modified"] == 1767225601);
+
+    // The test sets the clock: the next save gets that time, and the one after is a second later.
+    REQUIRE(g.fake().set_cloud_clock(1800000000).ok());
+    g.ok("cloud.save", Json::parse(R"({"key": "b", "data": "{}"})"));
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "b"})"))["modified"] == 1800000000);
+    CHECK(g.fake().state()["cloudClock"] == 1800000001);
+    CHECK(g.fake().state()["cloudModified"]["b"] == 1800000000);
+    CHECK_FALSE(g.fake().set_cloud_clock(-1).ok());
+
+    g.ok("cloud.remove", Json::parse(R"({"key": "a"})"));
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "a"})")) == Json::parse(R"({"exists": false})"));
+    CHECK_FALSE(g.fake().state()["cloudModified"].contains("a"));
+    // A key that is not valid is a mistake, as for the other cloud methods.
+    CHECK(has(g.mistake("cloud.stat", Json::parse(R"({"key": "my key"})")), "is not valid"));
+    CHECK(has(g.mistake("cloud.stat", Json::object()), "key"));
+
+    g.fake().reset();
+    CHECK(g.fake().cloud_clock() == FakeBackend::kCloudClockStart);
+    CHECK(g.ok("cloud.stat", Json::parse(R"({"key": "slot1"})")) == Json::parse(R"({"exists": false})"));
+    // A scripted answer works as for any method.
+    REQUIRE(g.fake().respond("cloud.stat", Json::parse(R"({"error": "network"})")).ok());
+    CHECK(g.fails("cloud.stat", Json::parse(R"({"key": "slot1"})")).code == "network");
+}
+
+TEST_CASE("fake: Remote Play guests connect and disconnect, and the sessions say who is there") {
+    Game g;
+    CHECK(g.ps.has_service("remotePlay"));
+    CHECK(g.ok("remotePlay.sessions") == Json::array());
+
+    auto first = g.fake().connect_guest(Json::parse(R"({"guestName": "Ana", "formFactor": "phone", "resolution": {"width": 2400, "height": 1080}})"));
+    REQUIRE(first.ok());
+    CHECK(first.value() == Json::parse(R"({"id": 1, "guestName": "Ana", "guestId": "fake-guest-1", "deviceName": "Fake device",
+                                           "formFactor": "phone", "resolution": {"width": 2400, "height": 1080}})"));
+    auto second = g.fake().connect_guest(Json::object());  // everything made up
+    REQUIRE(second.ok());
+    CHECK(second.value() == Json::parse(R"({"id": 2, "guestName": "Guest 2", "guestId": "fake-guest-2", "deviceName": "Fake device",
+                                            "formFactor": "computer", "resolution": {"width": 1920, "height": 1080}})"));
+    Json sessions = g.ok("remotePlay.sessions");
+    REQUIRE(sessions.size() == 2);
+    CHECK(sessions[0] == first.value());
+    CHECK(sessions[1] == second.value());
+    CHECK(g.fake().state()["remotePlay"] == sessions);
+
+    auto events = g.ps.take_events();
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].name == "remotePlay");
+    CHECK(events[0].data == Json::object({{"status", "connected"}, {"session", first.value()}}));
+    CHECK(events[1].data["session"]["id"] == 2);
+
+    // The event of a guest that left carries the session as it was.
+    auto left = g.fake().disconnect_guest(1);
+    REQUIRE(left.ok());
+    CHECK(left.value() == first.value());
+    events = g.ps.take_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].data == Json::object({{"status", "disconnected"}, {"session", first.value()}}));
+    sessions = g.ok("remotePlay.sessions");
+    REQUIRE(sessions.size() == 1);
+    CHECK(sessions[0]["id"] == 2);
+
+    // Ids are not reused, and an id that is not connected says which are.
+    CHECK(g.fake().connect_guest(Json::object()).value()["id"] == 3);
+    auto unknown = g.fake().disconnect_guest(1);
+    REQUIRE_FALSE(unknown.ok());
+    CHECK(has(unknown.error().message, "no guest has the session id 1"));
+    CHECK(has(unknown.error().hint, "Connected session ids: 2, 3."));
+
+    // Mistakes teach: the field, the value, and the fix.
+    auto badField = g.fake().connect_guest(Json::parse(R"({"guestNam": "Ana"})"));
+    REQUIRE_FALSE(badField.ok());
+    CHECK(has(badField.error().hint, "Did you mean 'guestName'?"));
+    auto badForm = g.fake().connect_guest(Json::parse(R"({"formFactor": "phon"})"));
+    REQUIRE_FALSE(badForm.ok());
+    CHECK(has(badForm.error().hint, "Did you mean 'phone'?"));
+    CHECK_FALSE(g.fake().connect_guest(Json::parse(R"({"resolution": {"width": 0, "height": 10}})")).ok());
+    CHECK_FALSE(g.fake().connect_guest(Json::parse(R"({"guestName": 5})")).ok());
+    CHECK_FALSE(g.fake().connect_guest(Json(3)).ok());
+    CHECK(g.ok("remotePlay.sessions").size() == 2);  // none of the failed ones was added
+
+    // emit() cannot send the event: a remotePlay event needs a session the fake keeps.
+    auto emitted = g.fake().emit("remotePlay", Json::parse(R"({"status": "connected"})"));
+    REQUIRE_FALSE(emitted.ok());
+    CHECK(has(emitted.error().hint, "remotePlayConnect"));
+
+    // reset() sends everybody home without events and numbers the sessions from 1 again.
+    g.ps.take_events();
+    g.fake().reset();
+    CHECK(g.ok("remotePlay.sessions") == Json::array());
+    CHECK(g.fake().connect_guest(Json::object()).value()["id"] == 1);
+
+    // A scripted answer for the sessions: an array, as for the other lists.
+    auto bad = g.fake().respond("remotePlay.sessions", Json::parse(R"({"id": 1})"));
+    REQUIRE_FALSE(bad.ok());
+    CHECK(has(bad.error().message, "answers with a list"));
+    REQUIRE(g.fake().respond("remotePlay.sessions", Json::parse(R"({"result": []})")).ok());
+    CHECK(g.ok("remotePlay.sessions") == Json::array());
+}
+
+TEST_CASE("platform: remotePlay is a service a plugin backend may offer, and the engine answers without it") {
+    PlatformServices ps;
+    ps.set_catalog(catalog());
+    auto rec = std::make_unique<Recorder>();
+    Recorder* r = rec.get();
+    rec->offered = {"achievements"};
+    ps.set_backend(std::move(rec));
+    auto none = ps.start("remotePlay.sessions", Json::object());
+    REQUIRE(none.ok());
+    REQUIRE(none->answer.has_value());
+    CHECK(none->answer->error.code == "unavailable");
+    CHECK(has(none->answer->error.message, "does not offer the \"remotePlay\" service"));
+    CHECK(r->calls.empty());
+
+    // With the service the request reaches the backend, and its remotePlay events reach the game unchanged.
+    auto offering = std::make_unique<Recorder>();
+    Recorder* o = offering.get();
+    offering->offered = {"remotePlay", "cloudSave"};
+    ps.set_backend(std::move(offering));
+    CHECK(ps.has_service("remotePlay"));
+    auto started = ps.start("remotePlay.sessions", Json::object());
+    REQUIRE(started.ok());
+    REQUIRE(o->calls.size() == 1);
+    CHECK(o->calls[0].method == "remotePlay.sessions");
+    o->kept.emit("remotePlay", Json::parse(R"({"status": "connected", "session": {"id": 4, "guestName": "Ana"}})"));
+    auto events = ps.take_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].name == "remotePlay");
+    CHECK(events[0].data["session"]["id"] == 4);
+    // cloud.stat reaches a backend with cloudSave like the other cloud methods, with its key.
+    REQUIRE(ps.start("cloud.stat", Json::parse(R"({"key": "slot1"})")).ok());
+    REQUIRE(o->calls.size() == 2);
+    CHECK(o->calls[1].method == "cloud.stat");
+    CHECK(o->calls[1].args["key"] == "slot1");
+}
+
 TEST_CASE("fake: purchases, transactions and restore") {
     Game g;
     Json products = g.ok("purchases.products");
@@ -1382,6 +1529,55 @@ TEST_CASE("fake: leaderboards keep one board per day or week of the date source;
     CHECK(rp->last["periodKey"] == "2027-01-03");
     CHECK(g.ps.start("leaderboards.submit", Json::parse(R"({"id": "a", "score": 5})")).ok());
     CHECK(rp->calls == 2);
+}
+
+TEST_CASE("platform: an explicit day addresses another daily board; Game Center and Play Games only know the current day") {
+    Game g(R"({"leaderboards": [{"id": "d", "name": "D", "order": "ascending", "period": "daily"},
+                                {"id": "w", "name": "W", "period": "weekly"}]})");
+    CalendarDate now = parse_calendar_date("2026-10-23T23:30:00").value();
+    now.utcOffsetMinutes = -120;  // UTC is already 2026-10-24 01:30
+    CHECK(now.utc().iso() == "2026-10-24");
+    g.ps.set_date_source([&] { return now; });
+    g.ask("leaderboards.submit", Json::parse(R"({"id": "d", "score": 5, "day": "2026-10-22"})"));
+    g.ask("leaderboards.submit", Json::parse(R"({"id": "d", "score": 9})"));
+    CHECK(g.fake().state()["calls"][0]["args"]["periodKey"] == "2026-10-22");
+    CHECK(g.fake().state()["calls"][1]["args"]["periodKey"] == "2026-10-23");
+    CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-10-22"})")).result[0]["score"] == 5);
+    CHECK(g.ask("leaderboards.entries", Json::parse(R"({"id": "d"})")).result[0]["score"] == 9);
+    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "w", "day": "2026-10-22"})")), "only addresses a daily board"));
+    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-02-30"})")), "YYYY-MM-DD"));
+    CHECK(has(g.mistake("leaderboards.entries", Json::parse(R"({"id": "d", "day": 5})")), "must be a string"));
+
+    struct Store : PlatformBackend {
+        explicit Store(std::string n) : n_(std::move(n)) {}
+        std::string n_;
+        Json last;
+        std::string name() const override { return n_; }
+        std::vector<std::string> services() const override { return {"leaderboards"}; }
+        void request(std::uint64_t id, const std::string&, const Json& args, const PlatformSink& sink) override {
+            last = args;
+            sink.complete(id, Json::object());
+        }
+    };
+    for (const char* backend : {"apple", "googleplay"}) {
+        g.ps.set_backend(std::make_unique<Store>(backend));
+        auto old = g.ps.start("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-10-22"})"));
+        REQUIRE(old.ok());
+        REQUIRE(old->answer.has_value());
+        CHECK(old->answer->error.code == "unsupported");
+        CHECK(has(old->answer->error.message, "2026-10-22"));
+        // The local day and the UTC day are both "current".
+        for (const char* current : {"2026-10-23", "2026-10-24"}) {
+            auto ok = g.ps.start("leaderboards.entries", Json{{"id", "d"}, {"day", current}});
+            REQUIRE(ok.ok());
+            CHECK_FALSE((ok->answer.has_value() && ok->answer->error.code == "unsupported"));
+        }
+    }
+    g.ps.set_backend(std::make_unique<Store>("steam"));  // Steam names a board per key: any day works
+    auto steam = g.ps.start("leaderboards.entries", Json::parse(R"({"id": "d", "day": "2026-10-22"})"));
+    REQUIRE(steam.ok());
+    const bool rejected = steam->answer.has_value() && !steam->answer->ok;
+    CHECK_FALSE(rejected);
 }
 
 TEST_CASE("platform: release is a flag of the run, and a backend without the ads service answers unavailable") {

@@ -97,7 +97,10 @@ jobs:
           mkdir -p "$out"
           cp "build/${{ matrix.preset }}/player/libfactoria_player.so" "$out/"
           "$llvm/llvm-strip" --strip-unneeded "$out/libfactoria_player.so"
-          "$llvm/llvm-nm" -D --defined-only "$out/libfactoria_player.so" | grep -q ANativeActivity_onCreate
+          # grep reads all of nm's output: `grep -q` stops early, nm then fails writing and pipefail fails the step.
+          "$llvm/llvm-nm" -D --defined-only "$out/libfactoria_player.so" | grep ANativeActivity_onCreate >/dev/null
+          # The build fingerprint that `factoria export --platform android` compares with its own (player/main.cpp).
+          grep -aq "FA-BUILD-FINGERPRINT:$(git rev-parse --short=12 HEAD);" "$out/libfactoria_player.so"
           ls -l "$out"
 
       - uses: actions/upload-artifact@v4
@@ -139,9 +142,14 @@ jobs:
           # Only the products: Xcode also leaves one single-architecture copy of each archive per arch under *.build/.
           find "build/${{ matrix.preset }}" -path "*Release-${{ matrix.sdk }}/*" -not -path '*.build/*' -name '*.a' -exec cp {} "$out/" \;
           test -f "$out/libfactoria_player_main.a"
+          # The build fingerprint that `factoria export --platform ios` compares with its own (player/main.cpp).
+          grep -aq "FA-BUILD-FINGERPRINT:$(git rev-parse --short=12 HEAD);" "$out/libfactoria_player_main.a"
           for lib in "$out"/*.a; do
             lipo -info "$lib"
-            lipo "$lib" -verify_arch $(tr ';' ' ' <<< "${{ matrix.archs }}") || { echo "::error::$lib lacks a slice of ${{ matrix.archs }}"; exit 1; }
+            # One arch per call: Xcode 27's lipo rejects `-verify_arch` with several archs ("requires exactly one input file").
+            for arch in $(tr ';' ' ' <<< "${{ matrix.archs }}"); do
+              lipo "$lib" -verify_arch "$arch" || { echo "::error::$lib lacks the $arch slice"; exit 1; }
+            done
           done
           du -sh "$out"
 
@@ -392,13 +400,13 @@ jobs:
           grep -q "Permission is hereby granted" "$tmp/FactorIA/LICENSE"
           grep -q "SIL OPEN FONT LICENSE" "$tmp/FactorIA/THIRD_PARTY_NOTICES.txt"
           if grep -q "license text missing" "$tmp/FactorIA/THIRD_PARTY_NOTICES.txt"; then echo "::error::THIRD_PARTY_NOTICES.txt lacks a license text"; exit 1; fi
-          find "$tmp/export" -name FACTORIA_NOTICES.txt | grep -q .
+          find "$tmp/export" -name FACTORIA_NOTICES.txt | grep . >/dev/null
           grep -q "sokol-shdc (sokol-tools)" "$tmp/FactorIA/THIRD_PARTY_NOTICES.txt"
           # The shader compiler came with the package: the one checked against the pin (macOS: both slices, signed since),
           # found next to factoria with an empty FACTORIA_HOME and no SOKOL_SHDC, and it compiles a custom material.
           ws="${GITHUB_WORKSPACE//\\//}"
           shdc="$tmp/FactorIA/sokol-shdc${{ matrix.exe }}"
-          if [[ "$RUNNER_OS" == macOS ]]; then lipo "$shdc" -verify_arch arm64 x86_64; else cmp "$shdc" "$ws/build/sokol-shdc/sokol-shdc${{ matrix.exe }}"; fi
+          if [[ "$RUNNER_OS" == macOS ]]; then lipo "$shdc" -verify_arch arm64 && lipo "$shdc" -verify_arch x86_64; else cmp "$shdc" "$ws/build/sokol-shdc/sokol-shdc${{ matrix.exe }}"; fi
           (
             export FACTORIA_HOME="$tmp/empty-home"
             unset SOKOL_SHDC
@@ -541,7 +549,7 @@ jobs:
           du -sh "$tmp/FactorIA/web"
           "$tmp/FactorIA/factoria${{ matrix.exe }}" export "$tmp/g" --platform web --out "$tmp/export-web"
           zip="$(ls "$tmp"/export-web/*-web.zip)"
-          cmake -E tar tf "$zip" | grep -qx "index.html"
+          cmake -E tar tf "$zip" | grep -x "index.html" >/dev/null
 
       # The export builds the APK, so it needs a JDK 17+ (it reads JAVA_HOME) next to the runner's Android SDK.
       - name: Set up JDK 17

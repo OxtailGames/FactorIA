@@ -18,9 +18,17 @@
 
 namespace fa {
 
+// How a text is read: Text.markup (tags are not characters), Text.bold and Text.wordBreak. Part of what a measurement depends on.
+struct TextStyle {
+    bool markup = false;
+    bool bold = false;
+    WordBreak wordBreak = WordBreak::Auto;
+    bool operator==(const TextStyle&) const = default;
+};
+
 // Size {w, h} of `text` laid out with `font` ("" = built-in) at the font size `px` (final pixels, no text scale applied),
-// wrapped at `wrap` (> 0). The renderer's layout, or approx_text_size without one.
-using TextExtent = std::function<Vec2(const std::string& text, const std::string& font, float px, float wrap)>;
+// wrapped at `wrap` (> 0), read as `style` says. The renderer's layout, or approx_text_size without one.
+using TextExtent = std::function<Vec2(const std::string& text, const std::string& font, float px, float wrap, TextStyle style)>;
 
 // The text scale that applies to a text with this cap: min(textScale, maxTextScale), or textScale when maxTextScale <= 0.
 float effective_text_scale(float textScale, float maxTextScale);
@@ -34,6 +42,7 @@ struct TextFitSpec {
     bool followsTextScale = true; // false: world-space Text, which ui.textScale does not touch
     float wrap = 0.0f;            // > 0 wraps lines at this width (design pixels)
     float boxW = 0.0f, boxH = 0.0f;  // the box the text must fit, 0 = that axis is not checked
+    TextStyle style;              // Text.markup / Text.bold of the text
 };
 
 struct TextFit {
@@ -63,7 +72,25 @@ struct UiLabel {
     Rect zone;                    // where the label sits: Button margins, right of a Toggle's box, a Slider's label zone...
 };
 // nullopt for a widget without a label (Panel, ScrollList, TextField, TouchStick, Captions).
-std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r);
+// `textScale` is the player's text size: a Toggle's box follows the font size, so the label's zone depends on it.
+// In a mirrored widget (ui_mirrored) the zone is on the mirrored side: right of a Slider's track, left of a Toggle's box.
+std::optional<UiLabel> ui_label(const World& w, Entity e, const Rect& r, float textScale = 1.0f);
+
+// The side of a Toggle's check box in a widget `height` pixels high: one line of its label (the font size at the player's
+// text size, capped by maxTextScale, times 1.2, plus 4), never more than the height minus the 6 px margins. A wrapped label
+// or a taller widget does not make the box bigger.
+float ui_toggle_box_side(const Toggle& t, float height, float textScale);
+
+// Gap in design pixels between a Button's icon and its label.
+inline constexpr float kUiButtonIconGap = 6.0f;
+// Where a Button with an icon puts it and its label inside the rectangle `r`: `labelSize` is the laid-out label (0 for none).
+// The icon and the label are centred as one group; `alone` centres the icon and leaves no label.
+struct UiButtonContent {
+    Rect icon;        // empty (zero size) without an icon
+    Vec2 labelPos;    // top-left of the label
+};
+// `mirrored` (ui_mirrored): the icon and the label change sides.
+UiButtonContent ui_button_content(const Button& b, const Rect& r, Vec2 labelSize, bool mirrored = false);
 
 struct UiLabelFit {
     UiLabel label;

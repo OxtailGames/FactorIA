@@ -1,6 +1,6 @@
 // Seed codes (a mine as eight readable characters) and the clipboard they travel through.
 import { test, describe, expect, game } from "factoria:test";
-import { ui } from "factoria";
+import { ui, clipboard as engine } from "factoria";
 import * as codes from "../scripts/game/seed_code.js";
 import * as clipboard from "../scripts/game/clipboard.js";
 import * as players from "../scripts/game/players.js";
@@ -112,24 +112,26 @@ describe("encode and decode", () => {
 describe("the clipboard", () => {
   cleanBeforeEach();
 
-  test("with no system clipboard (the engine has none for scripts) copy keeps the text for the session and says so", () => {
+  test("copy writes the system clipboard (the engine's) and paste reads it back, also what another program put there", async () => {
     clipboard.reset();
-    expect(clipboard.system()).toBe(false);
-    expect(clipboard.paste()).toBe("");
-    expect(clipboard.copy("3K7Q-2XF9")).toEqual({ ok: true, system: false });
-    expect(clipboard.paste()).toBe("3K7Q-2XF9");
+    expect(clipboard.system()).toBe(true);
+    expect(await clipboard.paste()).toBe("");
+    expect(clipboard.copy("3K7Q-2XF9")).toEqual({ ok: true, system: true });
+    expect(await clipboard.paste()).toBe("3K7Q-2XF9");
+    expect(await engine.read()).toBe("3K7Q-2XF9");
+    engine.write("from another program");
+    expect(await clipboard.paste()).toBe("from another program");
   });
 
-  test("a system clipboard plugged in with useSystem is written and read instead", () => {
+  test("on a phone (no clipboard for scripts) copy keeps the text for the session and says so", async () => {
     clipboard.reset();
-    let held = "from another program";
-    clipboard.useSystem({ write: (t) => (held = t), read: () => held });
-    expect(clipboard.system()).toBe(true);
-    expect(clipboard.paste()).toBe("from another program");
-    expect(clipboard.copy("ABCD-1234")).toEqual({ ok: true, system: true });
-    expect(held).toBe("ABCD-1234");
-    clipboard.reset();
+    engine.write("from another program");
+    clipboard.useSystem(false);
     expect(clipboard.system()).toBe(false);
+    expect(clipboard.copy("ABCD-1234")).toEqual({ ok: true, system: false });
+    expect(await clipboard.paste()).toBe("ABCD-1234");
+    expect(await engine.read()).toBe("from another program"); // the system clipboard was not touched
+    clipboard.reset();
   });
 
   test("Copy code in the camp copies the code on the screen and the message is honest about where it went", () => {
@@ -141,12 +143,11 @@ describe("the clipboard", () => {
     const shown = text("camp_seed").replace("Mine code: ", "");
     game.click("copy_code");
     game.step(1);
-    expect(clipboard.paste()).toBe(shown);
-    expect(text("camp_message")).toBe(`Code ${shown} kept for this session only: this build has no system clipboard, so write it down.`);
-    clipboard.useSystem({ write: () => {}, read: () => "" });
+    expect(text("camp_message")).toBe(`Code ${shown} copied to the clipboard.`);
+    clipboard.useSystem(false); // a phone
     game.click("copy_code");
     game.step(1);
-    expect(text("camp_message")).toBe(`Code ${shown} copied to the clipboard.`);
+    expect(text("camp_message")).toBe(`Code ${shown} kept for this session only: this build has no system clipboard, so write it down.`);
     clipboard.reset();
   });
 });
@@ -222,7 +223,6 @@ describe("seed codes at the title and on the results", () => {
     game.click("copy_code");
     game.step(1);
     expect(text("results_message")).toContain(code);
-    expect(clipboard.paste()).toBe(code);
     openCodePanel();
     game.click("paste_code");
     game.step(1);

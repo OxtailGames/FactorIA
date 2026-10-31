@@ -42,11 +42,13 @@ declare module "factoria" {
 
   /**
    * The family of a gamepad, found from its vendor id and name (Microsoft, Sony, Nintendo, Valve). It decides the button names input.buttonName() gives: the same bottom button is "A" on Xbox and Steam Deck, "Cross" on PlayStation and "B" on Nintendo. "generic" (any other pad) uses the Xbox names.
+   * @since 0.1.6
    */
   export type GamepadType = "generic" | "xbox" | "playstation" | "nintendo" | "steamdeck";
 
   /**
    * The kind of device that produced input last (input.lastDevice): choose keyboard or gamepad button prompts with it.
+   * @since 0.1.6
    */
   export type InputDevice = "keyboard" | "mouse" | "gamepad" | "touch";
 
@@ -79,10 +81,12 @@ declare module "factoria" {
     y: number;
     /**
      * v[0], v[1]...: the components in x, y, z order (also for the live view of a component field).
+     * @since 0.2.0
      */
     readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
+     * @since 0.2.0
      */
     [Symbol.iterator](): IterableIterator<number>;
     /**
@@ -177,10 +181,12 @@ declare module "factoria" {
     z: number;
     /**
      * v[0], v[1]...: the components in x, y, z order (also for the live view of a component field).
+     * @since 0.2.0
      */
     readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
+     * @since 0.2.0
      */
     [Symbol.iterator](): IterableIterator<number>;
     /**
@@ -221,14 +227,17 @@ declare module "factoria" {
     a: number;
     /**
      * c[0]..c[3]: r, g, b, a.
+     * @since 0.2.0
      */
     readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
+     * @since 0.2.0
      */
     [Symbol.iterator](): IterableIterator<number>;
     /**
      * The number of components (4); Vec2 and Vec3 have the length() method instead.
+     * @since 0.2.0
      */
     readonly length: number;
     set(r: number, g: number, b: number, a?: number): this;
@@ -263,14 +272,17 @@ declare module "factoria" {
     h: number;
     /**
      * r[0]..r[3]: x, y, w, h.
+     * @since 0.2.0
      */
     readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
+     * @since 0.2.0
      */
     [Symbol.iterator](): IterableIterator<number>;
     /**
      * The number of components (4); Vec2 and Vec3 have the length() method instead.
+     * @since 0.2.0
      */
     readonly length: number;
     contains(p: Vec2Like): boolean;
@@ -316,7 +328,13 @@ declare module "factoria" {
     id: string;
     name: string;
     tags: string[];
+    /**
+     * This entity's own flag. false hides it and everything under it (not drawn, no UI, no scripts), but setting a parent's `active` to false does not change the flags of its children: a child of a hidden Panel keeps `active` true. To ask whether an entity is really on, read `activeInHierarchy`.
+     */
     active: boolean;
+    /**
+     * true when this entity and every ancestor are active, i.e. it is really in the game. A child of a hidden Panel has `active` true and `activeInHierarchy` false. Use it to ask whether a menu is open; `ui.rectOf` and `ui.state` agree with it.
+     */
     readonly activeInHierarchy: boolean;
     /**
      * False once the entity was destroyed.
@@ -353,7 +371,7 @@ declare module "factoria" {
      */
     components(): string[];
     /**
-     * Destroys the entity (and children) at the end of the frame. It leaves physics at once: no collisions and no raycast or overlap hits from the call on.
+     * Destroys the entity (and children) at the end of the frame: the memory and the components stay until then (`alive` stays true), so a handle you hold keeps working for the rest of the frame. The entity is gone for lookups at once: world.find, world.findAll, world.findByTag and world.entities no longer return it and its id can be used by a new entity in the same frame (spawn a rebuilt screen with the same ids, no prefix needed). It leaves physics at once: no collisions and no raycast or overlap hits from the call on.
      */
     destroy(): void;
     readonly parent: Entity | null;
@@ -395,10 +413,22 @@ declare module "factoria" {
     emitBurst(count?: number): void;
     /**
      * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
+     * @since 0.2.0
      */
     readonly animator: AnimatorAPI;
     /**
+     * Named clips of this entity's SpriteAnimator (play, clips, on("clipEnded")). Throws if the entity has no SpriteAnimator; entity.get("SpriteAnimator") answers null instead.
+     * @since 0.6.0
+     */
+    readonly spriteAnimator: SpriteAnimatorAPI;
+    /**
+     * Single-tile access to this entity's Tilemap component (getTile, setTile, width, height) and the cell <-> world conversion for both projections (cellAt, cellToWorld). Throws if the entity has no Tilemap; entity.get("Tilemap") answers null instead.
+     * @since 0.3.0
+     */
+    readonly tilemap: TilemapAPI;
+    /**
      * Playback of this entity's Video component (play, pause, stop, seek, time, duration, the "ended" event). Throws if the entity has no Video; entity.get("Video") answers null instead.
+     * @since 0.3.0
      */
     readonly video: VideoAPI;
   }
@@ -418,6 +448,7 @@ declare module "factoria" {
     enabled: boolean;
     /**
      * Default false. While time.scale is 0 (game.paused) the engine calls onUpdate and onLateUpdate only on behaviours whose runWhilePaused is true, with the REAL frame time as dt (time.dt is 0 then; time.unscaledDt is the real one). Set it as a class field (`runWhilePaused = true;`) on pause menus and anything else that must react while gameplay is frozen. onFixedUpdate never runs while paused. ui events and world.on listeners are delivered either way.
+     * @since 0.1.6
      */
     runWhilePaused: boolean;
     /**
@@ -429,6 +460,16 @@ declare module "factoria" {
      */
     every(seconds: number, fn: () => void): TimerHandle;
     /**
+     * Like tween(), but owned by this behaviour: when its entity is destroyed (or the scene unloads) the tween is dropped and `await this.tween(...).finished` never resumes, so the code after it does not run and needs no alive check. Example: await this.tween(this.entity.position, { y: 3 }, { duration: 0.5 }).finished; this.entity.color = ...
+     * @since 0.4.0
+     */
+    tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween;
+    /**
+     * Resolves after `seconds` of scaled game time (like after()); never resolves if this entity is destroyed first or the scene unloads, so `await this.wait(1); this.entity.x = 0` needs no alive check. Example: await this.wait(0.5).
+     * @since 0.4.0
+     */
+    wait(seconds: number): Promise<void>;
+    /**
      * Subscribe to world events for this behaviour; returns unsubscribe.
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
@@ -438,10 +479,12 @@ declare module "factoria" {
     onStart?(): void;
     /**
      * Every time the entity becomes active in the hierarchy (it or an ancestor got active = true) while the Script is enabled; the first time it runs right after onStart. Runs before the frame is drawn, so a panel can refresh its texts here and they are right in the first drawn frame.
+     * @since 0.2.0
      */
     onEnable?(): void;
     /**
      * Every time the entity stops being active (it or an ancestor got active = false, or the Script was disabled), and before onDestroy of an entity that was active. Runs before the frame is drawn.
+     * @since 0.2.0
      */
     onDisable?(): void;
     /**
@@ -485,13 +528,16 @@ declare module "factoria" {
    */
   export interface WorldAPI {
     /**
-     * Finds by stable id first, then by name.
+     * Finds by stable id first, then by name. Skips an entity that was destroyed this frame (entity.destroy() takes effect at the end of the frame, but the entity is not found from the call on).
      */
     find(idOrName: string): Entity | null;
+    /**
+     * Every entity with this name, in creation order. Skips the ones destroyed this frame.
+     */
     findAll(name: string): Entity[];
     findByTag(tag: string): Entity[];
     /**
-     * All alive entities in creation order.
+     * All alive entities in creation order, without the ones destroyed this frame.
      */
     entities(): Entity[];
     /**
@@ -507,7 +553,7 @@ declare module "factoria" {
      */
     emit(name: string, data?: any, source?: Entity): void;
     /**
-     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them).
+     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes.
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
@@ -531,16 +577,21 @@ declare module "factoria" {
      */
     readonly world: Vec3;
     readonly delta: Vec2;
+    /**
+     * Wheel notches turned this frame (positive = away from the player). It reads 0 on a frame where the wheel scrolled a ScrollList under the pointer (ui.wheelConsumed is true then): the UI runs before scripts and keeps that wheel for itself.
+     */
     readonly wheel: number;
     down(button?: "left" | "right" | "middle"): boolean;
     pressed(button?: "left" | "right" | "middle"): boolean;
     released(button?: "left" | "right" | "middle"): boolean;
     /**
      * Whether the mouse cursor is drawn over the window (default true). Set false for a game that draws its own cursor or plays with a pad. Independent of `locked`. A headless run or test only records the value.
+     * @since 0.1.6
      */
     visible: boolean;
     /**
      * Mouse lock for mouse-look cameras: the cursor is hidden and held in the window, `position` stays frozen and `delta` reports raw movement (not design pixels). The window system may unlock it when the window loses focus; the engine locks it again when focus comes back. A headless run or test only records the value.
+     * @since 0.1.6
      */
     locked: boolean;
   }
@@ -562,8 +613,19 @@ declare module "factoria" {
     readonly connected: boolean;
     /**
      * The family of the pad: "xbox", "playstation", "nintendo", "steamdeck" or "generic" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox; Linux and macOS/iOS: from the ids or names; Android always "generic"). Use input.buttonName() to get the label, not this.
+     * @since 0.1.6
      */
     readonly type: GamepadType;
+    /**
+     * The stable id of the pad in this slot: the same physical pad gives the same id every time it is plugged in (see game.on("gamepadConnected") for what goes into it on each platform). "" for a slot that never had a pad; kept after the pad is unplugged until another pad takes the slot.
+     * @since 0.3.0
+     */
+    readonly id: string;
+    /**
+     * What the OS calls the pad ("Wireless Controller", "Xbox controller (XInput)"); "" for a slot that never had a pad; kept after the pad is unplugged.
+     * @since 0.3.0
+     */
+    readonly name: string;
     /**
      * Button held. Unknown names throw with a suggestion.
      */
@@ -584,6 +646,93 @@ declare module "factoria" {
      * The axis as the device reported it, without the deadzone.
      */
     rawAxis(axis: GamepadAxis): number;
+  }
+
+  /**
+   * One local player, from input.player(index): the project's input actions (the same names input.down() takes) read through that player's own devices, for games where two to four people share the machine. The devices are a gamepad (pad bindings read only that pad) and/or a key scheme (key bindings read only the keys of that scheme, such as the left half of the keyboard); mouse and touch bindings belong to the shared pointer and players do not read them. A player with no device reads nothing. input.down() and the rest of the global API keep hearing every device. Each player has its own bindings: the defaults are the project's, filtered to the device, and rebind() changes this player only.
+   * @since 0.3.0
+   */
+  export interface PlayerInputAPI {
+    /**
+     * The player number, 0 to 3.
+     * @since 0.3.0
+     */
+    readonly index: number;
+    /**
+     * Gives the player its devices; every field left out means none, and use() or use(null) takes them all away. pad is a gamepad slot (0..3); padId is the stable id of a pad (input.gamepad(i).id) and makes the player follow that pad when it comes back in another slot (it reads nothing while that pad is unplugged); use one of the two. keys names a key scheme: "all" (every key), "left" (the left half: Q W E R T A S D F G Z X C V B, 1-5, Space, Tab, LeftShift...), "right" (the right half: arrows, Enter, Backspace, U I O P H J K L N M, 6-0, punctuation...) or one from factoria.json input.schemes (input.keySchemes() lists them). A bad slot, an unknown scheme (with "did you mean"), or both pad and padId throws and changes nothing. What the player rebound stays with the player when its device changes.
+     * @since 0.3.0
+     */
+    use(device?: { pad?: number; padId?: string; keys?: string } | null): void;
+    /**
+     * What use() was given (pad -1, padId "" and keys "" for none) and slot, the pad the player reads right now (-1 for no pad, or for a padId pad that is unplugged).
+     * @since 0.3.0
+     */
+    readonly device: { pad: number; padId: string; keys: string; slot: number };
+    /**
+     * The pad slot the player reads now (device.slot); -1 for none.
+     * @since 0.3.0
+     */
+    readonly pad: number;
+    /**
+     * The action is held on this player's devices (analog bindings count from 0.5). Unknown actions throw with a suggestion; a player with no device gives false.
+     * @since 0.3.0
+     */
+    down(action: string): boolean;
+    /**
+     * Went down this frame on this player's devices.
+     * @since 0.3.0
+     */
+    pressed(action: string): boolean;
+    /**
+     * Went up this frame on this player's devices.
+     * @since 0.3.0
+     */
+    released(action: string): boolean;
+    /**
+     * 0..1 strength of the action on this player's devices (the maximum over its bindings).
+     * @since 0.3.0
+     */
+    value(action: string): number;
+    /**
+     * -1..1 from two actions: value(positive) - value(negative), on this player's devices.
+     * @since 0.3.0
+     */
+    axis(negative: string, positive: string): number;
+    /**
+     * 2D vector from four actions (+Y up), normalized only when longer than 1, on this player's devices.
+     * @since 0.3.0
+     */
+    vector(left: string, right: string, down: string, up: string): Vec2;
+    /**
+     * The player's bindings of an action, as names rebind() accepts. With a family: only that list ("keys": the keys of its scheme, "pad": gamepad bindings), also when the player has no such device now. Without: the lists of the devices the player has, keys first. The defaults are the project's bindings of the action that belong to the player's scheme (a key scheme may give its own with input.schemes.<name>.actions) and to a pad.
+     * @since 0.3.0
+     */
+    bindings(action: string, family?: "keys" | "pad"): string[];
+    /**
+     * Replaces this player's bindings of one action, for one family: all the names must be keys ("Space", "W", or a chord of them such as "Ctrl+Z") or all gamepad bindings ("GamepadA", "GamepadLeftStickUp"), or pass the family (an empty array then unbinds that family; without a family it unbinds both). Keys must belong to the player's key scheme (outside it they would not count), and mouse and touch names are refused because the pointer is shared. All or nothing: an unknown action or binding, a key outside the scheme, or a name of the other family throws with "did you mean" and changes nothing. Other players and the global input.rebind() are unaffected.
+     * @since 0.3.0
+     */
+    rebind(action: string, bindings: string[], family?: "keys" | "pad"): void;
+    /**
+     * Puts this player's bindings of one action, or of every action, back to the defaults.
+     * @since 0.3.0
+     */
+    reset(action?: string): void;
+    /**
+     * Like input.lastPressed() but only for this player's devices (a chord included, "Ctrl+Z", when the player's scheme has the modifier): a key of its scheme, a button or a stick of its pad that went down this frame, else null. For a "press a key to rebind" screen.
+     * @since 0.3.0
+     */
+    lastPressed(): string | null;
+    /**
+     * What the player rebound, for the game to save with storage.set(): only the actions that differ from the defaults ({} when nothing). The device is not part of it.
+     * @since 0.3.0
+     */
+    export(): { keys?: Record<string, string[]>; pad?: Record<string, string[]> };
+    /**
+     * Replaces the player's rebinds with what export() gave. An entry that is no longer valid (an action the project dropped, a name that is not a binding or is of the other family) is skipped and described in the returned array (empty when all applied); the rest applies. No data (or {}) resets the player.
+     * @since 0.3.0
+     */
+    import(data?: { keys?: Record<string, string[]>; pad?: Record<string, string[]> }): string[];
   }
 
   /**
@@ -616,69 +765,167 @@ declare module "factoria" {
      */
     gamepad(index?: number): GamepadAPI;
     /**
+     * How many players input.player() has: 4 (one per gamepad slot).
+     * @since 0.3.0
+     */
+    readonly maxPlayers: number;
+    /**
+     * Player 0..3 for local multiplayer: the same actions as input.down() but read from that player's own gamepad and/or key scheme (see PlayerInputAPI). Assign devices with input.player(i).use({pad: i}) or use({keys: "left"}); a player with no device reads nothing. A bad index throws. The game assigns devices each time its scene starts (a test starts with none, like it starts with the project's bindings).
+     * @since 0.3.0
+     */
+    player(index: number): PlayerInputAPI;
+    /**
+     * The key schemes input.player(i).use({keys}) accepts: "all", "left", "right" and the ones in factoria.json input.schemes.
+     * @since 0.3.0
+     */
+    keySchemes(): string[];
+    /**
+     * The keys of a key scheme, as key names. An unknown scheme throws with a suggestion.
+     * @since 0.3.0
+     */
+    keySchemeKeys(scheme: string): string[];
+    /**
      * Deadzone of gamepad sticks (radial) and triggers, 0 up to 1 (not included); factoria.json input.deadzone sets the start value (default 0.2). Assign to offer calibration in an options menu.
      */
     deadzone: number;
     /**
      * The characters typed this frame, as UTF-8 text ("" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers what a key types in its layout (letters, digits, punctuation, accents through dead keys): a keyboard app that composes words or emoji (CJK input, emoji) cannot be received by a NativeActivity. docs/MOBILE.md lists the limits.
+     * @since 0.1.6
      */
     readonly text: string;
     /**
      * Shows (default) or hides the on-screen keyboard of phones and tablets while a text field has focus; its characters arrive in input.text. Desktop ignores it, a headless run only records it (input.keyboardShown). A text field does this by itself when it gets and loses focus.
+     * @since 0.1.6
      */
     showKeyboard(on?: boolean): void;
     /**
      * The last value given to showKeyboard() (false at start).
+     * @since 0.1.6
      */
     readonly keyboardShown: boolean;
     /**
+     * This frame's press of `action` is handled: until the next frame input.pressed() reads false for it and for every other action that shares one of its bindings that went down (Escape is both "pause" and "ui_cancel"). Only the press is taken: down() and value() keep reading the held input, and players (input.player(i)) are not affected. The UI runs before scripts and consumes ui_submit when it clicks a focused Button or Toggle, ui_cancel when a drag took it or when a ui.on("cancel") handler returns true. Call it in your own handler when you take a press that another script would also act on. Unknown actions throw with a suggestion. Example: ui.on("cancel", () => { if (!dialog.open) return false; dialog.close(); return true; });
+     * @since 0.3.0
+     */
+    consume(action: string): void;
+    /**
+     * True while the player is typing text: a TextField has the focus (the engine sets it) or a script turned it on. Actions bound to printable keys (letters, digits, Space, punctuation, alone or with Shift; not Enter, Escape, arrows, F keys or Ctrl/Alt/Super chords) read as not down, pressed or released meanwhile for those bindings, so typing P in a save-name field does not pause. Assigning true is for a script's own text entry (the menu kit's on-screen keyboard); assigning false only clears the script's flag, a focused TextField keeps the mode on. A scene load clears the script's flag.
+     * @since 0.3.0
+     */
+    textInputMode: boolean;
+    /**
      * True while the platform shows its own keyboard for the focused text field, because a native plugin took it (the Steam Deck's keyboard, through the Steam plugin); false otherwise. Only a gamepad player's focus can start it. The menu kit's on-screen keyboard stays closed while it is true. Read-only.
+     * @since 0.3.0
      */
     readonly platformKeyboard: boolean;
     /**
      * The system Back button or gesture of Android (nothing else sends it; a test sends it with game.pressBack()). Handlers run newest first at the start of the frame; the first one that does not return false consumes the press, so a handler that closes a menu returns true (or nothing) and one that has nothing to close returns false. When no handler consumes it, or there is none, the game quits, which is what Back did before this event existed. A handler that throws is reported and counts as consumed. Handlers end with the scene, like ui.on. Returns the function that removes the handler. Example: input.onBack(() => { if (!menu.open) return false; menu.close(); return true; });
+     * @since 0.2.0
      */
     onBack(handler: () => boolean | void): () => void;
     /**
      * One pulse of the vibration motor of a phone, seconds above 0 and up to 5 (default 0.1): 0.02 to 0.05 is a tap, 0.2 a buzz. iOS cannot pick a length: a short pulse is a haptic tap, a long one the system vibration; iPads have no motor. Android needs the VIBRATE permission, which the FactorIA Android template declares. A no-op on desktop; a headless run or test records the pulse (game.vibrations()). Throws for anything but a number in range.
+     * @since 0.2.0
      */
     vibrate(seconds?: number): void;
     /**
      * The names of all input actions (from factoria.json input.actions and the engine's own), sorted.
+     * @since 0.1.6
      */
     actions(): string[];
     /**
      * The bindings of an action in order, as names input.rebind() accepts: ["Space", "W", "GamepadA"]. An unknown action throws with a suggestion.
+     * @since 0.1.6
      */
     bindings(action: string): string[];
     /**
-     * Replaces the bindings of an existing action, for a controls screen. Names are keys ("Space", "W", "Left"), "MouseLeft", "MouseRight", "MouseMiddle", "Touch" and gamepad bindings ("GamepadA", "GamepadLeftStickUp", "GamepadRightTrigger"...), case-insensitive. All or nothing: an unknown action or binding name throws an Error with "did you mean" and nothing changes. An empty array unbinds the action. Several actions may share a binding. Combine with input.lastPressed() to let the player press the new key, and save input.bindings(action) with storage.set() to restore it at the next start (see docs/SCRIPTING.md).
+     * Replaces the bindings of an existing action, for a controls screen. Names are keys ("Space", "W", "Left"), "MouseLeft", "MouseRight", "MouseMiddle", "Touch" and gamepad bindings ("GamepadA", "GamepadLeftStickUp", "GamepadRightTrigger"...), case-insensitive. A key, mouse button or Touch takes modifiers joined by "+": "Ctrl+Z", "Shift+MouseLeft", "Ctrl+Shift+S" (Ctrl, Shift, Alt, Super; each means either side's key); a chord is stored and printed back as Ctrl+Alt+Shift+Super+input, and a malformed one ("Cntrl+Z", "Ctrl+", "Ctrl+GamepadA") throws saying which part is wrong and what to write instead. When another action binds the plain input, the chord wins: Z does not fire while Ctrl is held if some action binds Ctrl+Z. All or nothing: an unknown action or binding name throws an Error with "did you mean" and nothing changes. An empty array unbinds the action. Several actions may share a binding. Combine with input.lastPressed() to let the player press the new key, and save input.bindings(action) with storage.set() to restore it at the next start (see docs/SCRIPTING.md).
+     * @since 0.1.6
      */
     rebind(action: string, bindings: string[]): void;
     /**
      * Puts one action (or every action when no name is given) back to what factoria.json and the engine's defaults say, undoing input.rebind().
+     * @since 0.1.6
      */
     resetBindings(action?: string): void;
     /**
-     * The binding that went down this frame ("Space", "MouseLeft", "Touch", "GamepadA", "GamepadLeftStickUp"...) or null: for a "press a key to rebind" screen. Sticks and triggers count when pushed past half way. If several went down in the same frame, keys come first, then touch, mouse buttons, pad buttons, sticks and triggers. Ignore the frame in which the player clicked the Rebind button itself.
+     * The binding that went down this frame ("Space", "MouseLeft", "Touch", "GamepadA", "GamepadLeftStickUp"...) or null: for a "press a key to rebind" screen. With modifiers held it is the chord ("Ctrl+Z", "Shift+MouseLeft"), ready for rebind(). A modifier pressed alone ("LeftShift") is reported when it is released, so pressing Ctrl on the way to Ctrl+Z does not end the wait; a modifier that something else was pressed with is not reported by itself. Sticks and triggers count when pushed past half way. If several went down in the same frame, keys come first, then touch, mouse buttons, pad buttons, sticks and triggers. Ignore the frame in which the player clicked the Rebind button itself.
+     * @since 0.1.6
      */
     lastPressed(): string | null;
     /**
      * The device that produced input last: "keyboard" (a key going down), "mouse" (moved, clicked, wheel), "gamepad" (a button pressed or a stick pushed past the deadzone) or "touch". "keyboard" at the start. Show gamepad prompts when it is "gamepad".
+     * @since 0.1.6
      */
     readonly lastDevice: InputDevice;
     /**
      * The label a player sees, for button prompts: a key gives its name ("Space", "W"), the mouse "Left Click", and a pad button the name on THAT pad (pad 0 by default): Xbox/Steam Deck "A" "B" "X" "Y" "LB" "RB" "LT" "RT" "View" "Menu", PlayStation "Cross" "Circle" "Square" "Triangle" "L1" "R1" "L2" "R2" "Create" "Options", Nintendo "B" "A" "Y" "X" "L" "R" "ZL" "ZR" "-" "+" (our A, the bottom button, is Nintendo's B). An action gives the label of its first binding for input.lastDevice (a pad binding after pad input, else a key or mouse binding), or "" if it has no binding. Unknown names throw with a suggestion.
+     * @since 0.1.6
      */
     buttonName(bindingOrAction: string, pad?: number): string;
     /**
-     * Raw key by name ("Space", "A", "Escape"...).
+     * Raw key by name ("Space", "A", "Escape"...), or a modifier by name: "Ctrl", "Shift", "Alt" and "Super" are held while either side's key is ("LeftShift" is the left key only). A chord in an action binding ("Ctrl+Z") is read with input.down(action), not here.
      */
     keyDown(key: string): boolean;
+    /**
+     * True on the frame the key went down; takes the same names as keyDown, "Ctrl" and the other modifiers included (either side).
+     */
     keyPressed(key: string): boolean;
+    /**
+     * True on the frame the key went up; takes the same names as keyDown, "Ctrl" and the other modifiers included (either side).
+     */
     keyReleased(key: string): boolean;
     readonly mouse: MouseAPI;
     readonly touches: TouchInfo[];
+  }
+
+  /**
+   * One sound that plays now, from audio.activeVoices().
+   * @since 0.3.0
+   */
+  export interface ActiveVoice {
+    /**
+     * The voice id (what audio.play returned).
+     * @since 0.3.0
+     */
+    readonly id: number;
+    /**
+     * Project-relative clip path.
+     * @since 0.3.0
+     */
+    readonly path: string;
+    /**
+     * The bus it plays on.
+     * @since 0.3.0
+     */
+    readonly bus: string;
+    /**
+     * The voice volume it is moving to.
+     * @since 0.3.0
+     */
+    readonly volume: number;
+    /**
+     * @since 0.3.0
+     */
+    readonly pitch: number;
+    /**
+     * @since 0.3.0
+     */
+    readonly pan: number;
+    /**
+     * @since 0.3.0
+     */
+    readonly loop: boolean;
+    /**
+     * True for the music and its layers.
+     * @since 0.3.0
+     */
+    readonly music: boolean;
+    /**
+     * Id of the entity whose AudioSource plays it; "" for scripts and music.
+     * @since 0.3.0
+     */
+    readonly source: string;
   }
 
   export interface PlayOptions {
@@ -686,23 +933,77 @@ declare module "factoria" {
     pitch?: number;
     pan?: number;
     loop?: boolean;
-    bus?: "sfx" | "music" | "ui";
+    /**
+     * The bus to play on: "sfx" (default), "music", "ui" or a bus declared in factoria.json "audio"."buses". Throws, listing the buses, for another name.
+     */
+    bus?: string;
     /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
+     * @since 0.2.0
      */
     caption?: string;
     /**
      * Localization key of the subtitle (docs/LOCALIZATION.md): the line is the translation in the current language and changes with the language while it shows. `caption`, when also given, is the fallback for a key that no string table has.
+     * @since 0.2.0
      */
     captionKey?: string;
     /**
      * Name shown before the caption line in the Captions speakerColor, e.g. "Mara". Needs caption or captionKey.
+     * @since 0.2.0
      */
     speaker?: string;
     /**
      * Show the caption for this many seconds of the game clock instead of for as long as the sound plays. Required with loop: true (a looping sound never ends), otherwise play() throws.
+     * @since 0.2.0
      */
     captionSeconds?: number;
+    /**
+     * Called once, on the frame after the sound ends, with its voice id: it played to the end, audio.stop(voice) stopped it, or a full mixer dropped it. Not called by audio.stopAll or a scene load (they discard the callback), nor for a sound that did not start. A looping sound ends only when stopped. Check that your scene is still the current one before acting on it.
+     * @since 0.3.0
+     */
+    onEnded?: (voice: number) => void;
+  }
+
+  /**
+   * A handle on one audio bus, from audio.bus(name): its effects (docs/SCRIPTING.md, "Audio buses"). Every method returns the handle, so audio.bus("music").lowpass(800).reverb(0.2) chains. A bus with no effect does no effect work (it only costs one add per sample into the master while it plays).
+   * @since 0.3.0
+   */
+  export interface AudioBus {
+    /**
+     * The bus this handle controls.
+     * @since 0.3.0
+     */
+    readonly name: string;
+    /**
+     * A 12 dB per octave low-pass filter at `hz` (20..20000; a muffled, underwater sound is 400..800). 0 or null switches it off. With `fade` (seconds) the cutoff slides (in octaves) from where it is; a bus with no filter starts open. Costs one biquad per channel: five multiply-adds per sample of the bus.
+     * @since 0.3.0
+     */
+    lowpass(hz: number | null, opts?: { fade?: number }): AudioBus;
+    /**
+     * A small room reverb: the bus is heard as (1 - mix) dry + mix wet, mix 0..1 (0 switches it off, 0.3 is a touch of room). The tail rings out for about 4 seconds after the bus goes silent, then the work stops. With `fade` the mix slides. Costs several times a low-pass (eight comb and four all-pass filters per channel) and some memory for its delay lines.
+     * @since 0.3.0
+     */
+    reverb(mix: number, opts?: { fade?: number }): AudioBus;
+    /**
+     * Lowers this bus by `amount` (the fraction removed, 0.5 default: half as loud) while `byBus` is louder than -40 dBFS, e.g. audio.bus("music").duck("sfx", 0.5) pushes the music down under every sound effect. `attack` (0.05 s) and `release` (0.5 s) are time constants in seconds: the bus covers 63% of the way down (or back up) in that time, about 95% in three times it. null switches ducking off (so does unduck()); the master cannot duck. Costs a peak detector on `byBus` and one multiply per sample here.
+     * @since 0.3.0
+     */
+    duck(byBus: string | null, amount?: number, attack?: number, release?: number): AudioBus;
+    /**
+     * Switches ducking off.
+     * @since 0.3.0
+     */
+    unduck(): AudioBus;
+    /**
+     * The bus volume, like audio.setVolume (the player's volume: snapshots scale on top of it and leave it alone). With `fade` (seconds) it moves in a straight line; without it, it still ramps over about 10 ms so it does not click.
+     * @since 0.3.0
+     */
+    volume(volume: number, opts?: { fade?: number }): AudioBus;
+    /**
+     * The settings the bus is moving to (a fade in progress shows its end value): `lowpass` is 0 when off, `snapshotVolume` is the scale the last snapshot put on `volume`.
+     * @since 0.3.0
+     */
+    state(): { volume: number, snapshotVolume: number, lowpass: number, reverb: number, duck: { by: string, amount: number, attack: number, release: number } | null };
   }
 
   /**
@@ -714,104 +1015,447 @@ declare module "factoria" {
      */
     play(path: string, opts?: PlayOptions): number;
     stop(voice: number): void;
+    /**
+     * The sounds that play now, oldest first: { id, path, bus, volume, pitch, pan, loop, music, source }. `volume` is the voice volume it is moving to; `music` is true for the music and its layers; `source` is the entity id of an AudioSource, "" for scripts. Use it to count or limit voices on a bus, e.g. audio.activeVoices().filter((v) => v.bus === "ambience").length.
+     * @since 0.3.0
+     */
+    activeVoices(): ActiveVoice[];
+    /**
+     * Stops every sound and the music now, a persisted track included.
+     */
     stopAll(): void;
     /**
-     * Starts looping background music.
+     * Starts looping background music on the "music" bus (volume default 0.6, fade-in `fade` seconds default 0.5). The same track already playing is only retuned. A scene load (scene.load, reload) stops every sound and the music, and then starts the new scene's SceneSettings.music, even when it is the same track as before; with persist: true this track keeps playing through scene loads (a scene whose SceneSettings.music is the same track does not restart it; another track replaces it). Example: audio.music("assets/theme.ogg", { persist: true }).
      */
-    music(path: string, opts?: { volume?: number; fade?: number }): void;
+    music(path: string, opts?: { volume?: number; fade?: number; persist?: boolean }): void;
+    /**
+     * Starts layered music: `layers` maps a layer name to a clip path. Every layer starts on the same audio sample and loops, so layers of equal length stay aligned; clips of different lengths drift by their length difference at each loop. `levels` gives each layer's starting level 0..1 (default 1), `volume` scales all (default 0.6). Replaces the current music. Returns false, and plays nothing, when a clip cannot be loaded. stopMusic stops every layer; a scene load stops them unless persist: true. The play log has one entry per layer, with `layer` set. Example: audio.musicLayers({ base: "assets/m/base.ogg", drums: "assets/m/drums.ogg" }, { levels: { drums: 0 } }); later audio.setLayer("drums", 1, 2).
+     * @since 0.3.0
+     */
+    musicLayers(layers: Record<string, string>, opts?: { volume?: number; fade?: number; persist?: boolean; levels?: Record<string, number> }): boolean;
+    /**
+     * Moves a layer of the music started by musicLayers to `level` (0 = silent, 1 = full) in a straight line over `fade` seconds (default 0: at once). Throws, listing the layers, when there is no such layer.
+     * @since 0.3.0
+     */
+    setLayer(name: string, level: number, fade?: number): void;
+    /**
+     * Changes the volume of a sound that plays (an id from audio.play), over `fade` seconds (default 0: at once); bus and master volumes still apply on top. Returns false when the voice is not playing (it ended or was stopped). Example: const id = audio.play("assets/wind.ogg", { loop: true, volume: 0 }); audio.setVoiceVolume(id, 1, 3).
+     * @since 0.3.0
+     */
+    setVoiceVolume(voice: number, volume: number, fade?: number): boolean;
+    /**
+     * Stops the music (and every layer) fading out over `fade` seconds (default 0.5).
+     */
     stopMusic(fade?: number): void;
     /**
-     * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
+     * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). A bus from factoria.json "audio"."buses" works too (SCRIPTING.md, "Project buses"). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
      */
-    setVolume(bus: "master" | "sfx" | "music" | "ui", volume: number): void;
+    setVolume(bus: string, volume: number): void;
     /**
      * The volume last set for a bus with setVolume (1 when never set). Throws for an unknown bus name.
+     * @since 0.1.6
      */
-    getVolume(bus: "master" | "sfx" | "music" | "ui"): number;
+    getVolume(bus: string): number;
+    /**
+     * A handle on a bus to set its effects: low-pass, reverb, ducking and volume (see AudioBus). Throws for an unknown name, with a "did you mean". The effects stay across scene loads, like volumes (a snapshot or the handle changes them).
+     * @since 0.3.0
+     */
+    bus(name: string): AudioBus;
+    /**
+     * Moves every bus to the named snapshot of factoria.json "audio"."snapshots" (volume scale, low-pass, reverb and ducking; a bus the snapshot does not list goes back to neutral, so { "normal": {} } is the way back). `fade` is the seconds the move takes; without it the snapshot's own "fade" (0.5 when it has none). Low-pass, reverb and volume slide, ducking switches at once; the volumes the player set with setVolume are not touched. Throws for an unknown name, with a "did you mean". `factoria validate` checks the catalog.
+     * @since 0.3.0
+     */
+    snapshot(name: string, opts?: { fade?: number }): void;
+    /**
+     * The snapshot names of factoria.json and the one applied last ("" = none).
+     * @since 0.3.0
+     */
+    snapshots(): { names: string[], current: string };
   }
 
   /**
    * Options of nav.findPath.
+   * @since 0.3.0
    */
   export interface NavPathOptions {
     /**
      * Agent radius of this query (meters). Default: the NavMesh3D's agentRadius. Larger than that is an error: bake a NavMesh3D for the bigger agent.
+     * @since 0.3.0
      */
     radius?: number;
     /**
      * How far (meters) a start or goal that is not on walkable ground is moved onto the nearest walkable cell (default agentRadius + 2 cells).
+     * @since 0.3.0
      */
     snap?: number;
     /**
      * When the goal cannot be reached, return a path to the reachable point nearest to it (complete = false) instead of found = false.
+     * @since 0.3.0
      */
     closest?: boolean;
     /**
      * Id of the entity with the NavMesh3D to use. Default: the first enabled one that contains `from`.
+     * @since 0.3.0
      */
     mesh?: string;
   }
 
   /**
    * Result of nav.findPath.
+   * @since 0.3.0
    */
   export interface NavPath {
     /**
      * true: `points` holds a path. false: `reason`, `message` and `hint` say why.
+     * @since 0.3.0
      */
     found: boolean;
     /**
      * Corners of the path from the start to the goal on the walkable surface (meters), few of them: walk straight from one to the next. Empty when not found.
+     * @since 0.3.0
      */
     points: Vec3[];
     /**
      * Meters along the points.
+     * @since 0.3.0
      */
     length: number;
     /**
      * false when only a path to the reachable point nearest the goal was returned (opts.closest).
+     * @since 0.3.0
      */
     complete: boolean;
     /**
      * Off-mesh links (NavLink3D) the path takes, in order: `point` is the index in `points` where the link starts (points[point + 1] is where it ends: jump or climb from one to the other, do not walk the straight line) and `entity` the id of the entity with the NavLink3D. Absent when the path takes none.
+     * @since 0.3.0
      */
     links?: { point: number; entity: string }[];
     /**
      * Id of the NavMesh3D entity that answered.
+     * @since 0.3.0
      */
     mesh: string;
     /**
      * Why there is no path: a point is not on walkable ground, or the two are in different walkable areas / a moving obstacle blocks the way or a moving platform (Collider3D.navWalkable) is away.
+     * @since 0.3.0
      */
     reason?: "start_off_mesh" | "goal_off_mesh" | "disconnected";
     /**
      * What is wrong, with numbers (nearest walkable point, areas, limits).
+     * @since 0.3.0
      */
     message?: string;
     /**
      * How to fix it.
+     * @since 0.3.0
      */
     hint?: string;
     /**
      * reason start_off_mesh / goal_off_mesh: the nearest walkable point.
+     * @since 0.3.0
      */
     nearest?: Vec3;
     /**
      * Meters from the point asked for to `nearest`.
+     * @since 0.3.0
      */
     nearestDistance?: number;
   }
 
   /**
-   * Path finding on the baked NavMesh3D (docs/NAVIGATION.md). The mesh is baked from the static colliders when the scene loads.
+   * A cell of a tile map: 0-based column and row, row 0 = the top row.
+   * @since 0.3.0
+   */
+  export interface NavCell {
+    /**
+     * Column, 0 = left.
+     * @since 0.3.0
+     */
+    col: number;
+    /**
+     * Row, 0 = top.
+     * @since 0.3.0
+     */
+    row: number;
+  }
+
+  /**
+   * A plain cost grid for nav.findTilePath, for maps that are not a Tilemap (a game's own grid).
+   * @since 0.3.0
+   */
+  export interface NavTileGrid {
+    /**
+     * Cells per row.
+     * @since 0.3.0
+     */
+    width: number;
+    /**
+     * Number of rows.
+     * @since 0.3.0
+     */
+    height: number;
+    /**
+     * width * height numbers, row-major, row 0 = top: the cost of ENTERING the cell (>= 0, 1 = a normal step). Infinity, a negative number, null or undefined = blocked.
+     * @since 0.3.0
+     */
+    cost: readonly (number | null | undefined)[];
+    /**
+     * Where the grid's top-left corner is in the world (default 0,0); used for `points`.
+     * @since 0.3.0
+     */
+    origin?: Vec2Like;
+    /**
+     * Size of a cell in the world (default 1); used for `points` and `length`.
+     * @since 0.3.0
+     */
+    cellSize?: number | Vec2Like;
+  }
+
+  /**
+   * Options of nav.findTilePath.
+   * @since 0.3.0
+   */
+  export interface NavTileOptions {
+    /**
+     * Tilemap only: cost of entering a cell per tile index (flip flags ignored). Infinity or null blocks. A solid tile listed here becomes walkable at that cost; key -1 sets empty cells. Default: solidTiles block, every other cell costs 1.
+     * @since 0.3.0
+     */
+    costs?: { [tileIndex: number]: number };
+    /**
+     * Allow 8-way steps (default false). A diagonal costs sqrt(2) times the cell entered and never cuts a corner: both cells it passes between must be open.
+     * @since 0.3.0
+     */
+    diagonals?: boolean;
+    /**
+     * Most cells the search expands before it gives up with reason "too_far" (default 100000).
+     * @since 0.3.0
+     */
+    maxNodes?: number;
+    /**
+     * When the goal cannot be reached, return the path to the reachable cell nearest to it (found true, complete false).
+     * @since 0.3.0
+     */
+    closest?: boolean;
+    /**
+     * A blocked goal cell can still be entered (at cost 1): a path that ends ON the wall or the enemy being chased.
+     * @since 0.3.0
+     */
+    allowBlockedGoal?: boolean;
+  }
+
+  /**
+   * Result of nav.findTilePath.
+   * @since 0.3.0
+   */
+  export interface NavTilePath {
+    /**
+     * True when `cells` holds a path (check `complete` for closest).
+     * @since 0.3.0
+     */
+    found: boolean;
+    /**
+     * False when only the path to the cell nearest the goal was found (options.closest).
+     * @since 0.3.0
+     */
+    complete: boolean;
+    /**
+     * The path from the start cell to the end cell, both included.
+     * @since 0.3.0
+     */
+    cells: NavCell[];
+    /**
+     * The centres of those cells in the world (a Tilemap's transform applied; for a grid origin + (col + 0.5, -(row + 0.5)) * cellSize).
+     * @since 0.3.0
+     */
+    points: Vec2[];
+    /**
+     * Sum of the entering costs along the path.
+     * @since 0.3.0
+     */
+    cost: number;
+    /**
+     * Distance along the cell centres in the map's own units (tile size times cells for a Tilemap, before the entity's scale; cellSize for a grid).
+     * @since 0.3.0
+     */
+    length: number;
+    /**
+     * Why there is no path (found false).
+     * @since 0.3.0
+     */
+    reason?: "start_off_map" | "goal_off_map" | "goal_blocked" | "blocked" | "too_far";
+    /**
+     * What is wrong, with the cells.
+     * @since 0.3.0
+     */
+    message?: string;
+    /**
+     * How to fix it.
+     * @since 0.3.0
+     */
+    hint?: string;
+  }
+
+  /**
+   * Options of nav.createGrid.
+   * @since 0.3.0
+   */
+  export interface NavGridOptions {
+    /**
+     * Cells per row (a whole number, at least 1).
+     * @since 0.3.0
+     */
+    width: number;
+    /**
+     * Number of rows (a whole number, at least 1).
+     * @since 0.3.0
+     */
+    height: number;
+    /**
+     * width * height numbers, row-major, row 0 = top: the cost of ENTERING each cell (>= 0, 1 = a normal step). Infinity, a negative number, null or undefined blocks it. Default: every cell costs 1.
+     * @since 0.3.0
+     */
+    cost?: readonly (number | null | undefined)[];
+    /**
+     * Where the grid's top-left corner is in the world (default 0,0); used for `points`.
+     * @since 0.3.0
+     */
+    origin?: Vec2Like;
+    /**
+     * Size of a cell in the world (default 1); used for `points` and `length`.
+     * @since 0.3.0
+     */
+    cellSize?: number | Vec2Like;
+  }
+
+  /**
+   * A cost grid kept natively (nav.createGrid). nav.findTilePath(grid, from, to) and nav.flowField(grid, goals) reuse it, so a short route no longer costs the whole map; change a cell with setCost instead of building a new array. Freed when the script drops it; nothing to release.
+   * @since 0.3.0
+   */
+  export interface NavGrid {
+    /**
+     * Cells per row.
+     * @since 0.3.0
+     */
+    readonly width: number;
+    /**
+     * Number of rows.
+     * @since 0.3.0
+     */
+    readonly height: number;
+    /**
+     * Counts the changes made with setCost / setCosts (writing the cost a cell already has is not a change). A flow field compares it to know it is stale.
+     * @since 0.3.0
+     */
+    readonly version: number;
+    /**
+     * Changes the cost of entering one cell (>= 0; Infinity, a negative number or null blocks it). Throws for a cell outside the grid. Flow fields built on this grid are rebuilt the next time they are asked. Example: grid.setCost(3, 4, Infinity); // a wall went up
+     * @since 0.3.0
+     */
+    setCost(col: number, row: number, cost: number | null): void;
+    /**
+     * The cost of entering the cell, Infinity when it is blocked. Throws for a cell outside the grid.
+     * @since 0.3.0
+     */
+    getCost(col: number, row: number): number;
+    /**
+     * Replaces every cost at once (width * height numbers, row-major, row 0 = top).
+     * @since 0.3.0
+     */
+    setCosts(cost: readonly (number | null | undefined)[]): void;
+    /**
+     * The same as nav.findTilePath(grid, from, to, opts).
+     * @since 0.3.0
+     */
+    findPath(from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+  }
+
+  /**
+   * Options of nav.flowField.
+   * @since 0.3.0
+   */
+  export interface NavFlowFieldOptions {
+    /**
+     * Allow 8-way steps (default false), with the same rules as nav.findTilePath: a diagonal costs sqrt(2) times the cell entered and never cuts a corner.
+     * @since 0.3.0
+     */
+    diagonals?: boolean;
+  }
+
+  /**
+   * The cost to the nearest of some goal cells, for every cell of a NavGrid (nav.flowField). One search serves every walker heading for those goals. It reads the grid it was made on: after grid.setCost, the next question rebuilds it.
+   * @since 0.3.0
+   */
+  export interface NavFlowField {
+    /**
+     * The grid the field reads.
+     * @since 0.3.0
+     */
+    readonly grid: NavGrid;
+    /**
+     * The goal cells.
+     * @since 0.3.0
+     */
+    readonly goals: readonly NavCell[];
+    /**
+     * Whether steps may be diagonal.
+     * @since 0.3.0
+     */
+    readonly diagonals: boolean;
+    /**
+     * How many times the field has been searched so far (1 after the first question, +1 for every question that follows a change of the grid).
+     * @since 0.3.0
+     */
+    readonly rebuilds: number;
+    /**
+     * The cost of the cheapest route from the cell to the nearest goal (the entering costs of the cells after it; 0 at a goal), Infinity when no goal can be reached or the cell is outside the grid.
+     * @since 0.3.0
+     */
+    distance(col: number, row: number): number;
+    /**
+     * The next cell on the cheapest route to the nearest goal, in O(1) (ties go east, south, west, north, then the diagonals), or null at a goal, where no goal can be reached and outside the grid. Example: const n = field.stepToward(this.col, this.row); if (n) { this.col = n.col; this.row = n.row; }
+     * @since 0.3.0
+     */
+    stepToward(col: number, row: number): NavCell | null;
+    /**
+     * All the cells from this one to the goal it reaches, both ends included (what repeated stepToward gives); empty when no goal can be reached.
+     * @since 0.3.0
+     */
+    pathFrom(col: number, row: number): NavCell[];
+  }
+
+  /**
+   * Path finding: on the baked NavMesh3D (docs/NAVIGATION.md) and over tile maps (findTilePath).
+   * @since 0.3.0
    */
   export interface NavAPI {
     /**
      * Shortest walkable path between two 3D points (the agent's feet), as a few corner points on the ground: around walls, up ramps, never up a step higher than NavMesh3D.stepHeight. Never throws for 'no route': check `found` (off-mesh and disconnected results explain themselves in message / hint). Throws an Error that explains the fix when the scene has no NavMesh3D or opts.radius is bigger than the mesh was baked for. Deterministic. Example: const p = nav.findPath(this.entity.position, player.position, { radius: 0.3 }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     * @since 0.3.0
      */
     findPath(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: NavPathOptions): NavPath;
     /**
+     * Builds a cost grid that stays native: nav.findTilePath(grid, from, to) and nav.flowField(grid, goals) reuse it, and grid.setCost(col, row, cost) changes one cell. Use it when you ask for many routes on one map (hundreds of walkers on a road grid). Throws when width / height are not whole numbers >= 1 or cost does not hold width * height entries. Example: const grid = nav.createGrid({ width: 60, height: 60, cost: roads.map((r) => (r ? 1 : Infinity)) }); grid.setCost(3, 4, 1); // a road was built
+     * @since 0.3.0
+     */
+    createGrid(opts: NavGridOptions): NavGrid;
+    /**
+     * The cost to the nearest of one or more goal cells from every cell of the grid, computed once (when first asked, again after the grid changed): field.stepToward(col, row) then gives the next cell in O(1), field.distance(col, row) the cost, field.pathFrom(col, row) the whole way. Many walkers heading for the same goal share one field, which is much cheaper than one findTilePath per walker. Same cost rules as findTilePath; a blocked goal cell is entered at cost 1. Throws for a grid that is not from nav.createGrid, no goals, or a goal outside the grid. Example: const field = nav.flowField(grid, [{ col: 9, row: 4 }]); const n = field.stepToward(this.col, this.row);
+     * @since 0.3.0
+     */
+    flowField(grid: NavGrid, goals: NavCell | readonly [number, number] | readonly (NavCell | readonly [number, number])[], opts?: NavFlowFieldOptions): NavFlowField;
+    /**
+     * A* over the cells of a Tilemap (the entity or its id: solidTiles block, other cells cost 1, opts.costs changes that per tile) or of your own grid { width, height, cost } or a grid kept natively by nav.createGrid (the fast form for many queries on one map: the array form converts and sweeps the whole map on every call). 4-way by default; opts.diagonals allows 8-way without cutting corners. Deterministic (same query, same path) and no JS callback per cell: put the rules in the costs. Never throws for 'no route': check `found` (reason, message and hint explain). Throws when the map or a cell is not what the call expects. Example: const p = nav.findTilePath(world.find("ground"), { col: 1, row: 1 }, { col: 8, row: 5 }, { costs: { 4: 5 }, diagonals: true }); if (p.found) this.target = p.points[1] ?? p.points[0];
+     * @since 0.3.0
+     */
+    findTilePath(map: Entity | string | NavGrid | NavTileGrid | NavGrid, from: NavCell | readonly [number, number], to: NavCell | readonly [number, number], opts?: NavTileOptions): NavTilePath;
+    /**
+     * A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that replaces `tiles` (a script assigning tilemap.tiles, scene.set_component, the editor); it starts at 0 on every scene load and each call costs one pass over the tiles.
+     * @since 0.3.0
+     */
+    tileVersion(tilemap: Entity | string): number;
+    /**
      * Bakes the NavMesh3D of entity `mesh` (default every enabled one) now and returns its stats. Needed only when autoBake is off; the colliders are re-baked by themselves otherwise.
+     * @since 0.3.0
      */
     bake(mesh?: string): { mesh: string; cellsX: number; cellsZ: number; cells: number; spans: number; walkableCells: number; regions: number; obstacles: number }[];
   }
@@ -832,6 +1476,11 @@ declare module "factoria" {
      * Skip trigger colliders (default true); false hits them too.
      */
     ignoreTriggers?: boolean;
+    /**
+     * Only raycast2dAll / raycast3dAll: at most this many hits, the nearest ones (default 32).
+     * @since 0.3.0
+     */
+    maxHits?: number;
   }
 
   /**
@@ -850,6 +1499,16 @@ declare module "factoria" {
      * 3D raycast from an origin along a direction, at most maxDistance (default 1000) far.
      */
     raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3> | null;
+    /**
+     * Every collider a 3D ray crosses, sorted by distance (nearest first), at most opts.maxHits (default 32); one hit per entity. Same filters as raycast3d (a collider that contains the origin is skipped; triggers too unless ignoreTriggers: false). A Collider3D with enabled = false is not reported. Use it to find everything between the camera and a character, or to click through colliders that only exist to be faded.
+     * @since 0.3.0
+     */
+    raycast3dAll(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3>[];
+    /**
+     * Every collider a 2D segment crosses, sorted by distance (nearest first), at most opts.maxHits (default 32); one hit per entity. Same filters as raycast (2D). A Collider2D with enabled = false is not reported.
+     * @since 0.3.0
+     */
+    raycast2dAll(from: Vec2Like, to: Vec2Like, opts?: RaycastOptions): RayHit<Vec2>[];
     /**
      * Sweeps a sphere or box from `from` to `to` (3D, when `from` has a z) and returns the first collider it touches: distance is how far the centre travels, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a ray that starts inside one; a collider it only touches blocks the cast only if the shape moves towards it. Answers 'will this fit / how far can it go' for shapes where a ray is too thin. Same options as raycast; from a behaviour pass { ignore: this.entity }.
      */
@@ -884,40 +1543,49 @@ declare module "factoria" {
     setVelocity(entity: Entity, v: Vec3Like): void;
     /**
      * Moves an entity that has a CharacterController3D by `delta` metres with collide-and-slide: it slides along walls, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit, snaps down onto the ground, pushes dynamic bodies and is stopped by ceilings. Call it once per frame from onFixedUpdate with the walk of that frame (speed * time.fixedDt) plus your own gravity and jump (keep a vertical speed in the script and reset it when isGrounded). Throws an Error that explains the fix when the entity has no CharacterController3D.
+     * @since 0.2.0
      */
     moveCharacter(entity: Entity, delta: Vec3Like): CharacterMove;
   }
 
   /**
    * Result of physics.moveCharacter.
+   * @since 0.2.0
    */
   export interface CharacterMove {
     /**
      * World position of the entity after the move.
+     * @since 0.2.0
      */
     position: Vec3;
     /**
      * How far it actually moved (less than the delta when blocked).
+     * @since 0.2.0
      */
     moved: Vec3;
     /**
      * Standing on walkable ground (a slope not steeper than slopeLimit) after the move.
+     * @since 0.2.0
      */
     isGrounded: boolean;
     /**
      * Surface normal of that ground (zero when not grounded).
+     * @since 0.2.0
      */
     groundNormal: Vec3;
     /**
      * The entity it stands on, null in the air.
+     * @since 0.2.0
      */
     ground: Entity | null;
     /**
      * Blocked by a wall or a slope too steep to climb during this move.
+     * @since 0.2.0
      */
     hitWall: boolean;
     /**
      * Bumped its head on something above.
+     * @since 0.2.0
      */
     hitCeiling: boolean;
   }
@@ -942,20 +1610,72 @@ declare module "factoria" {
     scale: number;
     /**
      * Seconds of the current frame, NOT scaled by time.scale (the real frame time while paused): animate pause menus with it.
+     * @since 0.1.6
      */
     readonly unscaledDt: number;
   }
 
   /**
-   * Main camera helpers.
+   * Camera helpers. A game draws every active camera with primary = true, in ascending depth, each into its own rectangle of the screen (Camera.viewport): a split screen is two or more such cameras. The conversions take the camera to use; without one they use the camera whose viewport contains the point, or the first camera for a world point.
    */
   export interface CameraAPI {
     /**
-     * The primary camera entity.
+     * The first camera drawn (the lowest depth among the active cameras with primary = true), or null when there is none. In a split screen it is player one's camera; use `all` or `at` for the others.
      */
     readonly main: Entity | null;
-    worldToScreen(v: Vec3Like): Vec2;
-    screenToWorld(v: Vec2Like, depth?: number): Vec3;
+    /**
+     * Every camera drawn, in draw order (ascending depth, equal depths in the order they were created); at most 8 are drawn. One entry for a game with a single camera.
+     * @since 0.3.0
+     */
+    readonly all: Entity[];
+    /**
+     * The camera whose viewport contains the screen point `v` (design pixels): where two viewports overlap, the one drawn last. A point outside every viewport gives the first camera; null when no camera is active. Use it to pick which player a click belongs to.
+     * @since 0.3.0
+     */
+    at(v: Vec2Like): Entity | null;
+    /**
+     * Where the world point `v` appears on the screen (design pixels, top-left origin) as seen by `camera` (default: the first camera drawn). The result is inside that camera's viewport when the point is in its view.
+     */
+    worldToScreen(v: Vec3Like, camera?: Entity | string): Vec2;
+    /**
+     * The world point under the screen point `v` (design pixels). `depth` is the world z of a 2D view (default 0), or the distance along the ray of a perspective view. `camera` defaults to the camera whose viewport contains `v`, else the first camera; the camera may also be given as the second argument: screenToWorld(v, cam).
+     */
+    screenToWorld(v: Vec2Like, depth?: number | Entity | string, camera?: Entity | string): Vec3;
+    /**
+     * The ray under the screen point `v` (design pixels) through `camera` (default: the camera whose viewport contains `v`, else the first camera). For a 3D pick: physics.raycast(origin, origin + direction * distance).
+     * @since 0.3.0
+     */
+    screenRay(v: Vec2Like, camera?: Entity | string): { origin: Vec3; direction: Vec3 };
+    /**
+     * Pixels per world unit of an orthographic camera (design pixels one world unit covers), the zoom of a strategy camera: the viewport height in design pixels / 2 / orthoSize; 1 when orthoSize is 0 (pixel perfect on a full-screen viewport). `camera` defaults to the first camera drawn. Throws without a camera or for a perspective one.
+     * @since 0.3.0
+     */
+    zoomOf(camera?: Entity | string): number;
+    /**
+     * Sets the camera's zoom in pixels per world unit by writing Camera.orthoSize = (viewport height in design pixels) / 2 / zoom, so a game never derives orthoSize from its design height by hand. Throws for a zoom that is not a positive number. Example: camera.setZoom(1.5); // 1.5 pixels per world unit
+     * @since 0.3.0
+     */
+    setZoom(zoom: number, camera?: Entity | string): void;
+    /**
+     * The Camera.orthoSize that shows the world at `zoom` pixels per world unit on a screen `designHeight` design pixels high: designHeight / 2 / zoom. Defaults: zoom 1 and the design height of the screen (screen.size.y). Pure, it changes nothing.
+     * @since 0.3.0
+     */
+    orthoSizeFor(zoom?: number, designHeight?: number): number;
+    /**
+     * Zooms in by `factor` (2 doubles the pixels per world unit, 0.5 halves them) and moves the camera so the world point under `screenPoint` (design pixels) stays under it: zoom towards the cursor. `min` and `max` clamp the resulting zoom (pixels per world unit, see zoomOf); the camera is the one under the point unless `options.camera` names one. Returns the zoom now. It does not keep the view inside the map: call clampTo after. A 2D helper: the camera must be orthographic and not rotated. Throws for a factor that is not a positive number. Example: camera.zoomAt(input.mouse.position, 1.15 ** input.mouse.wheel, { min: 0.4, max: 2.5 });
+     * @since 0.3.0
+     */
+    zoomAt(screenPoint: Vec2Like, factor: number, options?: { camera?: Entity | string; min?: number; max?: number }): number;
+    /**
+     * Moves the camera so the world follows a screen movement, as a drag does: a delta of (10, 0) leaves the world 10 design pixels further right on the screen (the camera moves left in the world); +Y of the delta is down the screen. Takes the delta in design pixels whatever the zoom, e.g. camera.panBy(input.mouse.delta) while a button is held.
+     * @since 0.3.0
+     */
+    panBy(screenDelta: Vec2Like, camera?: Entity | string): void;
+    /**
+     * Moves the camera as little as needed so the view stays inside the world rectangle `rect` ({ x, y, w, h } with (x, y) the bottom-left corner, like entity.bounds()), grown by `margin` world units. On an axis where the view is wider than the rectangle the camera is centred on it. Example: camera.clampTo(world.find("map").bounds(), { margin: 100 });
+     * @since 0.3.0
+     */
+    clampTo(rect: RectLike, options?: { camera?: Entity | string; margin?: number }): void;
   }
 
   /**
@@ -972,45 +1692,76 @@ declare module "factoria" {
     text(screenPos: Vec2Like, text: string, color?: ColorLike): void;
     box(center: Vec3Like, size: Vec3Like, color?: ColorLike): void;
     sphere(center: Vec3Like, radius: number, color?: ColorLike): void;
+    /**
+     * Draws the Bone2D entities of `root` and everything under it for one frame (every bone of the scene when `root` is left out): a thin kite from each bone's origin to its tip and a dot at the origin, in world space, so the skeleton shows while the clip or IK2D poses it. Call it every frame from onUpdate. Example: debug.bones(world.find("hip"), [1, 0.5, 0, 1]);
+     * @since 0.7.0
+     */
+    bones(root?: Entity, color?: ColorLike): void;
   }
 
   export interface SceneAPI {
     /**
      * Reads a scene's files into memory ahead of time, a little every frame, and returns a handle at once: scene.load(path) of a preloaded scene reads nothing from the disk, so a loading screen can draw (and animate) while the next level loads. Reads the scene file and what it points at: prefabs, materials, textures, models (a .gltf brings its .bin and images), audio and fonts. Per frame the work is cut in whole files: four files per frame in tests, headless runs and replays (so the frames it takes never depend on how fast the machine is), as many as fit in a few milliseconds (at least one) in a game with a window. A scene path that does not exist throws with a did-you-mean list. Example: const job = scene.preload("scenes/level2.scene.json"); in onUpdate: bar.width = 400 * job.progress; if (job.done) scene.load("scenes/level2.scene.json"); or job.promise.then(() => scene.load(...)).
+     * @since 0.3.0
      */
     preload(path: string): PreloadHandle;
     /**
-     * Deferred to the end of the frame.
+     * Deferred to the end of the frame. `props` (a plain JSON object) is what the new scene reads with game.sceneProps(), from its first onStart. A load without props gives the new scene {}; scene.reload() keeps the current props. Example: scene.load("scenes/level.scene.json", { level: 3 }).
      */
-    load(path: string): void;
+    load(path: string, props?: Json): void;
     reload(): void;
+    /**
+     * The path of the running scene. A reload of the same scene leaves it equal: use `generation` to tell the two apart.
+     */
     readonly current: string;
+    /**
+     * Counts the scene loads: it changes on every load (scene.load, scene.reload, game.load in a test), a reload of the same scene included, and never goes back. A script that awaits something (a timeline, a preload, a platform answer) keeps `const gen = scene.generation` and drops the answer when `scene.generation !== gen`; that also catches a reload, which `scene.current` and a held entity handle of the old load cannot tell from the scene itself. Example: `const gen = scene.generation; await cutscene.play(); if (scene.generation !== gen) return;`.
+     * @since 0.3.0
+     */
+    readonly generation: number;
   }
 
   /**
    * How far a notch, rounded corners and the system bars cover the screen from each edge, in design pixels.
+   * @since 0.2.0
    */
   export interface ScreenInsets {
+    /**
+     * @since 0.2.0
+     */
     left: number;
+    /**
+     * @since 0.2.0
+     */
     top: number;
+    /**
+     * @since 0.2.0
+     */
     right: number;
+    /**
+     * @since 0.2.0
+     */
     bottom: number;
   }
 
   /**
    * The screen as the player sees it, in design pixels with the origin at the top-left and +Y down (like screen-space Text and UI). On a phone the safe area is the screen minus the notch, rounded corners and the system bars; everywhere else (desktop, headless, tests without game.setSafeArea) it is the whole screen. It follows rotation. Give HUD items `safeArea: true` to anchor them to it without any script.
+   * @since 0.2.0
    */
   export interface ScreenAPI {
     /**
      * The design resolution (the same as game.screenSize).
+     * @since 0.2.0
      */
     readonly size: Vec2;
     /**
      * { left, top, right, bottom }: the distance in design pixels the notch, corners and bars cover from each edge. All 0 on a screen without cutouts.
+     * @since 0.2.0
      */
     readonly insets: ScreenInsets;
     /**
      * The part of the screen to keep text and buttons in, as a Rect { x, y, w, h } in design pixels: (x, y) is its TOP-LEFT corner and y grows downwards (unlike entity.bounds(), which is in the +Y-up world). Read it every frame or when needed: it changes when the phone rotates. Example: const a = screen.safeArea; button.position = [a.x + a.w - 20, a.y + 20];
+     * @since 0.2.0
      */
     readonly safeArea: Rect;
   }
@@ -1022,17 +1773,35 @@ declare module "factoria" {
      */
     paused: boolean;
     /**
-     * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), utcOffsetMinutes (minutes east of UTC) and iso ("YYYY-MM-DD"). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date; `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 unless --date says another; a replay (--input) plays with the date it was recorded on. Tests set it with game.setDate("2026-10-23"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day.
+     * The props the current scene was started with: scene.load(path, props), factoria run --props, or the scene.load command's props. A plain object, {} when none were given; available from the first onStart. A reload keeps them, a load without props drops them. A fresh copy each call. Example: const level = game.sceneProps().level ?? 1.
+     * @since 0.3.0
      */
-    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string };
+    sceneProps(): Json;
+    /**
+     * The calendar date: year, month (1-12), day, weekday (0 = Sunday .. 6 = Saturday), hour, minute and second (the local time of day), utcOffsetMinutes (minutes east of UTC), iso ("YYYY-MM-DD") and utc ({ year, month, day, iso }: the date of the same moment in UTC; pass utc.iso as the leaderboards' options.day for one daily board worldwide). THE way to read the date: never use `Date`, whose wall clock makes a run differ from the next (like Math.random, see rng). A game with a window gets the player's real local date and time, read again about once a minute and when the app comes back (game.on("dayChanged") says when the day changes); `factoria test`, headless runs, `factoria call` and the MCP server get a fixed date, 2026-01-01 at 00:00:00 unless --date says another; a replay (--input) plays with the date and time it was recorded on. Tests set it with game.setDate("2026-10-23T23:59:30"). Example: const t = game.today(); rng.seed(t.year * 10000 + t.month * 100 + t.day); for a different challenge every day.
+     * @since 0.3.0
+     */
+    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } };
     /**
      * True while the game's window has the keyboard focus (always true on a phone with the app in the foreground, in headless runs and in tests until game.blur()). Changes are announced by game.on("focus") and game.on("blur").
+     * @since 0.3.0
      */
     readonly focused: boolean;
     /**
-     * Listens to the life of the app: "suspend" (the app goes to the background: the home button on a phone, a call), "resume" (it is back), "focus" and "blur" (the window gains or loses the focus; a desktop window that is covered does not suspend). The handler takes no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json "pauseOnSuspend" (default true) the engine also freezes the game and the music while suspended: after the "suspend" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the "resume" ones. Set "pauseOnSuspend": false to decide yourself. Example: game.on("suspend", () => pauseMenu.open());
+     * Listens to the life of the app: "suspend" (the app goes to the background: the home button on a phone, a call), "resume" (it is back), "focus" and "blur" (the window gains or loses the focus; a desktop window that is covered does not suspend). "dayChanged" (the local calendar day changed while the game ran: past midnight, or the clock was set; a game with a window reads the clock about once a minute) calls fn with game.today(); the other handlers take no arguments. Returns a function that stops listening. Listeners end with the scene, like world.on, so register them where the scene starts (a Behaviour's onStart). With factoria.json "pauseOnSuspend" (default true) the engine also freezes the game and the music while suspended: after the "suspend" handlers ran (a handler that opened your pause menu, game.paused = true, keeps its pause) and before the "resume" ones. Set "pauseOnSuspend": false to decide yourself. Example: game.on("suspend", () => pauseMenu.open());
+     * @since 0.3.0
      */
-    on(event: "suspend" | "resume" | "focus" | "blur", fn: () => void): () => void;
+    on(event: "suspend" | "resume" | "focus" | "blur" | "dayChanged", fn: (today: { readonly iso: string }) => void): () => void;
+    /**
+     * Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is "xbox", "playstation", "nintendo", "steamdeck" or "generic". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is "an Xbox pad in XInput slot N" (its id ends with "#xinputN"); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on("gamepadConnected", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));
+     * @since 0.3.0
+     */
+    on(event: "gamepadConnected" | "gamepadDisconnected", fn: (pad: { readonly slot: number; readonly id: string; readonly name: string; readonly type: GamepadType }) => void): () => void;
+    /**
+     * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
+     * @since 0.3.0
+     */
+    on(event: "quit", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void;
     /**
      * factoria.json contents.
      */
@@ -1040,95 +1809,584 @@ declare module "factoria" {
     readonly screenSize: Vec2;
     /**
      * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
+     * @since 0.1.6
      */
     notices(): { name: string; url: string; license: string; usedFor: string }[];
     /**
      * The platform this runtime was built for. Menus use it for platform rules, e.g. phone and tablet apps have no Quit button (the system closes them).
+     * @since 0.1.6
      */
     readonly platform: "windows" | "macos" | "linux" | "ios" | "android" | "web";
     /**
-     * The device the game runs on, to pick a graphics preset: formFactor (a phone and a tablet are told apart by the short side of the screen, 600 logical pixels), gpuBackend ("metal", "d3d11", "glcore", "gles3", "wgpu", "vulkan"; "headless" in headless runs and tests), memoryGB (physical memory, 0 when the platform cannot tell) and tier ("low", "medium" or "high", from the graphics backend and the memory: under 3.5 GB low, under 7.5 GB (5.5 on a phone or tablet) medium). Headless runs, tests and the editor always read { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" } so output never depends on the machine; tests change it with game.setDevice(). Example: const preset = { low: "performance", medium: "balanced", high: "quality" }[game.device.tier].
+     * The device the game runs on, to pick a graphics preset: formFactor (a phone and a tablet are told apart by the short side of the screen, 600 logical pixels), gpuBackend ("metal", "d3d11", "glcore", "gles3", "wgpu", "vulkan"; "headless" in headless runs and tests), memoryGB (physical memory, 0 when the platform cannot tell) and tier ("low", "medium" or "high", from the graphics backend and the memory: under 3.5 GB low, under 7.5 GB (5.5 on a phone or tablet) medium), steamDeck (true on a Steam Deck: the Steam plugin says so when Steam is running, which is certain; without it the SteamDeck=1 environment variable that Steam sets for games it starts on a Deck decides, and a SteamDeck=0 launch option turns it off; a Deck reports formFactor "desktop") and handheld (true on a Steam Deck, a phone or a tablet: a screen held in the hands, so a game picks bigger text and touch or pad prompts). Headless runs, tests and the editor always read { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false } so output never depends on the machine; tests change it with game.setDevice(). Example: const preset = { low: "performance", medium: "balanced", high: "quality" }[game.device.tier].
+     * @since 0.3.0
      */
-    readonly device: Readonly<{ formFactor: "desktop" | "phone" | "tablet"; gpuBackend: string; memoryGB: number; tier: "low" | "medium" | "high" }>;
+    readonly device: Readonly<{ formFactor: "desktop" | "phone" | "tablet"; gpuBackend: string; memoryGB: number; tier: "low" | "medium" | "high"; steamDeck: boolean; handheld: boolean }>;
     /**
      * The player's operating system accessibility settings, to start your options screen from: textScale (the system text size, 1 = 100 %, between 0.5 and 4), reduceMotion (animations turned off or reduced), highContrast and screenReader (a screen reader or touch exploration is running). Read when the game starts and again when the window regains focus or the app resumes. The engine applies none of them: apply them to your own options on the first run and save the player's choice (docs/MENUS.md). Where a platform cannot tell, the value is 1 / false: macOS and the web have no text size, the web and Linux outside GNOME have no screen reader. Headless runs, tests and the editor always give { textScale: 1, reduceMotion: false, highContrast: false, screenReader: false }; tests change it with game.setAccessibility(). Example: const size = storage.get("textScale", game.accessibility.textScale).
+     * @since 0.2.0
      */
     readonly accessibility: Readonly<{ textScale: number; reduceMotion: boolean; highContrast: boolean; screenReader: boolean }>;
   }
 
   /**
+   * How the window is shown: windowed (a frame and a size of its own), borderless (no frame, covers the monitor) or fullscreen (covers the monitor; on macOS its own Space). See window.setMode() for what each one means on each OS.
+   * @since 0.3.0
+   */
+  export type WindowMode = "windowed" | "borderless" | "fullscreen";
+
+  /**
+   * One monitor, from window.monitors().
+   * @since 0.3.0
+   */
+  export interface MonitorInfo {
+    /**
+     * Its place in window.monitors(), the number window.setMonitor() takes. The primary monitor is 0.
+     * @since 0.3.0
+     */
+    index: number;
+    /**
+     * What the OS calls it ("DELL U2723QE", "Built-in Retina Display", "HDMI-1"; Windows gives the graphics driver's text, often "Generic PnP Monitor"). Two identical monitors have the same name: show the index too.
+     * @since 0.3.0
+     */
+    name: string;
+    /**
+     * Its size in logical pixels.
+     * @since 0.3.0
+     */
+    size: Vec2;
+    /**
+     * The OS's main monitor (the one with the taskbar or menu bar).
+     * @since 0.3.0
+     */
+    primary: boolean;
+    /**
+     * The game window is on it now.
+     * @since 0.3.0
+     */
+    current: boolean;
+  }
+
+  /**
    * A window size in logical pixels, from window.resolutions().
+   * @since 0.1.6
    */
   export interface Resolution {
+    /**
+     * @since 0.1.6
+     */
     width: number;
+    /**
+     * @since 0.1.6
+     */
     height: number;
   }
 
   /**
    * The game window, for an options menu: full screen, size, vsync and frame cap. The getters work in every run (a run without a window answers from factoria.json display settings). Every setter throws an Error that explains why when this run has no window (headless runs, tests, the MCP server, the editor's game view), so check `window.available` first. The engine saves nothing: keep the player's choice with storage.set() and apply it at start (docs/SCRIPTING.md has the recipe). Sizes are logical pixels: the window system's points, so a 1280 x 720 window on a 200% display has a 2560 x 1440 framebuffer. Phones and tablets always run full screen.
+   * @since 0.1.6
    */
   export interface WindowAPI {
     /**
      * True when the game owns a real window: `factoria run`, an exported game, the mobile players. False in headless runs, tests and inside the editor.
+     * @since 0.1.6
      */
     readonly available: boolean;
     /**
      * Whether the window is full screen (the project's display.fullscreen when there is no window; always true on phones and tablets).
+     * @since 0.1.6
      */
     readonly fullscreen: boolean;
     /**
-     * Enters or leaves full screen (desktop: the window covers its monitor). `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
+     * Enters or leaves full screen: `setMode("fullscreen")` for true, `setMode("windowed")` for false. `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
+     * @since 0.1.6
      */
     setFullscreen(on: boolean): void;
     /**
+     * "windowed", "borderless" or "fullscreen" ("fullscreen" when the project's display.fullscreen is on and there is no window, and always on phones and tablets). `window.fullscreen` is true for both borderless and fullscreen.
+     * @since 0.3.0
+     */
+    readonly mode: WindowMode;
+    /**
+     * Chooses how the window is shown. "windowed" has a frame and the size window.setSize() gave. "borderless" has no frame and covers the monitor the window is on. "fullscreen" covers it too, and where the OS has a native full screen it uses it: on macOS that is the OS's own full screen Space (the menu bar slides in, Mission Control shows it as a Space; borderless instead hides the menu bar and the Dock but stays on the desktop's Space); on Windows and Linux the engine has no exclusive mode, so fullscreen and borderless are the same frameless window over the monitor and the two names only keep what the player picked. On macOS going from fullscreen straight to borderless throws (the Space takes a moment to leave): go through "windowed" and wait a second. Use window.supports("borderless") before offering borderless. Throws without a window, on an unknown name, and on phones and tablets for anything but "fullscreen".
+     * @since 0.3.0
+     */
+    setMode(mode: WindowMode): void;
+    /**
+     * The monitors, primary first. A run without a window, phones, tablets and the web answer with one entry, the display the game runs on (a run without a window: the project's display size). Linux lists the connected XRandR outputs (one entry for the whole screen when libXrandr is missing).
+     * @since 0.3.0
+     */
+    monitors(): MonitorInfo[];
+    /**
+     * The index in window.monitors() of the monitor the window is on (0 when there is only one).
+     * @since 0.3.0
+     */
+    readonly monitor: number;
+    /**
+     * Moves the window to monitor `index` of window.monitors(): a windowed window is centred on it, a fullscreen or borderless one covers it. Works on Windows, macOS and Linux; throws on other platforms, without a window, for an index that does not exist, and on macOS while the window is in its native full screen Space (leave it with setMode("windowed") first). `window.displaySize` and `window.resolutions()` describe the new monitor afterwards (on Linux a moment later, when the window manager has moved the window). Check window.supports("monitors") first.
+     * @since 0.3.0
+     */
+    setMonitor(index: number): void;
+    /**
      * The window's client size in logical pixels (the project's display size when there is no window). In full screen it is the monitor's size.
+     * @since 0.1.6
      */
     readonly size: Vec2;
     /**
      * The size in logical pixels of the monitor the window is on (the whole screen on Linux with several monitors); the window size when the platform cannot tell.
+     * @since 0.1.6
      */
     readonly displaySize: Vec2;
     /**
      * Resizes the window's client area, in whole logical pixels from 160 to 16384; the window keeps its position. Desktop windows only, and not in full screen: call setFullscreen(false) first, or the call throws and says so. The game keeps its design resolution and letterboxes (or expands, see display.scaleMode) to the new size.
+     * @since 0.1.6
      */
     setSize(width: number, height: number): void;
     /**
      * Window sizes for a resolution picker: common 16:9 and 16:10 sizes (640x360 up to 3840x2160) plus the game's design size, keeping those that fit the monitor, smallest first. Pass an entry to setSize().
+     * @since 0.1.6
      */
     resolutions(): Resolution[];
     /**
      * Whether presents wait for the display (the project's display.vsync at start, then setVsync()).
+     * @since 0.1.6
      */
     readonly vsync: boolean;
     /**
      * Turns vsync on or off while the game runs (Windows, Linux; macOS only stops waiting for the display). Throws and names the platform where it cannot (phones and tablets, a Linux driver without swap control) or when there is no window.
+     * @since 0.1.6
      */
     setVsync(on: boolean): void;
     /**
      * Frames per second the window may draw at: 0 = unlimited (default), else a whole number from 15 to 1000. The game loop waits so frames do not start faster than that; the simulation still runs at the fixed step, so gameplay results do not change. Useful with vsync off, or to save battery on a laptop. Setting it throws without a window and on phones and tablets (the display sets the pace).
+     * @since 0.1.6
      */
     frameCap: number;
     /**
      * Resolution of the picture as a fraction of the window, from 0.5 to 1 (default 1). 0.5 draws a quarter of the pixels and scales the picture up: the cheapest graphics option on a weak phone. Works in every run with a renderer, headless tests included (game.screenshot then has that size); a run without graphics only remembers the value. A number outside 0.5 - 1 throws. The engine saves nothing: keep the player's choice with storage.set(). Example: window.renderScale = game.device.tier === "low" ? 0.6 : 1.
+     * @since 0.3.0
      */
     renderScale: number;
     /**
-     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs. An unknown name throws with a "did you mean". Read window.supports("frameCap") before offering window.frameCap.
+     * Whether this run can do `feature`, so an options menu hides what a phone, tablet or test cannot instead of catching the Error: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor "desktop"; their setters throw otherwise), renderScale works wherever the game runs, clipboard works on Windows, macOS, Linux and the web (and in headless runs and tests, which have an in-memory clipboard), not on phones and tablets. An unknown name throws with a "did you mean". borderless needs a desktop window (Windows, macOS, Linux; not the web), monitors needs a desktop window that can list and move between monitors (Windows, macOS, Linux; true with one monitor too: offer the choice when window.monitors().length > 1). Read window.supports("frameCap") before offering window.frameCap.
+     * @since 0.3.0
      */
-    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "resize"): boolean;
+    supports(feature: "frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): boolean;
   }
 
   /**
-   * Persistent JSON save data (<user dir>/storage.json). Tests and `--storage memory` runs use a throw-away in-memory object instead.
+   * The clipboard. A game with a window reads and writes the system clipboard on Windows, macOS, Linux and the web; headless runs and tests have an in-memory one (it starts empty in every test); phones and tablets have none yet: window.supports("clipboard") is false there and read() rejects with code "unsupported". A focused TextField already pastes with Ctrl+V (Cmd+V) and copies with Ctrl+C (Cmd+C), without any script.
+   * @since 0.3.0
+   */
+  export interface ClipboardAPI {
+    /**
+     * Resolves with the text on the clipboard ("" when it holds none or something that is not text). On the web the browser lets a page read the clipboard only inside a paste, so it resolves with the text of the last paste (the player pressed Ctrl+V or Cmd+V in the page). Rejects with code "unsupported" where there is no clipboard (phones, tablets). In a replay the text a read returned is recorded and given back, so a paste replays the same. Example: const text = await clipboard.read();
+     * @since 0.3.0
+     */
+    read(): Promise<string>;
+    /**
+     * Puts `text` on the clipboard. Throws when it is not a string. Does nothing where there is no clipboard. The web lets a page write only during a key press or click, so a write made in the middle of a frame may not reach the browser's clipboard. Example: clipboard.write("ABC123");
+     * @since 0.3.0
+     */
+    write(text: string): void;
+  }
+
+  /**
+   * What render.captureTexture takes: either { width, height, fit? } for the picture the player sees now, or { entity | rect, space?, scale? } for a part of the world drawn off-screen.
+   * @since 0.3.0
+   */
+  export interface CaptureTextureOptions {
+    /**
+     * Frame form: width of the texture in pixels, a whole number from 1 to 2048. Required unless entity or rect is given.
+     * @since 0.3.0
+     */
+    width?: number;
+    /**
+     * Frame form: height of the texture in pixels, a whole number from 1 to 2048. Required unless entity or rect is given.
+     * @since 0.3.0
+     */
+    height?: number;
+    /**
+     * Frame form: what to do when width : height is not the frame's aspect ratio. "cover" (default) cuts the middle part with that ratio out of the frame, so nothing is distorted and the long side loses its edges; "stretch" squeezes the whole frame into the size.
+     * @since 0.3.0
+     */
+    fit?: "cover" | "stretch";
+    /**
+     * World form: photograph this entity and its children. The area is the union of their entity.bounds() (world-space Sprite, Shape2D, Text and Tilemap); only that subtree is drawn, even if other things are in front of it or inside the area, and it is drawn whether it is active or not (a hidden subject is photographed) and wherever it is (off the camera's view too). Throws when the subtree draws nothing in world space: use rect. Give entity or rect, not both.
+     * @since 0.9.0
+     */
+    entity?: Entity | string;
+    /**
+     * World form: the area as [x, y, width, height] in world units, x, y the bottom-left corner, +Y up (the shape entity.bounds() returns). Draws everything in the area that is active, from the world as it is now, with the lights of the scene. Give entity or rect, not both.
+     * @since 0.9.0
+     */
+    rect?: [number, number, number, number];
+    /**
+     * World form: the space of rect. Only "world" exists: screen-space items (UI, HUD) are not part of the world; capture the frame with width and height to get them.
+     * @since 0.9.0
+     */
+    space?: "world";
+    /**
+     * World form: pixels per world unit, above 0 (default 1). The texture is ceil(width * scale) x ceil(height * scale) pixels of the area, each at most 4096; a bigger one throws and says the largest scale that fits. There is no 2048 limit here, the frame form keeps it. The background is transparent.
+     * @since 0.9.0
+     */
+    scale?: number;
+  }
+
+  /**
+   * A picture made at run time (render.captureTexture, render.textureFromPNG). Put `id` in a texture field, for example entity.get("Sprite").texture = tex.id, or a Panel's texture or a Button's icon, like the path of an asset; a Sprite with no `size` takes the texture's pixel size. It lives until destroy() (or the end of the game): the engine keeps at most 32 at a time, so destroy the ones you stop showing. Stop showing a texture (destroy its entity or change its texture field) before you destroy it: a frame that still names it draws the missing-texture checker and logs why. The pixels are also kept in memory (width x height x 4 bytes) so toPNG() works in every run. Example: const tex = render.captureTexture({ width: 256, height: 144 }); storage.set("slot1.png", tex.toPNG()); entity.get("Sprite").texture = tex.id;
+   * @since 0.3.0
+   */
+  export interface Texture {
+    /**
+     * What a texture field takes in place of an asset path ("runtime:3"). Numbers count from 1 in each run and are never reused.
+     * @since 0.3.0
+     */
+    readonly id: string;
+    /**
+     * Width in pixels.
+     * @since 0.3.0
+     */
+    readonly width: number;
+    /**
+     * Height in pixels.
+     * @since 0.3.0
+     */
+    readonly height: number;
+    /**
+     * True when the run has no renderer (a headless run without graphics): the picture is a flat colour of the size asked, not a capture. A normal run, a headless run with graphics and every test with a GPU give false.
+     * @since 0.3.0
+     */
+    readonly placeholder: boolean;
+    /**
+     * True after destroy().
+     * @since 0.3.0
+     */
+    readonly destroyed: boolean;
+    /**
+     * The picture as a PNG file, Base64 encoded (a string, because storage keeps JSON): storage.set("slot1.png", tex.toPNG()). render.textureFromPNG takes it back. A 256 x 144 picture of a town is about 20 to 60 KB of text; storage.set(key, value, { compress: true }) shrinks it a little. Throws after destroy().
+     * @since 0.3.0
+     */
+    toPNG(): string;
+    /**
+     * Frees the texture's memory. Safe to call twice. Do not keep showing it afterwards.
+     * @since 0.3.0
+     */
+    destroy(): void;
+  }
+
+  /**
+   * Pictures of the running game as textures, for a save slot, a photo mode or a minimap snapshot (docs/SCRIPTING.md, "Render"). A texture's pixels are those of a screenshot of the same frame.
+   * @since 0.3.0
+   */
+  export interface RenderAPI {
+    /**
+     * Two forms. { width, height, fit? } makes a texture of the picture the player sees: the last frame that was drawn, with the HUD and every camera, at the size asked (the frame is read back from the GPU on Metal, OpenGL, Direct3D 11 and WebGL2, then resampled on the CPU). Called from a script during a frame it gives the frame before it; in a test it draws the current state first, like game.screenshot, and with the same size as the game target (game.screenSize, times window.renderScale) its pixels are exactly the screenshot's. In a run without a renderer (graphics off) it gives a flat placeholder of the size asked (texture.placeholder is true) so the code that saves and shows it still runs. Throws for a size outside 1 to 2048 and when 32 textures are alive. { entity | rect, space?, scale? } photographs the world instead: the area of an entity's subtree (or a rectangle of world units) is drawn off-screen with its own camera at `scale` pixels per world unit (default 1), up to 4096 x 4096 pixels, on a transparent background. It needs no frame drawn first and does not care where the main camera looks, what covers the area or whether the subject is active or hidden; the screen-space UI is not part of it, and the frame the player sees is not touched. MeshRenderers in the area are drawn too, seen from the front (looking down -Z) by an orthographic camera. A Sprite that shows a render target ("target:<name>") shows that target's last picture. In a run without a renderer the texture is a flat placeholder of the size the picture would have. Example: const tex = render.captureTexture({ width: 256, height: 144 }); or, for a card sprite 120 x 160 units big, render.captureTexture({ entity: card, scale: 2 }) is 240 x 320 pixels.
+     * @since 0.3.0
+     */
+    captureTexture(options: CaptureTextureOptions): Texture;
+    /**
+     * A texture from the text texture.toPNG() returned (Base64 of a PNG file; a data:image/png;base64,... URL works too), at most 4096 x 4096. Throws a teaching Error for text that is not a PNG or JPG/BMP/TGA image, and when 32 textures are alive. Synchronous: no Promise, so there is nothing to check afterwards. Example: const pic = storage.get("slot1.png", null); if (pic) entity.get("Sprite").texture = render.textureFromPNG(pic).id;
+     * @since 0.3.0
+     */
+    textureFromPNG(png: string): Texture;
+  }
+
+  /**
+   * The look of one submesh of a procedural mesh: the fields of a glTF material the renderer reads. Pass a plain string instead of an object to give only the name.
+   * @since 0.9.0
+   */
+  export interface MeshMaterialOptions {
+    /**
+     * What MeshRenderer.materialColors is keyed by to recolor this submesh (materialColors: { skin: [1, 0.5, 0.4, 1] }), and the material name in a saved .glb. Default "".
+     * @since 0.9.0
+     */
+    name?: string;
+    /**
+     * Base color factor: a color(), an [r, g, b, a] array or "#rrggbb". Multiplied with MeshRenderer.color. Default white.
+     * @since 0.9.0
+     */
+    color?: ColorLike;
+    /**
+     * Base color texture: a project image path, or a Texture from render.captureTexture (shown, but mesh.save refuses a run-time texture because the file would point to nothing). Default none.
+     * @since 0.9.0
+     */
+    texture?: string | Texture;
+    /**
+     * 0 to 1. With roughness, replaces MeshRenderer.metallic and roughness for this submesh. Default 0 once either is given.
+     * @since 0.9.0
+     */
+    metallic?: number;
+    /**
+     * 0 to 1. Default 0.6 once either metallic or roughness is given.
+     * @since 0.9.0
+     */
+    roughness?: number;
+    /**
+     * Light the surface gives off (rgb), added after lighting. Default black.
+     * @since 0.9.0
+     */
+    emissive?: ColorLike;
+    /**
+     * Draw the back faces too (a leaf, a flag). Default false: only counter-clockwise triangles are drawn.
+     * @since 0.9.0
+     */
+    doubleSided?: boolean;
+    /**
+     * Alpha-blended with the color's alpha and the texture's; drawn far to near with the other transparent meshes. Default false.
+     * @since 0.9.0
+     */
+    blend?: boolean;
+  }
+
+  /**
+   * A run of the index list drawn with one material. Submeshes of one mesh share its vertices and are drawn in order.
+   * @since 0.9.0
+   */
+  export interface MeshSubmeshOptions {
+    /**
+     * The submesh's material (a name, or the object). Default: an unnamed white material.
+     * @since 0.9.0
+     */
+    material?: string | MeshMaterialOptions;
+    /**
+     * First index of the run, a multiple of 3 (indices, not triangles). Default: where the previous submesh ends (0 for the first).
+     * @since 0.9.0
+     */
+    start?: number;
+    /**
+     * Number of indices, a multiple of 3 and at least 3. Default: up to the end of the index list.
+     * @since 0.9.0
+     */
+    count?: number;
+  }
+
+  /**
+   * What mesh.create and mesh.update take. Arrays may be plain arrays or typed arrays (a Float32Array is read without copying through the language); numbers may be flat or grouped, [x, y, z, x, y, z] or [[x, y, z], [x, y, z]] or [{x, y, z}]. Coordinates are glTF's: +Y up, right-handed, counter-clockwise triangles face front, uv (0, 0) is the top-left of the image (v grows downwards).
+   * @since 0.9.0
+   */
+  export interface MeshOptions {
+    /**
+     * Three numbers per vertex. Required in create; kept when left out of update. At most 1048576 vertices.
+     * @since 0.9.0
+     */
+    positions?: number[] | Float32Array | number[][];
+    /**
+     * Vertex numbers, three per triangle. In create, left out = every three vertices make a triangle (0,1,2 then 3,4,5...). In update, left out = kept. At most 6291456 indices. Every entry must be a vertex of positions.
+     * @since 0.9.0
+     */
+    indices?: number[] | Uint32Array | Uint16Array | number[][];
+    /**
+     * Three numbers per vertex, normalized for you. Left out = computed: smooth, weighted by triangle area, averaging the triangles that share a vertex (duplicate the vertices of a hard edge). Normals are never kept from an earlier call: pass them again with every update, or let them be computed.
+     * @since 0.9.0
+     */
+    normals?: number[] | Float32Array | number[][];
+    /**
+     * Two numbers per vertex. Left out = zeros in create, kept in update.
+     * @since 0.9.0
+     */
+    uvs?: number[] | Float32Array | number[][];
+    /**
+     * Four numbers (x, y, z, w = handedness +1 or -1) or three per vertex, for normal maps. Left out = computed from the uvs the way the engine does for .gltf files without tangents. Like normals, never kept from an earlier call.
+     * @since 0.9.0
+     */
+    tangents?: number[] | Float32Array | number[][];
+    /**
+     * Three (rgb) or four (rgba) numbers per vertex. Drawn like glTF COLOR_0: they multiply the material's base color (and MeshRenderer.color) in every 3D draw path, rgb and alpha (the alpha shows with a material with blend: true and cuts holes with a custom material that has alphaMode clip), clamped to 0..1 with 8 bits per channel; they are also written to a saved .glb as COLOR_0. Left out = white in create, kept in update.
+     * @since 0.9.0
+     */
+    colors?: number[] | Float32Array | number[][];
+    /**
+     * Runs of the index list with their own materials. Left out = one submesh over all the indices with a default material (in update: the existing ones are kept; an update that changes indices of a mesh with several submeshes must pass submeshes too).
+     * @since 0.9.0
+     */
+    submeshes?: MeshSubmeshOptions[];
+  }
+
+  /**
+   * The box around a mesh's vertices, in the mesh's own space.
+   * @since 0.9.0
+   */
+  export interface MeshBounds {
+    /**
+     * Smallest x, y and z.
+     * @since 0.9.0
+     */
+    min: Vec3;
+    /**
+     * Largest x, y and z.
+     * @since 0.9.0
+     */
+    max: Vec3;
+  }
+
+  /**
+   * What mesh.list returns for each live mesh.
+   * @since 0.9.0
+   */
+  export interface MeshInfo {
+    /**
+     * The id, "mesh:3".
+     * @since 0.9.0
+     */
+    id: string;
+    /**
+     * Starts at 1 and grows with every update.
+     * @since 0.9.0
+     */
+    version: number;
+    /**
+     * Vertex count.
+     * @since 0.9.0
+     */
+    vertices: number;
+    /**
+     * Triangle count (indices / 3).
+     * @since 0.9.0
+     */
+    triangles: number;
+    /**
+     * Whether the mesh has vertex colors.
+     * @since 0.9.0
+     */
+    hasColors: boolean;
+    /**
+     * The box around the vertices.
+     * @since 0.9.0
+     */
+    bounds: { min: number[], max: number[] };
+    /**
+     * The submeshes with their materials.
+     * @since 0.9.0
+     */
+    submeshes: { material: MeshMaterialOptions, start: number, count: number }[];
+  }
+
+  /**
+   * A mesh made at run time with mesh.create. Put `id` in MeshRenderer.mesh (or Collider3D.mesh for a convex or mesh collider) like the path of a model: entity.get("MeshRenderer").mesh = m.id. It lives in the scene that made it: loading another scene (or reloading this one) releases every procedural mesh, and an entity of the new scene must not keep the old id. The engine keeps at most 256 meshes alive, so destroy the ones you stop showing. Example: const m = mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2] }); entity.get("MeshRenderer").mesh = m.id;
+   * @since 0.9.0
+   */
+  export interface Mesh {
+    /**
+     * What MeshRenderer.mesh takes in place of a model path ("mesh:3"). Numbers count from 1 in each run and are never reused, so a stale id never names another mesh.
+     * @since 0.9.0
+     */
+    readonly id: string;
+    /**
+     * Vertices after the last create or update.
+     * @since 0.9.0
+     */
+    readonly vertexCount: number;
+    /**
+     * Triangles after the last create or update.
+     * @since 0.9.0
+     */
+    readonly triangleCount: number;
+    /**
+     * The box around the vertices (what culling, picking and the editor's selection box use).
+     * @since 0.9.0
+     */
+    readonly bounds: MeshBounds;
+    /**
+     * The submeshes with their completed materials.
+     * @since 0.9.0
+     */
+    readonly submeshes: { material: MeshMaterialOptions, start: number, count: number }[];
+    /**
+     * True after destroy().
+     * @since 0.9.0
+     */
+    readonly destroyed: boolean;
+    /**
+     * False after destroy() and also when the scene that made the mesh was unloaded. Check it (or the scene) after an await before using the mesh.
+     * @since 0.9.0
+     */
+    readonly alive: boolean;
+    /**
+     * Same as mesh.update(this, options). Returns this.
+     * @since 0.9.0
+     */
+    update(options: MeshOptions): Mesh;
+    /**
+     * Same as mesh.save(this, path).
+     * @since 0.9.0
+     */
+    save(path: string): string;
+    /**
+     * Same as mesh.destroy(this). Safe to call twice.
+     * @since 0.9.0
+     */
+    destroy(): void;
+  }
+
+  /**
+   * Procedural meshes: geometry a script builds at run time (a terrain patch, a deformed body, a generated tree) and shows with MeshRenderer, collides with Collider3D (convex hull or mesh) and picks in the editor, without writing a file. The same operations exist as the mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list and mesh.info commands (docs/SCRIPTING.md, "Procedural meshes").
+   * @since 0.9.0
+   */
+  export interface MeshAPI {
+    /**
+     * Validates the arrays and makes a mesh. Missing normals and tangents are computed. Throws a teaching Error naming the field and the entry for a wrong array length, an index outside the vertices, a submesh outside the index list, NaN, or when 256 meshes are alive. Example: const m = mesh.create({ positions: [0,0,0, 1,0,0, 0,1,0], indices: [0, 1, 2], submeshes: [{ material: { name: "skin", color: "#e0b090" } }] }); entity.get("MeshRenderer").mesh = m.id;
+     * @since 0.9.0
+     */
+    create(options: MeshOptions): Mesh;
+    /**
+     * Replaces what `options` gives and keeps the rest; cheap enough to call every frame: the GPU buffers are reused while the new data fits (a second change of the same mesh within one frame makes new ones). Bounds follow, so culling and picking stay right; a Collider3D that uses the mesh rebuilds its shape on every update (a mesh collider on a mesh deformed each frame is expensive: update it less often, or use a primitive collider). Throws for a destroyed or unknown mesh, or when the new arrays do not fit together. Returns the Mesh when given one.
+     * @since 0.9.0
+     */
+    update(mesh: Mesh | string, options: MeshOptions): Mesh;
+    /**
+     * Frees the mesh. Entities that still name it draw a placeholder box and the engine logs why once; set their mesh first. Throws for an unknown id, not for a Mesh that was destroyed already.
+     * @since 0.9.0
+     */
+    destroy(mesh: Mesh | string): void;
+    /**
+     * Writes the mesh as a .glb (project-relative path ending in .glb, outside .factoria/ except .factoria/tmp/) with its submeshes, materials and vertex colors, and returns the normalized path. It loads back as a normal asset: MeshRenderer.mesh = path. A material whose texture is a run-time texture cannot be saved (throws). A mesh without metallic or roughness is saved with the defaults (0 and 0.6).
+     * @since 0.9.0
+     */
+    save(mesh: Mesh | string, path: string): string;
+    /**
+     * True while the mesh is alive in the current scene.
+     * @since 0.9.0
+     */
+    exists(mesh: Mesh | string): boolean;
+    /**
+     * The live meshes of the current scene.
+     * @since 0.9.0
+     */
+    list(): MeshInfo[];
+  }
+
+  /**
+   * Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.
    */
   export interface StorageAPI {
     get<T = any>(key: string, fallback?: T): T;
-    set(key: string, value: Json): void;
+    /**
+     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option.
+     */
+    set(key: string, value: Json, options?: { compress?: boolean }): void;
+    /**
+     * Like set, but the file is encoded (and compressed when asked) and written off the frame: on a worker thread on desktop and mobile, between frames on the web (no threads there). storage.get returns the new value at once; the Promise resolves with the file's size in bytes when the file is written, and rejects with the reason if it could not be. Writes to one key land in the order they were asked, and a later set, remove, clear or size waits for the pending ones. Serializing `value` into JSON still happens in this call.
+     * @since 0.3.0
+     */
+    setAsync(key: string, value: Json, options?: { compress?: boolean }): Promise<number>;
+    /**
+     * Bytes the key's file takes (the compressed size for a compressed value); 0 when the key is not stored. Waits for pending setAsync writes.
+     * @since 0.3.0
+     */
+    size(key: string): number;
     remove(key: string): void;
+    /**
+     * The keys of the game's own values. The engine's own ("factoria.analytics", "factoria.remoteConfig") are not listed.
+     */
     keys(): string[];
+    /**
+     * Removes every value, the engine's too: the player is asked about analytics again.
+     */
     clear(): void;
     /**
-     * True when storage.json did not parse at the first use of storage in this run (a crash or a bad edit damaged it). The engine kept the damaged file as storage.corrupt.json in the save folder (storage.corrupt.2.json, .3... if one is already there; it never replaces one) and the game started with empty save data, so nothing is lost for good: a script can tell the player ("your save was damaged") or offer a recovery. Writes are atomic (temporary file, then rename), so a crash during a save leaves the previous file intact. False when the file was fine or missing, in memory runs and in tests (unless game.setStorageText gave a damaged text).
+     * True when a storage file (a key's file in storage/, or an older storage.json) did not parse at the first use of storage in this run (a crash or a bad edit damaged it). The engine kept the damaged file as storage.corrupt.json in the save folder (storage.corrupt.2.json, .3... if one is already there; it never replaces one) and the game started without that file's data (the other keys load), so nothing is lost for good: a script can tell the player ("your save was damaged") or offer a recovery. Writes are atomic (temporary file, then rename), so a crash during a save leaves the previous file intact. False when the file was fine or missing, in memory runs and in tests (unless game.setStorageText gave a damaged text).
+     * @since 0.2.0
      */
     readonly corrupt: boolean;
   }
@@ -1187,6 +2445,11 @@ declare module "factoria" {
      * A shuffled copy (Fisher-Yates from the end, j = floor(float() * (i + 1))); the input is not modified.
      */
     shuffle<T>(items: readonly T[]): T[];
+    /**
+     * The generator's 32-bit state, an integer from 0 to 4294967295: one number that is the whole stream. Store it in a save and assign it later (or create the generator with it as the seed: rng.create(state) continues exactly where state was read) to resume the sequence. STABLE across engine versions like the algorithm. Assigning anything that is not such an integer throws. Example: const saved = r.state; r.float(); r.state = saved; r.float() // the same number again.
+     * @since 0.3.0
+     */
+    state: number;
     /**
      * Restarts this generator from seed n (same reduction as rng.create); the same as a new rng.create(n). Does not touch the world RNG.
      */
@@ -1259,25 +2522,208 @@ declare module "factoria" {
   }
 
   /**
-   * What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField).
+   * What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField, Interactable).
+   * @since 0.1.6
    */
   export interface UiEvent {
     /**
-     * Which event: click (Button pressed by ui_submit or the mouse), change (Toggle flipped, Slider moved, TextField edited), submit (TextField Enter), focus (a widget took focus), cancel (ui_cancel pressed: Escape or the pad's B).
+     * Which event: click (Button pressed by ui_submit or the mouse), change (Toggle flipped, Slider moved, TextField edited), submit (TextField Enter), focus (a widget took focus), cancel (ui_cancel pressed: Escape or the pad's B). blur, hover, press and release are sent by Interactable widgets only: blur (it lost the focus), hover (the pointer came over it or left it, see `value`), press (the pointer went down on it), release (the pointer went up).
+     * @since 0.1.6
      */
-    readonly type: "click" | "change" | "submit" | "focus" | "cancel";
+    readonly type: "click" | "change" | "submit" | "focus" | "blur" | "hover" | "press" | "release" | "cancel";
     /**
      * Id of the widget entity (the "id" of the scene entity). null for a cancel with nothing focused.
+     * @since 0.1.6
      */
     readonly id: string | null;
     /**
      * The widget entity; null for a cancel with nothing focused.
+     * @since 0.1.6
      */
     readonly entity: Entity | null;
     /**
-     * change and submit only: the Toggle's value (boolean), the Slider's value (number) or the TextField's text (string).
+     * change and submit: the Toggle's value (boolean), the Slider's value (number) or the TextField's text (string); an Interactable of kind toggle or slider sends its value. hover: true when the pointer came over the Interactable, false when it left. release: true when the pointer was still over it (a click follows).
+     * @since 0.1.6
      */
     readonly value?: boolean | number | string;
+  }
+
+  /**
+   * What ui.on("chartHover", ...) receives: the sample of a Chart under the pointer changed.
+   * @since 0.3.0
+   */
+  export interface UiChartEvent {
+    /**
+     * The event type.
+     * @since 0.3.0
+     */
+    readonly type: "chartHover";
+    /**
+     * Id of the Chart entity.
+     * @since 0.3.0
+     */
+    readonly id: string;
+    /**
+     * The Chart entity.
+     * @since 0.3.0
+     */
+    readonly entity: Entity | null;
+    /**
+     * Position of the sample in its series (0 = the first value of `values`), -1 when the pointer left the chart.
+     * @since 0.3.0
+     */
+    readonly index: number;
+    /**
+     * Which series (0 for a chart with one), -1 when the pointer left the chart.
+     * @since 0.3.0
+     */
+    readonly series: number;
+    /**
+     * The value of the sample; absent when the pointer left the chart.
+     * @since 0.3.0
+     */
+    readonly value?: number;
+  }
+
+  /**
+   * What ui.on("viewPointer", ...) receives: the pointer (mouse or finger) pressed, dragged, released or turned the wheel over a CameraView.
+   * @since 0.3.0
+   */
+  export interface UiViewPointerEvent {
+    /**
+     * The event type.
+     * @since 0.3.0
+     */
+    readonly type: "viewPointer";
+    /**
+     * Id of the CameraView entity.
+     * @since 0.3.0
+     */
+    readonly id: string;
+    /**
+     * The CameraView entity.
+     * @since 0.3.0
+     */
+    readonly entity: Entity | null;
+    /**
+     * down: the pointer was pressed over the view. drag: it moved with the button held (sent to the view that was pressed, also outside its rectangle). up: the button was released (to the same view). wheel: the mouse wheel turned over the view (when captureWheel).
+     * @since 0.3.0
+     */
+    readonly phase: "down" | "drag" | "up" | "wheel";
+    /**
+     * The pointer in design pixels (top-left origin, y down).
+     * @since 0.3.0
+     */
+    readonly x: number;
+    /**
+     * The pointer in design pixels.
+     * @since 0.3.0
+     */
+    readonly y: number;
+    /**
+     * Where the pointer is across the view, 0 (left edge) to 1 (right edge); outside that range while a drag leaves the view.
+     * @since 0.3.0
+     */
+    readonly u: number;
+    /**
+     * Where the pointer is down the view, 0 (top edge) to 1 (bottom edge).
+     * @since 0.3.0
+     */
+    readonly v: number;
+    /**
+     * How far the pointer moved since the last event of this press, in design pixels (0 for down and wheel).
+     * @since 0.3.0
+     */
+    readonly dx: number;
+    /**
+     * The same vertically (positive = down).
+     * @since 0.3.0
+     */
+    readonly dy: number;
+    /**
+     * wheel only: the steps the wheel turned (positive = away from the player, like input.mouse.wheel); 0 for the other phases.
+     * @since 0.3.0
+     */
+    readonly wheel: number;
+  }
+
+  /**
+   * What a ui.on("dragStart" | "dragOver" | "drop" | "dragCancel", ...) callback receives: one step of a drag that started on a widget with `draggable`.
+   * @since 0.3.0
+   */
+  export interface UiDragEvent {
+    /**
+     * Which step: dragStart (the pointer moved past the slop of the pressed draggable widget), dragOver (the pointer moved or the thing under it changed; at most once per frame), drop (the button was released over a target that accepts), dragCancel (the drag ended without a drop: reason says why).
+     * @since 0.3.0
+     */
+    readonly type: "dragStart" | "dragOver" | "drop" | "dragCancel";
+    /**
+     * Id of the dragged widget.
+     * @since 0.3.0
+     */
+    readonly id: string;
+    /**
+     * The dragged widget (null when it was destroyed during the drag).
+     * @since 0.3.0
+     */
+    readonly entity: Entity | null;
+    /**
+     * Same as entity: the dragged widget.
+     * @since 0.3.0
+     */
+    readonly source: Entity | null;
+    /**
+     * The `payload` of the source's draggable field (null when it has none).
+     * @since 0.3.0
+     */
+    readonly payload: any;
+    /**
+     * The pointer on the screen, design pixels, y down.
+     * @since 0.3.0
+     */
+    readonly x: number;
+    /**
+     * The pointer on the screen, design pixels, y down.
+     * @since 0.3.0
+     */
+    readonly y: number;
+    /**
+     * What is under the pointer: the nearest widget at or above the topmost one that has a drop rule (ui.setDropTarget), else the topmost widget; null over the world (no widget). The drag image is never the target.
+     * @since 0.3.0
+     */
+    readonly target: Entity | null;
+    /**
+     * Whether target takes the drop: true when its rule (or the world's, for a null target) says so. Over a widget with no rule it is false.
+     * @since 0.3.0
+     */
+    readonly accepts: boolean;
+    /**
+     * dragCancel only: rejected (released over something that does not accept), cancel (ui_cancel: Escape or the pad's B), gone (the source was destroyed or deactivated), script (ui.cancelDrag()).
+     * @since 0.3.0
+     */
+    readonly reason?: "rejected" | "cancel" | "gone" | "script";
+  }
+
+  /**
+   * What a ui.on("scale", ...) or ui.on("textScale", ...) callback receives: the interface scale or the text size option changed.
+   * @since 0.3.0
+   */
+  export interface UiScaleEvent {
+    /**
+     * Which option changed: scale (ui.scale, the interface scale) or textScale (ui.textScale, the text size option).
+     * @since 0.3.0
+     */
+    readonly type: "scale" | "textScale";
+    /**
+     * The new value of the option.
+     * @since 0.3.0
+     */
+    readonly value: number;
+    /**
+     * The value before the change. The event is sent once per change to another value, never when the same value is set again.
+     * @since 0.3.0
+     */
+    readonly previous: number;
   }
 
   /**
@@ -1285,97 +2731,249 @@ declare module "factoria" {
    */
   export interface UIAPI {
     /**
-     * Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default "screen") says how it will be drawn: a "screen" label is measured at fontSize * ui.textScale, a "world" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning). maxTextScale, autoShrink, minFontSize and maxHeight are the fields of Text with the same names: the size is capped, and shrunk to fit maxWidth x maxHeight, exactly as a Text with them is drawn. `fontSize` in the result is the size it is laid out at, in pixels (fontSize times the capped text scale, or the shrunk size).
+     * Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default "screen") says how it will be drawn: a "screen" label is measured at fontSize * ui.textScale, a "world" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning). maxTextScale, autoShrink, minFontSize and maxHeight are the fields of Text with the same names: the size is capped, and shrunk to fit maxWidth x maxHeight, exactly as a Text with them is drawn. `fontSize` in the result is the size it is laid out at, in pixels (fontSize times the capped text scale, or the shrunk size). The result is in UI units, like the sizes of widgets: ui.scale is not applied (ui.rectOf, which is in screen pixels, includes it). `markup` and `bold` are the fields of Text with the same names: with `markup: true` the tags are not characters, [b] and [icon:name] are measured as drawn (an icon is as tall as the line; headless it counts as two characters), and the project's "text" section (factoria.json) says which colours and icons exist. Example: ui.measureText("[b]3[/b] [icon:fish]", { fontSize: 20, markup: true }).width.
      */
-    measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: "screen" | "world"; maxTextScale?: number; autoShrink?: boolean; minFontSize?: number; maxHeight?: number }): { width: number; height: number; fontSize: number };
+    measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: "screen" | "world"; maxTextScale?: number; autoShrink?: boolean; minFontSize?: number; maxHeight?: number; markup?: boolean; bold?: boolean }): { width: number; height: number; fontSize: number };
+    /**
+     * What is wrong with the markup of `text`, as a Text with `markup: true` would read it: an unknown tag, a "[" without "]", an unclosed [b] or [c:], a [c:name] or [icon:name] the "text" section of factoria.json does not define (with a "did you mean"). [] when it is clean. The text is still drawn (a bad tag is shown as written), so a test can walk every string of the game and fail with the list. Example: expect(ui.markupProblems("[b]Sold[/b] [icon:fish]")).toEqual([]);
+     * @since 0.3.0
+     */
+    markupProblems(text: string): string[];
     /**
      * true when the text of a screen-space or world Text with a box (maxWidth, maxHeight) or the label of a Button, Toggle, Slider or TouchButton still does not fit its box at the size it is drawn at, i.e. after ui.textScale, maxTextScale and autoShrink (down to minFontSize) have done what they can. false for any other entity, an empty text or a Text without a box. Read it after game.step or ui.layout(). Same as `overflowed: true` in `ui.state`. Example: ui.textScale = 2; game.step(1); expect(ui.overflowed("play_button")).toBe(false);
+     * @since 0.3.0
      */
     overflowed(entityOrId: Entity | string): boolean;
     /**
-     * Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite). Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
+     * Where a UI widget, an Interactable (a world-space one as its camera shows it) or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area, the interface scale (ui.scale: at 1.5 a widget of size 100 is 150 wide) and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite) and for one that is hidden, by itself or by an inactive parent (`activeInHierarchy` false), like `ui.state`, which does not list it. Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
+     * @since 0.2.0
      */
     rectOf(entityOrId: Entity | string): Rect | null;
     /**
      * Runs the UI layout now, exactly what every frame does: autoSize sizes, fit sizes, ScrollList fill, positions and the Panel fallbackLayout choice. After changing a label or a font size, call it and read Button.size, Panel.size or ui.rectOf right away, with no game.step. Throws when the run has no UI system. Example: button.get("Button").text = "A longer label"; ui.layout(); const w = ui.rectOf(button).w;
+     * @since 0.2.0
      */
     layout(): void;
     /**
-     * The player's text size option, 0.5 to 3 (default 1): the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by it, and ui.measureText (space "screen") agrees. World-space Text, and its entity.bounds(), are not scaled. Widgets keep their rectangles and wrapped text keeps its maxWidth, so leave room for the biggest size you offer. Setting a number outside 0.5 to 3 throws; clamp a saved value first. The engine does not save it: keep it in `storage` and set it at start. Resets to 1 for every test file. Same as the ui.set_text_scale command.
+     * The drag in progress, or null: truthy exactly while a draggable widget is being dragged (from the dragStart event until drop or dragCancel). A script that reads the pointer for the world can test `if (ui.dragging) return;` so a drag that began on the UI does not also click the map. `from` is where the press was; x, y the pointer now; target and accepts as in the events.
+     * @since 0.3.0
+     */
+    readonly dragging: { source: Entity | null; payload: any; from: { x: number; y: number }; x: number; y: number; target: Entity | null; accepts: boolean } | null;
+    /**
+     * Says whether a widget takes drops: true, false, or a function asked every frame while a drag is over it (it returns true to accept; use it to colour the target), or null to remove the rule. A widget with no rule refuses; the nearest ancestor with a rule counts for its children, so one rule on a Panel covers its Buttons. Rules end with the scene. Example: ui.setDropTarget(\"slot_1\", (d) => canAssign(d.payload)).
+     * @since 0.3.0
+     */
+    setDropTarget(target: Entity | string, rule: boolean | ((drag: { source: Entity | null; payload: any; x: number; y: number }) => boolean) | null): void;
+    /**
+     * Says whether a drop over no widget (the map) is accepted: true by default, false refuses (the drag ends with dragCancel reason \"rejected\"), a function can look at the world at (x, y). null goes back to the default. Ends with the scene.
+     * @since 0.3.0
+     */
+    setWorldDropTarget(rule: boolean | ((drag: { source: Entity | null; payload: any; x: number; y: number }) => boolean) | null): void;
+    /**
+     * Makes a widget follow the pointer during the drag, its centre under the pointer; hit tests, hover and drop targets ignore it. Call it from the dragStart handler (the engine moves it from the next frame on). The engine only moves it: hide or destroy it in the drop and dragCancel handlers. null stops it.
+     * @since 0.3.0
+     */
+    setDragImage(widget: Entity | string | null): void;
+    /**
+     * Ends the drag in progress with a dragCancel event (reason \"script\"). Does nothing when nothing is dragged.
+     * @since 0.3.0
+     */
+    cancelDrag(): void;
+    /**
+     * Shows a tooltip now, for something that is not a widget (a map tile, a chart point). `content` is a string or { title, lines, args }; each text is a localization key when localization is on and has it, else it is shown as written. `at` is a screen position in design pixels (default: the pointer); the box is placed next to it and flipped to stay on screen, like the tooltip of a widget, and styled by the "ui" section of factoria.json (tooltip). It stays until ui.hideTooltip(), until the pointer moves more than 5 pixels from where it was at the call, or until a scene loads. Throws on a content that is not a string or an object. Example: ui.showTooltip({ title: "Harbour", lines: ["Docks: 3"] }, { x: 400, y: 300 }).
+     * @since 0.3.0
+     */
+    showTooltip(content: string | { title?: string; lines?: Array<string | { text: string; color?: string | number[] }>; args?: object }, at?: { x: number; y: number }): void;
+    /**
+     * Hides the tooltip at once, whatever showed it (a widget, a script function or ui.showTooltip). A tooltip of a widget shows again only after the pointer rests again.
+     * @since 0.3.0
+     */
+    hideTooltip(): void;
+    /**
+     * Sets the tooltip of a widget or Panel. Static content is written to the `tooltip` field of its UI component; a function is called when the tooltip is about to show (and each frame while it shows) and returns the content, or null for no tooltip, so it can read the game state; it ends with the scene. null removes the tooltip. A tooltip shows after ui.tooltipDelay seconds of rest within 5 pixels, on the first widget under the pointer or its ancestors that has one. Example: ui.setTooltip("buy", () => ({ title: "Buy", lines: [`${price} coins`] })).
+     * @since 0.3.0
+     */
+    setTooltip(target: Entity | string, tooltip: string | { title?: string; lines?: Array<string | { text: string; color?: string | number[] }>; args?: object } | ((entity: Entity) => string | object | null) | null): void;
+    /**
+     * Sets a function asked for a tooltip when the pointer rests over no widget; it gets the pointer in design pixels and returns the content or null. Its tooltip has source "world". null removes it. It ends with the scene.
+     * @since 0.3.0
+     */
+    setWorldTooltip(fn: ((x: number, y: number) => string | object | null) | null): void;
+    /**
+     * The tooltip that shows now, or null: its title, its lines, its rect [x, y, w, h] in screen pixels (with the interface scale), what showed it (source) and the entity id of the widget for "widget" and "script". Same as `tooltip` in ui.state. Read it after game.step.
+     * @since 0.3.0
+     */
+    readonly tooltip: { title: string; lines: string[]; rect: number[]; source: "widget" | "script" | "world" | "manual"; widget: string | null } | null;
+    /**
+     * Seconds the pointer rests before a tooltip shows, 0 to 60 (default: tooltipDelay of the "ui" section of factoria.json, 0.5). The rest is counted with the game's UI time, so tests with game.step are exact. Setting a number outside 0 to 60 throws. Resets to the project value for every test file.
+     * @since 0.3.0
+     */
+    tooltipDelay: number;
+    /**
+     * The player's text size option, 0.5 to 3 (default 1): the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by it, and ui.measureText (space "screen") agrees. World-space Text, and its entity.bounds(), are not scaled. Widgets keep their rectangles and wrapped text keeps its maxWidth, so leave room for the biggest size you offer (ui.scale makes room by growing the whole interface). Setting a number outside 0.5 to 3 throws; clamp a saved value first. A change sends the "textScale" event (ui.on). The engine does not save it: keep it in `storage` and set it at start. Resets to 1 for every test file. Same as the ui.set_text_scale command.
+     * @since 0.2.0
      */
     textScale: number;
     /**
-     * Listens to a widget event from any widget. Returns the function that stops listening. Inside a behaviour prefer this.on("ui.click", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion.
+     * The interface scale, 0.5 to 3 (1 = as authored). Every screen-space widget (Panel, Button, Toggle, Slider, TextField, ScrollList, ...) and screen-space Text, Sprite and Shape2D is laid out in UI units and drawn this many times as big: size, offset, padding, spacing, margins and font size (ui.textScale comes on top of it for text). Anchors do not move: a widget anchored to a corner stays in it. ui.rectOf, ui.state and the hit test are in screen pixels, so they include it. A game starts at the `ui.scale` of factoria.json (default 1); the menu kit's Options has an Interface size row. Setting a number outside 0.5 to 3 throws; clamp a saved value first. A change sends the "scale" event (ui.on). The engine does not save it: keep it in `storage` and set it at start. Resets to the project default for every test file. Same as the ui.set_scale command. Example: ui.scale = 1.5; ui.layout(); expect(ui.rectOf("panel").w).toBe(1.5 * 320);
+     * @since 0.3.0
      */
-    on(type: "click" | "change" | "submit" | "focus" | "cancel", fn: (e: UiEvent) => void): () => void;
+    scale: number;
     /**
-     * Listens to a widget event from one widget only; `target` is the widget Entity or its entity id, e.g. ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json")).
+     * Whether the screen-space UI is mirrored in a right-to-left language (i18n.direction "rtl"), default: mirrorRtl of the "ui" section of factoria.json (true). Mirrored: anchor.x, pivot.x and position.x of every widget (and the Text, Sprite and Shape2D under it) flip, so a Panel anchored left sits on the right; Toggle boxes sit at the right of their label and Sliders run right to left (a click, the arrow keys and the fill follow). A widget with UiBox.mirror false (and its children) stays as authored. ui.rectOf and ui.state report the mirrored rectangles. Not saved by the engine; resets to the project value for every test file. Same as the ui.set_mirror_rtl command.
+     * @since 0.3.0
      */
-    on(type: "click" | "change" | "submit" | "focus" | "cancel", target: Entity | string, fn: (e: UiEvent) => void): () => void;
+    mirrorRtl: boolean;
     /**
-     * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false).
+     * Listens to a change of ui.scale ("scale") or ui.textScale ("textScale"), like i18n.on("change"): the callback gets { type, value, previous }, once per change to another value, with the game events of the frame (after the code that changed the option has returned). Use it to rebuild what depends on the size of the interface: ui.on("scale", () => { ui.layout(); relayout(); }). Returns the function that stops listening; listeners end with the scene, like ui.on. There is no target: these events are about no widget.
+     * @since 0.1.6
      */
-    focus(target: Entity | string | null): void;
+    on(type: "scale" | "textScale", fn: (e: UiScaleEvent) => void): () => void;
+    /**
+     * Listens to the pointer moving over the samples of a Chart (a bar, or the nearest point of a line): the callback gets { type, id, entity, index, series, value } each time the sample under the pointer changes, and index -1 when the pointer leaves the chart. Returns the function that stops listening; listeners end with the scene.
+     * @since 0.1.6
+     */
+    on(type: "chartHover", fn: (e: UiChartEvent) => void): () => void;
+    /**
+     * Like on("chartHover", fn) for one Chart, e.g. ui.on("chartHover", "sales_chart", (e) => showDay(e.index)).
+     * @since 0.1.6
+     */
+    on(type: "chartHover", target: Entity | string, fn: (e: UiChartEvent) => void): () => void;
+    /**
+     * Listens to the pointer over a CameraView: the callback gets { type, id, entity, phase, x, y, u, v, dx, dy, wheel } on a press ("down"), while the button is held and the pointer moves ("drag"), on the release ("up") and when the wheel turns over the view ("wheel"). Use it to turn or zoom what the view shows: ui.on("viewPointer", (e) => { if (e.phase === "drag") yaw += e.dx * 0.7; }). Returns the function that stops listening; listeners end with the scene.
+     * @since 0.1.6
+     */
+    on(type: "viewPointer", fn: (e: UiViewPointerEvent) => void): () => void;
+    /**
+     * Like on("viewPointer", fn) for one CameraView, e.g. ui.on("viewPointer", "item_view", (e) => turn(e)).
+     * @since 0.1.6
+     */
+    on(type: "viewPointer", target: Entity | string, fn: (e: UiViewPointerEvent) => void): () => void;
+    /**
+     * Listens to the steps of a drag that began on a widget with `draggable` (UiBox.draggable): dragStart, dragOver, drop (released over a target that accepts: a widget with a rule from ui.setDropTarget, or the world) and dragCancel (rejected, cancelled with ui_cancel, the source gone or ui.cancelDrag()). The event has the source, its payload, the pointer (x, y) and the target (null over the world). Returns the function that stops listening; listeners end with the scene.
+     * @since 0.1.6
+     */
+    on(type: "dragStart" | "dragOver" | "drop" | "dragCancel", fn: (e: UiDragEvent) => void): () => void;
+    /**
+     * Like on(type, fn) for one widget: for dragStart and dragCancel `target` is the dragged widget, for dragOver and drop it is the drop target, e.g. ui.on("drop", "slot_1", (e) => assign(e.payload)).
+     * @since 0.1.6
+     */
+    on(type: "dragStart" | "dragOver" | "drop" | "dragCancel", target: Entity | string, fn: (e: UiDragEvent) => void): () => void;
+    /**
+     * Listens to a widget event from any widget. A "cancel" handler that returns true handled the press: input.consume("ui_cancel") is called for it, so the same Escape does not also read as pressed for "pause" or any action on that key later in the frame (Escape closes a dialog and the pause menu stays shut). The click of a focused Button or Toggle pressed by ui_submit is consumed by the UI itself. Returns the function that stops listening. Inside a behaviour prefer this.on("ui.click", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion.
+     * @since 0.1.6
+     */
+    on(type: "click" | "change" | "submit" | "focus" | "blur" | "hover" | "press" | "release" | "cancel", fn: (e: UiEvent) => void | boolean): () => void;
+    /**
+     * Listens to a widget event from one widget only (a "cancel" handler that returns true consumes ui_cancel, see above); `target` is the widget Entity or its entity id, e.g. ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json")).
+     * @since 0.1.6
+     */
+    on(type: "click" | "change" | "submit" | "focus" | "blur" | "hover" | "press" | "release" | "cancel", target: Entity | string, fn: (e: UiEvent) => void | boolean): () => void;
+    /**
+     * Gives keyboard / gamepad focus to a Button, Toggle, Slider, TextField or Interactable (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. ui.focus(null) holds: an open Panel's autoFocus does not take the focus back until the next ui_up / ui_down / ui_left / ui_right press (that first press only wakes autoFocus, it does not also move the focus). Returns true when the widget took focus, and false (changing nothing) when it is a Button, Toggle, Slider or TextField with interactable false (or an Interactable with enabled false), so a screen that restores a remembered focus can fall back to another widget. Throws, saying why and what to do, when the entity cannot take focus at all (not a focusable widget, or inactive).
+     * @since 0.1.6
+     */
+    focus(target: Entity | string | null): boolean;
     /**
      * Says `text` aloud with the system's text to speech (Windows SAPI, macOS/iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's speechSynthesis), in the current language (i18n.language): the system voice for it when there is one. `interrupt` (default true) stops what is being said first; false queues the line after the ones before it. Speech is output only and never touches the simulation. Where the system has no speech (ui.speechAvailable is false) it does nothing and logs one warning per run. Headless runs and tests say nothing and record the line for game.spoken(). Pass an already localized string: ui.speak(i18n.t("menu.play")). Example: ui.on("focus", (e) => ui.speak(e.entity.get("Button").text)). Same as the ui.speak command.
+     * @since 0.2.0
      */
     speak(text: string, opts?: { interrupt?: boolean }): void;
     /**
      * Shows a subtitle line on the Captions component for `seconds` (default 3) of the game clock, for dialogue or hints that have no sound file; a sound's own subtitle is audio.play(path, { caption }). With `key` (a localization key) the line is the translation and follows a language change while it shows; `text` is then the fallback and may be "". `speaker` is a name drawn before the line. The newest Captions.maxLines lines show, the oldest drop first. Without a Captions entity the line is only tracked and the log says so once. Same as the ui.caption command. Example: ui.caption("Watch out!", 2, { speaker: "Mara" }).
+     * @since 0.2.0
      */
     caption(text: string, seconds?: number, opts?: { key?: string; speaker?: string }): void;
     /**
      * Removes every caption now, also the ones of sounds that still play (the sounds are not stopped). Same as the ui.clear_captions command.
+     * @since 0.2.0
      */
     clearCaptions(): void;
     /**
      * Stops what is being said and drops the queued lines. Does nothing when nothing is being said or the system has no speech. Same as the ui.stop_speaking command.
+     * @since 0.2.0
      */
     stopSpeaking(): void;
     /**
      * True when the system can speak. False on a Linux without speech-dispatcher (libspeechd.so.2) or an Android without a speech engine: hide your "read menus aloud" option then. Headless runs and tests report true because they record what would be said (game.spoken()).
+     * @since 0.2.0
      */
     readonly speechAvailable: boolean;
     /**
+     * The topmost visible widget at a screen point, in design pixels with y down (like ui.rectOf): a Button, Toggle, Slider, TextField, ScrollList, Interactable, Panel that draws something (a fully transparent Panel with no texture is skipped), or a TouchStick / TouchButton that is shown. Topmost is the highest `layer`, then the entity made last. It is null over empty space, over an inactive widget and where a ScrollList clips the widget away (a row scrolled out of view). It includes widgets with interactable false, so check Button.interactable for a click target. Reads the last layout: call it after game.step or ui.layout(). A screen-space widget wins over a world-space Interactable under the same point, which is looked up through the camera that draws at that point. Use it for a gamepad cursor and for "is the pointer over the UI" questions. Example: const w = ui.widgetAt(640, 360); if (w && w.has("Button")) console.log(w.id);
+     * @since 0.3.0
+     */
+    widgetAt(x: number, y: number): Entity | null;
+    /**
+     * A virtual pointer for a gamepad cursor and for tests: from the next UI update (the next frame) the UI takes the pointer position and left button from here instead of from the mouse, so ui.hovered, press, a Slider drag, click and the wheel's target work as with the mouse. A click is `down: true` for a frame, then `down: false` while the pointer is still over the same widget. The real mouse is ignored until setPointer(null). Do not also bind the same button to ui_submit while a widget is focused: both would click. A scene load gives the pointer back to the mouse. x, y in design pixels, y down.
+     * @since 0.3.0
+     */
+    setPointer(x: number, y: number, opts?: { down?: boolean }): void;
+    /**
+     * Gives the pointer back to the real mouse after a setPointer(x, y).
+     * @since 0.3.0
+     */
+    setPointer(none: null): void;
+    /**
+     * True when the pointer (the mouse, or the virtual one of setPointer) was over a visible widget or Panel at this frame's UI update (the UI runs before scripts, so it is current): the widgetAt(pointer) check. A game's own world click or camera zoom skips when it is true. A Panel that draws nothing (alpha 0, no texture) does not count.
+     * @since 0.3.0
+     */
+    readonly pointerOverUi: boolean;
+    /**
+     * True when the mouse wheel of this frame scrolled a ScrollList under the pointer, which has more content than it shows. input.mouse.wheel then reads 0 for the rest of the frame, so a camera that zooms with the wheel needs no check; a list that fits its content leaves the wheel alone. The UI runs before scripts, so the value is current in onUpdate.
+     * @since 0.3.0
+     */
+    readonly wheelConsumed: boolean;
+    /**
      * The widget that has keyboard / gamepad focus, or null.
+     * @since 0.1.6
      */
     readonly focused: Entity | null;
     /**
      * The widget under the mouse pointer (the top-most visible interactable one), or null. Check it in game code so a click meant for a button does not also shoot.
+     * @since 0.1.6
      */
     readonly hovered: Entity | null;
   }
 
   /**
    * Progress of scene.preload / assets.preload. Values change between frames only, never in the middle of your code. The files stay in memory through the first two scene loads after the job finishes (a load reads none of them from the disk); release() frees them earlier.
+   * @since 0.3.0
    */
   export interface PreloadHandle {
     /**
      * How much of the work is done, 0..1: whole files read over the files to read (the scene file counts as one). Never goes down, 1 when done.
+     * @since 0.3.0
      */
     readonly progress: number;
     /**
      * True once every file is read, or the job failed (then error says why).
+     * @since 0.3.0
      */
     readonly done: boolean;
     /**
      * Files read so far.
+     * @since 0.3.0
      */
     readonly files: number;
     /**
      * Bytes read so far.
+     * @since 0.3.0
      */
     readonly bytes: number;
     /**
      * Why the job failed (a file could not be read, the scene is not valid JSON), or an empty string.
+     * @since 0.3.0
      */
     readonly error: string;
     /**
      * Resolves with the totals when everything is read; rejects with an Error (message + hint) when the job fails or is released first.
+     * @since 0.3.0
      */
     readonly promise: Promise<{ files: number; bytes: number }>;
     /**
      * Stops a job that is still running and drops the files nobody has read yet (they would be read from the disk again). Optional: the files leave memory by themselves after the second scene load that follows the job.
+     * @since 0.3.0
      */
     release(): void;
   }
@@ -1386,6 +2984,7 @@ declare module "factoria" {
   export interface AssetsAPI {
     /**
      * Reads the files ahead of time like scene.preload does (models with their buffers and textures, images, audio, fonts, prefabs, materials), for assets a script will use later: the next read of each file, by the renderer or by audio, takes it from memory. A path that does not exist throws with a did-you-mean list; the list must not be empty. Example: assets.preload(["assets/boss.glb", "assets/boss_theme.ogg"]).promise.then(() => spawnBoss()).
+     * @since 0.3.0
      */
     preload(paths: string[]): PreloadHandle;
     /**
@@ -1395,409 +2994,868 @@ declare module "factoria" {
   }
 
   /**
-   * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable".
+   * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable". "http" is http.fetch: it is offered when the system's HTTP client can run (always in tests, which answer from game.platform.respond).
+   * @since 0.2.0
    */
-  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads";
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity" | "ads" | "remotePlay" | "http";
 
   /**
    * Who is signed in to the store.
+   * @since 0.2.0
    */
   export interface PlatformPlayer {
     /**
      * The store's id of the player ("" when nobody is signed in).
+     * @since 0.2.0
      */
     readonly id: string;
     /**
      * The player's display name.
+     * @since 0.2.0
      */
     readonly name: string;
     /**
      * False when nobody is signed in: calls then reject with code "notSignedIn".
+     * @since 0.2.0
      */
     readonly signedIn: boolean;
   }
 
   /**
    * The outcome of a purchase, from purchases.buy() or the "purchase" event.
+   * @since 0.2.0
    */
   export interface PlatformPurchase {
     /**
      * revoked (only in a "purchase" event): the store took the purchase back (a refund): take the goods away. purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a "purchase" event follows when it is decided. cancelled: the player backed out (not an error).
+     * @since 0.2.0
      */
     readonly status: "purchased" | "pending" | "cancelled" | "revoked";
     /**
      * The catalog id of the product (as in factoria.json platform.products).
+     * @since 0.2.0
      */
     readonly productId: string;
     /**
      * Only when purchased: pass it to purchases.finish() once the goods are delivered.
+     * @since 0.2.0
      */
     readonly transactionId?: string;
     /**
      * Only when purchased: the store's proof of purchase, for a server that wants to verify it.
+     * @since 0.2.0
      */
     readonly receipt?: string;
   }
 
   /**
    * A product as the store shows it.
+   * @since 0.2.0
    */
   export interface PlatformProduct {
     /**
      * The catalog id.
+     * @since 0.2.0
      */
     readonly id: string;
     /**
      * The title in the current language: the catalog's titleKey translated (else title) on the fake backend; a real store answers its own, localized by its console.
+     * @since 0.2.0
      */
     readonly title: string;
     /**
      * The store's description.
+     * @since 0.2.0
      */
     readonly description: string;
     /**
      * The price formatted for the player's country ("$0.99"): show it as it is.
+     * @since 0.2.0
      */
     readonly price: string;
     /**
      * The price as a number.
+     * @since 0.2.0
      */
     readonly priceValue: number;
     /**
      * ISO currency code ("USD").
+     * @since 0.2.0
      */
     readonly currency: string;
     /**
      * The catalog's product type.
+     * @since 0.2.0
      */
     readonly type: "consumable" | "nonConsumable" | "subscription";
   }
 
   /**
    * One row of a leaderboard.
+   * @since 0.2.0
    */
   export interface PlatformLeaderboardEntry {
     /**
      * 1 is the best.
+     * @since 0.2.0
      */
     readonly rank: number;
     /**
      * The player's display name.
+     * @since 0.2.0
      */
     readonly name: string;
     /**
      * The score.
+     * @since 0.2.0
      */
     readonly score: number;
     /**
      * The store's id of the player.
+     * @since 0.2.0
      */
     readonly playerId: string;
     /**
      * True for the signed-in player's own row.
+     * @since 0.2.0
      */
     readonly isPlayer: boolean;
   }
 
   /**
    * Achievements of factoria.json platform.achievements.
+   * @since 0.2.0
    */
   export interface PlatformAchievementsAPI {
     /**
      * Unlocks an achievement; `newly` is false when it already was. An id the catalog does not declare throws at once with a suggestion.
+     * @since 0.2.0
      */
     unlock(id: string): Promise<{ id: string; unlocked: true; newly: boolean }>;
     /**
      * Reports progress from 0 to 1 toward an achievement; 1 unlocks it. Progress never goes down.
+     * @since 0.2.0
      */
     progress(id: string, fraction: number): Promise<{ id: string; progress: number; unlocked: boolean }>;
     /**
      * The state of every achievement of the catalog, with its name and description in the current language (the catalog's nameKey / descriptionKey translated, else name / description; a store that answers its own texts wins).
+     * @since 0.2.0
      */
     list(): Promise<{ id: string; name: string; description: string; unlocked: boolean; progress: number }[]>;
     /**
      * Development only: locks every achievement again (the fake backend; real stores usually refuse).
+     * @since 0.2.0
      */
     reset(): Promise<void>;
   }
 
   /**
    * Numbers the store keeps for the player (factoria.json platform.stats).
+   * @since 0.2.0
    */
   export interface PlatformStatsAPI {
     /**
      * The stat's value (0 when never set).
+     * @since 0.2.0
      */
     get(id: string): Promise<number>;
     /**
      * Sets the stat and resolves with the stored value. An int stat needs a whole number.
+     * @since 0.2.0
      */
     set(id: string, value: number): Promise<number>;
     /**
-     * get() then set(): resolves with the new value. Not atomic: two adds in flight can lose one.
+     * Resolves with the new value (an int stat needs a whole delta). The fake store (development, tests) adds on the value it holds when it serves the request, so two adds made in one frame both count. A real store gets a get() then a set(), which is not atomic.
+     * @since 0.2.0
      */
     add(id: string, delta: number): Promise<number>;
   }
 
   /**
    * Leaderboards of factoria.json platform.leaderboards. A board with "period": "daily" or "weekly" starts over with each calendar day or week of game.today(): submit and entries always address the current one (the fake keeps one per period; Steam makes one board per period, Game Center and Play Games use their own time scopes: docs/PLATFORM.md, "Leaderboard periods"; each store starts a period at its own time).
+   * @since 0.2.0
    */
   export interface PlatformLeaderboardsAPI {
     /**
-     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs.
+     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means. `periodStart` and `periodEnd` (ISO 8601 UTC text) are there when the store says when the board's period runs. options.day: "YYYY-MM-DD" submits to the daily board of that day instead of today's (without it the board of the local date, game.today().iso; pass game.today().utc.iso to submit and entries alike for one board worldwide); only a daily board takes it, and Game Center and Play Games reject a day other than the local or UTC today with code "unsupported".
+     * @since 0.2.0
      */
-    submit(id: string, score: number): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>;
+    submit(id: string, score: number, options?: { day?: string }): Promise<{ id: string; score: number; best: number; periodStart?: string; periodEnd?: string }>;
     /**
-     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs.
+     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10). For a daily or weekly board the array has `periodStart` and `periodEnd` (ISO 8601 UTC text) when the store says when the period runs. options.day: "YYYY-MM-DD" reads the daily board of that day, e.g. yesterday's (the same key submit wrote: the local date by default, game.today().utc.iso if the game submits with it; the fake and Steam keep every day, Game Center and Play Games reject a day other than the local or UTC today with code "unsupported").
+     * @since 0.2.0
      */
-    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>;
+    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number; day?: string }): Promise<PlatformLeaderboardEntry[] & { periodStart?: string; periodEnd?: string }>;
+  }
+
+  /**
+   * A guest connected through Steam's Remote Play Together, as the store describes the session.
+   * @since 0.3.0
+   */
+  export interface PlatformRemotePlaySession {
+    /**
+     * The session id Steam gave the guest's connection (the fake numbers them from 1). It identifies the session in the "disconnected" event too.
+     * @since 0.3.0
+     */
+    readonly id: number;
+    /**
+     * The guest's name on the store (Steam's persona name); "" when the store does not say.
+     * @since 0.3.0
+     */
+    readonly guestName: string;
+    /**
+     * The guest's account id on the store (a SteamID as decimal text); "" when unknown.
+     * @since 0.3.0
+     */
+    readonly guestId: string;
+    /**
+     * The name of the guest's device, as Steam reports it.
+     * @since 0.3.0
+     */
+    readonly deviceName: string;
+    /**
+     * The kind of device the guest plays on: a phone or a tablet has no keyboard and a small screen, so a game may show bigger touch-free prompts.
+     * @since 0.3.0
+     */
+    readonly formFactor: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr";
+    /**
+     * The guest's screen in pixels; null when Steam does not know it.
+     * @since 0.3.0
+     */
+    readonly resolution: { width: number; height: number } | null;
+  }
+
+  /**
+   * The payload of platform.on("remotePlay").
+   * @since 0.3.0
+   */
+  export interface PlatformRemotePlayEvent {
+    /**
+     * connected: a guest joined; disconnected: the guest left (the session is as it was when they were connected).
+     * @since 0.3.0
+     */
+    readonly status: "connected" | "disconnected";
+    /**
+     * The guest's session. It says who is connected, not which pad is theirs: the guest's input arrives as one more gamepad (input.gamepad(i), game.on("gamepadConnected")), and the engine does not map a session to a pad index.
+     * @since 0.3.0
+     */
+    readonly session: PlatformRemotePlaySession;
+  }
+
+  /**
+   * Remote Play Together: friends who join the game through Steam and play on their own device. Offered by the Steam backend (check platform.has("remotePlay")); the fake backend simulates guests in tests (game.platform.remotePlayConnect). Steam shows each guest's controller to the game as one more gamepad, so a local multiplayer game already works with them; this API tells who is connected.
+   * @since 0.3.0
+   */
+  export interface PlatformRemotePlayAPI {
+    /**
+     * The guests connected now (an empty array when nobody is). Guests already connected when the game starts are listed here but no "remotePlay" event announces them: read this list at the start. Rejects with code "unavailable" when the backend has no remotePlay service.
+     * @since 0.3.0
+     */
+    sessions(): Promise<PlatformRemotePlaySession[]>;
   }
 
   /**
    * Cloud saves: small named values the store keeps for the player across devices.
+   * @since 0.2.0
    */
   export interface PlatformCloudAPI {
     /**
      * Stores any JSON value under a key (1-64 letters, digits, '_', '.', '-'). Stores limit how much a game may keep in the cloud, so save small things (settings, progress), not assets.
+     * @since 0.2.0
      */
     save(key: string, value: Json): Promise<{ key: string; bytes: number }>;
     /**
      * The stored value, or undefined when the key does not exist.
+     * @since 0.2.0
      */
     load(key: string): Promise<Json | undefined>;
     /**
      * The stored keys.
+     * @since 0.2.0
      */
     list(): Promise<string[]>;
     /**
      * Deletes a key.
+     * @since 0.2.0
      */
     remove(key: string): Promise<void>;
+    /**
+     * Reads the size and modified time of a key without returning its text: { exists: false } for a key that is not there (not an error), else size (bytes of the saved JSON text) and modified (Unix seconds, a number you can compare, or null when the store keeps no time: Apple's iCloud key-value store). Steam answers the file's time, Google Play the snapshot's last modified time, the fake a counter that starts at 1767225600 and goes up one second with each save (game.platform.set({ cloudClock }) sets it). A store's time comes from the clock of the device that saved, which may be wrong: to decide which of two saves is newer, keep a revision counter inside the saved value and use `modified` only as a hint.
+     * @since 0.3.0
+     */
+    stat(key: string): Promise<{ exists: false } | { exists: true; size: number; modified: number | null }>;
   }
 
   /**
    * In-app purchases of factoria.json platform.products.
+   * @since 0.2.0
    */
   export interface PlatformPurchasesAPI {
     /**
      * Titles and prices as the store shows them, for the given catalog ids (all by default). Products the store does not know are left out.
+     * @since 0.2.0
      */
     products(ids?: string[]): Promise<PlatformProduct[]>;
     /**
      * Starts a purchase. Resolves also when the player cancels (status "cancelled"); rejects when the store failed (network, notAllowed...). Deliver the goods when status is "purchased", then call finish().
+     * @since 0.2.0
      */
     buy(id: string): Promise<PlatformPurchase>;
     /**
      * Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a "purchase" event or restore(). A transaction the game was not told about (or finished already) rejects with code "unknownId".
+     * @since 0.2.0
      */
     finish(transactionId: string): Promise<void>;
     /**
      * The non-consumables and subscriptions the player owns (a "Restore purchases" button).
+     * @since 0.2.0
      */
     restore(): Promise<{ productId: string; transactionId: string; receipt: string }[]>;
   }
 
   /**
    * The store's own overlay (Steam overlay, Game Center dashboard).
+   * @since 0.2.0
    */
   export interface PlatformOverlayAPI {
     /**
      * Opens a page of the overlay; `id` (an achievement, leaderboard or product of the catalog) goes to that entry where the store can. Pause the game on the "overlay" event while it is open.
+     * @since 0.2.0
      */
     open(page: "achievements" | "leaderboards" | "friends" | "store", id?: string): Promise<void>;
   }
 
   /**
    * Rich presence: what friends see the player doing.
+   * @since 0.2.0
    */
   export interface PlatformPresenceAPI {
     /**
      * Sets the text ("In level 3"); "" clears it. `data` holds string values some stores use (Steam's rich presence keys).
+     * @since 0.2.0
      */
     set(text: string, data?: { [key: string]: string }): Promise<void>;
   }
 
   /**
    * What the player answered to the consent sheets, from ads.consent().
+   * @since 0.3.0
    */
   export interface PlatformConsent {
     /**
      * The GDPR (Google UMP) sheet: granted, denied, notRequired (the player is outside the regions that need it) or unknown (not asked yet).
+     * @since 0.3.0
      */
     readonly gdpr: "granted" | "denied" | "notRequired" | "unknown";
     /**
      * The tracking permission (Apple's App Tracking Transparency): notRequired where the system has no such sheet (Android) and on iOS when platform.ads.trackingPrompt is off; otherwise the status of the sheet the ads plugin asks for after the consent form.
+     * @since 0.3.0
      */
     readonly tracking: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired";
     /**
      * False when the player refused the GDPR consent: no ad may be requested then.
+     * @since 0.3.0
      */
     readonly canShowAds: boolean;
     /**
      * Whether the game must offer a way to change the ad choices (GDPR): required means the player has to find a "Privacy settings" button that calls platform.ads.privacyOptions(); notRequired where the consent sheet does not apply; unknown before the consent flow finished.
+     * @since 0.3.0
      */
     readonly privacyOptions: "required" | "notRequired" | "unknown";
   }
 
   /**
    * Advertising at the placements of factoria.json platform.ads.placements. Development runs and tests get a scripted test ad that draws nothing and ends at once (game.platform.ad() chooses how); a shipped Android game gets Google AdMob with the Google consent sheet (UMP) when it has the admob plugin (platform.add_backend admob), and any other shipped game rejects every call with code "unavailable" until a backend offers ads (check platform.has("ads")). Use platform.release to keep a development-only ad stub out of a shipped game. Children: factoria.json platform.ads.audience (docs/PLATFORM.md, "Children and consent").
+   * @since 0.3.0
    */
   export interface PlatformAdsAPI {
     /**
      * True when a rewarded ad is ready to show at the placement (false: no fill, or the player refused the consent). Use it to show or hide the "watch an ad" button. A placement the catalog does not declare throws at once with a suggestion.
+     * @since 0.3.0
      */
     available(placement: string): Promise<boolean>;
     /**
      * Shows a rewarded ad and resolves when it ends. rewarded is true only when the player watched it to the end: give the reward then and only then. Otherwise reason says why: closedEarly (the player closed it), noFill (no ad to show), consentRefused (the player refused the consent). Rejects with code "network" or "unavailable" when the platform failed.
+     * @since 0.3.0
      */
     showRewarded(placement: string): Promise<{ rewarded: boolean; reason?: "closedEarly" | "noFill" | "consentRefused" }>;
     /**
      * What the GDPR and tracking sheets answered, for the game's privacy screen.
+     * @since 0.3.0
      */
     consent(): Promise<PlatformConsent>;
     /**
      * Tells the ad network whether the player is under the age of consent (use 16, the highest age of consent in Europe). Call it after the game asked the player's age with a neutral screen (the menu kit's ageGate part does). The engine keeps the answer for the session and sends it with every ads request: AdMob then tags the requests as child-directed and under the age of consent, and the consent sheet is not shown to a child. With factoria.json platform.ads.audience "mixed" no ad is shown before this is called (available() is false, showRewarded() ends with reason "consentRefused"); with "children" every player counts as under age and setUnderAge(false) throws.
+     * @since 0.3.0
      */
     setUnderAge(underAge: boolean): Promise<void>;
     /**
      * Opens the consent form where the player changes their ad choices. Show a "Privacy settings" button that calls it only when consent().privacyOptions is "required" (the menu kit's options screen does). Resolves when the form closes; shown is false when there was no form to open.
+     * @since 0.3.0
      */
     privacyOptions(): Promise<{ shown: boolean }>;
     /**
      * Who plays, from factoria.json platform.ads.audience (default "general").
+     * @since 0.3.0
      */
     readonly audience: "general" | "children" | "mixed";
     /**
      * The answer of setUnderAge() for this session: true or false; true in a "children" game; null while the game has not asked.
+     * @since 0.3.0
      */
     readonly underAge: boolean | null;
   }
 
   /**
    * Integrity checks: the platform signs a statement that this is the genuine app on a genuine device, and the game's own server verifies it.
+   * @since 0.2.0
    */
   export interface PlatformIntegrityAPI {
     /**
      * Asks the platform for a signed integrity token. `challenge` is a nonce your server made: 16 to 500 characters of URL-safe Base64 (A-Z a-z 0-9 - _ =), e.g. 16 or more random bytes. Send the token to your server, which must verify it with the store's server API and check the challenge inside the decoded token (a token without a fresh challenge can be replayed); never trust the client's word. A bad challenge throws at once. Offered by some stores only (Google Play): check platform.has("integrity") and let the game work without it; otherwise the Promise rejects with code "unavailable".
+     * @since 0.2.0
      */
     token(challenge: string): Promise<{ token: string }>;
   }
 
   /**
-   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * @since 0.2.0
    */
   export interface PlatformAPI {
     /**
      * Which backend answers: "fake" (development, tests), "none" (no store: every call rejects with "unavailable"), or the plugin's backend name ("steam", "apple").
+     * @since 0.2.0
      */
     readonly backend: string;
     /**
      * Which backend answers platform.ads: an ads plugin ("admob"), the store backend when it offers ads itself ("fake"), or "none" when nothing offers ads.
+     * @since 0.3.0
      */
     readonly adsBackend: string;
     /**
-     * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion.
+     * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion. platform.has("http") tells whether http.fetch can run: false when this computer has no HTTP client (a Linux without libcurl).
+     * @since 0.2.0
      */
     has(service: PlatformService): boolean;
     /**
      * The last known player (from signIn() and "player" events).
+     * @since 0.2.0
      */
     readonly player: PlatformPlayer;
     /**
      * Signs the player in (or reads who is signed in). Always allowed, even when nobody is.
+     * @since 0.2.0
      */
     signIn(): Promise<PlatformPlayer>;
     /**
      * Listens to purchases that did not come from a buy() call: Ask to Buy approved, an unfinished transaction from an earlier run, a purchase made in the store. Deliver the goods and call purchases.finish(e.transactionId). Events that arrive while nobody listens are kept (up to 100) and delivered to the first listener. Returns the function that stops listening; listeners end with the scene, like ui.on.
+     * @since 0.2.0
      */
     on(event: "purchase", fn: (e: PlatformPurchase) => void): () => void;
     /**
      * The store's overlay opened or closed: pause the game while it is open.
+     * @since 0.2.0
      */
     on(event: "overlay", fn: (e: { open: boolean }) => void): () => void;
     /**
      * The signed-in player changed.
+     * @since 0.2.0
      */
     on(event: "player", fn: (e: PlatformPlayer) => void): () => void;
+    /**
+     * A guest joined or left through Remote Play Together ({ status, session }). Only a backend with the "remotePlay" service (Steam; the fake in tests) sends it.
+     * @since 0.2.0
+     */
+    on(event: "remotePlay", fn: (e: PlatformRemotePlayEvent) => void): () => void;
+    /**
+     * @since 0.2.0
+     */
     readonly achievements: PlatformAchievementsAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly stats: PlatformStatsAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly leaderboards: PlatformLeaderboardsAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly cloud: PlatformCloudAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly purchases: PlatformPurchasesAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly overlay: PlatformOverlayAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly presence: PlatformPresenceAPI;
+    /**
+     * @since 0.2.0
+     */
     readonly integrity: PlatformIntegrityAPI;
+    /**
+     * @since 0.3.0
+     */
+    readonly remotePlay: PlatformRemotePlayAPI;
+    /**
+     * @since 0.3.0
+     */
     readonly ads: PlatformAdsAPI;
     /**
      * True in a shipped game, false in development runs (`factoria run`, the editor), tests and the MCP server. Use it to leave out what is only for development, such as a test-ad stub or a cheat button.
+     * @since 0.3.0
      */
     readonly release: boolean;
   }
 
   /**
+   * The options of http.fetch. Every field is optional.
+   * @since 0.3.0
+   */
+  export interface HttpFetchOptions {
+    /**
+     * The HTTP method, "GET" by default (lower case works too). Another method throws with a suggestion. PATCH works on every platform (Android sends it as POST with X-HTTP-Method-Override).
+     * @since 0.3.0
+     */
+    method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+    /**
+     * Request headers: at most 32, string values, no duplicates (names ignore case). Host, Content-Length, Connection, Transfer-Encoding, Upgrade, Expect, TE, Trailer, Keep-Alive, Proxy-* and Sec-* are set by the system and throw.
+     * @since 0.3.0
+     */
+    headers?: Record<string, string>;
+    /**
+     * The request body, at most 1 MB, not for GET or HEAD. A string is sent as it is; an object or array is sent as JSON, with Content-Type application/json unless you set a content type yourself.
+     * @since 0.3.0
+     */
+    body?: string | Json;
+    /**
+     * Seconds to wait for the whole request, above 0 and at most 120. Default 15. A request that takes longer rejects with code "network".
+     * @since 0.3.0
+     */
+    timeout?: number;
+  }
+
+  /**
+   * What http.fetch resolves with: the server's answer, whatever its status. Immutable.
+   * @since 0.3.0
+   */
+  export interface HttpResponse {
+    /**
+     * The HTTP status code: 200, 404, 500...
+     * @since 0.3.0
+     */
+    readonly status: number;
+    /**
+     * True for a status from 200 to 299.
+     * @since 0.3.0
+     */
+    readonly ok: boolean;
+    /**
+     * The response headers with lower-case names; a header the server sent twice is joined with ", ".
+     * @since 0.3.0
+     */
+    readonly headers: Readonly<Record<string, string>>;
+    /**
+     * The body as text (UTF-8; bytes that are not valid UTF-8 become U+FFFD). At most 4 MB: a bigger answer rejects with code "network".
+     * @since 0.3.0
+     */
+    readonly text: string;
+    /**
+     * The body parsed as JSON. Throws an Error that shows the start of the body when it is not JSON; check ok and the content-type header first when the server may answer an error page.
+     * @since 0.3.0
+     */
+    json(): any;
+  }
+
+  /**
+   * HTTP requests to the hosts the game declares in factoria.json "network" (docs/NETWORKING.md): a leaderboard server, a news feed, a daily seed. Only https:// URLs (plain http:// only to localhost, for development); a host that is not declared throws at once. Works the same on Windows, macOS, iOS, Linux, Android and the web; in tests and headless runs the fake answers what game.platform.respond scripted and never touches the network. Example: `const r = await http.fetch("https://api.example.com/scores"); if (r.ok) show(r.json());`.
+   * @since 0.3.0
+   */
+  export interface HttpAPI {
+    /**
+     * Sends one request. Resolves with the server's answer even for 404 or 500 (look at response.ok); rejects with an Error that has `code` ("network": no connection, DNS, TLS, timeout, too big an answer; "unavailable": no HTTP client on this computer) and `hint`. A mistake in the call (a host factoria.json "network" does not declare, a http:// URL, a bad header or body) throws at once with what to change. Redirects are followed, to https only, at most 5. The answer settles at the start of an engine frame, maybe long after your code ran: a script that awaits it must check that its scene is still the current one (scene.current, entity.alive) before it uses the answer. Example: `const r = await http.fetch(url, { method: "POST", body: { name, score } });`.
+     * @since 0.3.0
+     */
+    fetch(url: string, options?: HttpFetchOptions): Promise<HttpResponse>;
+  }
+
+  /**
+   * What analytics.status() returns, for debugging.
+   * @since 0.3.0
+   */
+  export interface AnalyticsStatus {
+    /**
+     * True when factoria.json has an "analytics" section with an endpoint.
+     * @since 0.3.0
+     */
+    configured: boolean;
+    /**
+     * The player's answer (analytics.consent()).
+     * @since 0.3.0
+     */
+    consent: "granted" | "denied" | "unknown";
+    /**
+     * Events waiting for the next batch.
+     * @since 0.3.0
+     */
+    queued: number;
+    /**
+     * True while a batch is on its way.
+     * @since 0.3.0
+     */
+    inFlight: boolean;
+    /**
+     * Events given up on since the start: a 4xx answer, too many attempts, or a queue over its limit.
+     * @since 0.3.0
+     */
+    dropped: number;
+    /**
+     * Failed attempts in a row (0 after a batch got through).
+     * @since 0.3.0
+     */
+    failures: number;
+    /**
+     * Seconds until the next attempt after a failure, 0 when none is waited for.
+     * @since 0.3.0
+     */
+    retryInSeconds: number;
+    /**
+     * The endpoint of factoria.json, "" when not configured.
+     * @since 0.3.0
+     */
+    endpoint: string;
+  }
+
+  /**
+   * What analytics.flush() resolves with.
+   * @since 0.3.0
+   */
+  export interface AnalyticsFlushResult {
+    /**
+     * Events the server accepted in this request.
+     * @since 0.3.0
+     */
+    sent: number;
+    /**
+     * False when the request failed (no connection, a server error, a 4xx answer): a failure never rejects.
+     * @since 0.3.0
+     */
+    ok: boolean;
+  }
+
+  /**
+   * The limits analytics.event checks, so a game can stay inside them.
+   * @since 0.3.0
+   */
+  export interface AnalyticsLimits {
+    /**
+     * Longest event name.
+     * @since 0.3.0
+     */
+    readonly nameLength: number;
+    /**
+     * Most props of one event.
+     * @since 0.3.0
+     */
+    readonly props: number;
+    /**
+     * Longest prop name.
+     * @since 0.3.0
+     */
+    readonly keyLength: number;
+    /**
+     * Longest text value of a prop.
+     * @since 0.3.0
+     */
+    readonly stringLength: number;
+    /**
+     * Most characters of the props of one event, as JSON.
+     * @since 0.3.0
+     */
+    readonly eventBytes: number;
+    /**
+     * Most events kept while waiting; the oldest is dropped over it.
+     * @since 0.3.0
+     */
+    readonly queue: number;
+    /**
+     * Most events of one request.
+     * @since 0.3.0
+     */
+    readonly batch: number;
+    /**
+     * Attempts per event before it is dropped.
+     * @since 0.3.0
+     */
+    readonly attempts: number;
+  }
+
+  /**
+   * Usage analytics with consent (docs/ANALYTICS.md). analytics.event(name, props) queues small anonymous events and sends them in batches to the endpoint of factoria.json "analytics" through http.fetch, but only after the player said yes with analytics.setConsent(true): before that nothing is kept or sent, and a refusal forgets what waited. A batch goes out when `batch` events wait, when the oldest waited `flushSeconds`, when the app is suspended and when the game quits (the quit waits up to 3 seconds for the request). A network failure keeps the events and retries later; a 4xx answer drops them. Without the section, event(), flush() and setConsent() throw with what to add; check `configured` in code shared between games. Say what is sent in your privacy policy (docs/LEGAL.md). Example: `if (analytics.consent() === "unknown") askPlayer(); analytics.event("level_done", { level: 3, won: true });`.
+   * @since 0.3.0
+   */
+  export interface AnalyticsAPI {
+    /**
+     * True when factoria.json has an "analytics" section with an endpoint.
+     * @since 0.3.0
+     */
+    readonly configured: boolean;
+    /**
+     * The player's answer, kept between runs; "unknown" when not asked yet (event() then keeps nothing). With factoria.json analytics.consentFromAds, an unanswered question follows the ad consent (granted when the GDPR consent is granted and tracking is authorized or not required); the player's own answer always wins.
+     * @since 0.3.0
+     */
+    consent(): "granted" | "denied" | "unknown";
+    /**
+     * Records the player's answer (kept between runs). false forgets every event waiting to be sent. Throws when the game has no analytics section or yes is not a boolean.
+     * @since 0.3.0
+     */
+    setConsent(yes: boolean): void;
+    /**
+     * Queues one event and returns true; returns false (keeping nothing) when the player has not said yes. The name starts with a letter and uses letters, digits, "_", "." and "-" (at most 64 characters). props is a flat object of strings, numbers, booleans or null: at most 20 props, texts of at most 200 characters (never what the player typed), at most 2048 characters of props as JSON. A mistake throws with the limit (analytics.limits). The time of the event is engine seconds since the run started.
+     * @since 0.3.0
+     */
+    event(name: string, props?: Record<string, string | number | boolean | null>): boolean;
+    /**
+     * Sends what waits now, in one request of at most 100 events. Resolves { sent, ok }; a failure is ok: false and keeps the events for a retry. Rejects only for a mistake of the call (no analytics section). The answer settles at the start of an engine frame, maybe after the scene changed.
+     * @since 0.3.0
+     */
+    flush(): Promise<AnalyticsFlushResult>;
+    /**
+     * The state, for debugging: queue length, failures, retry time, consent.
+     * @since 0.3.0
+     */
+    status(): AnalyticsStatus;
+    /**
+     * The limits event() checks.
+     * @since 0.3.0
+     */
+    readonly limits: AnalyticsLimits;
+  }
+
+  /**
+   * Values the game reads from a server (docs/ANALYTICS.md): balance numbers, an event flag, a message. The JSON object at factoria.json "remoteConfig".url is fetched once, at the first use, through http.fetch, and its last good answer is cached in storage, so an offline player gets the values of the last run and a first-time offline player gets the defaults. get(key, fallback) always works: with no section, no connection or a value of the wrong type it returns fallback. A bad answer (not a JSON object, over 64 KB or 500 keys, a 4xx or 5xx status) is ignored as a whole, never half applied. Example: `const speed = remoteConfig.get("enemySpeed", 1.5);`. A script that awaits ready() or refresh() must check that its scene is still the current one (scene.current) before it uses the answer.
+   * @since 0.3.0
+   */
+  export interface RemoteConfigAPI {
+    /**
+     * True when factoria.json has a "remoteConfig" section with a url.
+     * @since 0.3.0
+     */
+    readonly configured: boolean;
+    /**
+     * The server's value of key; else the cached one; else fallback. A value whose type differs from the fallback's (a text where you expect a number) counts as missing. Returns a copy: changing it changes nothing. The first call starts the fetch.
+     * @since 0.3.0
+     */
+    get<T extends Json>(key: string, fallback: T): T;
+    /**
+     * Where the values come from now: this run's fetch, the cache of an earlier run, or only the defaults.
+     * @since 0.3.0
+     */
+    source(): "remote" | "cache" | "default";
+    /**
+     * Resolves with source() when the first fetch ended or timeoutSeconds (engine seconds, default 3) passed. Never rejects: a game waits for it at its loading screen and plays on with whatever it has.
+     * @since 0.3.0
+     */
+    ready(timeoutSeconds?: number): Promise<"remote" | "cache" | "default">;
+    /**
+     * Fetches again; resolves with source() when the answer (or the failure) arrived.
+     * @since 0.3.0
+     */
+    refresh(): Promise<"remote" | "cache" | "default">;
+  }
+
+  /**
    * The payload of i18n.on("change").
+   * @since 0.2.0
    */
   export interface I18nChange {
     /**
      * The language now in use.
+     * @since 0.2.0
      */
     language: string;
     /**
      * The language before.
+     * @since 0.2.0
      */
     previous: string;
   }
 
   /**
    * Localization: the strings of locales/<language>.json in the player's language. factoria.json "localization" lists the languages; without it the game is not localized (t(key) returns the key, languages is []). Components with a `key` field (Text, Button, Toggle, Slider, TextField) are translated by the engine; use t() for text a script builds itself. The chosen language is not saved between runs: keep it with `storage` and call setLanguage at start. See docs/LOCALIZATION.md.
+   * @since 0.2.0
    */
   export interface I18nAPI {
     /**
-     * The text of `key` in the current language, else in its base language ("pt" for "pt-BR"), else in the default language. `{name}` placeholders are filled from args; a plural entry is chosen by args.count with the language's CLDR rules. A key that no table has returns the key itself and warns once in the log; it never throws for a missing key. A key that is not a string or args that is not an object throws.
+     * The text of `key` in the current language, else in its base language ("pt" for "pt-BR"), else in the default language. `{name}` placeholders are filled from args; a plural entry is chosen by args.count with the language's CLDR rules; a select entry (forms f, m, n, other) by args.gender (see gender()), "other" when the gender or the form is missing. A key that no table has returns the key itself and warns once in the log; it never throws for a missing key. A key that is not a string or args that is not an object throws.
+     * @since 0.2.0
      */
-    t(key: string, args?: { count?: number; [name: string]: unknown }): string;
+    t(key: string, args?: { count?: number; gender?: string; [name: string]: unknown }): string;
     /**
      * `value` written the way the current language writes numbers: decimal and group separators and digits from the engine's table (en "1,234.5", es "1234,5" and "12.345,5", de "1.234,5", fr "1 234,5" with a narrow no-break space, ar Arabic-Indic digits "١٬٢٣٤٫٥"). `decimals` (0 to 9) fixes the digits after the separator; without it the number keeps the digits it has. A language the table does not know writes like English; a game without localization is English. Same as the `{v:number:1}` placeholder of a string table. Throws for a value that is not a number or decimals out of range.
+     * @since 0.3.0
      */
     number(value: number, options?: { decimals?: number }): string;
     /**
      * `seconds` as a time in the current language: "1:23.4" for 83.4 (minutes:seconds), "1:02:03.4" from one hour on. `decimals` (0 to 3, default 1) are the digits of the second; the decimal separator and the digits follow the language (es "1:23,4", ar "١:٢٣٫٤"). Rounded as a whole, so 59.96 is "1:00.0". Same as the `{t:duration}` placeholder of a string table.
+     * @since 0.3.0
      */
     duration(seconds: number, options?: { decimals?: number }): string;
     /**
      * True when a table of the current language's fallback chain has `key`, so a real string can be told from the key returned for a missing one.
+     * @since 0.2.0
      */
     has(key: string): boolean;
     /**
+     * The grammatical gender of the string `key` in the current language ("f" feminine, "m" masculine, "n" neuter), from a table entry written {"text": "Ligera", "gender": "f"}; "" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t("ship.the", { name: i18n.t("ship.light"), gender: i18n.gender("ship.light") }) is "la Ligera" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, "Gender".
+     * @since 0.3.0
+     */
+    gender(key: string): "f" | "m" | "n" | "";
+    /**
      * The current language (one of `languages`; "" when the game has no localization).
+     * @since 0.2.0
      */
     readonly language: string;
     /**
      * Switches now: every Text and widget with a `key` is rewritten at once and the "change" listeners run. Accepts the tag as in factoria.json or close to it ("pt_br", "es-MX" -> "es"). An unknown language throws with a "did you mean" and the languages the game has. Not saved: a game keeps the player's choice with `storage` and calls this at start.
+     * @since 0.2.0
      */
     setLanguage(language: string): void;
     /**
      * The game's languages, as in factoria.json localization.languages.
+     * @since 0.2.0
      */
     readonly languages: string[];
     /**
      * factoria.json localization.defaultLanguage: the language of the text written in scenes and the last fallback.
+     * @since 0.2.0
      */
     readonly defaultLanguage: string;
     /**
      * The writing direction of the current language: "rtl" for Arabic, Hebrew, Persian, Urdu and the other right-to-left languages, else "ltr" (also when the game has no localization). Text align "start"/"end" and Panel direction "auto" follow it by themselves; read it to mirror what they do not reach, such as an anchor or a pivot (docs/LOCALIZATION.md, section 6).
+     * @since 0.2.0
      */
     readonly direction: "ltr" | "rtl";
     /**
      * The player's system languages, best first (BCP 47 tags such as "es-MX"). Empty in headless runs and tests: the start language does not depend on the machine there.
+     * @since 0.2.0
      */
     readonly systemLanguages: string[];
     /**
      * The language's own name for a language menu ("Español"): the "$name" of its table, else the tag.
+     * @since 0.2.0
      */
     name(language: string): string;
     /**
      * Runs fn after every language switch (setLanguage or the i18n.set_language command). Returns the function that stops listening; listeners end with the scene, like ui.on, so register in onStart.
+     * @since 0.2.0
      */
     on(event: "change", fn: (e: I18nChange) => void): () => void;
   }
@@ -1824,8 +3882,15 @@ declare module "factoria" {
 
   /**
    * Path finding on the baked NavMesh3D.
+   * @since 0.3.0
    */
   export const nav: NavAPI;
+
+  /**
+   * Behaviour trees (bt.Tree, bt.sequence, bt.selector...), ticked by your script.
+   * @since 0.3.0
+   */
+  export const bt: BtAPI;
 
   /**
    * Game clock.
@@ -1854,13 +3919,33 @@ declare module "factoria" {
 
   /**
    * The screen and its safe area.
+   * @since 0.2.0
    */
   export const screen: ScreenAPI;
 
   /**
    * The game window: full screen, size, vsync, frame cap.
+   * @since 0.1.6
    */
   export const window: WindowAPI;
+
+  /**
+   * The clipboard: read and write text.
+   * @since 0.3.0
+   */
+  export const clipboard: ClipboardAPI;
+
+  /**
+   * Textures made at run time: a picture of the game for a save slot (captureTexture, textureFromPNG).
+   * @since 0.3.0
+   */
+  export const render: RenderAPI;
+
+  /**
+   * Procedural meshes: mesh.create / update / destroy / save, then MeshRenderer.mesh = m.id.
+   * @since 0.9.0
+   */
+  export const mesh: MeshAPI;
 
   /**
    * Save data.
@@ -1904,270 +3989,730 @@ declare module "factoria" {
 
   /**
    * Functions of the game's native plugins (factoria.json "plugins", docs/EXTENDING.md "Native plugins"): plugins.<plugin>.<function>(...args) passes the arguments as JSON and returns the plugin's JSON result; a failure throws an Error with the plugin's message and hint. A plugin that is not built for this platform is undefined (test with `if (plugins.steam)`); one that failed to load throws why on first use.
+   * @since 0.1.6
    */
   export const plugins: PluginsAPI;
 
   /**
-   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads (docs/PLATFORM.md).
+   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity, ads, Remote Play guests (docs/PLATFORM.md).
+   * @since 0.2.0
    */
   export const platform: PlatformAPI;
 
   /**
+   * http.fetch(url, options): HTTP requests to the hosts declared in factoria.json "network" (docs/NETWORKING.md).
+   * @since 0.3.0
+   */
+  export const http: HttpAPI;
+
+  /**
+   * analytics.event(name, props), setConsent(yes), consent(), flush(): anonymous usage events sent in batches after the player consented (docs/ANALYTICS.md).
+   * @since 0.3.0
+   */
+  export const analytics: AnalyticsAPI;
+
+  /**
+   * remoteConfig.get(key, fallback): values a server serves as JSON, cached for offline runs (docs/ANALYTICS.md).
+   * @since 0.3.0
+   */
+  export const remoteConfig: RemoteConfigAPI;
+
+  /**
    * Localization: t(key, args), number, duration, language, setLanguage, languages, systemLanguages, on("change") (docs/LOCALIZATION.md).
+   * @since 0.2.0
    */
   export const i18n: I18nAPI;
 
   /**
-   * Plays the clips of a skinned glTF on an entity with an Animator component (entity.animator). The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set("speed", 3)`; `hero.animator.on("footstep", () => audio.play("assets/step.wav"))`.
+   * Plays the clips of an entity with an Animator component (entity.animator): the animations of a skinned glTF, or the keyframed 2D clips (`*.anim.json`) listed in the Animator's `clips`. The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set("speed", 3)`; `hero.animator.on("footstep", () => audio.play("assets/step.wav"))`.
+   * @since 0.2.0
    */
   export interface AnimatorAPI {
     /**
-     * Starts a clip (a glTF animation name, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist.
+     * Starts a clip (a glTF animation name or a key of the Animator's `clips`, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist.
+     * @since 0.2.0
      */
     play(clip: string, fadeSeconds?: number): void;
     /**
      * Pauses and returns to the bind pose (the model as exported).
+     * @since 0.2.0
      */
     stop(): void;
     /**
      * Sets a state machine parameter declared in the Animator's `params`. The transitions read it on the next step.
+     * @since 0.2.0
      */
     set(name: string, value: number | boolean): void;
     /**
      * Current value of a state machine parameter.
+     * @since 0.2.0
      */
     get(name: string): number | boolean;
     /**
      * Makes the parameter `name` true for the next step only (one-shot input like "jump" or "hurt"). It does not need to be declared.
+     * @since 0.2.0
      */
     trigger(name: string): void;
     /**
-     * Names of the animation clips of the model.
+     * Names of the animation clips: those of the model, or the keys of the Animator's `clips` for 2D clip files.
+     * @since 0.2.0
      */
     readonly clips: string[];
     /**
-     * Length of a clip in seconds.
+     * Length of a clip in seconds (the `duration` of the file for a 2D clip).
+     * @since 0.2.0
      */
     duration(clip: string): number;
     /**
+     * 2D clips only: poses the entity and its children at `time` seconds into `clip` without playing (time is clamped to the clip). The Animator stays paused on that pose; use it for previews, thumbnails and tests. Throws with the clip names when the clip does not exist, or with the file and JSON pointer when a track does not fit the entity.
+     * @since 0.7.0
+     */
+    sample(clip: string, time: number): void;
+    /**
+     * 2D clips only: sets the weight (0..1) of the layer called `layer` in the Animator's `layers`. At 0 the layer is not playing; it starts from its first pose when the weight rises. Throws with the layer names when there is no such layer.
+     * @since 0.7.0
+     */
+    setLayerWeight(layer: string, weight: number): void;
+    /**
+     * 2D clips only: makes the layer called `layer` play `clip` (a key of `clips`), cross-fading over `fadeSeconds` (default: the component's `fade`). A layer that runs its own `states` cannot be driven this way.
+     * @since 0.7.0
+     */
+    playLayer(layer: string, clip: string, fadeSeconds?: number): void;
+    /**
      * Listens to a game event of THIS entity's animator: a clip event from the Animator's `events`, a state's `onEnter` name, or "anim.finished". Returns the unsubscribe function. world.on(name, fn) hears every entity.
+     * @since 0.2.0
      */
     on(event: string, fn: (data: { id: string; clip?: string; time?: number; state?: string }, source: Entity | null) => void): () => void;
     /**
      * State machine: the current state.
+     * @since 0.2.0
      */
     readonly state: string;
     /**
      * The clip playing now. Assigning switches clips with the component's `fade`.
+     * @since 0.2.0
      */
     clip: string;
     /**
      * Seconds into the current clip. Assigning seeks (no events fire for the jump).
+     * @since 0.2.0
      */
     time: number;
     /**
      * Playback speed multiplier.
+     * @since 0.2.0
      */
     speed: number;
     /**
      * Start over at the end of the clip. false stops on the last pose and sends "anim.finished".
+     * @since 0.2.0
      */
     loop: boolean;
     /**
      * false pauses, true resumes.
+     * @since 0.2.0
      */
     playing: boolean;
     /**
      * The Animator component view (model, params, states, transitions, events...).
+     * @since 0.2.0
      */
     readonly component: Components["Animator"];
   }
 
   /**
+   * Plays the named clips of a sprite sheet on an entity with a Sprite and a SpriteAnimator (entity.spriteAnimator). The clips are those of the `sheet` entry of the sprite's texture in assets.json (assets.animate_svg, assets.bake_sheet, assets.slice_sheet and the Aseprite import write it). The renderer steps the animation with the frame time, so it runs with a renderer (a headless run has one when a GPU is found). Example: `fx.spriteAnimator.play("pop"); fx.spriteAnimator.on("clipEnded", () => fx.destroy());`.
+   * @since 0.6.0
+   */
+  export interface SpriteAnimatorAPI {
+    /**
+     * Starts the clip `clip` of the texture's sheet from its first frame and plays it. Asking for the clip that already plays (and has not ended) does nothing unless `restart` is true, so it may be called every frame. Throws with the clip names (and a "did you mean") when the sheet has no such clip.
+     * @since 0.6.0
+     */
+    play(clip: string, restart?: boolean): void;
+    /**
+     * Pauses on the current frame.
+     * @since 0.6.0
+     */
+    stop(): void;
+    /**
+     * Continues after stop().
+     * @since 0.6.0
+     */
+    resume(): void;
+    /**
+     * Names of the clips of the sprite texture's sheet. Throws when the texture has no sheet entry.
+     * @since 0.6.0
+     */
+    readonly clips: string[];
+    /**
+     * The sheet entry of one clip (pivot from the TOP-left of the frame, as stored). Throws with the clip names when it does not exist.
+     * @since 0.6.0
+     */
+    clipInfo(clip: string): { name: string; firstFrame: number; lastFrame: number; frames: number; fps: number; loop: boolean; pivot?: [number, number] };
+    /**
+     * Listens to the game event of THIS entity's animator: "clipEnded", sent once when a clip that does not loop (loop false in the sheet or the component) reaches its end. Returns the unsubscribe function. world.on("clipEnded", fn) hears every entity.
+     * @since 0.6.0
+     */
+    on(event: "clipEnded", fn: (data: { id: string; clip: string }, source: Entity | null) => void): () => void;
+    /**
+     * The clip playing now (SpriteAnimator.clip). Assigning another name restarts the animation.
+     * @since 0.6.0
+     */
+    clip: string;
+    /**
+     * Order of the frames.
+     * @since 0.6.0
+     */
+    mode: "forward" | "reverse" | "pingpong";
+    /**
+     * Index in the sheet's grid (row-major from the top-left) of the frame shown.
+     * @since 0.6.0
+     */
+    readonly frame: number;
+    /**
+     * Seconds into the current clip. Assigning seeks (set playing to true to run a finished clip again).
+     * @since 0.6.0
+     */
+    time: number;
+    /**
+     * false pauses, true resumes.
+     * @since 0.6.0
+     */
+    playing: boolean;
+    /**
+     * True after a clip that does not loop reached its end.
+     * @since 0.6.0
+     */
+    readonly ended: boolean;
+    /**
+     * The SpriteAnimator component view (columns, rows, firstFrame, lastFrame, fps, loop, clip, mode, sheetPivot...).
+     * @since 0.6.0
+     */
+    readonly component: Components["SpriteAnimator"];
+  }
+
+  /**
+   * Reads and writes single tiles of a Tilemap (entity.tilemap) and converts between cells and world points (cellAt, cellToWorld) for square and isometric maps. A write changes one element of `tiles` in place: the array is not copied to the script and back, the renderer reads the tiles directly and 2D physics rebuilds only the colliders of the cells you changed, so digging or opening a door every frame is cheap. Example: `map.tilemap.setTile(12, 7, -1)` empties a cell; `if (map.tilemap.getTile(x, y) === 3) ...`.
+   * @since 0.3.0
+   */
+  export class TilemapAPI {
+    /**
+     * The tile value at column x, row y (0-based, row 0 = TOP row): the tile index plus flip/rotate flag bits, -1 when empty or outside the map. Mask with `& 0xFFFFFFF` for the plain index.
+     * @since 0.3.0
+     */
+    getTile(x: number, y: number): number;
+    /**
+     * Writes the tile at column x, row y: a tileset index (plus optional flip flags) or -1 to empty it. Throws an Error that names the map size when the cell is outside the map or the value is not a tile. 2D collision follows on the next physics step.
+     * @since 0.3.0
+     */
+    setTile(x: number, y: number, tile: number): void;
+    /**
+     * The cell under a WORLD point, by the entity's transform and the map's `projection` (the square for "orthogonal", the diamond for "isometric"); null when the point is outside the map. To pick the cell under the mouse pass `camera.screenToWorld(input.mouse.position)`. `cellToWorld(col, row)` is the inverse for the centre of a cell. Example: `const c = ground.tilemap.cellAt(camera.screenToWorld(input.mouse.position)); if (c) ground.tilemap.setTile(c.col, c.row, 3)`.
+     * @since 0.3.0
+     */
+    cellAt(point: Vec2Like): { col: number; row: number } | null;
+    /**
+     * The WORLD position of the centre of cell (col, row) (0-based, row 0 = TOP row), by the entity's transform and the map's `projection`: the middle of the square, or of the diamond. The cell may lie outside the map. `cellAt(cellToWorld(c, r))` is `{ col: c, row: r }` for a cell inside the map.
+     * @since 0.3.0
+     */
+    cellToWorld(col: number, row: number): Vec2;
+    /**
+     * Map width in tiles.
+     * @since 0.3.0
+     */
+    readonly width: number;
+    /**
+     * Map height in tiles (rows).
+     * @since 0.3.0
+     */
+    readonly height: number;
+    /**
+     * The Tilemap component view.
+     * @since 0.3.0
+     */
+    readonly component: Components["Tilemap"];
+  }
+
+  /**
    * Controls a Video component (entity.video): an .mpg drawn in the entity's UI rectangle. The engine advances it in the fixed step from the game clock, so it pauses with the game and a headless run is deterministic. Example: `intro.video.on("ended", () => scene.load("scenes/menu.scene.json"))`; `intro.video.seek(10)`.
+   * @since 0.3.0
    */
   export class VideoAPI {
     /**
      * Plays, or resumes after pause(). After the end it starts over from the first picture.
+     * @since 0.3.0
      */
     play(): void;
     /**
      * Stops advancing and keeps the picture; the sound goes silent.
+     * @since 0.3.0
      */
     pause(): void;
     /**
      * Pauses and returns to the first picture.
+     * @since 0.3.0
      */
     stop(): void;
     /**
      * Jumps to `seconds` (clamped to the length) and shows the picture there. Keeps playing if it was playing; no "ended" event comes from a seek.
+     * @since 0.3.0
      */
     seek(seconds: number): void;
     /**
      * Listens to the "ended" event of THIS entity's video: a video that does not loop reached its end (once per play). Returns the unsubscribe function. world.on("video.ended", fn) hears every Video.
+     * @since 0.3.0
      */
     on(event: "ended", fn: (data: { id: string; path: string }, source: Entity | null) => void): () => void;
     /**
      * Seconds into the video.
+     * @since 0.3.0
      */
     readonly time: number;
     /**
      * Length in seconds; 0 until the file is open (the first fixed step after the scene loads).
+     * @since 0.3.0
      */
     readonly duration: number;
     /**
      * True while it advances.
+     * @since 0.3.0
      */
     readonly playing: boolean;
     /**
      * True after it reached its end, until a seek or play() starts it again.
+     * @since 0.3.0
      */
     readonly ended: boolean;
     /**
      * Wrap to the first picture at the end instead of ending.
+     * @since 0.3.0
      */
     loop: boolean;
     /**
      * Loudness of the sound, 0..1.
+     * @since 0.3.0
      */
     volume: number;
     /**
      * The Video component view (path, autoplay, fit, tint, bus...).
+     * @since 0.3.0
      */
     readonly component: Components["Video"];
   }
 
   /**
    * An easing function: maps progress 0..1 to eased progress (0 at 0, 1 at 1; back and elastic overshoot in between).
+   * @since 0.2.0
    */
   export type EaseFn = (t: number) => number;
 
   /**
    * Name of a built-in easing: linear, or quad / cubic / quart / quint / sine / expo / circ / back / elastic / bounce followed by In, Out or InOut.
+   * @since 0.2.0
    */
   export type EaseName = "linear" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" | "backIn" | "backOut" | "backInOut" | "elasticIn" | "elasticOut" | "elasticInOut" | "bounceIn" | "bounceOut" | "bounceInOut";
 
   /**
    * The built-in easing functions by name (ease.quadOut, ease.bounceOut...). tween() also accepts the name as a string.
+   * @since 0.2.0
    */
   export interface EaseAPI {
+    /**
+     * @since 0.2.0
+     */
     readonly linear: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quadIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quadOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quadInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly cubicIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly cubicOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly cubicInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quartIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quartOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quartInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quintIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quintOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly quintInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly sineIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly sineOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly sineInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly expoIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly expoOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly expoInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly circIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly circOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly circInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly backIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly backOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly backInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly elasticIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly elasticOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly elasticInOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly bounceIn: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly bounceOut: EaseFn;
+    /**
+     * @since 0.2.0
+     */
     readonly bounceInOut: EaseFn;
   }
 
   /**
+   * What a behaviour tree node returns each tick: bt.SUCCESS, bt.FAILURE or bt.RUNNING.
+   * @since 0.3.0
+   */
+  export type BtStatus = "success" | "failure" | "running";
+
+  /**
+   * A node of a behaviour tree; build them with bt.sequence, bt.selector, bt.parallel, bt.condition, bt.action, bt.wait, bt.cooldown, bt.repeat, bt.inverter and bt.succeeder.
+   * @since 0.3.0
+   */
+  export interface BtNode {
+    /**
+     * sequence, selector, parallel, condition, action, wait, cooldown, repeat, inverter or succeeder.
+     * @since 0.3.0
+     */
+    readonly type: string;
+  }
+
+  /**
+   * Hooks of bt.action.
+   * @since 0.3.0
+   */
+  export interface BtActionHooks {
+    /**
+     * Runs when the action starts (the first tick it is reached, or after it finished or was interrupted).
+     * @since 0.3.0
+     */
+    onEnter?: (blackboard: any) => void;
+    /**
+     * Runs when the action returns SUCCESS or FAILURE, or with "aborted" when a tick did not reach it (a selector chose an earlier child) or the tree was reset.
+     * @since 0.3.0
+     */
+    onExit?: (blackboard: any, status: BtStatus | "aborted") => void;
+  }
+
+  /**
+   * A behaviour tree with its own memory per node: ten enemies can each run a Tree built from the same node description.
+   * @since 0.3.0
+   */
+  export interface BtTree {
+    /**
+     * The root node.
+     * @since 0.3.0
+     */
+    readonly root: BtNode;
+    /**
+     * The object every condition and action receives.
+     * @since 0.3.0
+     */
+    blackboard: any;
+    /**
+     * Seconds the tree has run: the sum of the dt it was ticked with.
+     * @since 0.3.0
+     */
+    readonly clock: number;
+    /**
+     * Result of the last tick.
+     * @since 0.3.0
+     */
+    readonly status: BtStatus;
+    /**
+     * Runs the tree one step; call it once per frame with the dt of onUpdate. A node that was not ticked on the previous tick starts fresh (a sequence goes back to its first child, a wait to zero).
+     * @since 0.3.0
+     */
+    tick(dt: number): BtStatus;
+    /**
+     * Forgets what every node remembers (running actions get onExit with "aborted").
+     * @since 0.3.0
+     */
+    reset(): void;
+  }
+
+  /**
+   * Behaviour trees in plain JS, ticked by your script with a dt you pass (deterministic). Example: const tree = new bt.Tree(bt.selector(bt.sequence(bt.condition((b) => b.sees), bt.action((b, dt) => { b.chase(dt); return bt.RUNNING; })), bt.action((b, dt) => { b.wander(dt); return bt.RUNNING; })), enemy); in onUpdate(dt): tree.tick(dt).
+   * @since 0.3.0
+   */
+  export interface BtAPI {
+    /**
+     * Status: the node finished well.
+     * @since 0.3.0
+     */
+    readonly SUCCESS: "success";
+    /**
+     * Status: the node failed or its condition was false.
+     * @since 0.3.0
+     */
+    readonly FAILURE: "failure";
+    /**
+     * Status: the node needs more ticks.
+     * @since 0.3.0
+     */
+    readonly RUNNING: "running";
+    /**
+     * Creates a tree for one agent.
+     * @since 0.3.0
+     */
+    readonly Tree: new (root: BtNode, blackboard?: any) => BtTree;
+    /**
+     * Ticks the children in order: FAILURE as soon as one fails, RUNNING while one runs (the next tick resumes at that child without asking the earlier conditions again), SUCCESS when all succeeded.
+     * @since 0.3.0
+     */
+    sequence(...children: BtNode[]): BtNode;
+    /**
+     * Ticks the children in order from the FIRST one every tick, so a more important child can interrupt a running one; returns the first result that is not FAILURE.
+     * @since 0.3.0
+     */
+    selector(...children: BtNode[]): BtNode;
+    /**
+     * Ticks the children in order every tick (the options object is optional: bt.parallel(a, b) is succeed "all"). FAILURE as soon as one child fails; with succeed "all" (default) SUCCESS once every child has succeeded (a child that succeeded is not ticked again meanwhile), with "any" SUCCESS at the first success; otherwise RUNNING. When it finishes, children still running are stopped (an action gets onExit(bb, "aborted")). No children: SUCCESS for "all", FAILURE for "any".
+     * @since 0.3.0
+     */
+    parallel(options: { succeed?: "all" | "any" }, ...children: BtNode[]): BtNode;
+    /**
+     * Same as parallel({ succeed: "all" }, ...children): all children at once, FAILURE at the first failure, SUCCESS when all succeeded.
+     * @since 0.3.0
+     */
+    parallel(...children: BtNode[]): BtNode;
+    /**
+     * Truthy = SUCCESS, falsy = FAILURE. Never RUNNING.
+     * @since 0.3.0
+     */
+    condition(fn: (blackboard: any) => unknown): BtNode;
+    /**
+     * Does something and returns bt.SUCCESS, bt.FAILURE or bt.RUNNING (anything else throws).
+     * @since 0.3.0
+     */
+    action(fn: (blackboard: any, dt: number, tree: BtTree) => BtStatus, hooks?: BtActionHooks): BtNode;
+    /**
+     * RUNNING for that many seconds of tick dt, then SUCCESS. Starts over when it was not ticked on the previous tick.
+     * @since 0.3.0
+     */
+    wait(seconds: number): BtNode;
+    /**
+     * Ticks the child; once it finishes (SUCCESS or FAILURE) the node FAILS for `seconds` without ticking it. For an attack that must not repeat at once.
+     * @since 0.3.0
+     */
+    cooldown(seconds: number, child: BtNode): BtNode;
+    /**
+     * Runs the child again each time it succeeds. Returns RUNNING while it repeats, FAILURE as soon as the child fails, and with `times` (a whole number >= 1) SUCCESS after that many successes; without `times` it repeats forever. One run of the child per tick: the next run starts on the NEXT tick, so a child that succeeds at once cannot loop forever inside one tick.
+     * @since 0.3.0
+     */
+    repeat(child: BtNode, times?: number): BtNode;
+    /**
+     * Swaps SUCCESS and FAILURE; RUNNING stays.
+     * @since 0.3.0
+     */
+    inverter(child: BtNode): BtNode;
+    /**
+     * SUCCESS whenever the child finishes, either way.
+     * @since 0.3.0
+     */
+    succeeder(child: BtNode): BtNode;
+  }
+
+  /**
    * Options of tween().
+   * @since 0.2.0
    */
   export interface TweenOptions {
     /**
      * Seconds per play (default 1).
+     * @since 0.2.0
      */
     duration?: number;
     /**
      * Seconds to wait before it starts (default 0).
+     * @since 0.2.0
      */
     delay?: number;
     /**
      * Easing (default "linear"). inOut easings play the in curve for the first half and its mirror image for the second.
+     * @since 0.2.0
      */
     ease?: EaseName | EaseFn;
     /**
      * Extra plays after the first (0 = once, Infinity = forever).
+     * @since 0.2.0
      */
     repeat?: number;
     /**
      * Every second play runs backwards.
+     * @since 0.2.0
      */
     yoyo?: boolean;
     /**
      * Start values instead of the current ones, same shape as the end values: { x: 0 }. For tween(from, to, ...) the start is the first argument.
+     * @since 0.2.0
      */
     from?: any;
     /**
      * Called once when the delay is over and it starts moving (start values are read here).
+     * @since 0.2.0
      */
     onStart?: (tween: Tween) => void;
     /**
      * Called after every update. `value` is the eased progress (can overshoot with back/elastic); for tween(from, to) it is the current number.
+     * @since 0.2.0
      */
     onUpdate?: (value: number, tween: Tween) => void;
     /**
      * Called when the last play ends (never for a cancelled tween).
+     * @since 0.2.0
      */
     onComplete?: (tween: Tween) => void;
   }
 
   /**
-   * A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0, identical in headless runs.
+   * A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0 and while the game is paused (game.pause: it moves only with game.step), identical in headless runs.
+   * @since 0.2.0
    */
   export interface Tween {
     /**
      * false once it completed or was cancelled.
+     * @since 0.2.0
      */
     readonly active: boolean;
     /**
      * 0..1 over all plays (after the delay).
+     * @since 0.2.0
      */
     readonly progress: number;
     /**
-     * Resolves true when it completes and false when it is cancelled (also when the scene changes). `await tween(...).finished` in async code.
+     * Resolves true when it completes and false when YOU cancel it (cancel(), cancelTweens). It stays pending forever, so the code awaiting it never resumes, when the tween is dropped: its target entity was destroyed, the Behaviour that started it with this.tween() was destroyed, or the scene was reloaded or unloaded. That makes `await tween(...).finished; entity.position = ...` safe without an alive check (a dropped tween cannot throw "entity was destroyed" into your code). Do not await it in a place that must always continue (Promise.all of several tweens); use onComplete or poll `active` there.
+     * @since 0.2.0
      */
     readonly finished: Promise<boolean>;
     /**
      * Stops it where it is (values stay as they are) and cancels the tweens chained after it.
+     * @since 0.2.0
      */
     cancel(): this;
     /**
      * Freezes it.
+     * @since 0.2.0
      */
     pause(): this;
     /**
      * Continues after pause().
+     * @since 0.2.0
      */
     resume(): this;
     /**
+     * Jumps to `seconds` after the tween was created (the delay counts; past the end it completes) and applies the values there at once, also while it is paused: scrub an animation to a given time to inspect it. Backwards works while the tween is active. Throws on a tween that is complete or cancelled.
+     * @since 0.4.0
+     */
+    seek(seconds: number): this;
+    /**
      * Adds a completion callback.
+     * @since 0.2.0
      */
     onComplete(fn: (tween: Tween) => void): this;
     /**
      * Starts another tween when this one completes (chain): `tween(a, {x: 1}).next(a, {y: 1}).next(b, {a: 0})`. Returns the NEW tween. Cancelling this one cancels the chain.
+     * @since 0.2.0
      */
     next(target: object, props: object, options?: TweenOptions): Tween;
   }
 
   /**
    * Built-in easing functions.
+   * @since 0.2.0
    */
   export const ease: EaseAPI;
+
+  /**
+   * The choice closest to `word` (case-insensitive edit distance, accepted when within about a third of the word's length, at least 2), or "" when none is near. For errors that teach: `const near = didYouMean(id, goodIds); throw new ToolError(`unknown good '${id}'`, near ? `Did you mean '${near}'?` : "")`. Example: didYouMean("woood", ["wood", "stone"]) is "wood".
+   * @since 0.3.0
+   */
+  export function didYouMean(word: string, choices: readonly string[]): string;
 
   /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).
@@ -2186,16 +4731,46 @@ declare module "factoria" {
 
   /**
    * Moves numbers, vectors and colors of `target` to the end values in `props` over time. Targets: a component view (`tween(sprite, {color: "#ff0000"})`), a vector (`tween(entity.position, {y: 5})`), a color, or a plain object. A vector end value is [x, y, z], {x, y, z} or a Vec; a color is "#rrggbb", [r, g, b, a] or {r, g, b, a}. Start values are read when the delay ends. Driven by the game clock (fixed step, time.scale), never by the wall clock. Example: `await tween(entity.position, {y: 3}, {duration: 0.5, ease: "backOut"}).finished`.
+   * @since 0.2.0
    */
   export function tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween;
 
   /**
    * Tweens a plain number from `from` to `to`, calling options.onUpdate(value) every step (for a counter, a health bar value...).
+   * @since 0.2.0
    */
   export function tween(from: number, to: number, options: TweenOptions & { onUpdate: (value: number, tween: Tween) => void }): Tween;
 
   /**
+   * Controls every tween at once.
+   * @since 0.2.0
+   */
+  export namespace tween {
+    /**
+     * Freezes every tween, also those started later, until tween.resumeAll(). Values stay where they are, so an agent can set a pose and inspect it without a tween overwriting it. Each tween's own pause()/resume() is independent. A scene load resets it.
+     * @since 0.4.0
+     */
+    function pauseAll(): void;
+    /**
+     * Undoes tween.pauseAll().
+     * @since 0.4.0
+     */
+    function resumeAll(): void;
+    /**
+     * true after tween.pauseAll().
+     * @since 0.4.0
+     */
+    const paused: boolean;
+    /**
+     * Speed of every tween on top of time.scale (default 1, 0 freezes them, 0.5 is slow motion). Must be a number >= 0, anything else throws. A scene load resets it to 1.
+     * @since 0.4.0
+     */
+    let timeScale: number;
+  }
+
+  /**
    * Cancels every running tween, or only those whose target is `target`.
+   * @since 0.2.0
    */
   export function cancelTweens(target?: object): void;
 
@@ -2242,7 +4817,7 @@ declare module "factoria" {
     set scale(value: Vec3Like);
   }
   /**
-   * Renders the scene to the screen. The active camera with primary=true and the lowest depth draws the game (only one camera renders for now; split-screen/overlay cameras are on the roadmap). 3D cameras look down their local -Z axis.
+   * Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport (the whole screen by default), in ascending depth order: the lowest depth draws first and is "the" camera (camera.main; the bloom and colorFilter of the frame are its). Two or more cameras with their own viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, after all the cameras. 3D cameras look down their local -Z axis.
    * 
    * Category: Camera
    */
@@ -2273,19 +4848,40 @@ declare module "factoria" {
     get clearColor(): Color;
     set clearColor(value: ColorLike);
     /**
-     * Clear the target before drawing. Set false on overlay cameras that draw on top of another camera.
+     * Clear this camera's viewport to clearColor before it draws. Set false on an overlay camera that draws on top of what an earlier camera (a lower depth) drew in the same area. The first camera in depth order clears the whole target, also the part its viewport does not cover; a camera with clear false first in depth order keeps the previous frame under it.
      */
     clear: boolean;
     /**
-     * The first active primary camera renders the game.
+     * true: this camera renders (when it is active), into its viewport, in depth order with the other primary cameras. false: it does not render (an unused camera, or one a script switches on for a split screen).
      */
     primary: boolean;
     /**
-     * Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).
+     * Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. The lowest is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, colorFilter) use. Cameras with the same depth keep the order of creation.
      */
     depth: number;
     /**
-     * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace.
+     * The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post effects (bloom, colorFilter, bloomScreenSpace) are applied once to the finished frame with the settings of the lowest-depth camera; the other cameras' values are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and ignores this field.
+     * @since 0.3.0
+     */
+    get viewport(): Rect;
+    set viewport(value: RectLike);
+    /**
+     * Which rectangle the fractions of `viewport` count. screen (default): the whole game target, that is the design resolution, or the area the Expand scale mode grows it to for a window with another shape (the letterbox bars of the Fit modes are not part of it). design: the design resolution (display.designWidth x designHeight) from the top-left corner, which is where a UI laid out from anchor [0, 0] in design pixels sits, so a viewport of [430 / 1280, 84 / 720, 400 / 1280, 360 / 720] lands on the same pixels as a 400 x 360 Panel at [430, 84] even when Expand has grown the target. The two are the same in every mode but Expand. For a rectangle that follows a widget, use a CameraView.
+     * @since 0.3.0
+     */
+    viewportSpace: "screen" | "design";
+    /**
+     * What lights the 3D meshes this camera draws. scene (default): the Light entities, SceneSettings.ambientLight, the sky and environment colours and the fog of the scene. studio: a rig that follows the camera instead, whatever the scene holds and wherever the camera is: a warm key light from the upper left, a cool fill from the right, a rim light from behind, a neutral ambient and environment for reflections, no sky (the camera paints clearColor), no fog, no shadows. Scene lights do not reach the camera and a 2D lit sprite it draws is lit by the ambient alone (full brightness). Use it for an item turning on a stage in a menu (CameraView), or a portrait, that must look the same in a dark cellar and in a bright field. MeshRenderer.unlit meshes are not affected. Scale the rig with studioIntensity.
+     * @since 0.3.0
+     */
+    lighting: "scene" | "studio";
+    /**
+     * Only used when lighting is studio. Multiplies the brightness of the studio rig (the three lights, the ambient and the environment): 1 (default) shows a mid-grey surface at about its own colour, 0.5 is dimmer, 2 is bright and may wash out pale colours.
+     * @since 0.3.0
+     */
+    studioIntensity: number;
+    /**
+     * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several cameras the bloom settings of the lowest-depth camera apply to the whole frame.
      */
     bloom: boolean;
     /**
@@ -2305,10 +4901,21 @@ declare module "factoria" {
      */
     bloomScreenSpace: boolean;
     /**
-     * Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead.
+     * Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. With several cameras the lowest-depth camera's filter covers the whole frame.
      * @since 0.2.0
      */
     colorFilter: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
+    /**
+     * Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "book". The texture is the id "target:book" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a 3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active (entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so (a render loop needs two targets: A shows B and B shows A, each one frame late). There is no culling mask: the camera sees everything in its frustum, so put what a target shows (a 2D page with Text, Sprites, Buttons as world-space entities) away from the camera that shows the model. Screen-space UI (Panel, Button and the other widgets, space "screen" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, "Render targets"). Names are unique: a second camera with the same name is not drawn, with an error. "" (default) = the screen. Letters, digits, '_', '-' and '.', up to 64 characters.
+     * @since 0.9.0
+     */
+    renderTarget: string;
+    /**
+     * Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; memory is about width x height x 8 bytes (4 more per pixel with antialiasing).
+     * @since 0.9.0
+     */
+    get renderTargetSize(): Vec2;
+    set renderTargetSize(value: Vec2Like);
   }
   /**
    * Draws a textured (or solid color) quad. Use `region` to pick a frame from a sprite sheet. Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.
@@ -2317,7 +4924,7 @@ declare module "factoria" {
    */
   export interface SpriteComponent {
     /**
-     * Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. (asset path: texture)
+     * Project-relative path of the image (e.g. "assets/hero.png"). Empty draws a solid quad of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      */
     texture: string;
     /**
@@ -2381,7 +4988,7 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
-     * World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     * World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. How many lights shade a frame: see Light2D.
      * @since 0.2.0
      */
     lit: boolean;
@@ -2390,6 +4997,46 @@ declare module "factoria" {
      * @since 0.2.0
      */
     normalMap: string;
+    /**
+     * Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and a screen-space sprite; it also shears the picking box of the editor and the entity's bounds.
+     * @since 0.4.0
+     */
+    get skew(): Vec2;
+    set skew(value: Vec2Like);
+    /**
+     * Makes the sprite deformable: it is drawn as a grid of meshColumns x meshRows cells (so (meshColumns + 1) x (meshRows + 1) vertices) that textures `region` evenly, and `vertexOffsets` moves the vertices. Needs meshRows > 0 too. 0 (default) = a plain quad. A side above 128 is clamped to 128; a grid of more than 4096 cells (columns x rows) is drawn as a plain quad and a warning is logged once per scene. A bent page, a flag or cloth is ONE entity with e.g. 16 columns x 1 row or 8 x 8. A deformable sprite ignores `slice` (9-slice). It costs one quad per cell, still in the sprite's batch: draw calls do not grow.
+     * @since 0.4.0
+     */
+    meshColumns: number;
+    /**
+     * Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad.
+     * @since 0.4.0
+     */
+    meshRows: number;
+    /**
+     * Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter array leaves the vertices it does not name in place; extra numbers are ignored; a value that is not a number counts as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.4.0
+     */
+    vertexOffsets: any;
+    /**
+     * Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied with `color` (and Tint), blended smoothly across each cell. A flat array of numbers [r0, g0, b0, a0, r1, g1, b1, a1, ...], components 0..1, one RGBA per vertex in the order of `vertexOffsets` (row by row from the TOP row, left to right): vertex (column c, row r) starts at index (r * (meshColumns + 1) + c) * 4. The length must be exactly (meshColumns + 1) * (meshRows + 1) * 4: a scene or prefab with another length is an error naming the length it needs, and a script that writes a wrong length gets one warning and the colours are ignored. A bent page gets its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in light. Write the whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with SpriteSkin. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.9.0
+     */
+    vertexColors: any;
+  }
+  /**
+   * Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. Put it on the root of a group to fade it out (color [1, 1, 1, 0.5]), turn it red (a damage flash), or darken a whole room, without touching each visual. The tints of an entity and all its ancestors multiply together, so nested groups compose; alpha is multiplied too (a 0.5 inside a 0.5 shows at 0.25), and a visual whose resulting opacity is 0 is not drawn. It multiplies the colours the visual already has (Sprite.color, Shape2D.color and color2 and every gradient stop, Text.color, Tilemap.color, a particle's own colour over its life, Panel.color) and does not affect 3D MeshRenderer, lights, the debug draw or the camera. Entities without a Tint ancestor cost nothing extra: the renderer only walks the parents when at least one Tint exists in the scene.
+   * 
+   * Category: 2D
+   * @since 0.4.0
+   */
+  export interface TintComponent {
+    /**
+     * RGBA multiplied into the colour of the visuals of this entity and its descendants. [1, 1, 1, 1] (default) changes nothing. Alpha is a group opacity: [1, 1, 1, 0.5] draws the group at half opacity (each visual is faded on its own, so overlapping visuals of the group still show through one another). Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since 0.4.0
+     */
+    get color(): Color;
+    set color(value: ColorLike);
   }
   /**
    * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
@@ -2427,7 +5074,7 @@ declare module "factoria" {
     readonly offset: Vec2;
   }
   /**
-   * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights nearest to the camera. The light sits at the entity's position (Transform) and ignores layers.
+   * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -2474,15 +5121,20 @@ declare module "factoria" {
      * @since 0.2.0
      */
     elevation: number;
+    /**
+     * Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false.
+     * @since 0.3.0
+     */
+    castShadows: boolean;
   }
   /**
-   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left.
+   * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}.
    * 
    * Category: 2D
    */
   export interface SpriteAnimatorComponent {
     /**
-     * Number of columns in the sprite sheet grid.
+     * Number of columns in the sprite sheet grid. With `clip`, set it (not 1) only to override the sheet entry.
      */
     columns: number;
     /**
@@ -2502,13 +5154,38 @@ declare module "factoria" {
      */
     fps: number;
     /**
-     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame.
+     * Restart from firstFrame after lastFrame. If false the animation stops on the last frame and sends `clipEnded`. With `clip`, false overrides a looping clip; true (the default) leaves the clip's own loop.
      */
     loop: boolean;
     /**
      * Set false to pause, true to play.
      */
     playing: boolean;
+    /**
+     * Name of a clip of the Sprite texture's `sheet` entry in assets.json ("run"); "" = none, the numeric fields alone. Changing it restarts the animation. A name the sheet does not have is an error that lists the clips ("did you mean"): `factoria validate` finds it in scenes, a script's play(name) throws it, a running game logs it once and shows the first frame.
+     * @since 0.6.0
+     */
+    clip: string;
+    /**
+     * Order of the frames: forward (first to last), reverse (last to first) or pingpong (first to last and back, without repeating the end frames). A pingpong clip that does not loop stops back on the first frame.
+     * @since 0.6.0
+     */
+    mode: "forward" | "reverse" | "pingpong";
+    /**
+     * true = the pivot recorded in the sheet entry (or the clip's own pivot) is used as Sprite.pivot while the Sprite's own pivot is the default centre [0.5, 0.5]; a Sprite that sets another pivot keeps it. The sheet stores it from the TOP-left of the frame, Sprite.pivot counts from the bottom-left, so y is flipped. false = never touch the pivot.
+     * @since 0.6.0
+     */
+    sheetPivot: boolean;
+    /**
+     * Runtime state: a non-looping clip reached its end (clipEnded was sent).
+     * @since 0.6.0
+     */
+    ended: boolean;
+    /**
+     * Runtime state: the clip `time` counts in.
+     * @since 0.6.0
+     */
+    playedClip: string;
     /**
      * Runtime state: seconds elapsed in the current clip.
      */
@@ -2517,6 +5194,96 @@ declare module "factoria" {
      * Runtime state: current frame index.
      */
     frame: number;
+  }
+  /**
+   * A bone of a 2D skeleton, on a plain entity of the hierarchy (docs/ANIMATION.md, "Bones and IK"). The bone starts at the entity's origin and runs `length` units along its local +X axis, so its tip is where a child bone is usually put (position [length, 0]). Bones nest by being children of each other; a clip, a script or IK2D poses a bone through its Transform (rotation.z turns it, position and scale move and stretch it). A SpriteSkin deforms a Sprite's mesh with the bones; the editor draws the bones of the selection, and `debug.bones()` draws them in a game.
+   * 
+   * Category: 2D
+   * @since 0.7.0
+   */
+  export interface Bone2DComponent {
+    /**
+     * How far the bone runs along the entity's local +X axis, from its origin to its tip, in local units (the entity's Transform.scale stretches it). The tip is where the weights of a SpriteSkin and the IK2D solvers measure to. 32 by default.
+     * @since 0.7.0
+     */
+    length: number;
+    /**
+     * The lowest Transform.rotation.z (degrees, in the parent's frame) IK2D may give this bone. Only IK2D keeps a bone inside the limits: a clip or a script can pose it anywhere. With maxAngle - minAngle of 360 or more (the default -180 .. 180) the bone is free. Example: a knee that only bends one way is minAngle 0, maxAngle 150.
+     * @since 0.7.0
+     */
+    minAngle: number;
+    /**
+     * The highest Transform.rotation.z (degrees, in the parent's frame) IK2D may give this bone; see minAngle.
+     * @since 0.7.0
+     */
+    maxAngle: number;
+  }
+  /**
+   * Deforms the Sprite on the same entity with bones (docs/ANIMATION.md, "Bones and IK"): each vertex of the sprite's 2D mesh follows up to 4 bones, so one picture bends at an elbow or a tail without cutting it in pieces. The mesh is the Sprite's meshColumns x meshRows grid, or with `outline` a grid cut to the texture's opaque pixels. The skin remembers where the bones were when it was bound (`bindPose`: the first time the engine sees it, so pose the bones at rest in the scene; write `bindPose` as [] to bind again at the current pose). A bone that moves from its bind pose drags its vertices with it; at the bind pose the sprite looks exactly as without a skin. It is deformed on the CPU into the sprite's own batch: no extra draw call and no shader. World-space sprites only. Needs Sprite.meshColumns / meshRows or `outline`; Sprite.vertexOffsets still apply (before the bones) and Sprite.skew after them.
+   * 
+   * Category: 2D
+   * @since 0.7.0
+   */
+  export interface SpriteSkinComponent {
+    /**
+     * The bones that move this sprite: an array of strings, each the id of a Bone2D entity ("hip") or the name of one, or a path of names ("skeleton/arm/hand"). A name or path is looked up under the sprite's entity, then under its parent, then under the grandparent and so on, so a character prefab can be instanced many times; an id is looked up in the whole scene. The order is the bone index of `weights` and `bindPose`. At most 64 bones. A name that finds no Bone2D is logged once, with a "did you mean", and that bone is left out. [] = no skin. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.7.0
+     */
+    bones: any;
+    /**
+     * How the vertices follow the bones. "auto" (default): each vertex follows the nearest bones (at most 4), weighted by 1 / (distance to the bone's segment)^2 from the bind pose, so a vertex on a bone follows it alone and one between two joints blends them; it is the same every run. Or an array with one entry per grid vertex, in the order of Sprite.vertexOffsets (row by row from the TOP row, left to right; with `outline` the full grid, vertices the outline leaves out are skipped): an entry is [bone, weight, bone, weight, ...] with up to 4 pairs, `bone` an index into `bones`, weights normalised to 1; a missing or empty entry leaves the vertex where it is. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.7.0
+     */
+    weights: any;
+    /**
+     * Where each bone was when the skin was bound, relative to the sprite: 6 numbers [a, b, c, d, tx, ty] per bone (the bone's 2D matrix in the sprite's local space). The engine writes it the first time it sees the skin; [] binds again, at the pose the bones have then. If its length does not match `bones` it is recorded again. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.7.0
+     */
+    bindPose: any;
+    /**
+     * true: instead of Sprite.meshColumns / meshRows, the mesh is a grid of outlineDetail cells along the sprite's longer side, keeping only the cells that hold opaque pixels (alpha above 5%) of the texture's region, so a thin limb or a tail costs vertices where it is and transparent corners cost nothing. Needs the texture as an image file in the project (png, jpg, tga, bmp): a texture an export packed into an atlas, a `.ktx2` only or a picture made at run time draws the full grid instead, with one warning. Hot reload of the texture retraces it.
+     * @since 0.7.0
+     */
+    outline: boolean;
+    /**
+     * outline only: how many cells the grid has along the sprite's longer side (the shorter side gets as many as keep the cells square). More cells follow the shape closer and deform smoother, at one quad per kept cell. 16 by default.
+     * @since 0.7.0
+     */
+    outlineDetail: number;
+  }
+  /**
+   * Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the hand, the foot) and name a `target`; every fixed step, after the animators have posed the bones and before the frame is drawn, the bones from this one up through its parents are turned so the tip of this bone reaches the target entity's position, within each bone's minAngle / maxAngle. Feet on the ground, a hand on a lever, a head that looks at something (docs/ANIMATION.md, "Bones and IK"). The solvers are deterministic. A target out of reach leaves the chain straight, pointing at it. With several IK2D they solve in the order their components were added. IK2D rewrites the bones' rotation.z each step: the animator (or you) pose the bones before it, it adjusts them.
+   * 
+   * Category: 2D
+   * @since 0.7.0
+   */
+  export interface IK2DComponent {
+    /**
+     * Id of the entity to reach: the tip of this bone (its origin plus Bone2D.length along its +X) is brought to the target's world position. Empty = the component does nothing.
+     * @since 0.7.0
+     */
+    get target(): Entity | null;
+    set target(value: EntityLike);
+    /**
+     * ccd: how many bones turn, this one and its parents upward (each must have a Bone2D and be the parent of the one before). twoBone ignores it: it always turns this bone and its parent. 2 by default.
+     * @since 0.7.0
+     */
+    chainLength: number;
+    /**
+     * twoBone: which way the middle joint (the elbow, the knee) bends. positive = this bone's rotation.z ends up counter-clockwise (greater) from the one above it, negative = clockwise. A character facing right with a knee in front usually wants one of them; flipping the whole character (a negative Transform.scale.x) is taken into account, so the knee stays in front.
+     * @since 0.7.0
+     */
+    bend: "positive" | "negative";
+    /**
+     * 0 to 1. 1 = the chain takes the solved pose; 0 = the animated pose stays; in between blends each bone's angle the short way round. Fade it in while a foot is planted, out in the air.
+     * @since 0.7.0
+     */
+    weight: number;
+    /**
+     * twoBone: an exact solution for two bones (a leg, an arm), reaches whenever the target is within the two bones' length and honours `bend`. ccd: Cyclic Coordinate Descent, any chain of chainLength bones (a tail, a tentacle, a spine); it converges in at most 24 sweeps, bends where the limits allow and ignores `bend`.
+     * @since 0.7.0
+     */
+    solver: "twoBone" | "ccd";
   }
   /**
    * Untextured 2D primitive for prototypes, UI panels and debug visuals.
@@ -2529,7 +5296,7 @@ declare module "factoria" {
      */
     shape: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star";
     /**
-     * rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.
+     * rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin. In screen space (space "screen", +Y down) a line's size.y points UP, unlike the size.y of Panels, Texts and Sprites, which grows downwards: size [100, 40] ends 100 px right and 40 px above the start, [100, -40] ends below it. A chart bar is a rectangle, not a line: give it pivot [0, 1] so size [w, h] hangs w right and h down from its position.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -2586,10 +5353,46 @@ declare module "factoria" {
      */
     innerRadius: number;
     /**
-     * World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     * World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D.
      * @since 0.2.0
      */
     lit: boolean;
+    /**
+     * rectangle only: radius of the rounded corners in world units, antialiased (a button, a card, a page). Clamped to half the shorter side, so a large value makes a pill. 0 (default) = square corners, drawn as before. Other shapes ignore it.
+     * @since 0.4.0
+     */
+    cornerRadius: number;
+    /**
+     * rectangle and circle only: width in world units of a blurred edge, centred on the shape's outline (half of it fades in inside the outline, half outside, so the shape's footprint grows by softness / 2 on every side). Turns a shape into a soft drop shadow (a dark translucent rounded rectangle, a little offset, softness 12-30), a vignette or a light pool (a circle with softness near its diameter and an additive blend). Follows cornerRadius; works with filled = false (a blurred ring) and with a gradient. 0 (default) = a crisp, antialiased edge, as before. Triangles, diamonds, polygons, stars and lines ignore it (draw a circle or rectangle for a soft shape).
+     * @since 0.4.0
+     */
+    softness: number;
+    /**
+     * rectangle and circle fill only (filled = true): none (default) = flat `color`. linear = `color` blends to `color2` along the direction gradientAngle, from the box edge to the opposite edge (paper shading, a gutter, a sky). radial = `color` at the centre blends to `color2` at the edge of the shape's box (a vignette, a light pool, a glow); outside the box's inscribed ellipse it stays color2. The blend is computed per pixel (and dithered), so it is smooth with no banding, in one entity. Alpha is blended too (premultiplied, so a transparent color2 fades color out without greying it): make color2 transparent to fade out. A gradient whose `color` is transparent still draws when `color2` is not (the vignette); the shape is skipped only when every colour it uses is fully transparent. Ignored by outlines and by the other shapes.
+     * @since 0.4.0
+     */
+    gradient: "none" | "linear" | "radial";
+    /**
+     * gradient only: the colour at the end of the gradient (the right/top end of a linear one, the edge of a radial one). `color` is the start. Include its alpha: [0, 0, 0, 0] fades `color` to nothing.
+     * @since 0.4.0
+     */
+    get color2(): Color;
+    set color2(value: ColorLike);
+    /**
+     * linear gradient only: direction in degrees, measured like a rotation (counter-clockwise, y up in world space): 0 = `color` on the left to `color2` on the right, 90 = `color` at the bottom to `color2` at the top, 270 = top to bottom. The gradient spans the shape's box exactly from corner to corner and turns with the entity. In screen space, where y is down, 90 still goes bottom to top on the screen.
+     * @since 0.4.0
+     */
+    gradientAngle: number;
+    /**
+     * gradient only: more than two colours. An array of [position, colour] pairs, position 0..1 along the gradient (0 = where `color` was, 1 = the far end or the edge of a radial one), colours as [r,g,b,a], "#rrggbb" or a name, e.g. [[0, "#000000cc"], [0.6, [0, 0, 0, 0.25]], [1, [0, 0, 0, 0]]] for a soft shadow that dies out slowly. Up to 8 stops (the others are ignored), sorted by position for you; before the first stop and after the last one the gradient keeps that stop's colour. Alpha blends like `color` -> `color2` (premultiplied). With stops, `color` and `color2` are not used for the fill, and the shape is skipped only when every stop is fully transparent. [] (default) = the two-colour gradient `color` -> `color2`. The colours are baked into a 256-step ramp (one row of a shared texture per distinct ramp, at most 256 ramps at once), so the cost is the same as a two-colour gradient, shapes with equal ramps still batch, and a script may change the stops every frame. An entry that is not [number, colour] is skipped with one warning. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.4.0
+     */
+    gradientStops: any;
+    /**
+     * gradient only: the curve the position follows before the colours are looked up, which removes the visible kink where a linear fade meets its end. The names are those of the script tween easings (docs/ANIMATION.md). linear (default) = even steps. A soft shadow or vignette that fades `color` -> a transparent `color2` looks natural with quadOut/cubicOut (fast start, long gentle tail, no edge) or smoothstep (no kink at either end); quadIn/cubicIn hold the start colour longer. It applies to the two-colour gradient and to gradientStops alike (stop positions are on the curve's input side: a stop at 0.5 is where the eased position is 0.5). The shape costs the same as a linear gradient.
+     * @since 0.4.0
+     */
+    gradientEase: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut";
   }
   /**
    * Draws a string with a TrueType font (or the built-in font). Works in world and screen space.
@@ -2608,24 +5411,29 @@ declare module "factoria" {
     key: string;
     /**
      * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.3.0
      */
     keyArgs: any;
     /**
-     * Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic, Hebrew, Arabic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). (asset path: font)
+     * Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic, Hebrew, Arabic). Other built-in fonts, by name: "builtin:pixel" (Press Start 2P, retro), "builtin:serif" (Crimson Text, a book serif with real bold, italic and bold italic), "builtin:hand" (Kalam, handwriting, with bold), "builtin:blackletter" (UnifrakturMaguntia, for titles) and "builtin:display" (IM Fell English, old print, with italic); the four after the pixel font have no Greek, Cyrillic, Hebrew or Arabic (those fall back to DejaVu Sans) and an export ships just the ones a project names (docs/TEXT.md, "Built-in fonts"). Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). (asset path: font)
      */
     font: string;
     /**
-     * Glyph height in world units (pixels in 2D).
+     * Glyph height in world units (pixels in 2D, meters in a 3D scene). A world Text may be tiny: 0.07 is 7 cm. The glyphs are rasterized for the size they have ON SCREEN, not for this number, so small world text stays sharp. Screen-space text is in design pixels (use 1 or more). docs/TEXT.md, "Text in a 3D scene".
      */
     fontSize: number;
+    /**
+     * World space only: true = the text is shaded by the scene's 3D lights (Light entities and SceneSettings.ambientLight) like a lit material, so gold lettering on a book cover darkens with the shading. The text is a flat surface facing its +Z (the side you read it from; seen from behind it uses the facing side); directional, point and spot lights are summed ONCE per Text, at the text's origin, and multiply `color` (and the colours and pictures of a rich text): no shadows, no per-pixel variation. false (default) = drawn unlit, exactly `color`. Ignored in screen space and under a Camera with lighting "studio". For a Text under 2D lights use a Sprite or Shape2D with `lit`.
+     * @since 0.9.0
+     */
+    lit: boolean;
     /**
      * Text color.
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Horizontal alignment of lines inside the text box. left / right are always the left / right edge, even for right-to-left text. start / end follow the current language: start = left and end = right in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left languages (i18n.direction); use them for text that must read from its start side.
+     * Horizontal alignment of lines inside the text box. left / right are always the left / right edge, even for right-to-left text. start / end follow the current language: start = left and end = right in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left languages (i18n.direction), or when `direction` is rtl; use them for text that must read from its start side.
      */
     align: "left" | "center" | "right" | "start" | "end";
     /**
@@ -2639,24 +5447,49 @@ declare module "factoria" {
     maxWidth: number;
     /**
      * Box height in the same units as maxWidth that autoShrink fits the text into: a card title with maxWidth 200 and maxHeight 30 stays on one line at any text size by shrinking. 0 (default) = only the width counts. Nothing is clipped or wrapped by it; it only drives autoShrink and ui.overflowed(id).
-     * @since unreleased
+     * @since 0.3.0
      */
     maxHeight: number;
     /**
      * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
-     * @since unreleased
+     * @since 0.3.0
      */
     autoShrink: boolean;
     /**
      * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
-     * @since unreleased
+     * @since 0.3.0
      */
     minFontSize: number;
     /**
      * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
-     * @since unreleased
+     * @since 0.3.0
      */
     maxTextScale: number;
+    /**
+     * true: the text reads tags: [b]bold[/b], [i]italic[/i] (the italic face of the font: factoria.json text.fonts "italic", or the built-in family's own, e.g. builtin:serif), [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text".
+     * @since 0.3.0
+     */
+    markup: boolean;
+    /**
+     * true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. builtin:serif, builtin:hand and builtin:display bring real bold or italic faces of their own. [b] in markup does the same for a part of the text. false (default): regular weight.
+     * @since 0.3.0
+     */
+    bold: boolean;
+    /**
+     * Base direction of the paragraphs (Unicode bidi). auto (default): the first strong letter decides, except that a Text with a localization key (`key`) takes the language's direction (i18n.direction), so a Hebrew line that starts with a key name or a {placeholder} filled with Latin text is still a right-to-left line, with no U+200F mark in the string. ltr / rtl: the paragraph runs that way whatever its first letter is. The direction also says which edge `align: start` is (rtl: the right one); the glyphs of a line keep their reading order whatever the alignment. Widget labels with a `key` follow the language the same way.
+     * @since 0.3.0
+     */
+    direction: "auto" | "ltr" | "rtl";
+    /**
+     * Where a wrapped line (maxWidth > 0) may end inside a run of letters with no space. auto (default): Korean keeps its words (Hangul lines end at spaces only, as Korean is written for screens), Chinese and Japanese break between any two characters (kinsoku keeps closing punctuation off the start of a line). normal: Hangul also breaks between syllables. keepAll: Hangul, Chinese and Japanese all break at spaces only; a run longer than maxWidth then overflows the box instead of splitting. No effect without maxWidth.
+     * @since 0.3.0
+     */
+    wordBreak: "auto" | "normal" | "keepAll";
+    /**
+     * Typewriter reveal. -1 (default) draws the whole text. n >= 0 draws only its first n characters, counted in grapheme clusters (a letter with its accents, an emoji sequence or a Hangul syllable is one; spaces and line breaks count, the tags of `markup` do not and a [icon:name] picture is one). The text is laid out as a whole and only clipped, so the box, its wrapping, its alignment, ui.rectOf and a Panel that fits it keep the size of the full line while it reveals, and no word jumps to the next line. Reveal order is the order of the text, so a right-to-left line appears from its right end. Raise it from a script a few characters per second; a value above the length shows everything.
+     * @since 0.3.0
+     */
+    visibleCharacters: number;
     /**
      * Draw order. Higher layers draw on top. Text defaults above sprites.
      */
@@ -2692,9 +5525,34 @@ declare module "factoria" {
     get tileSize(): Vec2;
     set tileSize(value: Vec2Like);
     /**
+     * How the cells lie in the world. "orthogonal" (default): square tiles of tileSize, tile (col, row) at x = col * tileSize.x, y = -row * tileSize.y from the entity's top-left corner. "isometric": diamond tiles, tileSize.x wide and groundHeight (default tileSize.y) high, 2:1 for the usual 100 x 50. +col runs down-right and +row down-left on screen; the entity's position is the TOP corner of the map (the top vertex of tile (0, 0)), tile (col, row) has its centre at ((col - row) * tileSize.x / 2, -(col + row + 1) * groundHeight / 2). The tiles are one batched mesh drawn row by row from row 0 and left to right, which is back to front, so a tile covers the edge of the ones behind it. Collision (a diamond per solid tile), light occluders, nav.findTilePath points and scene.import_ascii objects all follow it; entity.tilemap.cellAt / cellToWorld convert between cells and world points for both projections.
+     * @since 0.3.0
+     */
+    projection: "orthogonal" | "isometric";
+    /**
+     * Isometric only. Height of the ground diamond, in world units: the rows of the map are groundHeight / 2 apart. 0 (the default) = tileSize.y, a tile image that is exactly the diamond (tileSize [100, 50]). Set it when the tile image is taller than the diamond because it also shows the side of a block or a low wall: tileSize [100, 65] with groundHeight 50 is a 100 x 50 diamond with 15 units of side below it.
+     * @since 0.3.0
+     */
+    groundHeight: number;
+    /**
+     * Isometric only. How far the top corner of the ground diamond lies below the top edge of the tile image, in world units. 0 (the default) = the image starts at the diamond's top corner and anything taller hangs below it (a block side). Set it to the height of a tree or a wall that rises above the ground to draw the image that much higher: tileSize [100, 96], groundHeight 50, groundOffset 31 has 31 units above the diamond and 15 below.
+     * @since 0.3.0
+     */
+    groundOffset: number;
+    /**
      * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
     columns: number;
+    /**
+     * Pixels between the edge of the tileset image and its first tile (the border many tileset packers add). Default 0: tiles start at the corner of the image. Used for the tile's source rectangle, for the tile count and for the normal map.
+     * @since 0.3.0
+     */
+    margin: number;
+    /**
+     * Pixels between two neighbouring tiles of the tileset image (gutters, extruded borders). Default 0: tiles are packed edge to edge. With margin M and spacing S, tile (col, row) starts at (M + col*(tileSize.x+S), M + row*(tileSize.y+S)).
+     * @since 0.3.0
+     */
+    spacing: number;
     /**
      * Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it).
      */
@@ -2730,6 +5588,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     normalMap: string;
+    /**
+     * true: the tiles whose index is in solidTiles block the light of every Light2D with castShadows, so a wall hides what is behind it from the lamp (a cave, a dungeon, fog of war). The collision and the shadow use the same solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap needs no `lit` itself to cast. Default false.
+     * @since 0.3.0
+     */
+    occludesLight: boolean;
   }
   /**
    * Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color over their lifetime.
@@ -2846,15 +5709,15 @@ declare module "factoria" {
    */
   export interface MeshRendererComponent {
     /**
-     * Built-in shape name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad") or a project-relative path to a .gltf/.glb model (e.g. "assets/models/ship.glb").
+     * Built-in shape name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad") or a project-relative path to a .gltf/.glb model (e.g. "assets/models/ship.glb"), or the `id` ("mesh:3") of a procedural mesh a script made with mesh.create() (it lives as long as the scene: a scene load releases it).
      */
     mesh: string;
     /**
-     * Base color texture. Empty = none (or the glTF material). (asset path: texture)
+     * Base color texture. Empty = none (or the glTF material). "target:<name>" shows the live picture of the Camera whose `renderTarget` is that name (a screen, a mirror, the page of a book; docs/RENDERING.md, "Render targets"). A pointer over the mesh reaches the Interactables of that camera. (asset path: texture)
      */
     texture: string;
     /**
-     * Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. (asset path: texture)
+     * Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. Takes "target:<name>" like `texture`. (asset path: texture)
      * @since 0.2.0
      */
     normalMap: string;
@@ -2904,13 +5767,13 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. An entity without overrides batches with the others that share the material. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures (a path, or "target:<name>" for the live picture of a render-target camera). Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. An entity without overrides batches with the others that share the material. Returns a plain-object COPY; assign a new value to write.
      * @since 0.2.0
      */
     materialParams: any;
     /**
      * Per-material colours of a glTF model, an object keyed by glTF material name: {"Body": [0.2, 0.8, 0.7, 1]}. The colour REPLACES that material's baseColorFactor on its sub-meshes (the texture still multiplies it) and `color` still multiplies the result, so `color` stays the tint of the whole model. Materials not named keep their own colour. Names come from the model (the sub-mesh keeps its material name from import); `factoria validate` checks them and suggests the right one for a typo. Ignored by built-in shapes. Entities that differ only in materialColors are drawn in separate batches. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.3.0
      */
     materialColors: any;
   }
@@ -2947,7 +5810,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
+   * Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
    * 
    * Category: 3D
    * @since 0.2.0
@@ -2959,10 +5822,15 @@ declare module "factoria" {
      */
     model: string;
     /**
-     * Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported).
+     * Name of the clip playing now: a glTF animation, or a key of `clips` (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported), or, for 2D clips, the fields rest where they were before the first clip drove them.
      * @since 0.2.0
      */
     clip: string;
+    /**
+     * Keyframed 2D clips, an object name -> project-relative *.anim.json path, such as {"walk": "anim/hero_walk.anim.json", "idle": "anim/hero_idle.anim.json"} (docs/ANIMATION.md, "2D clips"). Used when the Animator has no glTF `model` (and the MeshRenderer on the entity is not a glTF): `clip`, `states` and play() then name these. A clip animates fields of this entity and its descendants (found by EntityInfo name); those fields are a runtime pose that scene.save does not write. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.7.0
+     */
+    clips: any;
     /**
      * Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.
      * @since 0.2.0
@@ -2998,6 +5866,11 @@ declare module "factoria" {
      * @since 0.2.0
      */
     transitions: any;
+    /**
+     * 2D clips only: layers played at the same time as the main clip, an array of {name, clip | states (with transitions and state, like the Animator's own), weight (0..1, default 1), mode ("override" blends toward the layer's pose, "additive" adds the layer's change from its first pose; default override), mask (paths such as ["body/arm_l"]: the layer drives only the parts under them; empty = all), speed (default 1), loop}. Layers apply in order over the main clip. A layer at weight 0 is not playing; it starts from its first pose when its weight rises. Example: [{"name": "arms", "clip": "shoot", "mask": ["body/arm_l"]}]. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.7.0
+     */
+    layers: any;
     /**
      * Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. Returns a plain-object COPY; assign a new value to write.
      * @since 0.2.0
@@ -3083,6 +5956,11 @@ declare module "factoria" {
      */
     get offset(): Vec2;
     set offset(value: Vec2Like);
+    /**
+     * false = the collider is switched off: raycasts and overlap queries pass through it, it makes no contacts or trigger events, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on).
+     * @since 0.3.0
+     */
+    enabled: boolean;
     /**
      * true = sensor: reports overlaps (onTriggerEnter/Exit) but does not block movement.
      */
@@ -3298,7 +6176,7 @@ declare module "factoria" {
      */
     height: number;
     /**
-     * convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn.
+     * convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform), or the `id` ("mesh:3") of a procedural mesh made with mesh.create() (the collider is rebuilt whenever the mesh is updated). Use the same value as the MeshRenderer so the collider matches what is drawn.
      * @since 0.2.0
      */
     mesh: string;
@@ -3307,6 +6185,11 @@ declare module "factoria" {
      */
     get offset(): Vec3;
     set offset(value: Vec3Like);
+    /**
+     * false = the collider is switched off: raycasts, shape casts and overlap queries pass through it, it makes no contacts or trigger events and the NavMesh bake leaves it out, but the component and its settings stay. Writable at run time (a door that opened stops blocking, closing it turns the collider back on).
+     * @since 0.3.0
+     */
+    enabled: boolean;
     /**
      * true = sensor: reports overlaps but does not block movement.
      */
@@ -3329,12 +6212,12 @@ declare module "factoria" {
     mask: number;
     /**
      * true = a NavMesh3D does not bake this collider into the ground (a crate, a gate, a door that moves): it blocks the navigation cells it covers, plus the agent's radius, wherever it is NOW, and the affected cells are marked again each time it moves, so nav.findPath goes around it. Use it on anything that moves or is removed during play; static level geometry needs nothing.
-     * @since unreleased
+     * @since 0.3.0
      */
     navObstacle: boolean;
     /**
      * true = a NavMesh3D does not bake this collider either, but its TOP surface is walkable wherever it is NOW: put it on a kinematic body or a body held by a joint that characters stand on (a rope-bridge plank, a seesaw, a moving platform, a lift). The cells it covers are added to the navigation mesh and marked again each time it moves (only the cells it left and entered), and they join the ground around them within stepHeight, so nav.findPath crosses a bridge, rides a platform that is docked and says `disconnected` while it is away. The ground under it is blocked meanwhile. Surfaces steeper than maxSlope are not walkable. Wins over navObstacle when both are set.
-     * @since unreleased
+     * @since 0.3.0
      */
     navWalkable: boolean;
   }
@@ -3416,7 +6299,7 @@ declare module "factoria" {
     collideConnected: boolean;
     /**
      * Resistance to the two bodies turning relative to each other, per second: each physics sub-step the relative angular velocity (about the axis for a hinge, every axis for a ball joint) is divided by 1 + damping * dt. 0 (default) = free; 1 takes the swing out of a door in a few seconds; 2..5 stops a rope-bridge plank ringing. A chain of 3+ bodies already settles without it.
-     * @since unreleased
+     * @since 0.3.0
      */
     damping: number;
     /**
@@ -3426,7 +6309,7 @@ declare module "factoria" {
     readonly angle: number;
     /**
      * Runtime, read only: true while a motor (useMotor with a non-zero motorSpeed) cannot turn the joint: the relative speed stayed below a tenth of motorSpeed for a quarter of a second, e.g. a gate pushing against a wall, or a maxMotorTorque too low for the load. False when the hinge simply reached its limit. Scripts read it to open another way or raise the torque. Read-only.
-     * @since unreleased
+     * @since 0.3.0
      */
     readonly stalled: boolean;
   }
@@ -3486,22 +6369,22 @@ declare module "factoria" {
     set velocity(value: Vec3Like);
     /**
      * When true (default) a kinematic RigidBody3D the character stands on carries it: every physics step it moves with the platform's displacement (velocity, or a teleport by script) and turns about the platform's centre with its angularVelocity (the character also yaws with it). Set false and it stays where it is, so a moving platform slides out from under it and the script must carry it.
-     * @since unreleased
+     * @since 0.3.0
      */
     carriedByPlatforms: boolean;
     /**
      * When true (default) a character standing on a dynamic RigidBody3D presses on it with mass * gravity at its feet, every physics step: a seesaw tips towards the side it stands on, a bridge plank or a crate feels the load. Set false for a character that weighs nothing.
-     * @since unreleased
+     * @since 0.3.0
      */
     applyWeight: boolean;
     /**
      * Weight in kilograms pressed on the dynamic body below when applyWeight is on (see applyWeight).
-     * @since unreleased
+     * @since 0.3.0
      */
     mass: number;
     /**
      * How hard the character shoves the free dynamic bodies it walks into: 1 (default) gives them its own speed, 0.5 half of it, 0 none (they block it like a wall). A body held by a Joint3D (a seesaw on its pivot, a bridge plank, a door) is never shoved whatever the value.
-     * @since unreleased
+     * @since 0.3.0
      */
     pushStrength: number;
     /**
@@ -3519,63 +6402,63 @@ declare module "factoria" {
    * A navigation mesh for path finding on 3D ground. It is baked from the STATIC colliders (no RigidBody3D, or a static one) inside a box around this entity, when the scene loads (autoBake) or with the nav.bake command: the box is cut into cells of cellSize; a cell is walkable where the ground is not steeper than maxSlope, has agentHeight of free space above it and lies at least agentRadius from a wall or a drop; neighbouring cells connect when their heights differ by at most stepHeight. Then nav.findPath(from, to) in scripts (the nav.find_path command) returns the points of a path over it. A collider with Collider3D.navObstacle is not baked: it blocks the cells it covers while it is there; one with Collider3D.navWalkable (a bridge, a lift) adds its top surface while it is there, and NavLink3D entities add off-mesh links. The mesh is deterministic: the same colliders always give the same cells. See docs/NAVIGATION.md.
    * 
    * Category: Physics
-   * @since unreleased
+   * @since 0.3.0
    */
   export interface NavMesh3DComponent {
     /**
      * Size [x, y, z] in meters of the baked box, centred on the entity's world position; rotation and scale are ignored. Cover the whole level: ground outside is not walkable and the box edge counts as a drop. y must reach from below the lowest floor to above the highest head.
-     * @since unreleased
+     * @since 0.3.0
      */
     get size(): Vec3;
     set size(value: Vec3Like);
     /**
      * Width of one cell on the ground plane, meters. Smaller = finer paths, more memory and a slower bake (cells = x/cellSize * z/cellSize, at most 4 million). Walls thinner than half a cell can be missed.
-     * @since unreleased
+     * @since 0.3.0
      */
     cellSize: number;
     /**
      * Heights are rounded to a multiple of this, meters; a path is up to half of it above or below the true surface. Keep it at most stepHeight / 4.
-     * @since unreleased
+     * @since 0.3.0
      */
     cellHeight: number;
     /**
      * Radius in meters of the walker the mesh is made for: walkable cells stay this far from walls and drops, so a body of that radius never touches them. findPath with a bigger radius is an error (bake another NavMesh3D for the bigger agent).
-     * @since unreleased
+     * @since 0.3.0
      */
     agentRadius: number;
     /**
      * Height in meters of the walker; ground with less free space above it (under a low ceiling or table) is not walkable.
-     * @since unreleased
+     * @since 0.3.0
      */
     agentHeight: number;
     /**
      * Highest step in meters the walker climbs; a higher ledge is a wall. Match CharacterController3D.stepOffset.
-     * @since unreleased
+     * @since 0.3.0
      */
     stepHeight: number;
     /**
      * Steepest walkable ground in degrees; steeper ground is a wall. Match CharacterController3D.slopeLimit.
-     * @since unreleased
+     * @since 0.3.0
      */
     maxSlope: number;
     /**
      * true (default): bake when the scene loads and again when a static collider is added, moved or removed. false: only the nav.bake command bakes (and a scene without a bake has no paths).
-     * @since unreleased
+     * @since 0.3.0
      */
     autoBake: boolean;
     /**
      * false = nav.findPath ignores this mesh (and it is not baked).
-     * @since unreleased
+     * @since 0.3.0
      */
     enabled: boolean;
     /**
      * Runtime: how many cells can be walked on after the last bake (read only). Read-only.
-     * @since unreleased
+     * @since 0.3.0
      */
     readonly walkableCells: number;
     /**
      * Runtime: how many separate walkable areas the last bake found; two points in different areas have no path (read only). Read-only.
-     * @since unreleased
+     * @since 0.3.0
      */
     readonly regions: number;
   }
@@ -3583,23 +6466,23 @@ declare module "factoria" {
    * An off-mesh link of the NavMesh3D: a jump across a gap, a climb up a ladder, a drop off a ledge. The walkable cells do not join the two places, so this joins them: the link runs from this entity's world position to `end` (both are moved onto the nearest walkable cell). nav.findPath may take it, and its result lists where in `links` (the index of the point where the link starts and the link's entity), so a script makes the character jump or climb there; the next point is where it ends. See docs/NAVIGATION.md.
    * 
    * Category: Physics
-   * @since unreleased
+   * @since 0.3.0
    */
   export interface NavLink3DComponent {
     /**
      * World position [x, y, z] where the link ends. The entity's own world position is where it starts. Both ends must be within the NavMesh3D box and near walkable ground (agentRadius + two cells horizontally, about stepHeight up and agentHeight down); a link whose end is not is ignored, and nav.info says so.
-     * @since unreleased
+     * @since 0.3.0
      */
     get end(): Vec3;
     set end(value: Vec3Like);
     /**
      * true (default): the path may also go from `end` to the entity. false: one way only, from the entity to `end` (a drop, a jump that cannot be climbed back).
-     * @since unreleased
+     * @since 0.3.0
      */
     bidirectional: boolean;
     /**
      * Extra path length in meters added to the straight distance between the two ends. 0 = as long as the straight line; raise it so a path prefers walking around when that is not much longer.
-     * @since unreleased
+     * @since 0.3.0
      */
     cost: number;
   }
@@ -3643,7 +6526,7 @@ declare module "factoria" {
     range: number;
   }
   /**
-   * The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the primary camera is used.
+   * The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the first camera drawn is used (the primary camera with the lowest depth: player one's in a split screen).
    * 
    * Category: Audio
    */
@@ -3652,28 +6535,33 @@ declare module "factoria" {
      * Master volume multiplier for everything this listener hears.
      */
     volume: number;
+    /**
+     * Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener (gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener (no AudioListener component) the zoom is 1.
+     * @since 0.3.0
+     */
+    zoom: number;
   }
   /**
-   * Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above the world and above HUD Text; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.
+   * Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above the world and above HUD Text; the interface scale `ui.scale` (docs/SCRIPTING.md) multiplies every size, offset, padding, spacing and font size of them; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.
    * 
    * Category: UI
    * @since 0.1.6
    */
   export interface PanelComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
      * @since 0.1.6
      */
     get anchor(): Vec2;
@@ -3695,7 +6583,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -3706,17 +6594,32 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
+    /**
      * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot.
      * @since 0.1.6
      */
     layout: "none" | "row" | "column" | "grid";
     /**
-     * Gap in design pixels between children (a grid uses it on both axes).
+     * Gap in UI units between children (a grid uses it on both axes; `ui.scale` multiplies it).
      * @since 0.1.6
      */
     spacing: number;
     /**
-     * Space [left, top, right, bottom] between the panel's edge and its children.
+     * Space [left, top, right, bottom] in UI units between the panel's edge and its children (`ui.scale` multiplies it).
      * @since 0.1.6
      */
     get padding(): Vec3 & { w: number };
@@ -3742,15 +6645,37 @@ declare module "factoria" {
      */
     direction: "ltr" | "auto" | "rtl";
     /**
-     * true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); the pivot then decides which point of the fitted box stays on the position.
+     * true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); the pivot then decides which point of the fitted box stays on the position. The fitted size is still held between `minSize` and `maxSize`.
      * @since 0.1.6
      */
     fit: boolean;
+    /**
+     * Lower bound [w, h] of the panel's size in UI units; 0 on an axis = no bound. The size is raised to it, also when `fit` is true (a fitted panel never gets smaller than this, so a menu keeps one width while its texts change) and also when `layout` is none. Children are laid out inside the panel as clamped. `ui.scale` multiplies it like `size`.
+     * @since 0.3.0
+     */
+    get minSize(): Vec2;
+    set minSize(value: Vec2Like);
+    /**
+     * Upper bound [w, h] of the panel's size in UI units; 0 on an axis = no bound. The size is cut to it, also when `fit` is true (a fitted panel stops growing and its content overflows: use a ScrollList or `autoShrink`/`maxWidth` on the texts to keep it readable). When both bounds are set and cross, `minSize` wins. `ui.scale` multiplies it like `size`.
+     * @since 0.3.0
+     */
+    get maxSize(): Vec2;
+    set maxSize(value: Vec2Like);
     /**
      * true: every Button, Toggle and Slider with autoSize anywhere inside this panel (children, and the children of the panels and lists inside it; active ones only) takes the size of the largest of them, width and height separately, every layout. Widgets without autoSize keep their size and do not count. Use it for a grid of level buttons as wide as the widest label.
      * @since 0.2.0
      */
     uniformSize: boolean;
+    /**
+     * true: while this panel is active (in the hierarchy) it is a modal: the pointer, the wheel and keyboard / gamepad navigation reach only the widgets inside it (the panel and its descendants). Everything else under it gets no hover, press, click, focus, tooltip or drop, the focus leaves a widget outside and stays inside (an autoFocus widget in the panel takes it), `ui.pointerOverUi` is true everywhere so the game's own mouse handling stands down, and the wheel is consumed unless a ScrollList inside scrolls. With several modal panels active the one with the highest `layer` (the later entity on a tie) is the scope. It does not pause the game: a script that wants that holds the clock itself (the menu kit's card does, with its `holdClock` option). A fully transparent panel draws nothing and is not hit, but still scopes the input; give it a dim `color` as a backdrop to block clicks on the sprites too.
+     * @since 0.3.0
+     */
+    modal: boolean;
+    /**
+     * true: a `modal` panel leaves the mouse wheel to scripts instead of consuming it: input.mouse.wheel keeps reading what the player turned (a zoom in an inventory view that is a modal). A ScrollList inside the modal that has more to show still scrolls and keeps the wheel for itself, as before. Only the modal panel that scopes the input counts; no effect on a panel that is not modal.
+     * @since 0.3.0
+     */
+    wheelPassThrough: boolean;
     /**
      * Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen (none = never switch). The panel leaves the screen when its content size + padding, or the size of the outermost fit Panel around it, is wider than the screen and `layout` is row or grid, or taller and `layout` is column or grid. The deepest panels switch first, so a menu changes one level at a time until it fits; the choice is made again every frame, so it follows the text size and the language and goes back to `layout` when the texts shrink. Example: a column of two blocks with fallbackLayout "row" stands them side by side at a big text size; a row of buttons with fallbackLayout "column" stacks them. Scripts that must adapt read `usingFallback`.
      * @since 0.2.0
@@ -3770,19 +6695,19 @@ declare module "factoria" {
    */
   export interface ButtonComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
      * @since 0.1.6
      */
     get anchor(): Vec2;
@@ -3804,7 +6729,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -3815,18 +6740,33 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
+    /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
      */
     font: string;
     /**
-     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script.
      * @since 0.2.0
      */
     key: string;
     /**
      * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.3.0
      */
     keyArgs: any;
     /**
@@ -3836,7 +6776,7 @@ declare module "factoria" {
     fontSize: number;
     /**
      * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
-     * @since unreleased
+     * @since 0.3.0
      */
     maxTextScale: number;
     /**
@@ -3895,36 +6835,68 @@ declare module "factoria" {
     autoSize: boolean;
     /**
      * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
-     * @since unreleased
+     * @since 0.3.0
      */
     autoShrink: boolean;
     /**
      * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
-     * @since unreleased
+     * @since 0.3.0
      */
     minFontSize: number;
+    /**
+     * true: the text reads tags: [b]bold[/b], [i]italic[/i] (the italic face of the font: factoria.json text.fonts "italic", or the built-in family's own, e.g. builtin:serif), [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text".
+     * @since 0.3.0
+     */
+    markup: boolean;
+    /**
+     * true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. builtin:serif, builtin:hand and builtin:display bring real bold or italic faces of their own. [b] in markup does the same for a part of the text. false (default): regular weight.
+     * @since 0.3.0
+     */
+    bold: boolean;
+    /**
+     * Project-relative path of an icon image drawn inside the button, so a click on the icon presses the button. Empty (default) = no icon. See `iconPosition` for where it sits; `autoSize` and `autoShrink` count it. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
+     * @since 0.3.0
+     */
+    icon: string;
+    /**
+     * Part of `icon` to draw: [x, y, w, h] in texture pixels with the origin at the TOP-LEFT (a sprite-sheet frame). A zero size means the whole texture.
+     * @since 0.3.0
+     */
+    get iconRegion(): Rect;
+    set iconRegion(value: RectLike);
+    /**
+     * Size [w, h] the icon is drawn at, in design pixels (stretched from its region). Default [32, 32].
+     * @since 0.3.0
+     */
+    get iconSize(): Vec2;
+    set iconSize(value: Vec2Like);
+    /**
+     * left: the icon sits left of the label, the pair centred in the button. top: the icon sits above the label, the pair centred. alone: only the icon is drawn, centred, and the label is not shown. With `autoSize` the button grows to hold both (an icon-only button needs just the icon plus margins); with `autoShrink` the label shrinks to the room the icon leaves.
+     * @since 0.3.0
+     */
+    iconPosition: "left" | "top" | "alone";
   }
   /**
-   * Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.
+   * Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}. The box is one line of the label high (fontSize at the player's text size, times 1.2, plus 4 px), centred in the widget and never bigger than its height minus 12: a wrapped label or a taller widget does not make the box bigger. autoShrink and minFontSize shrink the label to the room right of the box.
    * 
    * Category: UI
    * @since 0.1.6
    */
   export interface ToggleComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
      * @since 0.1.6
      */
     get anchor(): Vec2;
@@ -3946,7 +6918,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -3957,18 +6929,33 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
+    /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
      */
     font: string;
     /**
-     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script.
      * @since 0.2.0
      */
     key: string;
     /**
      * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.3.0
      */
     keyArgs: any;
     /**
@@ -3978,7 +6965,7 @@ declare module "factoria" {
     fontSize: number;
     /**
      * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
-     * @since unreleased
+     * @since 0.3.0
      */
     maxTextScale: number;
     /**
@@ -4019,13 +7006,13 @@ declare module "factoria" {
      */
     readonly pressed: boolean;
     /**
-     * Text to the right of the box.
+     * Text to the right of the box, which follows the font size (see the Toggle description).
      * @since 0.1.6
      */
     label: string;
     /**
      * > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the toggle is at most maxWidth plus the box and margins wide and grows taller instead.
-     * @since unreleased
+     * @since 0.3.0
      */
     maxWidth: number;
     /**
@@ -4035,14 +7022,24 @@ declare module "factoria" {
     autoSize: boolean;
     /**
      * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
-     * @since unreleased
+     * @since 0.3.0
      */
     autoShrink: boolean;
     /**
      * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
-     * @since unreleased
+     * @since 0.3.0
      */
     minFontSize: number;
+    /**
+     * true: the text reads tags: [b]bold[/b], [i]italic[/i] (the italic face of the font: factoria.json text.fonts "italic", or the built-in family's own, e.g. builtin:serif), [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text".
+     * @since 0.3.0
+     */
+    markup: boolean;
+    /**
+     * true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. builtin:serif, builtin:hand and builtin:display bring real bold or italic faces of their own. [b] in markup does the same for a part of the text. false (default): regular weight.
+     * @since 0.3.0
+     */
+    bold: boolean;
     /**
      * true = checked. Scripts may write it; no event is sent for a write.
      * @since 0.1.6
@@ -4057,19 +7054,19 @@ declare module "factoria" {
    */
   export interface SliderComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
      * @since 0.1.6
      */
     get anchor(): Vec2;
@@ -4091,7 +7088,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -4102,18 +7099,33 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
+    /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
      */
     font: string;
     /**
-     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script.
      * @since 0.2.0
      */
     key: string;
     /**
      * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.3.0
      */
     keyArgs: any;
     /**
@@ -4123,7 +7135,7 @@ declare module "factoria" {
     fontSize: number;
     /**
      * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
-     * @since unreleased
+     * @since 0.3.0
      */
     maxTextScale: number;
     /**
@@ -4170,12 +7182,12 @@ declare module "factoria" {
     label: string;
     /**
      * > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = one line. With autoSize the slider grows taller for the extra lines.
-     * @since unreleased
+     * @since 0.3.0
      */
     maxWidth: number;
     /**
      * true: the label is drawn above the track on the slider's full width (wrapping at maxWidth or the width) and the track, knob and value sit in a row of 28 px at the bottom, so a long label does not squeeze the track. The slider needs a height of the label plus 28 px (autoSize adds it). false (default): the label is in the left 35%.
-     * @since unreleased
+     * @since 0.3.0
      */
     labelAbove: boolean;
     /**
@@ -4185,14 +7197,24 @@ declare module "factoria" {
     autoSize: boolean;
     /**
      * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
-     * @since unreleased
+     * @since 0.3.0
      */
     autoShrink: boolean;
     /**
      * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
-     * @since unreleased
+     * @since 0.3.0
      */
     minFontSize: number;
+    /**
+     * true: the text reads tags: [b]bold[/b], [i]italic[/i] (the italic face of the font: factoria.json text.fonts "italic", or the built-in family's own, e.g. builtin:serif), [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text".
+     * @since 0.3.0
+     */
+    markup: boolean;
+    /**
+     * true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. builtin:serif, builtin:hand and builtin:display bring real bold or italic faces of their own. [b] in markup does the same for a part of the text. false (default): regular weight.
+     * @since 0.3.0
+     */
+    bold: boolean;
     /**
      * Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write.
      * @since 0.1.6
@@ -4220,14 +7242,190 @@ declare module "factoria" {
     showValue: boolean;
     /**
      * Pattern of the shown value, e.g. "{v}%" or "{v:1}x". {v} is the value with up to 2 decimals (trailing zeros dropped), {v:N} the value with exactly N decimals (0 to 6), {percent} the value times 100 rounded to a whole number (a 0.3..1 opacity slider shows 30%..100% with "{percent}%"; {percent} does not depend on min and max). A doubled brace writes one brace; any other {name} is drawn as it is, so a typo is visible. Empty = the default of showValue. It sizes autoSize and draws in the value column only; ui.state `value` stays the number. Use formatKey for a pattern per language.
-     * @since unreleased
+     * @since 0.3.0
      */
     format: string;
     /**
      * Localization key whose translation is the pattern, written into `format` like `key` writes the label ("slider.percent": "{v} %" in French). "" = none. A key no table has is reported once and `format` stays as it is.
-     * @since unreleased
+     * @since 0.3.0
      */
     formatKey: string;
+  }
+  /**
+   * Makes this entity, whatever it is made of (sprites, shapes, text, children), a widget that joins the same focus, navigation and events as Button, Toggle and Slider: hover, press, click, focus, the arrow keys / d-pad (spatial navigation), ui_next / ui_previous (Tab), ui_submit / ui_cancel, Panel.modal scopes, game.click, ui.widgetAt and the ui.* commands find it by id. The hit area is `size` (a rectangle in the entity's local space) or, with size 0, the bounds of the entity and its children; in world space it is projected through the camera that draws there, so it follows parents that move, scale or rotate (a turning page, a swaying sign). An entity with screen-space visuals is a screen-space widget. An entity that is also a Button, Toggle, Slider, TextField, Panel or other UI-box component keeps that role and its Interactable is ignored. Draw the look with ordinary children and InteractableVisual (show, hide or tint per state). Events (ui.on): click (button), change (toggle / slider, value), focus, blur, hover (value true = entered, false = left), press and release (value true = released over it). A world-space widget under a screen-space widget (or outside a modal Panel) is not reached.
+   * 
+   * Category: UI
+   * @since 0.4.0
+   */
+  export interface InteractableComponent {
+    /**
+     * button: a click or ui_submit sends ui.click {id}. toggle: it flips `on` and sends ui.change {id, value: bool}. slider: dragging along the area or left / right (down / up with axis y) sets `value` and sends ui.change {id, value: number}.
+     * @since 0.4.0
+     */
+    kind: "button" | "toggle" | "slider";
+    /**
+     * false: the Disabled state. It is never hovered, focused, pressed or clicked and sends no events; a focused one loses focus. Visuals with when/disabled show.
+     * @since 0.4.0
+     */
+    enabled: boolean;
+    /**
+     * Same rule as Button.autoFocus: when NOTHING is focused the first widget with autoFocus (reading order of their areas on the screen) takes the keyboard / gamepad focus. Mark the first item of each menu.
+     * @since 0.4.0
+     */
+    autoFocus: boolean;
+    /**
+     * true: the pointer entering the widget moves the focus to it (once per entry, so the arrow keys still move it away). A widget that appears (or turns on) under a resting pointer counts as an entry. false (default, like the built-in widgets): the focus moves on a press.
+     * @since 0.4.0
+     */
+    focusOnHover: boolean;
+    /**
+     * Hit area [w, h] in the entity's LOCAL units, y up (screen space: UI units), so it scales and turns with the entity and its parents. [0, 0] (default) = the bounding box (in the entity's own frame) of the visuals of the entity and its active children, not counting InteractableVisual entities that Show/Hide with the state, a slider's knob and fill, and children that are Interactables themselves; an entity with no visuals then has no area and cannot be hit.
+     * @since 0.4.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Centre of the explicit area [x, y] from the entity origin, in local units. Ignored when size is [0, 0].
+     * @since 0.4.0
+     */
+    get offset(): Vec2;
+    set offset(value: Vec2Like);
+    /**
+     * auto (default): screen space when the entity or one of its children draws in screen space or has a UI box, else world space. world: the area is projected through the camera. screen: the area is in screen space (UI units; the anchor and safeArea of the entity's own screen-space Text, Sprite or Shape2D, else the top-left corner of the screen).
+     * @since 0.4.0
+     */
+    space: "auto" | "world" | "screen";
+    /**
+     * Toggle: the value. Scripts may write it; no event is sent for a write. Visuals with when on / off follow it.
+     * @since 0.4.0
+     */
+    on: boolean;
+    /**
+     * Slider: the value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write. `knob` and `fill` follow it every frame.
+     * @since 0.4.0
+     */
+    value: number;
+    /**
+     * Slider: the smallest value.
+     * @since 0.4.0
+     */
+    min: number;
+    /**
+     * Slider: the largest value.
+     * @since 0.4.0
+     */
+    max: number;
+    /**
+     * Slider: the keyboard / gamepad increment and the grid the value snaps to (also when dragging). 0 = continuous: keys move (max - min) / 20 per press.
+     * @since 0.4.0
+     */
+    step: number;
+    /**
+     * Slider: the track runs along the area's local x (min at the left end, max at the right) or local y (min at the bottom, max at the top). The area is the track: its length along the axis is the travel of the knob.
+     * @since 0.4.0
+     */
+    axis: "x" | "y";
+    /**
+     * Slider: id of the entity moved along the track so that it sits at the value (only its local position along `axis` is set, in the frame of its own parent: make it a child of this entity). Empty = none.
+     * @since 0.4.0
+     */
+    get knob(): Entity | null;
+    set knob(value: EntityLike);
+    /**
+     * Slider: id of the entity whose local scale along `axis` becomes the fraction (value - min) / (max - min), and whose position along the axis is the start of the track. Give it a pivot at its start (a Shape2D or Sprite with pivot [0, 0.5]) and the size of the whole track. Empty = none.
+     * @since 0.4.0
+     */
+    get fill(): Entity | null;
+    set fill(value: EntityLike);
+    /**
+     * Accessibility label, what ui.state reports as `text` and the read-aloud recipe speaks. Empty = the text of the first Text among the entity and its children. Overwritten by the translation while `key` is set.
+     * @since 0.4.0
+     */
+    label: string;
+    /**
+     * Localization key for `label` (docs/LOCALIZATION.md), like Button.key. Empty = not translated.
+     * @since 0.4.0
+     */
+    key: string;
+    /**
+     * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.4.0
+     */
+    keyArgs: any;
+    /**
+     * Runtime: has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     * @since 0.4.0
+     */
+    readonly focused: boolean;
+    /**
+     * Runtime: the pointer (mouse or first touch) is over it and it is the top-most widget there. Read-only.
+     * @since 0.4.0
+     */
+    readonly hovered: boolean;
+    /**
+     * Runtime: the pointer is held down on it. Read-only.
+     * @since 0.4.0
+     */
+    readonly pressed: boolean;
+    /**
+     * Runtime: the one state the visuals show: disabled (enabled is false), else pressed, else hover, else focused, else normal. Written by the UI every frame. Read-only.
+     * @since 0.4.0
+     */
+    readonly state: "normal" | "hover" | "pressed" | "focused" | "disabled";
+  }
+  /**
+   * Makes this entity follow the state of an Interactable with no script. Show: the entity is active only while `when` holds (a highlight on hover, a check mark when a toggle is on, a pressed sprite). Tint: the colour of its Sprite, Shape2D or Text (the first one it has) is set from the state every frame. Put it on a child of the Interactable or give `target`.
+   * 
+   * Category: UI
+   * @since 0.4.0
+   */
+  export interface InteractableVisualComponent {
+    /**
+     * Id of the Interactable to follow. Empty (default) = the nearest ancestor that has an Interactable.
+     * @since 0.4.0
+     */
+    get target(): Entity | null;
+    set target(value: EntityLike);
+    /**
+     * show: the entity is active only while `when` holds. tint: its colour follows the state (the colours below).
+     * @since 0.4.0
+     */
+    mode: "show" | "tint";
+    /**
+     * Show only. always: always active. normal: neither hovered, pressed, focused nor disabled. hover, pressed, focused: that flag is set (a hovered and focused widget shows both). highlighted: hovered OR focused (one look for the pointer and the keyboard / gamepad, so they never disagree). disabled: enabled is false. on / off: a toggle's `on` is true / false.
+     * @since 0.4.0
+     */
+    when: "always" | "normal" | "hover" | "pressed" | "focused" | "highlighted" | "disabled" | "on" | "off";
+    /**
+     * Tint: colour in the normal state.
+     * @since 0.4.0
+     */
+    get normal(): Color;
+    set normal(value: ColorLike);
+    /**
+     * Tint: colour while hovered (and not pressed).
+     * @since 0.4.0
+     */
+    get hover(): Color;
+    set hover(value: ColorLike);
+    /**
+     * Tint: colour while pressed.
+     * @since 0.4.0
+     */
+    get pressed(): Color;
+    set pressed(value: ColorLike);
+    /**
+     * Tint: colour while focused (and not hovered or pressed).
+     * @since 0.4.0
+     */
+    get focused(): Color;
+    set focused(value: ColorLike);
+    /**
+     * Tint: colour while the Interactable is not enabled.
+     * @since 0.4.0
+     */
+    get disabled(): Color;
+    set disabled(value: ColorLike);
   }
   /**
    * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
@@ -4237,19 +7435,19 @@ declare module "factoria" {
    */
   export interface TextFieldComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
      * @since 0.1.6
      */
     get anchor(): Vec2;
@@ -4271,7 +7469,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -4282,18 +7480,33 @@ declare module "factoria" {
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
+    /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
      * @since 0.1.6
      */
     font: string;
     /**
-     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script.
      * @since 0.2.0
      */
     key: string;
     /**
      * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.3.0
      */
     keyArgs: any;
     /**
@@ -4303,7 +7516,7 @@ declare module "factoria" {
     fontSize: number;
     /**
      * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
-     * @since unreleased
+     * @since 0.3.0
      */
     maxTextScale: number;
     /**
@@ -4365,26 +7578,26 @@ declare module "factoria" {
     readonly caret: boolean;
   }
   /**
-   * Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer), and focusing a widget inside scrolls just enough to show it.
+   * Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer) when it has more content than it shows; that wheel is then consumed: input.mouse.wheel reads 0 for the frame and ui.wheelConsumed is true. Focusing a widget inside scrolls just enough to show it.
    * 
    * Category: UI
    * @since 0.1.6
    */
   export interface ScrollListComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
      * @since 0.1.6
      */
     get anchor(): Vec2;
@@ -4406,7 +7619,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.1.6
      */
     texture: string;
@@ -4416,6 +7629,21 @@ declare module "factoria" {
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
     /**
      * Gap in design pixels between children.
      * @since 0.1.6
@@ -4444,7 +7672,7 @@ declare module "factoria" {
     fill: boolean;
     /**
      * true: like `fill`, but the list is only as tall as its content (padding, children and gaps) when that is less than the room the other children leave, so inside a `fit` Panel a short list makes a short panel and a long one stops at the screen height and scrolls. The room is computed as for `fill` (it needs a parent Panel with layout column; ignored otherwise; never below 64 px). `fill` and `shrink` together: `fill` wins. Several shrink lists share the room: each takes what it needs, and a list that needs more than an equal share takes what the shorter ones leave. `size.x` is yours.
-     * @since unreleased
+     * @since 0.3.0
      */
     shrink: boolean;
   }
@@ -4456,19 +7684,19 @@ declare module "factoria" {
    */
   export interface TouchStickComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.2.0
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.2.0
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
      * @since 0.2.0
      */
     get anchor(): Vec2;
@@ -4490,7 +7718,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -4500,6 +7728,21 @@ declare module "factoria" {
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
     /**
      * Which stick of the touch pad it moves.
      * @since 0.2.0
@@ -4540,19 +7783,19 @@ declare module "factoria" {
    */
   export interface TouchButtonComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.2.0
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.2.0
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
      * @since 0.2.0
      */
     get anchor(): Vec2;
@@ -4574,7 +7817,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -4584,6 +7827,21 @@ declare module "factoria" {
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
     /**
      * The pad button it holds down: actions bound to "Gamepad" + this name (GamepadA, GamepadDpadUp...) fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them.
      * @since 0.2.0
@@ -4596,12 +7854,12 @@ declare module "factoria" {
     text: string;
     /**
      * Localization key, e.g. "touch.jump" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into `text` when a scene loads, every frame and when the language changes. A key that no string table has keeps `text` and logs one warning.
-     * @since unreleased
+     * @since 0.3.0
      */
     key: string;
     /**
      * Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.3.0
      */
     keyArgs: any;
     /**
@@ -4616,19 +7874,29 @@ declare module "factoria" {
     fontSize: number;
     /**
      * true: when the text does not fit its box at the current text size (ui.textScale) and language, the font is made smaller until it does, never under `minFontSize` (so a German label in a fixed button stays inside at 200 % text, and a long translation is smaller instead of cut). It is decided every frame from the laid-out size, with no script. If it still does not fit at minFontSize it is drawn there and ui.overflowed(id) is true. false (default): the size is never reduced.
-     * @since unreleased
+     * @since 0.3.0
      */
     autoShrink: boolean;
     /**
      * autoShrink floor in design pixels, before ui.textScale (the floor is minFontSize times the player's text size, capped by maxTextScale, so the accessibility setting keeps working). Never above fontSize.
-     * @since unreleased
+     * @since 0.3.0
      */
     minFontSize: number;
     /**
      * > 0: the player's text size (ui.textScale) stops growing this text at this scale, so a heading or a round button label does not outgrow its place: 1.3 means it is drawn at most 1.3 times its fontSize however big the option is. It only limits growth: at a text size below the cap it is drawn at the player's size. 0 (default) = no cap. Measuring (autoSize, layout, ui.measureText, ui.rectOf) and drawing use the same capped size.
-     * @since unreleased
+     * @since 0.3.0
      */
     maxTextScale: number;
+    /**
+     * true: the text reads tags: [b]bold[/b], [i]italic[/i] (the italic face of the font: factoria.json text.fonts "italic", or the built-in family's own, e.g. builtin:serif), [c:good]coloured[/c] (a name of factoria.json text.colors, a built-in colour name or #rrggbb) and [icon:fish] (a picture of text.icons, drawn inline as tall as the line); [[ is a literal [. Wrapping, alignment, maxWidth, autoShrink and ui.measureText all work on the visible characters, so the tags take no room. A tag the engine does not know is shown as written, `factoria validate` and ui.markupProblems(text) report it. false (default): the string is drawn as it is, so a [ in it is only a [. A run colour replaces the colour of the text and keeps its opacity. Docs: docs/TEXT.md, "Rich text".
+     * @since 0.3.0
+     */
+    markup: boolean;
+    /**
+     * true: the whole text is bold. It uses the bold face the project gives the font (factoria.json text.fonts); a font with none is emboldened by the engine, and `factoria validate` suggests adding one. builtin:serif, builtin:hand and builtin:display bring real bold or italic faces of their own. [b] in markup does the same for a part of the text. false (default): regular weight.
+     * @since 0.3.0
+     */
+    bold: boolean;
     /**
      * Label colour.
      * @since 0.2.0
@@ -4659,19 +7927,19 @@ declare module "factoria" {
    */
   export interface CaptionsComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
      * @since 0.2.0
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
      * @since 0.2.0
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
      * @since 0.2.0
      */
     get anchor(): Vec2;
@@ -4693,7 +7961,7 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
      * @since 0.2.0
      */
     texture: string;
@@ -4703,6 +7971,21 @@ declare module "factoria" {
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
     /**
      * How many captions show at once. When more are on the list the oldest are not drawn (they stay on the list until their sound ends or their seconds run out).
      * @since 0.2.0
@@ -4756,110 +8039,400 @@ declare module "factoria" {
    * A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other video with `factoria call assets.import '{"source":"intro.mp4"}'` (needs ffmpeg: `factoria setup ffmpeg`). The sound plays on the mixer bus `bus` at `volume`. Time follows the game clock: the video pauses with the game (time.scale 0) and a headless run shows the same pictures at the same times as a windowed one. Control it from a script with `entity.video.play()`, `pause()`, `stop()`, `seek(seconds)` and read `time`, `duration`, `playing`; when it reaches its end the game event `video.ended` ({id, path}) fires once (`entity.video.on("ended", fn)`). The picture is decoded on the CPU: keep videos at most about 1280 x 720. Defaults: 640 x 360, a black background (shown as bars where the picture does not fill the rectangle), starts playing at once.
    * 
    * Category: UI
-   * @since unreleased
+   * @since 0.3.0
    */
   export interface VideoComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360). A Panel with fit = true recomputes it every frame.
-     * @since unreleased
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * @since 0.3.0
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
-     * @since unreleased
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * @since 0.3.0
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
-     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
-     * @since unreleased
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since 0.3.0
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
-     * @since unreleased
+     * @since 0.3.0
      */
     safeArea: boolean;
     /**
      * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
-     * @since unreleased
+     * @since 0.3.0
      */
     layer: number;
     /**
      * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
-     * @since unreleased
+     * @since 0.3.0
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
-     * @since unreleased
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
+     * @since 0.3.0
      */
     texture: string;
     /**
      * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
-     * @since unreleased
+     * @since 0.3.0
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
+    /**
      * Project path of the video (.mpg). Changing it opens the new file (and starts it again when `autoplay`). A file that is missing or is not MPEG-1 video is logged once and the entity draws only its background. (asset path: video)
-     * @since unreleased
+     * @since 0.3.0
      */
     path: string;
     /**
      * true (default): `playing` becomes true as soon as the file is open. false: it waits for `entity.video.play()` or `playing = true`, showing the first picture.
-     * @since unreleased
+     * @since 0.3.0
      */
     autoplay: boolean;
     /**
      * true: at the end the video starts over from the beginning, picture and sound (no `video.ended` event). false: it stops on its last picture and fires `video.ended`.
-     * @since unreleased
+     * @since 0.3.0
      */
     loop: boolean;
     /**
      * Loudness of the sound, 0 (silent) to 1 (full), before the bus volume.
-     * @since unreleased
+     * @since 0.3.0
      */
     volume: number;
     /**
      * Mixer bus of the sound: "sfx" (default), "music" or "ui". The bus volumes of a Settings menu apply to it like to any other sound. Any other name plays on sfx.
-     * @since unreleased
+     * @since 0.3.0
      */
     bus: string;
     /**
      * How the picture fills the rectangle: contain (default) shows all of it, with bars of `color` where the shapes differ; cover fills the rectangle and cuts off what overflows; stretch fills it and distorts the picture.
-     * @since unreleased
+     * @since 0.3.0
      */
     fit: "contain" | "cover" | "stretch";
     /**
      * Colour multiplied with the picture: white (default) leaves it as it is, alpha below 1 fades the video over what is behind it. `color` (the background) is a separate colour.
-     * @since unreleased
+     * @since 0.3.0
      */
     get tint(): Color;
     set tint(value: ColorLike);
     /**
      * Runtime: true while the video advances. Set true to play (from the start when it had ended), false to pause. Becomes false when the video ends.
-     * @since unreleased
+     * @since 0.3.0
      */
     playing: boolean;
     /**
      * Runtime: true once the video reached its end (never while `loop`); false again after a seek or a restart. Read-only.
-     * @since unreleased
+     * @since 0.3.0
      */
     readonly ended: boolean;
     /**
      * Runtime: seconds into the video, 0 .. duration. Assign to seek (the picture and the sound jump there).
-     * @since unreleased
+     * @since 0.3.0
      */
     time: number;
     /**
      * Runtime: length of the video in seconds; 0 while the file is not open. Read-only.
-     * @since unreleased
+     * @since 0.3.0
      */
     readonly duration: number;
+  }
+  /**
+   * A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws the camera named by `camera` into this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = "studio" lights it with its own key, fill and rim lights, wherever it stands. bloom and colorFilter of the camera are ignored (the frame has one set of post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, x, y, u, v, dx, dy, wheel}; `ui.on("viewPointer", fn)` in scripts) so a script can turn what it shows. It is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). Defaults: 320 x 240, no background colour.
+   * 
+   * Category: UI
+   * @since 0.3.0
+   */
+  export interface CameraViewComponent {
+    /**
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * @since 0.3.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * @since 0.3.0
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since 0.3.0
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since 0.3.0
+     */
+    safeArea: boolean;
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since 0.3.0
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since 0.3.0
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
+     * @since 0.3.0
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since 0.3.0
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
+    /**
+     * Id or name of the Camera entity to draw (an id is tried first, then a name). "" or an entity that is missing, inactive or has no Camera draws only the background `color`. The same camera may be shown by several CameraViews: each gets its own image.
+     * @since 0.3.0
+     */
+    camera: string;
+    /**
+     * Colour multiplied with the picture: white (default) leaves it as it is, alpha below 1 fades the view over what is behind it. `color` (the background) is a separate colour.
+     * @since 0.3.0
+     */
+    get tint(): Color;
+    set tint(value: ColorLike);
+    /**
+     * true (default): a pointer (mouse or finger) pressed over the view sends ui.viewPointer events "down", then "drag" while it moves and "up" when it is released, to the view that was pressed. false: no events, the widget still blocks clicks to what is below it.
+     * @since 0.3.0
+     */
+    pointerEvents: boolean;
+    /**
+     * true (default): the mouse wheel over the view is sent as a ui.viewPointer event with phase "wheel" and kept from scripts that read input.mouse.wheel (a zoom). false: the wheel is left alone.
+     * @since 0.3.0
+     */
+    captureWheel: boolean;
+    /**
+     * Pixels of the view's image per pixel of its rectangle: 1 (default) is sharp, 0.5 draws four times fewer pixels (soft, cheap), 2 supersamples. The result is multiplied by the renderer's own render scale.
+     * @since 0.3.0
+     */
+    resolution: number;
+  }
+  /**
+   * A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines inside this entity's rectangle, scaled to the axis, in one batch by the UI layer, with a baseline rule, the axis maximum and minimum written in the current language's number format, and optional vertical `marks`. `values` is one series ([3, 5, 2]) or several ([[3, 5, 2], [1, 4, 4]]); write it from a script (`chart.values = history`) whenever the data changes. The axis is automatic (the lowest and highest value, always including the baseline, zero by default) unless `min` / `max` are set. The sample under the pointer is reported: the game event `ui.chartHover` ({id, index, series, value}; index and series are -1 when the pointer leaves), `ui.on("chartHover", fn)` in scripts, and `hoverIndex` / `hoverSeries` on the component. A Chart is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Defaults: 480 x 200, a dark translucent background, bars.
+   * 
+   * Category: UI
+   * @since 0.3.0
+   */
+  export interface ChartComponent {
+    /**
+     * Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize).
+     * @since 0.3.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * @since 0.3.0
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since 0.3.0
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since 0.3.0
+     */
+    safeArea: boolean;
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since 0.3.0
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since 0.3.0
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. A picture made at run time (`render.captureTexture`, `render.textureFromPNG`) works here too: use its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"). So does the live picture of a camera: "target:<name>" for the Camera whose `renderTarget` is that name (docs/RENDERING.md, "Render targets"). (asset path: texture)
+     * @since 0.3.0
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since 0.3.0
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    tooltip: any;
+    /**
+     * Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" | "dragOver" | "drop" | "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    draggable: any;
+    /**
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * @since 0.3.0
+     */
+    mirror: boolean;
+    /**
+     * The data: an array of numbers (one series), or an array of arrays of numbers (a series each, oldest value first). Anything that is not a number counts as 0. Series may have different lengths; the samples line up from the newest (right) end. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    values: any;
+    /**
+     * bar (default): one column per sample, the series side by side in it, each bar growing from `baseline`. line: one polyline per series through its points, spanning the plot from edge to edge.
+     * @since 0.3.0
+     */
+    kind: "bar" | "line";
+    /**
+     * Colour of each series: an array of colours ("#rrggbb", a name or [r, g, b, a]). Series beyond the list start over from its first colour; an empty list uses a built-in palette. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    colors: any;
+    /**
+     * Lowest value of the axis. null (default) = automatic. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    min: any;
+    /**
+     * Highest value of the axis. null (default) = automatic. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    max: any;
+    /**
+     * The value bars grow from and where the baseline rule is drawn (0 by default, the line between gains and losses).
+     * @since 0.3.0
+     */
+    baseline: number;
+    /**
+     * true (default): draw a thin rule at `baseline` when it is inside the axis.
+     * @since 0.3.0
+     */
+    showBaseline: boolean;
+    /**
+     * true (default): the automatic axis always includes `baseline`, so bars of a series that is all large numbers still start at zero. false: the axis fits the data tightly (a line of coins that stays near 5000). Ignored for a side set by `min` / `max`.
+     * @since 0.3.0
+     */
+    includeBaseline: boolean;
+    /**
+     * How many samples the plot has room for. With fewer values the series is right-aligned, so a chart that fills up keeps each sample's width. 0 (default) = as many as the longest series.
+     * @since 0.3.0
+     */
+    slots: number;
+    /**
+     * Sample indexes (counted from the first value of the longest series) where a thin vertical rule is drawn, e.g. the first day of each season: [7, 14]. null = none. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.3.0
+     */
+    marks: any;
+    /**
+     * Colour of the baseline rule.
+     * @since 0.3.0
+     */
+    get baselineColor(): Color;
+    set baselineColor(value: ColorLike);
+    /**
+     * Colour of the vertical rules of `marks`.
+     * @since 0.3.0
+     */
+    get markColor(): Color;
+    set markColor(value: ColorLike);
+    /**
+     * Thickness of a line chart's lines, in UI units.
+     * @since 0.3.0
+     */
+    lineWidth: number;
+    /**
+     * Fraction of a sample's column left empty between neighbouring bars, 0 to 0.9.
+     * @since 0.3.0
+     */
+    barGap: number;
+    /**
+     * Space in UI units between the box and the plot area.
+     * @since 0.3.0
+     */
+    padding: number;
+    /**
+     * true (default): write the axis maximum at the top-left and the minimum at the bottom-left of the plot, in the current language's number format ("1,234.5" in English, "1.234,5" in Spanish).
+     * @since 0.3.0
+     */
+    showLabels: boolean;
+    /**
+     * Digits after the decimal separator in the labels, 0 to 9. -1 (default) = as many as the value has, rounded to two.
+     * @since 0.3.0
+     */
+    decimals: number;
+    /**
+     * Font of the labels: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     * @since 0.3.0
+     */
+    font: string;
+    /**
+     * Label glyph height in design pixels, before ui.textScale.
+     * @since 0.3.0
+     */
+    fontSize: number;
+    /**
+     * Colour of the axis labels.
+     * @since 0.3.0
+     */
+    get textColor(): Color;
+    set textColor(value: ColorLike);
+    /**
+     * Runtime: the sample under the pointer (0 = the first value of the series), -1 when none. Written by the UI every frame. Read-only.
+     * @since 0.3.0
+     */
+    readonly hoverIndex: number;
+    /**
+     * Runtime: the series of the sample under the pointer, -1 when none. Read-only.
+     * @since 0.3.0
+     */
+    readonly hoverSeries: number;
   }
   /**
    * Attaches JavaScript behaviour to the entity. `path` is an ES module whose default export is a class extending Behaviour (see docs/SCRIPTING.md).
@@ -4921,13 +8494,18 @@ declare module "factoria" {
     get horizonColor(): Color;
     set horizonColor(value: ColorLike);
     /**
-     * Looping background music asset path. Empty = none. (asset path: audio)
+     * Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. (asset path: audio)
      */
     music: string;
     /**
      * Volume of the background music, 0..1.
      */
     musicVolume: number;
+    /**
+     * Size of the Light2D light buffer as a fraction of the picture, 0.25 .. 1 (default 1: one light pixel per picture pixel). Lower values make lights cost less fill rate and look softer (the light is smoothed up to the picture); use 0.5 on mobile or the web when many lights are on screen. Only matters when a scene has lit visuals and Light2D lights.
+     * @since 0.3.0
+     */
+    lightScale: number;
   }
   /** Component views by name, as returned by entity.get(name). */
   export interface Components {
@@ -4935,9 +8513,13 @@ declare module "factoria" {
     Transform: TransformComponent;
     Camera: CameraComponent;
     Sprite: SpriteComponent;
+    Tint: TintComponent;
     Parallax: ParallaxComponent;
     Light2D: Light2DComponent;
     SpriteAnimator: SpriteAnimatorComponent;
+    Bone2D: Bone2DComponent;
+    SpriteSkin: SpriteSkinComponent;
+    IK2D: IK2DComponent;
     Shape2D: Shape2DComponent;
     Text: TextComponent;
     Tilemap: TilemapComponent;
@@ -4960,12 +8542,16 @@ declare module "factoria" {
     Button: ButtonComponent;
     Toggle: ToggleComponent;
     Slider: SliderComponent;
+    Interactable: InteractableComponent;
+    InteractableVisual: InteractableVisualComponent;
     TextField: TextFieldComponent;
     ScrollList: ScrollListComponent;
     TouchStick: TouchStickComponent;
     TouchButton: TouchButtonComponent;
     Captions: CaptionsComponent;
     Video: VideoComponent;
+    CameraView: CameraViewComponent;
+    Chart: ChartComponent;
     Script: ScriptComponent;
     SceneSettings: SceneSettingsComponent;
   }
@@ -4973,41 +8559,49 @@ declare module "factoria" {
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia" };
-    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; renderTarget?: string; renderTargetSize?: Vec2Like };
+    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: any; vertexColors?: any };
+    Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
-    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
-    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
-    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
-    Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
+    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
+    SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; ended?: boolean; playedClip?: string; time?: number; frame?: number };
+    Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
+    SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
+    IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };
+    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
+    Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
-    Animator: { model?: string; clip?: string; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; events?: any; state?: string; time?: number; values?: any };
+    Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
-    Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
+    Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
-    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean; navWalkable?: boolean };
+    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean; navWalkable?: boolean };
     Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean; damping?: number };
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
-    AudioListener: { volume?: number };
-    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; uniformSize?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
-    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number };
-    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: boolean };
-    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
-    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
-    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
-    TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
-    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; textColor?: ColorLike; touchOnly?: boolean };
-    Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
-    Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
+    AudioListener: { volume?: number; zoom?: number };
+    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
+    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };
+    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
+    Interactable: { kind?: "button" | "toggle" | "slider"; enabled?: boolean; autoFocus?: boolean; focusOnHover?: boolean; size?: Vec2Like; offset?: Vec2Like; space?: "auto" | "world" | "screen"; on?: boolean; value?: number; min?: number; max?: number; step?: number; axis?: "x" | "y"; knob?: EntityLike; fill?: EntityLike; label?: string; key?: string; keyArgs?: any };
+    InteractableVisual: { target?: EntityLike; mode?: "show" | "tint"; when?: "always" | "normal" | "hover" | "pressed" | "focused" | "highlighted" | "disabled" | "on" | "off"; normal?: ColorLike; hover?: ColorLike; pressed?: ColorLike; focused?: ColorLike; disabled?: ColorLike };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
+    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
+    TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
+    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
+    Captions: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; maxLines?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; speakerColor?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; spacing?: number };
+    Video: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; path?: string; autoplay?: boolean; loop?: boolean; volume?: number; bus?: string; fit?: "contain" | "cover" | "stretch"; tint?: ColorLike; playing?: boolean; time?: number };
+    CameraView: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; camera?: string; tint?: ColorLike; pointerEvents?: boolean; captureWheel?: boolean; resolution?: number };
+    Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
@@ -5050,6 +8644,7 @@ declare module "factoria:test" {
     toMatch(pattern: string | RegExp): void;
     /**
      * Every field of `subset` is in the received object with an equal value, recursively; the object may have more fields. Arrays must have the same length and each element matches its subset.
+     * @since 0.2.0
      */
     toMatchObject(subset: object): void;
     toBeInstanceOf(cls: Function): void;
@@ -5080,40 +8675,49 @@ declare module "factoria:test" {
 
   /**
    * One entry of game.captions(): a subtitle that is on the caption list.
+   * @since 0.2.0
    */
   export interface CaptionEntry {
     /**
      * The text shown, in the current language when it has a key.
+     * @since 0.2.0
      */
     readonly text: string;
     /**
      * The speaker's name, "" for none.
+     * @since 0.2.0
      */
     readonly speaker: string;
     /**
      * The localization key, "" for a plain-text caption.
+     * @since 0.2.0
      */
     readonly key: string;
     /**
      * "audio:<clip path>" for the caption of a sound, "ui" for ui.caption.
+     * @since 0.2.0
      */
     readonly source: string;
   }
 
   /**
    * One entry of game.spoken(): a ui.speak call (or ui.speak command) that was recorded instead of spoken.
+   * @since 0.2.0
    */
   export interface SpokenLine {
     /**
      * The text, as given.
+     * @since 0.2.0
      */
     readonly text: string;
     /**
      * The game language (i18n.language) when it was asked; "" when the game has no localization.
+     * @since 0.2.0
      */
     readonly language: string;
     /**
      * True when the call interrupted what was being said (the default), false when it queued.
+     * @since 0.2.0
      */
     readonly interrupt: boolean;
   }
@@ -5141,8 +8745,28 @@ declare module "factoria:test" {
     readonly volume: number;
     readonly pitch: number;
     readonly pan: number;
-    readonly bus: "sfx" | "music" | "ui";
+    readonly bus: string;
+    /**
+     * "play" for a sound that started; "setVoiceVolume" for a call to audio.setVoiceVolume on a voice that plays (toContainPlayed ignores these).
+     * @since 0.3.0
+     */
+    readonly kind: "play" | "setVoiceVolume";
+    /**
+     * The voice id from audio.play (0 for music and layers).
+     * @since 0.3.0
+     */
+    readonly voice: number;
+    /**
+     * Seconds of the fade of a setVoiceVolume entry; 0 otherwise. For a setVoiceVolume entry `volume` is the new target.
+     * @since 0.3.0
+     */
+    readonly fade: number;
     readonly loop: boolean;
+    /**
+     * The layer name when audio.musicLayers started it; "" otherwise.
+     * @since 0.3.0
+     */
+    readonly layer: string;
     /**
      * Started with audio.music() or SceneSettings.music.
      */
@@ -5175,87 +8799,154 @@ declare module "factoria:test" {
      */
     axis(axis: GamepadAxis, value: number): void;
     /**
-     * Plugs the pad in (input.gamepad(i).connected becomes true).
+     * Plugs the pad in (input.gamepad(i).connected becomes true) and raises game.on("gamepadConnected") at the next step. info says who the pad is: its id, name, family and USB ids (0 to 65535); a field left out keeps what the slot had, and without an id one is made from the ids and the name. A mistake throws with a suggestion. Example: game.gamepad(1).connect({ id: "pad-red", name: "Red pad", type: "playstation" }).
      */
-    connect(): void;
+    connect(info?: { id?: string; name?: string; type?: GamepadType; vendor?: number; product?: number }): void;
     /**
      * Unplugs the pad; what it held is released.
      */
     disconnect(): void;
     /**
      * Plugs the pad in as that family, so input.gamepad(i).type and input.buttonName() answer for it (tests start with "generic" pads, which use the Xbox names). An unknown family throws with a suggestion.
+     * @since 0.1.6
      */
     setType(type: "generic" | "xbox" | "playstation" | "nintendo" | "steamdeck"): void;
   }
 
   /**
    * One request the game made to the platform backend, as the fake backend logged it.
+   * @since 0.2.0
    */
   export interface TestPlatformCall {
     /**
      * 1, 2, 3... in the order of the requests.
+     * @since 0.2.0
      */
     readonly seq: number;
     /**
      * The engine frame it was made in (counted from the start of the test file or the last reset).
+     * @since 0.2.0
      */
     readonly frame: number;
     /**
      * "achievements.unlock", "purchases.buy"... (docs/PLATFORM.md lists them).
+     * @since 0.2.0
      */
     readonly method: string;
     /**
      * The arguments the backend got, with the store's id (storeId) filled in.
+     * @since 0.2.0
      */
     readonly args: Json;
     /**
      * False when the request failed or was rejected; absent while it is waiting for an answer (delayFrames).
+     * @since 0.2.0
      */
     readonly ok?: boolean;
     /**
      * The answer, when ok.
+     * @since 0.2.0
      */
     readonly result?: Json;
     /**
      * The error, when not ok.
+     * @since 0.2.0
      */
     readonly error?: { code: string; message: string; hint: string };
   }
 
   /**
+   * What analytics did in this test run, for tests (docs/ANALYTICS.md). Nothing leaves the test: the batches go through http.fetch, so script the server with game.platform.respond("http.fetch", { status: 204 }); an unscripted request fails like an offline player and is retried later.
+   * @since 0.3.0
+   */
+  export interface TestAnalytics {
+    /**
+     * The events the server accepted (a 2xx answer), oldest first; t is engine seconds since the run started.
+     * @since 0.3.0
+     */
+    sent(): { name: string; props: Record<string, string | number | boolean | null>; t: number }[];
+    /**
+     * Every request made, with why it was made and how it ended.
+     * @since 0.3.0
+     */
+    requests(): { endpoint: string; reason: "batch" | "timer" | "suspend" | "quit" | "flush"; ok: boolean; status?: number; error?: string; events: { name: string; props: Json; t: number }[] }[];
+    /**
+     * The events waiting for the next batch.
+     * @since 0.3.0
+     */
+    queued(): { name: string; props: Record<string, string | number | boolean | null>; t: number }[];
+    /**
+     * The next run of the game: the queue and the logs are forgotten; the player's consent stays (it is in storage; storage.clear() forgets it).
+     * @since 0.3.0
+     */
+    restart(): void;
+  }
+
+  /**
+   * The remote config of this test run, for tests (docs/ANALYTICS.md). Script the server with game.platform.respond("http.fetch", { json: { ... } }).
+   * @since 0.3.0
+   */
+  export interface TestRemoteConfig {
+    /**
+     * The next run of the game: what remoteConfig holds in memory is forgotten and it fetches again at its next use, starting from the cache earlier runs left in storage (an unscripted fetch fails: an offline player).
+     * @since 0.3.0
+     */
+    restart(): void;
+  }
+
+  /**
    * The fake store, for tests: script what it answers, send it events, look at what it holds. Each test file starts with a fresh one; the real backends are never touched by tests. Backed by the platform.* commands. See docs/PLATFORM.md.
+   * @since 0.2.0
    */
   export interface TestPlatform {
     /**
-     * Queues the next answer(s) of a platform method (first in, first out, one per request). answer is { error: "network", message?, hint? } to reject, { result: value } to resolve with exactly that value, or any other object, which is merged into the default result: game.platform.respond("purchases.buy", { status: "cancelled" }). An unknown method throws with a suggestion.
+     * Queues the next answer(s) of a platform method (first in, first out, one per request). answer is { error: "network", message?, hint? } to reject, { result: value } to resolve with exactly that value, or any other object, which is merged into the default result: game.platform.respond("purchases.buy", { status: "cancelled" }). An unknown method throws with a suggestion. For "http.fetch" there is no default answer: a request nobody scripted rejects with code "network", so a test never depends on a server. Script it with { status: 200, json: { ... } } (json becomes the text, with a content-type header), { status: 404, text: "not found", headers: { "Retry-After": "5" } }, or { error: "network" } for an offline player; status 200, no headers and an empty text fill what you leave out. See docs/NETWORKING.md.
+     * @since 0.2.0
      */
     respond(method: string, answer: Json, times?: number): void;
     /**
      * Sends an event as the store would; platform.on listeners get it at the next game.step(). A purchased "purchase" also records an unfinished transaction.
+     * @since 0.2.0
      */
     emit(event: "purchase" | "overlay" | "player", data?: Json): void;
     /**
      * Takes a purchase back, as a refund does: restore() no longer lists the product, its unfinished transaction is dropped and platform.on("purchase") listeners get { status: "revoked", productId, transactionId, receipt } at the next game.step(). Throws when the player owns no such product, listing the owned ones.
+     * @since 0.3.0
      */
     revoke(productId: string): void;
     /**
      * How the fake's test ad ends from now on: watched to the end (the default: rewarded), closedEarly (not rewarded), noFill (no ad: ads.available() is false) or consentRefused (also answers denied in ads.consent()). options.gdpr, options.tracking and options.privacyOptions set what ads.consent() answers (with privacyOptions "required", platform.ads.privacyOptions() counts a form shown); a denied gdpr stops every ad. reset() restores the defaults. state().fake.ads counts the ads shown and rewarded.
+     * @since 0.3.0
      */
     ad(outcome: "watched" | "closedEarly" | "noFill" | "consentRefused", options?: { gdpr?: "granted" | "denied" | "notRequired" | "unknown"; tracking?: "authorized" | "denied" | "notDetermined" | "restricted" | "notRequired"; privacyOptions?: "required" | "notRequired" | "unknown" }): void;
     /**
-     * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
+     * A guest joins Remote Play Together: platform.remotePlay.sessions() lists the session and platform.on("remotePlay") listeners get { status: "connected", session } at the next game.step(). What info leaves out is made up ("Guest 1", "fake-guest-1", "Fake device", "computer", 1920 x 1080); the sessions are numbered from 1. Returns the session. The guest's input is not simulated: drive the pad they would use with game.gamepad(i). An unknown field or form factor throws with a suggestion.
+     * @since 0.3.0
+     */
+    remotePlayConnect(info?: { guestName?: string; guestId?: string; deviceName?: string; formFactor?: "unknown" | "phone" | "tablet" | "computer" | "tv" | "vr"; resolution?: { width: number; height: number } }): PlatformRemotePlaySession;
+    /**
+     * The guest with that session id leaves: sessions() no longer lists it and listeners get { status: "disconnected", session } at the next game.step(). Throws, listing the connected ids, when no guest has that id.
+     * @since 0.3.0
+     */
+    remotePlayDisconnect(id: number): PlatformRemotePlaySession;
+    /**
+     * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in, no Remote Play guests.
+     * @since 0.2.0
      */
     reset(): void;
     /**
-     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer.
+     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer. cloudClock n (Unix seconds) is the modified time the next cloud.save gets, which cloud.stat() reports: it starts at 1767225600 (2026-01-01T00:00:00Z) and goes up one second with each save, so saves are ordered without the wall clock.
+     * @since 0.2.0
      */
-    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none" }): void;
+    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none"; cloudClock?: number }): void;
     /**
-     * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, owned, unfinished, presence, scripted, calls... } }.
+     * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, cloudModified, remotePlay, owned, unfinished, presence, scripted, calls... } }.
+     * @since 0.2.0
      */
     state(): Json;
     /**
      * Every request the game made, oldest first (the request log of state().fake.calls).
+     * @since 0.2.0
      */
     calls(): TestPlatformCall[];
   }
@@ -5266,42 +8957,56 @@ declare module "factoria:test" {
   export interface TestGame {
     /**
      * Same as the script `game.paused`: true while time.scale is 0; setting it keeps and restores time.scale. Reading a member the test game does not have (game.pasued) throws with a did-you-mean.
+     * @since 0.2.0
      */
     paused: boolean;
     /**
      * Same as the script `game.today()`: 2026-01-01 at the start of every test, or the date of --date, until game.setDate().
+     * @since 0.3.0
      */
-    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly utcOffsetMinutes: number; readonly iso: string };
+    today(): { readonly year: number; readonly month: number; readonly day: number; readonly weekday: number; readonly hour: number; readonly minute: number; readonly second: number; readonly utcOffsetMinutes: number; readonly iso: string; readonly utc: { readonly year: number; readonly month: number; readonly day: number; readonly iso: string } };
     /**
      * Same as the script `game.focused`.
+     * @since 0.3.0
      */
     readonly focused: boolean;
     /**
-     * Sets the date game.today() answers, "YYYY-MM-DD", until the test ends (the next test starts from the run's date again). An impossible date such as "2026-02-29" or a wrong shape throws with what is wrong and how to fix it. Example: game.setDate("2026-10-23"); expect(game.today().weekday).toBe(5).
+     * Sets the date game.today() answers, "YYYY-MM-DD" or with a time "YYYY-MM-DDTHH:MM[:SS]" (midnight without one), until the test ends (the next test starts from the run's date again). options.utcOffsetMinutes sets the time zone (minutes east of UTC; the current one is kept otherwise), which decides game.today().utc. Moving to another local day sends "dayChanged" to the game.on listeners once, so a test crosses midnight with game.setDate("2026-10-23T23:59:59") then game.setDate("2026-10-24T00:00:01"). An impossible date or time throws with what is wrong and how to fix it. Example: game.setDate("2026-10-23"); expect(game.today().weekday).toBe(5).
+     * @since 0.3.0
      */
-    setDate(iso: string): void;
+    setDate(iso: string, options?: { utcOffsetMinutes?: number }): void;
+    /**
+     * The player clicks the window's close button (Cmd+Q, Alt+F4): the game.on("quit") handlers run at once. Returns false when one called event.cancel() (the game goes on), true otherwise: game.quitRequested is then true. Example: expect(game.closeWindow()).toBe(false).
+     * @since 0.3.0
+     */
+    closeWindow(): boolean;
     /**
      * The app goes to the background, as on a phone: the game.on("suspend") handlers run at once and, with pauseOnSuspend (the default), the game and the music freeze (game.paused is true) unless a handler paused it itself. Every test starts running.
+     * @since 0.3.0
      */
     suspend(): void;
     /**
      * The app comes back: undoes the freeze suspend() made (a pause the game made itself stays) and runs the game.on("resume") handlers.
+     * @since 0.3.0
      */
     resume(): void;
     /**
      * The window gains the focus: game.focused becomes true and the game.on("focus") handlers run. Does nothing when it already had it.
+     * @since 0.3.0
      */
     focus(): void;
     /**
      * The window loses the focus: game.focused becomes false and the game.on("blur") handlers run. Does not pause anything (a window that lost the focus keeps running).
+     * @since 0.3.0
      */
     blur(): void;
     /**
-     * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step().
+     * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step(). `props` is what the scene reads with game.sceneProps(); without it the new scene has {}.
      */
-    load(path: string): void;
+    load(path: string, props?: Json): void;
     /**
      * Files the engine has read from the disk since the run started. Read it twice and compare to prove that something read nothing: const before = game.fileReads(); scene.load(...); game.step(); expect(game.fileReads()).toBe(before). A file read ahead by scene.preload / assets.preload counts when it is preloaded, not when it is used.
+     * @since 0.3.0
      */
     fileReads(): number;
     /**
@@ -5314,45 +9019,65 @@ declare module "factoria:test" {
     press(action: string): void;
     release(action: string): void;
     /**
-     * Press for one frame, then release.
+     * Taps what a player would press for the action: its first key binding (a chord included), else its first gamepad button, held for one frame and released over the next. The UI and every other action on that key or button see it too: game.tap("ui_submit") presses the focused Button or Toggle, and game.tap("interact") does what Space does when Space is also ui_submit. An action with no key or button binding (a stick, the mouse, none) is held as the action itself, which only readers of that action see.
      */
     tap(action: string): void;
+    /**
+     * Presses a key, steps one frame, releases it and steps one frame (like tap() for an action). A chord works too: tapKey("Ctrl+Z") holds Ctrl while Z is tapped. A TextField reads Enter itself, not an action, so game.tapKey("Enter") submits the focused field (ui.submit {id, value}).
+     * @since 0.3.0
+     */
+    tapKey(key: string): void;
+    /**
+     * Presses and HOLDS a key until keyUp: a key name ("Z", "LeftShift") or a modifier ("Ctrl", "Shift", "Alt", "Super": the left key), which is how a test holds Shift for a Shift+click: keyDown("Shift"); click(pos); keyUp("Shift").
+     */
     keyDown(key: string): void;
+    /**
+     * Releases a key pressed with keyDown; takes the same names, modifiers included.
+     */
     keyUp(key: string): void;
     /**
      * Types text as the keyboard would: input.text returns it until the next step(). Control characters are skipped, as the real keyboard does; press Enter and Backspace with keyDown()/keyUp() or tap().
+     * @since 0.1.6
      */
     typeText(text: string): void;
     /**
-     * Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Throws when the entity has no Slider, or is inactive or not interactable.
+     * Drags a Slider to `value` as a player would: clamped to [min, max], snapped to step, the slider takes focus and ui.change {id, value} is sent when the number changed (ui.on listeners get it at the next step()). Writing Slider.value from a script sends nothing; this does. Works on an Interactable of kind "slider" too. Throws when the entity is no slider, or is inactive or not interactable (enabled false for an Interactable).
+     * @since 0.3.0
      */
     setSlider(id: string, value: number): void;
     /**
      * Presses the system Back button of Android. The input.onBack handlers run at the next step(); when none consumes it the game asks to quit (game.quitRequested in game.state()).
+     * @since 0.2.0
      */
     pressBack(): void;
     /**
      * Pretends the device has a notch, rounded corners or system bars: insets in design pixels from each edge (0 for those left out), or the profile of a typical phone. screen.safeArea, screen.insets and the items with `safeArea: true` follow at once (take a step() before checking layout of UI widgets). A negative or non-number inset throws. Reset to "none" before every test.
+     * @since 0.2.0
      */
     setSafeArea(insets: { left?: number; top?: number; right?: number; bottom?: number } | "none" | "phone-portrait" | "phone-landscape"): void;
     /**
-     * Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high" }. An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: "phone", tier: "low" }).
+     * Pretends the game runs on another device: game.device follows at once (window.supports too, for the window features). Fields left out keep the headless values { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false }, except handheld, which is true when you set steamDeck: true or a phone or tablet formFactor (and nothing else says it is not). For a Steam Deck: game.setDevice({ steamDeck: true }). An unknown field (with a suggestion) or a bad value throws. Reset before every test. Example: game.setDevice({ formFactor: "phone", tier: "low" }).
+     * @since 0.3.0
      */
-    setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high" }): void;
+    setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights count the main pass, shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; shadowCasters: number; lights: number; lightsDropped: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
+     * @since 0.2.0
      */
     setAccessibility(settings: { textScale?: number; reduceMotion?: boolean; highContrast?: boolean; screenReader?: boolean }): void;
     /**
-     * Sets the text the next storage load reads, in place of the save file (tests never touch the real storage.json), and drops the data already loaded: storage.get() and storage.corrupt then answer as at a start with that file. Pass a valid JSON object to start from a saved game, or broken text ("{\"hi") to test the damaged-save path: storage.corrupt is true and the data is empty. null goes back to an empty storage. Reset before every test file.
+     * Sets the text the next storage load reads, in place of the save file (tests never touch the real storage.json), and drops the data already loaded: storage.get() and storage.corrupt then answer as at a start with that file. Pass a valid JSON object to start from a saved game, or broken text ("{"hi") to test the damaged-save path: storage.corrupt is true and the data is empty. null goes back to an empty storage. Reset before every test file.
+     * @since 0.2.0
      */
     setStorageText(text: string | null): void;
     /**
      * The pulses input.vibrate() asked for since the test started, in seconds, oldest first (cleared before each test).
+     * @since 0.2.0
      */
     vibrations(): number[];
     /**
@@ -5361,37 +9086,53 @@ declare module "factoria:test" {
     gamepad(index?: number): TestGamepad;
     /**
      * Holds a mouse button (default left) until mouseUp(): input.mouse.down(button) follows. With mouseMove() it tests a drag.
+     * @since 0.3.0
      */
     mouseDown(button?: "left" | "right" | "middle"): void;
     /**
      * Releases a mouse button held with mouseDown().
+     * @since 0.3.0
      */
     mouseUp(button?: "left" | "right" | "middle"): void;
     /**
      * Turns the mouse wheel by dy notches for the next frame (input.mouse.wheel); a non-number throws.
+     * @since 0.3.0
      */
     wheel(dy: number): void;
     /**
      * True once the game asked to quit during this test (game.quit(), or Back that no input.onBack handler consumed). A test run never stops because of it. Cleared before each test.
+     * @since 0.3.0
      */
     readonly quitRequested: boolean;
     /**
      * Pretends the device has these languages (BCP 47 tags, best first): i18n.systemLanguages answers them so a first-run language choice can be tested. An empty list means no system language. Reset (empty) before each test. Example: game.setSystemLanguages(["es-ES", "en"]).
+     * @since 0.3.0
      */
     setSystemLanguages(languages: string[]): void;
     /**
-     * Resets what the tests of one file share (each file already starts clean): storage clears the save data and any setStorageText text; platform runs platform.reset (nothing bought or unlocked, no scripted answers, no leaderboard scores) and restores the test ad and consent answers. Both default to true; an unknown key throws with a suggestion.
+     * Resets what the tests of one file share (each file already starts clean): storage clears the save data and any setStorageText text; platform runs platform.reset (nothing bought or unlocked, no scripted answers, no leaderboard scores) and restores the test ad and consent answers; audio stops the music (persist: true included, at once) and every voice, so the next audio.music of the same track starts it again and shows in audioLog(). All default to true; an unknown key throws with a suggestion.
+     * @since 0.3.0
      */
-    resetState(options?: { storage?: boolean; platform?: boolean }): void;
+    resetState(options?: { storage?: boolean; platform?: boolean; audio?: boolean }): void;
+    /**
+     * The layout problems of the scene that runs now, with the panels the test has opened: the command ui.check_layout with current: true, which loads nothing and keeps the game state. It steps a few frames per case (every language x text scale x interface scale) and puts the language, text size and interface scale back. Same options as the command; scenes and steps do not apply. Example: expect(game.checkLayout({ textScales: [1, 2] }).issues).toEqual([]).
+     * @since 0.3.0
+     */
+    checkLayout(options?: { languages?: string[]; textScales?: number[]; uiScales?: number[]; pseudo?: boolean; settleFrames?: number }): { ok: boolean; issueCount: number; issues: { kind: "overflow" | "overlap" | "offscreen" | "tooltip"; scene: string; entity: string; path: string; key: string; text?: string; rect?: number[]; other?: { entity: string; path: string; key: string; text?: string; rect?: number[] }; cases: { language: string; textScale: number; uiScale: number; pseudo: boolean }[] }[]; checked: { scene: string; cases: { language: string; textScale: number; uiScale: number; pseudo: boolean }[] }[] };
     mouseMove(screenPos: Vec2Like): void;
     /**
-     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
+     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf): the UI is laid out first, so a panel opened this frame can be clicked at once. Throws, naming the widget, when it is inactive, has no area or is scrolled out of its ScrollList.
      */
     click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
     /**
-     * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file.
+     * Drags with the left mouse button from a position (or the centre of a widget) to another: presses, moves in four steps of one frame each, releases and steps once more (6 steps in all), so a draggable widget's dragStart, dragOver and drop events fire and the click is swallowed. `to` may be any widget (a Panel too) or a position over the world, where the drop reports no target. The path must be longer than the slop of the widget (6 pixels by default), or it is a click.
+     * @since 0.3.0
      */
-    loadJson(scene: Json): void;
+    drag(from: Vec2Like | Entity | string, to: Vec2Like | Entity | string): void;
+    /**
+     * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file. `props` is what the scene reads with game.sceneProps(); without it the new scene has {}.
+     */
+    loadJson(scene: Json, props?: Json): void;
     /**
      * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
      */
@@ -5429,20 +9170,34 @@ declare module "factoria:test" {
     clearAudioLog(): void;
     /**
      * What ui.speak was asked to say since the current test started (cleared before each test), oldest first: { text, language, interrupt }. Headless runs and tests speak nothing, they only record. Example: expect(game.spoken().map((l) => l.text)).toEqual(["Play", "Options"]).
+     * @since 0.2.0
      */
     spoken(): SpokenLine[];
     /**
      * Empties the list of spoken lines (e.g. after setup, before the action under test).
+     * @since 0.2.0
      */
     clearSpoken(): void;
     /**
      * The captions on the list now (cleared before each test), oldest first: { text, speaker, key, source }. `text` is in the current language, `key` is "" for plain text, `source` is "audio:<clip path>" or "ui". The Captions component draws the newest maxLines of them. Example: expect(game.captions().map((c) => c.text)).toEqual(["Welcome"]).
+     * @since 0.2.0
      */
     captions(): CaptionEntry[];
     /**
      * The fake store: game.platform.respond(...), emit(...), set(...), state(), calls().
+     * @since 0.2.0
      */
     readonly platform: TestPlatform;
+    /**
+     * What analytics sent in this test run: game.analytics.sent(), requests(), queued(), restart().
+     * @since 0.3.0
+     */
+    readonly analytics: TestAnalytics;
+    /**
+     * The remote config of this test run: game.remoteConfig.restart().
+     * @since 0.3.0
+     */
+    readonly remoteConfig: TestRemoteConfig;
   }
 
   /**
@@ -5462,28 +9217,34 @@ declare module "factoria:test" {
 
   /**
    * What robust() hands to the check on each run.
+   * @since 0.3.0
    */
   export interface RobustRun {
     /**
      * 0 for the unperturbed run, then 1, 2, ...
+     * @since 0.3.0
      */
     run: number;
     /**
      * How many runs robust() makes.
+     * @since 0.3.0
      */
     runs: number;
     /**
      * Moves each entity (Entity or id) by a small repeatable offset of up to `nudge` metres on every axis. Does nothing on run 0. An id that is not in the scene throws.
+     * @since 0.3.0
      */
     nudge(...targets: (Entity | string)[]): void;
     /**
      * nudge() for every entity with a RigidBody3D or RigidBody2D. Call it after game.load and before the first game.step.
+     * @since 0.3.0
      */
     nudgeBodies(): void;
   }
 
   /**
    * Runs `check` `runs` times (default 5) under small perturbations (positions nudged by up to `nudge` metres, default 0.005; run 0 is unperturbed) and fails when any run fails, saying which one. Use it where a level test would otherwise assert something that depends on rounding (a chaotic rope bridge, an exact frame count): physics is exact per build but may differ on another compiler or CPU. The check must load its own scene (game.load) so each run starts fresh. The offsets are a hash of run, entity id and axis, not the RNG, so a test nudges the same way on every platform.
+   * @since 0.3.0
    */
   export function robust(check: (p: RobustRun) => void, options?: { runs?: number; nudge?: number }): void;
 
@@ -5504,3 +9265,8 @@ declare module "factoria:test" {
 
 }
 
+/** JSON data: `import levels from "../data/levels.json"` is the parsed file; a glob import (`import tables from "../data/dialogue/*.json"`) is an object of the parsed files keyed by file name, sorted. */
+declare module "*.json" {
+  const data: any;
+  export default data;
+}

@@ -1,0 +1,4 @@
+Support URL: https://example.com/tidewater-market/support  (PLACEHOLDER: replace before submitting)
+Marketing URL: https://example.com/tidewater-market  (PLACEHOLDER)
+Privacy policy URL: https://example.com/tidewater-market/privacy  (PLACEHOLDER: the stores require one, even for a game that collects nothing)
+Support e-mail: support@example.com  (PLACEHOLDER)

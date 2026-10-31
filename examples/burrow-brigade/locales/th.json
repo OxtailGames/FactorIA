@@ -87,10 +87,12 @@
     "displayMode": "โหมดหน้าต่าง: {mode}",
     "mode": {
       "windowed": "หน้าต่าง",
+      "borderless": "หน้าต่างไร้ขอบ",
       "fullscreen": "เต็มจอ"
     },
-    "monitor": "จอภาพ: {width} x {height}",
+    "monitor": "จอภาพ {n}: {name} (กดเพื่อเปลี่ยนจอ)",
     "soundCaptions": "คำบรรยายเสียง",
+    "splitScreen": "แบ่งหน้าจอ เมื่อผู้เล่น แยกกัน",
     "holdMode": "การขุด: {mode}",
     "holdModeHold": "กดค้างไว้",
     "holdModeToggle": "กดครั้งแรกเพื่อเริ่ม กดอีกครั้งเพื่อหยุด",

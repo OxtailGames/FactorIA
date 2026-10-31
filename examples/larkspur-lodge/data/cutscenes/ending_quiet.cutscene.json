@@ -1,0 +1,106 @@
+{
+  "format": "larkspur.cutscene/1",
+  "id": "ending_quiet",
+  "doc": "The 'quiet' ending: the page goes into the hall stove and the lodge keeps its roof.",
+  "duration": 17,
+  "room": "hall",
+  "skippable": true,
+  "actors": {
+    "porter": {
+      "as": "porter"
+    },
+    "vale": {
+      "as": "npc",
+      "cast": "vale"
+    },
+    "mara": {
+      "as": "npc",
+      "cast": "mara"
+    },
+    "haas": {
+      "as": "npc",
+      "cast": "haas"
+    }
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "do": "fade",
+      "to": 1,
+      "seconds": 0
+    },
+    {
+      "at": 0,
+      "do": "camera",
+      "pos": [
+        9.6,
+        2.6,
+        18.0
+      ],
+      "look": [
+        15.5,
+        1.0,
+        20.8
+      ],
+      "seconds": 0,
+      "ease": "inOut",
+      "space": "world"
+    },
+    {
+      "at": 0.4,
+      "do": "fade",
+      "to": 0,
+      "seconds": 1.8
+    },
+    {
+      "at": 0.4,
+      "do": "camera",
+      "pos": [
+        10.0,
+        2.5,
+        22.8
+      ],
+      "look": [
+        15.5,
+        1.0,
+        20.6
+      ],
+      "seconds": 12.5,
+      "ease": "inOut",
+      "space": "world"
+    },
+    {
+      "at": 1.0,
+      "do": "caption",
+      "key": "cutscene.ending_quiet.line01",
+      "seconds": 4.6,
+      "voice": "ending_quiet_01"
+    },
+    {
+      "at": 6.0,
+      "do": "caption",
+      "key": "cutscene.ending_quiet.line02",
+      "seconds": 4.0,
+      "voice": "ending_quiet_02",
+      "speaker": "mara"
+    },
+    {
+      "at": 10.6,
+      "do": "caption",
+      "key": "cutscene.ending_quiet.line03",
+      "seconds": 3.8,
+      "voice": "ending_quiet_03",
+      "speaker": "haas"
+    },
+    {
+      "at": 14.6,
+      "do": "fade",
+      "to": 1,
+      "seconds": 1.8
+    }
+  ],
+  "end": {
+    "fade": 1
+  },
+  "area": "ground"
+}

@@ -1,17 +1,23 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 
 #include "engine_impl.h"
+#include "fa/audio/snapshots.h"
 #include "fa/core/fs.h"
+#include "fa/core/image_tools.h"
 #include "fa/core/log.h"
 #include "fa/core/perf.h"
 #include "fa/core/profiler.h"
+#include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "fa/platform/app.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
+#include "fa/scene/camera_query.h"
 #include "fa/scene/animation.h"
+#include "fa/scene/bones2d.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/video.h"
 
@@ -48,6 +54,7 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
         return true;
     }
     Key k = key_from_name(name);
+    if (k == Key::Unknown) k = modifier_key(modifier_from_name(name));  // "Ctrl", "Shift", "Alt", "Super": the left key
     if (k != Key::Unknown) {
         input.on_key(k, down);
         return true;
@@ -59,7 +66,7 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
     if (error) {
         std::vector<std::string> candidates = input.action_names();
         for (int i = 1; i < int(Key::Count); ++i) candidates.emplace_back(key_name(Key(i)));
-        for (const char* m : {"MouseLeft", "MouseRight", "MouseMiddle"}) candidates.emplace_back(m);
+        for (const char* m : {"MouseLeft", "MouseRight", "MouseMiddle", "Ctrl", "Shift", "Alt", "Super"}) candidates.emplace_back(m);
         *error = "Unknown input '" + name + "' (not an action, key or mouse button). " + did_you_mean(name, candidates);
         if (starts_with(to_lower(name), "gamepad") || starts_with(to_lower(name), "touch"))
             *error += " Gamepads and fingers have their own fields: {\"gamepad\": {\"buttons\": {\"A\": true}}}, "
@@ -71,7 +78,29 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
     input.set_gamepad_deadzone(float(project.inputDeadzone));
+    // The interface scale of factoria.json: applied when it changes (the first time included), so reloading the project for
+    // another setting does not undo what the player chose in the Options menu. The start-up change sends no ui.scale event.
+    if (project.uiScale != appliedProjectUiScale) {
+        const bool atStart = appliedProjectUiScale < 0.0f;
+        appliedProjectUiScale = project.uiScale;
+        self->set_ui_scale(project.uiScale);
+        if (atStart) std::erase_if(world.events().game, [](const GameEvent& e) { return e.name == "ui.scale"; });
+    }
+    // The mirror option of factoria.json, applied when it changes (a script's ui.mirrorRtl survives an unrelated reload).
+    if (!appliedProjectMirrorRtl || *appliedProjectMirrorRtl != project.uiMirrorRtl) {
+        appliedProjectMirrorRtl = project.uiMirrorRtl;
+        world.set_ui_mirror_rtl(project.uiMirrorRtl);
+    }
+    // The tooltip settings, when the project file changes them (a script's ui.tooltipDelay survives an unrelated reload).
+    if (!appliedProjectTooltip || *appliedProjectTooltip != project.uiTooltip) {
+        appliedProjectTooltip = project.uiTooltip;
+        world.set_ui_tooltip_settings(project.uiTooltip);
+    }
     for (const std::string& problem : input.set_actions(ui_with_default_actions(project.inputActions))) {
+        FA_WARN("input", "{}", problem);
+        startupProblems.push_back(problem);
+    }
+    for (const std::string& problem : input.set_key_schemes(project.inputSchemes)) {  // after the actions: a scheme names some
         FA_WARN("input", "{}", problem);
         startupProblems.push_back(problem);
     }
@@ -88,6 +117,53 @@ void Engine::Impl::apply_project_settings() {
         FA_WARN("platform", "{}", problem);
         startupProblems.push_back(problem);
         platform.set_catalog(PlatformCatalog{});
+    }
+    // The audio snapshots. A section with errors counts as empty (audio.snapshot then says there is none); the problems are
+    // logged here and `factoria validate` lists them all.
+    AudioSettingsParse audioSettings = parse_audio_settings(project.raw.is_object() && project.raw.contains("audio") ? project.raw["audio"] : Json());
+    if (audioSettings.ok()) {
+        audio.set_buses(audioSettings.buses);
+        audio.set_snapshots(std::move(audioSettings.snapshots));
+    } else {
+        const AudioIssue& first = audioSettings.issues.front();
+        const std::string problem = "audio: the buses and the snapshot catalog are ignored: factoria.json#" + first.pointer + ": " + first.message +
+                                    " (hint: " + first.hint + ")" +
+                                    (audioSettings.issues.size() > 1 ? " and " + std::to_string(audioSettings.issues.size() - 1) +
+                                                                           " more (`factoria validate` lists them all)"
+                                                                     : std::string());
+        FA_WARN("audio", "{}", problem.substr(7));
+        startupProblems.push_back(problem);
+        audio.set_buses({});
+        audio.set_snapshots(AudioSnapshots{});
+    }
+    // The rich text style (markup colours, icons, bold faces). A section with errors counts as empty (a [c:name] then shows as
+    // written); the first error is logged here, `factoria validate` lists them all.
+    TextSettingsParse textSettings = parse_text_settings(project.raw.is_object() && project.raw.contains("text") ? project.raw["text"] : Json());
+    for (const TextSettingsIssue& w : textSettings.warnings) FA_WARN("text", "factoria.json#{}: {} {}", w.pointer, w.message, w.hint);
+    if (textSettings.ok()) {
+        richStyle = std::move(textSettings.style);
+    } else {
+        const TextSettingsIssue& first = textSettings.issues.front();
+        const std::string problem = "text: the markup colours, icons and bold faces are ignored: factoria.json#" + first.pointer + ": " +
+                                    first.message + " (hint: " + first.hint + ")" +
+                                    (textSettings.issues.size() > 1 ? " and " + std::to_string(textSettings.issues.size() - 1) +
+                                                                          " more (`factoria validate` lists them all)"
+                                                                    : std::string());
+        FA_WARN("text", "{}", problem.substr(6));
+        startupProblems.push_back(problem);
+        richStyle = RichTextStyle{};
+    }
+    if (renderer) renderer->set_rich_text_style(richStyle);
+    // The hosts http.fetch may call. A section with errors counts as empty (every http.fetch then says no host is declared).
+    auto network = load_network(project.raw.is_object() && project.raw.contains(kNetworkKey) ? project.raw[kNetworkKey] : Json());
+    if (network.ok()) {
+        platform.set_network(std::move(network.value()));
+    } else {
+        const std::string problem = "network: the declaration is ignored: " + network.error().to_string() +
+                                    " (`factoria validate` lists every problem)";
+        FA_WARN("platform", "{}", problem);
+        startupProblems.push_back(problem);
+        platform.set_network(NetworkPolicy{});
     }
 }
 
@@ -111,7 +187,7 @@ VisualMeasure Engine::Impl::measure() const {
 }
 
 // Every scene load (scene.load, scene.reload, hot reload, project.test) starts from what is on disk now. ponytail: only
-// fixedHz, the input actions and the deadzone are re-applied from factoria.json; size, scale mode, the renderer and the
+// fixedHz, the input actions, the deadzone and (when the file changed it) ui.scale are re-applied from factoria.json; size, scale mode, the renderer and the
 // "localization" section (languages, default language: setup_localization) need a restart. locales/*.json reload by themselves.
 void Engine::Impl::refresh_from_disk() {
     const std::int64_t t = fs::modified_time(kProjectFileName);
@@ -129,7 +205,17 @@ void Engine::Impl::refresh_from_disk() {
     scripts.refresh_modules();
 }
 
-bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error) {
+// The props the scene being loaded starts with: the ones asked for, else the current ones on a reload, else none.
+void Engine::Impl::take_scene_props(bool keepProps) {
+    if (nextProps) {
+        sceneProps = std::move(*nextProps);
+        nextProps.reset();
+    } else if (!keepProps) {
+        sceneProps = Json::object();
+    }
+}
+
+bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error, bool keepProps) {
     std::string path = pathIn;
     if (!fs::is_absolute(path)) {
         auto n = fs::normalize_checked(path);
@@ -144,8 +230,9 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
     }
     refresh_from_disk();
     hasPendingScene = false;
+    take_scene_props(keepProps);
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
-    audio.stop_all();
+    audio.on_scene_load();
     physics.reset();
     LoadReport report = load_scene_file(world, path);
     world.set_scene_path(path);
@@ -164,6 +251,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
         else FA_WARN("scene", "{}", m.to_string());
     }
     physics.sync(world);  // bodies exist (and can be queried) right after the load, before the first step
+    bind_pending_skins(world);  // a SpriteSkin records the pose the scene was authored in, before any clip moves a bone
     ui.reset();
     apply_localization();  // the first frame (and the first onStart) already read the current language
     scripts.on_scene_loaded();
@@ -180,7 +268,8 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
 
 bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
     hasPendingScene = false;
-    audio.stop_all();
+    take_scene_props(false);
+    audio.on_scene_load();
     physics.reset();
     const std::string keptPath = world.scene_path();
     LoadReport report = fa::load_scene(world, scene, sourceName);
@@ -194,8 +283,9 @@ void Engine::Impl::apply_scene_change() {
     if (!hasPendingScene) return;
     std::string path = pendingScene;
     hasPendingScene = false;
+    const bool keep = std::exchange(pendingKeepProps, false);
     std::string err;
-    load_scene_impl(path, &err);
+    load_scene_impl(path, &err, keep);
 }
 
 namespace {
@@ -272,7 +362,7 @@ void Engine::Impl::poll_hot_reload(bool force) {
             if (p == currentScene) {
                 FA_INFO("hotreload", "Scene {} changed on disk, reloading", p);
                 std::string err;
-                load_scene_impl(p, &err);
+                load_scene_impl(p, &err, true);  // the scene file changed: same scene, same props
             }
         } else if (renderAsset) {
             // A material, a snippet (the renderer rebuilds every material using it), a texture, font or model.
@@ -297,6 +387,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         platform.frame();
         scripts.dispatch_platform();
         scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
+        scripts.dispatch_gamepads();  // pads plugged in or out since the last frame: game.on("gamepadConnected" ...)
     }
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
@@ -304,6 +395,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             ProfSystemScope prof(ProfSystem::Physics);
             physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
         }
+        bind_pending_skins(world);  // skins added since the last step bind at the pose they have now, before the animators move bones
         {
             ProfSystemScope prof(ProfSystem::ScriptsFixedUpdate);
             scripts.fixed_update(fdt);
@@ -317,6 +409,13 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             }
             ProfSystemScope prof(ProfSystem::Animation);
             update_animators(world, float(fixedDt * scale));  // skeletal animation + its events, before they are dispatched
+            // ---- After the Animator, before drawing ------------------------------------------------------------------
+            // The Animator has just written the 2D pose (the fields keyframed clips drive: Transform, Sprite...) and the
+            // 3D palettes. Systems that build on the animated pose run HERE, in this order, and nothing else writes the
+            // pose after them: IK2D turns its chains so the tip reaches the target, and what it moves is what gets drawn.
+            // The renderer (which deforms skinned sprites from the bones), bounds and the next physics step read the
+            // result. The order "clips, then IK, then drawing" is the contract in docs/ANIMATION.md, "Bones and IK".
+            update_ik2d(world);
         }
         {
             // Videos follow the game clock: they stop with time.scale 0, and a play / pause / seek a script made still applies.
@@ -365,6 +464,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         end_of_frame(dt);
     }
     ++frame;
+    if (recorder.recording()) recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
     inFrame = false;
     if (profiled) Profiler::get().end_frame();
 }
@@ -408,6 +508,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     auto proj = load_project(dir);
     if (!proj.ok()) return fail(proj.error().to_string());
     I.project = proj.value();
+    // Screenshots the engine named itself (game.screenshot without a path) pile up over a long session: drop the old ones.
+    if (!dir.empty()) prune_screenshots(stdfs::path(dir));
     I.projectMtime = fs::modified_time(kProjectFileName);
     I.paused = config.editorMode;
     {
@@ -419,8 +521,23 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.windowed = gfx != nullptr && !config.headless;
     if (I.windowed && !config.editorMode) {
         I.appWindow = std::make_unique<AppWindowControl>();
+        I.clipboard.use_system(true);
         speech().set_backend_factory(make_system_speech_backend);  // headless runs, tests and the editor only record
     }
+    I.ui.set_clipboard(&I.clipboard);  // a TextField's Ctrl+V / Ctrl+C
+    I.ui.set_i18n(&I.i18n);            // a tooltip's locale keys
+    // Where a world-space Interactable is on the screen: the renderer's camera for the pointer (perspective and viewports included),
+    // the scene's orthographic cameras when there is no renderer.
+    I.ui.set_world_projection([&I](Vec3 p, const Vec2* pointer) {
+        Renderer* r = I.renderer.get();
+        if (r && r->initialized() && !r->cameras().empty()) {
+            const Entity cam = pointer ? r->camera_at(*pointer) : kNullEntity;
+            return r->world_to_screen(p, cam != kNullEntity && I.world.alive(cam) ? cam : kNullEntity);
+        }
+        return ortho_view(I.world, I.design_size(), kNullEntity, pointer).to_screen(p);
+    });
+
+    I.ui.set_surface_pointer(make_ui_surface_pointer(I));  // the pointer through a render target shown on a mesh
 
     // World + input.
     I.world.rng().reseed(config.seed);
@@ -456,7 +573,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             I.gpu.reset();
         } else {
             if (config.shaderCompiler) I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
+            I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.apply_fallback_fonts();  // the renderer did not exist when the start language was chosen
+            I.renderer->set_rich_text_style(I.richStyle);  // nor when the project settings were read
             FA_INFO("engine", "Graphics: {}",
                     I.gpu ? I.gpu->description()
                           : std::format("window {}x{} px (dpi scale {})", app_framebuffer_width(), app_framebuffer_height(),
@@ -478,6 +597,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
     PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);
     for (std::string& problem : installed.problems) I.startupProblems.push_back(std::move(problem));
+    I.pluginSteamDeck = installed.steamDeck;
     plugin_take_submitted_text();  // text meant for an earlier engine of this process
     if (!installed.textInputs.empty()) {
         // The platform's own keyboard: the first plugin that answers 1 takes the field and is told when it loses the focus.
@@ -528,6 +648,17 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         FA_DEBUG("platform", "{}", choice.adsWhy);
         I.platform.set_ads_backend(nullptr, choice.adsWhy);  // platform.state's adsWhy says why no ads plugin is in use
     }
+    // http.fetch: the system's HTTP client, except in headless runs, tests, `factoria call` and the MCP server (they ask for the fake
+    // backend, which answers what game.platform.respond scripted and never touches the network).
+    if (config.platformBackend != "fake") {
+        auto client = make_system_http_client();
+        std::string why = "the system's HTTP client (" + client->name() + ")";
+        if (!client->available()) {
+            why = client->unavailable_reason();  // the sentence http.fetch's "unavailable" answer carries
+            FA_INFO("platform", "http.fetch is not available on this computer: {}", why);
+        }
+        I.platform.set_http_backend(make_http_backend(std::move(client)), why);
+    }
     std::string serr;
     if (config.scriptDebugger) I.scripts.set_debugger(config.scriptDebugger);
     if (!I.scripts.init(*this, &serr)) {
@@ -538,9 +669,14 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
 
     I.initialized = true;
     set_log_frame(0);
+    I.recorder.set_frame_source(&I.frame);  // the input recorder hears every event of the game (start_input_recording)
+    I.input.set_observer(&I.recorder);
+    I.clipboard.set_recorder(&I.recorder);
+    I.platform.set_frame_clock(&I.frame);  // the frame of each http.fetch request, for the recorder
 
     // Start scene (errors are kept for game.state / script.errors; they do not abort init).
     std::string scenePath = config.scene.empty() ? I.project.mainScene : config.scene;
+    if (config.sceneProps.is_object()) I.nextProps = config.sceneProps;
     if (!scenePath.empty()) {
         std::string serrText;
         if (!fs::exists(scenePath) && !fs::is_absolute(scenePath)) {
@@ -557,6 +693,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         }
         I.implicitStartScene = config.scene.empty();  // load_scene_impl cleared it; the default scene was not chosen by anyone
     }
+    I.nextProps.reset();  // a start scene that could not load takes none
     if (I.windowed && I.project.scaleMode == ScaleMode::Expand) { /* resize handler adapts the target */ }
     I.poll_hot_reload();  // seeds the watch snapshot when hot reload is active
     return true;
@@ -605,6 +742,10 @@ void Engine::step(int frames) {
 }
 
 bool Engine::load_scene(std::string_view path, std::string* error) { return impl_->load_scene_impl(std::string(path), error); }
+bool Engine::load_scene(std::string_view path, const Json& props, std::string* error) {
+    if (props.is_object()) impl_->nextProps = props;
+    return impl_->load_scene_impl(std::string(path), error);
+}
 
 bool Engine::load_scene_json(const Json& scene, std::string_view sourceName, std::string* error) {
     return impl_->load_scene_json_impl(scene, sourceName, error);
@@ -621,7 +762,7 @@ void Engine::reload_scene() {
     Impl& I = *impl_;
     if (I.currentScene.empty()) return;
     std::string err;
-    I.load_scene_impl(I.currentScene, &err);
+    I.load_scene_impl(I.currentScene, &err, true);
 }
 
 bool Engine::paused() const { return impl_->paused; }
@@ -634,6 +775,7 @@ const EngineConfig& Engine::config() const { return impl_->cfg; }
 HeadlessGpu* Engine::headless_gpu() { return impl_->gpu.get(); }
 PlatformServices* Engine::platform_services() { return &impl_->platform; }
 const I18n* Engine::i18n() { return &impl_->i18n; }
+const RichTextStyle* Engine::rich_text_style() { return &impl_->richStyle; }
 std::string Engine::set_language(std::string_view language) {
     auto switched = impl_->switch_language(language);
     return switched.ok() ? std::string() : switched.error().to_string();
@@ -673,6 +815,65 @@ bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
     if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
     return true;
 }
+
+Engine::RegionPlan Engine::plan_region(Vec2 view, const Rect& r, double zoom) {
+    RegionPlan p;
+    constexpr double kMaxSide = 8192;
+    if (!(zoom >= 0.25 && zoom <= 32.0)) {
+        p.error = "zoom " + (std::isfinite(zoom) ? std::to_string(zoom) : std::string("(not a number)")) +
+                  " is out of range. zoom must be between 0.25 and 32. Example: region [600,0,80,720] with zoom 8 gives 640x5760.";
+        return p;
+    }
+    p.x1 = view.x;
+    p.y1 = view.y;
+    if (r.w > 0 && r.h > 0) {
+        p.x0 = std::max(0.0, double(r.x));
+        p.y0 = std::max(0.0, double(r.y));
+        p.x1 = std::min(double(view.x), double(r.x) + r.w);
+        p.y1 = std::min(double(view.y), double(r.y) + r.h);
+        if (!(p.x1 > p.x0 && p.y1 > p.y0)) {
+            p.error = "region [" + std::to_string(int(r.x)) + ", " + std::to_string(int(r.y)) + ", " + std::to_string(int(r.w)) + ", " +
+                      std::to_string(int(r.h)) + "] is outside the game view (" + std::to_string(int(view.x)) + "x" + std::to_string(int(view.y)) +
+                      " design pixels, origin top-left). Use [x, y, width, height] inside it.";
+            return p;
+        }
+    }
+    p.width = std::max(1, int(std::lround((p.x1 - p.x0) * zoom)));
+    p.height = std::max(1, int(std::lround((p.y1 - p.y0) * zoom)));
+    if (p.width > kMaxSide || p.height > kMaxSide)
+        p.error = "The picture would be " + std::to_string(p.width) + "x" + std::to_string(p.height) +
+                  " px, over the 8192 px limit per side. Use a smaller region or zoom.";
+    return p;
+}
+
+bool Engine::capture_region(Image& out, const Rect& region, double zoom, std::string* error) {
+    Impl& I = *impl_;
+    if (!I.renderer) {
+        Image probe;
+        return capture_scaled(probe, 1.0, error);  // the same message as a screenshot
+    }
+    const double vw = I.renderer->target_width(), vh = I.renderer->target_height();
+    const RegionPlan plan = plan_region({float(vw), float(vh)}, region, zoom);
+    if (!plan.error.empty()) {
+        if (error) *error = plan.error;
+        return false;
+    }
+    // Native re-render at the largest render scale that is allowed (and fits 8192 px for the whole frame); beyond it the
+    // rest of the magnification is nearest-neighbour.
+    constexpr double kMaxSide = 8192;
+    double native = std::min({zoom, double(Renderer::kMaxRenderScale), kMaxSide / std::max(vw, vh)});
+    native = std::max(native, double(Renderer::kMinRenderScale));
+    Image full;
+    if (!capture_scaled(full, native, error)) return false;
+    const double sx = double(full.width) / vw, sy = double(full.height) / vh;  // pixels per design pixel actually rendered
+    const int cx = int(std::lround(plan.x0 * sx)), cy = int(std::lround(plan.y0 * sy));
+    const int cw = std::max(1, int(std::lround((plan.x1 - plan.x0) * sx))), ch = std::max(1, int(std::lround((plan.y1 - plan.y0) * sy)));
+    Image part = crop_image(full, cx, cy, cw, ch);
+    out = (part.width == plan.width && part.height == plan.height) ? std::move(part) : resize_nearest(part, plan.width, plan.height);
+    return true;
+}
+
+bool Engine::capture_frame(Image& out, std::string* error) { return capture_scaled(out, impl_->heldScale, error); }
 
 bool Engine::hold_render_scale(double scale, std::string* error) {
     Impl& I = *impl_;
@@ -820,6 +1021,44 @@ Json Engine::project_settings() const {
 }
 double Engine::fixed_dt() const { return impl_->fixedDt; }
 WindowControl* Engine::window() { return impl_->appWindow.get(); }
+Clipboard* Engine::clipboard() { return &impl_->clipboard; }
+void Engine::start_input_recording() {
+    Impl& I = *impl_;
+    const std::uint64_t f = I.frame;
+    I.recorder.start(f);
+    I.platform.log_http(false);  // http.fetch answers go into the replay too, from the requests made from now on
+    I.platform.log_http(true);
+    const CalendarDate today = I.scripts.today();
+    I.recorder.set_date(today.iso(), today.utcOffsetMinutes, today.iso_time());
+    // What is held now is part of the session: the replay starts from nothing.
+    const Input& in = I.input;
+    for (int k = 1; k < int(Key::Count); ++k)
+        if (in.key_down(Key(k))) I.recorder.key(f, Key(k), true);
+    I.recorder.mouse_position(f, in.mouse_position());
+    for (MouseButton b : {MouseButton::Left, MouseButton::Right, MouseButton::Middle})
+        if (in.mouse_down(b)) I.recorder.mouse_button(f, b, true);
+    for (int p = 0; p < kMaxGamepads; ++p) {
+        if (!in.gamepad_connected(p)) continue;
+        I.recorder.gamepad_connected(f, p, true);
+        for (int b = 0; b < int(GamepadButton::Count); ++b)
+            if (in.gamepad_down(p, GamepadButton(b))) I.recorder.gamepad_button(f, p, GamepadButton(b), true);
+        for (int a = 0; a < int(GamepadAxis::Count); ++a)
+            if (const float v = in.gamepad_raw_axis(p, GamepadAxis(a)); v != 0.0f) I.recorder.gamepad_axis(f, p, GamepadAxis(a), v);
+    }
+    for (const Touch& t : in.touches()) I.recorder.touch_begin(f, t.id, t.position);
+}
+Json Engine::stop_input_recording() {
+    Impl& I = *impl_;
+    if (I.recorder.recording())
+        for (const HttpLogEntry& e : I.platform.take_http_log()) I.recorder.http(e.frame, e.answer);  // the answered requests
+    I.platform.log_http(false);
+    I.recorder.stop();
+    return I.recorder.input();
+}
+bool Engine::input_recording() const { return impl_->recorder.recording(); }
+std::size_t Engine::input_recording_frames() const { return impl_->recorder.frame_count(); }
+void Engine::log_clipboard_reads(bool on) { impl_->clipboard.log_reads(on); }
+std::vector<std::string> Engine::take_clipboard_reads() { return impl_->clipboard.take_reads(); }
 
 double Engine::render_scale() const { return impl_->renderer ? impl_->heldScale : ScriptHost::render_scale(); }
 
@@ -844,7 +1083,15 @@ Json Engine::device_info() const {
     std::string tier = "medium";  // unknown memory (web) stays here
     if (backend == "dummy") tier = "low";
     else if (memoryGB > 0) tier = memoryGB < 3.5 ? "low" : (memoryGB < 7.5 || (form != "desktop" && memoryGB < 5.5)) ? "medium" : "high";
-    return Json::object({{"formFactor", form}, {"gpuBackend", backend}, {"memoryGB", memoryGB}, {"tier", tier}});
+    // The Steam plugin knows for sure when Steam is up; without it the SteamDeck=1 environment variable that Steam sets for the
+    // games it starts on a Deck (and "SteamDeck=0" in a launch option turns off) is the answer.
+    bool steamDeck = I.pluginSteamDeck == 1;
+    if (I.pluginSteamDeck < 0) {
+        const char* env = std::getenv("SteamDeck");
+        steamDeck = env && std::string_view(env) == "1";
+    }
+    return Json::object({{"formFactor", form}, {"gpuBackend", backend}, {"memoryGB", memoryGB}, {"tier", tier},
+                         {"steamDeck", steamDeck}, {"handheld", steamDeck || form != "desktop"}});
 }
 
 Json Engine::render_stats_now() {
@@ -869,7 +1116,18 @@ double Engine::preload_time_budget_ms() const {
 void Engine::request_scene_change(std::string_view scenePath) {
     impl_->pendingScene = std::string(scenePath);
     impl_->hasPendingScene = true;
+    impl_->nextProps.reset();  // the last request wins, props included
+    impl_->pendingKeepProps = false;
 }
+void Engine::request_scene_change_with_props(std::string_view scenePath, const Json& props) {
+    request_scene_change(scenePath);
+    impl_->nextProps = props;
+}
+void Engine::request_scene_reload(std::string_view scenePath) {
+    request_scene_change(scenePath);
+    impl_->pendingKeepProps = true;
+}
+const Json& Engine::scene_props() const { return impl_->sceneProps; }
 void Engine::request_quit() { impl_->quit = true; }
 ProfMemory Engine::profile_memory() {
     Impl& I = *impl_;
@@ -898,6 +1156,21 @@ void Engine::step_frames(int n) { step(n); }
 void Engine::set_text_scale(float scale) {  // the callers (ui.textScale, ui.set_text_scale) check the range
     ScriptHost::set_text_scale(scale);
     if (impl_->renderer) impl_->renderer->set_text_scale(scale);
+}
+void Engine::set_ui_scale(float scale) {  // the callers (ui.scale, ui.set_scale, the project default) check the range
+    ScriptHost::set_ui_scale(scale);
+    if (impl_->renderer) impl_->renderer->set_ui_scale(scale);
+    if (impl_->renderer) impl_->renderStale = true;
+}
+bool Engine::default_ui_mirror_rtl() const { return impl_->project.uiMirrorRtl; }
+float Engine::default_ui_scale() const { return impl_->project.uiScale; }
+std::string Engine::load_scene_now_with_props(std::string_view scenePath, const Json& props) {
+    impl_->nextProps = props;
+    return load_scene_now(scenePath);
+}
+std::string Engine::load_scene_json_now_with_props(const Json& scene, std::string_view sourceName, const Json& props) {
+    impl_->nextProps = props;
+    return load_scene_json_now(scene, sourceName);
 }
 std::string Engine::load_scene_now(std::string_view scenePath) {
     std::string err;

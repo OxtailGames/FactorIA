@@ -1,10 +1,9 @@
-// Light and the dark: the pool that keeps the game under FactorIA's 16 Light2D, the torches, and the fog of war
+// Light and the dark: a Light2D per source, the torches, and the fog of war
 // (scripts/game/lights.js, scripts/game/fog.js).
 import { test, describe, expect, game } from "factoria:test";
-import { cleanBeforeEach, playRows, playGenerated, miners, miner, teleport, record, activeLights } from "./helpers/world.js";
+import { cleanBeforeEach, playRows, playGenerated, miners, miner, teleport, record } from "./helpers/world.js";
 import { live } from "../scripts/game/mine_map.js";
 import { run, lampOf, lampRadius } from "../scripts/game/run_state.js";
-import { ENGINE_LIGHT_CAP } from "../scripts/game/lights.js";
 import { UNSEEN, SEEN, VISIBLE, SIGHT_EXTRA, TORCH_RADIUS } from "../scripts/game/fog.js";
 import { K, TILE } from "../scripts/game/tiles.js";
 
@@ -25,11 +24,12 @@ function crystalHall() {
   ].map((r) => r.slice(0, 40).padEnd(40, "B"));
 }
 
-describe("the Light2D pool", () => {
+describe("the lights of the mine", () => {
   cleanBeforeEach();
-  test("a mine with many crystal walls, magma and torches never has more than 16 active Light2D (the engine's cap)", () => {
+  test("every crystal wall, magma tile and torch has its own light, and the engine draws every one that reaches the view", () => {
     const shift = playRows(crystalHall(), { stratum: 1, players: 4 });
-    expect(shift.lights.sources.filter((s) => s.kind === "crystal").length).toBeGreaterThan(40);
+    const crystals = shift.lights.sources.filter((s) => s.kind === "crystal").length;
+    expect(crystals).toBeGreaterThan(40);
     // the miners are at the start; place six torches along the hall, which adds six more sources
     run.torches = 6;
     for (let i = 0; i < 6; i++) {
@@ -39,35 +39,34 @@ describe("the Light2D pool", () => {
     }
     expect(run.torches).toBe(0);
     game.step(SECOND);
-    const lights = activeLights();
-    expect(lights.length).toBeLessThanOrEqual(ENGINE_LIGHT_CAP);
-    // the four lamps are among them, and the pool fills what is left
-    expect(lights.length).toBeGreaterThanOrEqual(4 + 6);
-    expect(game.renderStats().lightsDropped ?? 0).toBe(0);
+    expect(shift.lights.sources.length).toBe(crystals + 6);
+    expect(shift.lights.lit).toBe(crystals + 6);
+    // past the old cap of 16: the four lamps and the lights near the miners all count
+    const stats = game.renderStats();
+    expect(stats.lights2d).toBeGreaterThan(16);
+    // a light is "dropped" only when it is off the view or past the engine's 256: here the hall is wider than the picture
+    expect(stats.lights2d + stats.lights2dDropped).toBe(crystals + 6 + 4);
   });
 
-  test("the pool serves the sources nearest to the miners, and follows them", () => {
+  test("a crystal that is dug loses its light, and the others keep theirs", () => {
     const shift = playRows(crystalHall(), { stratum: 1 });
-    teleport(miner(), 3, 3);
+    const before = shift.lights.sources.length;
+    const one = shift.lights.sources.find((s) => s.kind === "crystal");
+    const entity = one.entity;
+    live.map.setKind(one.tx, one.ty, K.FLOOR);
     game.step(SECOND);
-    const nearStart = shift.lights.pool.filter((p) => p.source).map((p) => p.source.tx);
-    expect(Math.max(...nearStart)).toBeLessThan(14);
-    teleport(miner(), 33, 4);
-    game.step(SECOND);
-    const nearEnd = shift.lights.pool.filter((p) => p.source).map((p) => p.source.tx);
-    expect(Math.min(...nearEnd)).toBeGreaterThan(20);
-    expect(activeLights().length).toBeLessThanOrEqual(ENGINE_LIGHT_CAP);
+    expect(shift.lights.sources.length).toBe(before - 1);
+    expect(entity.alive).toBe(false);
   });
 
-  test("a generated Crystal Caves floor with four players stays under the cap while they walk around", () => {
+  test("a generated Crystal Caves floor lights all its crystals while four players walk around", () => {
     const shift = playGenerated(1, 1, 1234, 4);
     for (const m of miners()) teleport(m, live.mine.start.tx, live.mine.start.ty);
-    for (let i = 0; i < 6; i++) {
-      game.step(SECOND / 2);
-      expect(activeLights().length).toBeLessThanOrEqual(ENGINE_LIGHT_CAP);
-    }
+    for (let i = 0; i < 6; i++) game.step(SECOND / 2);
     expect(shift.lights.lit).toBeGreaterThan(0);
-    expect(shift.lights.pool.length).toBe(ENGINE_LIGHT_CAP - 4);
+    expect(shift.lights.lit).toBe(shift.lights.sources.length);
+    const stats = game.renderStats();
+    expect(stats.lights2d + stats.lights2dDropped).toBe(shift.lights.sources.length + 4);
   });
 });
 
@@ -107,14 +106,14 @@ describe("torches", () => {
     expect(live.lights.placeTorch(0)).toBe(false);
   });
 
-  test("a torch lights the pool and keeps showing the mine around it after the miner leaves", () => {
+  test("a torch has its light and keeps showing the mine around it after the miner leaves", () => {
     playRows(HALL);
     teleport(miner(), 8, 1);
     game.step(2);
     live.lights.placeTorch(0);
     teleport(miner(), 1, 1);
     game.step(SECOND);
-    const lit = live.lights.pool.some((p) => p.source && p.source.kind === "torch" && p.source.tx === 8);
+    const lit = live.lights.sources.some((src) => src.kind === "torch" && src.tx === 8 && src.entity.alive);
     expect(lit).toBe(true);
     expect(live.fog.isVisible(8, 1)).toBe(true);
     expect(live.fog.isVisible(11, 1)).toBe(true); // within TORCH_RADIUS of the torch

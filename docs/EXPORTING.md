@@ -6,7 +6,7 @@ function is available to tools as `fa::export_project` (`fa/tooling/export.h`), 
 
 ```bash
 factoria export [project] --platform <linux|windows|macos|android|ios|web> [--format apk|aab|gradle|appimage|msix|folder] [--out DIR] [--release [--allow-debug-key]]
-                [--player PATH] [--engine-root DIR | --mobile-dir DIR]
+                [--player PATH] [--engine-root DIR | --mobile-dir DIR] [--allow-player-mismatch] [--allow-missing-plugins]
 ```
 
 `--format` is for Android (`apk` by default, `aab` for Google Play, `gradle` for only the project): see [Android](#android);
@@ -37,15 +37,16 @@ The same export is the command `project.export` (MCP tool `project_export`, also
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
 APK without a shell. Arguments are all optional: `platform` (default: this machine), `format` (Android: `apk`, `aab` or
 `gradle`; Linux: `appimage`), `out` (parent folder, relative to the project and inside it like the `fs.*` commands, default `build/export`) and
-`release`. It returns the report (`outputDir`, `mode` (Android, iOS, web), `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `materials` when the game has custom materials, `files`, `nextSteps`, `warnings`); an
+`release`. It returns the report (`outputDir`, `mode` (Android, iOS, web), `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `pluginsLeftOut` with `allowMissingPlugins`, `materials` when the game has custom materials, `files`, `nextSteps`, `warnings`); an
 unknown platform or format or a failed validation is an error with a hint. An Android export runs Gradle, which takes from
 seconds to minutes (the first one much longer): the call returns when the build is done.
 `dryRun: true` runs every check of the export and writes nothing: it returns `platform`, `outputDir` (the folder an
 export would replace), `mode` (Android, iOS), `format` and `artifact` (Android, Linux with `appimage`), `toolchain` (Android with `apk` or `aab`:
 `jdk`, `jdkFrom`, `jdkMajor`, `sdk` and `sdkFrom`, the JDK and SDK the build would use and where they were found), `player`
 (desktop; web: its `factoria_player.js`) and `warnings`, or the error the export would give, including a missing JDK or SDK, a missing keystore or
-password for `--release` (`fa::plan_export` in C++). `--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
-folder next to the running binary, or `$FACTORIA_ENGINE_DIR` when it is set.
+password for `--release` (`fa::plan_export` in C++). The command takes `--player` as `player` (an absolute path or one relative to the
+project). `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `mobile/` folder next to the running binary, or
+`$FACTORIA_ENGINE_DIR` when it is set.
 
 ```
 project_export {"platform":"windows","release":true}
@@ -95,14 +96,16 @@ The export packages the files on disk: when the scene has unsaved changes the wi
 
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
 (`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
-`node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`),
-`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, the project's own top-level `README.md` (documentation for whoever works on the
+`node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`) and its `.archive.json` next to it,
+`AGENTS.md`, `CLAUDE.md`, `REVIEW.md` (the note the AI reviewers read first), `jsconfig.json`, the project's own top-level `README.md` (documentation for whoever works on the
 game; any capitalization), a top-level `steam_appid.txt` (the development app id of the
 [Steam backend](PLATFORM.md#steam-steamworks): a game started by Steam gets its app id from Steam), the folder of a native
 plugin that lives inside the project (its build is shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
 repository. Those are the files no game reads, on every platform and with or without `--release`; the list is also the comment of
 `fa/tooling/export.h`. Only the TOP-LEVEL `README.md` is left out: a `README.md`, `CREDITS.md` or `LICENSE` deeper in the project, or a data
-file of any kind, ships, because a game may load it.
+file of any kind, ships, because a game may load it. That includes the files a glob import
+(`import tables from "../data/dialogue/*.json"`, [SCRIPTING](SCRIPTING.md#imports)) lists: keep them outside `tests/`, `tools/`
+and `export.exclude`, or the exported game finds fewer files than the project does.
 
 **Dot-folders never ship** (`.git`, `.factoria`, `.github`, `.vscode`, a `.cache` of your own): anything whose name starts with a dot is
 left out at every depth, so a game must not keep data it loads in a folder like `.data/`. Rename the folder
@@ -152,6 +155,25 @@ Textures are the one thing an export changes instead of copying (import settings
 - Encoding is cached in `.factoria/export-cache/<platform>/` (never shipped), so only the first export is slow. A texture
   that cannot be converted ships as a PNG with a warning; the export never fails because of it.
 
+### Size of the player
+
+Every game of a platform ships the same prebuilt player (that is what lets a game export without a compiler), so it
+carries the whole engine: 2D and 3D, physics, audio, networking, UI. Code a game never calls costs disk space only: it is
+not run and allocates nothing. The linker drops the functions and data that nothing reaches: `-dead_strip` on macOS and iOS,
+`--gc-sections` on Linux (with every file compiled into its own sections), the NDK's default `--gc-sections` on Android,
+`/OPT:REF` with MSVC on Windows, and Emscripten's own removal on the web. Measured 2026-10-26 on the M29 engine:
+
+| Player | Size |
+|---|---|
+| macOS arm64, Release, without symbols | 9.1 MB (10.2 MB before `-dead_strip`) |
+| Web, `factoria_player.wasm`, Emscripten 6.0.10 | 8.0 MB, 3.0 MB with gzip (6.8 MB and 2.7 MB in v0.2.0) |
+| Windows x64 (v0.2.0) | 8.1 MB |
+| Linux x86_64 (v0.2.0, before `--gc-sections`) | 13 MB |
+
+Link-time optimization (LTO) saved 0.1 MB more on macOS and is not used: it changes which code is inlined across
+modules, and the engine keeps its floating-point code identical on every platform. For most games the assets weigh more
+than the player; [Textures](#textures) and `export.exclude` are where an export gets smaller.
+
 ## Replacing an earlier export
 
 Every export starts by deleting `<out>/<game-slug>-<platform>/` and writing it again, so files you add there do not
@@ -187,6 +209,12 @@ with every copy, so every export writes `FACTORIA_NOTICES.txt` with all of them 
 | Android | `app/src/main/assets/` (inside the APK) |
 | iOS | `game/` (inside the app bundle) |
 
+The built-in fonts that are not inside the player (`builtin:serif`, `builtin:hand`, `builtin:blackletter`,
+`builtin:display`, [TEXT.md](TEXT.md#built-in-fonts)) are different: the export copies the files of the ones your game names
+to `builtin-fonts/` (a scene, prefab, script, data file or `factoria.json` that contains the name written out in full; a
+name a script builds from pieces is not seen) and adds their OFL license texts to `FACTORIA_NOTICES.txt`. A game that names
+none carries neither the files nor the texts. The report lists them as `builtinFonts`.
+
 Keep it in what you distribute (zip, installer, store build). You may also show it on a credits or licenses screen;
 nothing else is required. `factoria docs licenses` prints the full list, including what only the developer tools
 contain (Dear ImGui, in the editor, and the Gradle wrapper, Apache-2.0, which an Android export writes into its Gradle
@@ -217,7 +245,7 @@ download is done; **no** = that host cannot do it. The cells come from the expor
 | `linux --format appimage` ([AppImage](#linux-appimage)) | `factoria setup appimage` (about 16 MB; Linux x86_64 only, so WSL on Windows) | in WSL, after setup | after setup (x86_64) | no |
 | `macos` `.app` | the macOS player, same sources. The ad hoc `codesign` runs only on a Mac; elsewhere the app is not signed | after setup | after setup | yes |
 | `macos` signed and notarized ([Signing and notarizing](#signing-and-notarizing-for-macos)) | `codesign`, `xcrun notarytool` and `stapler` (Xcode command-line tools), a Developer ID Application certificate (Apple Developer Program) and a notary profile. Notarization uploads to Apple | no | no | online (notarization) |
-| `web` ([Web](#web)) | `web/` (`factoria_player.js` + `.wasm`): in the download; for a source build `factoria setup players --platforms web` (about 15-33 MB), or an Emscripten 6.0.10 build of the engine passed with `--player` ([BUILDING.md](BUILDING.md)) | after setup | after setup | after setup |
+| `web` ([Web](#web)) | `web/` (`factoria_player.js` + `.wasm`): in the download; for a source build `factoria setup players --platforms web` (about 15-33 MB) or, on a development build ahead of the last release, `factoria setup webplayer` (builds it from the checkout), or an Emscripten 6.0.10 build of the engine passed with `--player` ([BUILDING.md](BUILDING.md)) | after setup | after setup | after setup |
 | `android --format gradle` ([Android](#android)) | no JDK, no SDK. The project holds the Android libraries (prebuilt mode) or is generated from an engine checkout (source mode) | after setup (`players --platforms mobile`) or with a checkout: yes | same | same |
 | `android` apk / aab, **prebuilt** ([modes](#mobile-exports-prebuilt-or-source)) | a JDK 17+ (17 and 21 are tested; `factoria setup android` installs Temurin 21) and the Android SDK with `platforms;android-36` and `build-tools;35.0.0` (same command, about 500 MB, accepts the SDK license); the Android libraries as above. No NDK, no CMake. The first build downloads Gradle 8.14.3 and the Android Gradle plugin | after setup, then after one online build | same | same |
 | `android` apk / aab, **from source** | the same JDK and SDK, an engine checkout (`--engine-root` or `FACTORIA_ENGINE_DIR`), and NDK r27+ (`ndk;27.2.12479018`) and a CMake 3.24+: 3.31.6 in the SDK, else any other 3.24+ in the SDK, else one on this computer (the export points Gradle at it with `cmake.dir`). `factoria setup android` does not install the NDK or the CMake: `sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"`. Compiles the engine for two ABIs (minutes) | after setup, then after one online build | same | same |
@@ -226,8 +254,10 @@ download is done; **no** = that host cannot do it. The cells come from the expor
 | `ios` app (`build_ios.sh`) | a Mac with Xcode (from the App Store; `factoria setup xcode` checks it) and CMake 3.24+ (`factoria setup cmake` installs 3.31.6, about 75 MB); a device build also needs an Apple Team ID | no | no | yes |
 
 Uploading the result is a separate step: [Uploading to stores](#uploading-to-stores). What each `factoria setup` component
-installs, and where: [Setting up this computer](#setting-up-this-computer). A source build ahead of the last release cannot
-run `factoria setup players` (error `no_release`): build the player on that OS and pass `--player`.
+installs, and where: [Setting up this computer](#setting-up-this-computer). A source build ahead of the last release has no
+players of its own: `factoria setup players` takes the newest release's and says that their build fingerprint will not match
+(an export then needs `--allow-player-mismatch`); the web player can be built from the checkout with `factoria setup webplayer`
+([A development build](#a-development-build-players-from-the-checkout)). For the other OSes build the player on that OS and pass `--player`.
 
 ## Setting up this computer
 
@@ -241,11 +271,13 @@ factoria setup android                             # JDK 21 + Android SDK; shows
 factoria setup android --accept-licenses           # you have read the license and accept it (scripts)
 factoria setup players                             # the players of the other desktop OSes + the Android/iOS libraries, for this version
 factoria setup players --platforms windows,linux   # only these (windows, linux, macos, mobile, web)
+factoria setup webplayer                           # a development build: builds the web player from the engine checkout (Emscripten, preset web-release)
 factoria setup cmake                               # CMake 3.31 for the iOS export, unless a CMake 3.24+ is found
 factoria setup xcode                               # macOS: checks Xcode, opens its App Store page when it is missing
 factoria setup appimage                            # Linux x86_64 (and WSL): appimagetool + the AppImage runtime, for --format appimage
 factoria setup shaders                             # sokol-shdc, the shader compiler of custom materials (the factoria downloads already have it next to factoria)
 factoria setup ffmpeg                              # ffmpeg, so --record-video trailer.mp4 works without installing it by hand
+factoria setup launcher                            # macOS/Linux: an app that opens the editor with the FactorIA icon (Dock, Launchpad, app menu)
 ```
 
 | Component | What it installs | Download | The export that needs it |
@@ -253,11 +285,13 @@ factoria setup ffmpeg                              # ffmpeg, so --record-video t
 | `android` | Eclipse Temurin JDK 21, the Android command-line tools (revision 22.0, the classic Java `sdkmanager`), `platform-tools`, `platforms;android-36`, `build-tools;35.0.0`, the Android SDK license | about 500 MB (0.9 GB on disk) | `--platform android` (APK/AAB through Gradle) |
 | `players` | `factoria_player` of every desktop OS but this one, and `mobile/` (the Android and iOS libraries, from the macOS package, on any OS), from the GitHub release of this factoria's version | about 60 MB | `--platform windows\|linux\|macos` for another OS; Android and iOS without the engine source |
 | `players` with `--platforms web` | `web/` (`factoria_player.js` + `factoria_player.wasm`), from the download of this machine's own OS. Every download has `web/` next to `factoria`, so this is only for a factoria without it | about 15-33 MB | `--platform web` ([Web](#web)) |
+| `webplayer` | the web player built from the engine checkout this factoria was built from (`cmake --preset web-release`), into `build/web-release/player/`, with the Emscripten SDK it finds or the pinned 6.0.10 fetched into the checkout's `.cache/emsdk`. `unsupported` for a factoria without its checkout (a download) | about 1 GB for Emscripten when none is found, then several minutes of build | `--platform web` of a development build ([A development build](#a-development-build-players-from-the-checkout)) |
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
 | `shaders` | sokol-shdc, the shader compiler of custom materials, at a pinned commit of `github.com/floooh/sokol-tools-bin`: the one file for this computer (Windows, Linux or macOS, x64 or arm64), checked against a SHA-256 compiled into FactorIA. The factoria downloads carry the same file next to `factoria`, so this is for a factoria built from source, or when that copy is gone | about 8-12 MB | compiling `*.material.json` (`factoria validate`, `run`, `export`); see below |
 | `ffmpeg` | ffmpeg 6.0, the static GPL build of `github.com/eugeneware/ffmpeg-static` (release `b6.0`, with libx264 and AAC): the one gzip file for this computer (Windows x64, Linux and macOS x64 or arm64), checked against a SHA-256 compiled into FactorIA and unpacked to `$FACTORIA_HOME/tools/ffmpeg/b6.0/`. Skipped when an ffmpeg is already found | about 19-28 MB | `factoria run --record-video trailer.mp4` ([Recording a replay as a video](#gameplay-video-from-a-replay)) |
 | `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
+| `launcher` | nothing is downloaded: an app that opens this factoria's editor with the FactorIA icon. macOS: `~/Applications/FactorIA.app` (for the Dock, Launchpad and Spotlight; the editor's output goes to `~/Library/Logs/FactorIA/editor.log`), registered with Launch Services so the Dock shows the new icon. Linux: `factoria.desktop` and its 256 px icon under `~/.local/share` (or `$XDG_DATA_HOME`). `partial` when it opens another factoria, was not written by FactorIA, or carries an older version or icon; the editor rewrites, at start, one that opens it but is out of date (after an update or a reinstall). `unsupported` on Windows, where the installer adds the Start menu entry | - | none: it is how a person opens the editor |
 
 Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
 
@@ -268,6 +302,7 @@ Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.
   android/user/         what Google's tools keep for themselves ($ANDROID_USER_HOME): about 4 MB (sdkmanager's package-list cache) with the pinned tools, about 250 MB if the fallback below applies
   players/<version>/    windows/factoria_player.exe, linux/factoria_player, macos/factoria_player, mobile/, web/ (only when asked for)
   tools/cmake/          CMake (CMake.app on macOS)
+  (the checkout)        build/web-release/player/ and .cache/emsdk/: what `setup webplayer` builds and fetches, inside the engine checkout, not here
   tools/appimage/       appimagetool-<version>-x86_64.AppImage and runtime-<version>-x86_64 (Linux x86_64 only)
   tools/sokol-shdc/     <commit>/sokol-shdc[.exe] (folders of older commits are removed by the next install)
   export.json           machine settings: learns where the JDK and the SDK are (below)
@@ -512,13 +547,44 @@ or pass `--player path/to/factoria_player[.exe]` for one built there.
 
 **The player must come from the same build as `factoria`.** Both carry a build fingerprint (the commit they were built from,
 with `-dirty` when tracked files had uncommitted changes; `factoria version` prints it). The export reads the player's
-bytes, so it checks the player of another OS too. A player from another build, or an older one without a fingerprint, stops
-the export with an error that names both builds: it may lack the components or the script API the game uses, or fail to
-start. Fix it by building both from one checkout, or `factoria setup players` for the release's players. To bundle that
-player anyway, pass `--allow-player-mismatch` (the `export` command's `allowPlayerMismatch` argument): the export goes on
-and `warnings` says which builds differ. A `factoria` or a player built outside a git checkout carries `unknown` and is not
-compared. The same commit with `-dirty` on one side only is a warning, not an error; the fingerprint does not see which
-edits a `-dirty` build had, so rebuild both after editing the engine.
+bytes, so it checks the player of another OS too, and the web player (`factoria_player.wasm`) and the prebuilt Android
+(`libfactoria_player.so`) and iOS (`libfactoria_player_main.a`) libraries; an Android or iOS export that compiles the engine
+from a checkout has no prebuilt player to check. A player from another
+build stops the export with an error that names both builds: it may lack the components or the script API the game uses, or
+fail to start. Fix it by building both from one checkout, or with `factoria setup players` when this `factoria` is the
+release those players belong to (for the web: `factoria setup webplayer`, or `factoria setup players --platforms web` on a release;
+for Android and iOS: `factoria setup players`, `--mobile-dir`, or `--engine-root` to compile the engine from a checkout).
+To bundle that player anyway, pass `--allow-player-mismatch` (the `export` command's
+`allowPlayerMismatch` argument): the export goes on and `warnings` says which builds differ. A `factoria` or a player built
+outside a git checkout carries `unknown` and is not compared. The same commit with `-dirty` on one side only is a warning,
+not an error; the fingerprint does not see which edits a `-dirty` build had, so rebuild both after editing the engine.
+
+#### A development build: players from the checkout
+
+A `factoria` built from a commit after the last release (its version has no release on GitHub) has no players to download:
+the players of any release carry another fingerprint. What each player needs:
+
+- **Web.** `factoria setup webplayer` builds it from the checkout `factoria` was built from: it looks for an Emscripten SDK
+  (`$EMSDK`, an `emcc` on `PATH`, the checkout's `.cache/emsdk`, `~/emsdk`), fetches the pinned one (Emscripten 6.0.10, the
+  version CI uses; about 1 GB, it needs Python 3.10+ and network access) into the checkout's `.cache/emsdk` when there is none,
+  and runs the `web-release` preset (CMake 3.24+ and Ninja on `PATH`) through a shell that loads the SDK's own environment. The
+  player lands in `build/web-release/player/`, which the web export prefers over an installed one, so the next
+  `factoria export --platform web` finds it with no flag. A first build takes several minutes; an up-to-date player is not built
+  again (`--force` does). Build `factoria` from the same commit: the fingerprint of an uncommitted checkout ends in `-dirty`
+  and the setup says when the two differ. By hand, the same is `source emsdk_env.sh; cmake --preset web-release; cmake --build
+  --preset web-release` ([BUILDING.md](BUILDING.md), "Web").
+- **Windows, Linux, macOS, Android and iOS.** `factoria setup players` does not fail: when `v<version>` has no release it takes
+  the players of the newest release, installs them under this version's folder and warns that their fingerprint will not
+  match this `factoria`. They run the game when the release is close enough, but an export that uses them stops on the
+  mismatch until you pass `--allow-player-mismatch` (`allowPlayerMismatch`). Only when even the newest release cannot be read
+  does it fail (`no_release`); then build the player on that OS (BUILDING.md) and pass `--player`.
+
+**A player with no fingerprint** is one from a release older than the check (v0.2.0 and earlier). `factoria setup players`
+installs the players of *this factoria's version*, so on a newer `factoria` built from source it would put the same old
+player back: the error then says the player predates fingerprints, and the ways on are a player from a newer release (once
+one is published and your `factoria` matches it), a player built from your checkout (`--player`), or
+`--allow-player-mismatch` when you know the old player runs your game (it lacks whatever the engine gained since; the
+warning says so). The check is not relaxed to compare engine versions: only the fingerprint tells two builds apart.
 
 ```
 linux/windows:  my-game-linux/
@@ -560,7 +626,14 @@ the platform next to the executable: the contents of the plugin's `windows/` or 
 ones it needs), or of `macos/` into `Contents/Frameworks` (the ad hoc signature below covers them, with `--deep`). The
 player loads them from there. An export for a platform the plugin is declared for but not built for fails and says
 which file is missing; `factoria validate` lists those problems for every platform (a warning for each platform other
-than this computer's). A `plugin.json` in the plugin's `macos/` folder (the entitlements it needs, EXTENDING.md section G)
+than this computer's). A plugin is built only for the computer it is built on (`platform.add_backend` and CMake), but the
+export of every platform needs its build: get the other platforms' builds from CI or from the other computer (the same
+command there) and copy each platform's folder next to the plugin. Without them, pass `--allow-missing-plugins` (the
+`export` command's `allowMissingPlugins`): the export leaves out each plugin whose build is missing, with a warning that
+names it, and the report lists them in `pluginsLeftOut`. It applies to plugins declared `optional` and to those that are
+not (the game then starts, but scripts that call the missing plugin fail, and the warning says so): use it for a build you
+test or send to a tester, and build every plugin before the one you publish. A Steam game exported this way has no Steam:
+it runs with no platform services (`platform.backend` is `none`). A `plugin.json` in the plugin's `macos/` folder (the entitlements it needs, EXTENDING.md section G)
 does not ship in the app: the export writes the entitlements to `<game>.entitlements` next to it, for the signing step
 with your Apple developer certificate (the ad hoc signature cannot carry Game Center or iCloud).
 
@@ -911,6 +984,7 @@ factoria export --platform web --player path/to/web-player-folder
 build/export/
   my-game-web/                 the folder: any web host serves it as it is
     index.html                 the loading page (progress for the wasm and the pack), then the game
+    favicon.png                64x64 icon of the browser tab, made from the game's `icon`; only when the game has one
     factoria_player.js         the Emscripten glue
     factoria_player.wasm       the engine
     game.pak                   the whole game
@@ -931,6 +1005,21 @@ limits the export checks and warns about: at most 1000 files, 500 MB unpacked, 2
 `factoria publish` does not push the web export yet; upload the zip by hand or run
 `butler push build/export/my-game-web.zip <user>/<game>:html5`.
 
+**Setting up Emscripten.** Only building the player yourself needs it (a download of FactorIA carries `web/`). The SDK is
+pinned to **6.0.10**, the version CI and the releases use (newer ones are likely fine, untested):
+
+```bash
+git clone https://github.com/emscripten-core/emsdk && cd emsdk
+./emsdk install 6.0.10 && ./emsdk activate 6.0.10     # emsdk.bat on Windows; needs Python 3.10+ (EMSDK_PYTHON names one)
+source ./emsdk_env.sh                                  # emsdk_env.bat on Windows: sets EMSDK and puts emcc on PATH
+cd <the engine checkout>
+cmake --preset web-release && cmake --build --preset web-release   # build/web-release/player/factoria_player.{js,wasm}
+```
+
+`factoria setup webplayer` does all of it, fetching the SDK into the checkout's `.cache/emsdk` when it finds none
+([A development build](#a-development-build-players-from-the-checkout)). It also needs CMake 3.24+ and Ninja. On a Mac the
+system Python is too old for `emsdk`: `brew install python@3.13` and `export EMSDK_PYTHON=$(brew --prefix python@3.13)/bin/python3.13`.
+
 **Where the player comes from.** The export looks, in this order, for a folder holding both `factoria_player.js` and
 `factoria_player.wasm`:
 
@@ -941,13 +1030,21 @@ limits the export checks and warns about: at most 1000 files, 500 MB unpacked, 2
 4. A web build of the engine source: `build/web-release/player/` (or `build/web/player/`) in the checkout factoria was
    built from ([BUILDING.md](BUILDING.md)). A build directory elsewhere: pass its `player/` folder with `--player`.
 
+Without `--player` the export looks at 2, then the checkout's build (4), then 3, and takes the first whose build
+fingerprint is this factoria's: a fresh `build/web-release` wins over an installed player of an older release. When none
+matches it takes the first one it found and stops on the mismatch, as for every player (see "The player must come from the
+same build as `factoria`" under Desktop; `--player` is checked too). The error names both builds and says to build the web
+player in the checkout (`factoria setup webplayer`), to run `factoria setup players --platforms web` (a release), or to pass
+`--allow-player-mismatch`. If a player that lacks something still reaches the browser, the script error names the module and
+the missing export and says the player may be older than the game's engine.
+
 With none of them the export stops before writing anything and says which folders it looked in and the command that fixes
 it. `--json` and the plan (`dryRun`) report where the player came from as `mode` (`explicit`, `package`, `installed` or
 `build`), the `factoria_player.js` used as `player`, and the zip as `artifact` (`format` is `zip`).
 
 **The page.** `index.html` is `platforms/web/shell.html`, embedded in the factoria binary, with `{{title}}` (the game's
 `name`, HTML-escaped), `{{wasmBytes}}` and `{{pakBytes}}` (the sizes of the two downloads, for the progress bar when the
-server sends no `Content-Length`) replaced. A placeholder this factoria does not know stays as it is, with a warning.
+server sends no `Content-Length`) and `{{favicon}}` (`favicon.png`, or `data:,` when the game has no icon) replaced. A placeholder this factoria does not know stays as it is, with a warning.
 
 **What differs from the other exports.**
 
@@ -957,15 +1054,48 @@ server sends no `Content-Length`) replaced. A placeholder this factoria does not
   Atlas pages are at most 2048 px, like on phones: browsers run there too.
 - **Audio** is not changed by the web: WAV, OGG and QOA all decode in the player. Prefer OGG or QOA for long sounds, since
   every byte is downloaded before the game starts.
+- **Audio output** goes through an `AudioWorkletNode` (no `ScriptProcessorNode` deprecation warning in the console). The
+  player has no threads and no `SharedArrayBuffer` (a page without COOP/COEP headers), so Emscripten's `AUDIO_WORKLET` is not
+  used: the worklet only plays queued sample chunks and asks the main thread for more when its queue falls under 2048 frames;
+  the main thread mixes 512-frame chunks and posts them back. Where a browser has no AudioWorklet (or the worklet module fails to
+  load) a `ScriptProcessorNode` of 2048 frames takes over, with the old warning. The console says which one runs
+  (`factoria audio: AudioWorkletNode, ...`); `FactoriaAudio` in the page's console holds `backend`, `baseLatency`,
+  `outputLatency` and `underruns` (a warning is logged when the main thread was too busy to feed the worklet in time).
+  **Latency**, measured in the built-in browser (Chromium, macOS, 44.1 kHz, Burrow Brigade at 60 fps): `AudioContext.baseLatency`
+  5.4 ms, `outputLatency` 24 ms, plus the 2048-frame queue (46 ms full, about 35 ms on average), so a sound starts about 65 to
+  75 ms after the game asks for it, against about 90 ms of buffer alone with the `ScriptProcessorNode` of sokol_audio. 0
+  underruns in 18 s of music. Output latency varies with the device (Bluetooth adds more); the queue is the part the engine
+  chooses, and it is sized to survive one long frame.
 - **Typing.** Typed text reaches the game from the browser's `keypress` events, so it needs a real keyboard (or events a
   browser treats as typed; a browser pane's synthetic key events may only send `keydown`, and then letters do not appear).
   On a phone or tablet, a `TextField` with focus makes the browser show its keyboard through a hidden `<input>`; iOS Safari
   may need a second tap on the field. Details: [TEXT.md](TEXT.md#typing-text). A gamepad alone types with the on-screen
   keyboard of [MENUS.md](MENUS.md).
-- **No icon** and no `export.web` settings: the page and the browser tab are the game's face. The `platforms` list of
+- **The icon** is only the tab's: the export scales the game's `icon` (the top-level one; there is no `export.web` section)
+  into `favicon.png`, 64x64, and the page links it. A game without an icon gets an empty icon (`data:,`, so a host without a
+  favicon logs no 404), and no "No icon" warning; an icon file that cannot be read is a warning. The `platforms` list of
   `factoria.json` is not checked for `web`.
+- **Hiding and closing.** A web export raises `suspend` when the tab is hidden and `resume` when it is shown again
+  (`visibilitychange`), `blur` and `focus` with the page's focus, and `quit` when the page goes away (`pagehide`: a closed
+  tab, a reload, leaving the site). That `quit` cannot be cancelled. Right after the handlers have run, the save folder
+  (`storage`: one file per key) is copied to IndexedDB, so a game that saves in its `suspend` and `quit` handlers keeps the
+  save after its tab is closed. The browser can still kill a page before the copy ends, so keep a timer autosave too. To
+  check it: export, serve and open the game, make progress, close the tab (or navigate away), open the game again and see
+  that the save is there. `storage.setAsync` has no worker thread on the web: its write runs between frames, or right after
+  the `suspend` and `quit` handlers, before the copy. Which signals each platform raises: [SCRIPTING.md](SCRIPTING.md) "Window
+  close".
 - **Size** is the cost of the web: the wasm player plus the whole pack is downloaded before the first frame. `factoria
   validate` already warns about big files; the zip is deflated, so a host that compresses (gzip, brotli) saves little more.
+  See "The size report" below.
+
+**The size report.** Every export names the five folders that weigh most in what ships (`largestFolders` in `--json`: the
+folder cut to two levels, such as `assets/audio`, its files and bytes, after the asset steps), and warns when a folder
+called `store`, `screenshots` or `src`, at any depth, is packed: it names the folder, its size and the `export.exclude`
+entry that leaves it out (a game that does load such a folder keeps it). A web export also lists each file of the zip
+with its raw size and about its gzip size (the deflate size the zip holds plus the 18 bytes of a gzip frame; brotli is
+not measured), the total, and how long that total takes to download at 1, 5, 20 and 100 Mbit/s (`webFiles`, `webBytes`,
+`webGzipBytes` and `webDownloadSeconds` in `--json`). The times assume the host serves the files compressed; without that
+the raw total is what travels.
 
 ## Mobile exports: prebuilt or source
 
@@ -1336,7 +1466,7 @@ Things to know:
 - Steam keeps the executable bit of a file only when the upload runs on macOS or Linux: upload the `macos` and `linux` depots
   from that OS. An export made on Windows has no executable bit to keep. This is a Steamworks rule, not FactorIA's.
 - After the first upload set each depot's launch option in Steamworks (the result's `nextSteps` lists the file for each platform).
-- The app id 480 (Valve's test app) is refused. If `steam_appid.txt` is missing the error says how to write it.
+- The app id 480 (Valve's test app, Spacewar) is refused in a real upload. A dry run accepts it and warns, so you can see the plan before you have your own id. If `steam_appid.txt` is missing the error says how to write it.
 
 ```
 publish_steam {"dryRun":true}
@@ -1552,6 +1682,22 @@ it: centred on capsules and covers, in the upper part for Microsoft (the bottom 
 backgrounds and screenshots (Steam's library hero must have no text), and alone on a transparent canvas for the logo-only
 assets (Steam's library logo, Epic's logo). Assets with the same size in one store are one file.
 
+Three arguments frame the logo:
+
+- `safeArea`: the margin the logo keeps from the edges, as fractions of the image (0 to 0.45 each). A number is every side,
+  `{"left": 0.05, "top": 0.05, "right": 0.05, "bottom": 0.3}` names sides (the others keep 0.05), and
+  `{"default": 0.08, "microsoft": {"bottom": 0.4}}` differs per store (a store not named uses `default`, or the asset's
+  own default). Without it every capsule keeps 0.05 on each side, and the Microsoft poster and box art also keep their bottom
+  third, which the store overlays with text. The logo is made smaller to fit inside the area and is never placed outside it.
+- `logoAnchor`: where the logo sits in the safe area instead of the asset's rule: `center`, `top`, `bottom`, `left`, `right`,
+  `topLeft`, `topRight`, `bottomLeft`, `bottomRight`, or a point `[x, y]` (`[0, 0]` puts the logo's corner on the area's
+  top-left corner, `[1, 1]` on the bottom-right one, `[0.5, 0.5]` is the middle). It applies to every asset that carries a
+  logo, but not to the logo-only assets (Steam's library logo, Epic's logo): those stay centred.
+- `focus` also moves the logo when the key art already has the capsule's proportions (within 1%): the crop then has nothing
+  to choose, so the logo moves by how far `focus` is from `[0.5, 0.5]` (a focus of `[0.3, 0.5]` moves it a fifth of the width to
+  the left of where the rule or `logoAnchor` put it), kept inside the safe area. On art of another shape `focus` only decides
+  the crop.
+
 ```
 factoria screenshot --frames 120 --render-scale 1.5 --out store/keyart.png
 factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.45],"logo":{"text":"My Game"},"stores":["steam","itch"]}'
@@ -1653,6 +1799,10 @@ factoria run --headless --input replays/trailer.json --frames 900 --render-scale
   2 GB, which is roughly 3 minutes of 1080p at 60 fps (twice that at 720p). When the video reaches it, recording stops at that
   frame, the run goes on, and the report lists the reason in `problems` (exit code 2). Record a shorter replay
   (`--frames`) or use a smaller `--render-scale`.
+  The frames are written to a spool file next to the output as they are drawn, so the memory of the run stays flat however long
+  the recording is (a 1480-frame recording at 1080p once peaked at 4.4 GB on macOS, because every frame read back from the GPU
+  was kept until the end of the run; `video_tests.cpp` watches for it). The disk needs the size of the video twice while the
+  file is being finished.
 - `.mp4` (H.264 + AAC, what Steam, Google Play and the App Store accept for previews) is made by
   [ffmpeg](https://ffmpeg.org/download.html), found like the store tools of [Finding the tools](#finding-the-tools):
   `FACTORIA_FFMPEG` (the executable or its folder), `"publish": {"ffmpeg": "<path>"}` in `~/.factoria/export.json`, `PATH`,
@@ -1713,6 +1863,44 @@ build/export/my-game-linux/my-game --frames 120          # xvfb-run -a ... on a 
 
 The game opens a window like a normal run, so on a Linux runner start it with `xvfb-run -a` (the `check` job already installs
 what it needs). `factoria run --headless --frames N` does the same check without a window or the export.
+
+### Checking an exported build
+
+`--frames N` only proves that the build starts. To check that it **plays** the same as the game you tested, give it a
+replay (the JSON `input.record` writes, [DEBUGGING.md](DEBUGGING.md)) and ask for what it ended up with:
+
+```bash
+build/export/my-game-linux/my-game --frames 300 --input replays/level1.json \
+    --dump-state out/state.json --screenshot out/last.png
+factoria run --headless --frames 300 --input replays/level1.json --state-out out/ref.json \
+    --screenshot-at 299 --screenshot-pattern out/ref.png
+cmp out/state.json out/ref.json && cmp out/last.png out/ref.png
+```
+
+- `--input <replay>`: plays the replay; a relative path is relative to the current directory. A replay does not name a
+  scene: it plays from the start scene (`--scene` overrides it, as for the editor).
+- `--dump-state <file>`: the world state as JSON after the last frame (what `factoria run --state-out` writes).
+- `--screenshot <file>`: a PNG of the last frame (frame `N-1`, what `--screenshot-at N-1` captures), at design size.
+- All three need `--frames N` (without it the player says so and exits 2); any one of them makes the run **headless**
+  (no window, no audio, fixed time step, seed 1, in-memory storage, fake platform), the same path as `factoria run
+  --headless`, so it also works on a CI machine without a display (it still needs a GPU or the Mesa software renderer).
+  Missing parent folders of the outputs are created.
+- `--persist-storage` (with those flags, as `factoria run --persist-storage`): `storage.*` and the save files go to the game's
+  real user folder instead of memory. It is how to see that a save lands where it should: inside the container of a
+  sandboxed Mac App Store build (`~/Library/Containers/<bundle id>/Data/Library/Application Support/<bundle id>/`), or in
+  `HOME` (`APPDATA`, `XDG_DATA_HOME`) pointed at a temporary folder in a test. A replay that presses Play and saves leaves
+  the file, with no click on the window (`cli_larkspur_ship` does that for Larkspur Lodge). Start from a clean folder: the
+  files stay between runs. Without any of the three flags it is a usage error (exit 2).
+- Exit code: `0`; `1` when a script raised an error (printed on stderr), like `factoria run`; `2` for a usage error: a missing
+  or malformed replay, an output that cannot be written, `--frames` missing.
+- What to compare: the state dump should be **byte-equal** to `factoria run`'s for the same replay and frame count (it is
+  deterministic); the screenshot is equal too when both run on the same renderer (the test `cli_player_replay` compares the
+  PNG bytes), but across machines or GPUs allow a small pixel tolerance. A difference in the state means the export
+  changed the game's behaviour (missing asset, script, plugin); a difference only in the picture means a renderer problem.
+- Not available in the player: `--props` (a replay of a scene that needs props cannot be checked this way) and the
+  other `factoria run` outputs (audio, video).
+- In CI: run the player step after `factoria export` in the same job, then `cmp` or diff the files as above, and upload
+  them as artifacts when they differ.
 
 ## Tips
 

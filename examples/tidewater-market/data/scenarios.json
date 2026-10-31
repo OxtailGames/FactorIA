@@ -1,0 +1,43 @@
+{
+  "$comment": "The scenarios of the title screen (scripts/game/scenarios.js). The ids are a contract: story events (P5) and saves key by them. order = position in the menu. map = { seed } plus any setting of data/map.json to override for this scenario only. start = coins, stock (units by good id, on top of data/economy.json start) and day (the game starts on that day of the first year: 20 is the first day of autumn). goals = 2 to 4 of kind population (villagers), coins (coins in the bank) or produced_in_season (units of `good` made within one season; the count starts again with each season). A goal reached stays reached. The names and blurbs are the locale strings scenario.<id>.name and .blurb; a goal's text is built from goal.<kind>. The targets are tuned to what the bot (scripts/game/bot.js) reaches, see tests/scenarios.test.js.",
+  "format": "tidewater.scenarios/1",
+  "scenarios": {
+    "first_harbour": {
+      "order": 1,
+      "map": { "seed": 20261026 },
+      "start": {},
+      "goals": [
+        { "id": "folk", "kind": "population", "target": 25 },
+        { "id": "fishers", "kind": "produced_in_season", "good": "fish", "target": 120 },
+        { "id": "savings", "kind": "coins", "target": 1000 }
+      ]
+    },
+    "river_mills": {
+      "order": 2,
+      "map": { "seed": 1 },
+      "start": { "coins": 1000, "stock": { "wood": 80, "stone": 30 } },
+      "goals": [
+        { "id": "folk", "kind": "population", "target": 50 },
+        { "id": "bakers", "kind": "produced_in_season", "good": "bread", "target": 150 },
+        { "id": "savings", "kind": "coins", "target": 2500 }
+      ]
+    },
+    "winter_trade": {
+      "order": 3,
+      "map": { "seed": 2026 },
+      "start": { "coins": 1200, "stock": { "fish": 30, "smoked_fish": 10, "planks": 20 }, "day": 20 },
+      "goals": [
+        { "id": "folk", "kind": "population", "target": 40 },
+        { "id": "smokers", "kind": "produced_in_season", "good": "smoked_fish", "target": 60 },
+        { "id": "bread", "kind": "produced_in_season", "good": "bread", "target": 150 },
+        { "id": "savings", "kind": "coins", "target": 1500 }
+      ]
+    },
+    "sandbox": {
+      "order": 4,
+      "map": { "seed": 20261026 },
+      "start": { "coins": 5000, "stock": { "wood": 200, "stone": 100, "planks": 100 } },
+      "goals": []
+    }
+  }
+}

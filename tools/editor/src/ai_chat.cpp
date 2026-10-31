@@ -138,10 +138,14 @@ Json ChatItem::to_json() const {
     if (!deleted.empty()) j["deleted"] = deleted;
     if (omitted) j["omitted"] = omitted;
     if (sceneChanged) j["sceneChanged"] = true;
+    if (startedAt) j["startedAt"] = startedAt;
+    if (endedAt) j["endedAt"] = endedAt;
+    if (!scenePath.empty()) j["scenePath"] = scenePath;
     if (!revertedBy.empty()) j["revertedBy"] = revertedBy;
     if (!safetyId.empty()) j["safety"] = safetyId;
     if (undone) j["undone"] = true;
     if (isUndo) j["isUndo"] = true;
+    if (scoped) j["scoped"] = true;
     return j;
 }
 
@@ -173,10 +177,14 @@ ChatItem ChatItem::from_json(const Json& j) {
     c.checkpointId = str_of(j, "checkpoint");
     c.omitted = j.value("omitted", 0);
     c.sceneChanged = j.value("sceneChanged", false);
+    c.startedAt = static_cast<i64>(num_of(j, "startedAt"));
+    c.endedAt = static_cast<i64>(num_of(j, "endedAt"));
+    c.scenePath = str_of(j, "scenePath");
     c.revertedBy = str_of(j, "revertedBy");
     c.safetyId = str_of(j, "safety");
     c.undone = j.value("undone", false);
     c.isUndo = j.value("isUndo", false);
+    c.scoped = j.value("scoped", false);
     return c;
 }
 

@@ -1,0 +1,59 @@
+{
+  "$comment": "Every sound of the game, by role. clip = a project path (assets.json lists where each came from). volume 0..1 is the clip's own level before the buses. Add a sound by adding a clip here and playing it with playUi('name') (scripts/game/sfx.js) or a Soundscape rule; `factoria call project.validate_data` checks every clip is recorded in assets.json.",
+  "format": "tidewater.sounds/1",
+  "ui": {
+    "click": { "clip": "assets/sfx/ui_click.ogg", "volume": 0.6 },
+    "place": { "clip": "assets/sfx/place.ogg", "volume": 0.8 },
+    "demolish": { "clip": "assets/sfx/demolish.ogg", "volume": 0.8 },
+    "error": { "clip": "assets/sfx/ui_error.ogg", "volume": 0.7 },
+    "notice": { "clip": "assets/sfx/ui_notice.ogg", "volume": 0.6 },
+    "filled": { "clip": "assets/sfx/order_filled.ogg", "volume": 0.9 },
+    "card": { "clip": "assets/sfx/event_card.ogg", "volume": 0.8 },
+    "confirm": { "clip": "assets/sfx/ui_confirm.ogg", "volume": 0.7 }
+  },
+  "ambience": {
+    "sea": { "clip": "assets/ambience/sea.wav", "volume": 0.9 },
+    "market": { "clip": "assets/ambience/market.wav", "volume": 0.8 },
+    "wind": { "clip": "assets/ambience/wind.wav", "volume": 0.7 }
+  },
+  "work": {
+    "farm": { "clip": "assets/sfx/work_farm.ogg", "volume": 0.5 },
+    "fisher_dock": { "clip": "assets/sfx/work_fisher_dock.ogg", "volume": 0.5 },
+    "lumber_camp": { "clip": "assets/sfx/work_lumber_camp.ogg", "volume": 0.6 },
+    "quarry": { "clip": "assets/sfx/work_quarry.ogg", "volume": 0.6 },
+    "sawmill": { "clip": "assets/sfx/work_sawmill.ogg", "volume": 0.6 },
+    "mill": { "clip": "assets/sfx/work_mill.ogg", "volume": 0.5 },
+    "bakery": { "clip": "assets/sfx/work_bakery.ogg", "volume": 0.5 },
+    "smokehouse": { "clip": "assets/sfx/work_smokehouse.ogg", "volume": 0.5 },
+    "workshop": { "clip": "assets/sfx/work_workshop.ogg", "volume": 0.6 },
+    "warehouse": { "clip": "assets/sfx/work_warehouse.ogg", "volume": 0.5 },
+    "market": { "clip": "assets/sfx/work_market.ogg", "volume": 0.5 },
+    "pier": { "clip": "assets/sfx/work_pier.ogg", "volume": 0.5 }
+  },
+  "walkers": {
+    "step": { "clip": "assets/sfx/walker_step.ogg", "volume": 0.35 },
+    "cart": { "clip": "assets/sfx/cart_creak.ogg", "volume": 0.4 }
+  },
+  "mix": {
+    "$comment": "How the beds follow the camera. fullZoom = the zoom at which a source in the middle of the screen is at full volume; below it sounds get quieter (the camera is higher), down to 20 % at farZoom and below; the wind swells between windFar and farZoom. seaSamples = columns of the grid that decides how much of the screen is sea. A voice is only started for a source inside the screen (plus `margin` pixels).",
+    "fullZoom": 1,
+    "farZoom": 0.45,
+    "margin": 80,
+    "seaSamples": 14,
+    "marketWeight": 1,
+    "walkerWeight": 0.08,
+    "houseWeight": 0.12,
+    "busyAt": 3,
+    "windFar": 0.85,
+    "windWinter": 0.55,
+    "ease": 0.5,
+    "every": 0.2
+  },
+  "voices": {
+    "$comment": "Voice caps. The engine mixes 64 voices at once; the game keeps well below it: work + walkers + ui + the 3 beds.",
+    "work": 6,
+    "walkers": 3,
+    "ui": 4,
+    "cooldown": 0.35
+  }
+}

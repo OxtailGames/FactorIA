@@ -6,8 +6,9 @@
 //   Trophies    the achievements with their icon and progress, then the player's four numbers (scripts/game/trophies.js)
 // Everything works with a pad: the tabs and Back take the focus, ui_up / ui_down scroll the list, ui_cancel goes back. The data
 // is asked for each time the panel opens; an answer that arrives after the panel closed (or after the scene changed) is dropped.
-import { Behaviour, ui, input, world, i18n, platform, game } from "factoria";
+import { Behaviour, ui, input, world, i18n, platform } from "factoria";
 import * as boards from "../game/boards.js";
+import * as daily from "../game/daily.js";
 import * as trophies from "../game/trophies.js";
 
 export const TABS = ["alltime", "daily", "trophies"];
@@ -90,7 +91,7 @@ export default class BoardsScreen extends Behaviour {
       const text = i18n.t(r.isPlayer ? "boards.rowYou" : "boards.row", { rank: r.rank, name: r.name, score: i18n.number(r.score) });
       this.line(text, r.isPlayer ? YOU : [1, 1, 1, 1]);
     }
-    this.setNote(rows.length ? (tab === "daily" ? i18n.t("boards.dailyNote", { date: game.today().iso }) : "") : i18n.t("boards.empty"));
+    this.setNote(rows.length ? (tab === "daily" ? i18n.t("boards.dailyNote", { date: daily.todayKey() }) : "") : i18n.t("boards.empty"));
   }
 
   async loadTrophies(ticket) {

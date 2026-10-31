@@ -14,10 +14,25 @@ endif()
 add_executable(factoria ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 target_link_libraries(factoria PRIVATE fa_cli fa_warnings)
 
+# Windows: the FactorIA icon and name (version resource) in factoria.exe and FactorIA-Editor.exe (windows/factoria.rc).
+# CMake compiles .rc files with rc.exe (MSVC) or windres (MinGW); the include directories are where both look for the
+# .ico and the generated factoria_version.h.
+if(WIN32)
+    set(fa_cli_rc ${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria.rc)
+    set(fa_cli_rc_includes ${CMAKE_CURRENT_SOURCE_DIR}/windows ${CMAKE_CURRENT_BINARY_DIR}/windows)
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria_version.h.in
+                   ${CMAKE_CURRENT_BINARY_DIR}/windows/factoria_version.h @ONLY)
+    set_source_files_properties(${fa_cli_rc} PROPERTIES OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria.ico;${CMAKE_CURRENT_BINARY_DIR}/windows/factoria_version.h")
+    target_sources(factoria PRIVATE ${fa_cli_rc})
+    target_include_directories(factoria PRIVATE ${fa_cli_rc_includes})
+endif()
+
 # Windows: FactorIA-Editor.exe opens the editor without a console window (factoria.exe is a console program).
 # Not "FactorIA.exe": Windows file names ignore case, so it would be factoria.exe.
 if(WIN32 AND TARGET fa_editor)
-    add_executable(factoria_editor_launcher WIN32 ${CMAKE_CURRENT_SOURCE_DIR}/launcher/editor_launcher_win32.cpp)
+    add_executable(factoria_editor_launcher WIN32 ${CMAKE_CURRENT_SOURCE_DIR}/launcher/editor_launcher_win32.cpp ${fa_cli_rc})
+    target_include_directories(factoria_editor_launcher PRIVATE ${fa_cli_rc_includes})
     set_target_properties(factoria_editor_launcher PROPERTIES OUTPUT_NAME FactorIA-Editor)
     target_link_libraries(factoria_editor_launcher PRIVATE fa_warnings)
     if(MINGW)
@@ -64,12 +79,35 @@ if(FA_BUILD_TESTS)
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_player_frames PROPERTIES TIMEOUT 300 LABELS "gpu")
 
+        # factoria_player --input / --dump-state / --screenshot: an exported build plays a replay headless and its state and
+        # screenshot equal `factoria run`'s (offscreen GPU: label gpu).
+        add_test(NAME cli_player_replay
+            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/player_replay_test.py $<TARGET_FILE:factoria>
+                    $<TARGET_FILE:factoria_player>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(cli_player_replay PROPERTIES TIMEOUT 300 LABELS "gpu")
+
+        # Larkspur Lodge on the exported player: a replay that presses Play, skips the intro and saves in slot 1 leaves a real
+        # save file with --persist-storage (the check of a sandboxed build, LL/FB-0801).
+        add_test(NAME cli_larkspur_ship
+            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/larkspur_ship_test.py $<TARGET_FILE:factoria>
+                    $<TARGET_FILE:factoria_player>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(cli_larkspur_ship PROPERTIES TIMEOUT 600 LABELS "gpu")
+
         # factoria dap: the Debug Adapter Protocol server driven over stdio (breakpoint, stack, locals, evaluate, step, logpoint,
         # test mode, disconnect). Headless GPU may be created for test mode: label gpu.
         add_test(NAME cli_dap
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/dap_test.py $<TARGET_FILE:factoria>
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_dap PROPERTIES TIMEOUT 600 LABELS "gpu")
+
+        # factoria mcp after an update: a copy of the binary is replaced under a running server (restart in place, list_changed,
+        # the notice in the first tool result) and a project .mcp.json without a timeout is fixed and reported.
+        add_test(NAME cli_mcp_update
+            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/mcp_update_test.py $<TARGET_FILE:factoria>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(cli_mcp_update PROPERTIES TIMEOUT 300)
     endif()
 endif()
 
@@ -99,12 +137,20 @@ if(FA_BUILD_TESTS)
             # baseline of this runner in tests/perf/<example>.perf.json. Memory and draw calls fail always, a time only in CI
             # (the CI environment variable). A runner with no baseline fails in CI and prints the entry to commit; on a
             # developer machine it passes.
-            file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/${ex_name}.args.json
-                "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}.perf.json\",\"requireBaseline\":${fa_perf_require}}")
-            add_test(NAME example_${ex_name}_perf
-                COMMAND factoria call --no-graphics --project ${ex} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/${ex_name}.args.json
-                WORKING_DIRECTORY ${FA_ROOT})
-            set_tests_properties(example_${ex_name}_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600)
+            # One example may measure several scenes: <example>.perf.json and <example>-*.perf.json (not <example>*, which
+            # would catch another example with the same prefix). Each file names its scene.
+            file(GLOB ex_perf_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}.perf.json
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}-*.perf.json)
+            foreach(perf_file ${ex_perf_files})
+                get_filename_component(perf_name ${perf_file} NAME)
+                string(REGEX REPLACE "\\.perf\\.json$" "" perf_name "${perf_name}")
+                file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/${perf_name}.args.json
+                    "{\"file\":\"${perf_file}\",\"requireBaseline\":${fa_perf_require}}")
+                add_test(NAME example_${perf_name}_perf
+                    COMMAND factoria call --no-graphics --project ${ex} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/${perf_name}.args.json
+                    WORKING_DIRECTORY ${FA_ROOT})
+                set_tests_properties(example_${perf_name}_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600)
+            endforeach()
         endif()
     endforeach()
     # The menu kit of docs/MENUS.md as a project, checked the same way and driven with a gamepad only.
@@ -112,6 +158,19 @@ if(FA_BUILD_TESTS)
     add_test(NAME fixture_menus_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
     add_test(NAME fixture_menus_test COMMAND factoria test ${fx} WORKING_DIRECTORY ${FA_ROOT})
     set_tests_properties(fixture_menus_test PROPERTIES LABELS "gpu" TIMEOUT 300)
+    # 2D bones, skinned sprites and IK (docs/ANIMATION.md, "Bones and IK"): 50 skinned sprites, 10 of them with IK2D, in one
+    # draw call. Its budget is the perf case of the package: tests/perf/skinned-sprites.perf.json.
+    set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/skinned-sprites)
+    add_test(NAME fixture_skinned_sprites_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
+    add_test(NAME fixture_skinned_sprites_test COMMAND factoria test ${fx} WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(fixture_skinned_sprites_test PROPERTIES LABELS "gpu" TIMEOUT 300)
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/skinned-sprites.args.json
+        "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/skinned-sprites.perf.json\",\"requireBaseline\":${fa_perf_require}}")
+    add_test(NAME fixture_skinned_sprites_perf
+        COMMAND factoria call --no-graphics --project ${fx} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/skinned-sprites.args.json
+        WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(fixture_skinned_sprites_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600)
+    set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/menus)
     # The budget check must fail on a game heavier than its baseline: tests/perf/regression.perf.json holds an impossibly
     # small baseline for the runner id "regression-test" (FACTORIA_PERF_RUNNER), so memory and draw calls are over it.
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/regression.args.json "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/regression.perf.json\"}")

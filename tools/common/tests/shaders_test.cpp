@@ -890,7 +890,8 @@ TEST_CASE("real sokol-shdc: the fixture material compiles to every dialect and t
         CHECK(twin["programs"].contains("mesh_skin"));
         CHECK_FALSE(twin["programs"]["mesh"]["vs"].get<std::string>().empty());
         CHECK_FALSE(twin["programs"]["mesh"]["fs"].get<std::string>().empty());
-        CHECK(twin["programs"]["mesh"]["reflection"]["attrs"].size() == 8);
+        // position, normal, uv, tangent, vertex color and the four instance-matrix rows
+        CHECK(twin["programs"]["mesh"]["reflection"]["attrs"].size() == 9);
         // the material block is in the fragment stage only, its texture is view 6
         bool block = false;
         for (const Json& ub : twin["programs"]["mesh"]["reflection"]["uniform_blocks"])

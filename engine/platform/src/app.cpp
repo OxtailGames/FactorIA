@@ -7,6 +7,7 @@
 #endif
 
 #include "fa/platform/app.h"
+#include "fa/platform/clipboard.h"
 #include "fa/platform/gamepad.h"
 #include "fa/platform/sokol_entry.h"
 #include "mobile_impl.h"
@@ -14,7 +15,11 @@
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#endif
 
 namespace fa {
 
@@ -28,10 +33,13 @@ struct AppState {
     bool active = false;
     bool focused = true;  // pads are not polled while the window is in the background
     bool vsync = true;  // as asked for: AppDesc::vsync, then app_set_vsync
+    bool borderlessWanted = false;  // full screen was asked for as "borderless" (Windows, Linux: the same window as "fullscreen")
     bool touchLogged = false;  // the first touch is logged once (the mobile smoke tests wait for it)
     int fbW = 0, fbH = 0;
     EdgeInsets insets;  // app_safe_insets(): asked of the platform at start, on resize and every few frames
     int framesToInsets = 0;
+    bool quitFromApp = false;  // app_request_quit() was called and its QuitRequested event has not arrived yet
+    bool inQuitEvent = false;  // a QuitRequested event is being handled: app_cancel_quit() may act
 };
 AppState g;
 
@@ -104,11 +112,61 @@ void refresh_insets() {
     if (app_is_mobile()) g.insets = mobile_safe_insets();
 }
 
+#if defined(__EMSCRIPTEN__)
+// The page's hide and close signals. sokol_app raises neither as suspend/quit on the web (its quit is the "leave this site?"
+// prompt, which only exists when asked for), so the shell listens itself: `visibilitychange` (a tab switch, a minimised
+// window, a phone's app switcher) raises Suspended when the page becomes hidden and Resumed when it is shown again, and
+// `pagehide` (the tab closing, a reload, leaving the site) raises QuitRequested. The page is going away, so a quit raised
+// by pagehide cannot be cancelled: app_cancel_quit() does nothing for it. Each handler's work is followed by a copy of the
+// save folder to IndexedDB (fs::flush_user_dir), so a storage.set made inside a handler is kept.
+}  // namespace
+EM_JS(void, fa_web_install_lifecycle, (), {
+    if (Module.faLifecycle) return;
+    Module.faLifecycle = true;
+    document.addEventListener('visibilitychange', () => {
+        Module._fa_web_lifecycle(document.visibilityState === 'hidden' ? 0 : 1);
+    });
+    window.addEventListener('pagehide', () => { Module._fa_web_lifecycle(2); });
+});
+
+namespace {
+// kind: 0 the page became hidden, 1 it became visible, 2 the page is being closed.
+void web_lifecycle(int kind) {
+    if (!g.active) return;
+    Input* in = g.desc.input;
+    if (kind == 0) {
+        g.focused = false;
+        if (in) in->release_all();
+        emit(AppEvent::Type::Suspended);
+    } else if (kind == 1) {
+        g.focused = true;
+        emit(AppEvent::Type::Resumed);
+    } else if (g.desc.event) {
+        AppEvent q;
+        q.type = AppEvent::Type::QuitRequested;
+        g.desc.event(q);  // inQuitEvent stays false: the page cannot be kept open
+    }
+    fs::flush_user_dir();
+}
+}  // namespace
+extern "C" EMSCRIPTEN_KEEPALIVE void fa_web_lifecycle(int kind) { web_lifecycle(kind); }  // called by the page code above
+namespace {
+#endif
+
 void on_init() {
     g.active = true;
     g.fbW = sapp_width();
     g.fbH = sapp_height();
     refresh_insets();
+    if (const AppIconImage& dock = g.desc.dockIcon;
+        dock.width > 0 && dock.height > 0 && dock.rgba.size() == std::size_t(dock.width) * std::size_t(dock.height) * 4)
+        fa_sapp_set_dock_icon(dock.rgba.data(), dock.width, dock.height);  // macOS only; NSApp exists from here on
+    if (!g.desc.appName.empty()) fa_sapp_set_class_name(g.desc.appName.c_str());  // Linux only
+#if defined(__EMSCRIPTEN__)
+    // The browser decides when a paste happens: a TextField pastes on the paste event, not on the V key.
+    if (g.desc.input) g.desc.input->set_paste_from_events(true);
+    fa_web_install_lifecycle();
+#endif
     if (g.desc.init) g.desc.init();
 }
 
@@ -215,8 +273,20 @@ void on_event(const sapp_event* e) {
             g.focused = true;
             emit(AppEvent::Type::Resumed);
             break;
-        case SAPP_EVENTTYPE_QUIT_REQUESTED:
-            emit(AppEvent::Type::QuitRequested);  // the handler may call app_request_quit()/cancel; default: quit
+        case SAPP_EVENTTYPE_QUIT_REQUESTED: {
+            // The handler may call app_cancel_quit() when the player (not the app) asked; default: quit.
+            AppEvent q;
+            q.type = AppEvent::Type::QuitRequested;
+            q.fromApp = g.quitFromApp;
+            g.quitFromApp = false;
+            g.inQuitEvent = true;
+            if (g.desc.event) g.desc.event(q);
+            g.inQuitEvent = false;
+            break;
+        }
+        case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
+            // The web hands the pasted text to sokol_app (app_clipboard_get reads it); a focused TextField pastes on this.
+            if (in) in->on_paste();
             break;
         case SAPP_EVENTTYPE_FILES_DROPPED:
             emit(AppEvent::Type::FilesDropped);
@@ -266,6 +336,8 @@ sapp_desc to_sapp_desc(const AppDesc& desc) {
     // is better made than a plain image; mobile has no window icon). The pixels are owned by g.desc, like the title.
     fill_sapp_icon(s.icon, g.desc.icon);
 #endif
+    s.enable_clipboard = true;  // clipboard.* and a TextField's Ctrl+V / Ctrl+C (fa/platform/clipboard.h)
+    s.clipboard_size = 1 << 20;
     s.enable_dragndrop = true;
     s.max_dropped_files = 8;
     s.depth_format = SAPP_PIXELFORMAT_DEPTH_STENCIL;
@@ -312,7 +384,38 @@ GfxSwapchain app_gfx_swapchain() {
 int app_framebuffer_width() { return sapp_isvalid() ? sapp_width() : g.fbW; }
 int app_framebuffer_height() { return sapp_isvalid() ? sapp_height() : g.fbH; }
 float app_dpi_scale() { return sapp_isvalid() ? sapp_dpi_scale() : 1.0f; }
-void app_request_quit() { sapp_request_quit(); }
+void app_request_quit() {
+    g.quitFromApp = true;
+    sapp_request_quit();
+}
+void app_cancel_quit() {
+    if (g.inQuitEvent) sapp_cancel_quit();
+}
+
+bool app_clipboard_supported() { return !app_is_mobile(); }
+std::string app_clipboard_get() {
+    if (app_is_mobile() || !sapp_isvalid()) return {};
+    const char* text = sapp_get_clipboard_string();
+    return text ? std::string(text) : std::string();
+}
+void app_clipboard_set(const std::string& text) {
+    if (app_is_mobile() || !sapp_isvalid()) return;
+    sapp_set_clipboard_string(text.c_str());
+}
+
+namespace {
+class SystemClipboard final : public Clipboard {
+public:
+    bool supported() const override { return app_clipboard_supported(); }
+    std::string get() override { return app_clipboard_get(); }
+    void set(const std::string& text) override { app_clipboard_set(text); }
+};
+}  // namespace
+
+Clipboard& system_clipboard() {
+    static SystemClipboard clipboard;
+    return clipboard;
+}
 void app_set_title(const std::string& title) { sapp_set_window_title(title.c_str()); }
 void app_show_mouse(bool show) { sapp_show_mouse(show); }
 void app_lock_mouse(bool lock) { sapp_lock_mouse(lock); }
@@ -324,6 +427,78 @@ bool app_is_fullscreen() { return app_is_mobile() || sapp_is_fullscreen(); }
 void app_set_fullscreen(bool on) {
     if (!app_is_mobile() && sapp_is_fullscreen() != on) sapp_toggle_fullscreen();
 }
+
+namespace {
+// macOS is the one desktop OS where "full screen" (a native Space) and "borderless" (a window over the monitor) differ.
+constexpr bool kNativeFullscreenSpace =
+#if defined(__APPLE__)
+    true;
+#else
+    false;
+#endif
+}  // namespace
+
+bool app_has_window_modes() {
+#if defined(__EMSCRIPTEN__)
+    return false;
+#else
+    return !app_is_mobile();
+#endif
+}
+
+WindowMode app_window_mode() {
+    if (app_is_mobile()) return WindowMode::Fullscreen;
+    if (kNativeFullscreenSpace && fa_sapp_is_borderless()) return WindowMode::Borderless;
+    if (!sapp_is_fullscreen()) {
+        g.borderlessWanted = false;
+        return WindowMode::Windowed;
+    }
+    return g.borderlessWanted && !kNativeFullscreenSpace ? WindowMode::Borderless : WindowMode::Fullscreen;
+}
+
+std::string app_set_window_mode(WindowMode mode) {
+    if (app_is_mobile()) return mode == WindowMode::Fullscreen ? std::string() : "phones and tablets always run full screen";
+    const WindowMode now = app_window_mode();
+    if (now == mode) return {};
+    if (kNativeFullscreenSpace) {
+        if (mode == WindowMode::Borderless && now == WindowMode::Fullscreen)
+            return "macOS full screen is a Space of its own that takes a moment to leave: call window.setMode(\"windowed\"), "
+                   "wait a second, then window.setMode(\"borderless\")";
+        if (now == WindowMode::Borderless) fa_sapp_set_borderless(false);
+        if (mode == WindowMode::Borderless) {
+            if (!fa_sapp_set_borderless(true)) return "this window cannot go borderless right now";
+        } else if (sapp_is_fullscreen() != (mode == WindowMode::Fullscreen)) {
+            sapp_toggle_fullscreen();
+        }
+        return {};
+    }
+    // Windows, Linux (and the web's canvas): one full screen window that covers its monitor, so borderless and full screen
+    // are the same window; the mode only remembers which one was asked for.
+    g.borderlessWanted = mode == WindowMode::Borderless;
+    if (sapp_is_fullscreen() != (mode != WindowMode::Windowed)) sapp_toggle_fullscreen();
+    return {};
+}
+
+std::vector<MonitorInfo> app_monitors() {
+    std::vector<MonitorInfo> list;
+    if (app_is_mobile()) return list;
+    fa_sapp_monitor raw[16];
+    const int n = fa_sapp_monitors(raw, 16);
+    for (int i = 0; i < n; ++i) {
+        MonitorInfo m;
+        m.name = raw[i].name;
+        m.x = raw[i].x;
+        m.y = raw[i].y;
+        m.width = raw[i].w;
+        m.height = raw[i].h;
+        m.primary = raw[i].primary;
+        m.current = raw[i].current;
+        list.push_back(std::move(m));
+    }
+    return list;
+}
+
+bool app_move_to_monitor(int index) { return !app_is_mobile() && fa_sapp_move_to_monitor(index); }
 
 void app_window_size(int& width, int& height) { fa_sapp_window_size(&width, &height); }
 bool app_display_size(int& width, int& height) { return fa_sapp_display_size(&width, &height); }

@@ -49,6 +49,7 @@ public:
     void step(World& world, float dt);
 
     std::optional<RaycastHit> raycast(World& world, Vec2 from, Vec2 to, const RaycastOptions& opt);
+    std::vector<RaycastHit> raycast_all(World& world, Vec2 from, Vec2 to, const RaycastOptions& opt);
     std::optional<RaycastHit> shape_cast(World& world, const CastShape& shape, Vec2 from, Vec2 to,
                                          const RaycastOptions& opt);
     std::vector<Entity> overlap_circle(World& world, Vec2 center, float radius, std::int32_t mask);
@@ -125,7 +126,14 @@ private:
         Entity e;
         std::string id;
         b2BodyId body = b2_nullBodyId;
-        std::uint64_t hash = 0;
+        std::uint64_t hash = 0;       // layout: size, tileSize, scale, solidTiles. A change rebuilds the whole body.
+        std::uint64_t tilesHash = 0;  // the tiles (sum of per-cell mixes), kept in step with Tilemap::edits
+        int cols = 0;                 // grid size the colliders were built for
+        int rows = 0;
+        std::vector<int> solid;       // sorted solid tile indices
+        // One box per run of solid tiles (cells c0..c1 x r0..r1), parallel to shapeKeys and boxes.
+        struct Run { int c0, c1, r0, r1; b2ShapeId shape; };
+        std::vector<Run> runs;
         std::vector<std::uint64_t> shapeKeys;
         std::vector<Rect> boxes;  // world-space AABBs (for debug)
         Vec3 pos;
@@ -168,6 +176,7 @@ public:
     void reset();
     void step(World& world, float dt);
     std::optional<RaycastHit> raycast(World& world, Vec3 origin, Vec3 dir, float maxDistance, const RaycastOptions& opt);
+    std::vector<RaycastHit> raycast_all(World& world, Vec3 origin, Vec3 dir, float maxDistance, const RaycastOptions& opt);
     std::optional<RaycastHit> shape_cast(World& world, const CastShape& shape, Vec3 from, Vec3 to,
                                          const RaycastOptions& opt);
     bool is_touching(World& world, Entity e, Vec3 dir, float tolerance);
@@ -340,6 +349,8 @@ private:
     static void aabb(const Body& b, Vec3& lo, Vec3& hi);
     static float bound_radius(const Body& b);
     static float min_half_extent(const Body& b);
+    static bool ray_vs_body(const Body& b, Vec3 origin, Vec3 d, float limit, float& tOut, Vec3& nOut);
+    static bool ray_candidate(const World& world, const Body& b, const RaycastOptions& opt, std::uint64_t qmask);
     static bool ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float& t, Vec3& normal);
     static void sphere_box(const Body& box, const Body& sph, float margin, Contact& out);
     static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out, bool manifold);
@@ -367,6 +378,7 @@ private:
     std::uint64_t nextSeq_ = 1;
     Vec3 lastGravity_{1e30f, 1e30f, 1e30f};  // a changed scene gravity wakes every body
     const World* lastWorld_ = nullptr;
+    std::uint64_t syncCounter_ = 0;  // stamps the bodies seen by one sync()
     std::uint64_t stepCounter_ = 0;
     std::map<PairKey, PairState> touching_;  // pairs overlapping after the previous step
     // Warm start of the rigid-body solver: the accumulated impulses of each pair's contact points at the end of the
@@ -423,7 +435,8 @@ private:
 
     // ---- shapes of meshes, shared by every collider of the same mesh
     std::map<std::string, std::shared_ptr<ShapeData>> shapes_;
-    std::shared_ptr<const ShapeData> shape_data(const std::string& mesh, bool bvh, std::string& problem);
+    std::shared_ptr<const ShapeData> shape_data(World& world, const std::string& mesh, bool bvh, std::string& problem);
+    void prune_procedural_shapes(const World& world);  // drops the shapes of procedural meshes that were destroyed or updated
     // ---- navigation
     struct NavState {
         Entity e;

@@ -7,8 +7,9 @@ is text; you never need a GUI. The full guide is `factoria docs read ai-guide` (
 ## The loop (follow it for every change)
 
 1. **Read** what exists: `factoria docs read ai-guide` (once per task), then `scripting` and
-   `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`.) Read before guessing
-   component or API names.
+   `components`. (With MCP: tools `docs_list`, `docs_read`, `docs_search`. A long page comes in parts with its
+   `contents`: read a section with `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}`
+   gives one component in full.) Read before guessing component or API names.
 2. **Edit** scenes (`scenes/*.scene.json`), prefabs, `scripts/*.js`, `tools/*.js`, `factoria.json`.
 3. **Validate**: `factoria validate` (MCP: `project_validate`). Fix every error; each one has a
    file, a JSON pointer and a hint. After the engine API changes, `factoria validate --fix-types`
@@ -41,6 +42,7 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 | `data/*.json` | tuning data, imported with `import levels from "../data/levels.json";` (optional) |
 | `assets/` | textures, audio, fonts, models (add only what you really need) |
 | `types/factoria.d.ts` | script API typings (generated: `factoria validate --fix-types`) |
+| `REVIEW.md` | the note the art critics and game reviewers read first (never exported, see below) |
 | `ENGINE_FEEDBACK.json` | engine gaps you found (below) |
 | `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit. Scratch files: `.factoria/tmp/` |
 
@@ -86,6 +88,10 @@ screenshots, and an input replay of their session (`factoria run --headless --in
   path to a game ready for a store, with a checklist.
 - **Publishing:** `factoria docs read publishing` is the checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play,
   App Store, itch.io, web): what the engine does and what the user must still do by hand. Tell the user the by-hand list.
+- **Web requests:** `http.fetch(url, {method, headers, body, timeout})` talks to a server; the hosts go in factoria.json
+  `"network": {"hosts": ["api.example.com"], "purpose": "..."}` (https only, undeclared hosts throw), tests script the
+  answers with `game.platform.respond("http.fetch", ...)`, and a script that awaits it checks `scene.current` before
+  using the answer: `factoria docs read networking`. Tell the user the privacy policy must mention the server.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
 - **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @levels/level1.json`) turns
   ASCII `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Keep
@@ -131,8 +137,22 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - `factoria validate` first: it loads every scene and checks assets, input bindings, scripts.
 - `factoria run --headless --frames N --state-out out.json` dumps entities and components; MCP
   `game_state` / `scene_list_entities` give the same live. `game_logs` shows script errors.
+- To click in the running game (MCP `game_click`, CLI `factoria call game.click`): `{"id":"play"}` clicks the centre of a UI
+  widget, `{"position":[640,360]}` a screen point in design pixels, `{"world":[3,-2]}` a world point. It moves the mouse, presses, steps
+  one frame, releases and steps one more, so scripts see `input.mouse.pressed` and then `released` and Buttons get their `click`.
+  `game_input {"mouse":{"position":[x,y],"left":true}}` + `game_step` presses too, but the button stays held until you set `left:false`.
 - Compare screenshots before/after a change. If the picture is black, check there is a
   primary `Camera`, that sprites have a `layer` and size, and that the colors are not 0..255.
+- Look closely, do not trust a whole-view picture for fine detail. Seams, joins, outlines and the two ends of a gradient are a
+  few pixels wide: `game_screenshot {"region":[x,y,w,h],"zoom":8}` (design pixels) returns just that part magnified, sharp
+  up to 4x (the engine draws it again at that size) and blocky above. To judge an animation, take a filmstrip:
+  `game_screenshot {"frames":24,"everyFrames":4,"columns":4}` steps the game and lays the pictures out in one labelled sheet
+  (`region` and `zoom` apply to every tile). `render_inspect {"from":[x,y],"to":[x2,y2]}` lists where the brightness
+  jumps along a line (a hard edge, a missing gap), and `render_pick {"position":[x,y]}` tells which entities and layers
+  cover one pixel, topmost first, when a picture shows something you did not expect.
+- A screenshot taken without `path` is temporary: the MCP server or the editor attaches the image to its reply and deletes
+  the file, and the engine removes old `frame_*.png` from `.factoria/screenshots/` when the project opens. Give a `path`
+  for a picture that must stay (a baseline for the user, a store screenshot).
 - To act on a running game, use `factoria session`: one JSON request per stdin line, one JSON answer per
   stdout line, and the game keeps its state. For example
   `printf '%s\n' '{"command":"game.step","args":{"frames":30}}' '{"command":"script.eval","args":{"code":"world.find(\"player\").position"}}' | factoria session`.
@@ -144,6 +164,14 @@ screenshots, and an input replay of their session (`factoria run --headless --in
   `factoria call script.trace '{"points":[{"file":"scripts/player.js","line":17,"watch":["this.body.velocity","dt"]}],"frames":300,"maxHits":20}'`.
   A person debugs the same scripts with breakpoints in VS Code (F5; `factoria setup vscode`). Read `factoria docs read debugging`.
 - Headless runs and tests simulate every frame but draw only for screenshots (fast); `--render-all` draws all.
+
+## Keep the game reviewable
+
+The user can ask for an art critique or a game review: read-only agents play the build and score it. Keep `REVIEW.md`
+(project root, never exported) up to date: how to play (controls, goal), what is finished and what is a placeholder,
+how to reach EVERY scene, level and state in one step (scene paths for `scene_load`, a debug key or project tool, saved
+states in `review/`), replays or tests that play the first minutes, and known issues. Keep screenshots stable (fixed
+seed, no random shake at capture) and debug overlays out of normal play (`factoria docs read ai-guide`, 11.4).
 
 ## Recording engine gaps (IMPORTANT)
 
@@ -157,6 +185,10 @@ had a bug and you built a workaround or dropped the feature, record it immediate
   `workaround` (what you did, with `workaroundFiles`), `suggestion` (how the engine could fix it).
 - Reporting the same gap again merges into the existing entry (counts occurrences), so do not
   worry about duplicates. Not reporting is the only wrong choice.
+- `ENGINE_FEEDBACK.json` holds the open entries. Closed ones (fixed-in-engine, wont-fix, duplicate) move to
+  `ENGINE_FEEDBACK.archive.json` next to it when the editor opens the project or `factoria feedback archive` runs
+  (command `feedback.archive`). Do not edit the archive by hand. Reporting a gap that an archived fixed-in-engine entry
+  describes reopens that entry as a possible regression, so report it again if it comes back.
 - Examples worth reporting: a component field you expected is missing; an error message did not
   say how to fix the problem; a doc was wrong or absent; a command you wanted does not exist; a
   crash; slow or flaky headless runs; anything you had to emulate in JS.

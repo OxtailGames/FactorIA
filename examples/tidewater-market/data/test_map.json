@@ -1,0 +1,16 @@
+{
+  "$comment": "A hand-made 12 x 10 map for the tests and for trying rules by hand (open the game with the scene prop {\"testMap\": true}). One character per cell, rows run along r (row 0 is r = 0), columns along c; the characters are the `char` of data/terrain.json: w water, s sand, g grass, f forest, r rock.",
+  "format": "tidewater.testmap/1",
+  "rows": [
+    "wwwwwwwwwwww",
+    "wsssggggffww",
+    "wsggggggfffw",
+    "wsgggggggffw",
+    "wsgggggggrrw",
+    "wggggggggrrw",
+    "wggggggggggw",
+    "wsgggggggggw",
+    "wssggggggssw",
+    "wwwwwwwwwwww"
+  ]
+}

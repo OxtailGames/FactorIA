@@ -1,0 +1,147 @@
+{
+  "format": "larkspur.cast/1",
+  "characters": {
+    "mara": {
+      "nameKey": "cast.mara.name",
+      "role": "The owner of the lodge, a widow.",
+      "body": "e",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "schedule": {
+        "1": "hall_center",
+        "2": "corridor_mid",
+        "3": "library_desk",
+        "4": "hall_center",
+        "5": "hall_center"
+      },
+      "talk": {
+        "1": "ch1_mara",
+        "2": "ch2_mara",
+        "3": "ch3_mara",
+        "4": "ch4_mara",
+        "5": "ch5_mara"
+      }
+    },
+    "hedda": {
+      "nameKey": "cast.hedda.name",
+      "role": "The housekeeper.",
+      "body": "e",
+      "tint": [
+        0.55,
+        0.55,
+        0.65,
+        1
+      ],
+      "schedule": {
+        "1": "stair_hall",
+        "2": "landing_hedda",
+        "3": "upstairs_c_door",
+        "4": "landing_hedda",
+        "5": "hall_stairs"
+      },
+      "talk": {
+        "1": "ch1_hedda",
+        "2": "ch2_hedda",
+        "3": "ch3_hedda",
+        "4": "ch4_hedda",
+        "5": "ch5_hedda"
+      }
+    },
+    "tobias": {
+      "nameKey": "cast.tobias.name",
+      "role": "The cook.",
+      "body": "a",
+      "tint": [
+        1,
+        0.82,
+        0.62,
+        1
+      ],
+      "schedule": {
+        "1": "kitchen_stove",
+        "2": "kitchen_island",
+        "3": "kitchen_island",
+        "4": "kitchen_stove",
+        "5": "hall_east"
+      },
+      "talk": {
+        "1": "ch1_tobias",
+        "2": "ch2_tobias",
+        "3": "ch3_tobias",
+        "4": "ch4_tobias",
+        "5": "ch5_tobias"
+      }
+    },
+    "haas": {
+      "nameKey": "cast.haas.name",
+      "role": "A retired mountain guide, a guest every winter.",
+      "body": "a",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "schedule": {
+        "1": "hall_lounge",
+        "2": "hall_lounge",
+        "3": "corridor_east",
+        "4": "cellar_rack",
+        "5": "hall_bear"
+      },
+      "talk": {
+        "1": "ch1_haas",
+        "2": "ch2_haas",
+        "3": "ch3_haas",
+        "4": "ch4_haas",
+        "5": "ch5_haas"
+      }
+    },
+    "lucian": {
+      "nameKey": "cast.lucian.name",
+      "role": "A journalist of the Valley Courier.",
+      "body": "f",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "schedule": {
+        "1": "hall_radio",
+        "2": "dining_head",
+        "3": "room_b",
+        "4": "stair_hall",
+        "5": "hall_radio"
+      },
+      "talk": {
+        "1": "ch1_lucian",
+        "2": "ch2_lucian",
+        "3": "ch3_lucian",
+        "4": "ch4_lucian",
+        "5": "ch5_lucian"
+      }
+    },
+    "vale": {
+      "nameKey": "cast.vale.name",
+      "role": "A surveyor of the railway company, the missing guest.",
+      "body": "f",
+      "tint": [
+        0.6,
+        0.72,
+        1,
+        1
+      ],
+      "schedule": {
+        "5": "hall_vale"
+      },
+      "talk": {
+        "5": "ch5_vale"
+      }
+    }
+  }
+}

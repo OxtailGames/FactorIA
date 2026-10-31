@@ -31,6 +31,9 @@ struct EntityInfo {
     std::string name;               // display name (not unique)
     std::vector<std::string> tags;  // free-form labels: "enemy", "pickup"...
     bool active = true;             // inactive entities (and their children) are skipped by all systems
+    // Not serialized and not reflected: set on entities a script created at runtime (world.spawn, world.spawnPrefab).
+    // scene.save leaves them out unless asked (SaveSceneOptions::includeSpawned), because the script builds them again.
+    bool scriptSpawned = false;
 };
 
 // Present on every entity (added by World::create).
@@ -44,6 +47,11 @@ struct Transform {
 enum class Projection : std::int32_t { Orthographic, Perspective };
 // Last post-process of the frame, see Camera::colorFilter.
 enum class ColorFilter : std::int32_t { None, Greyscale, HighContrast, Protanopia, Deuteranopia, Tritanopia };
+// Camera.lighting: Scene = the lights, ambient light, environment and fog of the scene; Studio = the camera's own key, fill and
+// rim lights (see Camera::studioIntensity).
+enum class CameraLighting : std::int32_t { Scene, Studio };
+// Camera.viewportSpace: which rectangle the fractions of Camera.viewport count.
+enum class ViewportSpace : std::int32_t { Screen, Design };
 struct Camera {
     Projection projection = Projection::Orthographic;
     float fov = 60.0f;          // perspective: vertical field of view (degrees)
@@ -51,9 +59,21 @@ struct Camera {
     float nearPlane = 0.1f;     // perspective near clip (orthographic uses -1000)
     float farPlane = 1000.0f;   // far clip (orthographic uses +1000)
     Color clearColor{0.08f, 0.08f, 0.12f, 1.0f};
-    bool clear = true;
-    bool primary = true;        // the first active primary camera renders the game
-    std::int32_t depth = 0;     // multiple cameras render in ascending depth order
+    bool clear = true;          // clear this camera's rectangle before it draws (the first camera also clears what no viewport covers)
+    bool primary = true;        // every active primary camera renders, each into its viewport
+    std::int32_t depth = 0;     // cameras render in ascending depth order: the lowest is "the" camera (camera.main, post effects)
+    // The rectangle of the screen this camera draws into, normalized [x, y, width, height] with (0, 0) the TOP-LEFT corner of
+    // the screen and +Y down (like screen space and design pixels): [0, 0, 1, 1] is the whole screen (default), [0, 0, 0.5, 1]
+    // the left half, [0.5, 0.5, 0.5, 0.5] the bottom-right quarter. See camera_viewport_problem().
+    Rect viewport{0, 0, 1, 1};
+    // Which rectangle the fractions of `viewport` count: Screen = the whole game target (the design resolution, grown by the
+    // Expand scale mode; the letterbox bars of a window with another shape are outside it); Design = the design resolution
+    // (display.designWidth x designHeight) from the top-left corner, which is where a UI laid out from anchor [0, 0] sits.
+    ViewportSpace viewportSpace = ViewportSpace::Screen;
+    // Scene = lit by the scene (lights, SceneSettings.ambientLight, sky, fog); Studio = lit by a studio rig that follows this
+    // camera (a key, a fill and a rim light, a neutral ambient and environment, no sky, no fog), whatever the scene holds.
+    CameraLighting lighting = CameraLighting::Scene;
+    float studioIntensity = 1.0f;  // Studio only: multiplies the brightness of the rig
     // Bloom post-process (glow around bright pixels), flat fields because reflection has no nested structs.
     // Applied by fa_render to the finished frame (screen-space items too unless bloomScreenSpace is false); off by default.
     bool bloom = false;
@@ -63,7 +83,27 @@ struct Camera {
     bool bloomScreenSpace = true;  // false: screen-space items (HUD) are drawn after the bloom, so they stay crisp
     // Accessibility filter over the whole finished frame (HUD included), after the bloom; a flat enum like the bloom fields.
     ColorFilter colorFilter = ColorFilter::None;
+    // Render target: a name makes this camera draw into a texture of renderTargetSize pixels, live every frame, instead of the
+    // screen. The texture is the id "target:<name>" (render_target_id), accepted wherever a texture path is. "" = the screen.
+    std::string renderTarget;
+    Vec2 renderTargetSize{1024, 1024};
 };
+
+// The texture id of the render target `name` ("target:book"): what MeshRenderer.texture, a material texture, Sprite.texture,
+// Panel.texture and Button.icon take. render_target_name() is the reverse ("" when `id` is not a target id).
+std::string render_target_id(const std::string& name);
+std::string render_target_name(const std::string& id);
+// "" when Camera.renderTarget / renderTargetSize are valid (an empty name is: the camera draws to the screen), else what is
+// wrong, as the first half of an error message (the hint is the caller's). The size limit is the largest texture: 4096 px.
+std::string camera_render_target_problem(const Camera& camera);
+inline constexpr int kMaxRenderTargetSide = 4096;
+// The pixel size of the texture a camera with Camera.renderTarget draws: renderTargetSize rounded; each side outside 1..4096 (or not
+// a number) is clamped, and *clamped says so. The renderer and the pointer mapping (a click through the target) both use it.
+void camera_render_target_pixels(const Camera& camera, int& width, int& height, bool* clamped = nullptr);
+
+// "" when `viewport` is a valid Camera.viewport (x and y in 0..1, width and height above 0, x + width and y + height at most 1;
+// a small tolerance for rounding), else what is wrong, as the first half of an error message (the hint is the caller's).
+std::string camera_viewport_problem(const Rect& viewport);
 
 // ------------------------------------------------------------------- 2D ---
 enum class RenderSpace : std::int32_t { World, Screen };
@@ -82,6 +122,15 @@ enum class BlendMode : std::int32_t { Alpha, Additive, Multiply };
 // Start / End are the left / right edge in a left-to-right language and the right / left edge in a right-to-left one.
 enum class Align : std::int32_t { Left, Center, Right, Start, End };
 
+// Where a wrapped Text may start a new line inside a run of letters that have no spaces. Auto: Hangul breaks at spaces only
+// (Korean), ideographs and kana between any two characters. Normal: Hangul between syllables too. KeepAll: Hangul and
+// ideographs and kana at spaces only.
+enum class WordBreak : std::int32_t { Auto, Normal, KeepAll };
+
+// The base direction of a Text paragraph. Auto: the first strong character decides (Unicode bidi), except that a Text with a
+// localization key takes the language's direction. Ltr / Rtl: the paragraph runs that way whatever its first letter is.
+enum class TextDirection : std::int32_t { Auto, Ltr, Rtl };
+
 struct Sprite {
     std::string texture;              // asset path; "" draws a solid quad of `color`
     Rect region{0, 0, 0, 0};          // source rect in texture pixels (top-left origin); 0 size = whole texture
@@ -99,10 +148,19 @@ struct Sprite {
     Vec4 slice{0, 0, 0, 0};           // 9-slice borders in texture pixels [left, top, right, bottom] (0 = stretch the whole region)
     bool lit = false;                 // world space only: shaded by Light2D entities and SceneSettings.ambientLight
     std::string normalMap;            // tangent-space normal map with the same layout as `texture` ("" = flat); needs lit
+    Vec2 skew{0, 0};                  // shear in degrees [x, y] about the pivot: x leans the top edge sideways, y tilts the right edge up/down
+    std::int32_t meshColumns = 0;     // > 0 with meshRows > 0: the sprite is a grid of this many cells across (a deformable sprite)
+    std::int32_t meshRows = 0;        // > 0 with meshColumns > 0: grid cells down
+    Json vertexOffsets = Json::array();  // grid sprites: [dx, dy, ...] per grid vertex, row-major from the TOP row, local units (+y up)
+    Json vertexColors = Json::array();   // grid sprites: [r, g, b, a, ...] per grid vertex (same order), multiplied with `color`
 };
 
+// How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
+enum class SpriteAnimMode : std::int32_t { Forward, Reverse, PingPong };
+
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
-// it overwrites Sprite.region every frame.
+// it overwrites Sprite.region every frame. `clip` takes the grid and the clip from the sheet entry of the texture in
+// assets.json (docs/ASSETS.md); the numeric fields below stay and override it when they differ from their defaults.
 struct SpriteAnimator {
     std::int32_t columns = 1;         // sheet grid columns
     std::int32_t rows = 1;            // sheet grid rows
@@ -113,9 +171,61 @@ struct SpriteAnimator {
     bool playing = true;
     float time = 0.0f;                // runtime: elapsed time in the current clip (seconds)
     std::int32_t frame = 0;           // runtime: current frame index
+    std::string clip;                 // name of a clip of the texture's sheet entry; "" = the numeric fields alone
+    SpriteAnimMode mode = SpriteAnimMode::Forward;
+    bool sheetPivot = true;           // the sheet's / clip's pivot sets the pivot of a Sprite whose own pivot is the default centre
+    bool ended = false;               // runtime: a non-looping clip reached its end and sent clipEnded
+    std::string playedClip;           // runtime: the clip `time` belongs to (a change of `clip` restarts the animation)
+};
+
+// ----------------------------------------------------------- 2D bones ---
+// A bone of a 2D skeleton: a plain entity of the hierarchy whose Transform poses it. The bone starts at the entity's origin
+// and runs along its local +X axis for `length` units; its children (other bones) hang from the entity like any child
+// (bones2d.h). Clips and scripts move a bone through its Transform (rotation.z, position, scale).
+struct Bone2D {
+    float length = 32.0f;             // how far the bone runs along local +X from the entity's origin (local units, before scale)
+    float minAngle = -180.0f;         // lowest Transform.rotation.z (degrees) IK2D may give the bone
+    float maxAngle = 180.0f;          // highest Transform.rotation.z (degrees) IK2D may give the bone
+};
+
+// Skins a Sprite's 2D mesh to bones (bones2d.h). Put it on the entity that has the Sprite.
+struct SpriteSkin {
+    Json bones = Json::array();       // the bones, in weight order: ids of entities or names (paths) of bones near the sprite
+    Json weights = Json("auto");      // "auto", or per grid vertex [boneIndex, weight, ...] (up to 4 pairs)
+    Json bindPose = Json::array();    // [a, b, c, d, tx, ty] per bone: its matrix in the sprite's local space when it was bound
+    bool outline = false;             // trace the mesh from the texture's opaque pixels instead of using Sprite.meshColumns / meshRows
+    std::int32_t outlineDetail = 16;  // outline: grid cells along the longer side of the sprite
+    bool warned = false;              // runtime, not reflected: a problem was already logged for this component
+};
+
+enum class IKSolver : std::int32_t { TwoBone, Ccd };
+// Which way the joint of a two-bone chain bends: Positive = the lower bone's local rotation.z turns counter-clockwise from
+// the upper bone (a knee or an elbow pointing one way), Negative = clockwise.
+enum class IKBend : std::int32_t { Positive, Negative };
+// Inverse kinematics for a chain of Bone2D entities that ends at this entity (bones2d.h): the chain's tip is moved to
+// `target` by turning the bones, within their angle limits.
+struct IK2D {
+    Entity target = kNullEntity;      // the entity whose position the tip of this bone is brought to
+    std::int32_t chainLength = 2;     // bones in the chain, counting this one and going up through the parents (ccd; twoBone uses 2)
+    IKBend bend = IKBend::Positive;   // twoBone: which way the middle joint bends
+    float weight = 1.0f;              // 0 = keep the animated pose, 1 = the solved pose; in between blends the angles
+    IKSolver solver = IKSolver::TwoBone;
+    bool warned = false;              // runtime, not reflected: a problem was already logged for this component
 };
 
 enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond, Polygon, Star };
+enum class ShapeGradient : std::int32_t { None, Linear, Radial };
+// The curve a Shape2D gradient follows between its stops: the names are those of the script tween easings (docs/ANIMATION.md)
+// without the overshooting ones (the order is the index in the field's names, and gradient_ease_apply depends on it).
+enum class GradientEase : std::int32_t {
+    Linear, Smoothstep,
+    QuadIn, QuadOut, QuadInOut, CubicIn, CubicOut, CubicInOut, QuartIn, QuartOut, QuartInOut, QuintIn, QuintOut, QuintInOut,
+    SineIn, SineOut, SineInOut, ExpoIn, ExpoOut, ExpoInOut, CircIn, CircOut, CircInOut
+};
+// Maps t in [0, 1] through a gradient curve (0 -> 0, 1 -> 1); t is clamped first.
+float gradient_ease_apply(GradientEase ease, float t);
+// The most stops a Shape2D.gradientStops uses; further ones are ignored.
+constexpr int kMaxGradientStops = 8;
 // Untextured primitive for prototypes, UI panels and debug visuals.
 struct Shape2D {
     ShapeType shape = ShapeType::Rectangle;
@@ -133,6 +243,13 @@ struct Shape2D {
     std::int32_t points = 5;          // star: number of tips (3..64); tips on the inscribed ellipse, first one up
     float innerRadius = 0.5f;         // star: radius of the notches between the tips as a fraction of the outer radius (0..1)
     bool lit = false;                 // world space only: shaded by Light2D entities and SceneSettings.ambientLight
+    float cornerRadius = 0.0f;        // rectangle: radius of the rounded corners in world units (clamped to half the shorter side)
+    float softness = 0.0f;            // rectangle/circle: width of the blurred edge in world units, centred on the edge (0 = hard)
+    ShapeGradient gradient = ShapeGradient::None;  // rectangle/circle fill: none (flat `color`), linear or radial between color and color2
+    Color color2{1, 1, 1, 1};         // gradient: the colour at the end of the gradient (`color` is the start)
+    float gradientAngle = 0.0f;       // linear gradient: degrees; 0 = color on the left to color2 on the right, 90 = bottom to top
+    Json gradientStops = Json::array();  // gradient: [[t, color], ...] (t 0..1, up to 8) replacing color -> color2; [] = just those two
+    GradientEase gradientEase = GradientEase::Linear;  // gradient: the curve applied to the position before the colour lookup
 };
 
 struct Text {
@@ -141,6 +258,7 @@ struct Text {
     Json keyArgs = Json::object();    // values of the key's {placeholders} (and `count` of a plural entry): {"score": 12}
     std::string font;                 // asset path to .ttf; "" = built-in font
     float fontSize = 24.0f;           // in world units (pixels for 2D)
+    bool lit = false;                 // world space only: shaded by the 3D Light entities and SceneSettings.ambientLight
     Color color{1, 1, 1, 1};
     Align align = Align::Left;
     Vec2 pivot{0.0f, 1.0f};           // anchor within the text box: 0,1 = top-left
@@ -149,18 +267,50 @@ struct Text {
     bool autoShrink = false;          // shrink the font (down to minFontSize) until the text fits maxWidth x maxHeight
     float minFontSize = 10.0f;        // autoShrink never goes under this font size (before ui.textScale)
     float maxTextScale = 0.0f;        // > 0: ui.textScale stops growing this text at this scale (screen space); 0 = no cap
+    bool markup = false;              // true: [b], [c:colour] and [icon:name] in `text` are tags (fa/scene/rich_text.h)
+    bool bold = false;                // true: the whole text is bold (the project's bold face, else emboldened by the engine)
+    TextDirection direction = TextDirection::Auto;  // base direction of the paragraphs: first strong character (a keyed Text: the language's), ltr, rtl
+    WordBreak wordBreak = WordBreak::Auto;  // where a wrapped line may break without a space: Hangul at spaces only (auto), anywhere (normal), keepAll
+    std::int32_t visibleCharacters = -1;    // >= 0: only the first n characters (grapheme clusters) are drawn; the box keeps the size of the whole text. -1 = all
     std::int32_t layer = 100;
     RenderSpace space = RenderSpace::World;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
     bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
 };
 
+// Whether align start is the right edge of `t` (and end the left): direction rtl, or auto in a right-to-left language.
+inline bool text_starts_right(const Text& t, bool languageRtl) {
+    return t.direction == TextDirection::Rtl || (t.direction == TextDirection::Auto && languageRtl);
+}
+// The base direction its paragraphs are shaped with: Text.direction, except that auto with a localization key is the language's.
+inline TextDirection text_paragraph_direction(const Text& t, bool languageRtl) {
+    if (t.direction == TextDirection::Auto && !t.key.empty()) return languageRtl ? TextDirection::Rtl : TextDirection::Ltr;
+    return t.direction;
+}
+
+// One tile written through set_tilemap_tile(): `cell` is row * width + col, the indices are tile_index() of the old and the
+// new value (-1 = empty). 2D physics reads these to patch only the colliders that changed.
+struct TileEdit {
+    std::int32_t cell = 0;
+    std::int32_t oldIndex = -1;
+    std::int32_t newIndex = -1;
+};
+
+// How the cells of a Tilemap lie in the world: squares (Orthogonal) or diamonds seen from above at an angle (Isometric).
+// The geometry of both is in fa/scene/tilemap.h.
+enum class TilemapProjection : std::int32_t { Orthogonal, Isometric };
+
 // Grid of tiles drawn from a tileset texture. Tile index -1 = empty.
 // Optional static collision is generated by fa_physics for solid tiles.
 struct Tilemap {
     std::string tileset;              // asset path to the tileset texture
     Vec2 tileSize{16, 16};            // size of one tile in the tileset AND in the world (world units)
+    TilemapProjection projection = TilemapProjection::Orthogonal;
+    float groundHeight = 0.0f;        // isometric only: height of the ground diamond inside a tile image; 0 = tileSize.y
+    float groundOffset = 0.0f;        // isometric only: how far the diamond's top corner lies below the image's top edge
     std::int32_t columns = 0;         // tile columns in the tileset texture; 0 = derive from the texture width / tileSize.x
+    std::int32_t margin = 0;          // pixels between the tileset image edge and the first tile (0 = packed)
+    std::int32_t spacing = 0;         // pixels between two neighbouring tiles of the tileset image (0 = packed)
     std::int32_t width = 0;           // map width in tiles (flat tiles; rows define their own size, see tilemap_grid)
     std::int32_t height = 0;          // map height in tiles (flat tiles)
     Json tiles = Json::array();       // row-major tile values, row 0 = TOP row; array of ints (width*height) or array of rows.
@@ -170,6 +320,15 @@ struct Tilemap {
     std::int32_t layer = -10;
     bool lit = false;                 // shaded by Light2D entities and SceneSettings.ambientLight
     std::string normalMap;            // normal map image with the same layout as the tileset ("" = flat); needs lit
+    bool occludesLight = false;       // the tiles in solidTiles block the light of Light2D with castShadows
+    // Runtime only (not a field, not saved): the tiles written by set_tilemap_tile() since 2D physics last looked.
+    std::vector<TileEdit> edits;
+    // Runtime only: goes up whenever `tiles` (or width / height) changes, so `nav.tileVersion` tells a script that the map
+    // changed. set_tilemap_tile() bumps it directly; a write that replaces `tiles` as a whole (script, scene.set_component,
+    // editor, load) is noticed by tilemap_version(), which compares a hash of the tiles with `versionHash`.
+    std::uint32_t version = 0;
+    std::uint64_t versionHash = 0;    // runtime: hash of width, height and tiles when tilemap_version() last looked
+    bool versionHashValid = false;    // false until tilemap_version() looked once, and after a set_tilemap_tile()
 };
 
 // Draws this entity's 2D visuals (Sprite, Shape2D, Text, Tilemap) shifted by a fraction of the camera's movement, so
@@ -184,6 +343,13 @@ struct Parallax {
     Vec2 offset{0, 0};                // runtime: the shift applied to the drawing this frame (written by the renderer)
 };
 
+// Colour multiplied into every 2D visual of this entity and of all its descendants (Sprite, Shape2D, Text, Tilemap, particles
+// and screen-space UI widgets): fade or colour a whole group with one component. The tints of the entity and its ancestors
+// multiply, alpha included.
+struct Tint {
+    Color color{1, 1, 1, 1};          // RGBA multiplied into the colour (and alpha) of the entity's visuals and of its descendants'
+};
+
 // A light for lit 2D visuals (Sprite.lit, Tilemap.lit). Only lit visuals react to it; everything else is drawn as before.
 enum class Light2DType : std::int32_t { Point, Directional };
 struct Light2D {
@@ -195,6 +361,7 @@ struct Light2D {
     float height = 80.0f;             // point: height above the drawing plane in world units; lower = more grazing normal-map relief
     float direction = 270.0f;         // directional: degrees the light travels towards (0 = right, 90 = up, 270 = down)
     float elevation = 45.0f;          // directional: degrees above the drawing plane (90 = straight at the picture)
+    bool castShadows = false;         // point: solid tiles of Tilemaps with occludesLight block this light
 };
 
 struct ParticleEmitter {
@@ -231,6 +398,7 @@ struct ParticleEmitter {
 // Behaviour lives in fa_ui (layout, focus, input, events) and fa_render (drawing); the geometry both need is in
 // scene/ui_rect.h. components.cpp registers them (category "UI") with ui_box_fields(), so the shared doc strings exist once.
 enum class UiLayout : std::int32_t { None, Row, Column, Grid };
+enum class ButtonIconPosition : std::int32_t { Left, Top, Alone };
 enum class UiAlign : std::int32_t { Start, Center, End };
 // Panel.direction: Ltr = start is left; Rtl = start is right (rows run right to left); Auto = follows the current language.
 enum class UiDirection : std::int32_t { Ltr, Auto, Rtl };
@@ -245,6 +413,9 @@ struct UiBox {
     Color color{0.16f, 0.18f, 0.24f, 0.92f};  // background tint, multiplied with `texture`
     std::string texture;                      // optional background image, drawn 9-slice with `slice`
     Vec4 slice{0, 0, 0, 0};                   // 9-slice borders in texture pixels [left, top, right, bottom]
+    Json tooltip;                             // null = none; a locale key / text, or {title, lines, args}: shown after the pointer rests on it
+    Json draggable;                           // null / false = no; true or {payload, slop}: the player can drag it (ui.on("dragStart" ...))
+    bool mirror = true;                       // false: stays where it is written in a right-to-left language (ui.mirrorRtl): a map, a 3D view
 };
 
 // What Button, Toggle, Slider and TextField add to UiBox.
@@ -273,7 +444,11 @@ struct Panel : UiBox {
     UiAlign justify = UiAlign::Start;         // main axis
     UiDirection direction = UiDirection::Ltr; // horizontal reading direction of the layout
     bool fit = false;                         // size = content + padding, every frame
+    Vec2 minSize{0, 0};                       // lower bound of the size, per axis (0 = none); holds when fit is true too
+    Vec2 maxSize{0, 0};                       // upper bound of the size, per axis (0 = none); holds when fit is true too
     bool uniformSize = false;                 // autoSize buttons / toggles / sliders inside share the largest size
+    bool modal = false;                       // while active: only the widgets inside it get the pointer, the wheel and navigation
+    bool wheelPassThrough = false;            // modal only: the wheel is left to scripts (input.mouse.wheel) instead of consumed
     UiLayout fallbackLayout = UiLayout::None; // layout used instead of `layout` when that would not fit the screen
     bool usingFallback = false;               // runtime: laid out with fallbackLayout right now
 };
@@ -284,6 +459,12 @@ struct Button : UiControl {
     bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
     bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits the button
     float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
+    bool markup = false;                      // true: [b], [c:colour] and [icon:name] in the label are tags (Text.markup)
+    bool bold = false;                        // true: the whole label is bold
+    std::string icon;                         // texture of an icon drawn inside the button ("" = none)
+    Rect iconRegion{0, 0, 0, 0};              // part of `icon` in texture pixels (top-left origin); 0 size = the whole texture
+    Vec2 iconSize{32, 32};                    // the icon's size in design pixels
+    ButtonIconPosition iconPosition = ButtonIconPosition::Left;  // left of the label, above it, or alone (no label)
     Button() { size = {240, 56}; }
 };
 
@@ -294,6 +475,8 @@ struct Toggle : UiControl {
     bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
     bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits beside the box
     float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
+    bool markup = false;                      // true: [b], [c:colour] and [icon:name] in the label are tags (Text.markup)
+    bool bold = false;                        // true: the whole label is bold
     Toggle() { size = {240, 40}; }
 };
 
@@ -311,7 +494,59 @@ struct Slider : UiControl {
     bool autoSize = false;                    // grow to fit the label and value text (at least `size`), at the current ui.textScale
     bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits its zone
     float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
+    bool markup = false;                      // true: [b], [c:colour] and [icon:name] in the label are tags (Text.markup)
+    bool bold = false;                        // true: the whole label is bold
     Slider() { size = {320, 40}; }
+};
+
+// ---- Interactable: any entity composition as a widget (the UI module, ui.h)
+// What the widget does: a button clicks, a toggle flips `on`, a slider sets `value`.
+enum class InteractableKind : std::int32_t { Button, Toggle, Slider };
+// Where the hit area is: Auto = screen space when the entity (or a child, with the area from the children) draws in screen
+// space or has a UI box, else world space.
+enum class InteractableSpace : std::int32_t { Auto, World, Screen };
+// Slider only: the local axis of the entity the knob runs along.
+enum class InteractableAxis : std::int32_t { X, Y };
+// The state the visuals follow (priority: disabled, pressed, hover, focused, normal).
+enum class InteractableState : std::int32_t { Normal, Hover, Pressed, Focused, Disabled };
+struct Interactable {
+    InteractableKind kind = InteractableKind::Button;
+    bool enabled = true;                      // false: the Disabled state; never hovered, focused, pressed or clicked
+    bool autoFocus = false;                   // takes focus when nothing is focused (like UiControl.autoFocus)
+    bool focusOnHover = false;                // the pointer entering it moves the keyboard / gamepad focus to it
+    Vec2 size{0, 0};                          // hit area [w, h] in the entity's local units; 0 = the bounds of the entity and its children
+    Vec2 offset{0, 0};                        // centre of the explicit area from the entity origin (ignored for size 0)
+    InteractableSpace space = InteractableSpace::Auto;
+    bool on = false;                          // toggle: the value
+    float value = 0.0f;                       // slider: the value in [min, max]
+    float min = 0.0f;                         // slider: lowest value
+    float max = 1.0f;                         // slider: highest value
+    float step = 0.0f;                        // slider: keyboard / pad increment and snapping; 0 = continuous (keys move 1/20 of the range)
+    InteractableAxis axis = InteractableAxis::X;  // slider: the track runs along the local x (min at the left) or y (min at the bottom) of the area
+    Entity knob = kNullEntity;                // slider: entity moved along the track to the value
+    Entity fill = kNullEntity;                // slider: entity whose scale along the axis becomes the fraction 0..1 (pivot at the track start)
+    std::string label;                        // accessibility label; "" = the text of the first Text among the entity and its children
+    std::string key;                          // localization key written into `label` ("" = none)
+    Json keyArgs = Json::object();            // values of the key's {placeholders}
+    bool focused = false;                     // runtime: has keyboard / gamepad focus
+    bool hovered = false;                     // runtime: the pointer is over it
+    bool pressed = false;                     // runtime: the pointer is held down on it
+    InteractableState state = InteractableState::Normal;  // runtime: the one state the visuals show
+};
+
+// What a child of an Interactable does with its state, with no script: Show (the entity is active only while `when` holds) or
+// Tint (the colour of the entity's Sprite / Shape2D / Text follows the state).
+enum class VisualMode : std::int32_t { Show, Tint };
+enum class VisualWhen : std::int32_t { Always, Normal, Hover, Pressed, Focused, Highlighted, Disabled, On, Off };
+struct InteractableVisual {
+    Entity target = kNullEntity;              // the Interactable to follow; empty = the nearest ancestor that has one
+    VisualMode mode = VisualMode::Show;
+    VisualWhen when = VisualWhen::Hover;      // Show: the condition that makes the entity active
+    Color normal{1, 1, 1, 1};                 // Tint: colour in the Normal state
+    Color hover{1, 1, 1, 1};                  // Tint: colour in the Hover state
+    Color pressed{1, 1, 1, 1};                // Tint: colour in the Pressed state
+    Color focused{1, 1, 1, 1};                // Tint: colour in the Focused state (not hovered or pressed)
+    Color disabled{0.5f, 0.5f, 0.5f, 0.6f};   // Tint: colour in the Disabled state
 };
 
 struct TextField : UiControl {
@@ -366,6 +601,8 @@ struct TouchButton : UiBox {
     bool autoShrink = false;                  // shrink the label (down to minFontSize) until it fits the button
     float minFontSize = 10.0f;                // autoShrink never goes under this font size (before ui.textScale)
     float maxTextScale = 0.0f;                // > 0: ui.textScale stops growing the label at this scale; 0 = no cap
+    bool markup = false;                      // true: [b], [c:colour] and [icon:name] in the label are tags (Text.markup)
+    bool bold = false;                        // true: the whole label is bold
     Color textColor{1, 1, 1, 0.9f};
     bool touchOnly = true;
     bool pressed = false;                     // runtime: a finger holds it
@@ -396,6 +633,54 @@ struct Captions : UiBox {
         pivot = {0.5f, 0.0f};
         safeArea = true;
         color = {0, 0, 0, 0.7f};
+    }
+};
+
+enum class ChartKind : std::int32_t { Bar, Line };
+
+// A bar or line chart drawn by the UI layer from `values`. The geometry is chart.h; the box is the whole chart (its colour is
+// the background); the plot is the box minus `padding`.
+struct Chart : UiBox {
+    Json values = Json::array();              // [n, n, ...] one series, or [[n, ...], [n, ...]] several (a series per bar colour / line)
+    ChartKind kind = ChartKind::Bar;
+    Json colors = Json::array();              // colour of each series (a string or [r,g,b,a]); series beyond the list cycle through it
+    Json min;                                 // lowest value of the axis; null = automatic
+    Json max;                                 // highest value of the axis; null = automatic
+    float baseline = 0.0f;                    // the value bars grow from, and where the baseline rule is drawn
+    bool showBaseline = true;                 // draw the rule at `baseline` (when it is inside the axis)
+    bool includeBaseline = true;              // automatic min / max always include `baseline` (zero by default)
+    std::int32_t slots = 0;                   // samples the plot has room for; fewer values are right-aligned; 0 = as many as the longest series
+    Json marks;                               // sample indexes (numbers) where a thin vertical rule is drawn, e.g. the first day of a season
+    Color baselineColor{1, 1, 1, 0.35f};
+    Color markColor{1, 1, 1, 0.16f};
+    float lineWidth = 2.0f;                   // thickness of a line, in UI units
+    float barGap = 0.2f;                      // fraction of a slot left empty between the bars of neighbouring samples
+    float padding = 6.0f;                     // between the box and the plot, in UI units
+    bool showLabels = true;                   // write the axis maximum and minimum in the plot's corners
+    std::int32_t decimals = -1;               // digits after the decimal separator of the labels; -1 = the digits the value has (at most 2)
+    std::string font;
+    float fontSize = 14.0f;
+    Color textColor{1, 1, 1, 0.7f};
+    std::int32_t hoverIndex = -1;             // runtime: the sample under the pointer, -1 = none
+    std::int32_t hoverSeries = -1;            // runtime: its series, -1 = none
+    Chart() {
+        size = {480, 200};
+        color = {0, 0, 0, 0.35f};
+    }
+};
+
+// A named camera drawn inside the rectangle of this widget: the view is rendered into its own image of the widget's size (the
+// camera's aspect follows the rectangle) and that image is drawn like the picture of a Video, so it is clipped by a ScrollList,
+// layered by `layer` and mirrored in a right-to-left language like any widget.
+struct CameraView : UiBox {
+    std::string camera;                       // id or name of the Camera entity to draw ("" = nothing)
+    Color tint{1, 1, 1, 1};                   // multiplied with the picture (alpha < 1 fades the view over what is below)
+    bool pointerEvents = true;                // the pointer pressing, dragging and releasing over it sends ui.viewPointer events
+    bool captureWheel = true;                 // the wheel over it is sent as a ui.viewPointer event and kept from scripts that read input
+    float resolution = 1.0f;                  // pixels of the image per pixel of the rectangle (0.25 .. 2)
+    CameraView() {
+        size = {320, 240};
+        color = {0, 0, 0, 0};
     }
 };
 
@@ -477,6 +762,24 @@ struct Light {
 };
 
 struct SkeletonAsset;  // skeleton.h
+struct ClipRuntime;    // what the Animator keeps while it plays *.anim.json clips (src/clip_animator.h)
+
+// Owner of the ClipRuntime of an Animator. A copy starts EMPTY (the bindings belong to the entity tree they were made
+// for; the copy binds to its own); a move keeps the contents.
+class ClipRuntimeBox {
+public:
+    ClipRuntimeBox();
+    ~ClipRuntimeBox();
+    ClipRuntimeBox(const ClipRuntimeBox& other);
+    ClipRuntimeBox& operator=(const ClipRuntimeBox& other);
+    ClipRuntimeBox(ClipRuntimeBox&&) noexcept;
+    ClipRuntimeBox& operator=(ClipRuntimeBox&&) noexcept;
+    ClipRuntime* get() const { return p_.get(); }
+    ClipRuntime& ensure();  // creates it on first use
+
+private:
+    std::unique_ptr<ClipRuntime> p_;
+};
 
 // What the animation system (animation.h) keeps per Animator at run time. Never serialized; copying an Animator copies it.
 struct AnimatorRuntime {
@@ -494,12 +797,15 @@ struct AnimatorRuntime {
     bool fromLoop = true;
     float fadeElapsed = 0.0f, fadeDuration = 0.0f;
     std::vector<std::string> triggers;  // trigger() calls, true for one update
+    ClipRuntimeBox clip;             // *.anim.json clips: bindings, driven fields, layers (empty while the Animator plays a glTF)
 };
 
 // Skeletal animation of a skinned glTF model, played by the animation system every fixed step (headless runs too).
 struct Animator {
     std::string model;                // glTF to animate; "" = the `mesh` of the MeshRenderer on the same entity
-    std::string clip;                 // clip playing now (glTF animation name); "" = bind pose
+    std::string clip;                 // clip playing now (glTF animation name, or a key of `clips`); "" = bind pose
+    Json clips = Json::object();      // keyframed 2D clips: {"walk": "anim/hero_walk.anim.json"}; used when there is no glTF `model`
+    Json layers = Json::array();      // 2D clips: [{"name": "arms", "clip": "shoot", "weight": 1, "mode": "override", "mask": ["body/arm_l"]}]
     float speed = 1.0f;               // playback speed multiplier (1 = authored speed, 0 = frozen)
     bool loop = true;
     bool playing = true;
@@ -536,6 +842,7 @@ struct RigidBody2D {
 };
 
 struct Collider2D {
+    bool enabled = true;              // false: the collider is switched off (no queries, no contacts), the component stays
     ColliderShape shape = ColliderShape::Box;
     Vec2 size{32, 32};                // box: width,height; capsule: width,height (vertical)
     float radius = 16.0f;             // circle radius
@@ -599,6 +906,7 @@ struct RigidBody3D {
 // convex hull of a mesh's vertices; Mesh is the mesh's triangles (static bodies only).
 enum class ColliderShape3D : std::int32_t { Box, Sphere, Capsule, Convex, Mesh };
 struct Collider3D {
+    bool enabled = true;              // false: the collider is switched off (no queries, contacts or NavMesh bake)
     ColliderShape3D shape = ColliderShape3D::Box;
     Vec3 size{1, 1, 1};               // box extents (full size, in the entity's rotated frame, scaled by Transform.scale)
     float radius = 0.5f;              // sphere / capsule radius
@@ -700,6 +1008,7 @@ struct AudioSource {
 // the primary camera is used.
 struct AudioListener {
     float volume = 1.0f;
+    float zoom = 1.0f;                // scales the distance positional sounds are heard at (AudioSource.range * zoom)
 };
 
 // ------------------------------------------------------------- scripting ---
@@ -724,6 +1033,7 @@ struct SceneSettings {
     Color horizonColor{0.8f, 0.85f, 0.9f, 1.0f};  // gradient bottom
     std::string music;                // asset path, looped background music ("" = none)
     float musicVolume = 0.6f;
+    float lightScale = 1.0f;          // size of the Light2D light buffer as a fraction of the picture (0.25 .. 1)
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

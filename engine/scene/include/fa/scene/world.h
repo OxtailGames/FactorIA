@@ -26,6 +26,8 @@
 #include "fa/core/math.h"
 #include "fa/core/reflect.h"
 #include "fa/scene/components.h"
+#include "fa/scene/mesh_store.h"
+#include "fa/scene/ui_tooltip.h"
 
 namespace fa {
 
@@ -155,11 +157,35 @@ public:
     const EdgeInsets& safe_insets() const { return safeInsets_; }
     void set_safe_insets(const EdgeInsets& insets) { safeInsets_ = insets; }
 
+    // The interface scale `ui.scale` (1 = as written; ui_rect.h explains what it multiplies). The runtime sets it from the
+    // project default and from `ui.scale = ...`; a test sets it directly. Survives clear() and scene loads, like the safe
+    // insets: it is a setting of the player, not of the scene.
+    float ui_scale() const { return uiScale_; }
+    void set_ui_scale(float scale) { uiScale_ = scale; }
+
+    // Tooltips (ui_tooltip.h): the project's delay and style (a setting of the game, so it survives clear() and scene loads like
+    // ui_scale()) and the tooltip on screen now, which fa_ui writes every frame, fa_render draws and a scene load removes.
+    const UiTooltipSettings& ui_tooltip_settings() const { return tooltipSettings_; }
+    void set_ui_tooltip_settings(const UiTooltipSettings& s) { tooltipSettings_ = s; }
+    const UiTooltipView& ui_tooltip() const { return tooltip_; }
+    UiTooltipView& ui_tooltip() { return tooltip_; }
+
     // True when the game's current language is written right to left. The runtime sets it with the language (localization
     // pass); Text align start / end and Panel direction auto read it; a test sets it to try a right-to-left language. Survives
     // clear() and scene loads, like the safe insets.
     bool rtl() const { return rtl_; }
     void set_rtl(bool rtl) { rtl_ = rtl; }
+    // `ui.mirrorRtl` (factoria.json "ui": {"mirrorRtl"}, default true): in a right-to-left language the screen-space UI is drawn
+    // mirrored (ui_rect.h, ui_mirrored). The runtime sets it from the project and from `ui.mirrorRtl = ...`; survives clear()
+    // and scene loads, like rtl().
+    bool ui_mirror_rtl() const { return uiMirrorRtl_; }
+    void set_ui_mirror_rtl(bool on) { uiMirrorRtl_ = on; }
+    // True when the UI is mirrored right now: ui_mirror_rtl() and rtl().
+    bool ui_mirror() const { return uiMirrorRtl_ && rtl_; }
+    // The game's current language tag ("" = English / localization off): what a Chart writes its axis labels in. Set by the
+    // runtime with the language, like rtl(); survives clear() and scene loads.
+    const std::string& language() const { return language_; }
+    void set_language(std::string language) { language_ = std::move(language); }
 
     std::uint64_t frame() const { return frame_; }
     double time() const { return time_; }  // simulated seconds since scene start
@@ -169,6 +195,15 @@ public:
     // Source scene path this world was loaded from ("" if built in code).
     const std::string& scene_path() const { return scenePath_; }
     void set_scene_path(std::string p) { scenePath_ = std::move(p); }
+    // Counts the scene loads of this world: it grows by one on every load, also when the same scene is loaded again, and
+    // clear() keeps it. The script API shows it as scene.generation.
+    std::uint64_t scene_generation() const { return sceneGeneration_; }
+    void bump_scene_generation() { ++sceneGeneration_; }
+
+    // The procedural meshes (mesh_store.h) scripts built with mesh.create: used as MeshRenderer.mesh by their "mesh:N" id.
+    // clear() (every scene load that is not additive) releases them all.
+    MeshStore& meshes() { return meshes_; }
+    const MeshStore& meshes() const { return meshes_; }
 
     // Observers (physics/audio/script systems release resources, editor refreshes).
     using EntityCallback = std::function<void(Entity)>;
@@ -189,10 +224,17 @@ private:
     WorldEvents events_;
     Rng rng_;
     EdgeInsets safeInsets_;
+    float uiScale_ = 1.0f;
+    UiTooltipSettings tooltipSettings_;
+    UiTooltipView tooltip_;
     bool rtl_ = false;
+    bool uiMirrorRtl_ = true;
+    std::string language_;
     std::uint64_t frame_ = 0;
     double time_ = 0.0;
     std::string scenePath_;
+    std::uint64_t sceneGeneration_ = 0;
+    MeshStore meshes_;
 };
 
 }  // namespace fa

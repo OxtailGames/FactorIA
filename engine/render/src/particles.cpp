@@ -158,19 +158,21 @@ void update_particles(World& world, float dt) {
 void gather_particles(World& world, Frame& f) {
     auto& all = states();
     world.each<ParticleEmitter>([&](Entity e, ParticleEmitter& em) {
-        if (!entity_active(world, e)) return;
+        if (!entity_active(world, f, e)) return;
         auto it = all.find(e.bits());
         if (it == all.end()) return;
         EmitterState& st = it->second;
         if (st.particles.empty()) return;
-        Mat4 m = world.world_matrix(e);
         const bool screen = screen_space(em);
+        if (screen ? !f.wantScreen : !f.wantWorld) return;
+        Mat4 m = world.world_matrix(e);
         Vec3 anchor{};
         if (screen) {
             const Vec2 a = anchor_point(em.anchor, em.safeArea, Vec2{float(f.targetW), float(f.targetH)}, world.safe_insets());
             anchor = Vec3{a.x, a.y, 0.0f};
         }
 
+        const Color tint = inherited_tint(world, f, e);
         TextureAsset* tex = em.texture.empty() ? f.assets->white() : f.assets->texture(em.texture);
         QuadList& list = screen ? f.screen : f.world;
         Rect clip;
@@ -184,7 +186,7 @@ void gather_particles(World& world, Frame& f) {
             float t = p.age / p.life;
             float size = lerp(em.startSize, em.endSize, t);
             if (size <= 0.0f) continue;
-            Color c = lerp(em.startColor, em.endColor, t);
+            Color c = lerp(em.startColor, em.endColor, t) * tint;
             if (c.a <= 0.0f) continue;
             Vec3 q = p.pos;
             if (screen) q.y = -q.y;  // flip the +Y up simulation onto the y-down screen

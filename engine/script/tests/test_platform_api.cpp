@@ -54,6 +54,11 @@ test("achievements, stats and leaderboards", async () => {
   expect(await platform.stats.set("wins", 4)).toBe(4);
   expect(await platform.stats.add("wins", 3)).toBe(7);
   expect(await platform.stats.add("distance", 1.5)).toBe(1.5);
+  // Two adds made before the first answer arrives both count: the fake adds on the value it holds when it serves each request.
+  const both = [platform.stats.add("wins", 1), platform.stats.add("wins", 1)];
+  expect(await Promise.all(both)).toEqual([8, 9]);
+  expect(await platform.stats.get("wins")).toBe(9);
+  expect(game.platform.calls().map((c) => c.method)).toContain("stats.add");
   expect((await platform.leaderboards.submit("high_score", 120)).best).toBe(120);
   const rows = await platform.leaderboards.entries("high_score", { range: "around", count: 3 });
   expect(rows.length).toBe(1);
@@ -67,6 +72,53 @@ test("cloud saves keep any JSON value", async () => {
   expect(await platform.cloud.list()).toEqual(["slot1"]);
   await platform.cloud.remove("slot1");
   expect(await platform.cloud.load("slot1")).toBeUndefined();
+});
+
+test("cloud.stat tells the size and the time without the text, and a missing key is no error", async () => {
+  expect(await platform.cloud.stat("slot1")).toEqual({ exists: false });
+  await platform.cloud.save("slot1", { level: 3 });
+  const first = await platform.cloud.stat("slot1");
+  expect(first).toEqual({ exists: true, size: 11, modified: 1767225600 }); // the fake's own clock: no wall time
+  await platform.cloud.save("slot1", { level: 30 });
+  const second = await platform.cloud.stat("slot1");
+  expect(second.modified).toBe(first.modified + 1);
+  expect(second.size).toBe(12);
+  game.platform.set({ cloudClock: 1800000000 });
+  await platform.cloud.save("slot2", {});
+  expect((await platform.cloud.stat("slot2")).modified).toBe(1800000000);
+  await platform.cloud.remove("slot1");
+  await platform.cloud.remove("slot2");
+  expect(await platform.cloud.stat("slot1")).toEqual({ exists: false });
+  game.platform.reset();
+});
+
+test("Remote Play guests: sessions, and the connect and disconnect events", async () => {
+  expect(platform.has("remotePlay")).toBe(true);
+  expect(await platform.remotePlay.sessions()).toEqual([]);
+  const seen = [];
+  const off = platform.on("remotePlay", (e) => seen.push(e.status + " " + e.session.id + " " + e.session.guestName));
+  const ana = game.platform.remotePlayConnect({ guestName: "Ana", formFactor: "phone" });
+  expect(ana.id).toBe(1);
+  expect(ana.deviceName).toBe("Fake device");
+  game.platform.remotePlayConnect();
+  expect(seen).toEqual([]); // events arrive at the next step, like the others
+  game.step(1);
+  expect(seen).toEqual(["connected 1 Ana", "connected 2 Guest 2"]);
+  const listed = await platform.remotePlay.sessions();
+  expect(listed.map((g) => g.id + ":" + g.formFactor)).toEqual(["1:phone", "2:computer"]);
+  expect(listed[1].resolution).toEqual({ width: 1920, height: 1080 });
+  seen.length = 0;
+  game.platform.remotePlayDisconnect(1);
+  game.step(1);
+  expect(seen).toEqual(["disconnected 1 Ana"]);
+  expect((await platform.remotePlay.sessions()).map((g) => g.id)).toEqual([2]);
+  expect(() => game.platform.remotePlayDisconnect(1)).toThrow("no guest has the session id 1");
+  expect(() => game.platform.remotePlayConnect({ formFactor: "phon" })).toThrow("phone");
+  off();
+  game.platform.remotePlayConnect();
+  game.step(1);
+  expect(seen).toEqual(["disconnected 1 Ana"]); // nobody listens any more
+  game.platform.reset();
 });
 
 test("purchases: buy, finish, restore", async () => {
@@ -110,7 +162,7 @@ test("integrity tokens answer { token }, numbered from 1 like transactions", asy
     TestReport rep = h.scripts.run_tests({"tests/platform.test.js"});
     MESSAGE(rep.summary());
     CHECK(rep.ok());
-    CHECK(rep.passed == 6);
+    CHECK(rep.passed == 8);
 }
 
 TEST_CASE("platform api: a mistake in the call throws at once, a store failure rejects with code and hint") {
@@ -136,9 +188,11 @@ test("wrong arguments throw", async () => {
   expect(() => platform.leaderboards.entries("high_score", { range: "tops" })).toThrow('did you mean "top"');
   expect(() => platform.cloud.save("bad key", {})).toThrow("is not valid");
   expect(() => platform.cloud.save("k", undefined)).toThrow("cannot be saved");
+  expect(() => platform.cloud.stat("bad key")).toThrow("is not valid");
   expect(() => platform.presence.set("x", { level: 3 })).toThrow("must be strings");
   expect(() => platform.overlay.open("achievments")).toThrow('did you mean "achievements"');
   expect(() => platform.stats.add("wins", "1")).toThrow("delta must be a finite number");
+  expect(() => platform.stats.add("wins", 0.5)).toThrow("is an int");
   // An unknown transaction is a store-like failure, not a mistake in the call: the Promise rejects with unknownId.
   let finishError;
   await platform.purchases.finish("nope").catch((e) => { finishError = e; });
@@ -199,6 +253,46 @@ test("a rejection somebody handles is no script error", async () => {
     MESSAGE(rep.summary());
     CHECK(rep.ok());
     CHECK(rep.passed == 7);
+    CHECK(h.scripts.errors().empty());
+}
+
+TEST_CASE("platform api: without delayFrames the fake answers inside the call, the promise settles in the next microtask") {
+    TestHost h("platform_timing", settings());
+    h.file("tests/timing.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { platform, world } from "factoria";
+
+test("the fake's state changes in the call; only the touched achievements are listed", async () => {
+  game.platform.reset();
+  expect(game.platform.state().fake.achievements).toEqual({});
+  let settled = false;
+  const p = platform.achievements.unlock("first_win").then((r) => { settled = r.newly; });
+  // No game.step and no await yet: the store has the answer already, the continuation has not run.
+  expect(game.platform.state().fake.achievements).toEqual({ first_win: { unlocked: true, progress: 1 } });
+  expect(game.platform.state().pending).toBe(0);
+  expect(settled).toBe(false);
+  await p;
+  expect(settled).toBe(true);
+  // "veteran" is in the catalog but was never touched: it is not in the fake's list (the list() call has the whole catalog).
+  expect(Object.keys(game.platform.state().fake.achievements)).toEqual(["first_win"]);
+  expect((await platform.achievements.list()).map((a) => a.id)).toEqual(["first_win", "veteran"]);
+});
+
+test("a request made inside a frame (an event handler) is answered in that frame", async () => {
+  game.platform.reset();
+  const off = world.on("test.go", () => { platform.achievements.unlock("veteran").catch(() => {}); });
+  world.emit("test.go", {});
+  expect(game.platform.state().fake.achievements).toEqual({});  // emit is queued: the handler runs at the next step
+  game.step(1);
+  expect(game.platform.state().fake.achievements).toEqual({ veteran: { unlocked: true, progress: 1 } });
+  off();
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/timing.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 2);
     CHECK(h.scripts.errors().empty());
 }
 
@@ -485,6 +579,20 @@ test("daily board starts over with game.setDate", async () => {
   expect(call.args.periodKey).toBe("2026-10-23");
 });
 
+test("a daily board read with yesterday's day returns yesterday's scores", async () => {
+  game.setDate("2026-10-23");
+  await platform.leaderboards.submit("daily_route", 90000);
+  game.setDate("2026-10-24");
+  await platform.leaderboards.submit("daily_route", 70000);
+  expect((await platform.leaderboards.entries("daily_route"))[0].score).toBe(70000);
+  const yesterday = await platform.leaderboards.entries("daily_route", { day: "2026-10-23" });
+  expect(yesterday.length).toBe(1);
+  expect(yesterday[0].score).toBe(90000);
+  expect((await platform.leaderboards.submit("daily_route", 80000, { day: "2026-10-23" })).best).toBe(80000);
+  expect(game.platform.calls().filter((c) => c.method === "leaderboards.entries").pop().args.periodKey).toBe("2026-10-23");
+  expect(game.today().utc.iso).toBe("2026-10-24");
+});
+
 test("weekly board lasts Monday to Sunday", async () => {
   game.setDate("2026-10-19");  // a Monday
   await platform.leaderboards.submit("weekly_best", 10);
@@ -522,5 +630,5 @@ test("the date is the test's again", async () => {
     TestReport rep = h.scripts.run_tests({"tests/periods.test.js"});
     MESSAGE(rep.summary());
     CHECK(rep.ok());
-    CHECK(rep.passed == 5);
+    CHECK(rep.passed == 6);
 }

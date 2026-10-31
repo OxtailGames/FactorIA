@@ -12,9 +12,16 @@ page before you submit.
 
 Checked against the code of this repository:
 
-- **An exported game sends nothing by itself.** The player and the engine modules it links have no network code: no HTTP
-  client, sockets, analytics, advertising id, accounts or crash upload. The only HTTP client in the repository is
-  `fa_ai` (`tools/ai/src/http.cpp`), linked into the `factoria` CLI, the MCP server and the editor
+- **An exported game sends nothing by itself.** The engine has no advertising id, accounts or crash upload, and no
+  request leaves a game unless its own scripts call `http.fetch` ([NETWORKING.md](NETWORKING.md)) or `analytics` and
+  `remoteConfig` ([ANALYTICS.md](ANALYTICS.md)), which are `http.fetch` calls to the address of your `factoria.json`
+  `"analytics"` and `"remoteConfig"` sections. There is no engine analytics server: nothing is queued or sent before the
+  player says yes, and the engine adds no device, user or session id (what a batch holds is written out in
+  [ANALYTICS.md](ANALYTICS.md#4-when-a-batch-goes-out)). That call
+  uses the HTTP stack the operating system already has (WinHTTP, `NSURLSession`, libcurl on Linux, `HttpURLConnection` on
+  Android, the browser's `fetch`): the player links no network library, and only to the hosts the game declares in
+  `factoria.json` `"network"`. A game without that section cannot make a request. The AI client `fa_ai`
+  (`tools/ai/src/http.cpp`) is linked into the `factoria` CLI, the MCP server and the editor
   (`tools/cli`, `tools/mcp`, `tools/editor`), never into a game. The web build downloads its own game files from the
   site that hosts it, nothing more.
 - **Speech uses the system's voices.** `ui.speak` hands the text to the operating system's or browser's text to speech.
@@ -34,8 +41,9 @@ Checked against the code of this repository:
   services under the store's privacy policy ([PLATFORM.md](PLATFORM.md); what to answer in the store forms:
   [MOBILE.md](MOBILE.md#store-privacy-forms)).
 
-Anything else the game does (your own scripts talking to a server, an ads or analytics SDK, accounts) is yours to
-declare. If you add one, add the matching paragraph below.
+Anything else the game does (an ads or analytics SDK, accounts, what your server does with the requests `http.fetch`
+sends) is yours to declare. A game that declares `"network"` hosts must say so in its privacy policy: see "A game that
+connects to your server" below. If you add something else, add the matching paragraph.
 
 ## Privacy policy
 
@@ -82,10 +90,22 @@ Add the paragraph that matches what your game does, and remove the sentences of 
 ("does not connect to our servers", "no analytics", ...). Name the real provider, the real data and a real retention
 period.
 
+- **A game that connects to your server (`http.fetch`).** "While you play, the game connects to [HOST, e.g.
+  api.example.com], run by [STUDIO / PROVIDER], to [PURPOSE, e.g. fetch the daily challenge and send your score to the
+  online leaderboard]. The server receives [DATA: what the game sends, e.g. your player name and score] and, as with
+  every connection, your IP address. We keep it for [PERIOD]." List every host of `"network"` `"hosts"` in
+  `factoria.json` and use `"purpose"` as the sentence about why ([NETWORKING.md](NETWORKING.md)). Remove "does not
+  connect to our servers" from the template. Store forms: declare what your server receives ("data collected").
 - **Analytics.** "We use [PROVIDER] to count how many people play and which features they use. It receives [DATA, e.g.
   an anonymous install id, device model, country, session length]. We keep it for [PERIOD]. The legal basis is [consent
   / legitimate interest]. You can turn it off in [WHERE IN THE GAME]." In the EU/UK ask for consent before the first
-  event is sent. Store forms: declare the data (Analytics purpose).
+  event is sent. Store forms: declare the data (Analytics purpose). With the engine's own `analytics` service
+  ([ANALYTICS.md](ANALYTICS.md)) the provider is **you** (the server at your `"analytics"` endpoint), the data is the list of
+  your event names and props plus the game id and version (the server also sees the IP address), the legal basis is consent
+  (the game sends nothing before the player says yes; the menu kit's Options switch is "where to turn it off") and the
+  `network.purpose` sentence should say it. Apple: the iOS export declares Product Interaction for Analytics (not linked, no
+  tracking) in `PrivacyInfo.xcprivacy`; answer the same in App Store Connect. Google Play Data safety: "App activity", collected,
+  optional, not shared unless your server's operator is another company.
 - **Ads.** "The game shows ads from [AD NETWORK]. The network may use your device's advertising id to show ads and
   measure them, under [AD NETWORK]'s privacy policy [LINK]. You can reset or limit the advertising id in your device
   settings." Needs the advertising declarations in the stores and, on iOS, the tracking prompt if it tracks.
@@ -160,7 +180,8 @@ Contact: [CONTACT EMAIL]
 
 ## Checklist
 
-- [ ] I know what my game sends: the engine alone sends nothing; plugins, SDKs and my own servers are listed.
+- [ ] I know what my game sends: the engine alone sends nothing; plugins, SDKs and the hosts of `"network"` in
+      `factoria.json` (my own servers) are listed.
 - [ ] The privacy policy is a public `https://` page with the template adapted, the paragraphs for what I added, and no
       leftover placeholders (`[GAME NAME]`, `[DATE]`, ...).
 - [ ] The same URL is in the store forms (Google Play, App Store, Microsoft Store; Steam and Epic when the game collects

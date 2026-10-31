@@ -31,7 +31,13 @@ Result<FontCoverage> FontCoverage::load(const std::vector<std::string>& fontChai
 std::vector<std::uint32_t> FontCoverage::missing(std::string_view utf8) const {
     std::vector<std::uint32_t> out;
     if (!impl_) return out;
+    std::u32string cps;  // the composed vowels become the parts the shaper draws them with
     for (char32_t cp : render::decode_text(utf8)) {
+        const auto parts = render::composed_parts(cp);
+        if (parts.empty()) cps.push_back(cp);
+        else cps.append(parts);
+    }
+    for (char32_t cp : cps) {
         if (!render::is_visible(cp) || std::find(out.begin(), out.end(), std::uint32_t(cp)) != out.end()) continue;
         const bool covered = std::any_of(impl_->fonts.begin(), impl_->fonts.end(), [&](const auto& f) { return f->has_glyph(cp); });
         if (!covered) out.push_back(std::uint32_t(cp));

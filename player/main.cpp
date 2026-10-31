@@ -1,6 +1,7 @@
 // factoria_player: the minimal runtime shipped inside exported games.
 //
-//   Desktop : factoria_player [projectDir | game.pak] [--scene S] [--fullscreen] [--frames N] [--version] [--help]
+//   Desktop : factoria_player [projectDir | game.pak] [--scene S] [--fullscreen] [--frames N] [--input F] [--dump-state F]
+//             [--screenshot F] [--persist-storage] [--version] [--help]
 //             Without an argument the game is, in this order: the folder "<exe dir>/game" (or
 //             "<exe dir>/../Resources/game" inside a macOS .app) when it contains factoria.json; else the pack
 //             "<exe dir>/game.pak" (or "<exe dir>/../Resources/game.pak"), the one archive a `factoria export
@@ -80,6 +81,9 @@ void start_game() {
 }  // namespace
 
 int main() {
+    // Keeps the fingerprint marker in the wasm: `factoria setup webplayer` and the web export read it to see that this
+    // player and factoria come from the same commit.
+    fa::log(fa::LogLevel::Debug, "player", std::string("factoria_player " FA_ENGINE_VERSION " (build ") + fa::build_fingerprint() + ")");
     if (!fa::fs::exists(kWebPack)) {
         return web_error(std::string("error: ") + kWebPack + " is missing: the page must write the game pack there before "
                          "the player starts.\nhint: use the index.html that `factoria export --platform web` writes, next to "
@@ -224,12 +228,22 @@ int startup_error(const std::string& text) {
 }
 
 void print_usage() {
-    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--frames N] [--version] [--help]\n"
+    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--frames N]\n"
+              "                [--input <replay.json>] [--dump-state <file>] [--screenshot <file>] [--persist-storage]\n"
+              "                [--version] [--help]\n"
               "  projectDir  folder containing factoria.json, or a game.pak (default: ./game next to the executable, else\n"
               "              ./game.pak next to it, else the current directory)\n"
               "  --scene     start scene override, project-relative (e.g. scenes/level2.scene.json)\n"
               "  --fullscreen  start fullscreen (overrides factoria.json display.fullscreen)\n"
               "  --frames N  draw N frames, then exit: 0, or 1 when a script failed (a crash exits non-zero too); for CI smoke tests\n"
+              "  --input F   play an input replay (the JSON `input.record` writes, the one `factoria run --input` plays); needs --frames\n"
+              "  --dump-state F  write the world state JSON after the last frame (= `factoria run --state-out`); needs --frames\n"
+              "  --screenshot F  write a PNG of the last frame (= `factoria run --screenshot-at N-1`); needs --frames\n"
+              "  --persist-storage  with those three: scripts' storage.* and the save files write to the game's real user folder\n"
+              "              (the container of a sandboxed Mac App Store build) instead of staying in memory; needs --frames\n"
+              "              these three run headless (no window, deterministic, fixed time step) like `factoria run --headless\n"
+              "              --frames N`, so a shipped build can be checked by script and compared with the editor's run;\n"
+              "              exit 0, 1 when a script failed, 2 for a missing or bad file\n"
               "  --version   print the engine version (the one `factoria version` prints) and exit");
 }
 
@@ -242,6 +256,8 @@ int main(int argc, char** argv) {
     std::string projectArg, scene;
     bool fullscreen = false;
     int frames = 0;
+    std::string inputArg, dumpStateArg, screenshotArg;
+    bool persistStorage = false;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") {
@@ -252,6 +268,8 @@ int main(int argc, char** argv) {
             return 0;
         } else if (a == "--fullscreen") {
             fullscreen = true;
+        } else if (a == "--persist-storage") {
+            persistStorage = true;
         } else if (a == "--scene") {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "error: --scene needs a value, e.g. --scene scenes/main.scene.json\n");
@@ -269,12 +287,68 @@ int main(int argc, char** argv) {
             frames = int(n);
         } else if (a.rfind("--scene=", 0) == 0) {
             scene = a.substr(8);
+        } else if (a == "--input" || a == "--dump-state" || a == "--screenshot" || a.rfind("--input=", 0) == 0 ||
+                   a.rfind("--dump-state=", 0) == 0 || a.rfind("--screenshot=", 0) == 0) {
+            const std::size_t eq = a.find('=');
+            const std::string name = a.substr(0, eq);
+            if (eq == std::string::npos && (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0)) {
+                std::fprintf(stderr, "error: %s needs a file, e.g. %s %s\n", name.c_str(), name.c_str(),
+                             name == "--input" ? "replay.json" : name == "--dump-state" ? "state.json" : "shot.png");
+                return 2;
+            }
+            const std::string value = eq == std::string::npos ? std::string(argv[++i]) : a.substr(eq + 1);
+            if (value.empty()) {
+                std::fprintf(stderr, "error: %s needs a file name, got an empty value\n", name.c_str());
+                return 2;
+            }
+            (name == "--input" ? inputArg : name == "--dump-state" ? dumpStateArg : screenshotArg) = value;
         } else if (!a.empty() && a[0] == '-') {
             std::fprintf(stderr, "error: unknown option '%s'\n", a.c_str());
             print_usage();
             return 2;
         } else {
             projectArg = a;
+        }
+    }
+
+    const bool checkRun = !inputArg.empty() || !dumpStateArg.empty() || !screenshotArg.empty();
+    if (checkRun && frames < 1) {
+        std::fprintf(stderr,
+                     "error: --input, --dump-state and --screenshot run the game headless for a fixed number of frames, so they need "
+                     "--frames N.\nhint: e.g. factoria_player --frames 300 --input replay.json --dump-state state.json --screenshot last.png\n");
+        return 2;
+    }
+    if (persistStorage && !checkRun) {
+        std::fprintf(stderr, "error: --persist-storage applies to the headless check run (--input, --dump-state or --screenshot with "
+                             "--frames N); a windowed run always saves to the real folder.\n"
+                             "hint: e.g. factoria_player --frames 300 --input replay.json --persist-storage\n");
+        return 2;
+    }
+    // Output and input files are relative to the current directory (not to the game, which may sit inside a pack).
+    auto absolute = [](const std::string& p) {
+        std::error_code e;
+        return stdfs::absolute(p, e).lexically_normal().string();
+    };
+    std::string inputPath = inputArg.empty() ? std::string() : absolute(inputArg);
+    if (!inputArg.empty()) {
+        std::error_code e;
+        if (!stdfs::is_regular_file(inputPath, e)) {
+            std::fprintf(stderr, "error: --input file '%s' does not exist (looked for %s).\nhint: record one with the input.record command "
+                                 "(docs/DEBUGGING.md) and pass its path, relative to the current directory.\n",
+                         inputArg.c_str(), inputPath.c_str());
+            return 2;
+        }
+    }
+    for (const std::string* out : {&dumpStateArg, &screenshotArg}) {
+        if (out->empty()) continue;
+        std::error_code e;
+        const stdfs::path parent = stdfs::path(absolute(*out)).parent_path();
+        stdfs::create_directories(parent, e);
+        if (e || !stdfs::is_directory(parent, e)) {
+            std::fprintf(stderr, "error: cannot write '%s': the folder '%s' does not exist and cannot be created (%s).\n"
+                                 "hint: pass a path in a folder you can write to.\n",
+                         out->c_str(), parent.string().c_str(), e.message().c_str());
+            return 2;
         }
     }
 
@@ -337,6 +411,39 @@ int main(int argc, char** argv) {
     } else {
         return startup_error("error: " + proj.error().to_string() + "\n");
     }
+    if (checkRun) {
+        // The same path as `factoria run --headless --frames N` (tools/cli/src/common.cpp apply_headless_config): the same
+        // seed, fixed time step, in-memory storage (unless --persist-storage) and fake platform, so the state and the pixels
+        // equal the CLI's.
+        cfg.headless = true;
+        cfg.audioDevice = false;
+        cfg.renderMode = fa::RenderMode::OnDemand;
+        cfg.memoryStorage = !persistStorage;
+        cfg.platformBackend = "fake";
+        cfg.maxFrames = 0;
+        fa::HeadlessRunOptions ho;
+        ho.frames = frames;
+        ho.inputReplayPath = inputPath;
+        if (!screenshotArg.empty()) {
+            ho.screenshotFrames = {frames - 1};
+            ho.screenshotPattern = absolute(screenshotArg);
+        }
+        if (!dumpStateArg.empty()) ho.stateOutPath = absolute(dumpStateArg);
+        ho.failOnScriptError = true;
+        fa::Json report = fa::Json::object();
+        const int code = fa::run_headless(cfg, ho, &report);
+        for (const char* key : {"scriptErrors", "sceneErrors"})
+            if (report.contains(key) && report[key].is_array())
+                for (const auto& e : report[key]) std::fprintf(stderr, "%s: %s\n", key, e.is_string() ? e.get<std::string>().c_str() : e.dump().c_str());
+        if (report.contains("problems") && report["problems"].is_array())
+            for (const auto& pr : report["problems"])
+                std::fprintf(stderr, "warning: %s\n", pr.is_string() ? pr.get<std::string>().c_str() : pr.dump().c_str());
+        if (report.contains("error") && report["error"].is_string()) std::fprintf(stderr, "error: %s\n", report["error"].get<std::string>().c_str());
+        if (code == 0) std::printf("OK: ran %d frames headless\n", frames);
+        if (code == 0 && !screenshotArg.empty() && !stdfs::exists(ho.screenshotPattern, ec))
+            std::fprintf(stderr, "warning: no screenshot was written to %s\n", ho.screenshotPattern.c_str());
+        return code == 0 ? 0 : (code == 2 ? 2 : 1);
+    }
     fa::AppDesc desc = fa::make_app_desc(cfg);  // == what run_windowed() does
     if (fullscreen) desc.fullscreen = true;
     return fa::run_app(desc);
@@ -358,9 +465,17 @@ int main(int argc, char** argv) {
 // Implemented in ios_bundle.mm.
 std::string fa_player_ios_game_dir();       // <bundle resource path>/game
 std::string fa_player_ios_documents_dir();  // app Documents directory
+// Asks the window scene for "portrait" or "landscape" shortly after the start (a no-op for anything else); ios_bundle.mm.
+void fa_player_ios_request_orientation(const std::string& orientation);
 #endif
 
+#include "fa_build_fingerprint.h"  // generated at build time: FA_BUILD_FINGERPRINT (engine/core/CMakeLists.txt)
+
 namespace {
+
+// The build fingerprint in the player's own code, which `factoria export --platform ios` reads in
+// libfactoria_player_main.a (the engine's copy lives in libfa_core.a). sokol_main touches it, so the Android .so keeps it.
+__attribute__((used)) const char kPlayerFingerprint[] = "FA-BUILD-FINGERPRINT:" FA_BUILD_FINGERPRINT ";";
 
 // Shown when the game cannot start (no project in the app bundle/APK): a red screen plus a log line.
 // (No text rendering is available without the engine, so `adb logcat -s FactorIA` / the Xcode console
@@ -399,6 +514,11 @@ sapp_desc error_desc(const std::string& message) {
 
 // sokol_app.h (compiled as C in fa_platform) calls sokol_main with C linkage.
 extern "C" sapp_desc sokol_main(int, char*[]) {
+    // Keeps the fingerprint marker in the player: `factoria export` reads it to see that this player and factoria come
+    // from the same commit (the linker drops data nothing reaches).
+    const volatile char* marker = kPlayerFingerprint;
+    (void)marker[0];
+    fa::log(fa::LogLevel::Debug, "player", std::string("factoria_player " FA_ENGINE_VERSION " (build ") + fa::build_fingerprint() + ")");
     fa::EngineConfig cfg;
     cfg.hotReload = false;
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
@@ -419,6 +539,14 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
         return error_desc("No game in the app bundle (expected " + cfg.projectDir +
                           "/factoria.json). Configure with -DFA_GAME_PROJECT_DIR=<game folder> "
                           "(`factoria export --platform ios` does this).");
+#endif
+    // A check run on a simulator or device (`player.run_ios_sim`, docs/MOBILE.md): `xcrun simctl launch` with
+    // SIMCTL_CHILD_FA_INPUT_REPLAY=<file> plays that input replay in the window, SIMCTL_CHILD_FA_ORIENTATION=landscape|portrait
+    // turns the screen. A shipped game is started without them.
+    if (const char* replay = std::getenv("FA_INPUT_REPLAY"); replay && *replay) cfg.inputReplayPath = replay;
+#if !defined(__ANDROID__)
+    if (const char* orientation = std::getenv("FA_ORIENTATION"); orientation && *orientation)
+        fa_player_ios_request_orientation(orientation);
 #endif
     static fa::AppDesc desc;  // to_sapp_desc copies it, keep alive anyway
     desc = fa::make_app_desc(cfg);

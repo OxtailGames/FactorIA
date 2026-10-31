@@ -219,7 +219,6 @@ describe("the screens", () => {
     game.step(3);
     game.click("play");
     await settle();
-    game.step(2); // the panel is laid out
     storage.set("burrow.slot.1", file({ playTime: 10 }));
     await platform.cloud.save("burrow.slot.1", file({ playTime: 20 }));
     game.click("sync_slots");

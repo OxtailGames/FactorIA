@@ -270,6 +270,25 @@ Image resize_image(const Image& src, int width, int height) {
     return out;
 }
 
+Image cover_image(const Image& src, int width, int height) {
+    if (src.empty() || width < 1 || height < 1) return Image{};
+    // Largest part of src with the aspect ratio of the result: compare width * height crosswise, in 64 bits.
+    int cropW = src.width, cropH = src.height;
+    if (std::int64_t(src.width) * height > std::int64_t(src.height) * width)
+        cropW = int(std::max<std::int64_t>(1, std::int64_t(src.height) * width / height));
+    else
+        cropH = int(std::max<std::int64_t>(1, std::int64_t(src.width) * height / width));
+    if (cropW == src.width && cropH == src.height) return resize_image(src, width, height);
+    const int x0 = (src.width - cropW) / 2, y0 = (src.height - cropH) / 2;
+    Image part;
+    part.width = cropW;
+    part.height = cropH;
+    part.rgba.resize(std::size_t(cropW) * cropH * 4);
+    for (int y = 0; y < cropH; ++y)
+        std::copy_n(&src.rgba[(std::size_t(y0 + y) * src.width + x0) * 4], std::size_t(cropW) * 4, &part.rgba[std::size_t(y) * cropW * 4]);
+    return resize_image(part, width, height);
+}
+
 Image fit_image(const Image& src, int size, float scale, Color background) {
     Image out;
     if (size < 1) return out;
@@ -398,6 +417,33 @@ void simulate_color_vision(Image& img, ColorSimulation mode) {
         p[1] = q(o.g);
         p[2] = q(o.b);
     }
+}
+
+}  // namespace fa
+
+// ---- zlib helpers (fa/core/compress.h): they live here because this unit owns the stb implementations ----
+#include "fa/core/compress.h"
+
+namespace fa {
+
+std::string zlib_compress(std::string_view data) {
+    int outLen = 0;
+    unsigned char* z = stbi_zlib_compress(reinterpret_cast<unsigned char*>(const_cast<char*>(data.data())),
+                                          static_cast<int>(data.size()), &outLen, 8);
+    if (!z) return {};
+    std::string out(reinterpret_cast<const char*>(z), static_cast<std::size_t>(outLen));
+    STBIW_FREE(z);
+    return out;
+}
+
+Result<std::string> zlib_decompress(std::string_view stream, std::size_t expectedSize) {
+    int outLen = 0;
+    char* p = stbi_zlib_decode_malloc_guesssize_headerflag(stream.data(), static_cast<int>(stream.size()),
+                                                           static_cast<int>(expectedSize > 0 ? expectedSize : stream.size() * 4 + 64), &outLen, 1);
+    if (!p) return Error{"the compressed data is damaged or cut short", "Write the value again with storage.set."};
+    std::string out(p, static_cast<std::size_t>(outLen));
+    STBI_FREE(p);
+    return out;
 }
 
 }  // namespace fa

@@ -38,6 +38,10 @@ struct EntryText {
 };
 std::vector<EntryText> texts_of(const StringEntry& entry);
 
+// Every character the table can show: its strings (every plural form) and the language's own name. The characters the glyph check of
+// project.validate asks a font for, and the ones assets.subset_font keeps.
+std::set<char32_t> table_code_points(const TableFile& table);
+
 // One code point for a message: `U+65E5 '日'`.
 std::string describe_code_point(std::uint32_t cp);
 // The start of a text for a message: at most `limit` code points, "..." when cut, line breaks shown as \n.

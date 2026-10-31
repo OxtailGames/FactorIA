@@ -9,7 +9,8 @@ what it does not do.
 
 The built-in font is DejaVu Sans (`font: ""`): Latin, Greek, Cyrillic, Hebrew and Arabic letters, and common symbols
 such as ★ ☆ ✓ ✗ ♥ ♪ ← → (a star rating needs no extra font; colour emoji such as ⭐ are not in it). `font: "builtin:pixel"`
-is Press Start 2P (Latin only, for a retro look). **Nothing else is built in.** A game that shows Chinese, Japanese,
+is Press Start 2P (Latin only, for a retro look). Four more Latin faces come with the engine, listed under
+[Built-in fonts](#built-in-fonts). **No other font is built in.** A game that shows Chinese, Japanese,
 Korean, Thai, an Indic script or any other script DejaVu Sans lacks must ship a font that has it, as a `.ttf` file in the
 project (`assets/fonts/`):
 
@@ -21,20 +22,58 @@ project (`assets/fonts/`):
 
 Keep the font's license file (`OFL.txt`) next to it: the OFL lets you ship and embed the font, and asks that its license
 travels with it. `factoria export` writes the notices of the engine, not of your fonts. CJK fonts are big (a few MB to
-10 MB): the player downloads what you ship, so subset the font to the characters the game uses if size matters (fontTools'
-`pyftsubset` with `--layout-features='*'` keeps the shaping tables). A variable font (`NotoSansJP[wght].ttf`) draws its
-default weight: instance it to a static file first (`fontTools.varLib.instancer`).
+10 MB): the player downloads what you ship, so cut the font to the characters the game uses with `assets.subset_font`
+(`factoria call assets.subset_font '{"source":"NotoSansJP[wght].ttf","out":"assets/fonts/NotoSansJP-Regular-subset.ttf"}'`; no
+Python needed). It keeps the characters of `locales/<language>.json` for the `locales` you name (default: every language of
+`localization.languages`) plus ASCII, Latin-1, the full-width forms, the CJK punctuation line breaking needs and the
+characters of `keep`, and it keeps the shaping tables (GSUB, GPOS, kerning). A variable font (`NotoSansJP[wght].ttf`) draws its
+default weight, which for Noto is Thin: the command pins it to one instance (`wght` 400, or `axes` such as `{"wght": 700}`),
+so the result is a static font. Run it again when a string changes; `factoria validate` then confirms every string has a glyph.
 
 Colour emoji are not supported (the engine draws outlines of TrueType fonts only): an emoji draws as nothing, with a
 warning. Draw emoji as sprites.
+
+## Built-in fonts
+
+Select them by name in `Text.font` (and in `localization.fallbackFonts`, `text.fonts` and the widgets' `font`). All are
+SIL Open Font License files from the google/fonts repository, unmodified, with their `OFL.txt` kept in
+`engine/render/assets/fonts/extra/`. The list is also in the `font` field doc of `Text` (`docs.components`) and in the hint
+of the error an unknown `builtin:` name gives.
+
+| `font` | Face | Use | Real faces |
+|---|---|---|---|
+| `""` | DejaVu Sans | default; Latin, Greek, Cyrillic, Hebrew, Arabic, symbols | regular (bold is emboldened by the engine) |
+| `"builtin:pixel"` | Press Start 2P | 8-bit retro look | regular |
+| `"builtin:serif"` | Crimson Text | book text, storybooks | regular, **bold, italic, bold italic** |
+| `"builtin:hand"` | Kalam | handwriting, notes, diaries | regular, **bold** |
+| `"builtin:blackletter"` | UnifrakturMaguntia | titles in blackletter (hard to read in long text) | regular |
+| `"builtin:display"` | IM Fell English | old-print titles and text | regular, **italic** |
+
+Latin coverage of the four extra faces includes the Spanish, French, German and Portuguese accents, `¿ ¡ ß ñ ç` and typographic
+quotes and dashes; none has Greek, Cyrillic, Hebrew or Arabic (Kalam also has Devanagari), so those characters fall back to
+DejaVu Sans, as for any font.
+
+**They cost nothing for games that do not use them.** DejaVu Sans and Press Start 2P are inside every player; the other four
+are files that live in `factoria` and the editor. `factoria export` copies the files of the families a game names into
+`builtin-fonts/` and adds their licenses to `FACTORIA_NOTICES.txt` ([EXPORTING.md](EXPORTING.md#license-notices)); the
+player reads them from there. The export finds a font by its name written out in full in a scene, prefab, script, data file
+or `factoria.json`, so `font: "builtin:" + kind` is not seen: write the whole name somewhere (a comment in a script is enough).
+A player that lacks the file (a folder copied by hand) logs one error and falls back to DejaVu Sans. Files are not subset:
+the OFL asks a modified font to change its name, and each family weighs 0.1 to 0.9 MB only in the games that use it.
+
+**Bold and italic use the real faces.** `Text.bold` and `[b]` draw `builtin:serif`, `builtin:hand` and the other families'
+bold faces where they have one, `[i]` draws the italic face (`builtin:serif`, `builtin:display`), and `[b][i]` together the
+bold italic of `builtin:serif`. A family without the face you ask for keeps its regular glyphs: bold is emboldened by the
+engine as for any font, italic stays upright (the engine never slants letters). A `text.fonts` entry wins over the built-in
+face.
 
 ## The font chain
 
 Each character is drawn by the first font of a chain that has a glyph for it:
 
-1. the Text's own `font` (`""` = DejaVu Sans, or a project path, or `builtin:pixel`);
+1. the Text's own `font` (`""` = DejaVu Sans, or a project path, or a [built-in font](#built-in-fonts));
 2. the fallback fonts, in the order they were registered (`Renderer::set_fallback_fonts`, a list of project paths or
-   `builtin:pixel`; a fallback font is only loaded when some text needs it, and one that cannot be read is skipped with one
+   built-in fonts; a fallback font is only loaded when some text needs it, and one that cannot be read is skipped with one
    logged error);
 3. DejaVu Sans, always last.
 
@@ -73,7 +112,9 @@ A character no font of the chain has draws as nothing, and the engine logs one w
 characters (`U+65E5 '日'`) and what to do. To check text before it is drawn (a translation table, a scene) without a
 window or a GPU, C++ tools use `fa::FontCoverage::load(chain)->missing(utf8)` or `fa::missing_glyphs(utf8, chain)` from
 `fa/render/fonts.h`: they list the code points no font of the chain has. Spaces, controls, zero-width joiners, direction
-marks and variation selectors never count, and a font that is missing or cannot be parsed is an error, not "missing
+marks and variation selectors never count, the Thai SARA AM (U+0E33) and Lao AM (U+0EB3) count as the two parts the shaper
+always draws them with (U+0E4D U+0E32, U+0ECD U+0EB2) whether or not the font has the composed character, so a font without
+U+0E4D is reported, and a font that is missing or cannot be parsed is an error, not "missing
 glyphs".
 
 ## Shaping
@@ -100,27 +141,164 @@ right side of the screen) when it should hug the right edge. The first line of a
 usual.
 `align: "start"` and `"end"` are the direction-aware values: start is the left edge in a left-to-right language and the
 right edge in a right-to-left one (`i18n.direction`), so one Text serves English and Arabic. Panels mirror their rows with
-`direction: "auto"` (docs/LOCALIZATION.md, section 6).
+`direction: "auto"`, and in a right-to-left language the engine mirrors the places of the widgets themselves
+(`ui.mirrorRtl`, docs/LOCALIZATION.md, section 6).
+
+**`direction`** (`"auto"`, `"ltr"`, `"rtl"`) sets the base direction of the paragraphs instead of the first strong character.
+`auto` with a localization key (`Text.key`, or a widget's `key`) is the language's direction, so a Hebrew or Arabic line that
+starts with a key name or a number (`Tab או הכפתורים`, `[F] ...`, `3 פריטים`) is a right-to-left paragraph without a U+200F
+mark in the translation; a Text with no key and `auto` is still decided by its first strong character, and one that a script
+fills (`text = i18n.t(...)`) takes `direction = i18n.direction`. `"rtl"` also makes `align: "start"` the right edge.
 
 ## Line breaking
 
-With `maxWidth` > 0 a line breaks at spaces, and between two Japanese, Chinese or Korean characters (ideographs, kana and
-Hangul syllables), so text written without spaces wraps. A simple kinsoku rule keeps closing punctuation (`。、」）！？`,
+With `maxWidth` > 0 a line breaks after spaces (U+0020, the en/em/thin spaces U+2000-U+2006 and U+2008-U+200A, U+1680,
+U+205F), after U+200B ZERO WIDTH SPACE (no width, never drawn), after a hyphen (`-` or U+2010, but not before a digit:
+`-5` stays whole), and between two Japanese or Chinese characters (ideographs and kana), so text written without
+spaces wraps. Hangul is not one of them: Korean is written with spaces between words and a line ends at one of them, never
+inside a word (see `wordBreak` below). A simple kinsoku rule keeps closing punctuation (`。、」）！？`,
 the prolonged sound mark `ー`, small kana, `…`) off the start of a line and opening brackets (`「（`) off the end. A space at
-a break is not drawn, and a wrapped line starts with no spaces. `\n` always starts a new line, and a tab is four spaces.
+a break (U+200B included) is not drawn, and a wrapped line starts with no spaces. `\n` always starts a new line, and a tab is four spaces.
 A word (or an unbreakable run) wider than `maxWidth` stays on its own line and sticks out.
 
-This is not the full Unicode line breaking algorithm (UAX #14): hyphens, numbers with units and the scripts that need a
-dictionary to find word boundaries (Thai, Khmer, Lao) do not get break opportunities inside a word; wrap those with
-explicit `\n` or spaces.
+The no-break spaces (U+00A0, U+2007, U+202F) never break. This is not the full Unicode line breaking algorithm (UAX #14):
+numbers with units get no break rules. Thai, Khmer, Lao and Burmese are written without spaces and finding their word
+boundaries needs a dictionary, which the engine does not have: unmarked text of those scripts does not break inside a run.
+Translators mark the boundaries where a line may end with U+200B (a tool such as pythainlp can insert them): the line breaks
+there, and the mark takes no width and draws nothing.
+
+### `Text.wordBreak`: Korean keeps its words
+
+Where a line may end inside a run of letters with no space:
+
+| `wordBreak` | Hangul | Chinese, Japanese (ideographs, kana) |
+|---|---|---|
+| `auto` (default) | at spaces only | between any two characters |
+| `normal` | between syllables too | between any two characters |
+| `keepAll` | at spaces only | at spaces only |
+
+`auto` is what Korean text needs: no setting, no check of the language. Use `keepAll` for Chinese or Japanese written with
+spaces between words (a romanised or mixed line) where a break inside a word reads badly; a run longer than `maxWidth`
+then overflows the box, as any unbreakable word does. `normal` is for a column so narrow that a Korean word wider than it
+must be cut. Layout, `ui.rectOf` and autoShrink measure with the Text's `wordBreak`; `ui.measureText` has no such option and
+measures with `auto`.
+
+## Typewriter reveal: `Text.visibleCharacters`
+
+`visibleCharacters` -1 (default) draws the whole text. `n >= 0` draws only its first `n` characters and nothing else
+changes: the text is laid out as a whole (its wrapping, alignment, `autoShrink`, size, `ui.rectOf`, a Panel's fit) and then
+clipped, so a dialogue box keeps the size of the full line while the line appears, and no word jumps to the next line
+halfway. Set it from a script, a few characters per frame or second:
+
+```js
+const label = world.find("dlg_text").get("Text");
+label.visibleCharacters = 0;
+// each frame: label.visibleCharacters = Math.floor(elapsed * 45);
+```
+
+- It counts grapheme clusters, what a reader calls a character: a letter with its accents (`e` + U+0301), a Hangul syllable
+  or conjoining jamo sequence, an emoji sequence (a family, a skin tone, a flag) and CR LF are one. Spaces and `\n` count; the
+  tags of `markup` do not (they are not characters) and an `[icon:name]` picture is one.
+- The order is the order of the text. A right-to-left line therefore appears from its right end, and a line that mixes
+  directions appears in reading order.
+- A ligature or a letter shaped together with the next one (Arabic joining) appears with its first character.
+- Above the length of the text it draws everything; the glyph count of `RenderStats.textGlyphs` is that of the glyphs
+  drawn.
+- It applies to `Text` only. Widget labels (Button, Toggle, Slider) are not revealed.
+- A script that wants the total can count `[...text].length` (code points; grapheme clusters are never more, so
+  reaching it means everything shows).
+
+## Rich text: bold, colours and icons
+
+A `Text` with `markup: true` reads tags in its `text`, and so does the label of a `Button`, `Toggle`, `Slider` or
+`TouchButton` that sets `markup: true`. One Text can then hold several colours, bold words and pictures, and it is still
+one wrapped, aligned, measured text (`maxWidth`, `align`, `autoShrink` and `maxTextScale` work on the whole line, and
+`ui.measureText` and `entity.bounds()` measure what is drawn).
+
+| Tag | Effect |
+|---|---|
+| `[b]...[/b]` | bold |
+| `[i]...[/i]` | italic (the font's italic face; see below) |
+| `[c:name]...[/c]` | a colour: a name of the project's `text.colors`, a built-in colour name (`red`) or `#rgb` / `#rrggbb` / `#rrggbbaa`. Tags nest: `[/c]` goes back to the outer colour. |
+| `[icon:name]` | a picture of the project's `text.icons`, as tall as the line (its width follows the proportions of its region) |
+| `[[` | a literal `[` |
+
+```json
+"text": {
+  "colors": { "good": "#80dc80", "bad": [1, 0.48, 0.42, 1] },
+  "icons":  { "fish": { "texture": "assets/atlas.png", "region": [0, 32, 24, 24] } },
+  "fonts":  { "assets/fonts/Body-Regular.ttf": { "bold": "assets/fonts/Body-Bold.ttf" } }
+}
+```
+
+```json
+{ "Text": { "text": "Sold [b]3[/b] [icon:fish] for [c:good]120[/c]", "markup": true, "fontSize": 20, "maxWidth": 260 } }
+```
+
+- **Colours.** A run colour replaces the red, green and blue of the Text's `color`; the Text's alpha still applies, so
+  fading a Text fades its runs. An icon is drawn untinted (only the Text's alpha applies). `region` is `[x, y, w, h]` in
+  pixels of the texture, from its top-left corner.
+- **Bold.** `[b]` and `Text.bold` (also a field of the widgets above) draw with the bold face of the font: the `bold`
+  file next to the font in `text.fonts`. The key is the font as the Text names it (`"font": "assets/fonts/Body-Regular.ttf"`,
+  `"builtin:pixel"`, or `""` for DejaVu Sans; `builtin:serif`, `builtin:hand` and the other [built-in fonts](#built-in-fonts)
+  bring bold faces of their own and need no entry). A font without a bold face is emboldened by the engine: it thickens the
+  regular glyphs and widens each advance a little (about 4% of the font size, between 0.7 and 6 pixels). That is readable but
+  never as good as a drawn bold face, so `factoria validate` warns once per font that markup or `bold` uses without a
+  `text.fonts` entry. A glyph the bold face lacks (a CJK character, say) is drawn from the regular font chain, emboldened by
+  the engine.
+- **Italic.** `[i]...[/i]` draws the italic face of the font: the `italic` file of its `text.fonts` entry
+  (`{"assets/fonts/Body-Regular.ttf": {"bold": "...-Bold.ttf", "italic": "...-Italic.ttf"}}`) or the built-in family's own
+  (`builtin:serif`, `builtin:display`). A font with none stays upright: the engine does not slant. There is no `Text.italic`
+  field: a whole italic Text uses an italic font file as its `font`, or wraps its text in `[i]` with `markup: true`.
+  `[b][i]` together use the family's bold italic face (`builtin:serif`), else its bold face.
+- **Line breaking.** Tags take no room. Wrapping, including between CJK characters, works on the visible characters as for
+  plain text; an icon is one unbreakable character that stays with the letters next to it (`9[icon:fish]` moves as one
+  word) and may break from a space.
+- **Mistakes never hide the sentence.** An unknown tag (`[x]`), a `[` without `]`, a colour or icon the project does not
+  define, and a `[b]` or `[c:]` never closed are shown as written (an undefined icon is an empty square, an undefined
+  colour keeps the Text's colour), with one warning in the log per text that says where and how to fix it. A stray `[/b]`
+  or `[/c]` is dropped. `ui.markupProblems(text)` returns the same problems as a list (empty = clean), so a test can walk
+  every string of the game. `factoria validate` checks the markup of every scene text that has `markup: true`, and that the files `text` names exist.
+- **What it costs.** All the glyphs of a Text, whatever their colours and weights, are one batch and one draw call (they
+  share the glyph atlas). Icons are pictures from a texture, which the glyph atlas cannot hold: each texture that a text
+  draws icons from adds one more batch, however many icons it has.
+- **Measuring.** `ui.measureText(text, { markup: true, bold: true, ... })` measures with the same layout. Without a
+  renderer (no graphics device), tags are still skipped and an icon counts as two characters (0.6 em each) of a line 1.2
+  em tall.
+- **Localized text.** The tags travel in the string table: translators keep them and move them around the words. Put
+  `markup: true` on the Text that shows the key.
+
+## Text in a 3D scene (meters, perspective, `lit`)
+
+A `Text` with `space: "world"` is a flat quad in the world, so under a perspective camera it behaves like an object:
+it has a size in meters, it looks smaller far away and it follows the entity's rotation and scale.
+
+- **Size in meters.** `fontSize` is the glyph height in world units, which are meters in a 3D scene, and it may go down to
+  `0.001`: a title 7 cm tall is `fontSize: 0.07`. You do not need the old trick of `fontSize: 70` with a Transform scale
+  of `0.001`; the two look the same. `maxWidth` and `minFontSize` are in the same unit (`minFontSize` also goes down to
+  `0.001`; the default 10 is above a small `fontSize`, and `autoShrink` never goes under `fontSize`, so set `minFontSize` too
+  if a small world Text must shrink to fit).
+- **Sharp at any distance.** The glyphs are rasterized for the pixel size the text has ON SCREEN (distance from the camera,
+  field of view, entity scale and the window's render scale), not for the number in `fontSize`: the layout is always made in
+  local units and only the atlas size follows the screen. A 7 cm title seen from 40 cm is as crisp as a 24 px HUD label.
+  The raster size is kept between 4 and 400 pixels (Limits, below), and the camera distance used for it is at least 10 cm.
+- **Text size option.** `ui.textScale` does not apply to a world Text (it belongs to the world, not to the interface).
+- **Lighting.** By default a world Text is unlit: its pixels are `color`, whatever the lights. `lit: true` shades it like a
+  lit material: the Text is a flat surface facing its local +Z (the side you read it from; seen from behind, the side that
+  faces the camera is lit), and `SceneSettings.ambientLight` plus every `Light` (directional, point, spot, with the same
+  fall-off as meshes) multiply its colour. Gold lettering on a lit book cover then darkens with the shading of the cover.
+  The sum is made once per Text, at its origin (a long banner is not shaded along its length), without shadows and without
+  specular; the result is capped at `color` (a bright light does not make a Text brighter than its colour). It does nothing in
+  screen space, and under a Camera with `lighting: "studio"` the Text stays unlit. Lit text in a 2D scene is shaded by the
+  3D `Light` entities, not by `Light2D`: put a Sprite or Shape2D with `lit` where `Light2D` must act.
 
 ## Measuring
 
-`ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight })` returns
+`ui.measureText(text, { fontSize, font, maxWidth, space, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold })` returns
 `{ width, height, fontSize }` of exactly the layout that is drawn (`fontSize` is the size it is laid out at, in pixels), shaped and wrapped, with the fallback fonts. `space` is `"screen"` (the default: a HUD label, a widget label) or
 `"world"`; it matters only for the text size option below. It is exact in tests, `factoria call` and headless runs
 (they draw with an offscreen renderer); only when no graphics device can be created does it approximate 0.6 ×
-`fontSize` per character and warn once. A wrapped text is as wide as its `maxWidth` and as tall as its lines.
+`fontSize` per character and warn once. A wrapped text is as wide as its widest line (at most `maxWidth`, and less for a short label, with a renderer and headless alike) and as tall as its lines. A `Text` with `align` center or right still lays its lines out inside the `maxWidth` box (the pivot is that box's), while its measured size, `ui.rectOf` and `ui.overflowed` use the widest line; widget labels are aligned inside their widest line.
 
 ## Text size (`ui.textScale`)
 
@@ -177,12 +355,67 @@ the renderers all use the same size, so what a test measures is what is drawn:
   at 0.8 the text is drawn at 0.8. `0` (default) = no cap. `autoSize` and layout measure the capped size.
 - **`Toggle.maxWidth`, `Slider.maxWidth`** wrap the label at that width like `Button.maxWidth` (an `autoSize` widget
   grows taller instead of wider), and **`Slider.labelAbove`** puts the label above the track on the full width, with the
-  track, knob and value in a 28 px row under it.
+  track, knob and value in a 28 px row under it. A `Toggle`'s box is one line of its label high (`fontSize` at the
+  player's text size, times 1.2, plus 4 px), centred, and never taller than the widget minus 12 px: a wrapped label or
+  an `autoSize` toggle that grew taller does not make the box bigger. `Toggle.autoShrink` and `minFontSize` work like
+  the Button's and fit the label into the room right of the box. A `Button` with an `icon` (`iconPosition` `left` or
+  `top`) gives the icon its side of the button: `autoSize` adds the icon's size and a 6 px gap, and `autoShrink` fits the
+  label into what is left. With `iconPosition: "alone"` there is no label and `autoSize` fits the icon.
 - **`ui.overflowed(entityOrId)`** is `true` when a text still does not fit its box at the size it is drawn at (after
   the scale, the cap and the shrink did what they could). `ui.state` has `"overflowed": true` on those widgets and Texts.
   A test: `ui.textScale = 2; game.step(1); expect(ui.overflowed("play_button")).toBe(false);`
 - **`ui.check_layout`** runs that test for you on every scene, language and text scale (and a pseudo-localized pass), and
-  also lists overlapping and off-screen texts: see [LOCALIZATION.md](LOCALIZATION.md), section 7.
+  also lists overlapping and off-screen texts (`steps` opens a panel first; a `ScrollList` row is judged by its visible part): see [LOCALIZATION.md](LOCALIZATION.md), section 7.
+
+## Interface size (`ui.scale`)
+
+`ui.textScale` makes the text bigger and leaves the boxes alone. `ui.scale` (a number from 0.5 to 3, 1 = as authored)
+makes the whole interface bigger or smaller, as a player with a small screen or poor eyesight asks for: it multiplies
+the `size`, `position` offset, `padding`, `spacing`, margins and font size of every screen-space widget (`Panel`,
+`Button`, `Toggle`, `Slider`, `TextField`, `ScrollList`, `TouchStick`, `TouchButton`, `Captions`) and of every
+screen-space `Text`, `Sprite` and `Shape2D`. `ui.textScale` comes on top of it for text, so at `ui.scale` 1.5 and
+`ui.textScale` 2 a font is drawn 3 times as big.
+
+A screen is laid out in **UI units**: a virtual screen of the design size divided by `ui.scale` (1280 x 720 at 1.5 is
+853 x 480 UI units), with the safe-area insets divided the same way, and drawn `ui.scale` times as big. So the sizes you
+write in scenes stay design pixels at scale 1; and the anchor does not move: a widget anchored to a corner stays in that
+corner, a centred panel stays centred, and the children of a `Panel` stay inside it.
+
+```js
+import { ui, storage, math } from "factoria";
+ui.scale = math.clamp(storage.get("uiScale") ?? ui.scale, 0.5, 3);  // at start; ui.scale is the factoria.json default until then
+// in the options menu:
+ui.scale = 1.5;
+storage.set("uiScale", ui.scale);
+```
+
+- **Project default.** `"ui": { "scale": 1.25 }` in `factoria.json` is the size a game starts with (and the value of
+  `ui.scale` at the start of every test file). A reload of the project applies it only if the file changed, so it never
+  undoes the player's choice. The engine does not save the player's choice: the game keeps it in `storage` and sets it at
+  start, as for `ui.textScale`. Setting a number outside 0.5 to 3 throws. Over MCP or `factoria call` the command is
+  `ui.set_scale {"scale": 1.5}`; `ui.state` reports `uiScale`.
+- **Units.** `Panel.size`, `Button.size`, the results of `ui.layout()` and `ui.measureText` are in UI units. `ui.rectOf`,
+  the rectangles of `ui.state` and of the `ui.check_layout` warnings, the hit test, `game.input` clicks and the screenshot
+  are on the screen, in design pixels, so they already include the scale: at 1.5 a button of `size` 100 has a `rectOf`
+  width of 150. `screen.size` and `screen.safeArea` are the screen's design size and safe area, never divided by the scale
+  (a panel of `size` 760 x 680 fits when `760 * ui.scale <= screen.size.x` and `680 * ui.scale <= screen.size.y`).
+- **Panel limits.** `Panel.minSize` and `Panel.maxSize` (UI units, 0 = no limit on that axis) bound the size of a
+  `Panel` with `fit: true` too: a `fit` Panel never shrinks below `minSize` or grows above `maxSize` (a column `Panel`
+  that is "as tall as its rows, at least 300 and at most the screen" is `"minSize": [0, 300]`). When the two cross,
+  `minSize` wins. This is what keeps a window of a fixed look when the labels are short or the language changes.
+- **Events.** `ui.on("scale", (e) => ...)` and `ui.on("textScale", (e) => ...)` run once per change to another value
+  with `{ type, value, previous }`, like `i18n.on("change")`, with the game events of the next frame; use them to redo
+  what depends on the size of the interface (a layout your script computes, an `ui.measureText`) instead of keeping a
+  list of widgets to resize. They end with the scene. Setting the value it already has sends nothing.
+- **Laying out for every size.** The screen shrinks (in UI units) as the scale grows: a 760 x 680 panel fits 1280 x 720 at
+  1 and 0.75 but not at 1.25. Give a panel that must fit a `ScrollList` with `fill`, or a `fallbackLayout`, check each
+  size you offer with `ui.check_layout {"uiScales": [1, 1.25, 1.5]}` (crossed with `languages` and `textScales`) and look
+  at it with `game.screenshot`. The menu kit's Options "Interface size" button offers only the sizes at which its own
+  panel still fits.
+- **Limits.** Screen-space particle emitters (`ParticleEmitter` with `space: "screen"`) are not scaled. A 9-slice border
+  is scaled with the widget, so a themed button's border grows with it. At a scale under 1 a widget that was
+  authored as large as the screen no longer covers it (its size is multiplied by the scale), so draw a backdrop with the
+  camera clear colour or make it larger than the screen. World-space entities, and `Text` with `space: "world"`, are never scaled.
 
 ## Captions
 
@@ -226,5 +459,13 @@ come from depends on the device, and the game does not change for any of them:
 - Outline fonts only: no colour emoji, no bitmap-only fonts, no SDF/MSDF atlases; a variable font draws its default
   instance.
 - Horizontal text only: no vertical writing (tategaki) and no text on a path.
-- One font size, color and font per Text: no inline styles, bold or italic (use a bold or italic font file).
+- One font size and one font per Text. Colours, bold and icons can change inside a line (`markup`, above); the font size, the
+  font cannot (italic: `[i]`, above).
 - The glyph size is capped between 4 and 400 pixels.
+- All glyphs of all fonts share one atlas (an 8-bit page). It starts at 1024 x 1024 and grows to 2048 and then 4096 when a
+  glyph does not fit; at 4096 it clears. Every growth or clear is a log line ("glyph atlas is full ... growing it" / "...
+  clearing it"), and every `Text` lays out again on its next draw. A frame that meets one is gathered again, so no text
+  of that frame is drawn blank or with the glyphs of another text. What stays in the atlas is every glyph of every size
+  drawn since the last clear: a screen with many scripts at many sizes at once (more than a 4096 page holds, in the order
+  of a thousand large glyphs) clears every frame, which is slow: use fewer sizes. `RenderStats` (`glyphAtlasSize`,
+  `glyphAtlasResets`) shows the page.

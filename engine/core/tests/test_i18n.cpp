@@ -337,6 +337,58 @@ TEST_CASE("i18n: plural entries pick the form of args.count in the language of t
     CHECK(i.t("coins", Json{{"count", "many"}}) == "ot");
 }
 
+TEST_CASE("i18n: a gendered name picks its article in Spanish and French, a missing form falls back to other") {
+    I18n i = game({{"en", R"({"ship": {"light": "Skiff", "heavy": "Barge"}, "ship_the": {"other": "the {name}"}, "ship_is": {"other": "{name} is ready"}})"},
+                   {"es", R"({"ship": {"light": {"text": "Ligera", "gender": "f"}, "heavy": {"text": "Barcaza", "gender": "f"}, "old": {"text": "Viejo", "gender": "m"}},
+                              "ship_the": {"f": "la {name}", "m": "el {name}", "other": "{name}"}, "ship_is": {"f": "{name} está lista", "other": "{name} está listo"}})"},
+                   {"fr", R"({"ship": {"light": {"text": "Légère", "gender": "f"}, "old": {"text": "Vieux", "gender": "m"}},
+                              "ship_the": {"f": "la {name}", "m": "le {name}", "other": "{name}"}})"}},
+                  "en");
+    const auto sentence = [&](const char* key, const char* noun) {
+        return i.t(key, Json{{"name", i.t(noun)}, {"gender", i.gender(noun)}});
+    };
+    CHECK(i.gender("ship.light") == "");  // English has no gender
+    CHECK(sentence("ship_the", "ship.light") == "the Skiff");
+    REQUIRE(i.set_language("es").ok());
+    CHECK(i.gender("ship.light") == "f");
+    CHECK(i.gender("ship.old") == "m");
+    CHECK(i.gender("nope") == "");
+    CHECK(sentence("ship_the", "ship.light") == "la Ligera");
+    CHECK(sentence("ship_the", "ship.old") == "el Viejo");
+    CHECK(sentence("ship_is", "ship.light") == "Ligera está lista");
+    CHECK(sentence("ship_is", "ship.old") == "Viejo está listo");  // no "m" form: "other"
+    CHECK(i.t("ship_the") == "{name}");                              // no gender at all: "other"
+    CHECK(i.t("ship_the", Json{{"name", "X"}, {"gender", "n"}}) == "X");
+    CHECK(i.t("ship.old") == "Viejo");  // a gendered string is a string
+    REQUIRE(i.set_language("fr").ok());
+    CHECK(sentence("ship_the", "ship.light") == "la Légère");
+    CHECK(sentence("ship_the", "ship.old") == "le Vieux");
+    CHECK(i.gender("ship.heavy") == "");  // not in fr: the default language has no gender either
+}
+
+TEST_CASE("i18n: gender entries must be well formed") {
+    const auto parse = [](const char* json) {
+        auto doc = parse_json(json, "test");
+        REQUIRE(doc.ok());
+        return parse_string_table(doc.value(), "es", "locales/es.json");
+    };
+    auto bad = parse(R"({"a": {"text": "x", "gender": "z"}})");
+    REQUIRE(!bad.ok());
+    CHECK(bad.error().message.find("not f, m or n") != std::string::npos);
+    CHECK(bad.error().message.find("/a/gender") != std::string::npos);
+    auto noOther = parse(R"({"a": {"f": "la", "m": "el"}})");
+    REQUIRE(!noOther.ok());
+    CHECK(noOther.error().message.find("no \"other\" form") != std::string::npos);
+    auto ok = parse(R"({"a": {"text": "x", "gender": "n"}, "g": {"text": "t", "other": "o"}})");  // "g" is a group
+    REQUIRE(ok.ok());
+    CHECK(ok->entries.at("a").gender == "n");
+    CHECK(ok->entries.at("a").pointer == "/a/text");
+    CHECK(ok->entries.count("g.text") == 1);
+    CHECK(gender_forms("es") == std::vector<std::string>{"f", "m"});
+    CHECK(gender_forms("de-AT") == std::vector<std::string>{"f", "m", "n"});
+    CHECK(gender_forms("en").empty());
+}
+
 TEST_CASE("i18n: names, missing keys and the load of locales/*.json through fs") {
     Locales files;
     files.write("en", R"({"$name": "English", "a": "A", "b": "B", "nested": {"c": "C"}})");

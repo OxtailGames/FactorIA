@@ -1,7 +1,10 @@
 #include <doctest.h>
+#include <chrono>
 #include <sstream>
+#include <thread>
 
 #include "test_host.h"
+#include "../src/script_storage.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -387,6 +390,34 @@ TEST_CASE("behaviours exist synchronously after spawn, spawnPrefab and scene loa
     CHECK(ev_ok(h, "q.behaviour.speed") == 11);
 }
 
+TEST_CASE("glob import of JSON data: sorted, keyed by file name, hot reload, teaching errors") {
+    TestHost h("globimport");
+    h.file("data/t/b.json", "{\"n\": 2}");
+    h.file("data/t/a.json", "{\"n\": 1}");
+    h.file("data/t/c.txt", "ignored");
+    h.file("data/t/sub/d.json", "{\"n\": 4}");
+    h.file("scripts/main.js",
+           "import { Behaviour } from 'factoria';\nimport tables from '../data/t/*.json';\n"
+           "globalThis.G = [Object.keys(tables), Object.values(tables).map((t) => t.n)];\n"
+           "export default class M extends Behaviour {}\n");
+    h.file("scripts/bad1.js", "import x from '../data/*/a.json';\nexport default x;\n");
+    h.file("scripts/bad2.js", "import x from '../data/t/*.txt';\nexport default x;\n");
+    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"m","components":{"Script":{"path":"scripts/main.js"}}})")})).dump());
+    REQUIRE(h.start());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    CHECK(h.scripts.errors().empty());
+    CHECK(ev_ok(h, "globalThis.G") == Json::parse(R"([["a.json","b.json"],[1,2]])"));
+    // editing a matched file reloads the importers
+    h.file("data/t/a.json", "{\"n\": 10}");
+    h.scripts.reload_module("data/t/a.json");
+    CHECK(ev_ok(h, "globalThis.G[1][0]") == 10);
+    for (const char* bad : {"scripts/bad1.js", "scripts/bad2.js"}) {
+        auto e = h.scripts.check_props(bad, Json::object({{"a", 1}}));
+        REQUIRE(!e.empty());
+        CHECK(e[0].find("glob import") != std::string::npos);
+    }
+}
+
 TEST_CASE("relative imports, ../ and JSON modules") {
     TestHost h("imports");
     h.file("lib/util.js", "export const twice = (n) => n * 2;\n");
@@ -495,9 +526,11 @@ TEST_CASE("storage: a damaged storage.json is kept, never overwritten by the nex
     CHECK(ev_ok(h, "storage.keys().length") == 0);
     ev_ok(h, "storage.set('slot1', {lvl: 1})");
     CHECK(slurp(dir / "storage.corrupt.json") == R"({"slot1": {"lvl": 3)");
-    Json fresh = Json::parse(slurp(dir / "storage.json"), nullptr, false);
+    CHECK(!std::filesystem::exists(dir / "storage.json"));  // the damaged file was moved, not rewritten
+    Json fresh = Json::parse(slurp(dir / "storage" / "slot1.json"), nullptr, false);
     REQUIRE(fresh.is_object());
-    CHECK(fresh["slot1"]["lvl"] == 1);
+    CHECK(fresh["key"] == "slot1");
+    CHECK(fresh["value"]["lvl"] == 1);
     // a second damaged start keeps the first kept file and numbers the new one
     std::ofstream(dir / "storage.json", std::ios::binary | std::ios::trunc) << "garbage";
     h.scripts.set_storage_mode(StorageMode::Persistent);
@@ -536,10 +569,139 @@ TEST_CASE("storage mode Memory never touches disk") {
     h.scripts.set_storage_mode(StorageMode::Memory);
     ev_ok(h, "storage.set('a', 1)");
     CHECK(ev_ok(h, "storage.get('a')") == 1);
-    CHECK(!std::filesystem::exists(h.root / "save" / "storage.json"));
+    CHECK(!std::filesystem::exists(h.root / "save" / "storage" / "a.json"));
     h.scripts.set_storage_mode(StorageMode::Persistent);
     ev_ok(h, "storage.set('a', 2)");
-    CHECK(std::filesystem::exists(h.root / "save" / "storage.json"));
+    CHECK(std::filesystem::exists(h.root / "save" / "storage" / "a.json"));
+}
+
+namespace {
+std::string slurp_file(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+}  // namespace
+
+TEST_CASE("storage: two keys are two files, and a save rewrites its own key only") {
+    TestHost h("keyfiles");
+    REQUIRE(h.start());
+    const auto dir = h.root / "save" / "storage";
+    ev_ok(h, "storage.set('slot1', {lvl: 1}); storage.set('Slot 2/b', {lvl: 2})");
+    CHECK(std::filesystem::exists(dir / "slot1.json"));
+    CHECK(std::filesystem::exists(dir / "%53lot%202%2Fb.json"));  // upper case, spaces and slashes are escaped
+    CHECK(!std::filesystem::exists(h.root / "save" / "storage.json"));
+    const auto stamp = std::filesystem::last_write_time(dir / "slot1.json");
+    const std::string before = slurp_file(dir / "slot1.json");
+    ev_ok(h, "storage.set('Slot 2/b', {lvl: 3})");
+    CHECK(slurp_file(dir / "slot1.json") == before);
+    CHECK(std::filesystem::last_write_time(dir / "slot1.json") == stamp);
+    CHECK(Json::parse(slurp_file(dir / "%53lot%202%2Fb.json"))["value"]["lvl"] == 3);
+    // a restart reads them back; remove deletes only its file
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.get('slot1').lvl") == 1);
+    CHECK(ev_ok(h, "storage.get('Slot 2/b').lvl") == 3);
+    CHECK(ev_ok(h, "storage.keys().length") == 2);
+    ev_ok(h, "storage.remove('slot1')");
+    CHECK(!std::filesystem::exists(dir / "slot1.json"));
+    CHECK(std::filesystem::exists(dir / "%53lot%202%2Fb.json"));
+    ev_ok(h, "storage.clear()");
+    CHECK(!std::filesystem::exists(dir / "%53lot%202%2Fb.json"));
+    // names Windows reserves and very long keys still give distinct, short names
+    CHECK(storage_files::file_name("con") != storage_files::file_name("%63on"));
+    CHECK(storage_files::file_name(std::string(500, 'a')).size() < 130);
+    CHECK(storage_files::file_name(std::string(500, 'a')) != storage_files::file_name(std::string(501, 'a')));
+}
+
+TEST_CASE("storage: an old storage.json is split into key files and set aside") {
+    TestHost h("splitsave");
+    const auto save = h.root / "save";
+    std::filesystem::create_directories(save);
+    std::ofstream(save / "storage.json", std::ios::binary) << R"({"coins": 12, "slot1": {"lvl": 3}, "factoria.remoteConfig": {"values": {}}})";
+    REQUIRE(h.start());
+    CHECK(ev_ok(h, "storage.get('coins')") == 12);
+    CHECK(ev_ok(h, "storage.get('slot1').lvl") == 3);
+    CHECK(ev_ok(h, "storage.corrupt") == false);
+    CHECK(std::filesystem::exists(save / "storage" / "coins.json"));
+    CHECK(std::filesystem::exists(save / "storage" / "slot1.json"));
+    CHECK(std::filesystem::exists(save / "storage" / storage_files::file_name("factoria.remoteConfig")));
+    CHECK(!std::filesystem::exists(save / "storage.json"));
+    CHECK(std::filesystem::exists(save / "storage.migrated.json"));
+    // the next start finds the key files only
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.get('coins')") == 12);
+    CHECK(ev_ok(h, "storage.get('slot1').lvl") == 3);
+    CHECK(ev_ok(h, "storage.get('factoria.remoteConfig')").contains("values"));
+}
+
+TEST_CASE("storage: a damaged key file is kept and the other keys load; a leftover temporary file is ignored") {
+    TestHost h("keydamage");
+    const auto dir = h.root / "save" / "storage";
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir / "good.json", std::ios::binary) << R"({"key": "good", "value": 5})";
+    std::ofstream(dir / "bad.json", std::ios::binary) << R"({"key": "bad", "value": {"a": )";
+    std::ofstream(dir / "good.json.fa-tmp12_0", std::ios::binary) << "half a write";
+    REQUIRE(h.start());
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(ev_ok(h, "storage.get('good')") == 5);
+    CHECK(ev_ok(h, "storage.keys().length") == 1);
+    CHECK(std::filesystem::exists(h.root / "save" / "storage.corrupt.json"));
+    CHECK(!std::filesystem::exists(dir / "bad.json"));
+}
+
+TEST_CASE("storage: a compressed value round-trips and takes fewer bytes") {
+    TestHost h("zstore");
+    REQUIRE(h.start());
+    const std::string make = "const big = { town: Array.from({length: 400}, (_, i) => ({ id: 'villager_' + i, job: 'baker', hp: 10, pos: [i % 20, 3] })) };";
+    ev_ok(h, (make + " storage.set('plain', big); storage.set('packed', big, {compress: true});").c_str());
+    const double plain = ev_ok(h, "storage.size('plain')").get<double>();
+    const double packed = ev_ok(h, "storage.size('packed')").get<double>();
+    CHECK(packed > 0);
+    CHECK(packed < plain / 3);
+    const auto dir = h.root / "save" / "storage";
+    CHECK(std::filesystem::file_size(dir / "packed.json") == static_cast<std::uintmax_t>(packed));
+    CHECK(std::filesystem::file_size(dir / "plain.json") == static_cast<std::uintmax_t>(plain));
+    CHECK(ev_ok(h, "storage.size('missing')") == 0);
+    // from disk after a restart: the same value
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "JSON.stringify(storage.get('packed')) === JSON.stringify(storage.get('plain'))") == true);
+    CHECK(ev_ok(h, "storage.get('packed').town.length") == 400);
+    CHECK(ev_ok(h, "storage.size('packed')") == packed);
+    // bad options teach
+    CHECK(ev_err(h, "storage.set('a', 1, {compres: true})").find("did you mean 'compress'") != std::string::npos);
+    CHECK(ev_err(h, "storage.set('a', 1, {compress: 1})").find("true or false") != std::string::npos);
+}
+
+TEST_CASE("storage: setAsync writes the file off the frame and resolves") {
+    TestHost h("asyncstore");
+    h.file("tests/async.test.js",
+           "import { test, expect, game } from 'factoria:test';\nimport { storage } from 'factoria';\n"
+           "test('setAsync resolves and the value reads back', async () => {\n"
+           "  const p = storage.setAsync('slot', { gold: 7, list: [1, 2, 3] }, { compress: true });\n"
+           "  expect(storage.get('slot').gold).toBe(7);\n"
+           "  game.step(1);\n"
+           "  const bytes = await p;\n"
+           "  expect(bytes).toBe(storage.size('slot'));\n"
+           "  expect(storage.get('slot').list).toEqual([1, 2, 3]);\n"
+           "  storage.remove('slot');\n"
+           "  expect(storage.get('slot')).toBeUndefined();\n"
+           "});\n"
+           "test('writes to one key land in order', async () => {\n"
+           "  const a = storage.setAsync('k', 1); const b = storage.setAsync('k', 2);\n"
+           "  game.step(1);\n"
+           "  await Promise.all([a, b]);\n"
+           "  expect(storage.get('k')).toBe(2);\n"
+           "});\n");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/async.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 2);
+    // persistent storage: the thread writes the key file, and drain/size wait for it
+    ev_ok(h, "storage.setAsync('disk', { a: [1, 2, 3] }); 1");
+    CHECK(ev_ok(h, "storage.size('disk')").get<double>() > 0);
+    CHECK(Json::parse(slurp_file(h.root / "save" / "storage" / "disk.json"))["value"]["a"].size() == 3);
 }
 
 TEST_CASE("session persists across scene loads; module state too") {
@@ -600,6 +762,12 @@ TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
     CHECK(m["height"].get<double>() > 0);
     Json wrapped = ev_ok(h, "ui.measureText('abcdefgh', { fontSize: 10, maxWidth: 30 })");
     CHECK(wrapped["height"].get<double>() > m["height"].get<double>());
+    // markup: tags take no room, an icon counts as two characters, bold is the same without a renderer
+    CHECK(ev_ok(h, "ui.measureText('[b]ab[/b][c:red]cd[/c]', { fontSize: 10, markup: true }).width").get<double>() == doctest::Approx(24.0));
+    CHECK(ev_ok(h, "ui.measureText('a[icon:x]', { fontSize: 10, markup: true }).width").get<double>() == doctest::Approx(18.0));
+    CHECK(ev_ok(h, "ui.measureText('[b]ab[/b]', { fontSize: 10 }).width").get<double>() > 24.0 * 1.5);  // markup off: they are characters
+    CHECK(ev_ok(h, "ui.markupProblems('[b]x[/b] [c:red]y[/c]')").empty());
+    CHECK(ev_ok(h, "ui.markupProblems('[oops] [b]x')").size() == 2);
     // raycast: the caster's own collider is skipped with `ignore`, and a ray starting inside a collider skips it
     ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-100]}, Collider2D:{size:[1000,20]}}})");
     ev_ok(h, "world.spawn({id:'ball', components:{Transform:{position:[0,0]}, RigidBody2D:{type:'static'}, Collider2D:{size:[20,20]}}})");
@@ -823,7 +991,7 @@ TEST_CASE("game.loadJson, touch input and default host without scene JSON suppor
     TestHost h("loadjson");
     h.file("tests/t.test.js", R"(
 import { test, expect, game } from "factoria:test";
-import { input } from "factoria";
+import { input, game as app } from "factoria";
 test("loadJson", () => {
   game.loadJson({ format: "factoria.scene/1", entities: [{ id: "solo", components: { Transform: { position: [4, 5] } } }] });
   expect(game.find("solo").position.x).toBe(4);
@@ -1042,6 +1210,121 @@ test("a wrong receiver explains the usage", () => {
     CHECK(rep.cases[3].message.find("game.audioLog()") != std::string::npos);
 }
 
+TEST_CASE("audio script API: persist, setVoiceVolume, musicLayers and setLayer") {
+    TestHost h("audiomusic");
+    h.file("assets/m/base.wav", tiny_wav());
+    h.file("assets/m/drums.wav", tiny_wav());
+    h.file("assets/sfx/coin.wav", tiny_wav());
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+test("setVoiceVolume answers false for a voice that is not playing", () => {
+  const id = audio.play("assets/sfx/coin.wav", { loop: true });
+  expect(audio.setVoiceVolume(id, 0.2, 1)).toBe(true);
+  audio.stop(id);
+  expect(audio.setVoiceVolume(id, 1)).toBe(false);
+});
+test("layers: one log entry per layer, setLayer teaches", () => {
+  expect(audio.musicLayers({ base: "assets/m/base.wav", drums: "assets/m/drums.wav" }, { levels: { drums: 0 } })).toBe(true);
+  const log = game.audioLog().filter((e) => e.music);
+  expect(log.map((e) => e.layer)).toEqual(["base", "drums"]);
+  audio.setLayer("drums", 1, 0.5);
+  let message = "";
+  try { audio.setLayer("nope", 1); } catch (e) { message = String(e.message); }
+  expect(message).toContain("base, drums");
+  expect(audio.musicLayers({ a: "assets/m/missing.wav" })).toBe(false);
+  audio.stopMusic(0);
+  let none = "";
+  try { audio.setLayer("base", 1); } catch (e) { none = String(e.message); }
+  expect(none).toContain("No layered music");
+});
+test("a layer set that is not an object throws", () => {
+  expect(() => audio.musicLayers(["assets/m/base.wav"])).toThrow();
+  expect(() => audio.musicLayers({ base: "assets/m/base.wav" }, { levels: { bass: 1 } })).toThrow();
+});
+test("persist is accepted", () => {
+  audio.music("assets/m/base.wav", { persist: true });
+  expect(game.audioLog().filter((e) => e.music).length).toBeGreaterThan(0);
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 4);
+    for (const auto& c : rep.cases) CHECK_MESSAGE(c.passed, c.message);
+}
+
+TEST_CASE("audio script API: bus effects and snapshots") {
+    TestHost h("audiofx", Json::parse(R"({"audio": {"snapshots": {
+        "underwater": {"fade": 0.8, "buses": {"sfx": {"lowpass": 600, "reverb": 0.3}, "music": {"volume": 0.5, "lowpass": 400}}},
+        "normal": {}}}})"));
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+test("a bus handle sets and reads effects, and chains", () => {
+  const music = audio.bus("music");
+  expect(music.name).toBe("music");
+  expect(music.lowpass(800).reverb(0.25)).toBe(music);
+  const s = music.state();
+  expect(s.lowpass).toBe(800);
+  expect(s.reverb).toBeCloseTo(0.25, 3);
+  expect(s.duck).toBe(null);
+  music.lowpass(null);
+  expect(music.state().lowpass).toBe(0);
+  music.duck("sfx", 0.6, 0.02, 0.3);
+  expect(music.state().duck.by).toBe("sfx");
+  expect(music.state().duck.amount).toBeCloseTo(0.6, 3);
+  music.unduck();
+  expect(music.state().duck).toBe(null);
+  music.duck("sfx").duck(null);
+  expect(music.state().duck).toBe(null);
+  audio.bus("sfx").volume(0.5, { fade: 1 });
+  expect(audio.bus("sfx").state().volume).toBeCloseTo(0.5, 3);
+  expect(audio.getVolume("sfx")).toBeCloseTo(0.5, 3);
+  audio.setVolume("sfx", 1);
+});
+test("the effects start from nothing in every test, the harness resets them", () => {
+  expect(audio.bus("music").state().reverb).toBe(0);
+  expect(audio.snapshots().current).toBe("");
+});
+test("bad calls teach", () => {
+  let m = "";
+  try { audio.bus("musci"); } catch (e) { m = String(e.message); }
+  expect(m).toContain("Did you mean 'music'?");
+  expect(() => audio.bus("music").lowpass("high")).toThrow();
+  expect(() => audio.bus("music").lowpass(800, { fade: -1 })).toThrow();
+  expect(() => audio.bus("music").reverb(2)).toThrow();
+  expect(() => audio.bus("music").duck("music")).toThrow();
+  expect(() => audio.bus("master").duck("sfx")).toThrow();
+  expect(() => audio.bus(3)).toThrow();
+  let d = "";
+  try { audio.bus("music").duck("sfx", 0.5, 0.05, 0.5).duck(5); } catch (e) { d = String(e.message); }
+  expect(d).toContain("Pass null to switch ducking off");
+});
+test("a snapshot moves the buses and a missing bus goes back to neutral", () => {
+  audio.bus("ui").reverb(0.4);
+  audio.snapshot("underwater", { fade: 0 });
+  expect(audio.snapshots().current).toBe("underwater");
+  expect(audio.snapshots().names).toEqual(["normal", "underwater"]);
+  expect(audio.bus("sfx").state().lowpass).toBe(600);
+  expect(audio.bus("music").state().snapshotVolume).toBeCloseTo(0.5, 3);
+  expect(audio.bus("ui").state().reverb).toBe(0);
+  audio.snapshot("normal");
+  expect(audio.bus("sfx").state().lowpass).toBe(0);
+  expect(audio.bus("music").state().snapshotVolume).toBe(1);
+  let m = "";
+  try { audio.snapshot("underwatr"); } catch (e) { m = String(e.message); }
+  expect(m).toContain("Did you mean 'underwater'?");
+  expect(() => audio.snapshot("normal", { fade: "slow" })).toThrow();
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 4);
+    for (const auto& c : rep.cases) CHECK_MESSAGE(c.passed, c.message);
+}
+
 // ======================================================================================================================
 // rng.create: independent seeded generators (mulberry32)
 // ======================================================================================================================
@@ -1110,6 +1393,74 @@ TEST_CASE("rng.create: methods, draw counts and errors") {
     CHECK(ev_err(h, "rng.create(1).int(1)").find("generator.int(min, max) expects two finite numbers") != std::string::npos);
     CHECK(ev_err(h, "rng.create(1).range('a', 2)").find("generator.range(min, max)") != std::string::npos);
     CHECK(ev_err(h, "rng.create(1).seed('x')").find("generator.seed(n) expects a finite number") != std::string::npos);
+}
+
+TEST_CASE("rng.create: state reads and sets the stream, so a saved game resumes it") {
+    TestHost h("rngcreate_state");
+    REQUIRE(h.start());
+    // A generator resumed from a saved state draws the same numbers as the one that kept going.
+    CHECK(ev_ok(h, "(() => { const a = rng.create(99); a.float(); a.int(1, 6); const saved = a.state;"
+                    "const next = [a.float(), a.float(), a.int(1, 100)];"
+                    "const b = rng.create(0); b.state = saved;"
+                    "return JSON.stringify([b.float(), b.float(), b.int(1, 100)]) === JSON.stringify(next); })()") == true);
+    // The state is the 32-bit seed advanced by one step per draw, and rng.create(state) continues from it too.
+    CHECK(ev_ok(h, "(() => { const a = rng.create(5); a.float(); return a.state; })()") == 5u + 0x6d2b79f5u);
+    CHECK(ev_ok(h, "(() => { const a = rng.create(5); a.float(); const b = rng.create(a.state); return a.float() === b.float() && b.state === a.state; })()") == true);
+    CHECK(ev_ok(h, "rng.create(7).state") == 7);
+    // Wrong values throw and leave the state alone.
+    for (const char* bad : {"-1", "1.5", "4294967296", "'7'", "NaN"}) {
+        CAPTURE(bad);
+        auto r = h.scripts.eval(std::string("(() => { const a = rng.create(3); a.state = ") + bad + "; })()");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("generator.state expects an integer from 0 to 4294967295") != std::string::npos);
+    }
+}
+
+TEST_CASE("didYouMean: the closest choice, or an empty string") {
+    TestHost h("didyoumean");
+    REQUIRE(h.start());
+    CHECK(ev_ok(h, "didYouMean('woood', ['wood', 'stone'])") == "wood");
+    CHECK(ev_ok(h, "didYouMean('STONE', ['wood', 'stone'])") == "stone");
+    CHECK(ev_ok(h, "didYouMean('zzzzzz', ['wood', 'stone'])") == "");
+    CHECK(ev_ok(h, "didYouMean('x', [])") == "");
+    auto bad = h.scripts.eval("didYouMean('x', 'wood')");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("didYouMean(word, choices) expects") != std::string::npos);
+}
+
+TEST_CASE("a Behaviour field that shadows a Behaviour member warns once per class naming the field") {
+    TestHost h("shadowfield");
+    h.file("scripts/shadow.js", R"(
+import { Behaviour } from "factoria";
+export default class Shadow extends Behaviour {
+  on = false;
+  speed = 3;
+}
+)");
+    h.file("scripts/fine.js", R"(
+import { Behaviour } from "factoria";
+export default class Fine extends Behaviour { enabled2 = true; onStart() { this.on("x", () => {}); } }
+)");
+    REQUIRE(h.start());
+    std::vector<std::string> msgs;
+    int sink = add_log_sink([&](const LogEntry& e) {
+        if (e.level == LogLevel::Warn && e.category == "script") msgs.push_back(e.message);
+    });
+    ev_ok(h, "for (const id of ['a', 'b']) world.spawn({id, components:{Script:{path:'scripts/shadow.js'}}});"
+             "world.spawn({id:'f', components:{Script:{path:'scripts/fine.js'}}})");
+    h.step_frames(1);
+    remove_log_sink(sink);
+    int n = 0;
+    for (const std::string& m : msgs)
+        if (m.find("shadows Behaviour.on") != std::string::npos) {
+            ++n;
+            CHECK(m.find("scripts/shadow.js: class Shadow: the field 'on'") != std::string::npos);
+            CHECK(m.find("Rename the field") != std::string::npos);
+        }
+    CHECK(n == 1);  // two entities, one warning; Fine and the other fields are quiet
+    CHECK_MESSAGE(msgs.size() == 1, join(msgs, " | "));
+    CHECK(h.scripts.check_hooks("scripts/shadow.js").size() == 1);  // what `factoria validate` reports
+    CHECK(h.scripts.check_hooks("scripts/fine.js").empty());
 }
 
 TEST_CASE("rng.create: generators never touch the world RNG, Math.random or each other") {
@@ -1197,6 +1548,32 @@ TEST_CASE("entity.bounds: Tilemap size x tileSize from its top-left corner, rows
     // The result is a Rect: usable with Rect.contains and physics.overlapBox.
     CHECK(ev_ok(h, "(() => { const b = world.find('level').bounds(); return b.contains({x: 5, y: 5}) && !b.contains({x: -1, y: 5}) && b.toArray().join() === '0,0,1920,512'; })()") == true);
     CHECK(ev_ok(h, "Array.isArray(physics.overlapBox(world.find('level').bounds()))") == true);
+}
+
+TEST_CASE("entity.tilemap: getTile and setTile read and write one tile in place") {
+    TestHost h("tilemap_settile");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id: 'flat', components: {Tilemap: {tileSize: [16, 16], width: 3, height: 2, tiles: [0, 1, 2, 3, -1, 5]}}})");
+    ev_ok(h, "world.spawn({id: 'rows', components: {Tilemap: {tileSize: [16, 16], tiles: [[0, 1], [2, 3]]}}})");
+    CHECK(ev_ok(h, "world.find('flat').tilemap.width") == 3);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.height") == 2);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(2, 1)") == 5);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(1, 1)") == -1);
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(9, 9)") == -1);  // outside the map reads as empty
+    ev_ok(h, "world.find('flat').tilemap.setTile(1, 1, 7); world.find('rows').tilemap.setTile(0, 1, -1)");
+    CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(1, 1)") == 7);
+    CHECK(ev_ok(h, "world.find('flat').get('Tilemap').tiles.join()") == "0,1,2,3,7,5");
+    CHECK(ev_ok(h, "JSON.stringify(world.find('rows').get('Tilemap').tiles)") == "[[0,1],[-1,3]]");
+    const Tilemap* tm = h.w.get<Tilemap>(h.w.find("flat"));
+    REQUIRE(tm);
+    CHECK(tm->edits.size() == 1);  // recorded for 2D physics
+    // Errors teach: the map size, the 0-based cells.
+    std::string m = ev_err(h, "world.find('flat').tilemap.setTile(3, 0, 1)");
+    CHECK(m.find("3 x 2 map") != std::string::npos);
+    m = ev_err(h, "world.find('flat').tilemap.setTile(0, 0, 'a')");
+    CHECK(m.find("expects three numbers") != std::string::npos);
+    m = ev_err(h, "world.spawn({id: 'plain'}).tilemap");
+    CHECK(m.find("has no Tilemap component") != std::string::npos);
 }
 
 TEST_CASE("entity.bounds: Sprite size, pivot, texture size, region, animator and flip") {
@@ -1355,6 +1732,53 @@ TEST_CASE("typescript declarations: rng.create, Rng and Entity.bounds") {
     }
 }
 
+TEST_CASE("gamepad: game.on(gamepadConnected / gamepadDisconnected) reports slot, id, name and type") {
+    TestHost h("gamepad_events");
+    h.file("tests/t.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { input, game as app } from "factoria";
+test("connect, disconnect and reconnect raise events and keep the id", () => {
+  const seen = [];
+  app.on("gamepadConnected", (p) => seen.push(["+", p.slot, p.id, p.name, p.type]));
+  app.on("gamepadDisconnected", (p) => seen.push(["-", p.slot, p.id, p.name, p.type]));
+  game.gamepad(1).connect({ id: "red", name: "Red pad", type: "playstation" });
+  expect(seen.length).toBe(0);            // announced at the next frame
+  game.step(1);
+  expect(seen).toEqual([["+", 1, "red", "Red pad", "playstation"]]);
+  expect(input.gamepad(1).id).toBe("red");
+  expect(input.gamepad(1).name).toBe("Red pad");
+  game.step(2);
+  expect(seen.length).toBe(1);            // once per plug, not per frame
+  game.gamepad(1).press("A");             // already connected: nothing new
+  game.step(1);
+  expect(seen.length).toBe(1);
+  game.gamepad(1).disconnect();
+  game.step(1);
+  expect(seen[1]).toEqual(["-", 1, "red", "Red pad", "playstation"]);
+  expect(input.gamepad(1).id).toBe("red");  // kept after unplugging
+  game.gamepad(1).connect();               // the same pad again
+  game.step(1);
+  expect(seen[2]).toEqual(["+", 1, "red", "Red pad", "playstation"]);
+  game.gamepad(0).setType("xbox");
+  game.step(1);
+  expect(seen[3][0]).toBe("+");
+  expect(seen[3][1]).toBe(0);
+  expect(seen[3][4]).toBe("xbox");
+  expect(seen[3][2]).toContain("Gamepad");  // no identity given: made from the slot
+});
+test("mistakes in connect(info) teach", () => {
+  expect(() => game.gamepad(0).connect({ nme: "x" })).toThrow("did you mean 'name'");
+  expect(() => game.gamepad(0).connect({ type: "xboks" })).toThrow("Did you mean 'xbox'");
+  expect(() => game.gamepad(0).connect({ vendor: 70000 })).toThrow("0 to 65535");
+  expect(() => app.on("gamepadConnect", () => {})).toThrow('did you mean "gamepadConnected"');
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
 TEST_CASE("gamepad: game.gamepad drives bound actions, input.gamepad reads pads, errors teach") {
     Json settings = Json::object({{"input", Json::object({{"actions", Json::parse(R"({
         "jump": ["Space", "GamepadA"],
@@ -1365,7 +1789,7 @@ TEST_CASE("gamepad: game.gamepad drives bound actions, input.gamepad reads pads,
     TestHost h("gamepad", settings);
     h.file("tests/t.test.js", R"(
 import { test, expect, game } from "factoria:test";
-import { input } from "factoria";
+import { input, game as app } from "factoria";
 test("a button drives an action; press/release mirror keyDown/keyUp, tap steps", () => {
   const pad = game.gamepad(0);
   expect(input.gamepad(0).connected).toBe(false);   // asking for the handle does not plug the pad in
@@ -1513,4 +1937,104 @@ TEST_CASE("scripts place a child among its siblings and override a prefab's chil
     CHECK(ev_ok(h, "world.find('title').get('Sprite').layer") == 8);
     std::string m = ev_err(h, "world.spawnPrefab('prefabs/panel.prefab.json', {childOverrides: {titel: {}}})");
     CHECK(m.find("Did you mean 'title'?") != std::string::npos);
+}
+
+TEST_CASE("camera: split screen cameras, at(), and conversions that take a camera (no renderer)") {
+    TestHost h("splitcam");
+    REQUIRE(h.start());
+    // 1280x720 screen: left half seen by camL at the origin, right half by camR at x = 1000 (listed first on purpose).
+    ev_ok(h, "world.spawn({id:'camR', components:{Transform:{position:[1000,0]}, Camera:{viewport:[0.5,0,0.5,1], depth:1}}})");
+    ev_ok(h, "world.spawn({id:'camL', components:{Transform:{position:[0,0]}, Camera:{viewport:[0,0,0.5,1], depth:0}}})");
+    CHECK(ev_ok(h, "camera.main.id") == "camL");
+    CHECK(ev_ok(h, "camera.all.map(c => c.id).join(',')") == "camL,camR");
+    CHECK(ev_ok(h, "camera.at([100, 100]).id") == "camL");
+    CHECK(ev_ok(h, "camera.at([900, 100]).id") == "camR");
+    // The centre of each half is the centre of its camera; the conversion picks the camera under the point.
+    CHECK(ev_ok(h, "camera.screenToWorld([320, 360]).x") == 0);
+    CHECK(ev_ok(h, "camera.screenToWorld([960, 360]).x") == 1000);
+    CHECK(ev_ok(h, "camera.screenToWorld([960, 360], 0, camera.all[0]).x") == 640);  // the same point through the other camera
+    CHECK(ev_ok(h, "camera.screenToWorld([960, 360], camera.all[0]).x") == 640);     // the camera as the second argument
+    CHECK(ev_ok(h, "camera.worldToScreen([1000, 0], camera.all[1]).x") == 960);
+    CHECK(ev_ok(h, "camera.worldToScreen([1000, 0], 'camR').y") == 360);
+    CHECK(ev_ok(h, "camera.worldToScreen([0, 0]).x") == 320);  // the first camera by default
+    CHECK(ev_ok(h, "camera.screenRay([960, 360]).origin.x") == 1000);
+    // A camera that is switched off is not drawn any more: the other one is the first.
+    ev_ok(h, "world.find('camL').get('Camera').primary = false");
+    CHECK(ev_ok(h, "camera.main.id") == "camR");
+    CHECK(ev_ok(h, "camera.all.length") == 1);
+    // A world without camera: null main, empty list, at() gives null.
+    ev_ok(h, "world.find('camR').get('Camera').primary = false");
+    CHECK(ev_ok(h, "camera.main === null"));
+    CHECK(ev_ok(h, "camera.all.length") == 0);
+    CHECK(ev_ok(h, "camera.at([1, 1]) === null"));
+    CHECK(ev_err(h, "camera.worldToScreen([0, 0], 'nobody')").find("no entity") != std::string::npos);
+}
+
+TEST_CASE("world.spawn: a slider's knob and fill spawned after it are linked when they appear") {
+    TestHost h("spawn_late_refs");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'vol', components:{Interactable:{kind:'slider', knob:'vol_knob', fill:'vol_fill'}}})");
+    ev_ok(h, "world.spawn({id:'vol_knob', components:{Transform:{}}}, 'vol')");
+    CHECK(h.w.get<Interactable>(h.w.find("vol"))->knob == h.w.find("vol_knob"));
+    CHECK(h.w.get<Interactable>(h.w.find("vol"))->fill.is_null());  // not there yet
+    ev_ok(h, "world.spawn({id:'vol_fill', components:{Transform:{}}}, 'vol')");
+    CHECK(h.w.get<Interactable>(h.w.find("vol"))->fill == h.w.find("vol_fill"));
+    // a child spawned in the same call needs no waiting
+    ev_ok(h, "world.spawn({id:'s2', components:{Interactable:{kind:'slider', knob:'k2'}}, children:[{id:'k2'}]})");
+    CHECK(h.w.get<Interactable>(h.w.find("s2"))->knob == h.w.find("k2"));
+}
+
+TEST_CASE("world.spawn: a reference that never appears is a warning, the spawn works and the field stays empty") {
+    TestHost h("spawn_missing_ref");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'lone', components:{Interactable:{kind:'slider', knob:'nobody'}}})");
+    Entity e = h.w.find("lone");
+    REQUIRE_FALSE(e.is_null());
+    CHECK(h.w.get<Interactable>(e)->knob.is_null());
+    h.step_frames(700);  // the wait is over; nothing crashes
+    CHECK(h.w.get<Interactable>(e)->knob.is_null());
+    ev_ok(h, "world.spawn({id:'nobody'})");  // too late: the engine stopped waiting
+    CHECK(h.w.get<Interactable>(e)->knob.is_null());
+    // a script that sets the field itself wins over the pending reference
+    ev_ok(h, "world.spawn({id:'p', components:{Interactable:{kind:'slider', knob:'later'}}})");
+    ev_ok(h, "world.spawn({id:'mine'})");
+    ev_ok(h, "world.find('p').set('Interactable', {knob:'mine'})");
+    ev_ok(h, "world.spawn({id:'later'})");
+    CHECK(h.w.get<Interactable>(h.w.find("p"))->knob == h.w.find("mine"));
+}
+
+TEST_CASE("a project tool edited on disk runs its new code at the next call, and says which version ran") {
+    TestHost h("toolstale");
+    h.file("scripts/lib.js", "export const label = () => 'lib1';\n");
+    h.file("tools/stale.js", "import { label } from '../scripts/lib.js';\n"
+                             "export default { name: 'stale', summary: 's', run() { return { tool: 'v1', lib: label() }; } };\n");
+    REQUIRE(h.start());
+    auto settle = [] { std::this_thread::sleep_for(std::chrono::milliseconds(30)); };  // a later modification time
+    auto r1 = h.cmds.call("project.stale");
+    REQUIRE(r1.ok);
+    CHECK(r1.result["tool"] == "v1");
+    CHECK(r1.result["lib"] == "lib1");
+    const std::string hash1 = r1.result["toolVersion"]["hash"];
+    CHECK(r1.result["toolVersion"]["file"] == "tools/stale.js");
+    CHECK(!r1.result["toolVersion"]["loadedAt"].get<std::string>().empty());
+
+    // The imported module changes: the tool that imports it sees it.
+    settle();
+    h.file("scripts/lib.js", "export const label = () => 'lib2';\n");
+    auto r2 = h.cmds.call("project.stale");
+    REQUIRE(r2.ok);
+    CHECK(r2.result["lib"] == "lib2");
+
+    // The tool file itself changes: new behaviour and another hash.
+    settle();
+    h.file("tools/stale.js", "import { label } from '../scripts/lib.js';\n"
+                             "export default { name: 'stale', summary: 's', run() { return { tool: 'v2', lib: label() }; } };\n");
+    auto r3 = h.cmds.call("project.stale");
+    REQUIRE(r3.ok);
+    CHECK(r3.result["tool"] == "v2");
+    CHECK(r3.result["toolVersion"]["hash"] != hash1);
+
+    // Untouched files are not re-imported: the load time stays.
+    auto r4 = h.cmds.call("project.stale");
+    CHECK(r4.result["toolVersion"]["loadedAt"] == r3.result["toolVersion"]["loadedAt"]);
 }

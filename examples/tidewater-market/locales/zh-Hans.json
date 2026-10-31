@@ -1,0 +1,1048 @@
+{
+  "$name": "简体中文",
+  "format": {
+    "list": "、"
+  },
+  "number": {
+    "units": "10000=万;100000000=亿"
+  },
+  "credits": {
+    "madeWith": "使用 FactorIA 制作",
+    "software": "本游戏使用了以下软件：",
+    "licenses": "完整的许可证文本见随游戏附带的 FACTORIA_NOTICES.txt。"
+  },
+  "loading": {
+    "progress": "加载中…… {percent}%"
+  },
+  "menu": {
+    "title": "Tidewater Market",
+    "tagline": "一条路、一门手艺地，把港口小镇建设起来。",
+    "play": "开始游戏",
+    "options": "选项",
+    "credits": "制作名单",
+    "shop": "商店",
+    "quit": "退出",
+    "back": "返回"
+  },
+  "options": {
+    "title": "选项",
+    "tab": {
+      "video": "画面",
+      "audio": "声音",
+      "controls": "操作",
+      "language": "语言",
+      "access": "无障碍"
+    },
+    "windowMode": "窗口模式：{mode}",
+    "mode": {
+      "windowed": "窗口",
+      "borderless": "无边框",
+      "fullscreen": "全屏"
+    },
+    "monitor": "显示器：{n} - {name}",
+    "vsync": "垂直同步",
+    "windowSize": "窗口大小：{width} x {height}",
+    "windowSizeFullscreen": "窗口大小：全屏",
+    "frameCap": "帧率上限：{fps} 帧/秒",
+    "frameCapOff": "帧率上限：不限制",
+    "colorFilter": "色彩滤镜：{filter}",
+    "filter": {
+      "none": "关闭",
+      "greyscale": "灰度",
+      "highContrast": "高对比度",
+      "protanopia": "红色盲",
+      "deuteranopia": "绿色盲",
+      "tritanopia": "蓝色盲"
+    },
+    "videoNote": "画面设置在游戏运行于独立窗口时生效。",
+    "volume": {
+      "master": "总音量",
+      "music": "音乐",
+      "effects": "音效",
+      "interface": "界面",
+      "ambience": "环境音"
+    },
+    "action": {
+      "pan_left": "向左移动",
+      "pan_right": "向右移动",
+      "pan_up": "向上移动",
+      "pan_down": "向下移动",
+      "pan_drag": "拖动地图",
+      "primary_shift": "两次点击：道路或拆除",
+      "zoom_in": "放大",
+      "zoom_out": "缩小",
+      "rotate": "旋转建筑",
+      "undo": "撤销",
+      "redo": "重做",
+      "tool_demolish": "拆除工具",
+      "tool_cancel": "收起工具",
+      "pause": "暂停",
+      "speed_pause": "暂停时钟",
+      "speed_1": "正常速度",
+      "speed_2": "快速",
+      "speed_3": "极速",
+      "pause_toggle": "暂停或继续时钟",
+      "tool_next": "下一个建筑",
+      "tool_prev": "上一个建筑",
+      "cat_prev": "上一个分类",
+      "cat_next": "下一个分类"
+    },
+    "binding": "{action}：{button}",
+    "player": "玩家 {n}",
+    "playerBinding": "{action}：{keys}  |  {pad}",
+    "pressKey": "{action}：请按一个按键或按钮（Esc 取消）",
+    "resetControls": "恢复默认",
+    "language": "语言：{language}",
+    "readAloud": "朗读菜单",
+    "subtitles": "字幕",
+    "privacyOptions": "广告隐私",
+    "analytics": "分享匿名使用数据",
+    "on": "开",
+    "off": "关",
+    "percent": "百分之 {value}",
+    "safeColors": "色盲友好提示",
+    "reducedMotion": "减少动态效果",
+    "holdFree": "免按住操作",
+    "textScale": "文字大小：{value}%",
+    "uiScale": "界面大小：{value}%",
+    "accessNote": "色盲友好提示会加上图案和标记。减少动态效果：镜头不平滑、提示不渐隐、标题画面静止。免按住操作：只需点击，无需按住或拖动。每项更改立即生效并自动保存。",
+    "conflict": "{button} 已用于“{other}”。请为“{action}”选择其他按键，或先更改“{other}”。"
+  },
+  "pause": {
+    "title": "已暂停",
+    "resume": "继续",
+    "mainMenu": "主菜单",
+    "save": "保存游戏"
+  },
+  "terrain": {
+    "water": "水",
+    "sand": "沙地",
+    "grass": "草地",
+    "forest": "森林",
+    "rock": "岩石"
+  },
+  "good": {
+    "fish": "鱼",
+    "grain": "谷物",
+    "wood": "木材",
+    "stone": "石料",
+    "planks": "木板",
+    "bread": "面包",
+    "tools": "工具",
+    "flour": "面粉",
+    "smoked_fish": "熏鱼"
+  },
+  "category": {
+    "infrastructure": "基础设施",
+    "housing": "住房",
+    "production": "生产",
+    "storage": "仓储",
+    "trade": "贸易"
+  },
+  "building": {
+    "road": {
+      "name": "道路",
+      "desc": "拖动即可铺路。仓库和市场的门前需要有路。"
+    },
+    "house": {
+      "name": "房屋",
+      "desc": "可住四位村民。旁边需要有路。"
+    },
+    "farm": {
+      "name": "农场",
+      "desc": "种植谷物。需要草地。"
+    },
+    "fisher_dock": {
+      "name": "渔码头",
+      "desc": "捕鱼。必须紧邻水面。"
+    },
+    "lumber_camp": {
+      "name": "伐木场",
+      "desc": "砍伐木材。可建在森林或草地上。"
+    },
+    "quarry": {
+      "name": "采石场",
+      "desc": "开采石料。建在岩石上。"
+    },
+    "sawmill": {
+      "name": "锯木厂",
+      "desc": "把木材锯成木板。"
+    },
+    "mill": {
+      "name": "磨坊",
+      "desc": "把谷物磨成面粉。"
+    },
+    "bakery": {
+      "name": "面包房",
+      "desc": "用面粉烤面包；没有面粉时用谷物。"
+    },
+    "smokehouse": {
+      "name": "熏制坊",
+      "desc": "熏制鱼，使其耐存放，也卖得更好。"
+    },
+    "workshop": {
+      "name": "工坊",
+      "desc": "用木板和石料制作工具。"
+    },
+    "warehouse": {
+      "name": "仓库",
+      "desc": "存放货物；搬运工会把货物从一座建筑运到另一座。"
+    },
+    "market": {
+      "name": "市场",
+      "desc": "向村民出售食物：要保证供货和人手。"
+    },
+    "pier": {
+      "name": "码头",
+      "desc": "商船的泊位。必须紧邻水面，船只还需要开阔的水域才能驶来。"
+    }
+  },
+  "season": {
+    "spring": "春季",
+    "summer": "夏季",
+    "autumn": "秋季",
+    "winter": "冬季",
+    "date": {
+      "spring": "春季",
+      "summer": "夏季",
+      "autumn": "秋季",
+      "winter": "冬季"
+    }
+  },
+  "amount": {
+    "coins": {
+      "other": "{count:number} 枚金币"
+    },
+    "good": "{name}×{n:number}",
+    "villagers": {
+      "other": "{count:number} 位村民"
+    },
+    "none": "免费"
+  },
+  "hud": {
+    "date": "第{year}年{season}，第{day}天",
+    "coins": "金币",
+    "undo": "撤销",
+    "redo": "重做",
+    "demolish": "拆除",
+    "rotate": "旋转",
+    "palette": "建造",
+    "item": "{name} - {coins}",
+    "population": "村民",
+    "popItem": "{count} / {housing}",
+    "speed": "速度",
+    "speedPause": "||",
+    "speed1": "1x",
+    "speed2": "2x",
+    "speed4": "4x",
+    "paused": "已暂停",
+    "speedHint": "速度：空格暂停，1 暂停，2 正常，3 快速，4 极速",
+    "hungry": "挨饿：{count}",
+    "next": "下一个",
+    "prev": "上一个"
+  },
+  "status": {
+    "idle": "按 B 建造。点击建筑或村民可查看详情。按住右键拖动可移动地图，滚轮缩放。按 F1 查看帮助。",
+    "terrain": "{terrain}  ({c}, {r})",
+    "building": "{name}  ({c}, {r})",
+    "placing": "{name}：{cost}。点击建造，R 旋转，Q 或右键停止建造。",
+    "placingRoad": "道路：拖动铺设，每段 {cost}。Q 或右键停止。",
+    "roadDrag": {
+      "other": "道路：新增 {count} 段，共 {cost}"
+    },
+    "demolish": "拆除：点击或拖过建筑即可。可退回一半造价。Q 或右键停止。",
+    "demolishHover": "拆除{name}：退回 {refund}",
+    "palette": "{name}：{desc}  造价：{cost}。",
+    "house": {
+      "other": "{name}  ({c}, {r})：可住 {cap} 位村民，现住 {n} 位。"
+    },
+    "work": "{name}  ({c}, {r})：{workers} 人中 {present} 人在工作 - {state}。",
+    "paused": "已暂停。按空格或 2 继续。"
+  },
+  "reason": {
+    "out_of_bounds": "超出地图范围。",
+    "occupied": "这里已经有东西了。",
+    "terrain": "不能建在{terrain}上：需要{allowed}。",
+    "no_road": "门前需要有路。",
+    "not_near_water": "必须紧邻水面。",
+    "cannot_afford": "金币不足：还差 {missing}。",
+    "nothing_here": "这里没有可拆除的东西。",
+    "unknown_type": "未知的建筑：{type}。"
+  },
+  "toast": {
+    "built": "已建成：{name}。",
+    "roads": {
+      "other": "已铺设 {count} 段道路。"
+    },
+    "demolished": "已拆除：{name}。",
+    "demolishedMany": {
+      "other": "已拆除 {count} 处。"
+    },
+    "undone": "已撤销：{label}。",
+    "redone": "已重做：{label}。",
+    "nothingToUndo": "没有可撤销的操作。",
+    "nothingToRedo": "没有可重做的操作。",
+    "season": "新的季节开始了：{season}。",
+    "left": "一位村民离开了：{reason}。",
+    "broke": "今天镇上付不起全部工钱和开支。"
+  },
+  "history": {
+    "place": "建造{name}",
+    "road": "道路",
+    "demolish": "拆除{name}",
+    "rotate": "旋转{name}"
+  },
+  "sim": {
+    "leftReason": {
+      "starved": "没有食物",
+      "home_lost": "房子被拆了"
+    },
+    "stall": {
+      "no_staff": "没有工人",
+      "closed": "今日歇业",
+      "no_input": "等待货物",
+      "output_full": "等待搬运工",
+      "season": "非当季"
+    },
+    "running": "运转中"
+  },
+  "scenario": {
+    "first_harbour": {
+      "name": "第一个港口",
+      "blurb": "平静的海湾，空旷的海岸。把一个小渔村发展起来。"
+    },
+    "river_mills": {
+      "name": "河畔磨坊",
+      "blurb": "河谷中有木材和石料。用面包养活不断壮大的小镇。"
+    },
+    "winter_trade": {
+      "name": "冬季贸易",
+      "blurb": "一年进入秋天。趁寒冬到来前熏好鱼、烤好面包。"
+    },
+    "sandbox": {
+      "name": "自由模式",
+      "blurb": "金币和货物充足，没有任何目标。想怎么建就怎么建。"
+    }
+  },
+  "goal": {
+    "title": "目标",
+    "population": {
+      "other": "达到 {count} 位村民"
+    },
+    "coins": "攒下 {coins}",
+    "produced_in_season": "一个季节内生产 {amount}",
+    "progress": "{value:number} / {target:number}",
+    "done": "已完成",
+    "toast": "目标达成：{goal}",
+    "won": {
+      "title": "场景完成：{scenario}！",
+      "body": "所有目标已于{date}达成。你可以继续建设，也可以返回标题画面。",
+      "keep": "继续游戏",
+      "menu": "主菜单"
+    }
+  },
+  "slots": {
+    "title": "选择存档位",
+    "titleSave": "保存游戏",
+    "slot": "存档位 {n}",
+    "continue": "继续",
+    "back": "返回",
+    "empty": "空",
+    "new": "新游戏",
+    "load": "读取",
+    "save": "存到这里",
+    "auto": "自动存档",
+    "rename": "重命名",
+    "delete": "删除",
+    "damaged": "此存档已损坏",
+    "info": "{scenario}，{date}",
+    "stats": "{coins}，{population}",
+    "goals": {
+      "other": "已完成 {done}/{total} 个目标"
+    },
+    "completed": "已通关",
+    "autoInfo": "自动存档：{date}",
+    "playTime": "已游玩 {hours} 小时 {minutes} 分钟",
+    "playTimeShort": "已游玩 {minutes} 分钟",
+    "pick": "选择一个场景",
+    "confirmDelete": "删除“{name}”？此操作无法撤销。",
+    "confirmOverwrite": "用当前正在玩的游戏覆盖“{name}”？",
+    "yes": "是",
+    "no": "否",
+    "renameTitle": "给这个存档起个名字",
+    "renameOk": "确定",
+    "saved": "已保存到存档位 {n}",
+    "deleted": "存档位已删除",
+    "renamed": "已重命名",
+    "loadFailed": "无法读取存档：{problem}",
+    "migrated": "一个旧存档已升级到当前版本。",
+    "cloudConflict": "另一台设备也保存了这个存档位。你的副本已保留为备份。"
+  },
+  "save": {
+    "error": {
+      "bad_json": "这个文件不是存档（无法读取为文本）。请选择其他存档位。",
+      "not_a_save": "这个存档位里没有存档。",
+      "unknown_format": "这个文件不是由 Tidewater Market 创建的。",
+      "future_version": "这个存档来自更新版本的游戏。请更新游戏后再打开。",
+      "too_old": "这个存档太旧，无法打开。",
+      "invalid": "这个存档已损坏，无法打开。",
+      "map_mismatch": "这个存档所用的地图，当前版本无法重建。",
+      "storage": "无法保存游戏。请释放一些磁盘空间后重试。",
+      "bad_slot": "该存档位不存在。"
+    }
+  },
+  "ship": {
+    "name": {
+      "0": "海鸥号",
+      "1": "苍鹭号",
+      "2": "金盏花号",
+      "3": "燕鸥号",
+      "4": "盐风号",
+      "5": "安妮塔号",
+      "6": "轻舟号",
+      "7": "水獭号"
+    },
+    "class": {
+      "skiff": "小艇",
+      "cog": "柯克船",
+      "carrack": "卡拉克帆船"
+    }
+  },
+  "event": {
+    "storm": {
+      "title": "风暴预警",
+      "body": "乌云沉沉压向海湾。渔民把小船拖上岸，风已经在拉扯码头上堆着的[icon:wood]。",
+      "choice": {
+        "secure": "把一切都捆牢",
+        "ride": "硬扛过去",
+        "shelter": "躲起来等着"
+      },
+      "result": {
+        "secure": "工人们用[b]木板[/b]和绳索压住货堆。风暴在镇上咆哮，却[c:good]什么也没带走[/c]。",
+        "ride": {
+          "0": "运气不错：风暴转向北方，[c:good]放过了港口[/c]。没有人丢掉哪怕一顶帽子。",
+          "1": "风暴卷走了货堆和渔网。镇上损失了[c:bad]鱼[/c]和[c:bad]木材[/c]，人们怨声载道。"
+        },
+        "shelter": "大家都待在家里。[c:muted]没有损失，但海面空了一阵：下一艘船要晚到。[/c]"
+      }
+    },
+    "festival": {
+      "title": "夏日庆典",
+      "body": "村民们想庆祝漫长的白昼。灯笼、音乐，每张桌上都有[icon:bread]，会让[c:gold]全镇谈论你一整年[/c]。",
+      "choice": {
+        "feast": "举办盛宴",
+        "stalls": "允许摆几个摊位",
+        "skip": "今年不办了"
+      },
+      "result": {
+        "feast": "好一场盛宴！孩子们在广场上跳舞，旅人把故事带到了别的港口。[c:gold]全镇都很自豪。[/c]",
+        "stalls": "一场朴素的庆典，摆了几个摊位。很愉快，也没人抱怨。",
+        "skip": "日子照常过。[c:muted]没有人提起庆典，至少不会当着你的面。[/c]"
+      }
+    },
+    "merchant": {
+      "title": "商人的提议",
+      "body": "一位行商在码头停下，打开了箱子。他想要[icon:stone]，又愿意低价出让[icon:wood]：[b]一笔公道的买卖[/b]，看你要不要。",
+      "choice": {
+        "buy_wood": "向他买木材",
+        "sell_stone": "把石料卖给他",
+        "decline": "礼貌地谢绝"
+      },
+      "result": {
+        "buy_wood": "木材已经砍好晾干。价钱不错，你的货堆也满了。",
+        "sell_stone": "他慢慢数着金币，把[icon:stone]装上了他的车。",
+        "decline": "他耸耸肩，碰了碰帽檐，继续赶路。"
+      }
+    },
+    "sick_herd": {
+      "title": "牲畜生病",
+      "body": "农场里好几头牲畜咳嗽不止，也不肯吃草。[c:bad]要是传开，粮仓就要遭殃。[/c]",
+      "choice": {
+        "healer": "请草药医生",
+        "cull": "宰掉最虚弱的",
+        "hope": "盼着自己好转"
+      },
+      "result": {
+        "healer": "医生的草药见效了。几天后牲畜重新站了起来，农夫们记得是谁出的钱。",
+        "cull": "这个决定很艰难，但肉卖得出去，其余的牲畜保住了。有些村民把视线移开。",
+        "hope": {
+          "0": "咳嗽自己好了。[c:good]运气真好！[/c]",
+          "1": "病传开了。农夫们损失了[c:bad]谷物[/c]，还得发放紧急补助。"
+        }
+      }
+    },
+    "good_harvest": {
+      "title": "大丰收",
+      "body": "田里的收成比谁记忆中的都多。一袋袋[icon:grain]堆在农场门口，[c:good]比粮仓装得下的还多[/c]。",
+      "choice": {
+        "store": "把仓库装满",
+        "sell": "卖掉多余的"
+      },
+      "result": {
+        "store": "搬运工把多出来的谷物运进仓库，直到仓库吱吱作响。",
+        "sell": "一位南方商人以不错的价钱买走了余粮。"
+      }
+    },
+    "fish_run": {
+      "title": "鱼群洄游",
+      "body": "海水泛着银光。一群[icon:fish]游过海湾，[b]一年只有一次[/b]，渔民们嚷着要新渔网。",
+      "choice": {
+        "nets": "购买新渔网",
+        "leave": "让他们用旧的"
+      },
+      "result": {
+        "nets": "新渔网满载而归。熏制坊要忙起来了。",
+        "leave": "旧渔网还能捞到一点鱼。鱼群从旁游过。"
+      }
+    },
+    "cold_snap": {
+      "title": "寒潮来袭",
+      "body": "屋顶结霜，井里结冰。村民们瑟瑟发抖，望着你存在仓库里的[icon:wood]。",
+      "choice": {
+        "burn": "打开木柴储备",
+        "blankets": "购买毯子",
+        "endure": "请他们忍一忍"
+      },
+      "result": {
+        "burn": "家家户户炉火熊熊。村民们暖和又感激，[c:bad]木材[/c]也烧光了。",
+        "blankets": "小贩的羊毛让全镇暖和起来。花了[icon:coin]，但一根柴也没烧。",
+        "endure": "村民们咬牙挺过去了，但他们不会忘记。[c:bad]士气低落。[/c]"
+      }
+    },
+    "wreck": {
+      "title": "礁石上的沉船",
+      "body": "一艘商船黎明时在礁石上撞碎了。木板和木桶漂到岸边，港务长想知道[b]归谁所有[/b]。",
+      "choice": {
+        "salvage": "打捞货物",
+        "report": "通知海事局"
+      },
+      "result": {
+        "salvage": "工人们赶在潮水卷走之前把木材拖上了岸。[c:gold]谁捡到就归谁。[/c]",
+        "report": "你上交了捡到的东西并写了报告。海事局发了赏金，你的名字随船传开。"
+      }
+    },
+    "fire": {
+      "title": "锯木厂火星四溅",
+      "body": "锯子溅出的火星点着了干燥的[icon:planks]堆。浓烟升到屋顶上方。[c:bad]要是有人马上动手，还来得及扑灭。[/c]",
+      "choice": {
+        "bucket": "排成水桶接力",
+        "watch": "让工人们自己处理"
+      },
+      "result": {
+        "bucket": "全镇排成一列，火在蔓延之前就被扑灭了。新水桶花了几枚金币。",
+        "watch": {
+          "0": "工人们自己扑灭了火。[c:good]好险！[/c]",
+          "1": "火烧掉了一堆[c:bad]木板[/c]和[c:bad]木材[/c]才熄灭。"
+        }
+      }
+    },
+    "pedlar": {
+      "title": "小贩的货车",
+      "body": "一位听说港口名声不错的小贩把货车停在市场旁。他卖[icon:tools]，也卖闲话。",
+      "choice": {
+        "tools": "买一箱工具",
+        "gossip": "交换故事"
+      },
+      "result": {
+        "tools": "好钢，做工精良。工坊们都眼红了。",
+        "gossip": "你们在码头上交换了故事。天黑前，三个港口都知道了你们镇的名字。"
+      }
+    },
+    "smugglers": {
+      "title": "低调的访客",
+      "body": "天黑时，两个穿深色外套的男人等在码头尽头。他们愿意出[icon:coin]借用一座空仓库。[c:bad]没人问箱子里装的是什么。[/c]",
+      "choice": {
+        "take": "收下钱",
+        "refuse": "把他们赶走"
+      },
+      "result": {
+        "take": {
+          "0": "箱子天亮前运走，金币留了下来。再没人提起。",
+          "1": "港口卫兵发现了箱子。你交了罚款，名声在港口也大不如前。"
+        },
+        "refuse": "他们一言不发地走了。港务长听说后点了点头。"
+      }
+    }
+  },
+  "story": {
+    "first_harbour": {
+      "name": "第一个港口",
+      "letter": {
+        "title": "公会来信",
+        "body": "晨潮带来一封绿蜡封口的信：[b]海商公会[/b]会向每个建了码头的小镇派船。要让整个海岸都知道吗？",
+        "choice": {
+          "aloud": "在市场上宣读",
+          "quiet": "保守秘密"
+        },
+        "result": {
+          "aloud": "一天之内半个海岸都知道了。人们跑来看你泥泞的海滩。[c:gold]期望很高。[/c]",
+          "quiet": "你把信锁进抽屉。一位低调的买家为这份沉默付了几枚金币。"
+        }
+      },
+      "pier": {
+        "title": "第一座码头",
+        "body": "码头建好了。木板散发着焦油和新木头的气味。村民们问：要不要在桩上漆个名字，还是就让它素着？",
+        "choice": {
+          "paint": "漆上鲜艳的颜色",
+          "plain": "保持素净"
+        },
+        "result": {
+          "paint": "亮蓝色的桩，金色的名字。船长们老远就能看见港口。",
+          "plain": "朴素的码头，朴素的木板。能用就行。"
+        }
+      },
+      "cargo": {
+        "title": "第一批货",
+        "body": "第一张订单完成了，船长与你握手。船员们问第一轮酒在哪儿。[icon:coin]",
+        "choice": {
+          "toast": "请船员们喝一轮",
+          "pocket": "把多出的金币收进口袋"
+        },
+        "result": {
+          "toast": "整个码头为港口举杯。[c:gold]船长把这事讲给了朋友们。[/c]",
+          "pocket": "你收下了金币。船长皱起眉头，传言说你的港口很小气。"
+        }
+      },
+      "map": {
+        "title": "地图上的一席之地",
+        "body": "一位制图师想把[b]你的小镇[/b]画进新的海图。她需要一面港口旗帜，否则就只能写这个港口以宴席闻名。",
+        "choice": {
+          "flag": "出钱做一面旗",
+          "feast": "吹嘘宴席"
+        },
+        "result": {
+          "flag": "旗帜在码头上飘扬，海图上用金墨标出了你的小镇。[c:gold]公会记下了这一笔。[/c]",
+          "feast": "制图师笑着记了下来。很快每位船长都想来见识见识这个传说。"
+        }
+      }
+    },
+    "river_mills": {
+      "name": "河畔磨坊",
+      "bend": {
+        "title": "河湾",
+        "body": "河流在此拐了个弯，水流湍急。磨坊主说磨坊建在这个河湾会很合适，前提是有人先勘察一下石头。",
+        "choice": {
+          "survey": "出钱勘察地形",
+          "build": "想建哪儿就建哪儿"
+        },
+        "result": {
+          "survey": "勘测员找到了最佳位置并做了标记。一块石头也不会浪费。",
+          "build": "试着建几次，你会找到最佳位置的。"
+        }
+      },
+      "grindstone": {
+        "title": "磨石",
+        "body": "第一座磨坊需要一块好磨石。上游的石匠愿意出售专门凿好的[icon:stone]，或者只肯借一块用旧的。",
+        "choice": {
+          "buy": "买下磨石",
+          "borrow": "借一块旧的"
+        },
+        "result": {
+          "buy": "一块漂亮的磨石，又圆又平。能用上很多年。",
+          "borrow": "石匠递给你一块粗糙的石头。他会记住这件事的。"
+        }
+      },
+      "oven": {
+        "title": "第一炉面包",
+        "body": "面包房的炉子烧热了，第一批[icon:bread]出炉，金黄诱人。村民们在门口排队，但有位商人想买下整炉。",
+        "choice": {
+          "share": "分给全镇",
+          "sell": "卖掉整炉"
+        },
+        "result": {
+          "share": "每家都分到一个面包。面包房里飘着幸福的香气。",
+          "sell": "商人出价很高，村民们饿着肚子回了家。"
+        }
+      },
+      "south": {
+        "title": "南方的合同",
+        "body": "南方的船希望每个季节都供应面粉和面包，并签一份[b]长期合同[/b]。报酬丰厚，但会把你的磨坊绑在他们的日程上。",
+        "choice": {
+          "contract": "签下合同",
+          "freedom": "保持自由"
+        },
+        "result": {
+          "contract": "墨迹干了。南方会按时付款，而你的磨坊再也歇不下来。",
+          "freedom": "你保住了自由和好名声。磨坊为出价最高的人干活。"
+        }
+      }
+    },
+    "winter_trade": {
+      "name": "冬季贸易",
+      "ice": {
+        "title": "早来的冰",
+        "body": "海湾里结了第一层冰。老水手说海面会封上好几周。一位商人愿意在那之前把过冬用的[icon:wood]送来。",
+        "choice": {
+          "stock": "购买冬季储备",
+          "trust": "相信秋季的存货"
+        },
+        "result": {
+          "stock": "木材正好及时送到。伐木工们都满意了。",
+          "trust": "你留住了金币，相信仓库里的存货。"
+        }
+      },
+      "frost": {
+        "title": "海湾封冻",
+        "body": "海湾上覆了一层薄冰，船只犹豫不前。[b]一队拿着斧头的人[/b]也许能为它们凿出一条航道。",
+        "choice": {
+          "break_ice": "雇一队人凿冰",
+          "wait": "等到解冻"
+        },
+        "result": {
+          "break_ice": "他们凿出航道，船只驶进来了。[c:gold]船长们记得是谁让港口一直畅通。[/c]",
+          "wait": "你选择等待。船会来的，只是更晚。"
+        }
+      },
+      "bargain": {
+        "title": "艰难的讨价还价",
+        "body": "一位船长为[icon:smoked_fish]开出了很高的价，随后又要求打折，说哪里的冬天都不好过。村民们在一旁看着。",
+        "choice": {
+          "haggle": "讨价还价到他付钱",
+          "fair": "给个公道价"
+        },
+        "result": {
+          "haggle": "你赢得了争论，也赢得了金币。他离开时没有笑。",
+          "fair": "你公平地对待了他。[c:gold]消息传得很好。[/c]"
+        }
+      },
+      "thaw": {
+        "title": "解冻",
+        "body": "冰层碎裂，声如雷鸣。春天来了。村民们受够了冬天，想要[b]好好庆祝[/b]。",
+        "choice": {
+          "celebrate": "打开酒桶",
+          "save": "把金币存起来"
+        },
+        "result": {
+          "celebrate": "全镇一起庆祝。[c:gold]这个冬天终究还不错。[/c]",
+          "save": "你让酒桶继续封着，金币安然无恙。"
+        }
+      }
+    }
+  },
+  "achievement": {
+    "first_ship": {
+      "name": "初次扬帆",
+      "desc": "一艘船在你的码头靠岸。"
+    },
+    "ten_orders": {
+      "name": "十张订单",
+      "desc": "完成十张船只订单。"
+    },
+    "no_debt_year": {
+      "name": "无债一年",
+      "desc": "整整一年里，每个发薪日的款项都按时付清。"
+    },
+    "harbour_master": {
+      "name": "港务长",
+      "desc": "声望达到 50。"
+    },
+    "story_first_harbour": {
+      "name": "第一个港口",
+      "desc": "完成“第一个港口”的故事。"
+    },
+    "story_river_mills": {
+      "name": "河畔磨坊",
+      "desc": "完成“河畔磨坊”的故事。"
+    },
+    "story_winter_trade": {
+      "name": "冬季贸易",
+      "desc": "完成“冬季贸易”的故事。"
+    }
+  },
+  "trade": {
+    "ship": "{class}{name}",
+    "reputation": "声望 {value}",
+    "board": {
+      "title": "港口订单",
+      "close": "关闭",
+      "nopier": "在海岸建一座码头，船只就会前来贸易。",
+      "empty": "海湾里没有船。下一艘已在路上。",
+      "next": {
+        "other": "下一艘船约 {count} 天后到"
+      },
+      "unlock": "声望达到 {value}：解锁{class}",
+      "fill": "完成订单",
+      "missing": "缺少：{list}",
+      "left": {
+        "other": "还剩 {count} 天"
+      },
+      "left1": "最后一天",
+      "sailing": "即将启航……",
+      "leaving": "正在离港……",
+      "wants": "需要",
+      "pays": "报酬"
+    },
+    "card": {
+      "event": "事件",
+      "story": "故事",
+      "continue": "继续",
+      "free": "不花一分钱",
+      "risky": "有风险",
+      "cannot": "不足：{list}",
+      "later": {
+        "other": "下一艘船推迟 {count} 天"
+      },
+      "sooner": {
+        "other": "下一艘船提前 {count} 天"
+      }
+    },
+    "hud": {
+      "orders": "订单",
+      "ordersN": "订单（{count}）"
+    },
+    "toast": {
+      "docked": "{ship}在码头靠岸。",
+      "filled": "{ship}满意地离港：+{reward}。",
+      "missed": "{ship}没拿到货就离开了。声望 {delta}。",
+      "unlocked": "声望提升，{class}现在可以前来。",
+      "achievement": "成就：{name}",
+      "story": "故事完成：{name}"
+    },
+    "key": {
+      "orders": "订单板"
+    }
+  },
+  "ui": {
+    "hungryShort": {
+      "other": "{shown} 人挨饿"
+    },
+    "btn": {
+      "build": "建造  (B)",
+      "goods": "货物  (G)",
+      "charts": "图表  (T)",
+      "help": "帮助  (F1)",
+      "overlay": "地图  (M)",
+      "overlayTitle": "地图图层"
+    },
+    "cat": {
+      "infrastructure": "道路",
+      "housing": "住房",
+      "production": "生产",
+      "storage": "仓储",
+      "trade": "贸易",
+      "hint": {
+        "infrastructure": "道路供村民和搬运工通行。拖动即可铺出一条线。",
+        "housing": "村民住在这里，到周围的建筑里工作。",
+        "production": "农场、营地、磨坊和工坊：负责生产货物。",
+        "storage": "仓库存放货物，并派出搬运工。",
+        "trade": "市场向村民出售食物，并带来金币。"
+      }
+    },
+    "key": {
+      "B": "按键：B",
+      "Del": "按键：Delete",
+      "R": "按键：R",
+      "Z": "按键：Z",
+      "Y": "按键：Y",
+      "G": "按键：G",
+      "T": "按键：T",
+      "M": "按键：M",
+      "F1": "按键：F1",
+      "speed0": "按键：1 或空格",
+      "speed1": "按键：2",
+      "speed2": "按键：3",
+      "speed3": "按键：4"
+    },
+    "tip": {
+      "build": "打开建造菜单：先选分类，再选建筑。",
+      "demolish": "点击或拖过建筑即可拆除（可退回一部分金币）。",
+      "rotate": "旋转选中的建筑，或即将放置的建筑。",
+      "undo": "撤销你最近一次建造或拆除。",
+      "redo": "重做你刚刚撤销的操作。",
+      "goods": "每种货物的库存、产量、消耗和价格。",
+      "charts": "最近几天的金币和产量。",
+      "overlay": "切换地图图层：吸引力、市场、仓库、人流。",
+      "help": "所有键盘和鼠标快捷操作。",
+      "cost": "造价：{cost}",
+      "terrain": "建在{terrain}上",
+      "nearWater": "紧邻水面",
+      "road": "门前有路",
+      "needs": "需要：{needs}",
+      "housing": {
+        "other": "可住 {count} 位村民。"
+      },
+      "workers": {
+        "other": "{count} 名工人，每天维护费 {upkeep}。"
+      },
+      "recipe": "用 {inputs} 在 {seconds} 秒内生产 {outputs}。",
+      "nothing": "无",
+      "storage": "每种货物可存 {count}。",
+      "madeIn": "生产于：{list}",
+      "usedIn": "用于：{list}",
+      "nowhere": "暂时无处使用",
+      "eaten": "村民会吃掉它（可供 {n} 人）。",
+      "basePrice": "常规价格：{price}",
+      "coinsTitle": "金币",
+      "coins": "你有 {money}。",
+      "coinsFlow": "今天到目前为止：销售 {sales}，工钱和维护 {wages}。",
+      "stock": "库存：{n}（仓库网络每种货物可存 {cap}）",
+      "rates": "每天生产 {made}，每天消耗 {used}。",
+      "price": "当前价格：{price}（常规 {base}）",
+      "popTitle": "村民",
+      "pop": "{population}，可容纳 {housing}。已填补岗位：{employed}/{jobs}。",
+      "popHungry": "目前挨饿：{n}",
+      "speed0": "暂停时钟。",
+      "speed1": "正常速度。",
+      "speed2": "两倍速。",
+      "speed3": "四倍速。",
+      "noticeTitle": "提示",
+      "notice": "点击前往并选中。",
+      "chipTitle": "村民 #{id}",
+      "chip": "点击查看。拖到另一处工作地点，可派他去那里。",
+      "clickInspect": "点击查看。"
+    },
+    "goods": {
+      "title": "货物",
+      "sortHint": "点击排序，再点一次反向排序。",
+      "col": {
+        "name": "货物",
+        "stock": "库存",
+        "made": "日产",
+        "used": "日耗",
+        "price": "价格"
+      },
+      "colHint": {
+        "name": "货物名称。",
+        "stock": "仓库里有多少。",
+        "made": "最近几天平均每个游戏日的产量。",
+        "used": "每个游戏日在工坊中使用和被消耗的数量。",
+        "price": "现在一个单位的价值。"
+      }
+    },
+    "charts": {
+      "title": "图表",
+      "money": "每天开始时的金币",
+      "made": "{name}每日产量",
+      "good": "货物：{name}",
+      "pick": "选择货物",
+      "pickHint": "点击显示下一种货物。",
+      "since": {
+        "other": "最近 {count} 天"
+      },
+      "dayTip": "第 {day} 天",
+      "madeTip": "产出 {n}"
+    },
+    "help": {
+      "title": "玩法说明",
+      "hint": "按住右键拖动可移动地图，滚轮缩放。点击建筑或村民可查看详情。把鼠标悬停在任何东西上都能看到提示。",
+      "build": "打开建造菜单",
+      "cycle": "下一个 / 上一个建筑",
+      "rotate": "旋转选中的或下一个建筑",
+      "delete": "拆除选中的建筑",
+      "demolish": "拆除工具",
+      "cancel": "收起工具、面板或选择",
+      "undo": "撤销 / 重做",
+      "goods": "货物表",
+      "charts": "图表",
+      "overlay": "切换地图图层",
+      "notice": "前往最新提示",
+      "speed": "暂停 / 游戏速度",
+      "camera": "移动并缩放镜头",
+      "help": "本帮助",
+      "keys": {
+        "delete": "Del",
+        "cancel": "Esc / Q / 右键",
+        "speed": "空格、1 - 4",
+        "camera": "WASD、方向键、滚轮"
+      }
+    },
+    "overlay": {
+      "none": "关闭",
+      "desirability": "吸引力",
+      "market": "市场覆盖范围",
+      "warehouse": "仓库覆盖范围",
+      "traffic": "人流",
+      "hint": {
+        "desirability": "越绿，越适合盖房子",
+        "market": "越亮，离市场越近",
+        "warehouse": "越亮，离仓库越近",
+        "traffic": "越亮，步行的人越多"
+      },
+      "legend": "图层：{name}（{hint}）。按 M 切换下一个。",
+      "value": "{name} {percent}%"
+    },
+    "insp": {
+      "title": "{name}，位于 {c}, {r}",
+      "noRoad": "没有路通到门前。",
+      "status": "状态：{state}",
+      "workers": "工人：{count}/{max}（{present} 人在工作）",
+      "dragHint": "把村民拖到工作地点。",
+      "residents": "居民：{count}/{max}",
+      "makes": "每 {seconds} 秒生产 {out}（已完成 {percent}%）",
+      "needs": "需要 {goods}",
+      "inbox": "室内等待：{goods}",
+      "outbox": "待运走：{goods}",
+      "shelf": "货架上：{goods}",
+      "money": "维护费 {upkeep}/天，拆除退款 {refund}。",
+      "villager": "村民 #{id}",
+      "walking": "正在行走：{purpose}",
+      "at": "在室内：{place}",
+      "home": "住所：{name}，位于 {c}, {r}",
+      "homeless": "无家可归。",
+      "job": "工作地点：{name}，{c}, {r}",
+      "jobPinned": "工作地点：{name}，{c}, {r}（由你指派）",
+      "noJob": "没有工作。",
+      "carrying": "搬运着 {goods}",
+      "carrierEmpty": "搬运工正赶去取货。",
+      "hungry": "饿了！",
+      "fed": "吃饱了（食物 {food}）",
+      "btn": {
+        "rotate": "旋转",
+        "demolish": "拆除",
+        "home": "住所",
+        "job": "工作",
+        "release": "解除",
+        "close": "关闭"
+      },
+      "btnHint": {
+        "rotate": "旋转这座建筑（免费，可撤销）。",
+        "demolish": "拆除这座建筑。",
+        "home": "把镜头移到这位村民的住所。",
+        "job": "把镜头移到这位村民的工作地点。",
+        "release": "让小镇重新为这位村民安排工作。",
+        "close": "关闭查看面板。"
+      }
+    },
+    "purpose": {
+      "idle": "哪儿也不去",
+      "work": "去工作",
+      "shop": "去市场",
+      "home": "回家",
+      "carry": "运送货物"
+    },
+    "notice": {
+      "noRoad": "{name}门前没有通路。",
+      "noWorkers": "{name}没有工人。",
+      "noInput": "{name}在等待：{goodName}。",
+      "hungry": {
+        "other": "{count} 位村民在挨饿。"
+      },
+      "storageFull": "仓库里的{goodName}已满。",
+      "broke": "没有金币支付工钱和维护费。",
+      "left": "一位村民离开了：{reasonText}。",
+      "mark": {
+        "bad": "[!!]",
+        "warn": "[!]"
+      }
+    },
+    "drag": {
+      "villager": "村民 #{id}",
+      "done": "村民 #{id} 现在在{name}工作。",
+      "no": "无法调到那里：{reason}",
+      "reason": {
+        "gone": "这位村民已经离开",
+        "no_jobs": "那里没有岗位",
+        "same": "他已经在那里工作",
+        "no_road": "他的住所与那里之间没有路",
+        "full": "没有空位了",
+        "none": "请放到一个工作地点上"
+      }
+    },
+    "toast": {
+      "rotated": "已旋转：{name}。"
+    }
+  },
+  "card": {
+    "continue": "继续"
+  }
+}

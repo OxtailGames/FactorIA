@@ -161,8 +161,10 @@ std::string format_help(const Command& cmd, const std::string& cmdPath) {
         std::vector<FlagSpec> specs = all_flags(cmd);
         std::size_t w = 0;
         auto label = [](const FlagSpec& f) { return "--" + f.name + (f.value.empty() ? "" : " " + f.value); };
-        for (const auto& f : specs) w = std::max(w, label(f).size());
+        for (const auto& f : specs)
+            if (!f.hidden) w = std::max(w, label(f).size());
         for (const auto& f : specs) {
+            if (f.hidden) continue;
             std::string l = label(f);
             o << "  " << l << std::string(w - l.size() + 2, ' ') << f.help << (f.repeatable ? " (repeatable)" : "") << "\n";
         }

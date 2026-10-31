@@ -75,6 +75,7 @@ TEST_CASE("scaffold: every template produces a valid project") {
         REQUIRE(mcp.ok());
         CHECK((*mcp)["mcpServers"]["factoria"]["command"] == "factoria");
         CHECK((*mcp)["mcpServers"]["factoria"]["args"] == Json::array({"mcp", "--project", "."}));
+        CHECK((*mcp)["mcpServers"]["factoria"]["timeout"] == kClaudeCodeMcpToolTimeoutMs);  // ai_run calls run for minutes
 
         CHECK(stdfs::exists(stdfs::path(dir) / "tests"));
         CHECK(stdfs::exists(stdfs::path(dir) / "tools"));
@@ -177,6 +178,21 @@ TEST_CASE("validate: reports missing feedback file, bad scene content and assets
     (*p)["input"]["actions"]["jump"] = Json::array({"Space"});
     REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
 
+    // Modifier chords: a good one passes, a typo in the modifier is an error with the pointer and a suggestion.
+    (*p)["input"]["actions"]["jump"] = Json::array({"Ctrl+Z", "Crtl+Y"});
+    REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
+    int chordErrors = 0;
+    bool chordSuggestion = false;
+    for (auto& e : validate_project(tmp.sub("game")).errors)
+        if (e.file == "factoria.json" && e.pointer.rfind("/input/actions/jump/", 0) == 0) {
+            ++chordErrors;
+            chordSuggestion = e.pointer == "/input/actions/jump/1" && e.hint.find("Ctrl") != std::string::npos;
+        }
+    CHECK(chordErrors == 1);
+    CHECK(chordSuggestion);
+    (*p)["input"]["actions"]["jump"] = Json::array({"Space"});
+    REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
+
     // Unknown component => scene load error with a did-you-mean hint.
     (*scene)["entities"][1]["components"]["Sprit"] = Json::object();
     REQUIRE(save_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());
@@ -205,6 +221,7 @@ TEST_CASE("mcp config helpers") {
     std::string toml = codex_mcp_toml(o);
     CHECK(toml.find("[mcp_servers.factoria]") != std::string::npos);
     CHECK(toml.find("args = [\"mcp\", \"--project\", \"/games/space\"]") != std::string::npos);
+    CHECK(toml.find("tool_timeout_sec = 14400") != std::string::npos);
 
     testing::TempDir tmp;
     testing::write_all(tmp.path / "config.toml", "model = \"x\"\n\n[mcp_servers.factoria]\ncommand = \"old\"\n\n[other]\na = 1\n");

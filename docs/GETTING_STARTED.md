@@ -49,11 +49,14 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
      it, click **Done**, open System Settings > Privacy & Security, click **Open Anyway** next to the message about
      `factoria`, run it again and confirm **Open Anyway** (macOS 14 and earlier: right-click `factoria` in Finder >
      **Open**). The games `factoria` exports then run without asking; `factoria_player` itself would need the same
-     approval, but you never run it directly.
+     approval, but you never run it directly. To open the editor from the Dock, Launchpad or Spotlight instead of the
+     Terminal, run `./factoria setup launcher` once: it writes `~/Applications/FactorIA.app` with the FactorIA icon
+     (drag it to the Dock); the editor keeps it up to date after updates.
    - **Linux:** run `./factoria editor` in the folder. It needs X11 and OpenGL, which desktop distributions include,
      and glibc 2.31 or newer: Ubuntu 20.04 and newer, Debian 11 and newer, Fedora, Arch... and the Steam Linux
      Runtime "sniper" (the programs are built in it, so the games you export run in Steam too, also on the Steam Deck).
      The AI assistant and AI asset generation also need the `curl` program, which most distributions install.
+     `./factoria setup launcher` adds FactorIA, with its icon, to the application menu.
    - **Linux AppImage:** run `./FactorIA-linux-x64.AppImage`. Without arguments it opens the editor; with arguments it
      is the `factoria` command (`./FactorIA-linux-x64.AppImage new my-game`; `editor my-game` opens that project).
      If it cannot mount itself (no FUSE), run it as `./FactorIA-linux-x64.AppImage --appimage-extract-and-run`. It does
@@ -84,6 +87,12 @@ every version newer than yours, and the editor waits for your answer:
   on the project you had open (if the scene has unsaved changes, it asks first). The replaced files stay as
   `<name>.old` until the next start, which deletes them.
 - **Not now** keeps your version. The editor asks again the next time it opens.
+
+Files you copy over the installation yourself (without the updater) are noticed too: the running editor offers a
+**Restart** notice at the bottom of its window ([EDITOR.md, Updates](EDITOR.md#updates)), and a `factoria mcp` that your AI
+client started restarts itself in place (Linux and macOS) or asks you to reconnect it with `/mcp` (Windows)
+([MCP.md, After an update](MCP.md#after-an-update)). You do not need to restart the client yourself, except when it
+says that its `.mcp.json` changed after it started.
 
 Offline, or when GitHub does not answer, the editor opens as usual and the Console says why. The FactorIA folder must
 be one you can write to (not `C:\Program Files`). To go back to an older version, download it from the Releases page.
@@ -293,8 +302,10 @@ claude
 2. `factoria new` creates a `.mcp.json` file in the project with this configuration:
 
 ```json
-{ "mcpServers": { "factoria": { "command": "factoria", "args": ["mcp", "--project", "."] } } }
+{ "mcpServers": { "factoria": { "command": "factoria", "args": ["mcp", "--project", "."], "timeout": 14400000 } } }
 ```
+
+`timeout` is the longest one tool call may take (4 hours), enough for a task the AI hands to a sub-agent. `claude mcp add` does not set it; add it to the file if you use that command.
 
 If your project does not have a `.mcp.json`, add the same server with:
 
@@ -359,7 +370,7 @@ factoria ai run "Add a coin counter on screen"
 ```
 
 Each task uses a role. In `~/.factoria/ai.json` you can assign a provider and a model to each one (in the editor: the
-**Roles...** button of the AI panel). Your requests go to the orchestrator, which hands work to the other two by itself:
+**AI > Roles...** in the menu bar). Your requests go to the orchestrator, which hands work to the other two by itself:
 
 | Role (key in the file) | What it is for | Default (Anthropic) |
 |---|---|---|
@@ -367,7 +378,7 @@ Each task uses a role. In `~/.factoria/ai.json` you can assign a provider and a 
 | Worker (`worker`) | Implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
 | Fast (`fast`) | Small, mechanical changes | `claude-haiku-5-5`, effort `max` |
 
-`factoria ai run` uses the orchestrator role unless you pass another one with `--role orchestrator|worker|fast`. You can also choose the provider and model with `--provider` and `--model`, and limit the run with `--max-turns` and `--max-cost` (in dollars).
+`factoria ai run` uses the orchestrator role unless you pass another one with `--role orchestrator|worker|fast|artist|audio` (the art critics and game reviewers run with `factoria ai review`, see `docs/AI_PROVIDERS.md`). You can also choose the provider and model with `--provider` and `--model`, and limit the run with `--max-turns` and `--max-cost` (in dollars).
 
 The `maxTurns` (number of steps) and `maxCostUsd` (maximum cost in dollars) limits stop a run when they are reached. Cost figures are estimates: the provider's invoice is what counts. `docs/AI_COSTS.md` (`factoria docs read ai-costs`) says what a whole game cost in tokens and money, what drives it and how to cap it. The two limits are enforced for API providers; Claude Code and Codex run their own loop, so their ceiling is the plan.
 

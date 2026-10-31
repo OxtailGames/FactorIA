@@ -385,3 +385,31 @@ TEST_CASE("perf.check: a triangle budget fails when the scene goes over it") {
     REQUIRE_MESSAGE(pass.ok, pass.error.dump());
     for (const Json& r : pass.result["rows"]) CHECK(r["metric"] != "triangles");
 }
+
+TEST_CASE("perf.measure counts the Light2D lights of a 2D scene in `lights`, the number maxLights budgets") {
+    TempDir t;
+    auto made = create_project(t.str(), "2d-empty");
+    REQUIRE(made.ok());
+    const std::filesystem::path root(t.str());
+    const std::string scene = R"({"format":"factoria.scene/1","entities":[
+      {"id":"camera","components":{"Transform":{},"Camera":{"primary":true}}},
+      {"id":"l1","components":{"Transform":{"position":[-50,0,0]},"Light2D":{"radius":100}}},
+      {"id":"l2","components":{"Transform":{"position":[0,0,0]},"Light2D":{"radius":100}}},
+      {"id":"l3","components":{"Transform":{"position":[50,0,0]},"Light2D":{"radius":100}}}]})";
+    auto project = load_json_file((root / "factoria.json").generic_string());
+    REQUIRE(project.ok());
+    const std::string mainScene = project.value()["mainScene"].get<std::string>();
+    REQUIRE(fs::write_text((root / mainScene).generic_string(), scene).ok());
+    CommandRegistry reg;
+    register_tooling_commands(reg, t.str());
+    CommandResult m = reg.call("perf.measure", Json::object({{"frames", 5}}));
+    REQUIRE_MESSAGE(m.ok, m.error.dump());
+    const Json& sample = m.result["sample"];
+    if (sample.value("drawCalls", 0) == 0) return;  // no GPU on this machine: nothing is drawn
+    CHECK(sample["lights"] == 3);
+    REQUIRE(fs::write_text((root / "perf.json").generic_string(),
+                           R"({"format":"factoria.perf/1","frames":5,"budgets":{"maxLights":2}})").ok());
+    CommandResult over = reg.call("perf.check", Json::object());
+    REQUIRE_FALSE(over.ok);
+    CHECK(over.error["code"] == "perf_budget_exceeded");
+}

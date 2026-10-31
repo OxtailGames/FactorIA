@@ -42,4 +42,8 @@ struct ModelInfo {
 // cannot list their models: an Error with the hint to type the name. Failures are Errors that say what to check.
 Result<std::vector<ModelInfo>> list_models(const ProviderConfig& cfg, ProviderRuntime rt = {});
 
+// The models a provider always accepts, for a model list when list_models cannot answer (the CLI is not installed or
+// not logged in yet): Claude Code's aliases default / opus / sonnet / haiku. Empty for every other kind.
+std::vector<ModelInfo> fallback_models(ProviderKind kind);
+
 }  // namespace fa::ai
