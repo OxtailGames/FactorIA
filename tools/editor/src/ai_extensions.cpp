@@ -94,9 +94,12 @@ void Editor::ai_extensions_load(const ai::AiConfig& cfg) {
     x.projectHash = p.hash;
     x.project = p.entries;
     x.projectLoaded = p.entries;
+    const ai::ClaudeProjectSettings claude = ai::load_claude_project_settings(projectDir_);
+    x.claudeHash = claude.hash;
+    x.claudePrograms = claude.describe();
     const std::string cfgPath = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
-    x.projectTrusted = p.exists && p.error.empty() &&
-                       ai::project_extensions_trusted(ai::extensions_trust_path(cfgPath), projectDir_, p.hash, nullptr, false);
+    x.projectTrusted = p.error.empty() &&
+                       ai::project_extensions_trusted(ai::extensions_trust_path(cfgPath), projectDir_, p.hash, nullptr, false, claude.hash);
 }
 
 void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable) {
@@ -129,11 +132,12 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     ctx.dropStaleTrust = false;
     if (ImGui::GetTime() - x.statusAt > 1.0) {
         x.status.clear();
-        if (!projectDir_.empty() && x.projectExists) {
-            // The file may have changed on disk since this tab read it (an AI edited it): the trust is for the bytes that were read.
+        if (!projectDir_.empty() && (x.projectExists || !x.claudeHash.empty())) {
+            // A file may have changed on disk since this tab read it (an AI edited it): the trust is for the bytes that were read.
             const ai::ProjectExtensions disk = ai::load_project_extensions(projectDir_);
-            x.projectTrusted = x.projectTrusted && disk.hash == x.projectHash &&
-                               ai::project_extensions_trusted(trustPath, projectDir_, disk.hash, nullptr, false);
+            const ai::ClaudeProjectSettings claude = ai::load_claude_project_settings(projectDir_);
+            x.projectTrusted = x.projectTrusted && disk.hash == x.projectHash && claude.hash == x.claudeHash &&
+                               ai::project_extensions_trusted(trustPath, projectDir_, disk.hash, nullptr, false, claude.hash);
         }
         for (const auto* list : {&x.user, &x.project}) {
             for (const ai::Extension& e : *list) {
@@ -381,7 +385,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     ImGui::Checkbox("Claude Code also loads my own plugins, skills and hooks", &x.inherit);
     at_track("aiset:ext:inherit");
     ImGui::SetItemTooltip("On (default): what you installed in Claude Code (~/.claude) keeps working in FactorIA's runs, and the list above is added to it.\n"
-                          "Off: runs get only the list above (Claude Code is started with --setting-sources project,local).");
+                          "Off: runs get only the list above, and none of your Claude Code settings (~/.claude: plugins, skills, hooks, permissions, env).");
 
     // ------------------------------------------------------------------------------------------------ trust
     ImGui::SeparatorText("This project");
@@ -389,17 +393,20 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         ImGui::TextDisabled("No project is open.");
     } else {
         ImGui::TextDisabled("%s", (projectDir_ + "/" + ai::kProjectExtensionsFile).c_str());
+        std::size_t programs = 0;
+        for (const ai::Extension& e : x.project) programs += e.runs_program() ? 1 : 0;
+        const bool claudeRuns = !x.claudeHash.empty();
         if (!x.projectError.empty()) {
             wrapped(kStatusFailed, "The project's extensions file is ignored: " + x.projectError);
-        } else if (!x.projectExists && x.project.empty()) {
+        }
+        if (x.projectError.empty() && !x.projectExists && x.project.empty() && !claudeRuns) {
             ImGui::TextDisabled("The project has no extensions file. Use \"Only for this project\" above to make one.");
-        } else {
-            std::size_t programs = 0;
-            for (const ai::Extension& e : x.project) programs += e.runs_program() ? 1 : 0;
-            if (programs == 0) {
+        } else if (x.projectError.empty() || claudeRuns) {
+            if (programs == 0 && !claudeRuns) {
                 ImGui::TextDisabled("This project's extensions are skills (text only): nothing to trust.");
             } else if (x.projectTrusted) {
-                wrapped(kStatusReady, "You trust this project's plugins and hooks. The trust ends when its extensions file changes.");
+                wrapped(kStatusReady, "You trust this project's plugins, hooks and Claude Code settings (.claude/settings*.json). The trust ends when "
+                                      "its extensions file or either settings file changes.");
                 if (ImGui::Button("Stop trusting this project")) {
                     if (auto r = ai::forget_project_trust(trustPath, projectDir_); r) {
                         x.projectTrusted = false;
@@ -411,8 +418,12 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                 }
                 at_track("aiset:ext:untrust");
             } else {
-                wrapped(kStatusWarn, "This project lists " + std::to_string(programs) + (programs == 1 ? " plugin or hooks entry" : " plugin or hooks entries") +
-                                         " that run programs on this computer. They do not load until you trust the project.");
+                std::string what;
+                if (programs > 0)
+                    what = std::to_string(programs) + (programs == 1 ? " plugin or hooks entry" : " plugin or hooks entries") + " in its extensions file";
+                if (claudeRuns) what += std::string(what.empty() ? "" : " and ") + "programs in its Claude Code settings (.claude/settings*.json)";
+                wrapped(kStatusWarn, "This project has " + what + " that run on this computer. They do not load until you trust the project" +
+                                         (claudeRuns ? ": Claude Code starts without the project's .claude settings, permissions and env included." : "."));
                 if (ImGui::Button(x.showTrust ? "Hide what would run" : "Review what would run...")) x.showTrust = !x.showTrust;
                 at_track("aiset:ext:review");
                 if (x.showTrust) {
@@ -424,21 +435,28 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                         ImGui::TextDisabled("%s", detail.c_str());
                         ImGui::Unindent();
                     }
+                    for (const std::string& line : x.claudePrograms) ImGui::BulletText("%s", line.c_str());
                     const bool saved = ai::extensions_to_json({x.project, true}, false) == ai::extensions_to_json({x.projectLoaded, true}, false);
-                    ImGui::BeginDisabled(!saved || !x.projectExists);
+                    const bool canTrust = saved && x.projectError.empty() && (x.projectExists || claudeRuns);
+                    ImGui::BeginDisabled(!canTrust);
                     if (ImGui::Button("Trust this project")) {
-                        if (auto r = ai::trust_project_extensions(trustPath, projectDir_, x.projectHash); r) {
+                        // The user reviewed what this tab read: trust exactly that, not whatever the disk holds now.
+                        const bool unchanged = ai::load_project_extensions(projectDir_).hash == x.projectHash &&
+                                               ai::load_claude_project_settings(projectDir_).hash == x.claudeHash;
+                        if (!unchanged) {
+                            x.trustMessage = "A settings file changed on disk since this tab read it. Close AI settings, open them again and review it.";
+                        } else if (auto r = ai::trust_project_extensions(trustPath, projectDir_, x.projectHash, x.claudeHash); r) {
                             x.projectTrusted = true;
                             x.showTrust = false;
-                            x.trustMessage = "Trusted. The next AI run loads this project's plugins and hooks.";
+                            x.trustMessage = "Trusted. The next AI run loads this project's plugins, hooks and Claude Code settings.";
                         } else {
                             x.trustMessage = r.error().to_string();
                         }
                         x.statusAt = -10;
                     }
                     ImGui::EndDisabled();
-                    at_track("aiset:ext:trust", saved && x.projectExists);
-                    ImGui::SetItemTooltip("Remembered for this project folder and this exact file, in %s. If the file changes (you, a teammate or the AI edits it) the trust ends.",
+                    at_track("aiset:ext:trust", canTrust);
+                    ImGui::SetItemTooltip("Remembered for this project folder and these exact files (the extensions file and .claude/settings*.json), in %s. If one changes (you, a teammate or the AI edits it) the trust ends.",
                                           trustPath.c_str());
                     if (!saved) ImGui::TextDisabled("Save your changes first: the trust applies to the saved file.");
                 }
@@ -474,13 +492,14 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         if (saved && !projectDir_.empty() && (projectChanged || x.projectExists) && x.projectError.empty()) {
             if (projectChanged) {
                 const ai::ProjectExtensions disk = ai::load_project_extensions(projectDir_);
-                const bool wasTrusted = x.projectTrusted && disk.hash == x.projectHash &&
-                                        ai::project_extensions_trusted(trustPath, projectDir_, disk.hash, nullptr, false);
+                const ai::ClaudeProjectSettings claudeNow = ai::load_claude_project_settings(projectDir_);
+                const bool wasTrusted = x.projectTrusted && disk.hash == x.projectHash && claudeNow.hash == x.claudeHash &&
+                                        ai::project_extensions_trusted(trustPath, projectDir_, disk.hash, nullptr, false, claudeNow.hash);
                 saved = ai::save_project_extensions(x.project, projectDir_);
                 // The user just edited this file in the editor, with its content on screen: a trust they had given carries over.
                 if (saved && wasTrusted) {
                     const ai::ProjectExtensions now = ai::load_project_extensions(projectDir_);
-                    if (now.exists) saved = ai::trust_project_extensions(trustPath, projectDir_, now.hash);
+                    if (now.exists) saved = ai::trust_project_extensions(trustPath, projectDir_, now.hash, claudeNow.hash);
                 }
             }
         }

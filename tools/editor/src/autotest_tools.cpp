@@ -4385,8 +4385,8 @@ void Editor::at_build_tools_script() {
     // when the file changes.
     {
         struct EState {
-            std::string path, previousEnv, plugin, skill, projectFileText;
-            bool hadEnv = false;
+            std::string path, previousEnv, plugin, skill, projectFileText, claudeFile, claudeBackup;
+            bool hadEnv = false, hadClaudeFile = false;
             std::vector<ai::ProviderStatus> savedStatus;
         };
         auto x = std::make_shared<EState>();
@@ -4422,6 +4422,11 @@ void Editor::at_build_tools_script() {
             std::error_code ec;
             stdfs::remove(projectDir_ + "/.factoria/extensions.json", ec);
             stdfs::remove(ai::extensions_trust_path(x->path), ec);
+            // The project's own Claude Code settings run a program: the trust below covers them too.
+            x->claudeFile = projectDir_ + "/.claude/settings.local.json";
+            x->hadClaudeFile = stdfs::exists(x->claudeFile, ec);
+            if (x->hadClaudeFile) x->claudeBackup = read_file(x->claudeFile);
+            write_file(x->claudeFile, R"j({"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo autotest"}]}]}})j");
             set_env("FACTORIA_AI_CONFIG", x->path);
             ai_refresh_providers();
         });
@@ -4554,13 +4559,27 @@ void Editor::at_build_tools_script() {
             at_check(skill != aiSettings_.ext.status.end() && skill->second.empty(), "...while the skill (text) is ready");
         });
         click("aiset:ext:review");
-        step(3, [this] { at_check(aiSettings_.ext.showTrust && at_visible("aiset:ext:trust"), "Review what would run opens the list and the Trust button"); });
+        step(3, [this] {
+            at_check(aiSettings_.ext.showTrust && at_visible("aiset:ext:trust"), "Review what would run opens the list and the Trust button");
+            at_check(aiSettings_.ext.claudePrograms.size() == 1 && aiSettings_.ext.claudePrograms[0].find("settings.local.json: hooks (SessionStart)") != std::string::npos,
+                     "...which also lists what the project's .claude/settings.local.json would run");
+            const ai::AiConfig cfg = [&] {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                return aiConfig_;
+            }();
+            const ai::ExtensionPlan plan = ai::plan_extensions(cfg, ai::default_config().providers.at("claude-code"), "worker",
+                                                               ai::make_extension_context(cfg, projectDir_, ai::system_env()));
+            at_check(plan.projectSettingsOff, "until then a Claude Code run starts without the project's .claude settings");
+        });
+        scroll_to("aiset:ext:trust", "AI settings###AiSettings");  // the list of what would run grew: the button is below the fold
         snap("editor_ai_extensions_trust.png");
         click("aiset:ext:trust");
         step(4, [this, x] {
             const ai::ProjectExtensions pe = ai::load_project_extensions(projectDir_);
-            at_check(aiSettings_.ext.projectTrusted && ai::project_extensions_trusted(ai::extensions_trust_path(x->path), projectDir_, pe.hash),
-                     "Trust this project records the trust for this file (" + aiSettings_.ext.trustMessage + ")");
+            const ai::ClaudeProjectSettings claude = ai::load_claude_project_settings(projectDir_);
+            at_check(aiSettings_.ext.projectTrusted && claude.runs_programs() &&
+                         ai::project_extensions_trusted(ai::extensions_trust_path(x->path), projectDir_, pe.hash, nullptr, false, claude.hash),
+                     "Trust this project records the trust for both the extensions file and .claude/settings*.json (" + aiSettings_.ext.trustMessage + ")");
             const ai::AiConfig cfg = [&] {
                 std::lock_guard<std::mutex> lock(aiMu_);
                 return aiConfig_;
@@ -4568,6 +4587,7 @@ void Editor::at_build_tools_script() {
             ai::ExtensionContext ctx = ai::make_extension_context(cfg, projectDir_, ai::system_env());
             const ai::ExtensionPlan plan = ai::plan_extensions(cfg, ai::default_config().providers.at("claude-code"), "worker", ctx);
             at_check(plan.hooks.is_object() && plan.hooks.contains("Stop"), "a Claude Code run for the worker now gets the project's hooks");
+            at_check(!plan.projectSettingsOff, "...and loads the project's own .claude settings");
             x->projectFileText = read_file(projectDir_ + "/.factoria/extensions.json");
         });
         // The file changes behind the editor's back (an AI edit): the trust ends.
@@ -4576,7 +4596,9 @@ void Editor::at_build_tools_script() {
             j["hooks"]["stop-log"]["hooks"]["Stop"][0]["hooks"][0]["command"] = "echo something-else";
             write_file(projectDir_ + "/.factoria/extensions.json", j.dump(2));
             const ai::ProjectExtensions pe = ai::load_project_extensions(projectDir_);
-            at_check(!ai::project_extensions_trusted(ai::extensions_trust_path(x->path), projectDir_, pe.hash), "an edited project file is no longer trusted");
+            at_check(!ai::project_extensions_trusted(ai::extensions_trust_path(x->path), projectDir_, pe.hash, nullptr, false,
+                                                     ai::load_claude_project_settings(projectDir_).hash),
+                     "an edited project file is no longer trusted");
             const ai::AiConfig cfg = [&] {
                 std::lock_guard<std::mutex> lock(aiMu_);
                 return aiConfig_;
@@ -4584,6 +4606,7 @@ void Editor::at_build_tools_script() {
             const ai::ExtensionPlan plan = ai::plan_extensions(cfg, ai::default_config().providers.at("claude-code"), "worker",
                                                                ai::make_extension_context(cfg, projectDir_, ai::system_env()));
             at_check(!plan.hooks.is_object() || !plan.hooks.contains("Stop"), "...and a run does not get its hooks");
+            at_check(plan.projectSettingsOff, "...nor the project's .claude settings, which the same trust covered");
         });
         // Remove everything, Save.
         step(3, [this] {
@@ -4612,6 +4635,11 @@ void Editor::at_build_tools_script() {
             stdfs::remove(ai::extensions_trust_path(x->path), ec);
             stdfs::remove_all(x->plugin, ec);
             stdfs::remove_all(projectDir_ + "/skills/autotest_gdd", ec);
+            if (x->hadClaudeFile) write_file(x->claudeFile, x->claudeBackup);
+            else {
+                stdfs::remove(x->claudeFile, ec);
+                stdfs::remove(projectDir_ + "/.claude", ec);  // only when it is empty
+            }
             std::lock_guard<std::mutex> lock(aiMu_);
             if (atSavedConfig_) {
                 aiConfig_ = std::move(*atSavedConfig_);

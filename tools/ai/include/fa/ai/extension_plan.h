@@ -56,6 +56,10 @@ struct ExtensionPlan {
     std::vector<std::string> skillDirs;   // each skill folder; Claude Code gets them as one generated plugin
     Json hooks;                           // merged events object; null when there are none
     bool userPluginsOff = false;          // inheritUserPlugins false and the provider honours it
+    // Claude Code only: the project's .claude/settings*.json runs a program and the project is not trusted, so the run starts
+    // without the project and local setting sources. `untrustedSettings` says what would have run (ClaudeProjectSettings::describe).
+    bool projectSettingsOff = false;
+    std::vector<std::string> untrustedSettings;
     std::vector<ExtensionItem> received;  // entries the run loads
     std::vector<ExtensionItem> skipped;   // entries for this role the run does not load, each with problem + fix
     std::vector<std::string> notes;       // lines for the run output, in plain English
@@ -78,6 +82,19 @@ Json merge_hooks(const std::vector<Json>& sets);
 // dir/skills/<name>/ (a copy of each folder; symbolic links are not followed). Names that collide get -2, -3...
 Result<void> write_skills_plugin(const std::string& dir, const std::vector<std::string>& skillDirs);
 inline constexpr const char* kSkillsPluginName = "factoria-extensions";
+
+// What the trust of a project covers, read from disk: its extensions file and its Claude Code settings.
+struct ProjectTrustState {
+    ProjectExtensions extensions;
+    ClaudeProjectSettings claude;
+    bool needsTrust = false;  // something in the project runs a program (a plugin or hooks entry, or a program in .claude/settings*.json)
+    bool trusted = false;     // the user trusted exactly these files
+};
+ProjectTrustState read_project_trust(const ExtensionContext& ctx, bool dropStale);
+
+// The sentence the run, `ai.extensions` and `factoria ai doctor` use when the project's .claude/settings*.json is not loaded:
+// what it holds, what that costs, how to trust the project.
+std::string untrusted_settings_message(const std::vector<std::string>& described);
 
 // The report `ai.extensions` returns (JSON, see docs/AI_PROVIDERS.md). `role` empty = every role.
 Json extensions_report(const AiConfig& cfg, const ExtensionContext& ctx, std::string_view role = {});

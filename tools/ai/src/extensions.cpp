@@ -463,25 +463,28 @@ Result<void> write_trust(std::string_view trustPath, Json root) {
 }  // namespace
 
 bool project_extensions_trusted(std::string_view trustPath, std::string_view projectDir, std::string_view hash, bool* dropped,
-                                bool dropStale) {
+                                bool dropStale, std::string_view claudeHash) {
     if (dropped) *dropped = false;
-    if (hash.empty()) return false;
+    if (hash.empty() && claudeHash.empty()) return false;
     Json root = read_trust(trustPath);
     if (!root.contains("projects")) return false;
     Json& projects = root["projects"];
     const std::string key = canonical_project_key(projectDir);
     auto it = projects.find(key);
     if (it == projects.end()) return false;
-    if (util::str(*it, "extensionsHash") == hash) return true;
+    if (util::str(*it, "extensionsHash") == hash && util::str(*it, "claudeSettingsHash") == claudeHash) return true;
     if (dropped) *dropped = true;
     if (!dropStale) return false;
-    projects.erase(key);  // the file changed since the user trusted it: the trust is gone
+    projects.erase(key);  // a file changed since the user trusted the project: the trust is gone
     (void)write_trust(trustPath, std::move(root));
     return false;
 }
 
-Result<void> trust_project_extensions(std::string_view trustPath, std::string_view projectDir, std::string_view hash) {
-    if (hash.empty()) return err("This project has no .factoria/extensions.json to trust", "Add extensions to the project first.");
+Result<void> trust_project_extensions(std::string_view trustPath, std::string_view projectDir, std::string_view hash,
+                                      std::string_view claudeHash) {
+    if (hash.empty() && claudeHash.empty())
+        return err("This project has nothing to trust: no .factoria/extensions.json and no program in .claude/settings*.json",
+                   "Add extensions to the project first.");
     Json root = read_trust(trustPath);
     if (!root.contains("projects")) {
         root["projects"] = Json::object();
@@ -489,6 +492,7 @@ Result<void> trust_project_extensions(std::string_view trustPath, std::string_vi
     }
     Json record = Json::object();
     record["extensionsHash"] = std::string(hash);
+    record["claudeSettingsHash"] = std::string(claudeHash);
     root["projects"][canonical_project_key(projectDir)] = std::move(record);
     return write_trust(trustPath, std::move(root));
 }
@@ -498,6 +502,99 @@ Result<void> forget_project_trust(std::string_view trustPath, std::string_view p
     if (!root.contains("projects")) return {};
     if (root["projects"].erase(canonical_project_key(projectDir)) == 0) return {};
     return write_trust(trustPath, std::move(root));
+}
+
+// --- Claude Code's project settings ----------------------------------------------------------------------------------
+
+namespace {
+
+bool non_empty_container(const Json* v) { return v && ((v->is_object() || v->is_array()) && !v->empty()); }
+
+// Which settings of a Claude Code settings file name a program to run.
+std::vector<std::string> settings_programs(const Json& s) {
+    std::vector<std::string> out;
+    if (!s.is_object()) return out;
+    if (const Json* hooks = child(s, "hooks"); non_empty_container(hooks) && hooks->is_object()) {
+        std::string events;
+        for (auto it = hooks->begin(); it != hooks->end(); ++it) {
+            if (!it.value().is_array() || it.value().empty()) continue;
+            events += (events.empty() ? "" : ", ") + it.key();
+        }
+        if (!events.empty()) out.push_back("hooks (" + events + ")");
+    }
+    if (const Json* plugins = child(s, "enabledPlugins"); plugins && plugins->is_object()) {
+        std::string names;
+        for (auto it = plugins->begin(); it != plugins->end(); ++it) {
+            const bool on = it.value().is_boolean() ? it.value().get<bool>() : !it.value().is_null();
+            if (on) names += (names.empty() ? "" : ", ") + it.key();
+        }
+        if (!names.empty()) out.push_back("enabledPlugins (" + names + ")");
+    }
+    if (const Json* mk = child(s, "extraKnownMarketplaces"); non_empty_container(mk) && mk->is_object()) {
+        std::string names;
+        for (auto it = mk->begin(); it != mk->end(); ++it) names += (names.empty() ? "" : ", ") + it.key();
+        out.push_back("extraKnownMarketplaces (" + names + ")");
+    }
+    for (const char* key : {"statusLine", "fileSuggestion"}) {
+        const Json* v = child(s, key);
+        if (v && !v->is_null() && !(v->is_object() && v->empty())) out.push_back(key);
+    }
+    for (const char* key : {"apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper"}) {
+        const Json* v = child(s, key);
+        if (v && v->is_string() && !v->get<std::string>().empty()) out.push_back(key);
+    }
+    // Servers of the project's .mcp.json run programs, and these settings approve them without asking.
+    if (const Json* v = child(s, "enableAllProjectMcpServers"); v && v->is_boolean() && v->get<bool>())
+        out.push_back("enableAllProjectMcpServers");
+    if (const Json* v = child(s, "enabledMcpjsonServers"); non_empty_container(v)) out.push_back("enabledMcpjsonServers");
+    return out;
+}
+
+}  // namespace
+
+std::vector<std::string> ClaudeProjectSettings::describe() const {
+    std::vector<std::string> out;
+    for (const ClaudeSettingsFile& f : files) {
+        if (f.programs.empty()) continue;
+        std::string line = ".claude/" + fsys::path(f.path).filename().string() + ": ";
+        for (std::size_t i = 0; i < f.programs.size(); ++i) line += (i ? ", " : "") + f.programs[i];
+        out.push_back(std::move(line));
+    }
+    return out;
+}
+
+ClaudeProjectSettings load_claude_project_settings(std::string_view projectDir) {
+    ClaudeProjectSettings out;
+    if (projectDir.empty()) return out;
+    const fsys::path dir = absolute_project(projectDir) / ".claude";
+    std::string material;
+    bool runs = false;
+    for (const char* name : {"settings.json", "settings.local.json"}) {
+        ClaudeSettingsFile f;
+        f.path = (dir / name).string();
+        std::error_code ec;
+        std::string bytes;
+        if (fsys::is_regular_file(f.path, ec)) {
+            f.exists = true;
+            if (auto text = fs::read_text(f.path)) {
+                bytes = std::move(*text);
+                f.hash = sha256_hex(bytes);
+                auto parsed = fa::parse_json(bytes, f.path);
+                if (parsed) {
+                    f.programs = settings_programs(*parsed);
+                } else {
+                    f.error = parsed.error().message;
+                }
+            } else {
+                f.error = text.error().message;
+            }
+        }
+        runs = runs || !f.programs.empty();
+        material += std::string(name) + '\n' + (f.exists ? "1" : "0") + '\n' + f.hash + '\n';
+        out.files.push_back(std::move(f));
+    }
+    if (runs) out.hash = sha256_hex(material);
+    return out;
 }
 
 // --- deny rules -----------------------------------------------------------------------------------------------------

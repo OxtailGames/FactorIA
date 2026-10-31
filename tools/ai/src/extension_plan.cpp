@@ -267,6 +267,29 @@ Result<void> write_skills_plugin(const std::string& dir, const std::vector<std::
     return {};
 }
 
+ProjectTrustState read_project_trust(const ExtensionContext& ctx, bool dropStale) {
+    ProjectTrustState st;
+    if (ctx.projectDir.empty()) return st;
+    st.extensions = load_project_extensions(ctx.projectDir);
+    st.claude = load_claude_project_settings(ctx.projectDir);
+    bool programEntry = false;
+    for (const Extension& e : st.extensions.entries) programEntry = programEntry || e.runs_program();
+    st.needsTrust = programEntry || st.claude.runs_programs();
+    // The trust is for both sources at once: a file that fails to parse cannot be trusted.
+    if (st.extensions.error.empty())
+        st.trusted = project_extensions_trusted(ctx.trustPath, ctx.projectDir, st.extensions.hash, nullptr, dropStale, st.claude.hash);
+    return st;
+}
+
+std::string untrusted_settings_message(const std::vector<std::string>& described) {
+    std::string list;
+    for (const std::string& d : described) list += (list.empty() ? "" : "; ") + d;
+    return "The project's Claude Code settings run programs (" + list + ") and you have not trusted this project, so Claude Code "
+           "started without its project and local settings: those hooks, plugins and commands did not run, and the permissions and env "
+           "in those files were not applied either. To load them, read them in the editor (AI settings > Extensions > This project) and "
+           "choose Trust this project; the trust ends when either file changes.";
+}
+
 ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provider, std::string_view role, const ExtensionContext& ctx) {
     ExtensionPlan plan;
     plan.provider = provider.name;
@@ -276,17 +299,18 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
 
     // The entries that apply to this role: the user's, then the project's.
     std::vector<const Extension*> entries = cfg.extensions_for(role);
-    ProjectExtensions project;
-    bool projectTrusted = false;
-    if (!ctx.projectDir.empty()) {
-        project = load_project_extensions(ctx.projectDir);
-        if (!project.error.empty()) {
-            plan.notes.push_back("The project's extensions file was ignored: " + project.error);
-        } else if (!project.entries.empty()) {
-            projectTrusted = project_extensions_trusted(ctx.trustPath, ctx.projectDir, project.hash, nullptr, ctx.dropStaleTrust);
-            for (const Extension& e : project.entries)
-                if (e.serves_role(role)) entries.push_back(&e);
-        }
+    const ProjectTrustState state = read_project_trust(ctx, ctx.dropStaleTrust);
+    const ProjectExtensions& project = state.extensions;
+    const bool projectTrusted = state.trusted;
+    if (!project.error.empty()) {
+        plan.notes.push_back("The project's extensions file was ignored: " + project.error);
+    } else {
+        for (const Extension& e : project.entries)
+            if (e.serves_role(role)) entries.push_back(&e);
+    }
+    if (provider.kind == ProviderKind::ClaudeCode && state.claude.runs_programs() && !projectTrusted) {
+        plan.projectSettingsOff = true;
+        plan.untrustedSettings = state.claude.describe();
     }
 
     std::vector<Json> hookSets;
@@ -336,11 +360,12 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
         plan.notes.push_back("Extensions loaded: " + list + ".");
     }
     if (plan.userPluginsOff) {
-        plan.notes.push_back("inheritUserPlugins is off: this run starts Claude Code with --setting-sources project,local, so the "
-                             "plugins, skills, hooks and settings of your ~/.claude are not loaded.");
+        plan.notes.push_back("inheritUserPlugins is off: this run starts Claude Code without the settings of your ~/.claude, so your "
+                             "plugins, skills, hooks, permissions and env are not loaded.");
     } else if (!cfg.extensions.inheritUserPlugins && !plan.support.inheritSetting) {
         plan.notes.push_back("inheritUserPlugins is off, but it applies to Claude Code only: provider '" + provider.name + "' is not affected.");
     }
+    if (plan.projectSettingsOff) plan.notes.push_back(untrusted_settings_message(plan.untrustedSettings));
     if (provider.kind == ProviderKind::ClaudeCode && !ctx.projectDir.empty()) {
         plan.denied = find_denied_factoria_tools(ctx.projectDir);
         for (const DeniedTool& d : plan.denied) plan.notes.push_back(format_denied_tool(d));
@@ -376,12 +401,9 @@ Json extensions_report(const AiConfig& cfg, const ExtensionContext& ctx, std::st
     Json out = Json::object();
     out["inheritUserPlugins"] = cfg.extensions.inheritUserPlugins;
 
-    ProjectExtensions project;
-    bool projectTrusted = false;
-    if (!ctx.projectDir.empty()) {
-        project = load_project_extensions(ctx.projectDir);
-        projectTrusted = !project.hash.empty() && project_extensions_trusted(ctx.trustPath, ctx.projectDir, project.hash, nullptr, false);
-    }
+    const ProjectTrustState state = read_project_trust(ctx, false);
+    const ProjectExtensions& project = state.extensions;
+    const bool projectTrusted = state.trusted;
     Json file = Json::object({{"path", project.path}, {"exists", project.exists}});
     if (project.exists) {
         file["hash"] = project.hash;
@@ -389,6 +411,27 @@ Json extensions_report(const AiConfig& cfg, const ExtensionContext& ctx, std::st
         if (!project.error.empty()) file["error"] = project.error;
     }
     out["projectFile"] = ctx.projectDir.empty() ? Json() : file;
+    if (!ctx.projectDir.empty()) {
+        // The project's own Claude Code settings: read, never loaded for the user, and kept out of runs until trusted.
+        Json files = Json::array();
+        for (const ClaudeSettingsFile& f : state.claude.files) {
+            Json fj = Json::object({{"path", f.path}, {"exists", f.exists}, {"runsPrograms", !f.programs.empty()}, {"programs", f.programs}});
+            if (f.exists) fj["hash"] = f.hash;
+            if (!f.error.empty()) fj["error"] = f.error;
+            files.push_back(std::move(fj));
+        }
+        Json cs = Json::object({{"files", std::move(files)}, {"runsPrograms", state.claude.runs_programs()}});
+        if (state.claude.runs_programs()) {
+            cs["hash"] = state.claude.hash;
+            cs["trusted"] = projectTrusted;
+            cs["loadedByClaudeCode"] = projectTrusted;
+            if (!projectTrusted) {
+                cs["message"] = untrusted_settings_message(state.claude.describe());
+                cs["fix"] = "In the editor: AI settings > Extensions > This project > Trust this project (no command can grant it).";
+            }
+        }
+        out["claudeSettings"] = std::move(cs);
+    }
 
     std::vector<const Extension*> all;
     for (const Extension& e : cfg.extensions.entries) all.push_back(&e);
@@ -428,6 +471,7 @@ Json extensions_report(const AiConfig& cfg, const ExtensionContext& ctx, std::st
         r["skipped"] = std::move(skipped);
         r["notes"] = plan.notes;
         r["userPluginsOff"] = plan.userPluginsOff;
+        r["projectSettingsSkipped"] = plan.projectSettingsOff;
         roles[roleName] = std::move(r);
     }
     out["roles"] = std::move(roles);
@@ -446,10 +490,9 @@ Json extensions_report(const AiConfig& cfg, const ExtensionContext& ctx, std::st
 
 std::vector<std::string> extension_doctor_lines(const AiConfig& cfg, const ExtensionContext& ctx) {
     std::vector<std::string> lines;
-    ProjectExtensions project;
-    if (!ctx.projectDir.empty()) project = load_project_extensions(ctx.projectDir);
-    const bool projectTrusted =
-        !project.hash.empty() && project_extensions_trusted(ctx.trustPath, ctx.projectDir, project.hash, nullptr, false);
+    const ProjectTrustState state = read_project_trust(ctx, false);
+    const ProjectExtensions& project = state.extensions;
+    const bool projectTrusted = state.trusted;
     std::vector<const Extension*> all;
     for (const Extension& e : cfg.extensions.entries) all.push_back(&e);
     for (const Extension& e : project.entries) all.push_back(&e);
@@ -467,6 +510,8 @@ std::vector<std::string> extension_doctor_lines(const AiConfig& cfg, const Exten
         if (item.problem.empty()) continue;
         lines.push_back(std::string("  ! ") + extension_kind_name(e->kind) + " '" + e->name + "' (" + e->source + "): " + item.problem + ". " + item.fix);
     }
+    if (state.claude.runs_programs() && !projectTrusted)
+        lines.push_back("  ! " + untrusted_settings_message(state.claude.describe()));
     for (const DeniedTool& d : find_denied_factoria_tools(ctx.projectDir)) lines.push_back("  ! " + format_denied_tool(d));
     return lines;
 }
