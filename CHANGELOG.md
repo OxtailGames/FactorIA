@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### New
+
+- Engine developer side of feedback sharing (M46.4): `factoria feedback pull` downloads the reports users shared into an inbox (one `ENGINE_FEEDBACK.json` per installation, merged by `shareId`, `--full` to refresh occurrences), a cheap AI role (`fast`) judges them valid, doubtful or junk with junk going to `feedback quarantine`, `feedback ban|unban|bans|delete|stats` manage the server, and `feedback fixed add|list` maintain `feedback/fixed.json`. `feedback collect` now scores `severity weight x trust x min(occurrences, 3)` per project (anonymous installations count half) and reports installations and verified installations. Guide: docs/EXTENDING.md, section F.1.
+
 ## 0.9.0
 
 FactorIA 0.9.0 (M44) brings what a 3D book needs, found by the user's game Roguestory: scripts build and deform meshes in code (`mesh.create`, `mesh.update`, `mesh.save` to a `.glb`) with vertex colors, a camera can draw live into a texture that a model shows (`Camera.renderTarget`, `"target:<name>"`) and the pointer reaches the buttons on it through the mesh, `render.captureTexture` photographs any part of the world off-screen at a scale you choose, world Text can be sized in meters and lit, a project tool always runs the code on disk, and AI session logs carry times that `ai.session_timeline` turns into a timeline.
