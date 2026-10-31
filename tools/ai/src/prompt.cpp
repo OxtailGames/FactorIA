@@ -349,6 +349,7 @@ std::string build_system_prompt(const PromptContext& ctx) {
     }
     if (const std::string section = external_tools_prompt(ctx.toolServers, is_review_role(ctx.role)); !section.empty())
         out += section + "\n\n";
+    if (!ctx.toolCatalog.empty()) out += ctx.toolCatalog + "\n";
     out += "# Project context\n";
     if (ctx.projectDir.empty()) {
         out += "No project directory is open.\n";

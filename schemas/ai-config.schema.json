@@ -136,6 +136,11 @@
           "type": "integer",
           "minimum": 100000,
           "description": "Most context a session keeps, in tokens (e.g. 400000 on a 1M model). Past it the earlier turns are summarized. Claude Code and the anthropic provider honour it; other providers ignore it. Omit for the model's whole window."
+        },
+        "toolGroups": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Built-in agent (API providers) only: tool groups to always load with their full definition, on top of the core commands. A group is a command category (assets, anim, audio, ui, i18n, platform, publish, perf, nav, physics, mesh...), an exact command name (assets.draw_icon) or \"all\" (every command in full, about 80k tokens on every step). Every other command is a line of the catalog in the system prompt that the agent describes (tool_describe) and calls (tool_call) on demand. Omit for the role's default (artist: assets; audio: assets and audio; others: none); [] loads none. `ai.tool_plan` shows what a role gets. CLI agents ignore it."
         }
       },
       "additionalProperties": false

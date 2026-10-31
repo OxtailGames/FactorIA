@@ -697,6 +697,24 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         if (rj.contains("maxTokens")) r.maxTokens = static_cast<int>(num(rj, "maxTokens"));
         if (rj.contains("maxContextTokens")) r.maxContextTokens = static_cast<u64>(num(rj, "maxContextTokens"));
         if (rj.contains("enabled")) r.enabled = flag(rj, "enabled", true);
+        if (const Json* groups = child(rj, "toolGroups")) {
+            if (!groups->is_array()) {
+                return make_error(std::string(sourceName) + ": /roles/" + name + "/toolGroups: must be an array of strings",
+                                  "Name command categories or commands, e.g. \"toolGroups\": [\"assets\", \"anim\"]; [] loads none "
+                                  "and [\"all\"] loads every command in full.");
+            }
+            std::vector<std::string> list;
+            for (std::size_t i = 0; i < groups->size(); ++i) {
+                const Json& g = (*groups)[i];
+                if (!g.is_string() || g.get<std::string>().empty()) {
+                    return make_error(std::string(sourceName) + ": /roles/" + name + "/toolGroups/" + std::to_string(i) +
+                                          ": must be a non-empty string",
+                                      "Name a command category (assets, anim, ui, publish...), a command (assets.draw_icon) or \"all\".");
+                }
+                list.push_back(g.get<std::string>());
+            }
+            r.toolGroups = std::move(list);
+        }
         if (name == kRoleOrchestrator && !r.enabled) {
             return make_error(std::string(sourceName) + ": /roles/orchestrator/enabled: the orchestrator cannot be turned off",
                               "The orchestrator is the agent that talks to you and does the work of every role that is off. "
@@ -835,6 +853,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         if (r.maxTokens > 0) rj["maxTokens"] = r.maxTokens;
         if (r.maxContextTokens > 0) rj["maxContextTokens"] = r.maxContextTokens;
         if (!r.enabled) rj["enabled"] = false;
+        if (r.toolGroups) rj["toolGroups"] = *r.toolGroups;
         roles[name] = rj;
     }
     out["roles"] = roles;
@@ -886,6 +905,7 @@ Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::str
         else rj.erase("maxContextTokens");
         if (r.enabled || name == kRoleOrchestrator) rj.erase("enabled");
         else rj["enabled"] = false;
+        if (r.toolGroups) rj["toolGroups"] = *r.toolGroups;  // unset: whatever the file says stays
     }
     return fs::write_text(path, dump_json(j));
 }

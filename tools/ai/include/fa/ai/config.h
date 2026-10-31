@@ -99,6 +99,10 @@ struct RoleConfig {
     // Always true for the orchestrator. For artCritic and reviewer, off means a review runs on the orchestrator's
     // provider, model and effort (AiConfig::effective_role).
     bool enabled = true;
+    // Tool groups (command categories such as "assets", "anim", "ui", or exact command names) the built-in agent always gets
+    // with their full definition, on top of its core commands; every other command is a line of the catalog it can describe
+    // and call (tool_catalog.h). "all" = every command in full. Unset = default_tool_groups(role); {} = none. API providers only.
+    std::optional<std::vector<std::string>> toolGroups;
 };
 
 struct Limits {
