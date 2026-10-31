@@ -3262,6 +3262,7 @@ void Editor::at_build_tools_script() {
             aiTabForce_ = 2;
         });
         step(3, [] {});
+        scroll_to("ai:revert", "AI Assistant");  // A's warnings push it below the fold of a small display
         click("ai:revert");
         step(4, [this] {
             at_check(at_visible("ai:revert:confirm") && at_visible("ai:revert:confirm-all"),
