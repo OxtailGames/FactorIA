@@ -22,6 +22,7 @@
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "ui_backend.h"
+#include "fa/tooling/feedback_fixed.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/shaders.h"
 
@@ -556,6 +557,9 @@ bool Editor::boot(const std::string& dirIn) {
         projectName_ = engine_->project().name;
         // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
         if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
+            // First, the gaps this engine version fixed are closed (the list embedded in the binary), then archived below.
+            if (auto c = check_fixed_feedback_file(fbPath); !c) FA_WARN("editor", "feedback fixed check: {}", c.error().to_string());
+            else if (!c->closed.empty()) FA_INFO("editor", "{} feedback entries were fixed in this engine version", c->closed.size());
             if (auto r = archive_closed_feedback_file(fbPath); !r) FA_WARN("editor", "feedback archive: {}", r.error().to_string());
             else if (r->moved > 0) FA_INFO("editor", "moved {} closed feedback entries to the archive", r->moved);
         }
