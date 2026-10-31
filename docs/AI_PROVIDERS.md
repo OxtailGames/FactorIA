@@ -808,14 +808,22 @@ without asking. Two kinds of content need your trust:
   another server; `BASH_ENV`, `NODE_OPTIONS`, `PATH`, `LD_PRELOAD` change what hooks, MCP servers and Bash run), any
   `permissions.allow` rule (`Bash`, `Bash(*)`, `WebFetch`: there is no dialog in `-p` mode, so they grant tools FactorIA did not, to a
   prompt injection hidden in the project too), a `permissions.defaultMode` other than `default` (`bypassPermissions`, `acceptEdits`,
-  `dontAsk`) and a non-empty `permissions.additionalDirectories`. `permissions.deny` and `ask` only restrict, so they do not count.
+  `dontAsk`) and a non-empty `permissions.additionalDirectories`. `permissions.deny`, `ask` and `disableBypassPermissionsMode` only
+  restrict, so they do not count.
+* **Anything FactorIA does not know:** the rule is "trust unless known harmless". Only a short list of keys that run nothing, send
+  requests nowhere new and widen no permission is free (`$schema`, `model`, `outputStyle`, `language`, `cleanupPeriodDays`,
+  `includeCoAuthoredBy`, `includeGitInstructions`, `spinnerTipsEnabled`, `alwaysThinkingEnabled`, `disableAllHooks`,
+  `respectGitignore`, `showTurnDuration`, `prefersReducedMotion`, `companyAnnouncements`, `attribution`, `forceLoginMethod`,
+  `forceLoginOrgUUID`, `disabledMcpjsonServers`). Any other non-empty key, at the top level or inside `permissions`, is listed as
+  `unknown setting KEY` (the name only, never the value) and needs your trust, so a setting a newer Claude Code adds cannot slip in.
+  Empty values (`null`, `""`, `{}`, `[]`) count for nothing.
 
 When either file has any of these and the project is not trusted, FactorIA starts Claude Code without the `project` and `local` setting
 sources (`--setting-sources user`; with `inheritUserPlugins: false` an empty list, so nothing is loaded besides FactorIA's own
 `--settings` file). Side effect: the rest of those files is not applied either (their `deny` and `ask` rules and other settings). The run
 output, `ai.extensions` (`claudeSettings`, listing the `grants` of each file, and `projectSettingsSkipped` per role) and `factoria ai doctor`
 say what was skipped and how to trust the project. The hash covers both files together, and is empty (nothing to trust) while neither has
-any of the above, so a project whose `.claude` only holds `deny` rules or other settings loads as before; the trust ends when either file
+any of the above, so a project whose `.claude` only holds `deny` rules or the harmless keys loads as before; the trust ends when either file
 changes. Only Claude Code runs are affected: other providers never read `.claude`. A project's `.mcp.json` is Claude Code's own
 mechanism and is not covered here.
 

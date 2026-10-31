@@ -98,7 +98,8 @@ struct ClaudeSettingsFile {
     bool exists = false;
     std::string hash;                  // sha256 of the bytes ("" when there is no file)
     // what in it needs the user's trust: it runs a program ("hooks (PreToolUse, Stop)", "statusLine") or widens what the AI may
-    // do without a dialog ("env (ANTHROPIC_BASE_URL)", "permissions.allow (Bash)", "permissions.defaultMode (bypassPermissions)")
+    // do without a dialog ("env (ANTHROPIC_BASE_URL)", "permissions.allow (Bash)", "permissions.defaultMode (bypassPermissions)"),
+    // or is a setting this version does not know ("unknown setting KEY", the name only): only keys known to be harmless are free
     std::vector<std::string> grants;
     std::string error;                 // the file is not valid JSON: Claude Code ignores it too, so it grants nothing
 };

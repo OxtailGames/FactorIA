@@ -518,10 +518,41 @@ std::string joined(const std::vector<std::string>& names, std::size_t most = 5) 
     return out;
 }
 
+bool is_empty_value(const Json& v) {
+    return v.is_null() || (v.is_string() && v.get<std::string>().empty()) || ((v.is_object() || v.is_array()) && v.empty());
+}
+
+// The rule for a project's Claude Code settings: a key counts (needs the user's trust) UNLESS it is known to run nothing, send
+// requests nowhere new and widen no permission. This is that list; in doubt a key stays off it, and a key a newer Claude Code
+// adds needs the trust until it is added here. Display, text and housekeeping settings, and keys that only restrict.
+bool is_harmless_setting(const std::string& key) {
+    static const char* const kHarmless[] = {
+        "$schema",           "model",                   "outputStyle",         "language",         "cleanupPeriodDays",
+        "includeCoAuthoredBy", "includeGitInstructions", "spinnerTipsEnabled", "alwaysThinkingEnabled", "disableAllHooks",
+        "respectGitignore",  "showTurnDuration",        "prefersReducedMotion", "companyAnnouncements", "attribution",
+        "forceLoginMethod",  "forceLoginOrgUUID",       "disabledMcpjsonServers",
+    };
+    for (const char* k : kHarmless)
+        if (key == k) return true;
+    return false;
+}
+
+// Keys settings_grants looks into itself (each can be harmless or not depending on its value).
+bool is_judged_setting(const std::string& key) {
+    static const char* const kJudged[] = {
+        "hooks", "enabledPlugins", "extraKnownMarketplaces", "statusLine", "fileSuggestion", "apiKeyHelper", "awsAuthRefresh",
+        "awsCredentialExport", "otelHeadersHelper", "enableAllProjectMcpServers", "enabledMcpjsonServers", "env", "permissions",
+    };
+    for (const char* k : kJudged)
+        if (key == k) return true;
+    return false;
+}
+
 // What a Claude Code settings file asks for that needs the user's trust: a program to run (hooks, plugins, commands) and what
 // widens the AI's reach without a dialog (-p mode has none): env (a base URL or a proxy sends the requests, with the user's key,
 // elsewhere; BASH_ENV, NODE_OPTIONS, PATH, LD_PRELOAD change what programs do), permissions.allow, a defaultMode other than
-// "default", additionalDirectories. permissions.deny and ask only restrict, so they do not count.
+// "default", additionalDirectories. permissions.deny and ask only restrict, so they do not count. Any other non-empty key that
+// is not in is_harmless_setting counts as "unknown setting KEY".
 std::vector<std::string> settings_grants(const Json& s) {
     std::vector<std::string> out;
     if (!s.is_object()) return out;
@@ -570,11 +601,24 @@ std::vector<std::string> settings_grants(const Json& s) {
                 if (r.is_string() && !r.get<std::string>().empty()) rules.push_back(r.get<std::string>());
             if (!rules.empty()) out.push_back("permissions.allow (" + joined(rules) + ")");
         }
-        if (const Json* mode = child(*perms, "defaultMode"); mode && mode->is_string() && !mode->get<std::string>().empty() &&
-                                                              mode->get<std::string>() != "default")
-            out.push_back("permissions.defaultMode (" + mode->get<std::string>() + ")");
-        if (const Json* dirs = child(*perms, "additionalDirectories"); non_empty_container(dirs) && dirs->is_array())
-            out.push_back("permissions.additionalDirectories (" + std::to_string(dirs->size()) + ")");
+        if (const Json* mode = child(*perms, "defaultMode"); mode && !is_empty_value(*mode) &&
+                                                              !(mode->is_string() && mode->get<std::string>() == "default"))
+            out.push_back("permissions.defaultMode (" + (mode->is_string() ? mode->get<std::string>() : std::string("unrecognized value")) + ")");
+        if (const Json* dirs = child(*perms, "additionalDirectories"); dirs && !is_empty_value(*dirs))
+            out.push_back("permissions.additionalDirectories (" + (dirs->is_array() ? std::to_string(dirs->size()) : std::string("unrecognized value")) + ")");
+        // Anything else under permissions is a key this version does not know.
+        for (auto it = perms->begin(); it != perms->end(); ++it) {
+            const std::string& key = it.key();
+            if (key == "allow" || key == "defaultMode" || key == "additionalDirectories") continue;  // judged above
+            if (key == "deny" || key == "ask" || key == "disableBypassPermissionsMode") continue;    // only restrict
+            if (!is_empty_value(it.value())) out.push_back("unknown setting permissions." + key);
+        }
+    }
+    // The rule is "trust unless known harmless", so a key a newer Claude Code adds needs the trust until it is listed here.
+    for (auto it = s.begin(); it != s.end(); ++it) {
+        const std::string& key = it.key();
+        if (is_judged_setting(key) || is_harmless_setting(key) || is_empty_value(it.value())) continue;
+        out.push_back("unknown setting " + key);  // the name only: the value may be a secret
     }
     return out;
 }
