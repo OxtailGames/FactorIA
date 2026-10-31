@@ -2,16 +2,6 @@
   "format": "factoria.perf/1",
   "frames": 300,
   "runners": {
-    "windows-msvc-d3d11-warp": {
-      "frames": 300,
-      "cpuMsAvg": 7.697,
-      "cpuMsP95": 9.583,
-      "cpuMsMax": 18.391,
-      "peakMemoryMB": 70.4,
-      "drawCalls": 12,
-      "entities": 113,
-      "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)"
-    },
     "linux-gcc-llvmpipe": {
       "frames": 300,
       "cpuMsAvg": 9.142,
@@ -31,7 +21,19 @@
       "drawCalls": 12,
       "entities": 113,
       "graphics": "Metal / Apple Paravirtual device"
+    },
+    "windows-msvc-d3d11-warp": {
+      "frames": 300,
+      "cpuMsAvg": 5.881,
+      "cpuMsP95": 6.996,
+      "cpuMsMax": 38.453,
+      "peakMemoryMB": 79.0,
+      "drawCalls": 12,
+      "entities": 113,
+      "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)",
+      "triangles": 0,
+      "lights": 0,
+      "textureMB": 0.0
     }
   }
 }
-

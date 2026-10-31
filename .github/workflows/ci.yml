@@ -166,7 +166,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-2022  # the preset uses the "Visual Studio 17 2022" generator; windows-latest now ships VS 2026
-    timeout-minutes: 60
+    timeout-minutes: 90  # a build with a cold ccache takes ~45 min, the tests ~25
     steps:
       - uses: actions/checkout@v4
 

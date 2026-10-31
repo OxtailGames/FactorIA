@@ -9,19 +9,6 @@
     "maxEntities": 200
   },
   "runners": {
-    "macos-clang-metal-paravirtual": {
-      "frames": 300,
-      "cpuMsAvg": 2.281,
-      "cpuMsP95": 3.662,
-      "cpuMsMax": 76.956,
-      "peakMemoryMB": 40.2,
-      "drawCalls": 11,
-      "entities": 145,
-      "graphics": "Metal / Apple Paravirtual device",
-      "triangles": 0,
-      "lights": 20,
-      "textureMB": 0.08
-    },
     "linux-gcc-llvmpipe": {
       "frames": 300,
       "cpuMsAvg": 99.079,
@@ -35,12 +22,25 @@
       "lights": 20,
       "textureMB": 0.08
     },
+    "macos-clang-metal-paravirtual": {
+      "frames": 300,
+      "cpuMsAvg": 2.281,
+      "cpuMsP95": 3.662,
+      "cpuMsMax": 76.956,
+      "peakMemoryMB": 40.2,
+      "drawCalls": 11,
+      "entities": 145,
+      "graphics": "Metal / Apple Paravirtual device",
+      "triangles": 0,
+      "lights": 20,
+      "textureMB": 0.08
+    },
     "windows-msvc-d3d11-warp": {
       "frames": 300,
-      "cpuMsAvg": 274.205,
-      "cpuMsP95": 370.79,
-      "cpuMsMax": 379.096,
-      "peakMemoryMB": 87.9,
+      "cpuMsAvg": 98.887,
+      "cpuMsP95": 128.426,
+      "cpuMsMax": 324.785,
+      "peakMemoryMB": 115.5,
       "drawCalls": 11,
       "entities": 145,
       "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)",
