@@ -394,6 +394,7 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     req.skillDirs = extPlan.skillDirs;
     req.hooks = extPlan.hooks;
     req.userPluginsOff = extPlan.userPluginsOff;
+    req.projectSettingsOff = extPlan.projectSettingsOff;
     if (opt_.onProcessStart) req.onStart = [this, role](long long pid) { opt_.onProcessStart(pid, role); };
 
     AgentEvent start;

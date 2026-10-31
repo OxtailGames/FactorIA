@@ -574,9 +574,11 @@ The **Extensions** tab (after External tools) sets up the `extensions` of [Exten
   loader's own message, for example a relative path in `ai.json`.
 * **Paste hooks JSON...** takes the `hooks` of a Claude Code `settings.json` (`{"hooks": {...}}` or the events object itself), checks
   the event names and handler types, and adds it as one named hooks entry.
-* **Claude Code also loads my own plugins, skills and hooks** is `inheritUserPlugins`.
-* **This project** shows the project's file and, when it lists plugins or hooks, what they would run (**Review what would run...**)
-  with **Trust this project** (and **Stop trusting this project** afterwards). A warning line appears when the project's
+* **Claude Code also loads my own plugins, skills and hooks** is `inheritUserPlugins`. Off drops ALL of your own Claude Code
+  settings for FactorIA's runs (plugins, skills, hooks, permissions and env), not only the plugins.
+* **This project** shows the project's file and, when it lists plugins or hooks, or when its `.claude/settings*.json` names a program
+  to run, what they would run (**Review what would run...**) with **Trust this project** (and **Stop trusting this project**
+  afterwards); the trust covers both sources. A warning line appears when the project's
   `.claude/settings*.json` denies FactorIA's own tools to Claude Code, naming the rule and how to remove it.
 * **Save** rewrites only `extensions` of your `ai.json` and, when the project's entries changed, the project's
   `.factoria/extensions.json`; every other key stays. A trust you had given carries over to a project file you save from here
@@ -775,13 +777,13 @@ The entry name is its key (`[A-Za-z0-9_-]`, up to 40 characters, unique among th
 | `note` | What it is for (shown in `ai.extensions` and the editor). |
 | `roles` | Who loads it (role names, see [Roles](#roles)). Left out: orchestrator, worker, fast, artist and audio; the review roles only when listed. |
 | `enabled` | `false` keeps the entry without loading it. |
-| `inheritUserPlugins` | Top level of the section, `ai.json` only, default `true`: Claude Code also loads your own plugins, skills and hooks (`~/.claude`). `false` starts it with `--setting-sources project,local`, so only what is listed here (and the project's `.claude`) loads. It applies to Claude Code only. |
+| `inheritUserPlugins` | Top level of the section, `ai.json` only, default `true`: Claude Code also loads your own setup (`~/.claude`). `false` starts it with `--setting-sources project,local`, which drops ALL of your user-level Claude Code settings, not only the plugins: your plugins, skills and hooks, but also your permissions (`allow` / `deny` / `ask`) and `env`. Only what is listed here (and the trusted project's own `.claude`) loads. It applies to Claude Code only. |
 
 ### What each provider does with extensions
 
 | Provider | How the extensions are used |
 |---|---|
-| `claude-code` | One `--plugin-dir <folder>` per plugin; the skills go in a plugin FactorIA writes for the run (`factoria-extensions`, a copy of the skill folders under `<project>/.factoria/ai/ext-skills-*`); the hooks of the entries are merged into a private `--settings` file (`<project>/.factoria/ai/settings-*.json`, readable only by you). Both are removed when the run ends. With `inheritUserPlugins: false` it also passes `--setting-sources project,local`. If your own `argv` uses `{plugin_dirs}` or `{settings}` those place the folders and the file and FactorIA adds no flag for them; an `argv` that already has `--settings` or `--setting-sources` is not given a second one. |
+| `claude-code` | One `--plugin-dir <folder>` per plugin; the skills go in a plugin FactorIA writes for the run (`factoria-extensions`, a copy of the skill folders under `<project>/.factoria/ai/ext-skills-*`); the hooks of the entries are merged into a private `--settings` file (`<project>/.factoria/ai/settings-*.json`, readable only by you). Both are removed when the run ends. `--setting-sources` is also passed when `inheritUserPlugins` is `false` (`project,local`) or when the project's own `.claude/settings*.json` runs a program and the project is not trusted (`user`; an empty value with both), see [below](#trusting-a-projects-extensions). If your own `argv` uses `{plugin_dirs}` or `{settings}` those place the folders and the file and FactorIA adds no flag for them; an `argv` that already has `--settings` or `--setting-sources` is not given a second one. |
 | `codex` | None. FactorIA could not verify how Codex takes plugins, skills or hooks, so it passes none, and the run says so (an Info line in the chat and the CLI output) whenever extensions are listed for the role. |
 | `generic-cli` | Plugins when the `argv` has the `{plugin_dirs}` placeholder, hooks when it has `{settings}` (the path of the private settings file). `{plugin_dirs}` after a flag (`"--plugin-dir", "{plugin_dirs}"`) repeats that flag once per folder; with no folder, the placeholder and its flag are dropped. Skills are never passed. What cannot be passed is listed in the run output with the placeholder to add. |
 | `anthropic`, `openai-compatible` | Not yet: the API providers do not use extensions yet (planned with the built-in agent's skills and hooks), and `ai.extensions` and the run say so. |
@@ -791,14 +793,28 @@ The entry name is its key (`[A-Za-z0-9_-]`, up to 40 characters, unique among th
 A plugin or a hook runs a program with your permissions, and the project's `.factoria/extensions.json` can come from anyone (a
 downloaded project, a teammate, the AI itself). So a project's **plugins and hooks load only after you trust the project once**: in the
 editor, **AI > AI Settings... > Extensions > This project**, read what would run and press **Trust this project**. The trust is kept
-per project path and per hash of that file in `ai-trust.json` next to your `ai.json` (readable only by you) and ends as soon as the file
-changes, so an edit by anyone shows up as "not trusted" again until you look at it. No command or tool can grant the trust: an AI cannot
-trust the extensions it has just written. Until then the run lists each skipped entry with the reason and where to trust it; the
+per project path and per hash of the project's files in `ai-trust.json` next to your `ai.json` (readable only by you) and ends as soon as
+one of them changes, so an edit by anyone shows up as "not trusted" again until you look at it. No command or tool can grant the trust:
+an AI cannot trust what it has just written. Until then the run lists each skipped entry with the reason and where to trust it; the
 project's skills still load.
+
+The same trust covers **Claude Code's own project settings**. Claude Code in `-p` mode (how FactorIA runs it) skips its own
+workspace-trust dialog, so a downloaded game's `.claude/settings.json` or `.claude/settings.local.json` would run its hooks,
+`enabledPlugins`, `extraKnownMarketplaces`, `statusLine`, `apiKeyHelper` (and `fileSuggestion`, `awsAuthRefresh`,
+`awsCredentialExport`, `otelHeadersHelper`, `enableAllProjectMcpServers`, `enabledMcpjsonServers`) in your AI runs without asking. So when
+either file names a program and the project is not trusted, FactorIA starts Claude Code without the `project` and `local` setting
+sources (`--setting-sources user`; with `inheritUserPlugins: false` an empty list, so nothing is loaded besides FactorIA's own
+`--settings` file). Side effect: an untrusted project's `.claude` permissions and `env` are not applied either, since they come from the
+same files. The run output, `ai.extensions` (`claudeSettings`, and `projectSettingsSkipped` per role) and `factoria ai doctor` say what
+was skipped and how to trust the project. The hash covers both files together, and is empty (nothing to trust) while neither runs a
+program, so a project whose `.claude` only holds permissions or `env` is loaded as before; the trust ends when either file changes. Only
+Claude Code runs are affected: other providers never read `.claude`. A project's `.mcp.json` is Claude Code's own mechanism and is not
+covered here.
 
 ### Deny rules on FactorIA's tools
 
-Claude Code applies the `permissions.deny` rules of the project's `.claude/settings.json` and `.claude/settings.local.json` over the tools
+Claude Code applies the `permissions.deny` rules of the project's `.claude/settings.json` and `.claude/settings.local.json` (when it loads
+them: an untrusted project's files are not loaded, but FactorIA reads them and reports the rule anyway) over the tools
 FactorIA allows, so a rule such as `mcp__factoria__*` silently takes the engine's tools away from the AI. FactorIA reads those two files
 and reports `mcp__factoria`, `mcp__factoria__*` and `mcp__factoria__<tool>` rules: in the run output, in `factoria ai doctor` and in
 `ai.extensions`, each naming the file, the rule, what is lost and how to restore it (remove that entry from `permissions.deny`). It never
@@ -807,7 +823,8 @@ edits those files.
 ### Looking at what a run gets
 
 `ai.extensions` (read-only, `{"role": "worker"}` optional) returns the entries with what stops each from loading, per role the
-provider and what it `receives`, `skipped` (reason and fix), `notes`, the project's file (`exists`, `hash`, `trusted`), the deny rules
+provider and what it `receives`, `skipped` (reason and fix), `notes`, the project's file (`exists`, `hash`, `trusted`), `claudeSettings` (the programs in the project's `.claude/settings*.json`, whether the project
+is trusted and so whether Claude Code loads them), the deny rules
 and a `scope` sentence on the providers that do not use extensions. `factoria ai doctor` prints the same in its "Extensions" section;
 `factoria ai doctor --project DIR` (default: the current folder when it holds `factoria.json`) says which project's file and deny rules.
 The report never changes the trust file.

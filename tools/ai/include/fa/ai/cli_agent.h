@@ -53,6 +53,9 @@ struct CliRunRequest {
     std::vector<std::string> skillDirs;
     Json hooks;
     bool userPluginsOff = false;
+    // The project's .claude/settings*.json runs a program and the project is not trusted: Claude Code starts without the
+    // project and local setting sources (ExtensionPlan::projectSettingsOff).
+    bool projectSettingsOff = false;
     // Called once with the CLI process's pid when it started (ProcessOptions::onStart).
     std::function<void(long long pid)> onStart;
     // Asked after every parsed line with the usage so far (tokens, cost and whether the cost is an estimate); true kills
@@ -98,7 +101,9 @@ std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains
 void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv);
 
 // Adds the extensions of `req` to an expanded argv. Claude Code: `--plugin-dir <dir>` for every folder in `pluginDirs`,
-// `--settings <settingsPath>` when there is one, and `--setting-sources project,local` when req.userPluginsOff. A flag the
+// `--settings <settingsPath>` when there is one, and `--setting-sources` with the sources that stay: `project,local` when
+// req.userPluginsOff (inheritUserPlugins false), `user` when req.projectSettingsOff (the project is not trusted), an empty
+// value when both. A flag the
 // template already produced through {plugin_dirs} / {settings} (`templateHasPluginDirs` / `templateHasSettings`) or that is
 // already in the argv is not added twice. Other CLIs get nothing here: only their {plugin_dirs} / {settings} placeholders.
 void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool templateHasSettings, const CliRunRequest& req,

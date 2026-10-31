@@ -322,9 +322,14 @@ void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool te
         argv.push_back("--settings");
         argv.push_back(settingsPath);
     }
-    if (req.userPluginsOff && std::find(argv.begin(), argv.end(), "--setting-sources") == argv.end()) {
+    if ((req.userPluginsOff || req.projectSettingsOff) && std::find(argv.begin(), argv.end(), "--setting-sources") == argv.end()) {
+        // The sources Claude Code keeps: user (your ~/.claude) unless inheritUserPlugins is off; project and local (the
+        // project's .claude) unless the project is not trusted. FactorIA's own --settings file is not a source.
+        std::string sources;
+        if (!req.userPluginsOff) sources += "user";
+        if (!req.projectSettingsOff) sources += std::string(sources.empty() ? "" : ",") + "project,local";
         argv.push_back("--setting-sources");
-        argv.push_back("project,local");
+        argv.push_back(sources);
     }
 }
 
