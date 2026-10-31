@@ -2,6 +2,16 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### New
+
+- Extensions for the CLI agents: an `extensions` section in your `ai.json` and a project file `.factoria/extensions.json` (no keys in it) load plugins (a folder, a `.zip`, or a Claude Code `name@marketplace` you installed), skill folders and hooks (Claude Code's `hooks` shape) into the AI runs, each entry with `roles` and `enabled`. Claude Code gets one `--plugin-dir` per plugin, the skills as a plugin FactorIA writes for the run, and the hooks in a private `--settings` file, both deleted when the run ends; `inheritUserPlugins: false` starts it with `--setting-sources project,local`. Codex is given none and the run says so; a generic CLI takes them through the new `{plugin_dirs}` and `{settings}` placeholders; the API providers (anthropic, openai-compatible) do not use extensions yet and `ai.extensions` and the run say so. Mistakes are reported with the JSON pointer, a fix and "did you mean". Guide: docs/AI_PROVIDERS.md, "Extensions".
+- A project's plugins and hooks run only after you trust the project once (AI settings > Extensions > Trust this project, no command can grant it); the trust is kept per project path and file hash in `ai-trust.json` next to `ai.json` and ends when the file changes. The project's skills (text only) load without it.
+- Deny rules on FactorIA's own tools (`mcp__factoria`, `mcp__factoria__*`, `mcp__factoria__<tool>`) in the project's `.claude/settings.json` or `settings.local.json` are reported in the run output, in `factoria ai doctor` and in `ai.extensions`, with the file, the rule and how to restore the tool.
+- The command `ai.extensions {role?}` (read-only) shows the entries, what stops each from loading and what every role's provider receives; `factoria ai doctor` has an Extensions section and a `--project DIR` flag.
+- The editor's AI settings window has an **Extensions** tab next to External tools: add a plugin or skill folder (for you or only for the project), paste hooks JSON, switch roles on and off per entry, Trust this project, and Save.
+
 ## 0.9.0
 
 FactorIA 0.9.0 (M44) brings what a 3D book needs, found by the user's game Roguestory: scripts build and deform meshes in code (`mesh.create`, `mesh.update`, `mesh.save` to a `.glb`) with vertex colors, a camera can draw live into a texture that a model shows (`Camera.renderTarget`, `"target:<name>"`) and the pointer reaches the buttons on it through the mesh, `render.captureTexture` photographs any part of the world off-screen at a scale you choose, world Text can be sized in meters and lit, a project tool always runs the code on disk, and AI session logs carry times that `ai.session_timeline` turns into a timeline.

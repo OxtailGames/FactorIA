@@ -1,4 +1,5 @@
 #include "fa/ai/detect.h"
+#include "fa/ai/extension_plan.h"
 
 #include "fa/ai/process.h"
 #include "fa/core/strings.h"
@@ -118,7 +119,8 @@ std::vector<ToolServerStatus> tool_server_statuses(const AiConfig& cfg, const En
     return out;
 }
 
-std::string format_doctor_report(const AiConfig& cfg, const std::vector<ProviderStatus>& status, const EnvLookup& env) {
+std::string format_doctor_report(const AiConfig& cfg, const std::vector<ProviderStatus>& status, const EnvLookup& env,
+                                 std::string_view projectDir) {
     std::string out = "FactorIA AI providers";
     out += cfg.sourcePath.empty() ? " (no config file: built-in defaults)\n" : " (config: " + cfg.sourcePath + ")\n";
     for (const auto& s : status) {
@@ -148,6 +150,12 @@ std::string format_doctor_report(const AiConfig& cfg, const std::vector<Provider
         if (t.enabled && !t.problem.empty()) out += "         -> " + t.problem + "\n";
     }
     if (cfg.toolServers.empty()) out += "  none configured: add \"mcpServers\" to ai.json (docs/AI_PROVIDERS.md, External tools)\n";
+    out += "Extensions (plugins, skills, hooks):\n";
+    {
+        const auto lines = extension_doctor_lines(cfg, make_extension_context(cfg, projectDir, env));
+        for (const std::string& line : lines) out += "  " + line + "\n";
+        if (lines.empty()) out += "  none configured: add \"extensions\" to ai.json (docs/AI_PROVIDERS.md, Extensions)\n";
+    }
     for (const auto& w : cfg.warnings) out += "WARNING: " + w + "\n";
     return out;
 }
