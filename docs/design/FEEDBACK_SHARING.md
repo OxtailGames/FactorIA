@@ -70,7 +70,9 @@ what was removed, so the preview can show it.
 - **Endpoint**: compiled in (`FA_FEEDBACK_URL`, CMake cache variable; empty = sharing unavailable, and every command
   says so with how to fix it). The user config may override it (`endpoint`) for tests and self-hosting.
 - **Outbox**: `feedback-outbox.json` in the same folder, the sanitized payloads waiting to be sent, retried with backoff
-  (1 min, 10 min, 1 h, then once a day). An entry is in the outbox once.
+  (1 min, 10 min, 1 h, then once a day). An entry is in the outbox once. An entry merged again after it was sent (its
+  `occurrences` went up) is queued once more, up to 3 sends (`shared.occurrences` counts them): each send is one more
+  occurrence on the server, and the ranking counts at most 3 per installation.
 - **Commands** (registered with the other feedback commands; none changes the mode):
   - `feedback.report` gains `share` and `reviewed`. With mode `always` the entry is sanitized and queued at once and the
     queue is flushed in the background; with `ask` it is queued as pending confirmation; with `unset` the result says

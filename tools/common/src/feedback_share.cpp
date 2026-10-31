@@ -312,7 +312,12 @@ bool entry_is_shareable(const Json& e) {
     if (!e.contains("share") || !e["share"].is_object()) return false;
     if (e.contains("shared") && e["shared"].is_object()) {
         const std::string st = e["shared"].value("status", std::string());
-        if (st == "sent" || st == "rejected") return false;
+        if (st == "rejected") return false;
+        // A gap hit again after it was sent goes again (the server counts one more occurrence for this installation),
+        // up to the most occurrences the developer's ranking counts.
+        if (st == "sent")
+            return e["shared"].value("occurrences", 1) <
+                   std::min(e.value("occurrences", 1), kMaxSharedOccurrences);
     }
     return true;
 }
@@ -370,6 +375,19 @@ Json shared_state(const ShareEnv& env, const std::string& status, const std::str
     return s;
 }
 
+// Writes `shared` on one entry. `occurrences` counts the sends (each one is an occurrence on the server) and survives the
+// other states, so an entry queued again after it was sent remembers how many times it already went. True when
+// something changed.
+bool put_shared(Json& e, const Json& shared) {
+    Json next = shared;
+    const int sends = e.contains("shared") && e["shared"].is_object() ? e["shared"].value("occurrences", 0) : 0;
+    if (next.value("status", std::string()) == "sent") next["occurrences"] = sends + 1;
+    else if (sends > 0) next["occurrences"] = sends;
+    if (e.contains("shared") && e["shared"] == next) return false;
+    e["shared"] = std::move(next);
+    return true;
+}
+
 // Sets or removes `shared` on entry `id` of a feedback document. True when something changed.
 bool set_shared(Json& doc, const std::string& id, const Json& shared) {
     if (!doc.is_object() || !doc.contains("entries") || !doc["entries"].is_array()) return false;
@@ -380,9 +398,7 @@ bool set_shared(Json& doc, const std::string& id, const Json& shared) {
             e.erase("shared");
             return true;
         }
-        if (e.contains("shared") && e["shared"] == shared) return false;
-        e["shared"] = shared;
-        return true;
+        return put_shared(e, shared);
     }
     return false;
 }
@@ -447,11 +463,8 @@ Result<QueueResult> share_queue(const ShareEnv& env, const std::string& feedback
         if (settings.mode == ShareMode::Unset || settings.mode == ShareMode::Never) {
             ShareEntryReport r = report_for(id, "skipped", mode_off_reason(settings.mode));
             if (settings.mode == ShareMode::Never) {
-                const Json s = shared_state(env, "skipped", "sharing is off");
-                if (!(e.contains("shared") && e["shared"].value("status", std::string()) == "skipped")) {
-                    e["shared"] = s;
-                    docChanged = true;
-                }
+                if (!(e.contains("shared") && e["shared"].value("status", std::string()) == "skipped"))
+                    docChanged |= put_shared(e, shared_state(env, "skipped", "sharing is off"));
             }
             ++result.skipped;
             result.entries.push_back(std::move(r));
@@ -464,8 +477,7 @@ Result<QueueResult> share_queue(const ShareEnv& env, const std::string& feedback
         if (!clean.ok) {
             r.status = "rejected";
             r.reason = clean.reason();
-            e["shared"] = shared_state(env, "rejected", r.reason);
-            docChanged = true;
+            docChanged |= put_shared(e, shared_state(env, "rejected", r.reason));
             if (OutboxItem* old = find_item(box, item_key(feedbackFile, id))) {
                 box.items.erase(box.items.begin() + (old - box.items.data()));
                 boxChanged = true;
@@ -499,11 +511,8 @@ Result<QueueResult> share_queue(const ShareEnv& env, const std::string& feedback
         r.status = item->state == OutboxState::Waiting ? "waiting" : "queued";
         if (item->state == OutboxState::Waiting) ++result.waiting;
         else ++result.queued;
-        const Json s = shared_state(env, "pending");
-        if (!(e.contains("shared") && e["shared"].value("status", std::string()) == "pending")) {
-            e["shared"] = s;
-            docChanged = true;
-        }
+        if (!(e.contains("shared") && e["shared"].value("status", std::string()) == "pending"))
+            docChanged |= put_shared(e, shared_state(env, "pending"));
         result.entries.push_back(std::move(r));
     }
     if (boxChanged)

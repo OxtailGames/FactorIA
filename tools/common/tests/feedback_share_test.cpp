@@ -526,6 +526,36 @@ TEST_CASE("share flush: accepted and merged entries leave the outbox and are mar
     CHECK(m.shared()["status"] == "sent");
 }
 
+TEST_CASE("share flush: a gap hit again after it was sent is sent again, up to 3 times") {
+    Queued q;
+    q.s.script = {reply(200, q.s.answer_ok({{"FB-0001", "accepted"}}))};
+    REQUIRE(share_flush(q.s.env).sent == 1);
+    CHECK(q.shared()["occurrences"] == 1);
+    auto hit_again = [&] {  // the same gap reported again: the open entry is merged and its occurrences go up
+        Json doc = load_feedback(q.file).value();
+        FeedbackInput in;
+        in.category = "physics";
+        in.severity = "major";
+        in.title = "No one-way platforms";
+        in.missing = "Collider2D has no one-way option";
+        in.workaround = "the same script";
+        in.share = Share::good_share();
+        REQUIRE(add_feedback_entry(doc, in).ok());
+        REQUIRE(save_feedback(q.file, doc).ok());
+        return share_queue(q.s.env, q.file, q.proj, engine_names()).value().queued;
+    };
+    for (int sends = 2; sends <= kMaxSharedOccurrences; ++sends) {
+        CHECK(hit_again() == 1);
+        q.s.script = {reply(200, q.s.answer_ok({{"FB-0001", "merged"}}))};
+        REQUIRE(share_flush(q.s.env).merged == 1);
+        CHECK(q.shared()["status"] == "sent");
+        CHECK(q.shared()["occurrences"] == sends);
+    }
+    CHECK(hit_again() == 0);  // the ranking counts at most 3 occurrences per installation: nothing more to send
+    CHECK(load_outbox(q.s.env).items.empty());
+    CHECK(load_feedback(q.file).value()["entries"][0]["occurrences"] == 4);
+}
+
 TEST_CASE("share flush: a rejected entry keeps the server's code and reason and is not retried") {
     Queued q;
     q.s.script = {reply(200, q.s.answer_ok({{"FB-0001", "rejected"}}))};

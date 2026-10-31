@@ -145,6 +145,7 @@
             "status": { "enum": ["pending", "sent", "rejected", "skipped"], "description": "pending: waiting in the outbox (or for the user's confirmation); sent: the server accepted it; rejected: the server or the sanitizer refused it (see reason); skipped: sharing is off." },
             "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "UTC date of the last change, YYYY-MM-DD." },
             "shareId": { "type": "string", "description": "Id the server gave the report." },
+            "occurrences": { "type": "integer", "minimum": 1, "description": "How many times the entry was sent (each send is one occurrence on the server). An entry hit again after it was sent goes again, up to 3, the most the developer's ranking counts." },
             "reason": { "type": "string", "description": "Why it was rejected or skipped." }
           }
         },
