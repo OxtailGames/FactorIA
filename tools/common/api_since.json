@@ -734,6 +734,7 @@
     "ai.reviews": "0.4.0",
     "ai.run": "0.1.0",
     "ai.session_timeline": "0.9.0",
+    "ai.tool_plan": "unreleased",
     "ai.tool_servers": "0.8.0",
     "anim.add_event": "0.7.0",
     "anim.add_track": "0.7.0",

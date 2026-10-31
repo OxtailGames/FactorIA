@@ -7,6 +7,7 @@
 #include <fstream>
 #include <mutex>
 
+#include "fa/ai/tool_catalog.h"
 #include "fa/core/date.h"
 #include "fa/core/log.h"
 #include "fa/core/screenshot_files.h"
@@ -186,32 +187,30 @@ std::vector<std::string> cli_disallowed_tools(const CommandRegistry& registry, s
     return out;
 }
 
+ToolDef delegate_tool_def() {
+    ToolDef d;
+    d.name = kDelegateTool;
+    d.description =
+        "Delegate a self-contained task to a sub-agent with its own context and a cheaper model. role \"worker\" "
+        "implements features and fixes; role \"fast\" does small mechanical edits; role \"artist\" makes the game's "
+        "art (images, textures, sprites, models, the look); role \"audio\" makes its sound effects, music, voice "
+        "and mixing. The sub-agent has the same tools but cannot delegate and does not see this conversation: include "
+        "all needed context in `task`. Returns the sub-agent's final report. (Art critics and game reviewers are not "
+        "available here: the user asks for reviews.)";
+    d.inputSchema = Json::parse(R"({"type":"object","properties":{"role":{"type":"string","enum":["worker","fast","artist","audio"],
+            "description":"Which sub-agent runs the task."},"task":{"type":"string","description":"Complete task description with file paths and acceptance criteria."}},
+            "required":["role","task"],"additionalProperties":false})");
+    return d;
+}
+
 std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate, bool readOnly) {
     std::vector<ToolDef> tools;
     for (const CommandInfo* info : registry.list()) {  // sorted by name
         if (is_agent_tool_excluded(info->name)) continue;
         if (readOnly && !is_read_only_tool(*info)) continue;
-        ToolDef t;
-        t.name = tool_name_for_command(info->name);
-        t.description = info->description.empty() ? info->summary : info->summary + "\n\n" + info->description;
-        t.inputSchema = info->inputSchema;
-        tools.push_back(std::move(t));
+        tools.push_back(tool_def_for_command(*info));
     }
-    if (withDelegate) {
-        ToolDef d;
-        d.name = kDelegateTool;
-        d.description =
-            "Delegate a self-contained task to a sub-agent with its own context and a cheaper model. role \"worker\" "
-            "implements features and fixes; role \"fast\" does small mechanical edits; role \"artist\" makes the game's "
-            "art (images, textures, sprites, models, the look); role \"audio\" makes its sound effects, music, voice "
-            "and mixing. The sub-agent has the same tools but cannot delegate and does not see this conversation: include "
-            "all needed context in `task`. Returns the sub-agent's final report. (Art critics and game reviewers are not "
-            "available here: the user asks for reviews.)";
-        d.inputSchema = Json::parse(R"({"type":"object","properties":{"role":{"type":"string","enum":["worker","fast","artist","audio"],
-            "description":"Which sub-agent runs the task."},"task":{"type":"string","description":"Complete task description with file paths and acceptance criteria."}},
-            "required":["role","task"],"additionalProperties":false})");
-        tools.push_back(std::move(d));
-    }
+    if (withDelegate) tools.push_back(delegate_tool_def());
     std::stable_sort(tools.begin(), tools.end(), [](const ToolDef& a, const ToolDef& b) { return a.name < b.name; });
     return tools;
 }
@@ -480,7 +479,39 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     return res;
 }
 
-ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& role, int depth, McpToolSet* toolServers) {
+ToolResult AgentSession::execute_tool(const ToolCall& original, const std::string& role, int depth, McpToolSet* toolServers,
+                                      const ToolPlan* plan) {
+    const bool catalog = plan && plan->useCatalog;
+    const bool readOnlyRole = is_review_role(role);
+    // tool_call runs a command under the command's own name: the events, the read-only check and the argument errors below
+    // see the command, not the wrapper. A call the wrapper cannot resolve keeps its own name and fails further down.
+    ToolCall call = original;
+    bool viaCall = false;
+    std::string wrapCode, wrapMessage, wrapHint;
+    if (catalog && original.name == kToolCall && original.inputError.empty()) {
+        const std::string command = str(original.input, "command");
+        const Json* args = child(original.input, "arguments");
+        if (command.empty()) {
+            wrapCode = "invalid_arguments";
+            wrapMessage = "tool_call needs \"command\": the name of a command from the catalog";
+            wrapHint = "Call tool_call {\"command\": \"scene.spawn\", \"arguments\": {...}}; tool_describe shows the arguments.";
+        } else if (args && !args->is_null() && !args->is_object()) {
+            wrapCode = "invalid_arguments";
+            wrapMessage = "tool_call \"arguments\" must be a JSON object, not " + std::string(args->type_name());
+            wrapHint = "Pass the command's arguments as an object, or {} when it takes none.";
+        } else {
+            std::string why, hint;
+            if (const CommandInfo* info = resolve_command(registry_, command, readOnlyRole, why, hint)) {
+                call.name = tool_name_for_command(info->name);
+                call.input = args && args->is_object() ? *args : Json::object();
+                viaCall = true;
+            } else {
+                wrapCode = why.rfind("No command", 0) == 0 ? "unknown_command" : "not_allowed";
+                wrapMessage = why;
+                wrapHint = hint;
+            }
+        }
+    }
     ToolResult tr;
     tr.toolUseId = call.id;
     AgentEvent start;
@@ -509,6 +540,24 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
     if (!call.inputError.empty()) {
         return fail("invalid_arguments", "The arguments of tool '" + call.name + "' were not valid JSON: " + call.inputError,
                     "Call the tool again with a JSON object matching its input schema.");
+    }
+    if (!wrapCode.empty()) return fail(wrapCode, wrapMessage, wrapHint);
+    if (catalog && call.name == kToolDescribe) {
+        std::vector<std::string> names;
+        if (const Json* list = child(call.input, "commands"); list && list->is_array()) {
+            for (const Json& n : *list) if (n.is_string()) names.push_back(n.get<std::string>());
+        } else if (const std::string one = str(call.input, "commands", str(call.input, "command")); !one.empty()) {
+            names.push_back(one);
+        }
+        if (names.empty()) {
+            return fail("invalid_arguments", "tool_describe needs \"commands\": a list of command names from the catalog",
+                        "Call tool_describe {\"commands\": [\"assets.slice_sheet\"]}.");
+        }
+        bool ok = false;
+        Json described = describe_commands(registry_, names, readOnlyRole, ok);
+        tr.isError = !ok;
+        tr.content = clip_text(dump(described), kMaxToolResultChars);
+        return finish(tr, described);
     }
     if (call.name == kDelegateTool && depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation) {
         std::string r = str(call.input, "role");
@@ -554,6 +603,14 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
     }
     CommandResult cr = registry_.call(it->second, call.input.is_object() ? call.input : Json::object());
     if (!cr.ok) {
+        // A command the model has not seen the definition of (listed in the catalog, not offered in full): the schema comes
+        // with the error, so one failed call is enough to learn the arguments.
+        if (cr.error.is_object() && str(cr.error, "code") == "invalid_arguments" && catalog) {
+            const bool offered = std::any_of(plan->tools.begin(), plan->tools.end(), [&](const ToolDef& t) { return t.name == call.name; });
+            if (const CommandInfo* info = registry_.info(it->second); info && (viaCall || !offered)) {
+                cr.error["inputSchema"] = info->inputSchema;
+            }
+        }
         tr.isError = true;
         tr.content = clip_text(dump(cr.error), kMaxToolResultChars);
         return finish(tr, cr.error);
@@ -636,9 +693,18 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     req.effort = rc.effort;
     req.maxTokens = rc.maxTokens;
     req.maxContextTokens = rc.maxContextTokens;  // only the Anthropic provider sends it (server-side compaction)
-    req.system = build_system_prompt(pctx);
     const bool readOnly = is_review_role(role);  // critics and reviewers observe and play, they change nothing
-    req.tools = tools_from_registry(registry_, canDelegate, readOnly);
+    // The tool list and the catalog are fixed for the whole run (and, as long as the registry does not change, for the whole
+    // conversation): tool definitions and the system prompt are the start of the prompt cache's prefix.
+    ToolPlanOptions planOptions;
+    planOptions.withDelegate = canDelegate;
+    planOptions.readOnly = readOnly;
+    planOptions.groups = rc.toolGroups ? *rc.toolGroups : default_tool_groups(role);
+    planOptions.catalog = opt_.toolCatalog;
+    const ToolPlan plan = plan_tools(registry_, planOptions);
+    pctx.toolCatalog = plan.catalogText;
+    req.system = build_system_prompt(pctx);
+    req.tools = plan.tools;
     if (!toolServers.empty()) {
         for (ToolDef& d : toolServers.tool_defs()) req.tools.push_back(std::move(d));
         std::sort(req.tools.begin(), req.tools.end(), [](const ToolDef& a, const ToolDef& b) { return a.name < b.name; });
@@ -661,11 +727,18 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         info.text = note;
         emit(info, depth, role);
     }
+    for (const std::string& note : plan.notes) {
+        AgentEvent info;
+        info.type = AgentEvent::Type::Info;
+        info.text = "roles." + role + ".toolGroups: " + note;
+        emit(info, depth, role);
+    }
 
     Transcript tr;
     if (opt_.saveTranscript) tr.open(opt_.projectDir, stamp_ + "-" + role + (depth ? "-" + std::to_string(++delegateCount_) : ""));
     tr.write(Json::object({{"kind", "start"}, {"role", role}, {"provider", pc.name}, {"model", rc.model},
-                           {"effort", rc.effort}, {"tools", req.tools.size()}, {"task", task}}));
+                           {"effort", rc.effort}, {"tools", req.tools.size()}, {"catalogCommands", plan.catalog.size()},
+                           {"toolGroups", plan.loadedGroups}, {"task", task}}));
     res.transcriptPath = tr.path();
 
     ChatHooks hooks;
@@ -735,6 +808,9 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         }
         res.turns = turn;
         req.messages = history;
+        ContextSplit split = estimate_context(req);  // what this call carries: system prompt, tool definitions, conversation
+        split.catalogBytes = plan.catalogText.size();
+        split.catalogCount = static_cast<int>(plan.catalog.size());
         const std::int64_t chatStartMs = unix_time_ms_now();
         auto resp = provider->chat(req, hooks, cancel_);
         const std::int64_t chatMs = unix_time_ms_now() - chatStartMs;
@@ -752,12 +828,13 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             u.contextTokens = resp->contextTokens ? resp->contextTokens
                                                   : resp->usage.inputTokens + resp->usage.cacheCreationTokens + resp->usage.cacheReadTokens;
             if (pc.kind == ProviderKind::Anthropic) u.contextWindow = rc.maxContextTokens;  // compacts there; 0 = unknown
+            u.contextSplit = split;
             emit(u, depth, role);
         }
         history.push_back(resp->message);  // APPEND the assistant message unchanged (raw content kept)
         tr.write(Json::object({{"kind", "assistant"}, {"stopReason", resp->rawStopReason}, {"text", resp->message.text},
                                {"content", resp->message.raw}, {"usage", resp->usage.to_json()}, {"costUsd", cost},
-                               {"ms", chatMs}}));
+                               {"ms", chatMs}, {"context", split.to_json()}}));
         if (!resp->message.text.empty()) res.finalText = resp->message.text;
 
         switch (resp->stopReason) {
@@ -805,7 +882,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
                 continue;
             }
             const std::int64_t toolStartMs = unix_time_ms_now();
-            results.push_back(execute_tool(call, role, depth, &toolServers));
+            results.push_back(execute_tool(call, role, depth, &toolServers, &plan));
             toolMs.push_back(unix_time_ms_now() - toolStartMs);
         }
         if (is_cancelled(cancel_)) {

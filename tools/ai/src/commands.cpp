@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <map>
 #include <memory>
 
 #include "asset_commands.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/mcp_client.h"
 #include "fa/ai/review.h"
+#include "fa/ai/tool_catalog.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "util.h"
@@ -113,6 +115,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             for (const auto& [name, r] : cfg->roles) {
                 roles[name] = Json::object({{"provider", r.provider}, {"model", r.model}, {"effort", r.effort}, {"enabled", r.enabled}});
                 if (r.maxContextTokens > 0) roles[name]["maxContextTokens"] = r.maxContextTokens;
+                if (r.toolGroups) roles[name]["toolGroups"] = *r.toolGroups;
             }
             Json assets = Json::object();
             for (const auto& [kind, r] : cfg->assets) {
@@ -443,7 +446,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "Returns `gaps`: each pause of at least minGapSeconds with start, end, seconds, activity (tool, thinking, model = "
             "waiting for the model, user = waiting for the user) and detail (the tool's name...), and `totals` per activity with "
             "the tools sorted by time. A session recorded before events carried times gives hasTimes false and a note. "
-            "Example: {\"minGapSeconds\":60}";
+            "`context` splits what each model call carried (built-in agent only): per step the system prompt, the tool "
+            "definitions and the conversation, in bytes and estimated tokens, plus how many commands were tools and how many "
+            "only catalog lines, and the totals of the run. Example: {\"minGapSeconds\":60}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "session":{"type":"string","description":"File name of the session (20261014-153012-orchestrator or with .jsonl) in .factoria/ai/sessions. Omit for the newest."},
             "minGapSeconds":{"type":"number","minimum":0,"default":30,"description":"List only the gaps at least this long (seconds). Totals always count every gap."}},
@@ -453,6 +458,79 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             auto r = session_timeline(project_dir(), str(args, "session"), args.contains("minGapSeconds") ? num(args, "minGapSeconds") : 30.0);
             if (!r) throw CommandError("not_found", r.error().message, r.error().hint);
             return *r;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.tool_plan";
+        info.category = "ai";
+        info.summary = "Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines.";
+        info.description =
+            "The built-in agent (API providers) does not send every command's definition on every step: it gets the core commands "
+            "(files, docs, scene, running the game, validating, scripts) and the tool groups of the role (ai.json "
+            "roles.<role>.toolGroups, default: artist assets, audio assets and audio) in full, plus tool_describe and tool_call, "
+            "and lists the other commands in its system prompt. Returns `tools` (name and estimated bytes of each tool sent), "
+            "`catalogCommands`, the estimated `toolBytes`/`toolTokens` against `fullBytes`/`fullTokens` (every command in full), "
+            "`groups` (the tool groups loaded), `notes` (a group that matches nothing, with suggestions) and `categories` "
+            "(per category: commands, inCatalog, inFull). CLI agents (claude-code...) choose their own "
+            "tools; this plan is what the API providers get. Example: {\"role\":\"artist\",\"catalog\":true}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "role":{"type":"string","default":"orchestrator","description":"Role to plan for: orchestrator, worker, fast, artist, audio, artCritic, reviewer."},
+            "catalog":{"type":"boolean","default":false,"description":"Also list every catalog command (command, category, summary)."}},
+            "additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [load, &registry](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string role = str(args, "role", kRoleOrchestrator);
+            auto roleIt = cfg->roles.find(role);
+            if (roleIt == cfg->roles.end()) {
+                std::vector<std::string> names;
+                for (const auto& [n, _] : cfg->roles) names.push_back(n);
+                throw CommandError("unknown_role", "No role named '" + role + "'", fa::did_you_mean(role, names));
+            }
+            ToolPlanOptions po;
+            po.withDelegate = role == kRoleOrchestrator && cfg->can_delegate_to_anyone();
+            po.readOnly = is_review_role(role);
+            po.groups = roleIt->second.toolGroups ? *roleIt->second.toolGroups : default_tool_groups(role);
+            const ToolPlan plan = plan_tools(registry, po);
+            Json tools = Json::array();
+            for (const ToolDef& t : plan.tools) {
+                tools.push_back(Json::object({{"name", t.name},
+                                              {"bytes", t.name.size() + t.description.size() + dump(t.inputSchema).size() + 60}}));
+            }
+            std::map<std::string, int> total, inCatalog;
+            for (const CommandInfo* info : registry.list()) {
+                if (is_agent_tool_excluded(info->name) || (po.readOnly && !is_read_only_tool(*info))) continue;
+                ++total[info->category];
+            }
+            for (const CatalogEntry& e : plan.catalog) ++inCatalog[e.category];
+            Json categories = Json::object();
+            for (const auto& [cat, n] : total) {
+                categories[cat] = Json::object({{"commands", n}, {"inCatalog", inCatalog[cat]}, {"inFull", n - inCatalog[cat]}});
+            }
+            Json out = Json::object({{"role", role},
+                                     {"useCatalog", plan.useCatalog},
+                                     {"tools", tools},
+                                     {"toolCount", plan.tools.size()},
+                                     {"toolBytes", plan.toolBytes},
+                                     {"toolTokens", estimate_tokens(plan.toolBytes)},
+                                     {"catalogCommands", plan.catalog.size()},
+                                     {"catalogBytes", plan.catalogText.size()},
+                                     {"catalogTokens", estimate_tokens(plan.catalogText.size())},
+                                     {"fullBytes", plan.fullBytes},
+                                     {"fullTokens", estimate_tokens(plan.fullBytes)},
+                                     {"groups", plan.loadedGroups},
+                                     {"notes", plan.notes},
+                                     {"categories", categories}});
+            if (flag(args, "catalog", false)) {
+                Json catalog = Json::array();
+                for (const CatalogEntry& e : plan.catalog) {
+                    catalog.push_back(Json::object({{"command", e.command}, {"category", e.category}, {"summary", e.summary}}));
+                }
+                out["catalog"] = catalog;
+            }
+            return out;
         });
     }
     register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
