@@ -380,7 +380,9 @@ Json shared_state(const ShareEnv& env, const std::string& status, const std::str
 // something changed.
 bool put_shared(Json& e, const Json& shared) {
     Json next = shared;
-    const int sends = e.contains("shared") && e["shared"].is_object() ? e["shared"].value("occurrences", 0) : 0;
+    // An entry sent before the count existed has no "occurrences": it was sent once.
+    const bool had = e.contains("shared") && e["shared"].is_object();
+    const int sends = had ? e["shared"].value("occurrences", e["shared"].value("status", std::string()) == "sent" ? 1 : 0) : 0;
     if (next.value("status", std::string()) == "sent") next["occurrences"] = sends + 1;
     else if (sends > 0) next["occurrences"] = sends;
     if (e.contains("shared") && e["shared"] == next) return false;

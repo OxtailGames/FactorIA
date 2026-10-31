@@ -554,6 +554,17 @@ TEST_CASE("share flush: a gap hit again after it was sent is sent again, up to 3
     CHECK(hit_again() == 0);  // the ranking counts at most 3 occurrences per installation: nothing more to send
     CHECK(load_outbox(q.s.env).items.empty());
     CHECK(load_feedback(q.file).value()["entries"][0]["occurrences"] == 4);
+
+    // An entry sent by an engine that did not count sends yet was sent once.
+    Json doc = load_feedback(q.file).value();
+    doc["entries"][0]["occurrences"] = 2;
+    doc["entries"][0]["shared"].erase("occurrences");
+    REQUIRE(save_feedback(q.file, doc).ok());
+    CHECK(entry_is_shareable(doc["entries"][0]));
+    CHECK(share_queue(q.s.env, q.file, q.proj, engine_names()).value().queued == 1);
+    q.s.script = {reply(200, q.s.answer_ok({{"FB-0001", "merged"}}))};
+    REQUIRE(share_flush(q.s.env).merged == 1);
+    CHECK(q.shared()["occurrences"] == 2);
 }
 
 TEST_CASE("share flush: a rejected entry keeps the server's code and reason and is not retried") {

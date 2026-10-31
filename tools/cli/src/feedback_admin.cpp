@@ -390,6 +390,7 @@ std::string entry_from_report(const Json& r, const std::string& today, Json& ent
     if (!receivedAt.empty()) remote["receivedAt"] = receivedAt;
     if (auto v = r.value("engineVersion", std::string()); !v.empty()) remote["engineVersion"] = v;
     if (auto v = r.value("platform", std::string()); !v.empty()) remote["platform"] = v;
+    if (auto v = r.value("reporterKey", std::string()); is_server_key(v)) remote["reporterKey"] = v;
     entry["remote"] = remote;
     return {};
 }
@@ -522,8 +523,10 @@ Result<PullSummary> feedback_pull(const PullOptions& options, const FeedbackAdmi
         ++sum.pages;
         if (!res->contains("reports") || !(*res)["reports"].is_array())
             return make_error("The server's answer to " + path + " has no \"reports\" array.", "Is " + cfg->endpoint + " the feedback server, and is it up to date? Run deploy.sh again.");
-        for (const auto& r : (*res)["reports"]) {
+        for (Json r : (*res)["reports"]) {
             ++sum.fetched;
+            if (r.is_object())  // the server sends null for an optional field it has no value for: same as absent
+                for (auto f = r.begin(); f != r.end();) f = f->is_null() ? r.erase(f) : std::next(f);
             const std::string id = r.is_object() ? r.value("shareId", std::string()) : std::string();
             if (auto it = position.find(id); !id.empty() && it != position.end()) reports[it->second] = r;  // later page, newer data
             else {
@@ -713,7 +716,7 @@ Result<std::pair<KeyKind, std::string>> resolve_ban_key(const std::string& keyIn
         if (!is_server_key(key))
             return make_error("'" + key + "' is not " + (kind == KeyKind::Install ? "an installKey" : "a reporterKey") + ": the server's keys are exactly 16 characters (letters, digits, '_' or '-').",
                               kind == KeyKind::Install ? "The installKey is the folder name of the installation in the inbox, and the one `feedback pull` prints."
-                                                       : "Copy the reporterKey from GET /v1/admin/reports (shown for verified reports).");
+                                                       : "The reporterKey is in the 'remote' field of a verified entry of the inbox.");
         return std::make_pair(kind, key);
     }
     // A shareId of a pulled report stands for the installation that sent it.
@@ -726,7 +729,7 @@ Result<std::pair<KeyKind, std::string>> resolve_ban_key(const std::string& keyIn
     std::error_code ec;
     if (fsys::is_directory(fsys::path(inbox) / key, ec) && is_server_key(key)) return std::make_pair(KeyKind::Install, key);
     return make_error("Cannot tell whether '" + key + "' is an installKey or a reporterKey: both are opaque keys, and it is neither a folder nor a report of the inbox " + inbox + ".",
-                      "Say which: `--install` (an installation, the folder names of the inbox) or `--reporter` (a GitHub identity, shown by `feedback stats`), or write install:" + key + " / reporter:" + key + ".");
+                      "Say which: `--install` (an installation, the folder names of the inbox) or `--reporter` (a GitHub identity: 'remote.reporterKey' of a verified inbox entry), or write install:" + key + " / reporter:" + key + ".");
 }
 
 int remove_local_report(const std::string& inbox, const std::string& shareId) {

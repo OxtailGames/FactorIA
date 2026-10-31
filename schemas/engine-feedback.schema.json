@@ -160,7 +160,8 @@
             "trust": { "enum": ["verified", "anonymous"], "description": "verified: the installation signed in with GitHub." },
             "receivedAt": { "type": "string", "description": "When the server received it (ISO 8601)." },
             "engineVersion": { "type": "string", "description": "Engine version that sent it." },
-            "platform": { "type": "string", "description": "macos, windows, linux, web or other." }
+            "platform": { "type": "string", "description": "macos, windows, linux, web or other." },
+            "reporterKey": { "type": "string", "description": "Opaque key of the GitHub identity that sent it (verified reports only): what `factoria feedback ban --reporter` takes." }
           }
         }
       }
