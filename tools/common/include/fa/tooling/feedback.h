@@ -53,6 +53,10 @@ struct FeedbackInput {
     std::string suggestion;
     std::string effort;  // "", "small", "medium", "large"
     Json reporter;       // null or {kind, agent, model}
+    // The generic copy that may be shared with the engine developer: {title, missing, suggestion?, workaround?}, engine terms
+    // only (fa/tooling/feedback_share.h). Null = none. A malformed or out-of-limits one is not stored (FeedbackAddResult::shareProblem).
+    Json share;
+    std::optional<bool> reviewed;  // the reporter checked against the docs that the gap is real and about the engine
 };
 
 struct FeedbackAddResult {
@@ -61,6 +65,7 @@ struct FeedbackAddResult {
     bool reopened = false;  // true when the report matched an archived fixed-in-engine entry: it is open again, in the file
     int occurrences = 1;
     Json entry;  // the stored entry
+    std::string shareProblem;  // why `share` was not stored ("" = stored or not given)
 };
 
 // Title similarity in [0,1] used for dedupe/grouping (token overlap + edit distance).
@@ -131,7 +136,8 @@ struct CollectOptions {
 Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, const CollectOptions& opts = {});
 
 // Registers feedback.report, feedback.list, feedback.update, feedback.archive bound to <projectDir>/ENGINE_FEEDBACK.json
-// (or the project's `feedbackFile`).
+// (or the project's `feedbackFile`), and the sharing commands feedback.share_preview, feedback.share_status, feedback.share and
+// feedback.check_fixed (fa/tooling/feedback_share.h, feedback_fixed.h).
 void register_feedback_commands(CommandRegistry& registry, const std::string& projectDir);
 
 }  // namespace fa

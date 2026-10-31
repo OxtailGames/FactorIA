@@ -61,6 +61,8 @@ Call the MCP tool `feedback_report`, or run `factoria call feedback.report '{...
 
 The tool requires `category`, `severity`, `title`, `missing` and `workaround`. Always add `workaroundFiles` and `suggestion` as well, because the engine team needs them. `effort` (`small`, `medium`, `large`) and `reporter` (`{"kind":"ai","agent":"...","model":"..."}`) are optional. Call `feedback_list {"status":"open"}` (or `factoria feedback list --status open`) to see what is already recorded.
 
+Optionally add `share` (`{title, missing, suggestion?, workaround?}`) and `reviewed: true`: a copy of the gap for the engine developer, in engine terms only (component, field and command names; never the game's names, file names, paths or quotes). Check the docs first so the gap is real. Whether anything is sent is the user's choice (`factoria feedback sharing always|ask|never`); no command changes it, so if `feedback_report` answers that sharing is not set up, tell the user once how to turn it on. `feedback.share_preview` shows what would be sent. Guide: ENGINE_FEEDBACK.md, "Sharing with the engine developer".
+
 Good example, a missing input feature:
 
 ```json

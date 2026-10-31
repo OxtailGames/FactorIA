@@ -57,7 +57,9 @@ set(FA_EMBED_ALL ${CMAKE_CURRENT_SOURCE_DIR}/api_since.json ${FA_EMBED_DOCS} ${F
     ${FA_ROOT}/tools/editor/icon/factoria.icns
     # The script debugger's instrumenter and the parser it runs (fa/tooling/script_instrument.h).
     ${FA_ROOT}/external/acorn/dist/acorn.js ${CMAKE_CURRENT_SOURCE_DIR}/src/js/instrument.js
-    ${FA_ROOT}/engine/runtime/include/fa/runtime/fa_plugin.h)
+    ${FA_ROOT}/engine/runtime/include/fa/runtime/fa_plugin.h
+    # The gaps fixed in each engine release: `feedback.check_fixed` closes the matching local entries (fa/tooling/feedback_fixed.h).
+    ${FA_ROOT}/feedback/fixed.json)
 if(FA_EMBED_ALL)
     fa_embed_files(fa_tooling fa::embedded fa_embedded_files BASE ${FA_ROOT} FILES ${FA_EMBED_ALL})
     target_compile_definitions(fa_tooling PRIVATE FA_HAS_EMBEDDED_FILES=1)
@@ -66,6 +68,12 @@ endif()
 set_source_files_properties(src/bundle.cpp src/export.cpp src/setup_webplayer.cpp PROPERTIES COMPILE_DEFINITIONS FA_SOURCE_ROOT="${FA_ROOT}")
 # The release packages set FA_UPDATE_REPO: the CI workflow downloads FactorIA from there (fa/tooling/ci_workflow.h).
 set_property(SOURCE src/ci_workflow.cpp APPEND PROPERTY COMPILE_DEFINITIONS FA_UPDATE_REPO="${FA_UPDATE_REPO}")
+# Feedback sharing (docs/design/FEEDBACK_SHARING.md): the developer's server and the public client id of the GitHub app that
+# identifies the sender. Empty = sharing (sign-in) is unavailable in this build; the user's `endpoint` setting still works.
+set(FA_FEEDBACK_URL "" CACHE STRING "URL of the feedback server (tools/feedback-server) that `factoria feedback share` sends to; empty = unavailable")
+set(FA_FEEDBACK_GITHUB_CLIENT_ID "" CACHE STRING "Public client id of the GitHub OAuth app for `factoria feedback signin github`; empty = unavailable")
+set_property(SOURCE src/feedback_share.cpp src/feedback_share_auth.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+    FA_FEEDBACK_URL="${FA_FEEDBACK_URL}" FA_FEEDBACK_GITHUB_CLIENT_ID="${FA_FEEDBACK_GITHUB_CLIENT_ID}")
 
 if(FA_BUILD_TESTS)
     file(GLOB_RECURSE tooling_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)

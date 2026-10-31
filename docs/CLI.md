@@ -310,7 +310,7 @@ image (`"temporary": true`, a `game.screenshot` without `path`) is deleted once 
 
 ## Feedback and docs
 
-### `factoria feedback init|add|list|update|validate|collect`
+### `factoria feedback init|add|list|update|validate|collect|sharing|share|signin|signout`
 ```
 factoria feedback add --category physics --severity major --title "No one-way platforms" \
     --missing "Collider2D has no one-way option" --workaround "scripts/one_way.js" --files scripts/one_way.js
@@ -319,7 +319,15 @@ factoria feedback list --status open
 factoria feedback update games/my-game FB-001 --status fixed-in-engine --engine-issue abc123 [--note TEXT] [--json]
 factoria feedback validate
 factoria feedback collect games/ examples/ --out roadmap.md      # .json => JSON; --include-closed
+factoria feedback add ... --share-title T --share-missing TEXT [--share-suggestion TEXT] [--share-workaround TEXT] --reviewed
+factoria feedback sharing [always|ask|never]    # a person chooses whether feedback goes to the engine developer; no argument = status
+factoria feedback share [project] [--preview] [--yes] [--json]   # show what would be sent / send the outbox now
+factoria feedback signin github                 # optional identity (device flow); `signout` forgets it
 ```
+`sharing`, `share`, `signin` and `signout` send generic, engine-terms-only copies of your feedback (`share`) to the engine
+developer. Only you change the mode: no engine command does. See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md), "Sharing with
+the engine developer".
+
 `add` merges into a similar open entry (occurrences++). `update [project] <id>` triages an entry: `--status open|fixed-in-engine|wont-fix|duplicate`, `--engine-issue REF`, `--note TEXT` (appended to `notes`). `collect` groups reports of the same gap across projects even
 when the titles differ ("Bug:" prefixes, plurals, stop words and synonyms such as stub/placeholder are ignored; a
 short title contained in a longer one counts; same-category or similar-suggestion entries score higher, and a
