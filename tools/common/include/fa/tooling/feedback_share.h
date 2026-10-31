@@ -44,6 +44,8 @@ inline constexpr int kShareMissingMin = 20, kShareMissingMax = 1500;
 inline constexpr int kShareSuggestionMax = 1500, kShareWorkaroundMax = 1500;
 inline constexpr int kShareMaxEntriesPerRequest = 20;
 inline constexpr int kShareMaxBodyBytes = 64 * 1024;
+// The most times one entry is sent: the developer's ranking counts min(occurrences, 3) per installation.
+inline constexpr int kMaxSharedOccurrences = 3;
 
 // ------------------------------------------------------------------------------------------------------------- environment
 
@@ -196,7 +198,8 @@ std::int64_t backoff_seconds(int attempts);
 Outbox load_outbox(const ShareEnv& env);
 Result<void> save_outbox(const ShareEnv& env, const Outbox& outbox);
 
-// The kind of entry the client may share: open, with a `share`, not sent or refused already.
+// The kind of entry the client may share: open, with a `share`, not refused, and not sent yet or hit again since it was
+// sent (fewer sends than min(occurrences, kMaxSharedOccurrences)).
 bool entry_is_shareable(const Json& entry);
 
 // -------------------------------------------------------------------------------------------------------- queue and send

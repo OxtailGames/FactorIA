@@ -135,6 +135,9 @@ Sending never makes a command fail and never waits long: with `always`, `feedbac
 otherwise leaves the entry in the outbox, retried after 1 minute, 10 minutes, 1 hour and then once a day while the server
 is unreachable or busy (a `429` waits for its `Retry-After`). The server may refuse an entry (`shared.status: "rejected"`
 with its reason) or ban an installation; neither is retried. `shared.status` is `pending`, `sent`, `rejected` or `skipped`.
+Hitting a gap again after it was sent (the entry is merged and its `occurrences` go up) sends it once more, so the
+developer sees it matters to you; `shared.occurrences` counts the sends, and after 3 nothing more goes (the developer's
+ranking counts at most 3 per installation).
 `feedback.share` (AI) sends what is due and allowed by the mode; `factoria feedback share` (person) sends now, ignoring the
 waiting times.
 
