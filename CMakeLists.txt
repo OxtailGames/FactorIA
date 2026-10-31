@@ -159,3 +159,6 @@ if(FA_BUILD_TOOLS)
     endif()
     add_subdirectory(tools/cli)     # factoria     the single developer binary
 endif()
+
+# The feedback server (JavaScript, Cloudflare Worker): only its tests belong to the build, and only when Node is found.
+add_subdirectory(tools/feedback-server)
