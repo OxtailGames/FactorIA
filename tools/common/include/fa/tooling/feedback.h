@@ -13,7 +13,7 @@
 //                        fixed-in-engine entry reopens it (a possible regression).
 //   collect_feedback     aggregate many projects' files into a ranked roadmap
 //                        report (similar titles grouped, ranked by
-//                        occurrences x severity weight).
+//                        severity weight x trust x min(occurrences, 3) per project).
 #pragma once
 
 #include <optional>
@@ -131,8 +131,12 @@ struct CollectOptions {
 // `paths`: ENGINE_FEEDBACK.json files, or directories (the file in the dir, or any
 // ENGINE_FEEDBACK.json found below it). Report JSON:
 // { sources[], projects[], totalEntries, errors[], clusters: [ { rank, title, category, severity, score,
-//   totalOccurrences, projects[], entries[{project,id,severity,status}], bestSuggestion,
-//   sampleWorkarounds[] } ] }
+//   totalOccurrences, installations, verifiedInstallations, projects[],
+//   entries[{project,id,severity,status,occurrences,trust,similarity}], bestSuggestion, sampleWorkarounds[] } ] }
+// score = sum over the cluster's projects (a local project or one installation) of severity weight (the worst of its
+// entries) x trust x min(occurrences, 3). trust is 1 for a local project and for an entry whose remote.trust is "verified",
+// 0.5 for "anonymous" (entries pulled from the feedback server carry `remote`). installations = projects in the cluster,
+// verifiedInstallations = those with a verified entry; totalOccurrences is the uncapped sum.
 Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, const CollectOptions& opts = {});
 
 // Registers feedback.report, feedback.list, feedback.update, feedback.archive bound to <projectDir>/ENGINE_FEEDBACK.json

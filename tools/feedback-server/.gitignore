@@ -1,0 +1,5 @@
+node_modules/
+.wrangler/
+# Local deploy state (database id written by deploy.sh / deploy.ps1) and dev secrets
+wrangler.local.toml
+.dev.vars

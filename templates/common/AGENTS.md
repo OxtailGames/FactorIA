@@ -185,14 +185,9 @@ had a bug and you built a workaround or dropped the feature, record it immediate
   `workaround` (what you did, with `workaroundFiles`), `suggestion` (how the engine could fix it).
 - Reporting the same gap again merges into the existing entry (counts occurrences), so do not
   worry about duplicates. Not reporting is the only wrong choice.
-- `ENGINE_FEEDBACK.json` holds the open entries. Closed ones (fixed-in-engine, wont-fix, duplicate) move to
-  `ENGINE_FEEDBACK.archive.json` next to it when the editor opens the project or `factoria feedback archive` runs
-  (command `feedback.archive`). Do not edit the archive by hand. Reporting a gap that an archived fixed-in-engine entry
-  describes reopens that entry as a possible regression, so report it again if it comes back.
-- `share` (optional): the same gap for the engine developer, in engine terms only (`{title, missing, suggestion?}`: component,
-  field and command names, nothing about this game: no names, file names, paths or quotes), with `reviewed: true` once you
-  checked the docs. Only the user decides whether anything is sent (`factoria feedback sharing always|ask|never`); you cannot
-  change it, and if `feedback.report` says sharing is not set up, tell the user once how to turn it on.
+- `ENGINE_FEEDBACK.json` holds the open entries; closed ones move to `ENGINE_FEEDBACK.archive.json` (never edit it); reporting a fixed gap again reopens it.
+- `share` (optional): the gap for the engine developer, engine terms only (`{title, missing, suggestion?}`, nothing about this game), with
+  `reviewed: true` after checking the docs. Only the user turns sending on (`factoria feedback sharing always|ask|never`); if the report says it is not set up, tell them once.
 - Examples worth reporting: a component field you expected is missing; an error message did not
   say how to fix the problem; a doc was wrong or absent; a command you wanted does not exist; a
   crash; slow or flaky headless runs; anything you had to emulate in JS.

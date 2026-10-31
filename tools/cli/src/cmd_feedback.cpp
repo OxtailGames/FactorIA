@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "common.h"
+#include "feedback_admin.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/docs.h"
@@ -208,6 +209,9 @@ Command make_feedback_command() {
             return 0;
         }
         ctx.out << "Updated " << id << ": status=" << r->value("status", std::string()) << "\n";
+        if (r->value("status", std::string()) == "fixed-in-engine")
+            if (std::string offer = fixed_add_offer(*r); !offer.empty())
+                ctx.out << "A pulled report: record the fix so every user's matching entry is closed when they update:\n  " << offer << "\n";
         return 0;
     };
 
@@ -295,6 +299,7 @@ Command make_feedback_command() {
 
     g.subs = {init, add, list, update, archive, validate, collect};
     add_feedback_share_commands(g);
+    for (auto& sub : make_feedback_admin_commands()) g.subs.push_back(std::move(sub));  // the engine developer's side
     return g;
 }
 
