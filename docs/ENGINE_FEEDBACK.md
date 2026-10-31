@@ -76,9 +76,21 @@ file, so an interruption can leave an entry in both files but never loses one. B
 ## Collecting (engine developers)
 
 `factoria feedback collect <dirs-or-files...> [--out report.md|report.json]` groups similar entries across
-projects and ranks them by `sum(occurrences) x severity weight` (blocker 8, major 4, minor 2,
-nice-to-have 1). Each group lists title, category, projects affected, total occurrences, the best
-suggestion and sample workarounds. Only `open` entries count unless `--include-closed` is given.
+projects and ranks them. Each group lists title, category, installations (projects), verified installations, total
+occurrences, the best suggestion and sample workarounds. Only `open` entries count unless `--include-closed` is given.
+
+The score of a group is the sum, over the projects (a pulled installation is one project) that have an entry in it, of
+`severity weight x trust x min(occurrences, 3)`:
+
+- Severity weight: blocker 8, major 4, minor 2, nice-to-have 1 (the highest in that project's entries of the group).
+- Trust: 1 for a project of your own and for a pulled entry whose `remote.trust` is `verified` (the installation
+  signed in with GitHub); 0.5 for an anonymous one (`remote.trust` `anonymous`).
+- Occurrences of one project are capped at 3, so one installation that reports the same gap 50 times counts as 3, and
+  ten installations that each report it once count as ten. `totalOccurrences` in the report is not capped.
+
+A score with a half shows one decimal (1.5). The entries that `factoria feedback pull` writes
+(see docs/EXTENDING.md, section F) are collected like any project: `factoria feedback collect ~/.factoria/feedback-inbox`.
+The inbox's `quarantine/` folder holds `quarantine.json`, not an `ENGINE_FEEDBACK.json`, so collect ignores it.
 
 Two entries merge when their title, category, `suggestion` and `missing` text are alike enough (a title that merely
 contains another needs four shared significant words). The report prints, under each group with several entries, the
