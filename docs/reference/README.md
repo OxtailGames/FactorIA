@@ -170,8 +170,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [feedback](commands/feedback.md)
 
 - [`feedback.archive`](commands/feedback.md#feedbackarchive-modifies-state): Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file. _Since 0.4.0._
+- [`feedback.check_fixed`](commands/feedback.md#feedbackcheck_fixed-modifies-state): Close the open feedback entries whose gap this engine version fixed. _Not released yet._
 - [`feedback.list`](commands/feedback.md#feedbacklist): List the engine-feedback entries recorded for this project.
 - [`feedback.report`](commands/feedback.md#feedbackreport-modifies-state): Record an engine gap (missing feature, bug, confusing doc) and the workaround you used.
+- [`feedback.share`](commands/feedback.md#feedbackshare-modifies-state): Send the queued feedback to the engine developer now (only what the user's mode allows). _Not released yet._
+- [`feedback.share_preview`](commands/feedback.md#feedbackshare_preview): Show exactly what sharing would send for the entries that have a `share`, and what the sanitizer removed. _Not released yet._
+- [`feedback.share_status`](commands/feedback.md#feedbackshare_status): Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox. _Not released yet._
 - [`feedback.update`](commands/feedback.md#feedbackupdate-modifies-state): Change the status of a feedback entry or link it to an engine issue.
 
 ### [fs](commands/fs.md)
