@@ -151,9 +151,9 @@ def main():
               "engine_update_status says current before the swap", text)
         before = json.loads(text.split("\n[FactorIA notice]")[0]) if r else {}
         running_before = before.get("running", {}).get("fingerprint", "")
+        if IS_WINDOWS:  # a running program cannot be written over, only renamed: an installer moves it aside first
+            os.replace(exe, exe + ".old")
         os.replace(newexe, exe)  # a rename over the running file, as an installer does
-        if IS_WINDOWS:
-            pass
         # A request written while the server notices the change must not be lost.
         pid = s.request("ping")
         pong = s.wait(lambda m: m.get("id") == pid, 30)

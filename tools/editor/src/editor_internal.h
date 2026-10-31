@@ -868,7 +868,9 @@ public:
     std::vector<ai::ProviderStatus> atSavedStatus_;
     std::string atQFake_, atQArgv_;  // section Q: the fake Claude Code and the file it records its argv and stdin in
     std::optional<ai::AiConfig> atSavedConfig_;  // the AI config while the CLI-agent check swaps in the fake Claude Code
-    int atWaitCount_ = 0;
+    int atWaitCount_ = 0;  // frames a wait has held the script; 0 = a new wait (a step sets it)
+    std::chrono::steady_clock::time_point atWaitStart_;  // when that wait began: waits are bounded in time, not frames
+    bool at_keep_waiting();
     // A frame that never ends (a GPU read-back that waits for ever) would leave the window frozen on the user's screen: the
     // watchdog thread ends the process when the editor draws no frame for a minute (on_init starts it, only in the autotest).
     std::atomic<std::uint64_t> atHeartbeat_{0};
