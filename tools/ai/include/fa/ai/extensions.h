@@ -88,36 +88,41 @@ Result<void> save_project_extensions(const std::vector<Extension>& entries, std:
 
 // --- Claude Code's own project settings -----------------------------------------------------------------------------------
 // Claude Code in -p mode skips its workspace-trust dialog, so a downloaded game's .claude/settings.json and
-// .claude/settings.local.json would run their programs in FactorIA's runs: hooks, enabledPlugins, extraKnownMarketplaces,
-// statusLine, apiKeyHelper (and the other settings that name a command). FactorIA reads the two files, never loads them for
-// the user, and keeps Claude Code from loading them (--setting-sources without project and local) until the project is trusted.
+// .claude/settings.local.json would take effect in FactorIA's runs without asking: they run programs (hooks, enabledPlugins,
+// extraKnownMarketplaces, statusLine, apiKeyHelper and the other settings that name a command) and widen what the AI may do (env,
+// permissions.allow, a permissions.defaultMode other than "default", additionalDirectories). FactorIA reads the two files, never
+// loads them for the user, and keeps Claude Code from loading them (--setting-sources without project and local) until the
+// project is trusted.
 struct ClaudeSettingsFile {
     std::string path;                  // absolute path (even when the file does not exist)
     bool exists = false;
     std::string hash;                  // sha256 of the bytes ("" when there is no file)
-    std::vector<std::string> programs; // what in it runs a program, e.g. "hooks (PreToolUse, Stop)", "statusLine"
-    std::string error;                 // the file is not valid JSON: Claude Code ignores it too, so it runs nothing
+    // what in it needs the user's trust: it runs a program ("hooks (PreToolUse, Stop)", "statusLine") or widens what the AI may
+    // do without a dialog ("env (ANTHROPIC_BASE_URL)", "permissions.allow (Bash)", "permissions.defaultMode (bypassPermissions)")
+    std::vector<std::string> grants;
+    std::string error;                 // the file is not valid JSON: Claude Code ignores it too, so it grants nothing
 };
 struct ClaudeProjectSettings {
     std::vector<ClaudeSettingsFile> files;  // settings.json, then settings.local.json
-    // sha256 over the bytes of both files; "" when neither runs a program (an edit of a harmless file then changes nothing,
-    // an edit that adds a hook changes it from "" to a hash).
+    // sha256 over the bytes of both files; "" when neither needs trust (an edit of a harmless file then changes nothing, an edit
+    // that adds a hook or a permissions.allow rule changes it from "" to a hash).
     std::string hash;
-    bool runs_programs() const { return !hash.empty(); }
-    // "<file name>: hooks (Stop), statusLine" for each file that runs something.
+    bool needs_trust() const { return !hash.empty(); }
+    // ".claude/<file name>: hooks (Stop), env (A_KEY)" for each file that needs trust.
     std::vector<std::string> describe() const;
 };
 ClaudeProjectSettings load_claude_project_settings(std::string_view projectDir);
 
 // --- trust ---------------------------------------------------------------------------------------------------------------
 // A plugin or a hook that comes from a project runs a program, and so do the hooks, plugins and commands in the project's
-// .claude/settings*.json that Claude Code would load, so they run only after the USER trusts the project once. The trust is
+// .claude/settings*.json that Claude Code would load (programs, env, allowed tools), so they apply only after the USER trusts
+// the project once. The trust is
 // kept per project path and per hash of BOTH sources (the extensions file and the two Claude Code settings files), in a
 // user-level file next to ai.json (ai-trust.json), and is dropped when either changes. Only the editor (and C++ callers) can
 // grant it: no command does, so an AI cannot trust what it just wrote.
 std::string extensions_trust_path(std::string_view aiConfigPath);
 // True when `projectDir` is trusted for exactly these hashes: `hash` of .factoria/extensions.json ("" = no file) and
-// `claudeHash` of ClaudeProjectSettings::hash ("" = nothing in .claude runs a program). False when both are empty (nothing to
+// `claudeHash` of ClaudeProjectSettings::hash ("" = nothing in .claude needs trust). False when both are empty (nothing to
 // trust). A record for other hashes is removed (a file changed; `dropped` says so) unless `dropStale` is false (the read-only
 // report only looks).
 bool project_extensions_trusted(std::string_view trustPath, std::string_view projectDir, std::string_view hash,

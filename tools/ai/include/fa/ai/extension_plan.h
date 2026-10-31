@@ -56,7 +56,7 @@ struct ExtensionPlan {
     std::vector<std::string> skillDirs;   // each skill folder; Claude Code gets them as one generated plugin
     Json hooks;                           // merged events object; null when there are none
     bool userPluginsOff = false;          // inheritUserPlugins false and the provider honours it
-    // Claude Code only: the project's .claude/settings*.json runs a program and the project is not trusted, so the run starts
+    // Claude Code only: the project's .claude/settings*.json runs a program or widens what the AI may do and the project is not trusted, so the run starts
     // without the project and local setting sources. `untrustedSettings` says what would have run (ClaudeProjectSettings::describe).
     bool projectSettingsOff = false;
     std::vector<std::string> untrustedSettings;
@@ -87,7 +87,7 @@ inline constexpr const char* kSkillsPluginName = "factoria-extensions";
 struct ProjectTrustState {
     ProjectExtensions extensions;
     ClaudeProjectSettings claude;
-    bool needsTrust = false;  // something in the project runs a program (a plugin or hooks entry, or a program in .claude/settings*.json)
+    bool needsTrust = false;  // something in the project needs trust (a plugin or hooks entry, or something in .claude/settings*.json that needs trust)
     bool trusted = false;     // the user trusted exactly these files
 };
 ProjectTrustState read_project_trust(const ExtensionContext& ctx, bool dropStale);

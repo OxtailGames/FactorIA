@@ -813,7 +813,7 @@ public:
             std::string projectError;                  // why the project's file could not be read ("" = fine)
             std::string projectHash;                   // hash of the file as read; the trust applies to exactly this
             std::string claudeHash;                    // ClaudeProjectSettings::hash as read ("" = nothing in .claude runs a program)
-            std::vector<std::string> claudePrograms;   // what in the project's .claude/settings*.json runs a program
+            std::vector<std::string> claudeGrants;   // what in the project's .claude/settings*.json runs a program or widens what the AI may do (env, allowed tools)
             bool projectTrusted = false;               // the user trusted the project for projectHash + claudeHash
             std::vector<ai::Extension> userLoaded, projectLoaded;  // as saved, to tell what changed
             int addKind = 0;                           // the add row: 0 plugin folder or .zip, 1 skill folder, 2 installed plugin name@marketplace

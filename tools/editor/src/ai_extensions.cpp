@@ -96,7 +96,7 @@ void Editor::ai_extensions_load(const ai::AiConfig& cfg) {
     x.projectLoaded = p.entries;
     const ai::ClaudeProjectSettings claude = ai::load_claude_project_settings(projectDir_);
     x.claudeHash = claude.hash;
-    x.claudePrograms = claude.describe();
+    x.claudeGrants = claude.describe();
     const std::string cfgPath = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
     x.projectTrusted = p.error.empty() &&
                        ai::project_extensions_trusted(ai::extensions_trust_path(cfgPath), projectDir_, p.hash, nullptr, false, claude.hash);
@@ -421,9 +421,9 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                 std::string what;
                 if (programs > 0)
                     what = std::to_string(programs) + (programs == 1 ? " plugin or hooks entry" : " plugin or hooks entries") + " in its extensions file";
-                if (claudeRuns) what += std::string(what.empty() ? "" : " and ") + "programs in its Claude Code settings (.claude/settings*.json)";
-                wrapped(kStatusWarn, "This project has " + what + " that run on this computer. They do not load until you trust the project" +
-                                         (claudeRuns ? ": Claude Code starts without the project's .claude settings, permissions and env included." : "."));
+                if (claudeRuns) what += std::string(what.empty() ? "" : " and ") + "programs, env or allowed tools in its Claude Code settings (.claude/settings*.json)";
+                wrapped(kStatusWarn, "This project has " + what + " that run programs or widen what the AI may do. They do not load until you trust the project" +
+                                         (claudeRuns ? ": Claude Code starts without the project's .claude settings, so the rest of those files is not applied either." : "."));
                 if (ImGui::Button(x.showTrust ? "Hide what would run" : "Review what would run...")) x.showTrust = !x.showTrust;
                 at_track("aiset:ext:review");
                 if (x.showTrust) {
@@ -435,7 +435,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                         ImGui::TextDisabled("%s", detail.c_str());
                         ImGui::Unindent();
                     }
-                    for (const std::string& line : x.claudePrograms) ImGui::BulletText("%s", line.c_str());
+                    for (const std::string& line : x.claudeGrants) ImGui::BulletText("%s", line.c_str());
                     const bool saved = ai::extensions_to_json({x.project, true}, false) == ai::extensions_to_json({x.projectLoaded, true}, false);
                     const bool canTrust = saved && x.projectError.empty() && (x.projectExists || claudeRuns);
                     ImGui::BeginDisabled(!canTrust);
