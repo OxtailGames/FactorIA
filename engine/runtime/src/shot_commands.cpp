@@ -10,6 +10,7 @@
 #include "fa/core/image_tools.h"
 #include "fa/core/strings.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/camera_mask.h"
 #include "fa/scene/ui_rect.h"
 
 namespace fa {
@@ -308,7 +309,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
            "visible artefact (a seam, a dark band) after game.screenshot {region, zoom} or render.inspect located it. The test "
            "is the oriented BOX of the visual (the same footprint as entity.bounds() and the editor's picking): a transparent "
            "corner of a sprite, the corners outside a circle and the parts of a gradient that fade out still count; an "
-           "alpha-0 colour is skipped; inactive entities are skipped. The world point is found through the primary camera; "
+           "alpha-0 colour is skipped; inactive entities are skipped, and so are world visuals the camera at that pixel does not draw "
+           "(Camera.showTags / hideTags). The world point is found through the primary camera; "
            "`world` in the result is that point. `widget` is the UI widget a click there would reach (ui_widget_at), or null. "
            "Needs graphics (the camera is the renderer's). Example: render.pick {\"position\":[640,360]}",
            parse_schema(R"({"type":"object","properties":{
@@ -337,12 +339,14 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                   int seq;
               };
               std::vector<Hit> hits;
+              const CameraMask mask = CameraMask::of(I.world, I.renderer->camera_at(p));  // world visuals this camera does not draw cannot be hit
               int entityIndex = 0;
               for (Entity e : I.world.entities()) {
                   ++entityIndex;
                   if (!I.world.active_in_hierarchy(e)) continue;
                   for (const VisualFootprint& part : visual_footprints(I.world, e, measure, true)) {
                       const bool screen = part.space == RenderSpace::Screen;
+                      if (!screen && !mask.draws(I.world, e)) continue;
                       if (!footprint_hit(I.world, e, part, design, screen ? p : world)) continue;
                       const std::string kind = part.component;
                       // A colour with no alpha draws nothing.

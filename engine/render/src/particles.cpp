@@ -165,6 +165,7 @@ void gather_particles(World& world, Frame& f) {
         if (st.particles.empty()) return;
         const bool screen = screen_space(em);
         if (screen ? !f.wantScreen : !f.wantWorld) return;
+        if (!screen && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         Mat4 m = world.world_matrix(e);
         Vec3 anchor{};
         if (screen) {

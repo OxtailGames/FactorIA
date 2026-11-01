@@ -1213,6 +1213,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.ramps = &ramps;
     fr.viewFlipV = gpu.is_gl();
     fr.viewImage = [this](std::uint64_t key, int w, int h) { return view_image(key, w, h); };
+    fr.mask = CameraMask::of(world, fr.cam.entity);  // fr.cam is set before this
 }
 
 // One frame: the cameras drawn in depth order (each into its viewport rectangle: its own culling, 2D lights, 3D lights, clear)
@@ -1398,6 +1399,7 @@ void Renderer::Impl::render(World& world, float dt) {
             for (const MeshRef& ref : meshRefs) {
                 const MeshRenderer* mr = world.get<MeshRenderer>(ref.e);
                 if (!mr) continue;
+                if (!fr.mask.draws(world, ref.e)) continue;  // a mesh this camera does not draw shows nothing to it
                 const MeshAsset* mesh = assets->mesh(mr->mesh);
                 if (!box_in_frustum(fr.cam.viewProj, z01, mesh->bmin, mesh->bmax, world.world_matrix(ref.e))) continue;
                 for (int t : ref.targets) {
@@ -1532,7 +1534,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     if (fr.wantWorld) world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
-        if (!entity_active(world, fr, e)) return;
+        if (!entity_active(world, fr, e) || !fr.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         MeshItem mi;
         mi.mesh = assets->mesh(mr.mesh);
         mi.model = world.world_matrix(e);

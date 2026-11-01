@@ -9,6 +9,7 @@
 #include "engine_impl.h"
 #include "fa/core/log.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/camera_mask.h"
 #include "fa/scene/components.h"
 #include "fa/scene/mesh_store.h"
 #include "fa/scene/mesh_surface.h"
@@ -47,9 +48,12 @@ UiSurfaceFn make_ui_surface_pointer(Engine::Impl& I) {
             Vec2 uvScale;
         };
         std::vector<Candidate> candidates;
+        // The mesh is seen through the camera that draws at the pointer: a mesh that camera does not draw (Camera.showTags /
+        // hideTags) is not there to be hit.
+        const CameraMask mainMask = CameraMask::of(world, r->camera_at(pos));
         world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
             if (pin && pin->mesh != e) return;
-            if (mr.mesh.empty() || !world.active_in_hierarchy(e)) return;
+            if (mr.mesh.empty() || !world.active_in_hierarchy(e) || !mainMask.draws(world, e)) return;
             std::string target = shown_target(world, mr);
             if (target.empty()) return;
             static std::set<std::string> warned;
@@ -95,6 +99,7 @@ UiSurfaceFn make_ui_surface_pointer(Engine::Impl& I) {
             if (best->uvScale.y > 1.0f) uv.y -= std::floor(uv.y);
         }
         UiSurface s;
+        s.mask = CameraMask::of(world, view->camera);  // only what the page's camera draws is on the page
         s.point = {uv.x * float(view->width), uv.y * float(view->height)};
         s.project = [to = view->to_pixels](Vec3 p, const Vec2*) { return to(p); };
         s.pin = UiSurfacePin{best->e, bestHit.triangle};

@@ -15,6 +15,7 @@
 #include "fa/platform/app.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
+#include "fa/scene/camera_mask.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
@@ -537,6 +538,22 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             return r->world_to_screen(p, cam != kNullEntity && I.world.alive(cam) ? cam : kNullEntity);
         }
         return ortho_view(I.world, I.design_size(), kNullEntity, pointer).to_screen(p);
+    });
+
+    // The culling mask (Camera.showTags / hideTags) of the camera that draws at the pointer: a world-space Interactable it does not draw
+    // takes no pointer through it.
+    I.ui.set_world_mask([&I](const Vec2* pointer) {
+        Renderer* r = I.renderer.get();
+        Entity cam;
+        if (r && r->initialized() && !r->cameras().empty()) {
+            cam = pointer ? r->camera_at(*pointer) : r->cameras().front();
+        } else if (pointer) {
+            cam = camera_containing(I.world, I.design_size(), *pointer);
+        } else {
+            const std::vector<Entity> cams = rendering_cameras(I.world);
+            if (!cams.empty()) cam = cams.front();
+        }
+        return CameraMask::of(I.world, cam);
     });
 
     I.ui.set_surface_pointer(make_ui_surface_pointer(I));  // the pointer through a render target shown on a mesh

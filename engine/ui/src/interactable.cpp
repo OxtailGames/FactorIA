@@ -163,7 +163,7 @@ Geometry geometry_of(const World& w, Entity e, const Interactable& ia, Vec2 desi
 bool is_custom(const World& w, Entity e) { return w.alive(e) && w.has<Interactable>(e) && ui_kind(w, e) == UiKind::None; }
 
 std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMeasure& measure, Entity modal, const ProjectFn& project,
-                                     const Vec2* pointer) {
+                                     const Vec2* pointer, const CameraMask& mask) {
     std::vector<Item> out;
     const std::vector<Entity> list = w.entities_with(&World::type_of<Interactable>());
     if (list.empty()) return out;
@@ -178,6 +178,7 @@ std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMe
         const Interactable& ia = *w.get<Interactable>(e);
         const Geometry g = geometry_of(w, e, ia, design, measure, proj, pointer);
         if (!g.valid) continue;
+        if (g.world && !mask.draws(w, e)) continue;  // the camera does not draw it (Camera.showTags / hideTags): it takes no pointer
         bool inScope = true;
         if (modal) {
             inScope = false;
@@ -271,19 +272,26 @@ bool same(const Color& a, const Color& b) { return a.r == b.r && a.g == b.g && a
 
 bool ui_is_interactable(const World& w, Entity e) { return ui_detail::is_custom(w, e); }
 
-std::optional<Rect> UiSystem::interactable_rect(const World& w, Entity e, Vec2 design, const VisualMeasure& measure) const {
+std::optional<Rect> UiSystem::interactable_rect(const World& w, Entity e, Vec2 design, const VisualMeasure& measure,
+                                                bool* hiddenByCamera) const {
+    if (hiddenByCamera) *hiddenByCamera = false;
     if (!ui_detail::is_custom(w, e)) return std::nullopt;
-    auto find = [&](const Vec2* pointer) -> std::optional<ui_detail::Item> {
-        for (ui_detail::Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project_, pointer))
+    auto find = [&](const Vec2* pointer, const CameraMask& mask) -> std::optional<ui_detail::Item> {
+        for (ui_detail::Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project_, pointer, mask))
             if (it.e == e) return it;
         return std::nullopt;
     };
-    const std::optional<ui_detail::Item> first = find(nullptr);
+    const std::optional<ui_detail::Item> first = find(nullptr, CameraMask{});
     if (!first) return std::nullopt;
     if (!first->world) return first->rect;
     // A world widget is seen through the camera that draws at its own centre (several cameras may show different parts).
     const Vec2 centre{first->rect.x + first->rect.w / 2, first->rect.y + first->rect.h / 2};
-    const std::optional<ui_detail::Item> again = find(&centre);
+    const CameraMask mask = mask_at(&centre);
+    if (!mask.draws(w, e)) {  // that camera does not draw it (Camera.showTags / hideTags): it cannot be reached through it
+        if (hiddenByCamera) *hiddenByCamera = true;
+        return std::nullopt;
+    }
+    const std::optional<ui_detail::Item> again = find(&centre, mask);
     return again ? again->rect : first->rect;
 }
 
