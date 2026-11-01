@@ -357,6 +357,13 @@ Result<Json> answer_fact(std::string_view projectDir, std::string_view id, Saver
             ss << in.rdbuf();
             text = ss.str();
         }
+        // A file with Windows line ends keeps them: edit it with "\n" and put the "\r\n" back when writing.
+        const auto replace_all = [](std::string s, std::string_view from, std::string_view to) {
+            for (std::size_t p = 0; (p = s.find(from, p)) != std::string::npos; p += to.size()) s.replace(p, from.size(), to);
+            return s;
+        };
+        const bool crlf = text.find("\r\n") != std::string::npos;
+        if (crlf) text = replace_all(std::move(text), "\r\n", "\n");
         if (text.find(line) == std::string::npos) {
             const std::size_t at = text.find(std::string("\n") + kFactsHeading);
             const bool hasHeading = text.rfind(kFactsHeading, 0) == 0 || at != std::string::npos;
@@ -373,6 +380,7 @@ Result<Json> answer_fact(std::string_view projectDir, std::string_view id, Saver
                 if (next != std::string::npos) section += "\n";
                 text = text.substr(0, start) + section + text.substr(end);
             }
+            if (crlf) text = replace_all(std::move(text), "\n", "\r\n");
             if (auto ok = fs::write_text(file.string(), text); !ok) return ok.error();
         }
         out["written"] = line;

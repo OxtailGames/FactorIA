@@ -355,7 +355,7 @@ Result<SkillRead> read_skill(const SkillInfo& skill, std::string_view fileIn, u6
         text = fa::engine_skill_read(name, file);
     } else {
         const fsys::path rel(file);
-        if (rel.is_absolute() || rel.has_root_name() || file.find("..") != std::string::npos) {
+        if (rel.is_absolute() || rel.has_root_path() || file.find("..") != std::string::npos) {
             return make_error("'" + file + "' is not inside the skill's folder",
                               "Name a file beside SKILL.md by its path relative to the skill, for example \"reference.md\".");
         }

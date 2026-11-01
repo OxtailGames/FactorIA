@@ -359,7 +359,7 @@ SessionResult run_failing_then_fixed(SaverHarness& h, bool fixed = true) {
 TEST_CASE("project facts: a failure that a later call fixed, in three runs, is proposed; AGENTS.md is untouched until accept") {
     SaverHarness h;
     const std::string original = "# My game\n\nSome text.\n\n## Conventions\n\n- Use tabs.\n";
-    std::ofstream(h.agents()) << original;
+    std::ofstream(h.agents(), std::ios::binary) << original;
     REQUIRE(run_failing_then_fixed(h, false).ok);  // never fixed: not a fact
     for (int i = 0; i < 2; ++i) REQUIRE(run_failing_then_fixed(h).ok);
     CHECK(fact_proposals(h.proj.str()).empty());
@@ -404,10 +404,10 @@ TEST_CASE("project facts: decline, a line the user edited, a second fact under t
     CHECK(has(read_file(h.agents()), "## Project facts"));
 
     // another fact lands under the same heading, before a later section
-    std::ofstream(h.agents()) << "# G\n\n## Project facts\n\n- old\n\n## Other\n\ntext\n";
+    std::ofstream(h.agents(), std::ios::binary) << "# G\n\n## Project facts\n\n- old\n\n## Other\n\ntext\n";
     // (the stored store has one fact only: reuse it with a different id by a second command)
     SaverHarness h2;
-    std::ofstream(h2.agents()) << "# G\n\n## Project facts\n\n- old\n\n## Other\n\ntext\n";
+    std::ofstream(h2.agents(), std::ios::binary) << "# G\n\n## Project facts\n\n- old\n\n## Other\n\ntext\n";
     for (int i = 0; i < 3; ++i) REQUIRE(run_failing_then_fixed(h2).ok);
     REQUIRE(answer_fact(h2.proj.str(), "proj.make:bad_name", SaverAnswer::Accept));
     const std::string text = read_file(h2.agents());
@@ -419,6 +419,20 @@ TEST_CASE("project facts: decline, a line the user edited, a second fact under t
     off.cfg.savers.projectFacts = false;
     for (int i = 0; i < 3; ++i) REQUIRE(run_failing_then_fixed(off).ok);
     CHECK(fact_proposals(off.proj.str()).empty());
+}
+
+TEST_CASE("project facts: an AGENTS.md with Windows line ends keeps them after accept") {
+    SaverHarness h;
+    std::ofstream(h.agents(), std::ios::binary) << "# G\r\n\r\n## Project facts\r\n\r\n- old\r\n\r\n## Other\r\n\r\ntext\r\n";
+    for (int i = 0; i < 3; ++i) REQUIRE(run_failing_then_fixed(h).ok);
+    REQUIRE(answer_fact(h.proj.str(), "proj.make:bad_name", SaverAnswer::Accept));
+    const std::string text = read_file(h.agents());
+    CHECK(text.find("- old\r\n- `proj.make`") != std::string::npos);
+    CHECK(text.find("- `proj.make`") < text.find("## Other"));
+    std::size_t bare = 0;
+    for (std::size_t i = 0; i < text.size(); ++i)
+        if (text[i] == '\n' && (i == 0 || text[i - 1] != '\r')) ++bare;
+    CHECK(bare == 0);
 }
 
 // --- the commands ----------------------------------------------------------------------------------------------------------
