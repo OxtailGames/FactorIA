@@ -644,7 +644,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, "
            "a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more "
            "frame (input.mouse.released, the ui \"click\" event). The same sequence as game.click in a test, so it runs hold + 1 frames. "
-           "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList) is an error that says why. "
+           "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList, a world-space Interactable the camera does not "
+           "draw because of Camera.showTags / hideTags) is an error that says why; a click at a position or world point reaches only what "
+           "the camera there draws. "
            "game.input {\"mouse\":{\"position\":[x,y],\"left\":true}} only sets the state for the next frame and leaves the button "
            "held; a click is move + press + frame + release + frame, which this command does in one call. Returns "
            "{position, button, frames, widget, frame}: `widget` is the id of the topmost UI widget or Interactable under the click (null over the "
@@ -678,8 +680,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   const bool custom = ui_is_interactable(I.world, e);
                   if (custom) {
                       if (!I.world.active_in_hierarchy(e)) why = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
-                      else if (!I.ui.interactable_rect(I.world, e, design, I.measure()))
-                          why = "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from";
+                      else {
+                          bool hidden = false;
+                          if (!I.ui.interactable_rect(I.world, e, design, I.measure(), &hidden))
+                              why = hidden ? "the camera that draws where it is does not draw it (Camera.showTags / hideTags), so a click through that camera cannot reach it. "
+                                             "If it is a page shown on a mesh (Camera.renderTarget), click the mesh with game.click {position} or {world}"
+                                           : "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from";
+                      }
                   } else if (ui_kind(I.world, e) != UiKind::None) {
                       const std::optional<Rect> r = ui_rect(I.world, e, design);
                       const std::optional<Rect> clip = ui_clip_rect(I.world, e, design);

@@ -1801,9 +1801,11 @@ only the scene's ambient light (no `Light2D`) in a split-screen frame. Keep it t
 
 Full guide: `docs_read {"name":"rendering"}` ([RENDERING.md](RENDERING.md)). The short version:
 
-1. Make the page out of ordinary WORLD-space entities (`Sprite`, `Text`, `Shape2D`, children of one `Transform`) far from
-   anything the main camera sees (x = 5000): a target camera has no culling mask and the screen-space UI (`Panel`, `Button`,
-   `space: "screen"`) is not drawn into it. Give the buttons, toggles and sliders of the page an `Interactable`.
+1. Make the page out of ordinary WORLD-space entities (`Sprite`, `Text`, `Shape2D`, children of one `Transform`); the screen-space
+   UI (`Panel`, `Button`, `space: "screen"`) is not drawn into a target. Tag the page's root (`"tags": ["page"]`) and give the
+   target camera `showTags: ["page"]` and the camera that draws the model `hideTags: ["page"]` (a culling mask: an entity is drawn
+   when it or an ancestor has a showTags tag and no hideTags tag), or put the page where the main camera never looks (x = 5000).
+   Give the buttons, toggles and sliders of the page an `Interactable`.
 2. Add a `Camera` with `renderTarget: "book"` and `renderTargetSize: [512, 768]` over the page (orthographic, `orthoSize` half
    the page height in world units, or 0 for one unit per texture pixel). It never draws to the screen and is never `camera.main`.
 3. Show it: `MeshRenderer { mesh: "quad", texture: "target:book", unlit: true }` (or a curved glTF model, or a custom material's

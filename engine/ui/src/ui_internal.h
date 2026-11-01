@@ -48,8 +48,9 @@ using ProjectFn = UiProjectFn;
 
 // The Interactable entities (active, not also a built-in widget), as items. `modal` scopes them like controls() does. `project` is
 // the camera hook (empty: the orthographic maths of the scene's cameras). `pointer`: the pointer position, for the camera choice.
+// `mask`: the Camera.showTags / hideTags of that camera: a world-space Interactable it does not draw is left out.
 std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMeasure& measure, Entity modal, const ProjectFn& project,
-                                     const Vec2* pointer);
+                                     const Vec2* pointer, const CameraMask& mask);
 bool item_contains(const Item& it, Vec2 p);
 
 // True when `e` is an Interactable that is not a built-in widget as well (then the built-in wins).
