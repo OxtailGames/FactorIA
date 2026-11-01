@@ -19,6 +19,7 @@
 #include "fa/physics/physics.h"
 #include "fa/platform/input.h"
 #include "fa/render/builtin_fonts.h"
+#include "fa/scene/camera_mask.h"
 #include "fa/scene/components.h"
 #include "fa/runtime/plugins.h"
 #include "fa/runtime/project.h"
@@ -70,6 +71,9 @@ struct Ctx {
     bool projectFileRead = false;                             // factoria.json parsed as an object
     RichTextStyle richStyle;                                  // the "text" section of factoria.json, for the markup checks
     std::set<std::string> boldSuggested;                      // fonts already told to get a bold face (one warning per font)
+    std::set<std::string> entityTags;                         // every tag a scene or prefab entity carries, for Camera.showTags / hideTags
+    struct CameraTags { std::string file, pointer; std::vector<std::string> show, hide; };
+    std::vector<CameraTags> cameraTags;                       // the lists of every Camera in a scene or prefab
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
         report.errors.push_back({std::move(file), std::move(pointer), std::move(msg), std::move(hint)});
@@ -370,9 +374,53 @@ void check_animator_clip(Ctx& c, const std::string& file, const std::string& poi
                   : "Record the sheet with assets.slice_sheet, assets.animate_svg or assets.bake_sheet, or drop `clip` and set columns, rows, firstFrame, lastFrame and fps.");
 }
 
+// A Camera's showTags / hideTags as written: a malformed list and a tag in both lists are errors here; whether the tags exist
+// is checked once every scene and prefab has been read (check_camera_tags).
+void collect_camera_tags(Ctx& c, const std::string& file, const std::string& base, const Json& fields) {
+    if (!fields.is_object()) return;
+    Ctx::CameraTags ref{file, base, {}, {}};
+    for (const char* field : {"showTags", "hideTags"}) {
+        if (!fields.contains(field)) continue;
+        const std::string problem = camera_tags_problem(fields[field], field);
+        if (!problem.empty()) {
+            c.error(file, base + "/" + field, problem,
+                    std::string("Write an array of tag names, e.g. \"") + field + "\": [\"page\"]; tags are the \"tags\" of entities.");
+            continue;
+        }
+        (std::string(field) == "showTags" ? ref.show : ref.hide) = camera_tag_list(fields[field]);
+    }
+    for (const std::string& t : ref.show)
+        if (std::find(ref.hide.begin(), ref.hide.end(), t) != ref.hide.end())
+            c.error(file, base, "The Camera lists the tag '" + t + "' in both showTags and hideTags, so it would draw nothing with that tag.",
+                    "Keep '" + t + "' in one list: showTags to draw only entities with it, hideTags to leave them out.");
+    if (!ref.show.empty() || !ref.hide.empty()) c.cameraTags.push_back(std::move(ref));
+}
+
+// A tag of showTags / hideTags that no entity of any scene or prefab carries: a typo (the camera would draw nothing, or hide
+// nothing), or a tag a script adds with entity.addTag, which is why it is a warning.
+void check_camera_tags(Ctx& c) {
+    const std::vector<std::string> known(c.entityTags.begin(), c.entityTags.end());
+    for (const Ctx::CameraTags& ref : c.cameraTags) {
+        for (const char* field : {"showTags", "hideTags"}) {
+            const bool show = std::string(field) == "showTags";
+            for (const std::string& t : show ? ref.show : ref.hide) {
+                if (c.entityTags.count(t)) continue;
+                const std::string effect = show ? "this camera draws nothing in world space" : "hiding it changes nothing";
+                c.warn(ref.file, ref.pointer + "/" + field,
+                       "No entity in any scene or prefab has the tag '" + t + "', so " + effect + " (unless a script adds it with entity.addTag).",
+                       known.empty() ? "Add \"tags\": [\"" + t + "\"] to the entities this camera is about."
+                                     : did_you_mean(t, known));
+            }
+        }
+    }
+}
+
 void check_entity_assets(Ctx& c, const std::string& file, const std::string& pointer, const Json& entity,
                          std::set<std::string>& scripts) {
     if (!entity.is_object()) return;
+    if (entity.contains("tags") && entity["tags"].is_array())
+        for (const Json& t : entity["tags"])
+            if (t.is_string()) c.entityTags.insert(t.get<std::string>());
     if (entity.contains("prefab") && entity["prefab"].is_string()) {
         std::string pf = entity["prefab"].get<std::string>();
         if (!stdfs::exists(stdfs::path(c.dir) / pf))
@@ -387,6 +435,7 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
             if (it.key() == "Sprite" && it.value().is_object() && it.value().contains("texture") && it.value()["texture"].is_string() &&
                 !it.value()["texture"].get<std::string>().empty())
                 c.spriteTextures.insert(it.value()["texture"].get<std::string>());
+            if (it.key() == "Camera") collect_camera_tags(c, file, pointer + "/components/Camera", it.value());
             if (it.key() == "MeshRenderer") check_material_colors(c, file, pointer + "/components/MeshRenderer", it.value());
             if (it.key() == "Tilemap") check_tilemap_tileset(c, file, pointer + "/components/Tilemap", it.value());
             if (it.key() == "Script" && it.value().is_object() && it.value().contains("path") && it.value()["path"].is_string()) {
@@ -939,6 +988,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
         }
         note_hand_formatted(c.report, handFormatted);
+        check_camera_tags(c);
         validate_detail::check_clip_files(namedClips, c.report);
         assets_detail::check_sprite_textures(c.dir, c.spriteTextures, c.report.warnings);
         if (sceneFiles.empty())
