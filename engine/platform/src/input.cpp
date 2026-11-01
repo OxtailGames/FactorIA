@@ -260,6 +260,12 @@ void Input::begin_frame() {
     consumedBindings_.clear();
 }
 
+void Input::discard_idle_motion() {
+    mouseDelta_ = {};
+    wheel_ = 0.0f;
+    text_.clear();
+}
+
 void Input::vibrate(float seconds) {
     if (vibrations_.size() < 256) vibrations_.push_back(seconds);  // nobody plays them in a headless run: keep the log short
 }

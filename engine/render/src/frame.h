@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include "fa/core/asset_manifest.h"
+#include "fa/scene/camera_mask.h"
 #include "fa/scene/sprite_animator.h"
 #include "fa/scene/text_fit.h"
 #include "gradient_ramp.h"
@@ -80,6 +81,9 @@ struct Frame {
     // Renderer::capture_world of an entity: only this entity and its descendants are drawn, and the `active` flag of the entity
     // and of its ancestors is not looked at, so a hidden subject is captured. Null = the whole world as usual.
     Entity scopeRoot = kNullEntity;
+    // Camera.showTags / hideTags of this frame's camera (setup_frame): world-space visuals the camera does not draw are skipped by
+    // every gather (and so cast no shadow and take no pointer). Empty for a frame without a Camera entity and for capture_world.
+    CameraMask mask;
 };
 
 // The product of the Tint colours of `e` and its ancestors (white when there are none). Cheap when the scene has no Tint:

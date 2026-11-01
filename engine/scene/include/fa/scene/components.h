@@ -87,6 +87,9 @@ struct Camera {
     // screen. The texture is the id "target:<name>" (render_target_id), accepted wherever a texture path is. "" = the screen.
     std::string renderTarget;
     Vec2 renderTargetSize{1024, 1024};
+    // Culling mask by entity tags (fa/scene/camera_mask.h): arrays of tag names. [] and [] = the camera draws everything.
+    Json showTags = Json::array();  // non-empty: only entities that have one of these tags (or a parent that has) are drawn
+    Json hideTags = Json::array();  // entities that have one of these tags (or a parent that has) are not drawn
 };
 
 // The texture id of the render target `name` ("target:book"): what MeshRenderer.texture, a material texture, Sprite.texture,

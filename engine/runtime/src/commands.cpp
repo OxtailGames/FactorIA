@@ -596,7 +596,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "the first finger also drives the mouse like a device. gamepad and touch also take an array for several pads/fingers. "
            "{\"back\":true} presses the system Back button of Android: the input.onBack handlers of the game run at the next "
            "frame, and when none consumes it the game asks to quit (game.state shows quitRequested). "
-           "The input is applied now and seen by the next frame (game.step). Example: game.input {\"press\":[\"jump\"]}",
+           "The input is applied now and seen by the next frame: a button that goes up to down is `pressed` (and one that goes down to up "
+           "`released`) exactly once there, whether that frame comes from game.step, the running game or the editor's Step button, and "
+           "however many editor frames are drawn while the game is paused in between. `frames` (default 0, max 100000) steps that many "
+           "frames right after applying the input, exactly like game.step (also while paused); the result then has `frames` and "
+           "`frame` (the frame counter afterwards). A press stays held afterwards: release it with a later call. "
+           "Example: game.input {\"press\":[\"jump\"],\"frames\":1}",
            parse_schema(R"({"type":"object","properties":{
                "action":{"type":"string","description":"Action name (with `down`)."},
                "key":{"type":"string","description":"Key or mouse button name (with `down`)."},
@@ -606,7 +611,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "mouse":{"type":"object","description":"{position:[x,y] in design pixels, left/right/middle: bool}."},
                "gamepad":{"type":["object","array"],"description":"{index?: 0..3, connected?: bool, buttons?: {A: true, DpadLeft: false...}, axes?: {LeftX: -1, RightTrigger: 0.5...}}, or an array of those for several pads."},
                "touch":{"type":["object","array"],"description":"{id?: number (default 1), position?: [x,y] design pixels, down?: bool (default true)}, or an array of those for several fingers."},
-               "back":{"type":"boolean","description":"true: press the system Back button (Android)."}}})"),
+               "back":{"type":"boolean","description":"true: press the system Back button (Android)."},
+               "frames":{"type":"integer","default":0,"minimum":0,"maximum":100000,"description":"Frames to step after applying the input, like game.step (works while paused)."}}})"),
            false, "game"},
           [&engine, &I](const Json& a) {
               std::string err;
@@ -635,7 +641,15 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   throw CommandError("invalid_argument", join(problems, "\n"),
                                      "gamepad: {\"index\":0,\"buttons\":{\"A\":true},\"axes\":{\"LeftX\":-1}}; "
                                      "touch: {\"id\":1,\"position\":[x,y],\"down\":true}.");
-              return I.input.snapshot();
+              Json out = I.input.snapshot();
+              const int frames = a.value("frames", 0);
+              if (frames > 0 && out.is_object()) {
+                  engine.step(frames);
+                  out = I.input.snapshot();
+                  out["frames"] = frames;
+                  out["frame"] = I.frame;
+              }
+              return out;
           });
 
     I.commands.add({"game.click", "Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.",
@@ -644,7 +658,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, "
            "a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more "
            "frame (input.mouse.released, the ui \"click\" event). The same sequence as game.click in a test, so it runs hold + 1 frames. "
-           "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList) is an error that says why. "
+           "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList, a world-space Interactable the camera does not "
+           "draw because of Camera.showTags / hideTags) is an error that says why; a click at a position or world point reaches only what "
+           "the camera there draws. "
            "game.input {\"mouse\":{\"position\":[x,y],\"left\":true}} only sets the state for the next frame and leaves the button "
            "held; a click is move + press + frame + release + frame, which this command does in one call. Returns "
            "{position, button, frames, widget, frame}: `widget` is the id of the topmost UI widget or Interactable under the click (null over the "
@@ -678,8 +694,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   const bool custom = ui_is_interactable(I.world, e);
                   if (custom) {
                       if (!I.world.active_in_hierarchy(e)) why = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
-                      else if (!I.ui.interactable_rect(I.world, e, design, I.measure()))
-                          why = "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from";
+                      else {
+                          bool hidden = false;
+                          if (!I.ui.interactable_rect(I.world, e, design, I.measure(), &hidden))
+                              why = hidden ? "the camera that draws where it is does not draw it (Camera.showTags / hideTags), so a click through that camera cannot reach it. "
+                                             "If it is a page shown on a mesh (Camera.renderTarget), click the mesh with game.click {position} or {world}"
+                                           : "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from";
+                      }
                   } else if (ui_kind(I.world, e) != UiKind::None) {
                       const std::optional<Rect> r = ui_rect(I.world, e, design);
                       const std::optional<Rect> clip = ui_clip_rect(I.world, e, design);

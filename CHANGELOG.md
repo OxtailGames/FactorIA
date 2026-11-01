@@ -2,6 +2,21 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## 0.12.0
+
+FactorIA 0.12.0 (M47) fixes the two gaps the user's own game, Roguestory, reported while building its 3D storybook. A camera can now choose what it draws by entity tags (`Camera.showTags` / `Camera.hideTags`), so the pages a render target shows no longer have to live thousands of units away from the desk, and a press sent with `game.input` while the game is paused in the editor is no longer lost before the next step.
+
+### New
+
+- `Camera.showTags` / `Camera.hideTags` (culling mask by entity tags): a camera draws an entity when it, or an ancestor, has one of `showTags` (empty = any) and neither it nor an ancestor has one of `hideTags`. It applies to everything drawn in world space on screen and render-target cameras, to shadows, and to the pointer (Interactable hit tests, the mesh that shows a render target, `render.pick`, `game.click`, editor picking); screen-space UI and lights are not filtered. `factoria validate` warns about tags no entity or prefab carries (with a suggestion) and errors on a tag in both lists. (docs/RENDERING.md, "Choosing what a camera draws")
+- `game.input` takes `frames` (like `game.step`): it steps that many frames right after applying the input, also while paused, and returns the frame reached.
+
+### Fixes
+
+- `game.input` presses (actions, keys, mouse buttons, gamepad buttons, touches, `back`) injected while the game is paused in the editor were lost before `game.step` could simulate a frame, so `input.pressed(...)` never fired; the pressed/released edge now waits for the next simulated frame.
+- An Interactable that stops being a hit target (inactive, or hidden from its camera) no longer keeps its hovered/pressed/focused flags.
+- On OpenGL, a `Camera.renderTarget` drawn before any `Camera.colorFilter` had been used left its texture blank and broke the colour filter for the rest of the run: the flip copy asked for the filter's pipeline before its shader existed and the failed pipeline stayed cached. The pipeline now makes its shader itself, and a pipeline asked for without a ready shader is reported and never cached.
+
 ## 0.11.1
 
 FactorIA 0.11.1 sets the rules for the feedback server and for every FactorIA space. The server's page now says what reports it accepts (only about the engine, no personal data, nothing illegal or abusive, no abuse of the server), that reports breaking the rules are deleted and their sender may be refused, that sending a report lets the developer use the idea freely, and that the server comes with no warranty and may stop at any time. A code of conduct covers the repository and the feedback server.

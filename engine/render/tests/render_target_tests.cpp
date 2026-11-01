@@ -365,3 +365,15 @@ TEST_CASE("render target: a glTF model's UVs are the ones the pointer reads") {
     g.render(w);
     CHECK(g.renderer.stats().meshes == 1);
 }
+
+// On GL the target's flip copy draws with the colour filter's pipeline, and it can run before any Camera.colorFilter has made
+// that shader: the pipeline must make it, on a fresh Gpu too, or the failed pipeline stays cached for the whole process.
+TEST_CASE("render target: the colour filter pipeline is valid as the first thing a fresh Gpu makes") {
+    gfx();  // the sokol context
+    render::Gpu fresh;
+    std::string error;
+    REQUIRE(fresh.init(1, &error));
+    CHECK(sg_query_pipeline_state(fresh.colorfilter_pipeline()) == SG_RESOURCESTATE_VALID);
+    CHECK(sg_query_pipeline_state(fresh.colorfilter_pipeline()) == SG_RESOURCESTATE_VALID);
+    fresh.shutdown();
+}

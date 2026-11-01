@@ -332,6 +332,7 @@ void gather_2d(World& world, Frame& f) {
     world.each<Sprite>([&](Entity e, Sprite& s) {
         if (!entity_active(world, f, e) || s.color.a <= 0.0f) return;
         if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
+        if (s.space == RenderSpace::World && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         const Color spriteColor = s.color * inherited_tint(world, f, e);
         if (spriteColor.a <= 0.0f) return;
         TextureAsset* tex = assets.texture(s.texture);
@@ -515,6 +516,7 @@ void gather_2d(World& world, Frame& f) {
         const bool usesColor2 = s.filled && s.gradient != ShapeGradient::None;
         if (!entity_active(world, f, e)) return;
         if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
+        if (s.space == RenderSpace::World && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         const Color tint = inherited_tint(world, f, e);
         Color color1 = s.color * tint, color2 = s.color2 * tint;
         // A gradient with stops or an easing is read from a row of the ramp texture (gradient_ramp.h); only the shapes the SDF
@@ -626,6 +628,7 @@ void gather_2d(World& world, Frame& f) {
     // ---- tilemaps ----
     world.each<Tilemap>([&](Entity e, Tilemap& tm) {
         if (!f.wantWorld || !entity_active(world, f, e) || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return;
+        if (!f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         // The same size 2D physics collides with (rows form: the rows; flat form: width/height). The tiles are read in
         // place from the component each frame: nothing is copied out of the Json.
         const TilemapSize grid = tilemap_size(tm);
@@ -759,6 +762,7 @@ void gather_2d(World& world, Frame& f) {
         Color textTint = inherited_tint(world, f, e);
         if (textTint.a <= 0.0f) return;
         if (t.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
+        if (t.space == RenderSpace::World && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
         bool screen = t.space == RenderSpace::Screen;
         Mat4 m = draw_matrix(world, e, screen);
         if (t.lit && !screen && !f.cam.studio) {
