@@ -9,6 +9,7 @@
 
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/hooks.h"
+#include "fa/ai/savers.h"
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/date.h"
 #include "fa/core/log.h"
@@ -681,6 +682,45 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
     return finish(tr, shown);
 }
 
+std::string AgentSession::loop_judge(const LoopRedirect& redirect, const std::string& lastArguments, Json& info) {
+    const std::string judgeRole = config_.savers.loopGuardJudge;
+    const RoleConfig rc = config_.effective_role(judgeRole);
+    const ProviderConfig* pc = config_.provider(rc.provider);
+    info["judgeRole"] = judgeRole;
+    if (!pc || is_cli_kind(pc->kind) || rc.model.empty() || rc.model == kPlaceholderModel) {
+        info["judgeSkipped"] = "Role '" + judgeRole + "' runs on " + (pc ? "a CLI agent (" + pc->name + ")" : "no provider") +
+                               ", which cannot judge here; savers.loopGuardJudge needs a role on an API provider, so the fixed redirect was used.";
+        return {};
+    }
+    std::shared_ptr<ChatProvider>& provider = providers_[pc->name];
+    if (!provider) {
+        auto made = factory_(*pc);
+        if (!made) {
+            info["judgeSkipped"] = "The judge's provider could not start (" + made.error().message + "), so the fixed redirect was used.";
+            return {};
+        }
+        provider = *made;
+    }
+    ChatRequest req;
+    req.model = rc.model;
+    req.maxTokens = 400;
+    req.stream = false;
+    req.system = "You help an AI agent that builds a game with the FactorIA engine get out of a loop. Answer with the message for the agent only.";
+    req.messages = {Message::user(loop_judge_prompt(redirect, lastArguments))};
+    auto resp = provider->chat(req, ChatHooks{}, cancel_);
+    if (!resp) {
+        info["judgeSkipped"] = "The judge's call failed (" + resp.error().message + "), so the fixed redirect was used.";
+        return {};
+    }
+    const Pricing pricing = pc->pricing.known ? pc->pricing : builtin_pricing(rc.model);
+    const double cost = estimate_cost(resp->usage, pricing);
+    add_usage(resp->usage, cost);
+    info["judgeModel"] = rc.model;
+    info["judgeUsage"] = resp->usage.to_json();
+    info["judgeCostUsd"] = cost;
+    return loop_judge_redirect(redirect, resp->message.text);
+}
+
 SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& rc, const ProviderConfig& pc,
                                      const std::string& task, int depth) {
     SessionResult res;
@@ -740,6 +780,10 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     planOptions.withDelegate = canDelegate;
     planOptions.readOnly = readOnly;
     planOptions.groups = rc.toolGroups ? *rc.toolGroups : default_tool_groups(role);
+    if (config_.savers.learnedToolGroups) {  // groups the user accepted for this project (savers.h); nothing else is ever added or denied
+        for (const std::string& g : accepted_tool_groups(opt_.projectDir, role))
+            if (std::find(planOptions.groups.begin(), planOptions.groups.end(), g) == planOptions.groups.end()) planOptions.groups.push_back(g);
+    }
     planOptions.catalog = opt_.toolCatalog;
     const ToolPlan plan = plan_tools(registry_, planOptions);
     pctx.toolCatalog = plan.catalogText;
@@ -846,6 +890,8 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     if (depth == 0 && opt_.conversation.key == convKey) history = opt_.conversation.history;
     const bool resumed = !history.empty();
     int pauseStreak = 0;
+    LoopGuard loopGuard;
+    RunLearner learner(opt_.projectDir, role, config_.savers.learnedToolGroups, config_.savers.projectFacts);
 
     auto finish_with = [&](bool ok, const std::string& stop, const std::string& text, const std::string& error,
                            const std::string& hint) {
@@ -858,6 +904,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             res.conversation.key = convKey;
             res.conversation.history = history;
         }
+        learner.commit();  // what this run learned about the project's tools and failures (savers.h)
         if (depth == 0 && hookSet.has_event(HookEvent::SessionEnd)) {
             // Also after a cancel: a hook that cleans up should run then (each hook still has its timeout).
             HookRunContext endCtx = hookCtx;
@@ -1063,6 +1110,71 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             return r;
         };
 
+        // The token savers (savers.h) watch each result: the loop guard counts failures of one command and adds its redirect to the
+        // third one, the learner notes which catalog commands were loaded and which failures a later call fixed.
+        auto observe = [&](const ToolCall& call, ToolResult& r) {
+            std::string command;
+            Json args = Json::object();
+            const bool wrapper = plan.useCatalog && call.name == kToolCall && call.inputError.empty();
+            std::string why, hintText;
+            if (plan.useCatalog && call.name == kToolDescribe && call.inputError.empty()) {
+                std::vector<std::string> names;
+                if (const Json* list = child(call.input, "commands"); list && list->is_array()) {
+                    for (const Json& n : *list) if (n.is_string()) names.push_back(n.get<std::string>());
+                } else if (const std::string one = str(call.input, "commands", str(call.input, "command")); !one.empty()) {
+                    names.push_back(one);
+                }
+                for (const std::string& n : names) {
+                    if (const CommandInfo* info = resolve_command(registry_, n, readOnly, why, hintText)) learner.tool_loaded(info->name, info->category);
+                }
+                return;
+            }
+            if (wrapper) {
+                if (const CommandInfo* info = resolve_command(registry_, str(call.input, "command"), readOnly, why, hintText)) {
+                    command = info->name;
+                    if (const Json* a = child(call.input, "arguments"); a && a->is_object()) args = *a;
+                    const std::string toolName = tool_name_for_command(info->name);
+                    if (std::none_of(plan.tools.begin(), plan.tools.end(), [&](const ToolDef& t) { return t.name == toolName; }))
+                        learner.tool_loaded(info->name, info->category);  // used without a tool_describe first
+                }
+            } else if (auto it = toolToCommand_.find(call.name); it != toolToCommand_.end() && !toolServers.owns(call.name)) {
+                command = it->second;
+                if (call.input.is_object()) args = call.input;
+            }
+            if (command.empty()) return;
+            std::string code, message, hint;
+            if (r.isError) {
+                std::string body = r.content;
+                if (const auto cut = body.find("\n\n[Hook"); cut != std::string::npos) body.resize(cut);
+                const Json e = parse(body);
+                code = str(e, "code");
+                message = str(e, "message");
+                hint = str(e, "hint");
+            }
+            learner.command_result(command, !r.isError, code, message, hint, args);
+            if (!config_.savers.loopGuard) return;
+            auto redirect = loopGuard.record(command, !r.isError, code, message, hint);
+            if (!redirect) return;
+            Json line = Json::object({{"kind", "saver"}, {"saver", "loopGuard"}, {"command", redirect->command}, {"code", redirect->code},
+                                      {"count", redirect->count}, {"depth", depth}});
+            if (!config_.savers.loopGuardJudge.empty()) {
+                const std::string judged = loop_judge(*redirect, dump(args), line);
+                if (!judged.empty()) redirect->text = judged;
+            }
+            line["judge"] = !line.value("judgeModel", std::string()).empty();
+            line["text"] = redirect->text;
+            tr.write(line);
+            info_event("Loop guard: " + redirect->command + " failed " + std::to_string(redirect->count) + " times with " + redirect->code +
+                       "; the model was told to try a different way" + (line["judge"].get<bool>() ? " (written by the " + config_.savers.loopGuardJudge + " role)" : "") + ".");
+            Json body = parse(r.content);
+            if (body.is_object()) {
+                body["loopGuard"] = redirect->text;
+                r.content = dump(body);
+            } else {
+                r.content += "\n\n" + redirect->text;
+            }
+        };
+
         // Execute ALL tool calls of this assistant turn and answer them in ONE user message.
         std::vector<ToolResult> results;
         std::vector<std::int64_t> toolMs;
@@ -1083,6 +1195,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             }
             const std::int64_t toolStartMs = unix_time_ms_now();
             results.push_back(run_tool(call));
+            observe(call, results.back());
             toolMs.push_back(unix_time_ms_now() - toolStartMs);
         }
         if (is_cancelled(cancel_)) {

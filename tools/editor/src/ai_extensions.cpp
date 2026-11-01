@@ -13,6 +13,7 @@
 #include "editor_internal.h"
 #include "fa/ai/command_hooks.h"
 #include "fa/ai/extension_plan.h"
+#include "fa/ai/savers.h"
 #include "fa/core/strings.h"
 
 namespace fa::editor {
@@ -218,12 +219,127 @@ void Editor::draw_ai_hooks_view(const Json& report) {
     }
 }
 
+// The "Token savers" section: the three savers of the built-in loop with their switches, the judge of the loop guard, and what this
+// project's runs learned as proposals that wait for an answer (nothing is applied or written before the user answers).
+void Editor::draw_ai_savers_view(const ai::AiConfig& cfg) {
+    auto& x = aiSettings_.ext;
+    const float em = ImGui::GetFontSize();
+    const auto wrapped = [](const ImVec4& color, const std::string& text) {
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        ImGui::TextWrapped("%s", text.c_str());
+        ImGui::PopStyleColor();
+    };
+    if (ImGui::GetTime() - x.saversAt > 1.0) {
+        x.saversReport = ai::savers_report(cfg, engine_->commands(), projectDir_);
+        x.saversAt = ImGui::GetTime();
+    }
+    ImGui::SeparatorText("Token savers");
+    ImGui::TextWrapped("The engine's own savers for the built-in AI (API providers; Claude Code and Codex run their own loops). Their cost counts in "
+                       "the run's costs and limits. Save keeps the switches in your ai.json (\"savers\").");
+    ImGui::Checkbox("Loop guard", &x.savers.loopGuard);
+    at_track("aiset:saver:loopguard");
+    ImGui::SetItemTooltip("The same command failing with the same error code three times in a run gets one short redirect (what failed, the hint, a "
+                          "different way) added to the third error. No model call is made for it.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!x.savers.loopGuard);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Judge");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(em * 11.0f);
+    if (ImGui::BeginCombo("##saverjudge", x.savers.loopGuardJudge.empty() ? "none (fixed text)" : x.savers.loopGuardJudge.c_str())) {
+        if (ImGui::Selectable("none (fixed text)", x.savers.loopGuardJudge.empty())) x.savers.loopGuardJudge.clear();
+        at_track("aiset:saver:judge:none");
+        for (const char* r : ai::kAllRoles) {
+            if (ImGui::Selectable(r, x.savers.loopGuardJudge == r)) x.savers.loopGuardJudge = r;
+            at_track(std::string("aiset:saver:judge:") + r);
+        }
+        ImGui::EndCombo();
+    }
+    at_track("aiset:saver:judge");
+    ImGui::SetItemTooltip("A role whose model reads the stuck run and writes the redirect. One short model call per redirect, counted in the run's cost and limits. "
+                          "It needs a role on an API provider; otherwise the fixed text is used.");
+    ImGui::EndDisabled();
+    ImGui::Checkbox("Learned tool groups", &x.savers.learnedToolGroups);
+    at_track("aiset:saver:groups");
+    ImGui::SetItemTooltip("Count, per project, the commands the runs load from the tool catalog, and propose loading their group up front. Nothing is applied "
+                          "until you accept here, and nothing is ever denied.");
+    ImGui::Checkbox("Project facts", &x.savers.projectFacts);
+    at_track("aiset:saver:facts");
+    ImGui::SetItemTooltip("A command that fails the same way in several runs until a fix works proposes one line for this project's AGENTS.md. It is written "
+                          "only when you accept it here.");
+
+    const Json groups = x.saversReport.value("proposals", Json::object()).value("toolGroups", Json::array());
+    const Json facts = x.saversReport.value("proposals", Json::object()).value("facts", Json::array());
+    if (projectDir_.empty()) {
+        ImGui::TextDisabled("Open a project to see what its runs learned.");
+    } else if (groups.empty() && facts.empty()) {
+        ImGui::TextDisabled("Nothing to propose yet for this project. Proposals appear after %d runs that needed the same tool group, or hit and fixed the same failure.",
+                            ai::kGroupProposalRuns);
+    }
+    for (const Json& g : groups) {
+        const std::string role = g.value("role", std::string()), group = g.value("group", std::string());
+        const std::string key = role + ":" + group;
+        std::string commands;
+        for (const Json& c : g.value("commands", Json::array())) commands += (commands.empty() ? "" : ", ") + c.get<std::string>();
+        const u64 bytes = g.value("definitionBytes", static_cast<u64>(0));
+        ImGui::PushID(key.c_str());
+        ImGui::AlignTextToFramePadding();
+        ImGui::Bullet();
+        ImGui::TextWrapped("Load the '%s' tools up front for %s? %d runs needed %s. About %llu tokens more on every step of that role.", group.c_str(),
+                           role.c_str(), g.value("runs", 0), commands.c_str(), static_cast<unsigned long long>(bytes / 4));
+        ImGui::Indent();
+        if (ImGui::SmallButton("Load up front")) {
+            auto r = ai::answer_tool_group(engine_->commands(), projectDir_, role, group, ai::SaverAnswer::Accept);
+            x.saversMessage = r ? "The " + role + " role loads '" + group + "' in full from its next run in this project." : r.error().to_string();
+            x.saversAt = -10;
+        }
+        at_track("aiset:saver:group-accept:" + key);
+        ImGui::SetItemTooltip("From the next run, in this project only. Your ai.json is not changed.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("No thanks")) {
+            auto r = ai::answer_tool_group(engine_->commands(), projectDir_, role, group, ai::SaverAnswer::Decline);
+            x.saversMessage = r ? "'" + group + "' will not be proposed again. Its tools stay reachable through the catalog." : r.error().to_string();
+            x.saversAt = -10;
+        }
+        at_track("aiset:saver:group-decline:" + key);
+        ImGui::Unindent();
+        ImGui::PopID();
+    }
+    for (const Json& f : facts) {
+        const std::string id = f.value("id", std::string());
+        ImGui::PushID(id.c_str());
+        ImGui::AlignTextToFramePadding();
+        ImGui::Bullet();
+        ImGui::TextWrapped("Add to AGENTS.md (%d runs hit this):", f.value("runs", 0));
+        ImGui::Indent();
+        wrapped(ImGui::GetStyleColorVec4(ImGuiCol_Text), f.value("line", std::string()));
+        if (ImGui::SmallButton("Add to AGENTS.md")) {
+            auto r = ai::answer_fact(projectDir_, id, ai::SaverAnswer::Accept);
+            x.saversMessage = r ? "Added to " + r->value("file", std::string("AGENTS.md")) + "." : r.error().to_string();
+            x.saversAt = -10;
+        }
+        at_track("aiset:saver:fact-accept:" + id);
+        ImGui::SetItemTooltip("Appends the line under \"## Project facts\" in this project's AGENTS.md.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("No thanks")) {
+            auto r = ai::answer_fact(projectDir_, id, ai::SaverAnswer::Decline);
+            x.saversMessage = r ? "Not proposed again. AGENTS.md was not changed." : r.error().to_string();
+            x.saversAt = -10;
+        }
+        at_track("aiset:saver:fact-decline:" + id);
+        ImGui::Unindent();
+        ImGui::PopID();
+    }
+    if (!x.saversMessage.empty()) ImGui::TextDisabled("%s", x.saversMessage.c_str());
+}
+
 void Editor::ai_extensions_load(const ai::AiConfig& cfg) {
     auto& x = aiSettings_.ext;
     x = AiSettingsDraft::ExtensionsDraft{};
     x.user = cfg.extensions.entries;
     x.userLoaded = x.user;
     x.inherit = cfg.extensions.inheritUserPlugins;
+    x.savers = cfg.savers;
     if (projectDir_.empty()) return;
     ai::ProjectExtensions p = ai::load_project_extensions(projectDir_);
     x.projectExists = p.exists;
@@ -252,7 +368,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     const std::string trustPath = ai::extensions_trust_path(cfgPath);
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Saved in %s (your own file outside any project)%s. Only the extensions are rewritten: your providers, roles and limits stay.",
+    ImGui::TextWrapped("Saved in %s (your own file outside any project)%s. Only extensions and savers are rewritten: your providers, roles and limits stay.",
                        d.path.c_str(), projectDir_.empty() ? "" : " and in this project's .factoria/extensions.json");
     ImGui::PopStyleColor();
 
@@ -637,6 +753,8 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     ImGui::SetItemTooltip("On (default): what you installed in Claude Code (~/.claude) keeps working in FactorIA's runs, and the list above is added to it.\n"
                           "Off: runs get only the list above, and none of your Claude Code settings (~/.claude: plugins, skills, hooks, permissions, env).");
 
+    draw_ai_savers_view(cfg);
+
     // ------------------------------------------------------------------------------------------------ trust
     ImGui::SeparatorText("This project");
     if (projectDir_.empty()) {
@@ -721,7 +839,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
 
     // ------------------------------------------------------------------------------------------------ footer
     const auto changed = [&] {
-        return ai::extensions_to_json({x.user, x.inherit}, true) != ai::extensions_to_json(cfg.extensions, true) ||
+        return ai::extensions_to_json({x.user, x.inherit}, true) != ai::extensions_to_json(cfg.extensions, true) || x.savers != cfg.savers ||
                ai::extensions_to_json({x.project, true}, false) != ai::extensions_to_json({x.projectLoaded, true}, false);
     };
     const bool dirty = changed();
@@ -739,6 +857,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         out.entries = x.user;
         out.inheritUserPlugins = x.inherit;
         auto saved = ai::save_extensions(out, d.path);
+        if (saved) saved = ai::save_savers(x.savers, d.path);
         const bool projectChanged = ai::extensions_to_json({x.project, true}, false) != ai::extensions_to_json({x.projectLoaded, true}, false);
         if (saved && !projectDir_.empty() && (projectChanged || x.projectExists) && x.projectError.empty()) {
             if (projectChanged) {
@@ -766,7 +885,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
             if (loaded) {
                 ai_settings_load(*loaded, true, true);  // the other tabs keep what they had typed
                 ai_extensions_load(*loaded);
-                notify("Extensions saved. The next message to the AI uses them.");
+                notify("Extensions and token savers saved. The next message to the AI uses them.");
             } else {
                 x.saveError = "Saved, but ai.json no longer loads: " + loaded.error().to_string();
             }

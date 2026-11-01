@@ -179,6 +179,14 @@ start of every session. Divide bytes by 3.75 for a token estimate. These are siz
 builder; they say how much is sent, not what it costs (the prompt is cached, see above). A step that reads a skill adds that
 skill's `SKILL.md` to the conversation, once.
 
+### Savers that learn from your runs
+
+Three more savers of the built-in agent (switches in AI settings > Extensions, `savers` in `ai.json`; [AI_PROVIDERS.md](AI_PROVIDERS.md#token-savers)):
+a loop guard that answers a command failing the same way three times with a short redirect instead of more model steps (its
+optional judge costs one short call per redirect, counted in the run), tool groups your project's runs keep loading, proposed
+for loading up front only when you accept, and project facts proposed for `AGENTS.md`. They are not measured on a paid run: the
+guard and the proposals are tested with a scripted provider.
+
 ## 4. How to cap it
 
 Put limits in your user-level `ai.json` (`~/.factoria/ai.json`, on Windows `%APPDATA%\factoria\ai.json`):

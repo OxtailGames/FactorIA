@@ -639,7 +639,10 @@ The **Extensions** tab (after External tools) sets up the `extensions` of [Exten
   widens what the AI may do (env, allowed tools), what they would run (**Review what would run...**) with **Trust this project** (and **Stop trusting this project**
   afterwards); the trust covers both sources. A warning line appears when the project's
   `.claude/settings*.json` denies FactorIA's own tools to Claude Code, naming the rule and how to remove it.
-* **Save** rewrites only `extensions` of your `ai.json` and, when the project's entries changed, the project's
+* **Token savers.** The three savers of [Token savers](#token-savers): a switch each (Loop guard, Learned tool groups, Project
+  facts), the loop guard's **Judge** (a role, or "none (fixed text)"), and what this project's runs learned: **Load up front** /
+  **No thanks** for a tool group, **Add to AGENTS.md** / **No thanks** for a fact. Nothing is changed until you press one.
+* **Save** rewrites only `extensions` and `savers` of your `ai.json` and, when the project's entries changed, the project's
   `.factoria/extensions.json`; every other key stays. A trust you had given carries over to a project file you save from here
   (you just saw its content), but not to one that changed on disk behind the editor's back.
 
@@ -786,6 +789,36 @@ requests other than `ping`. Resources and prompts: only tools are used.
 string), where its key was found and which roles get it. The command `ai.tool_servers` returns the same as JSON and, with
 `{"test": true}`, connects to every enabled server that is ready and lists its tools (it only asks for the tool list: no tool is
 called and nothing is spent).
+
+## Token savers
+
+Three savers of FactorIA's own loop, for the providers that use it (the API providers; Claude Code and Codex run their own
+loops and ignore them). Each has a switch in **AI settings > Extensions > Token savers** and in the `savers` section of `ai.json`
+(all on by default; Save writes only what differs from the default, and every other key stays):
+
+```json
+"savers": { "loopGuard": true, "loopGuardJudge": "", "learnedToolGroups": true, "projectFacts": true }
+```
+
+* **Loop guard** (`loopGuard`). When the same command fails with the same error code three times in one turn, the third failure's
+  result carries a short `loopGuard` redirect (what failed, its hint, "try a different way") and the loop makes no model call
+  of its own for it; the model reads the redirect with its next step. `loopGuardJudge` names a role (for example `fast`) whose model
+  writes the redirect instead of the fixed text: one short model call per redirect, with its tokens and cost added to the run's
+  usage and checked against the run's limits like any other call. A judge on a CLI provider, without a model or whose call fails is
+  skipped and the fixed text is used (the transcript line says why). Every redirect is a `saver` line of the session transcript and an `Info` event "Loop guard: ...".
+  A command and code get one redirect; the count starts again after the command works.
+* **Learned tool groups** (`learnedToolGroups`). Per project, `.factoria/ai/savers.json` counts for each role the runs that
+  loaded a command outside its plan (`tool_describe`, or `tool_call` of a catalog command) and that command's group (its category).
+  After 3 runs that needed the same group, the editor proposes loading it in full up front for that role. Only **Load up front**
+  applies it, for that role in that project, from its next run; your `ai.json` is not changed. **No thanks** stops the proposal. Nothing
+  is ever denied: every command stays reachable through the catalog.
+* **Project facts** (`projectFacts`). A command that failed with the same code in 3 runs, where a later call of it worked, proposes
+  one line for the project's `AGENTS.md`. The file is written only on accept, under a `## Project facts` heading (created when
+  missing); accepting twice adds the line once.
+
+The state and the answers go through commands, so the CLI and MCP can use them:
+`ai.savers` (read-only: switches, thresholds, counts and proposals), `ai.saver_group {role, group, answer}` and
+`ai.saver_fact {id, answer, line?}` with `answer` of `accept`, `decline` or `forget` (`line` replaces the proposed text when accepting).
 
 ## Extensions
 
