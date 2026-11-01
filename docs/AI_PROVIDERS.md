@@ -622,6 +622,11 @@ The **Extensions** tab (after External tools) sets up the `extensions` of [Exten
   (`you` = `ai.json`, `project` = the project's file), where it points, one checkbox per role (the same defaults as the tool
   servers: the review roles `ArtC` and `Rev` are off unless ticked), **Remove**, and a status: `Ready`, `Cannot load` (the tooltip
   says why and how to fix it) or `Not trusted` (a project's plugin or hooks, see below).
+* **Skills.** Under the entries, one row per skill any role can be offered ([SKILLS.md](SKILLS.md)): FactorIA's own, the ones in
+  `~/.factoria/skills`, the project's `skills/` and the folders of the entries above. On, its name, where it comes from (`engine`,
+  `you`, `project`), what it is for, one checkbox per role and a status (`Ready`, `Off`, `Replaced` when another skill of the
+  same name wins, or `Cannot load` with the reason in the tooltip). A change is kept as a skill entry (an engine skill by its `engine:<name>`
+  path) and **Save** writes it like any other entry.
 * **Add.** A plugin folder or `.zip`, a skill folder, or an installed Claude Code plugin typed as `name@marketplace`; **Browse...**
   picks a folder; the name is taken from the folder unless you type one; **Only for this project** keeps the entry in the project's
   `.factoria/extensions.json` (the path is then stored relative to the project) instead of your `ai.json`. A mistake is refused with the
@@ -788,7 +793,8 @@ called and nothing is spent).
 the same idea as `mcpServers` ([above](#external-tools-mcp-servers)) for the things Claude Code calls plugins, skills and hooks: a plugin
 (a folder with `.claude-plugin/plugin.json`, a `.zip`, or one you installed with `claude plugin install name@marketplace`), a skill
 folder (one that holds a `SKILL.md`, or a folder of such folders) and hooks (a program that runs on an event such as
-`PostToolUse` or `Stop`, in the shape of Claude Code's `hooks`). Only **Claude Code** takes them today; see
+`PostToolUse` or `Stop`, in the shape of Claude Code's `hooks`). **Plugins and hooks** are for **Claude Code** today (a generic CLI
+takes them through placeholders); **skills** reach every provider, see [Skills](#skills-for-every-provider) and
 [what each provider does](#what-each-provider-does-with-extensions).
 
 It lives in two places, both validated with errors that name the JSON pointer and a fix, and with "did you mean" for a misspelled key,
@@ -838,9 +844,18 @@ The entry name is its key (`[A-Za-z0-9_-]`, up to 40 characters, unique among th
 | Provider | How the extensions are used |
 |---|---|
 | `claude-code` | One `--plugin-dir <folder>` per plugin; the skills go in a plugin FactorIA writes for the run (`factoria-extensions`, a copy of the skill folders under `<project>/.factoria/ai/ext-skills-*`); the hooks of the entries are merged into a private `--settings` file (`<project>/.factoria/ai/settings-*.json`, readable only by you). Both are removed when the run ends. `--setting-sources` is also passed when `inheritUserPlugins` is `false` (`project,local`) or when the project's own `.claude/settings*.json` runs a program or widens what the AI may do (see below) and the project is not trusted (`user`; an empty value with both), see [below](#trusting-a-projects-extensions). If your own `argv` uses `{plugin_dirs}` or `{settings}` those place the folders and the file and FactorIA adds no flag for them; an `argv` that already has `--settings` or `--setting-sources` is not given a second one. |
-| `codex` | None. FactorIA could not verify how Codex takes plugins, skills or hooks, so it passes none, and the run says so (an Info line in the chat and the CLI output) whenever extensions are listed for the role. |
-| `generic-cli` | Plugins when the `argv` has the `{plugin_dirs}` placeholder, hooks when it has `{settings}` (the path of the private settings file). `{plugin_dirs}` after a flag (`"--plugin-dir", "{plugin_dirs}"`) repeats that flag once per folder; with no folder, the placeholder and its flag are dropped. Skills are never passed. What cannot be passed is listed in the run output with the placeholder to add. |
+| `codex` | Skills only. Codex reads Agent Skills from `.agents/skills` of the folder it starts in, so FactorIA copies the skills of the run to `<project>/.agents/skills/factoria-r<tag>-<name>/` (and writes `.agents/skills/.gitignore` with `factoria-*/` when there is none) and removes them when the run ends; folders of your own there are not touched. Codex has no plugin folder or hooks file for FactorIA to fill: a plugin or hooks entry for a Codex role is skipped, and the run says so (an Info line in the chat and the CLI output). Codex also keeps the `# Skills` lines in the prompt and `skills_read`, so a Codex version that does not scan `.agents/skills` still reads the skills. Not tested against a real Codex here (no Codex was available): `codex` must be a version with Agent Skills. |
+| `generic-cli` | Plugins when the `argv` has the `{plugin_dirs}` placeholder, hooks when it has `{settings}` (the path of the private settings file). `{plugin_dirs}` after a flag (`"--plugin-dir", "{plugin_dirs}"`) repeats that flag once per folder; with no folder, the placeholder and its flag are dropped. A skill folder is not passed (no flag is known for it); the skills reach it as prompt lines and `skills_read`. What cannot be passed is listed in the run output with the placeholder to add. |
 | `anthropic`, `openai-compatible` | Not yet: the API providers do not use extensions yet (planned with the built-in agent's skills and hooks), and `ai.extensions` and the run say so. |
+
+### Skills for every provider
+
+A skill is a folder with a `SKILL.md` (the Agent Skills format) that the AI reads only when the task needs it. They come from the
+engine (baked into the binary), from `~/.factoria/skills`, from the project's `skills/` and from the skill entries above; the
+project's wins over yours, and yours over the engine's. The built-in agent (anthropic, openai-compatible), Codex and generic CLIs get
+one line per skill in the system prompt and read one with the tool `skills_read`; Claude Code and Codex are also given the skill
+folders (above). A skill entry may name an engine skill as `"path": "engine:<name>"` to set its `roles` or switch it off. Role
+defaults, the commands (`skills.list`, `skills.read`, `skills.new`) and the format are in [SKILLS.md](SKILLS.md).
 
 ### Trusting a project's extensions
 

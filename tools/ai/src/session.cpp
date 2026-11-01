@@ -379,7 +379,9 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     if (!opt_.extensionsTrustPath.empty()) extCtx.trustPath = opt_.extensionsTrustPath;
     const ExtensionPlan extPlan = plan_extensions(config_, pc, role, extCtx);
     for (const std::string& note : extPlan.notes) serverNotes.push_back(note);
-    add_prompt_skills(pctx, config_, opt_, role, extPlan.support.skills);
+    // Claude Code lists the skills itself. Codex also finds them (.agents/skills of the project), but the prompt keeps its lines: a
+    // Codex that does not scan that folder (an older one) still knows the names and reads them with skills_read.
+    add_prompt_skills(pctx, config_, opt_, role, extPlan.support.skills && pc.kind == ProviderKind::ClaudeCode);
     const std::string fullPrompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
     // A follow-up message continues the CLI's session: the system prompt is already part of it, so only the task is sent.
     const bool canResume = depth == 0 && cli_supports_resume(pc);

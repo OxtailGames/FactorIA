@@ -222,9 +222,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "claudeSettings:{files:[{path, exists, needsTrust, grants (what in the file runs a program or widens what the AI may do: "
             "hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, "
             "message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the "
-            "project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Only Claude Code (and a "
-            "generic CLI with {plugin_dirs} / {settings} in its argv) uses extensions: Codex gets none and the API providers "
-            "(anthropic, openai-compatible) do not use them yet. A plugin or hook that comes from a project loads only after the USER "
+            "project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Claude Code uses plugins, "
+            "skills and hooks; Codex uses skills only; a generic CLI uses plugins and hooks when its argv has {plugin_dirs} / {settings}; "
+            "the API providers (anthropic, openai-compatible) do not use extensions yet. A plugin or hook that comes from a project loads only after the USER "
             "trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only. Example: "
             "{\"role\":\"worker\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{

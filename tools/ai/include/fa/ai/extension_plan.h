@@ -22,8 +22,8 @@ struct ExtensionSupport {
     std::string reason;
     bool any() const { return plugins || skills || hooks; }
 };
-// Claude Code: plugins (--plugin-dir), skills (a plugin FactorIA writes for the run), hooks (--settings). Codex: nothing
-// (FactorIA could not verify how it takes them). A generic CLI: plugins when its argv has {plugin_dirs}, hooks when it has
+// Claude Code: plugins (--plugin-dir), skills (a plugin FactorIA writes for the run), hooks (--settings). Codex: skills only
+// (folders FactorIA writes to <project>/.agents/skills for the run; Codex has no plugin folder or hooks file to pass). A generic CLI: plugins when its argv has {plugin_dirs}, hooks when it has
 // {settings}. The API providers (anthropic, openai-compatible): nothing yet.
 ExtensionSupport extension_support(const ProviderConfig& provider);
 
@@ -85,6 +85,14 @@ Json merge_hooks(const std::vector<Json>& sets);
 // dir/skills/<name>/ (a copy of each folder; symbolic links are not followed). Names that collide get -2, -3...
 Result<void> write_skills_plugin(const std::string& dir, const std::vector<std::string>& skillDirs);
 inline constexpr const char* kSkillsPluginName = "factoria-extensions";
+
+// Codex reads Agent Skills from <project>/.agents/skills. Copies each skill folder (or writes an engine skill) to
+// skillsRoot/<prefix><name>/ (a name that collides gets -2, -3...) and returns the folders it made, for the run to remove at
+// its end. A `.gitignore` of `factoria-*/` is written in skillsRoot when it has none, so a run that dies does not leave
+// files to commit. Nothing is left behind when it fails.
+inline constexpr const char* kAgentsSkillsPrefix = "factoria-";
+Result<std::vector<std::string>> write_agents_skills(const std::string& skillsRoot, const std::string& prefix,
+                                                     const std::vector<std::string>& skillDirs);
 
 // What the trust of a project covers, read from disk: its extensions file and its Claude Code settings.
 struct ProjectTrustState {
