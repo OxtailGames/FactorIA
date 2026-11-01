@@ -1116,7 +1116,7 @@ Starts `count` read-only AI reviewers (1 to 5, one after the other, each with a 
 
 ### `ai.review_feedback` (modifies state)
 
-Not released yet (on main after 0.9.0).
+Since 0.10.0.
 
 Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet.
 
@@ -2264,7 +2264,7 @@ ENGINE_FEEDBACK.json should only hold what is still open: this moves every entry
 
 ### `feedback.check_fixed` (modifies state)
 
-Not released yet (on main after 0.9.0).
+Since 0.10.0.
 
 Close the open feedback entries whose gap this engine version fixed.
 
@@ -2308,7 +2308,7 @@ Example: {"category":"physics","severity":"major","title":"No one-way platforms"
 
 ### `feedback.share` (modifies state)
 
-Not released yet (on main after 0.9.0).
+Since 0.10.0.
 
 Send the queued feedback to the engine developer now (only what the user's mode allows).
 
@@ -2320,7 +2320,7 @@ With mode `always`: queues the shareable entries of this project that are not qu
 
 ### `feedback.share_preview`
 
-Not released yet (on main after 0.9.0).
+Since 0.10.0.
 
 Show exactly what sharing would send for the entries that have a `share`, and what the sanitizer removed.
 
@@ -2332,7 +2332,7 @@ Runs the deterministic sanitizer on the `share` of each shareable entry and retu
 
 ### `feedback.share_status`
 
-Not released yet (on main after 0.9.0).
+Since 0.10.0.
 
 Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox.
 

@@ -1388,7 +1388,7 @@ Left open:
 - A `Collider3D` on a procedural mesh is rebuilt on every `mesh.update` (costly for a mesh deformed each frame).
 - The editor picks glTF models and primitives by their unit box; only procedural meshes use their triangles.
 
-## M46. Feedback from every game reaches the engine developer (L; 4 packages; the user) — PLANNED
+## M46. Feedback from every game reaches the engine developer (L; 4 packages; the user) — DONE (0.10.0)
 
 Asked by the user (2026-10-31): FactorIA has one developer, and the feedback of games made by other people must reach
 them. Today `ENGINE_FEEDBACK.json` stays on each user's machine and `feedback collect` only reads folders the developer
