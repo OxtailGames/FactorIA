@@ -154,6 +154,14 @@ catalog), tool definitions and conversation; `factoria call ai.session_timeline`
 category in full says so in `ai.json`: `"roles": {"worker": {"toolGroups": ["anim"]}}`; `["all"]` brings back the old
 behaviour (every command in full on every step).
 
+### Savers that learn from your runs
+
+Three more savers of the built-in agent (switches in AI settings > Extensions, `savers` in `ai.json`; [AI_PROVIDERS.md](AI_PROVIDERS.md#token-savers)):
+a loop guard that answers a command failing the same way three times with a short redirect instead of more model steps (its
+optional judge costs one short call per redirect, counted in the run), tool groups your project's runs keep loading, proposed
+for loading up front only when you accept, and project facts proposed for `AGENTS.md`. They are not measured on a paid run: the
+guard and the proposals are tested with a scripted provider.
+
 ## 4. How to cap it
 
 Put limits in your user-level `ai.json` (`~/.factoria/ai.json`, on Windows `%APPDATA%\factoria\ai.json`):

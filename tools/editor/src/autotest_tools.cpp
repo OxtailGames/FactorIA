@@ -22,6 +22,7 @@
 #include "editor_internal.h"
 #include "fa/ai/command_hooks.h"
 #include "fa/ai/extension_plan.h"
+#include "fa/ai/savers.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
 #include "ui_backend.h"
@@ -4844,6 +4845,7 @@ void Editor::at_build_tools_script() {
             at_check(r.size() == 4 && std::ranges::find(r, std::string("fast")) == r.end() && std::ranges::find(r, std::string("worker")) != r.end(),
                      "switching fast off lists the other four default roles");
         });
+        scroll_to("aiset:ext:inherit", "AI settings###AiSettings", -2);  // small steps: the page is long and one big step jumps over it
         click("aiset:ext:inherit");
         step(3, [this] { at_check(!aiSettings_.ext.inherit, "the inherit box switches off"); });
         snap("editor_ai_extensions.png");
@@ -4907,6 +4909,7 @@ void Editor::at_build_tools_script() {
             const auto skill = aiSettings_.ext.status.find("skill:project:autotest_gdd");
             at_check(skill != aiSettings_.ext.status.end() && skill->second.empty(), "...while the skill (text) is ready");
         });
+        scroll_to("aiset:ext:review", "AI settings###AiSettings");  // the Token savers section grew the page
         click("aiset:ext:review");
         step(3, [this] {
             at_check(aiSettings_.ext.showTrust && at_visible("aiset:ext:trust"), "Review what would run opens the list and the Trust button");
@@ -5136,6 +5139,172 @@ void Editor::at_build_tools_script() {
             stdfs::remove(x->module, ec);
             if (!x->hadHooksDir) stdfs::remove(projectDir_ + "/hooks", ec);  // only when it is empty
             ai::clear_recent_hook_runs();
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) {
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+            aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
+    section("S2");
+    // The "Token savers" section of the Extensions tab (docs/AI_PROVIDERS.md, "Token savers"): the switches and the judge saved in
+    // ai.json ("savers") without touching its other keys; the proposals a project's runs left in .factoria/ai/savers.json; AGENTS.md
+    // and the project's tool groups unchanged until Load up front / Add to AGENTS.md, and a No thanks that changes nothing.
+    {
+        struct SState {
+            std::string path, previousEnv, store, agents, agentsBefore;
+            bool hadEnv = false, hadStore = false, hadAgents = false;
+            std::string storeBefore;
+            std::vector<ai::ProviderStatus> savedStatus;
+        };
+        auto x = std::make_shared<SState>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
+        const std::string factId = "scene.spawn:not_found";
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load() && !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env, factId] {
+            x->path = atOutDir_ + "/ai_savers_scratch.json";
+            x->store = projectDir_ + "/" + ai::kSaversFile;
+            x->agents = projectDir_ + "/AGENTS.md";
+            const char* current = std::getenv("FACTORIA_AI_CONFIG");
+            x->hadEnv = current != nullptr;
+            x->previousEnv = current ? current : "";
+            std::error_code ec;
+            x->hadStore = stdfs::exists(x->store, ec);
+            if (x->hadStore) x->storeBefore = read_file(x->store);
+            x->hadAgents = stdfs::exists(x->agents, ec);
+            if (x->hadAgents) x->agentsBefore = read_file(x->agents);
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                x->savedStatus = aiStatus_;
+            }
+            write_file(x->path, R"({
+  "limits": { "maxConcurrentRuns": 3 },
+  "roles": { "worker": { "provider": "anthropic", "model": "sonnet" } }
+})");
+            write_file(x->agents, "# Autotest project\n\nSome notes.\n");
+            Json store = Json::object();
+            store["version"] = 1;
+            store["runs"] = Json::object({{"worker", 3}});
+            store["groups"] = Json::object({{"worker", Json::object({{"scene", Json::object({{"runs", 3}, {"commands", Json::object({{"scene.spawn", 3}})}})},
+                                                                  {"assets", Json::object({{"runs", 4}, {"commands", Json::object({{"assets.list", 4}})}})}})}});
+            store["facts"] = Json::object(
+                {{factId, Json::object({{"command", "scene.spawn"}, {"code", "not_found"}, {"runs", 3}, {"line", "- `scene.spawn` fails with `not_found`; list the prefabs first."}})}});
+            write_file(x->store, store.dump(2));
+            set_env("FACTORIA_AI_CONFIG", x->path);
+            ai_refresh_providers();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { focus_window("AI Assistant"); });
+        click("menu:ai");
+        click("menu:ai-settings");
+        step(4, [this, x] {
+            at_check(showAiSettings_ && aiSettings_.loaded && aiSettings_.path == x->path, "AI > AI Settings... opens the window on the scratch file");
+            aiSettingsTab_ = 4;  // Extensions
+            aiSettings_.ext.saversAt = -10;
+        });
+        step(3, [this, factId] {
+            const ai::Savers& s = aiSettings_.ext.savers;
+            at_check(s.loopGuard && s.learnedToolGroups && s.projectFacts && s.loopGuardJudge.empty(), "the savers start on, without a judge");
+            const Json& props = aiSettings_.ext.saversReport.value("proposals", Json::object());
+            at_check(props.value("toolGroups", Json::array()).size() == 2, "the report lists the two tool group proposals");
+            const Json facts = props.value("facts", Json::array());
+            at_check(facts.size() == 1 && facts[0].value("id", std::string()) == factId, "...and the one fact");
+        });
+        scroll_to("aiset:saver:loopguard", "AI settings###AiSettings");
+        step(3, [this] {
+            at_check(at_shown("aiset:saver:loopguard") && at_shown("aiset:saver:groups") && at_shown("aiset:saver:facts"),
+                     "the Token savers section shows the three switches");
+        });
+        // Switches off, a judge picked.
+        click("aiset:saver:loopguard");
+        step(3, [this] { at_check(!aiSettings_.ext.savers.loopGuard, "the Loop guard switch turned off"); });
+        click("aiset:saver:loopguard");
+        click("aiset:saver:judge");
+        click("aiset:saver:judge:worker");
+        click("aiset:saver:groups");
+        click("aiset:saver:facts");
+        step(3, [this] {
+            const ai::Savers& s = aiSettings_.ext.savers;
+            at_check(s.loopGuard && s.loopGuardJudge == "worker" && !s.learnedToolGroups && !s.projectFacts,
+                     "the judge is worker, learned groups and facts are off, the loop guard is on again");
+        });
+        scroll_to("aiset:ext:save", "AI settings###AiSettings");
+        click("aiset:ext:save");
+        step(4, [this, x] {
+            const std::string text = read_file(x->path);
+            const Json j = Json::parse(text, nullptr, false);
+            at_check(j.is_object() && j.contains("savers") && j["savers"].value("loopGuardJudge", std::string()) == "worker" &&
+                         !j["savers"].value("learnedToolGroups", true) && !j["savers"].value("projectFacts", true) && !j["savers"].contains("loopGuard"),
+                     "Save wrote only the non-default savers keys: " + text);
+            at_check(j.is_object() && j.contains("limits") && j.contains("roles"), "...and kept the other keys of ai.json");
+            aiSettings_.ext.saversAt = -10;
+        });
+        // Back on, then the answers.
+        scroll_to("aiset:saver:groups", "AI settings###AiSettings");
+        click("aiset:saver:groups");
+        click("aiset:saver:facts");
+        step(3, [this] { at_check(aiSettings_.ext.savers.learnedToolGroups && aiSettings_.ext.savers.projectFacts, "learned groups and facts turned back on"); });
+        scroll_to("aiset:saver:group-accept:worker:scene", "AI settings###AiSettings");
+        step(3, [this, x] {
+            at_check(at_shown("aiset:saver:group-accept:worker:scene") && at_visible("aiset:saver:fact-accept:scene.spawn:not_found"),
+                     "the proposals have their buttons");
+            at_check(read_file(x->agents) == "# Autotest project\n\nSome notes.\n", "AGENTS.md is untouched while the fact is only proposed");
+        });
+        snap("editor_ai_savers.png");
+        click("aiset:saver:group-accept:worker:scene");
+        step(4, [this, x] {
+            const Json store = Json::parse(read_file(x->store), nullptr, false);
+            at_check(store.is_object() && store["groups"]["worker"]["scene"].value("status", std::string()) == "accepted", "Load up front stored the accepted group");
+            at_check(store["groups"]["worker"]["assets"].value("status", std::string()).empty(), "...and left the other group undecided");
+            aiSettings_.ext.saversAt = -10;
+        });
+        scroll_to("aiset:saver:group-decline:worker:assets", "AI settings###AiSettings");
+        click("aiset:saver:group-decline:worker:assets");
+        step(4, [this, x] {
+            const Json store = Json::parse(read_file(x->store), nullptr, false);
+            at_check(store.is_object() && store["groups"]["worker"]["assets"].value("status", std::string()) == "declined", "No thanks stored the declined group");
+            at_check(read_file(x->agents) == "# Autotest project\n\nSome notes.\n", "AGENTS.md is still untouched");
+            aiSettings_.ext.saversAt = -10;
+        });
+        scroll_to("aiset:saver:fact-accept:scene.spawn:not_found", "AI settings###AiSettings");
+        click("aiset:saver:fact-accept:scene.spawn:not_found");
+        step(4, [this, x] {
+            const std::string agents = read_file(x->agents);
+            at_check(agents.find("## Project facts") != std::string::npos && agents.find("`scene.spawn` fails with `not_found`") != std::string::npos,
+                     "Add to AGENTS.md wrote the line under the heading");
+            at_check(agents.find("Some notes.") != std::string::npos, "...and kept what was there");
+            const Json report = aiSettings_.ext.saversReport;
+            at_check(report.value("proposals", Json::object()).value("toolGroups", Json::array()).empty() &&
+                         report.value("proposals", Json::object()).value("facts", Json::array()).empty(),
+                     "nothing is proposed any more");
+        });
+        click("aiset:ext:close");
+        step(4, [this] { at_check(!showAiSettings_ && !aiSettings_.loaded, "Close closes the window and drops the draft"); });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            set_env("FACTORIA_AI_CONFIG", x->hadEnv ? x->previousEnv : std::string());
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            if (x->hadStore) write_file(x->store, x->storeBefore); else stdfs::remove(x->store, ec);
+            if (x->hadAgents) write_file(x->agents, x->agentsBefore); else stdfs::remove(x->agents, ec);
             std::lock_guard<std::mutex> lock(aiMu_);
             if (atSavedConfig_) {
                 aiConfig_ = std::move(*atSavedConfig_);

@@ -1196,6 +1196,42 @@ Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchest
 | `maxCostUsd` | number | no |  |
 | `stream` | boolean | no |  Default true. |
 
+### `ai.saver_fact` (modifies state)
+
+Not released yet (on main after 0.10.0).
+
+Accept or decline a proposed project fact: one line added to the project's AGENTS.md.
+
+A command that failed with the same error code in several runs until a later call of it worked proposes one line for AGENTS.md (ai.savers lists them with their id). Accept appends the line under "## Project facts" in the project's AGENTS.md (created when missing); `line` replaces the proposed line. Nothing is written before an accept. Decline: not proposed again. Forget: undecided again (the line is not removed from AGENTS.md). Returns {id, status, written?, file?}. Example: {"id":"scene.load:not_found","answer":"accept"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The fact's id as ai.savers shows it: command:code. |
+| `answer` | string ["accept","decline","forget"] | yes | accept (write it), decline or forget (back to undecided). |
+| `line` | string | no | With accept: the line to write instead of the proposed one. |
+
+### `ai.saver_group` (modifies state)
+
+Not released yet (on main after 0.10.0).
+
+Accept or decline a proposed tool group for this project (loaded in full up front from the next run).
+
+The runs of a project count the commands they load from the tool catalog (ai.savers shows the counts and proposals). Accept: from the next run on, `role` loads the commands of `group` (a command category such as assets or anim) in full besides its own toolGroups, in this project only (kept in .factoria/ai/savers.json; ai.json is not changed). Decline: the group is not proposed again. Forget: undecided again. Nothing is ever denied: a command outside the loaded groups stays reachable through the catalog. Returns {role, group, status, note}. Example: {"role":"worker","group":"assets","answer":"accept"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `role` | string | yes | The role that gets the group: orchestrator, worker, fast, artist, audio, artCritic or reviewer. |
+| `group` | string | yes | A command category (the part of a command name before the dot, e.g. assets). |
+| `answer` | string ["accept","decline","forget"] | yes | accept, decline or forget (back to undecided). |
+
+### `ai.savers`
+
+Not released yet (on main after 0.10.0).
+
+Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.
+
+The built-in agent loop (the API providers) has three savers, each with a switch in ai.json "savers" and in the editor's AI settings > Extensions tab (docs/AI_PROVIDERS.md, Token savers). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts}, thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, status accepted|declined|""}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. Read-only. Example: {}
+
 ### `ai.session_timeline`
 
 Since 0.9.0.
