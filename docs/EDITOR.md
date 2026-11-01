@@ -108,7 +108,7 @@ Profiler stay closed). Two editors open at once share the file: the last one to 
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Project | The project's files: folder tree, filter, search, thumbnails; drag files onto the Inspector and the Viewport ([Project panel](#project-panel)). |
 | Console | The log (each line starts with the computer's local time `HH:MM:SS.mmm`; hover it for the date, the frame and the seconds since start), and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
-| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. The panel keeps its size however long an entry is: only the entries table and the text of the selected entry scroll. Opening the project moves its closed entries to `ENGINE_FEEDBACK.archive.json`; "Archive closed" moves them on demand. |
+| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. The panel keeps its size however long an entry is: only the entries table and the text of the selected entry scroll. Opening the project moves its closed entries to `ENGINE_FEEDBACK.archive.json`; "Archive closed" moves them on demand. A share column and the entry's share text boxes take part in sharing it with the engine developers ([Sharing feedback](#sharing-feedback)). |
 | Audio | (View > Audio) the live `audio.log`. |
 | Profiler | (View > Profiler) where the time of a frame goes while the game plays. |
 | Animation | (View > Animation, a tab next to Console) the clips of the selected entity's Animator as a dopesheet or curves, with record mode ([Animation panel](#animation-panel)). |
@@ -354,6 +354,49 @@ never exported or bundled (folders starting with `.` are skipped), and the templ
 engine is available as the commands `checkpoint.create`, `checkpoint.list`, `checkpoint.diff`, `checkpoint.read` and `checkpoint.restore`.
 `checkpoint.read {id, path}` returns one file as it was at a checkpoint (text inline; a binary as base64, or any file into `out`)
 without restoring anything, and `checkpoint.restore {id, paths:[...]}` puts back only the listed files, with the same safety checkpoint.
+
+## Sharing feedback
+
+The engine developers can read the gaps your game found in the engine (docs/ENGINE_FEEDBACK.md, "Sharing with the engine
+developers"). Nothing leaves the computer until a person chooses, and only here or in the terminal (`factoria feedback
+sharing`): no command, MCP tool or script can set the mode, so an AI cannot turn sharing on.
+
+**The consent dialog.** While the mode is unset, the editor asks once: when you open a project that has feedback entries,
+or when the first entry with a `share` text is written. It says in plain words what is sent (the sanitized share text,
+category, severity, effort, who wrote it, whether it was reviewed, the engine version, the operating system and a random
+installation id) and what never is (the game's name, files, paths, scene, entity and script names, your code and assets, the
+entry's own text, your name). Under that, the next report exactly as it would leave this computer, built from the entries
+that wait now (`feedback.share_preview`; nothing is sent by showing it). The buttons are **Always**, **Ask me each time** and
+**Never**; a discreet **Decide later** closes it for this session and asks again the next time the editor starts. Once you
+choose, it does not come back (change your mind in Feedback Settings). The dialog is not shown in a build without a feedback
+server address, where there is nothing to send.
+
+**Feedback Settings** (File > Feedback Settings..., or "Sharing..." in the Engine Feedback panel):
+
+- **Mode**: Always, Ask me each time, Never.
+- **Installation id** and **Reset id**, which makes a new random one (the old reports stay with the old id).
+- **GitHub (optional)**: **Sign in with GitHub** shows the code to type, the address and **Open in browser**; the window finishes by
+  itself when you authorize (**Cancel** stops it), then shows your login and **Sign out**. Signing in only makes your reports
+  count as verified; no GitHub permission is requested.
+- **Outbox**: how many entries wait to be sent and how many wait for your answer, the next retry time and the last error of
+  an entry that could not be sent, the last attempt, and **Send now**, which sends what is due without waiting for the
+  retry time.
+
+**Ask mode.** When entries wait for your answer, a notification says so with a **Review** button that opens a list. Each
+entry shows its share text exactly as it would be sent, with **Send** and **Don't send** for that entry, and **Send all** and
+**Don't send any** for the whole list. Sent entries go out in one request; a dropped one is marked `skipped` and never asked
+again.
+
+**The Engine Feedback panel.** The table has a **share** column: `-` for an entry with no share text, *not shared*,
+*waiting* (queued or waiting for your answer), *sent*, *rejected* (hover for the reason: the sanitizer, the server or the
+limits) and *skipped*. The selected entry shows its share text in four boxes (title, what is missing, suggestion, workaround)
+with the character limits next to each. **Save share text** checks the limits and runs the sanitizer again, so what is stored
+has no names of your game, and says what it took out; in Always and Ask mode the saved text is queued. **Suggest** fills the
+empty boxes from the entry's own text with the names of the project cut out (it never fills them by itself, and an entry without
+share text stays local); read it and fix it before saving. **Don't share** removes the share text. **Review with AI** runs
+`ai.review_feedback` for the entry on the cheap "fast" model (docs/AI_PROVIDERS.md): it checks that the gap is real, about the
+engine and not possible yet, rewrites the text in engine terms when needed and marks the entry reviewed, or says why it does
+not pass. It sends nothing and changes no setting. The Add entry form has the same boxes.
 
 ## Exporting the game
 
@@ -674,7 +717,7 @@ wrapping, right-click menu), G (delete a project), H (Export window), I (Platfor
 agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
 its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), B2 (the Animation panel: New clip, keys written in record mode by a gizmo drag, a key moved and its Undo, an easing from the context menu, an event, scrubbing that poses without changing the scene, the onion skin), C2 (the bone tools: a chain drawn by clicks, a sprite bound, weights painted as one undo step, an IK handle dragged, the overlay following the selected bone), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key), D2 (the External tools tab of that window: a server added with the form, Test, a pasted Claude Code JSON, Save keeping the other keys of `ai.json`, Remove), Z (sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets `SpriteAnimator.clip`) and W (two AI chats at once against a scripted model: both finish with their own answers, the
-same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run). While you work on one part of the editor, run only the sections that cover it:
+same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run) and E2 (feedback sharing against a fake transport: the consent dialog and its preview, the ask-mode review list, the panel's share column and boxes, Review with AI against a scripted model, the Feedback Settings sign-in and Send now; it never touches the network and writes its settings under `<FA_EDITOR_AUTOTEST_OUT>/share_config`). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest

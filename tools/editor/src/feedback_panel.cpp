@@ -53,8 +53,14 @@ void Editor::draw_feedback_panel() {
         }
     }
     ImGui::TextDisabled("%s", engine_->project().feedbackFile.c_str());
+    ImGui::SetItemTooltip("What the engine lacked, recorded by you and by AIs");
     ImGui::SameLine();
-    ImGui::TextDisabled("- what the engine lacked, recorded by you and by AIs");
+    if (ImGui::SmallButton("Sharing...")) open_share_settings();
+    at_track("feedback:settings");
+    ImGui::SetItemTooltip("Feedback Settings: whether the share texts go to the engine developers, the GitHub sign-in, what waits");
+    ImGui::SameLine();
+    ImGui::TextDisabled("sharing: %s", share_.mode == ShareMode::Always ? "always" : share_.mode == ShareMode::Ask ? "ask me each time"
+                                                                                 : share_.mode == ShareMode::Never ? "never" : "not chosen yet");
     if (!feedbackError_.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", feedbackError_.c_str());
     if (feedbackDoc_.is_null()) {
         ImGui::TextWrapped("No feedback file yet.");
@@ -101,13 +107,19 @@ void Editor::draw_feedback_panel() {
     // The panel keeps its size whatever an entry says: this area never scrolls or grows. Only the entries table and the
     // detail of the selected entry (their own children) scroll; the Add entry form sits in a third child at the bottom.
     ImGui::BeginChild("##fbbody", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    const float tableH = std::min(180.0f, ImGui::GetTextLineHeightWithSpacing() * float(entries.size() + 2) + 8);
-    if (ImGui::BeginTable("##fbt", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV,
+    // The table gives way to the detail in a short panel: the share boxes of the selected entry need room to be edited.
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+    const float belowH = fbAddOpen_ ? std::clamp(bodyH * 0.4f, ImGui::GetFrameHeight() * 2.0f, ImGui::GetTextLineHeightWithSpacing() * 18.0f)
+                                    : ImGui::GetFrameHeightWithSpacing();
+    const float tableH = std::min({180.0f, ImGui::GetTextLineHeightWithSpacing() * float(entries.size() + 2) + 8,
+                                   std::max(60.0f, bodyH - belowH - ImGui::GetStyle().ItemSpacing.y - 120.0f)});
+    if (ImGui::BeginTable("##fbt", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, std::max(60.0f, tableH)))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("id", ImGuiTableColumnFlags_WidthFixed, 66);
         ImGui::TableSetupColumn("severity", ImGuiTableColumnFlags_WidthFixed, 66);
         ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, 56);
+        ImGui::TableSetupColumn("share", ImGuiTableColumnFlags_WidthFixed, 68);
         ImGui::TableSetupColumn("title", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
         for (const auto& en : entries) {
@@ -120,6 +132,8 @@ void Editor::draw_feedback_panel() {
             ImGui::TableSetColumnIndex(2);
             ImGui::TextUnformatted(en.value("status", "").c_str());
             ImGui::TableSetColumnIndex(3);
+            draw_feedback_share_cell(en);
+            ImGui::TableSetColumnIndex(4);
             ImGui::TextUnformatted(en.value("title", "").c_str());
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\noccurrences: %d", en.value("title", "").c_str(), en.value("occurrences", 1));
         }
@@ -130,7 +144,10 @@ void Editor::draw_feedback_panel() {
                                                ImGui::GetTextLineHeightWithSpacing() * 18.0f)
                                   : ImGui::GetFrameHeightWithSpacing();
     ImGui::BeginChild("##fbdetail", ImVec2(0, -(addH + ImGui::GetStyle().ItemSpacing.y)), ImGuiChildFlags_Borders);
-    at_track("feedback:detail");
+    {  // over the detail's scrollbar, not over a text box (a box takes the wheel itself): where the autotest turns the wheel
+        const ImVec2 p = ImGui::GetWindowPos(), z = ImGui::GetWindowSize();
+        at_track_at("feedback:detail", Vec2{p.x + z.x - 4.0f, p.y + z.y * 0.5f});
+    }
     for (const auto& en : entries) {
         if (en.value("id", "") != fbSelected_) continue;
         ImGui::PushTextWrapPos(0);
@@ -157,6 +174,7 @@ void Editor::draw_feedback_panel() {
             feedbackPolled_ = -10;
         }
         ImGui::SetItemTooltip("Change the status of this entry (saved immediately)");
+        draw_feedback_share_detail(en, path);
         break;
     }
     ImGui::EndChild();
@@ -180,8 +198,11 @@ void Editor::draw_feedback_panel() {
         if (fbNewWorkaround_.empty()) ImGui::GetWindowDrawList()->AddText(ImVec2(ImGui::GetItemRectMin().x + 6, ImGui::GetItemRectMin().y + 4), IM_COL32(120, 125, 140, 255), "Workaround used");
         ImGui::InputTextMultiline("##ns", &fbNewSuggestion_, ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 2 + 8));
         if (fbNewSuggestion_.empty()) ImGui::GetWindowDrawList()->AddText(ImVec2(ImGui::GetItemRectMin().x + 6, ImGui::GetItemRectMin().y + 4), IM_COL32(120, 125, 140, 255), "Suggested engine change (optional)");
+        draw_feedback_new_share();
         ImGui::BeginDisabled(fbNewTitle_.empty() || fbNewMissing_.empty() || fbNewWorkaround_.empty());
         if (ImGui::Button("Submit")) {
+            std::string shareProblem;
+            const Json newShare = feedback_new_share(shareProblem);
             FeedbackInput in;
             in.category = cats[size_t(std::clamp(fbNewCategory_, 0, int(cats.size()) - 1))];
             in.severity = sevs[size_t(std::clamp(fbNewSeverity_, 0, int(sevs.size()) - 1))];
@@ -190,7 +211,8 @@ void Editor::draw_feedback_panel() {
             in.workaround = fbNewWorkaround_;
             in.suggestion = fbNewSuggestion_;
             in.reporter = Json::object({{"kind", "human"}, {"agent", "factoria-editor"}});
-            auto r = add_feedback_entry_to_file(path, in, projectName_);
+            in.share = newShare;
+            auto r = shareProblem.empty() ? add_feedback_entry_to_file(path, in, projectName_) : Result<FeedbackAddResult>(make_error(shareProblem, "Fix the share text, or empty its boxes to keep this entry on this computer."));
             if (r) {
                 fbMessage_ = (r->merged ? "Merged into " : "Added ") + r->id + (r->merged ? " (occurrences " + std::to_string(r->occurrences) + ")" : "");
                 fbSelected_ = r->id;
@@ -198,6 +220,9 @@ void Editor::draw_feedback_panel() {
                 fbNewMissing_.clear();
                 fbNewWorkaround_.clear();
                 fbNewSuggestion_.clear();
+                share_.newShare = ShareFields{};
+                if (!r->shareProblem.empty()) fbMessage_ += ". The share text was not stored: " + r->shareProblem;
+                share_.tickAt = -10;
                 feedbackMtime_ = INT64_MIN;
                 feedbackPolled_ = -10;
             } else {

@@ -437,3 +437,47 @@ TEST_CASE("feedback archive: files, commands, list and collect") {
     CHECK(again.result["reopened"] == true);
     CHECK(again.result["id"] == "FB-0002");
 }
+
+TEST_CASE("feedback share edit: set_feedback_share_file validates, drops a stale shared, marks the text unreviewed") {
+    testing::TempDir dir;
+    const std::string path = (dir.path / "ENGINE_FEEDBACK.json").string();
+    Json doc = create_empty_feedback("g");
+    FeedbackInput in = make("No one-way platforms");
+    in.share = Json::object({{"title", "No one-way platforms"},
+                             {"missing", "Collider2D has no way to let bodies pass up through a platform."}});
+    in.reviewed = true;
+    REQUIRE(add_feedback_entry(doc, in).ok());
+    doc["entries"][0]["shared"] = Json::object({{"status", "rejected"}, {"reason", "too vague"}});
+    REQUIRE(save_feedback(path, doc).ok());
+
+    FeedbackShareEdit edit;
+    edit.share = Json::object({{"title", "No one-way platforms"},
+                               {"missing", "Collider2D has no oneWay flag: bodies cannot pass up through a platform."}});
+    auto r = set_feedback_share_file(path, "FB-0001", edit);
+    REQUIRE(r.ok());
+    CHECK((*r)["share"]["missing"].get<std::string>().find("oneWay") != std::string::npos);
+    CHECK_FALSE(r->contains("shared"));  // a new text goes through the outbox again
+    CHECK((*r)["reviewed"] == false);    // nobody checked the new text
+
+    edit.reviewed = true;  // an explicit value wins
+    r = set_feedback_share_file(path, "FB-0001", edit);
+    REQUIRE(r.ok());
+    CHECK((*r)["reviewed"] == true);
+
+    FeedbackShareEdit bad;
+    bad.share = Json::object({{"title", "short"}, {"missing", "also short"}});
+    auto e = set_feedback_share_file(path, "FB-0001", bad);
+    REQUIRE_FALSE(e.ok());
+    CHECK(e.error().message.find("share.title is too short") != std::string::npos);
+    CHECK((*load_feedback(path))["entries"][0]["share"]["title"] == "No one-way platforms");  // nothing written
+
+    auto missing = set_feedback_share_file(path, "FB-0009", edit);
+    REQUIRE_FALSE(missing.ok());
+    CHECK(missing.error().message.find("FB-0001") != std::string::npos);  // did you mean
+
+    FeedbackShareEdit clear;
+    clear.clearShare = true;
+    r = set_feedback_share_file(path, "FB-0001", clear);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->contains("share"));
+}

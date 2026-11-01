@@ -473,6 +473,46 @@ Json list_archived_feedback(const std::string& path, const FeedbackFilter& filte
     return list_feedback(a.value(), filter);
 }
 
+Result<Json> set_feedback_share_file(const std::string& path, std::string_view id, const FeedbackShareEdit& edit) {
+    auto loaded = load_feedback(path);
+    if (!loaded.ok()) return loaded.error();
+    Json doc = std::move(loaded.value());
+    if (!doc.is_object() || !doc.contains("entries") || !doc["entries"].is_array())
+        return make_error(path + " has no \"entries\" array.", "Start from `factoria feedback init`.");
+    std::vector<std::string> ids;
+    Json* entry = nullptr;
+    for (auto& e : doc["entries"]) {
+        ids.push_back(e.value("id", std::string()));
+        if (ids.back() == id) entry = &e;
+    }
+    if (!entry)
+        return make_error("No feedback entry '" + std::string(id) + "' in " + path + ". " + did_you_mean(std::string(id), ids),
+                          "List the ids with feedback.list.");
+    Json share;
+    if (!edit.clearShare && !edit.share.is_null()) {
+        if (std::string problem = normalize_share(edit.share, share); !problem.empty())
+            return make_error("The share text of " + std::string(id) + " was not saved: " + problem + ".",
+                              "Limits: title " + std::to_string(kShareTitleMin) + "-" + std::to_string(kShareTitleMax) + " characters, missing " +
+                                  std::to_string(kShareMissingMin) + "-" + std::to_string(kShareMissingMax) + ", suggestion and workaround at most " +
+                                  std::to_string(kShareSuggestionMax) + ".");
+    }
+    Json& e = *entry;
+    bool textChanged = false;
+    if (edit.clearShare) {
+        textChanged = e.contains("share");
+        e.erase("share");
+    } else if (share.is_object()) {
+        textChanged = !e.contains("share") || e["share"] != share;
+        e["share"] = share;
+    }
+    if (textChanged && e.contains("shared") && e["shared"].is_object() && e["shared"].value("status", std::string()) != "sent")
+        e.erase("shared");
+    if (edit.reviewed) e["reviewed"] = *edit.reviewed;
+    else if (textChanged) e["reviewed"] = false;
+    if (auto s = save_feedback(path, doc); !s.ok()) return s.error();
+    return e;
+}
+
 Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
                                   std::string_view engineIssue, std::string_view note) {
     auto loaded = load_feedback(path);
@@ -833,7 +873,11 @@ std::string FeedbackReport::markdown() const {
 // -------------------------------------------------------------- commands ----
 namespace {
 
-std::string feedback_path_for(const std::string& projectDir) {
+std::string feedback_path_for(const std::string& projectDir) { return feedback_file_for_project(projectDir); }
+
+}  // namespace
+
+std::string feedback_file_for_project(const std::string& projectDir) {
     std::string file = kFeedbackFileName;
     if (auto text = tooling_detail::read_file(stdfs::path(projectDir) / kProjectFileName)) {
         auto pj = parse_json(*text, kProjectFileName);
@@ -842,6 +886,8 @@ std::string feedback_path_for(const std::string& projectDir) {
     }
     return (stdfs::path(projectDir) / file).string();
 }
+
+namespace {
 
 std::string project_name_for(const std::string& projectDir) {
     if (auto text = tooling_detail::read_file(stdfs::path(projectDir) / kProjectFileName)) {
