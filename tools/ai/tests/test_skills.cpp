@@ -504,11 +504,20 @@ TEST_CASE("skills: Claude Code receives the skills of the role as one generated 
     const ExtensionPlan reviewer = plan_extensions(cfg, claude, "reviewer", ctx);
     CHECK(reviewer.implicitSkillDirs.empty());
 
-    // Codex and the API providers get no skill folder: they read skills through skills.read.
+    // Codex reads skill folders too (from the project's .agents/skills, written for the run); the API providers read skills
+    // through skills.read.
     ProviderConfig codex;
     codex.name = "codex";
     codex.kind = ProviderKind::Codex;
-    CHECK(plan_extensions(cfg, codex, "worker", ctx).implicitSkillDirs.empty());
+    const ExtensionPlan codexWorker = plan_extensions(cfg, codex, "worker", ctx);
+    CHECK(codexWorker.support.skills);
+    CHECK(contains(codexWorker.implicitSkillDirs, "engine:tile-levels"));
+    CHECK(contains(codexWorker.implicitSkillDirs, (w.project.path / "skills" / "enemies").string()));
+    CHECK_FALSE(contains(codexWorker.implicitSkillDirs, "engine:make-art"));
+    ProviderConfig api;
+    api.name = "anthropic";
+    api.kind = ProviderKind::Anthropic;
+    CHECK(plan_extensions(cfg, api, "worker", ctx).implicitSkillDirs.empty());
 
     // The plugin holds the engine skills' files and the folders as they are.
     TempDir out;

@@ -123,9 +123,10 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     const float footerH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f + ImGui::GetTextLineHeightWithSpacing() * 2.0f;
     ImGui::BeginChild("##aiextbody", ImVec2(0, -footerH));
     ImGui::TextWrapped("Plugins, skills and hooks the AI agents load besides FactorIA's own tools: a plugin folder (or .zip, or one you installed "
-                       "in Claude Code), a skill folder, hooks that run a program on an event. Skills reach every provider: the built-in loop and "
-                       "Codex read them with skills_read, Claude Code loads them itself. Plugins and hooks are only for Claude Code today; Codex and the "
-                       "API providers (anthropic, openai-compatible) do not use them yet, and the run says so.");
+                       "in Claude Code), a skill folder, hooks that run a program on an event. Skills reach every provider: the built-in loop reads "
+                       "them with skills_read, Claude Code loads them itself and Codex finds them in the project's .agents/skills during the run. "
+                       "Plugins and hooks are only for Claude Code today; Codex and the API providers (anthropic, openai-compatible) do not use "
+                       "them yet, and the run says so.");
 
     // What stops each entry from loading, looked up once a second (it reads the disk).
     ai::ExtensionContext ctx;

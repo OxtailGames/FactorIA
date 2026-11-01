@@ -843,6 +843,16 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         }
         if (canPlugins) pluginDirs.insert(pluginDirs.begin(), req.pluginDirs.begin(), req.pluginDirs.end());
     }
+    // Codex reads skills from <project>/.agents/skills: the folders of this run sit there until it ends.
+    if (cfg_.kind == ProviderKind::Codex && !req.skillDirs.empty()) {
+        static std::atomic<unsigned> skillCounter{0};
+        const std::string tag = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() % 100000000) + "-" +
+                                std::to_string(skillCounter++);
+        auto made = write_agents_skills((fsys::path(projectDir) / ".agents" / "skills").string(),
+                                        std::string(kAgentsSkillsPrefix) + "r" + tag + "-", req.skillDirs);
+        if (!made) return made.error();
+        for (const std::string& m : *made) runFiles.push_back(m);
+    }
     CliRunRequest effective = req;
     effective.projectDir = projectDir;
 

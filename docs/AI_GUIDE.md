@@ -193,6 +193,10 @@ A tool result can end with a block that starts with `[FactorIA notice]`: the ser
 
 The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature` (`feature`), `fix-bug` (`description`) and `report-engine-gap`.
 
+### 4.1 Skills: topic guides you read when the task needs one
+
+The long guides are **skills** (the Agent Skills format: a folder with a `SKILL.md`, see `factoria docs read skills`), not part of your prompt or of this file. Your system prompt lists the ones your role is offered, one line each (Claude Code lists them itself). Before that kind of work, read the skill: `skills_read {"name":"tile-levels"}` (CLI: `factoria call skills.read '{"name":"tile-levels"}'`); the answer lists the skill's other files, read one with `"file":"reference.md"`. `skills_list` shows all of them and where each lives. The engine's own cover tile levels, 3D physics, custom shaders, glow and effects, web requests, menus and finishing, publishing and exporting, looking at the picture, the art and audio craft and `review-ready` (keep `REVIEW.md` current). This game can have its own in `skills/<name>/SKILL.md`: when you learn something about THIS game that a later AI needs (how enemies are built, the balance table), write it with `skills_new {"name","description"}` and fill in the file; the description says when to read it. `factoria validate` checks them. A game's skill with the name of an engine skill replaces it.
+
 ## 5. Coordinates, units and conventions
 
 | Topic | Rule |

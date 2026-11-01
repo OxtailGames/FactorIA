@@ -1,7 +1,8 @@
 // Skills for every provider: the Agent Skills format (a folder with a SKILL.md and files beside it, fa/tooling/skills.h) found in
 // four places and offered to a role. The built-in loop gets one prompt line per skill and reads a skill with `skills.read`;
-// Claude Code receives the same skills natively (the plugin FactorIA writes for the run, extension_plan.h); Codex and the generic
-// CLIs get the prompt lines and `skills.read` through the MCP server. docs/SKILLS.md.
+// Claude Code receives the same skills natively (the plugin FactorIA writes for the run, extension_plan.h); Codex finds them in the
+// project's .agents/skills for the run and also gets the prompt lines; the generic CLIs get the prompt lines and `skills.read`
+// through the MCP server. docs/SKILLS.md.
 //
 // Where skills come from, in the order that decides which one wins when two have the same name:
 //   1. the project: <project>/skills/<name>/, and skill entries of .factoria/extensions.json

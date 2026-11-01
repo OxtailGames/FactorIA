@@ -337,6 +337,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`sign.macos`](commands/sign.md#signmacos-modifies-state): Sign, notarize and staple the exported macOS app (Developer ID), or sandbox and sign it as a .pkg for the Mac App Store. _Since 0.2.0._
 - [`sign.windows`](commands/sign.md#signwindows-modifies-state): Sign the Windows MSIX package (and the exe) with a code-signing certificate, to install it outside the Microsoft Store. _Since 0.3.0._
 
+### [skills](commands/skills.md)
+
+- [`skills.list`](commands/skills.md#skillslist): List the skills (topic guides) available to a role: name, description, where each lives. _Not released yet._
+- [`skills.new`](commands/skills.md#skillsnew-modifies-state): Create a skill: skills/<name>/SKILL.md in the project (or in ~/.factoria/skills). _Not released yet._
+- [`skills.read`](commands/skills.md#skillsread): Read a skill: its SKILL.md instructions, or another file of the skill. _Not released yet._
+
 ### [ui](commands/ui.md)
 
 - [`ui.caption`](commands/ui.md#uicaption-modifies-state): Show a subtitle line on the Captions component for a few seconds. _Since 0.2.0._

@@ -4732,6 +4732,11 @@ void Editor::at_build_tools_script() {
     // file: a skill and hooks kept "only for this project", the hooks not running until Trust this project, and the trust dropped
     // when the file changes.
     {
+        // The Skills table above the Add row pushes the form below the fold of the window: scroll to a widget of the body, then click it.
+        const auto scroll_click = [&](const std::string& name) {
+            scroll_to(name, "AI settings###AiSettings");
+            click(name);
+        };
         struct EState {
             std::string path, previousEnv, plugin, skill, projectFileText, claudeFile, claudeBackup;
             bool hadEnv = false, hadClaudeFile = false;
@@ -4789,13 +4794,14 @@ void Editor::at_build_tools_script() {
             at_check(showAiSettings_ && aiSettings_.loaded && aiSettings_.path == x->path, "AI > AI Settings... opens the window on the scratch file");
             aiSettingsTab_ = 4;  // Extensions
         });
+        scroll_to("aiset:ext:hooks", "AI settings###AiSettings");
         step(3, [this] {
             at_check(aiSettings_.ext.user.empty() && aiSettings_.ext.project.empty(), "no extension yet");
             at_check(at_visible("aiset:ext:add") && at_visible("aiset:ext:hooks"), "the Extensions tab shows Add and Paste hooks JSON");
         });
         // A plugin folder.
         step(3, [this, x] { aiSettings_.ext.addPath = x->plugin; });
-        click("aiset:ext:add");
+        scroll_click("aiset:ext:add");
         step(3, [this, x] {
             const auto& u = aiSettings_.ext.user;
             at_check(u.size() == 1 && u[0].kind == ai::ExtensionKind::Plugin && u[0].name == "ext_plugin" && u[0].source == "user",
@@ -4809,7 +4815,7 @@ void Editor::at_build_tools_script() {
             aiSettings_.ext.addPath = "plugins/relative";
             aiSettings_.ext.addName = "rel";
         });
-        click("aiset:ext:add");
+        scroll_click("aiset:ext:add");
         step(3, [this] {
             at_check(aiSettings_.ext.user.size() == 1 && aiSettings_.ext.addError.find("~/") != std::string::npos,
                      "a relative path is refused with the way to write it (" + aiSettings_.ext.addError + ")");
@@ -4818,32 +4824,33 @@ void Editor::at_build_tools_script() {
             aiSettings_.ext.addError.clear();
         });
         // Pasted hooks.
-        click("aiset:ext:hooks");
+        scroll_click("aiset:ext:hooks");
+        scroll_to("aiset:ext:hooks-import", "AI settings###AiSettings");
         step(3, [this] {
             at_check(aiSettings_.ext.showHooks && at_visible("aiset:ext:hooks-import"), "Paste hooks JSON opens the paste box");
             aiSettings_.ext.hooksText = R"({"hooks":{"PostToolUsee":[]}})";
         });
-        click("aiset:ext:hooks-import");
+        scroll_click("aiset:ext:hooks-import");
         step(3, [this] {
             at_check(aiSettings_.ext.user.size() == 1 && aiSettings_.ext.hooksMessage.find("PostToolUse") != std::string::npos,
                      "hooks with a misspelled event are refused with the right name (" + aiSettings_.ext.hooksMessage + ")");
             aiSettings_.ext.hooksText = R"({"hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"echo edited"}]}]}})";
             aiSettings_.ext.hooksName = "log";
         });
-        click("aiset:ext:hooks-import");
+        scroll_click("aiset:ext:hooks-import");
         step(3, [this] {
             const auto& u = aiSettings_.ext.user;
             at_check(u.size() == 2 && u[1].kind == ai::ExtensionKind::Hooks && u[1].name == "log" && u[1].hooks.contains("PostToolUse"),
                      "Import hooks adds them (" + aiSettings_.ext.hooksMessage + ")");
         });
         // A role off.
-        click("aiset:ext:role:plugin:ext_plugin:fast");
+        scroll_click("aiset:ext:role:plugin:ext_plugin:fast");
         step(3, [this] {
             const auto& r = aiSettings_.ext.user[0].roles;
             at_check(r.size() == 4 && std::ranges::find(r, std::string("fast")) == r.end() && std::ranges::find(r, std::string("worker")) != r.end(),
                      "switching fast off lists the other four default roles");
         });
-        click("aiset:ext:inherit");
+        scroll_click("aiset:ext:inherit");
         step(3, [this] { at_check(!aiSettings_.ext.inherit, "the inherit box switches off"); });
         snap("editor_ai_extensions.png");
         click("aiset:ext:save");
@@ -4878,7 +4885,7 @@ void Editor::at_build_tools_script() {
             aiSettings_.ext.addToProject = true;
             aiSettings_.ext.addPath = x->skill;
         });
-        click("aiset:ext:add");
+        scroll_click("aiset:ext:add");
         step(3, [this] {
             const auto& p = aiSettings_.ext.project;
             at_check(p.size() == 1 && p[0].kind == ai::ExtensionKind::Skill && p[0].path == "skills/autotest_gdd" && p[0].source == "project",
@@ -4887,7 +4894,7 @@ void Editor::at_build_tools_script() {
             aiSettings_.ext.hooksText = R"({"Stop":[{"hooks":[{"type":"command","command":"echo project-hook"}]}]})";
             aiSettings_.ext.hooksName = "stop-log";
         });
-        click("aiset:ext:hooks-import");
+        scroll_click("aiset:ext:hooks-import");
         step(3, [this] {
             const auto& p = aiSettings_.ext.project;
             at_check(p.size() == 2 && p[1].kind == ai::ExtensionKind::Hooks && p[1].source == "project", "pasted hooks can be kept for the project too");
@@ -4906,7 +4913,7 @@ void Editor::at_build_tools_script() {
             const auto skill = aiSettings_.ext.status.find("skill:project:autotest_gdd");
             at_check(skill != aiSettings_.ext.status.end() && skill->second.empty(), "...while the skill (text) is ready");
         });
-        click("aiset:ext:review");
+        scroll_click("aiset:ext:review");
         step(3, [this] {
             at_check(aiSettings_.ext.showTrust && at_visible("aiset:ext:trust"), "Review what would run opens the list and the Trust button");
             at_check(aiSettings_.ext.claudeGrants.size() == 1 && aiSettings_.ext.claudeGrants[0].find("settings.local.json: hooks (SessionStart)") != std::string::npos,
