@@ -1500,13 +1500,25 @@ not draw, so the pages lived on a stage at x 5000.
 - M47.1 (S-M) `Engine::frame` no longer clears input edges on a paused frame (only mouse motion, wheel and typed text),
   so the edge waits for the next simulated frame; `game.input {frames}` steps like `game.step` (FB-0036). Left open:
   commands accept unknown arguments silently (their schemas do not declare `additionalProperties`); a registry-wide
-  check with "did you mean" is a package of its own.
+  check with "did you mean" is a package of its own (M48).
 - M47.2 (L) `Camera.showTags` / `Camera.hideTags`, inherited from ancestors, for every world-space visual, shadows,
   picking and the pointer through render targets; `factoria validate` checks the tags (FB-0037). Left open:
   `debug.line` and editor overlays are not tied to an entity and are not filtered; the editor has only the game view, so
   its picking uses the masks.
 
 Both are in `feedback/fixed.json`, which closes the matching Roguestory entries when the editor opens the project.
+
+## M48. Commands reject unknown arguments (L) — DONE (0.13.0)
+
+Found while fixing FB-0036: `game.input {"frames": 2}` was accepted and ignored by an engine that had no `frames`, because
+no command schema said `additionalProperties`. Silent no-ops cost AIs whole debugging loops.
+
+- M48.1 (L) `CommandRegistry::add` closes every object schema with `properties` (`fa::close_object_schemas`), so what
+  `describe`/MCP show is what `call` enforces; an unknown key is `invalid_arguments` with its JSON pointer, a "did you
+  mean" and the accepted keys; `additionalProperties: true` (or a schema) opts out; MCP's `_meta` is not an argument.
+  Every command, JS tool and project tool goes through it; `game.input.mouse` now declares its keys; a registry-wide test
+  keeps new commands closed. Left open: `game.input.gamepad`/`touch` keep their own "unknown field (ignored)" warning
+  (shared with replays), and the per-command unknown-key checks in shots, assets and levels are now redundant.
 
 ## Out of scope: Roblox
 

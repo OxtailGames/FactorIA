@@ -2,6 +2,20 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## 0.13.0
+
+FactorIA 0.13.0 (M48) makes every command reject arguments it does not know. Until now a key a command's schema did not declare was dropped without a word, so a typo (`{"entiy": ...}`) or an argument from a newer engine (`game.input {"frames": 2}` before 0.12.0) looked like it worked while doing nothing. Now it is an `invalid_arguments` error that names the key, says where it is and suggests the right one; `describe` and MCP's `tools/list` show the closed schemas, so a model client sees exactly what is accepted.
+
+### New
+
+- Command arguments are closed by default. `CommandRegistry::add` sets `additionalProperties: false` on every object schema that declares `properties` (root, nested objects, array items, `anyOf`/`oneOf`/`$defs`), so `describe`, `tools/list` and `api.commands` show what is enforced (`fa::close_object_schemas`). An unknown key fails with `invalid_arguments`: the message names the key and its JSON pointer (`/frame: unknown property 'frame'`), and the hint gives a "did you mean" plus the accepted keys. `additionalProperties: true` or a schema is the explicit opt-out; no engine command needs it. The MCP transport key `_meta` is never counted as an argument. (docs/ARCHITECTURE.md, "Commands")
+- `game.input` declares the properties of `mouse` (`position`, `left`, `right`, `middle`), so `mouse.lef` is an error too.
+- Tests: a registry-wide test (`command_schema_test`) fails when a command's schema is left open without being listed as open on purpose.
+
+### Changes
+
+- **For game authors:** tools in `tools/*.js` are closed by default too. A key that the tool's `input` does not declare is now an error instead of being ignored, and a tool without `input` (or with `properties: {}`) takes no arguments. Declare every key `run` reads; use `additionalProperties: true` (or a schema) on an object whose keys are open-ended. Calls and tests that pass extra keys need fixing. (docs/EXTENDING.md, "Closed by default")
+
 ## 0.12.0
 
 FactorIA 0.12.0 (M47) fixes the two gaps the user's own game, Roguestory, reported while building its 3D storybook. A camera can now choose what it draws by entity tags (`Camera.showTags` / `Camera.hideTags`), so the pages a render target shows no longer have to live thousands of units away from the desk, and a press sent with `game.input` while the game is paused in the editor is no longer lost before the next step.
