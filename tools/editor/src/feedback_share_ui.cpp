@@ -26,15 +26,6 @@ ImVec4 share_color(ShareKind k) {
     }
 }
 
-const char* mode_label(ShareMode m) {
-    switch (m) {
-        case ShareMode::Always: return "Always";
-        case ShareMode::Ask: return "Ask me each time";
-        case ShareMode::Never: return "Never";
-        default: return "not chosen yet";
-    }
-}
-
 std::string removals_text(const std::vector<Removal>& removed) {
     std::string out;
     for (const Removal& r : removed) {

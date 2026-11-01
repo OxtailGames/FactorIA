@@ -12,6 +12,7 @@
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/provider.h"
+#include "fa/ai/text_model.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/feedback.h"
@@ -293,62 +294,14 @@ std::map<std::string, ReportVerdict> classify_reports(const FeedbackModel& model
 
 Result<FeedbackModel> make_ai_feedback_model(const FeedbackAdminEnv& e) {
     auto cfg = ai::load_config({}, e.env);
-    const std::string aiJson = ai::default_config_path(e.env);
-    if (!cfg.ok()) return make_error("The AI configuration " + aiJson + " is invalid: " + cfg.error().message, cfg.error().hint);
-    if (!cfg->role_enabled(ai::kRoleFast))
-        return make_error("The \"fast\" role is turned off in the AI settings.", "Turn it on in the editor (AI settings > Roles) or pass --no-classify.");
-    const ai::RoleConfig rc = cfg->role(ai::kRoleFast);
-    const ai::ProviderConfig* pc = cfg->provider(rc.provider);
-    if (!pc) return make_error("The \"fast\" role names the provider '" + rc.provider + "', which " + aiJson + " does not define.", "See docs/AI_PROVIDERS.md.");
-
-    if (ai::is_cli_kind(pc->kind)) {
-        const std::string command = pc->command.empty() ? ai::default_cli_command(pc->kind) : pc->command;
-        if (command.empty() || ai::find_cli(command, e.env).empty())
-            return make_error("The CLI '" + command + "' of provider '" + pc->name + "' is not installed.", ai::cli_install_hint(*pc));
-        const ai::ProviderConfig provider = *pc;
-        const std::string model = rc.model;
-        const std::string workDir = default_feedback_inbox(e.env);
-        return FeedbackModel([provider, model, workDir](const std::string& system, const std::string& user) -> Result<std::string> {
-            std::error_code ec;
-            fsys::create_directories(workDir, ec);
-            ai::CliRunRequest req;
-            req.prompt = system + "\n\n" + user;
-            req.model = model;
-            req.projectDir = workDir;
-            req.readOnly = true;
-            req.disallowedTools = {"Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task"};
-            auto run = ai::CliAgent(provider).run(req, [](const ai::AgentEvent&) {}, nullptr);
-            if (!run.ok()) return run.error();
-            if (!run->ok) return make_error(run->error.empty() ? "The CLI agent failed." : run->error, run->hint);
-            return run->finalText;
-        });
-    }
-    if (ai::is_asset_only_kind(pc->kind))
-        return make_error("The provider '" + pc->name + "' of the \"fast\" role only makes assets.", "Point roles.fast at a chat provider (docs/AI_PROVIDERS.md).");
-
-    const bool keyless = pc->preset == "ollama" || pc->preset == "lmstudio" || pc->baseUrl.find("localhost") != std::string::npos ||
-                         pc->baseUrl.find("127.0.0.1") != std::string::npos;
-    if (!keyless && !ai::resolve_api_key(*pc, e.env).found() && !(pc->kind == ai::ProviderKind::Anthropic && pc->useAntCli && !ai::find_cli("ant", e.env).empty()))
-        return make_error("The provider '" + pc->name + "' of the \"fast\" role has no API key.",
-                          "Set " + ai::default_key_env(*pc) + " or put the key in " + aiJson + " (docs/AI_PROVIDERS.md).");
-    ai::ProviderRuntime rt;
-    rt.transport = e.transport;
-    rt.env = e.env;
-    auto provider = ai::make_chat_provider(*pc, rt);
-    if (!provider.ok()) return provider.error();
-    const std::shared_ptr<ai::ChatProvider> chat = *provider;
-    const std::string model = rc.model, effort = rc.effort;
-    return FeedbackModel([chat, model, effort](const std::string& system, const std::string& user) -> Result<std::string> {
-        ai::ChatRequest req;
-        req.model = model;
-        req.effort = effort;
-        req.maxTokens = 4096;
-        req.system = system;
-        req.messages.push_back(ai::Message::user(user));
-        auto res = chat->chat(req, {}, nullptr);
-        if (!res.ok()) return res.error();
-        return res->message.text;
-    });
+    if (!cfg.ok())
+        return make_error("The AI configuration " + ai::default_config_path(e.env) + " is invalid: " + cfg.error().message, cfg.error().hint);
+    ai::TextModelOptions options;  // the "fast" role, or the orchestrator when it is off; a CLI agent runs in an empty folder
+    options.runtime.transport = e.transport;
+    options.runtime.env = e.env;
+    auto model = ai::make_text_model(*cfg, options);
+    if (!model.ok()) return make_error(model.error().message, model.error().hint + " Or pass --no-classify.");
+    return FeedbackModel(*model);
 }
 
 // ----------------------------------------------------------------------------------------------------------- entries

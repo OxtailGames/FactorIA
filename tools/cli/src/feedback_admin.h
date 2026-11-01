@@ -24,7 +24,7 @@ using FeedbackModel = std::function<Result<std::string>(const std::string& syste
 struct FeedbackAdminEnv {
     ai::EnvLookup env = ai::system_env();  // HOME / APPDATA / FACTORIA_AI_CONFIG / API keys
     ai::HttpTransport transport;           // empty = ai::http_request
-    FeedbackModel model;                   // empty = the model of the "fast" role of the user's ai.json (make_ai_feedback_model)
+    FeedbackModel model;                   // empty = the model of the "fast" role of the user's ai.json, or the orchestrator when it is off (make_ai_feedback_model)
     std::function<std::string()> today;    // "YYYY-MM-DD" (UTC); empty = the clock
 };
 FeedbackAdminEnv& feedback_admin_env();  // process-wide, used by the commands
