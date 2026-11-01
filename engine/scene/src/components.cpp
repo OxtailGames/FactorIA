@@ -347,18 +347,40 @@ void register_builtin_components(TypeRegistry& r) {
                "composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active "
                "(entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no "
                "lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so "
-               "(a render loop needs two targets: A shows B and B shows A, each one frame late). There is no culling mask: "
-               "the camera sees everything in its frustum, so put what a target shows (a 2D page with Text, Sprites, Buttons "
-               "as world-space entities) away from the camera that shows the model. Screen-space UI (Panel, Button and the "
+               "(a render loop needs two targets: A shows B and B shows A, each one frame late). The camera draws everything in its "
+               "frustum unless you give it showTags / hideTags: tag what a target shows (the root of a 2D page of Text, Sprites, "
+               "Buttons as world-space entities, tag \"page_left\"), give the target camera showTags [\"page_left\"] and the "
+               "camera that draws the model hideTags [\"page_left\"], so each sees only its own content wherever it is in the "
+               "world. Screen-space UI (Panel, Button and the "
                "other widgets, space \"screen\" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, "
                "whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, \"Render targets\"). "
-               "Names are unique: a second camera with the same name is not drawn, with an error. \"\" (default) = the screen. "
+"Names are unique: a second camera with the same name is not drawn, with an error. \"\" (default) = the screen. "
                "Letters, digits, '_', '-' and '.', up to 64 characters.")
         .field("renderTargetSize", &Camera::renderTargetSize,
                "Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). "
                "The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture "
                "pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; "
-               "memory is about width x height x 8 bytes (4 more per pixel with antialiasing).");
+               "memory is about width x height x 8 bytes (4 more per pixel with antialiasing).")
+        .field("showTags", &Camera::showTags,
+               "Culling mask, the allow list: an array of tag names (EntityInfo \"tags\"), default [] = no restriction. When it is not "
+               "empty the camera draws only the entities that have one of these tags OR have an ancestor that does, so tagging the "
+               "root of a page covers its Sprites, Text, Shape2D and every other child. Applies to what the camera draws in world "
+               "space, on a screen camera and on one with renderTarget alike: Sprite, Shape2D, Text, Tilemap, ParticleEmitter and "
+               "MeshRenderer (a world-space item; screen-space UI and items with space \"screen\" belong to the screen and ignore "
+               "it). Lights are not filtered: a Light still lights everything its camera draws. An entity the camera does not draw "
+               "casts no shadow in that camera's view, takes no click through it and is not picked by it: the pointer, "
+               "Interactable hit tests (also through a mesh that shows a render target) and game.click only reach what the camera "
+               "draws. Combine with hideTags: an entity is drawn when it passes showTags AND is not in hideTags. `factoria validate` "
+               "warns about a tag no entity carries (with a did-you-mean) and rejects a tag in both lists. Example: the camera of a "
+               "page, showTags [\"page_left\"]. Assign a whole new array to change it from a script "
+               "(cam.showTags = [\"page_right\"]); a tag added with entity.addTag(...) takes effect on the next frame drawn.")
+        .field("hideTags", &Camera::hideTags,
+               "Culling mask, the block list: an array of tag names (EntityInfo \"tags\"), default [] = nothing hidden. The camera "
+               "does not draw the entities that have one of these tags or have an ancestor that does, whatever showTags says; it "
+               "applies to the same things (world-space Sprite, Shape2D, Text, Tilemap, ParticleEmitter, MeshRenderer; shadows, "
+               "pointer and game.click follow) and spares screen-space UI. Use it on the camera that draws a 3D model with "
+               "render-target pages so it does not also see the pages' own content: hideTags [\"page_left\", \"page_right\"]. "
+               "A tag in both showTags and hideTags is an error for `factoria validate`.");
 
     // --------------------------------------------------------------- 2D ---
     r.add<Sprite>("Sprite",

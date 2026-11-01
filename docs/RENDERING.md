@@ -71,7 +71,8 @@ target that shows another target is drawn after it (the engine orders them by wh
 
 - **A camera whose own view shows its own target** (the quad with `target:book` stands in front of `page_cam`) cannot read the
   image it is drawing into. That surface is drawn as the missing-texture checker and one error says so, with the fix: move the
-  entity that shows the target out of that camera's view (there is no culling mask, see below).
+  entity that shows the target out of that camera's view, or keep it out of what that camera draws with `Camera.hideTags` (see
+  "Choosing what a camera draws: showTags and hideTags", below). A surface the camera does not draw is not a self-view: no checker.
 - **A loop** (A shows B and B shows A, a mirror facing a mirror) is allowed: the one that draws first shows the other's picture
   from the previous frame, so the loop is one frame late and never an error.
 
@@ -82,9 +83,57 @@ those belong to the screen. What a page is made of are ordinary world-space enti
 one `Transform` that you move away from everything else. Give them `Interactable` components and they become widgets: hover,
 click, toggles, sliders, focus.
 
-There is no culling mask. The page camera sees whatever is in its frustum, and the camera that draws the model sees the page too if
-the page is in front of it. Put the page where the main camera never looks (the example above uses x = 5000), or far along the
-axis the main camera does not see. A page you want to see both ways, in the world and on the model, is two sets of entities.
+### Choosing what a camera draws: showTags and hideTags
+
+A camera draws every world-space entity in its frustum unless you give it a culling mask by entity tags (the `tags` of an entity,
+`"tags": ["page_left"]` in a scene file, `entity.addTag("page_left")` from a script). Two fields of `Camera`, both arrays of tag names
+and both `[]` by default (the camera draws everything):
+
+- `showTags`: when it is not empty, the camera draws only the entities that have one of these tags **or have an ancestor that does**.
+  Tag the root of a page and every `Sprite`, `Text`, `Shape2D` and child under it is drawn.
+- `hideTags`: the camera does not draw the entities that have one of these tags or have an ancestor that does.
+
+The rule: the camera draws entity `e` when (`showTags` is empty OR `e` or an ancestor has one of `showTags`) AND neither `e` nor an
+ancestor has one of `hideTags`. `hideTags` wins. A tag in both lists is an error for `factoria validate`, which also warns about a tag
+no entity or prefab carries (with a did-you-mean), because a typo there draws nothing.
+
+```json
+{ "id": "page_left_root", "tags": ["page_left"], "children": [ { "id": "title", "components": { "Text": { "text": "Chapter 1" } } } ] },
+{ "id": "page_cam", "components": { "Camera": { "renderTarget": "page_left", "showTags": ["page_left"] } } },
+{ "id": "main_cam", "components": { "Camera": { "hideTags": ["page_left", "page_right"] } } }
+```
+
+Here the page lives anywhere in the world, even in front of the main camera: the page camera draws only it, and the main camera
+never draws it, so there is no need to put it at x = 5000.
+
+What the mask covers, and what it leaves alone:
+
+- It applies to everything a camera draws in world space, on a screen camera and on a render-target camera alike: `Sprite`,
+  `Shape2D`, `Text`, `Tilemap`, `ParticleEmitter` and `MeshRenderer` (3D meshes and world-space items; the `Text` of a 3D scene too).
+  Screen-space UI (`Panel`, `Button` and the other widgets, any item with `space: "screen"`) belongs to the screen: the mask does not
+  filter it.
+- Lights are not filtered. A `Light` or `Light2D` still lights everything its camera draws, whatever its tags; an entity a camera does
+  not draw casts no shadow in that camera's view (a 3D mesh, a `Tilemap` that blocks 2D light).
+- The pointer follows the picture: the Interactable hit tests of the camera under the pointer, the mesh that shows a render
+  target (its page camera's mask decides which Interactables of the page the pointer reaches), `render.pick` and `game.click`
+  `{position}`/`{world}`/`{id}` only hit what that camera draws. `game.click {id}` of an Interactable its camera hides is an error that
+  says so.
+- The mask is read every frame, so a tag added or removed at run time takes effect on the next frame drawn. Change the lists from a
+  script by assigning a whole new array: `pageCam.get("Camera").showTags = ["page_right"]` (`pageCam` is the entity of the camera).
+- The editor shows what the game shows: its viewport is the game view, drawn by the project's cameras with their masks. The debug
+  overlays (`debug.line`, selection boxes) are not entities and are never filtered.
+- Cost: nothing when both lists are empty. With a list the camera checks each entity's tags and its ancestors once per frame.
+
+### A page of a book: world-space entities
+
+A target camera does not draw screen-space UI (`Panel`, `Button` and the other widgets, and any item with `space: "screen"`):
+those belong to the screen. What a page is made of are ordinary world-space entities: `Sprite`, `Text`, `Shape2D`, children of
+one `Transform`. Give them `Interactable` components and they become widgets: hover, click, toggles, sliders, focus.
+
+Keep the page apart from what the main camera draws in one of two ways. Tag the page's root and use `showTags` on the page camera and
+`hideTags` on the cameras that draw the model (above): the page can then be anywhere, and a book with several pages is one tag per
+page. Or, without tags, put the page where the main camera never looks (x = 5000, or far along the axis the main camera does not
+see). A page you want to see both ways, in the world and on the model, needs no copy: a camera that does not hide its tag draws it.
 
 ### Pointer input through the mesh
 
@@ -116,8 +165,9 @@ Limits, so you do not look for a bug:
 - Only meshes with UVs that lay the picture out: the built-in primitives, glTF models and procedural meshes (`mesh.create`).
 - A `Sprite`, `Panel` or `Button` that shows a target is only a picture: it forwards no pointer input to the page. Use a
   `CameraView` (docs/MENUS.md) when the player must drag what a camera shows inside a menu.
-- `game.click(id)` of an entity of the page aims at where the main view would draw that entity, not at the model. In a test pass
-  the screen position: `game.click(camera.worldToScreen(modelPoint))`, or `game.mouseMove(pos)` then `game.click(pos)`.
+- `game.click(id)` of an entity of the page aims at where the main view would draw that entity, not at the model; when the main
+  camera hides it (`hideTags`) it is an error. In a test pass the screen position: `game.click(camera.worldToScreen(modelPoint))`, or
+  `game.mouseMove(pos)` then `game.click(pos)`.
 
 ### Tests
 

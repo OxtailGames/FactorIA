@@ -240,8 +240,8 @@ Entity UiSystem::widget_at(const World& w, Vec2 design, Vec2 p, const VisualMeas
     int bestLayer = 0;
     const std::optional<UiSurface> surface = surface_ ? surface_(p, nullptr) : std::nullopt;  // a page under p: its Interactables, not the main view's
     std::vector<ui_detail::Item> candidates =
-        surface ? ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point)
-                : ui_detail::interactable_items(w, design, measure, modal, project_, &p);
+        surface ? ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point, surface->mask)
+                : ui_detail::interactable_items(w, design, measure, modal, project_, &p, mask_at(&p));
     for (const ui_detail::Item& it : candidates) {
         if (!it.inScope || !item_contains(it, surface && it.world ? surface->point : p)) continue;
         if (ignore) {
@@ -426,7 +426,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     const bool ptrReleased = pointerOn_ ? !pointerDown_ && pointerPrevDown_ : in.mouse_released(MouseButton::Left);
     pointerPrevDown_ = pointerOn_ && pointerDown_;
     std::vector<Item> items = controls(w, design, modal);  // creation order
-    for (Item& it : ui_detail::interactable_items(w, design, measure, modal, project_, &mouse)) items.push_back(std::move(it));
+    for (Item& it : ui_detail::interactable_items(w, design, measure, modal, project_, &mouse, mask_at(&mouse))) items.push_back(std::move(it));
     std::vector<Item> ordered = items;                    // reading order: top, then left
     reading_order(ordered);
     // A page under the pointer (a render target shown on a mesh): its world-space Interactables are seen through the page's camera and
@@ -437,7 +437,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         surface = surface_(mouse, press_ ? &pressSurface_ : nullptr);
     if (surface) {
         std::erase_if(items, [](const Item& it) { return it.custom && it.world; });
-        for (Item& it : ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point)) {
+        for (Item& it : ui_detail::interactable_items(w, design, measure, modal, surface->project, &surface->point, surface->mask)) {
             if (!it.world) continue;
             it.surface = true;
             it.at = surface->point;
@@ -773,6 +773,14 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         if (TextField* tf = w.get<TextField>(it.e))
             tf->caret = it.e == focus_ && std::fmod(clock_ - caretStart_, 1.0f) < 0.5f;
     }
+    // An Interactable that is not among the items this frame (inactive, or hidden from the camera at the pointer by
+    // Camera.showTags / hideTags) is not hovered, pressed or focused any more: its flags would stay as the last frame left them.
+    if (!w.entities_with(&World::type_of<Interactable>()).empty())
+        w.each<Interactable>([&](Entity e, Interactable& ia) {
+            ia.focused = e == focus_;
+            ia.hovered = e == hover_;
+            ia.pressed = e == press_;
+        });
     sync_interactables(w, design, measure);
 
     // ---- the platform's own keyboard (a native plugin): offered a TextField that a gamepad player focused, and told when
@@ -817,7 +825,7 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
         const UiControl* c = control_of(w, e);
         items.push_back({e, k, *ui_rect(w, e, design), 0, c && c->interactable});
     }
-    for (Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project_, &lastPointer_)) {
+    for (Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project_, &lastPointer_, mask_at(&lastPointer_))) {
         it.interactable = w.get<Interactable>(it.e)->enabled;
         items.push_back(std::move(it));
     }

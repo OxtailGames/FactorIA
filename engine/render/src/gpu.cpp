@@ -169,6 +169,13 @@ void Gpu::destroy_shader(sg_shader shader) {
 sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
     auto it = pipelines_.find(key);
     if (it != pipelines_.end()) return it->second;
+    // A pipeline asked for before its lazily made shader exists (a caller that skipped the *_ready() check) is an engine
+    // bug: report it and keep it out of the cache, so the one early call does not break the key for the whole process.
+    if (sg_query_shader_state(desc.shader) != SG_RESOURCESTATE_VALID) {
+        FA_ERROR("render", "pipeline '{}' was asked for before its shader was made; it is not drawn (engine bug)",
+                 desc.label ? desc.label : "?");
+        return {};
+    }
     sg_pipeline p = sg_make_pipeline(&desc);
     if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
         FA_ERROR("render", "failed to create pipeline '{}'", desc.label ? desc.label : "?");
@@ -381,6 +388,7 @@ bool Gpu::colorfilter_ready() {
 }
 
 sg_pipeline Gpu::colorfilter_pipeline() {
+    if (!colorfilter_ready()) return {};
     PipelineKey key{0x700u};
     sg_pipeline_desc d{};
     d.shader = colorfilter_shader_;

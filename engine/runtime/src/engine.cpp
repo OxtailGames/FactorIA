@@ -15,6 +15,7 @@
 #include "fa/platform/app.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
+#include "fa/scene/camera_mask.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
@@ -469,7 +470,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     if (profiled) Profiler::get().end_frame();
 }
 
-void Engine::Impl::end_of_frame(double dt) {
+void Engine::Impl::end_of_frame(double dt, bool simulated) {
     world.flush();
     apply_scene_change();
     watchTimer += dt;
@@ -477,7 +478,9 @@ void Engine::Impl::end_of_frame(double dt) {
         watchTimer = 0.0;
         poll_hot_reload();
     }
-    input.begin_frame();
+    // Edges belong to the next SIMULATED frame: a paused redraw must not eat a press injected since the last one.
+    if (simulated) input.begin_frame();
+    else input.discard_idle_motion();
 }
 
 // ---------------------------------------------------------------- Engine --
@@ -535,6 +538,22 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             return r->world_to_screen(p, cam != kNullEntity && I.world.alive(cam) ? cam : kNullEntity);
         }
         return ortho_view(I.world, I.design_size(), kNullEntity, pointer).to_screen(p);
+    });
+
+    // The culling mask (Camera.showTags / hideTags) of the camera that draws at the pointer: a world-space Interactable it does not draw
+    // takes no pointer through it.
+    I.ui.set_world_mask([&I](const Vec2* pointer) {
+        Renderer* r = I.renderer.get();
+        Entity cam;
+        if (r && r->initialized() && !r->cameras().empty()) {
+            cam = pointer ? r->camera_at(*pointer) : r->cameras().front();
+        } else if (pointer) {
+            cam = camera_containing(I.world, I.design_size(), *pointer);
+        } else {
+            const std::vector<Entity> cams = rendering_cameras(I.world);
+            if (!cams.empty()) cam = cams.front();
+        }
+        return CameraMask::of(I.world, cam);
     });
 
     I.ui.set_surface_pointer(make_ui_surface_pointer(I));  // the pointer through a render target shown on a mesh
@@ -721,7 +740,7 @@ void Engine::frame(double dt) {
     if (I.paused) {
         I.inFrame = true;
         I.render(0.0);
-        I.end_of_frame(dt);
+        I.end_of_frame(dt, false);
         I.inFrame = false;
         return;
     }

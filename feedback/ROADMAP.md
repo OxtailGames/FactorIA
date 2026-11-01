@@ -1491,6 +1491,23 @@ closes matching entries in the users' games.
 - M46.4 (L) The developer's side: `feedback pull` with classification and quarantine, bans, the per-installation
   ranking in `collect`, `feedback fixed`.
 
+## M47. Roguestory's storybook: a culling mask by tags and presses while paused (S-L; FB-0036, FB-0037) — DONE (0.12.0)
+
+Roguestory (the user's own game) reported two gaps on 2026-10-31 while building its 3D storybook: a press sent with
+`game.input` to a paused game never reached `input.pressed`, and its page cameras could not leave out what they should
+not draw, so the pages lived on a stage at x 5000.
+
+- M47.1 (S-M) `Engine::frame` no longer clears input edges on a paused frame (only mouse motion, wheel and typed text),
+  so the edge waits for the next simulated frame; `game.input {frames}` steps like `game.step` (FB-0036). Left open:
+  commands accept unknown arguments silently (their schemas do not declare `additionalProperties`); a registry-wide
+  check with "did you mean" is a package of its own.
+- M47.2 (L) `Camera.showTags` / `Camera.hideTags`, inherited from ancestors, for every world-space visual, shadows,
+  picking and the pointer through render targets; `factoria validate` checks the tags (FB-0037). Left open:
+  `debug.line` and editor overlays are not tied to an entity and are not filtered; the editor has only the game view, so
+  its picking uses the masks.
+
+Both are in `feedback/fixed.json`, which closes the matching Roguestory entries when the editor opens the project.
+
 ## Out of scope: Roblox
 
 Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,

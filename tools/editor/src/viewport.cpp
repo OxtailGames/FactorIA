@@ -5,6 +5,7 @@
 
 #include "editor_internal.h"
 #include "fa/scene/bones2d.h"
+#include "fa/scene/camera_mask.h"
 #include "fa/scene/tilemap.h"
 #include "ui_backend.h"
 
@@ -103,13 +104,16 @@ Entity Editor::pick_at(Vec2 design) {
     Renderer* r = engine_->renderer();
     World& w = world();
     auto all = w.entities();
+    // The viewport shows the game's camera, so a click selects what that camera draws (Camera.showTags / hideTags): an entity it
+    // hides is still in the Hierarchy. Screen-space items belong to the screen and are always pickable.
+    const CameraMask mask = CameraMask::of(w, r->camera_at(design));
     if (!primary_is_ortho()) {
         Vec3 o, d;
         r->screen_ray(design, o, d);
         Entity best = kNullEntity;
         float bestT = 1e30f;
         for (Entity e : all) {
-            if (!w.active_in_hierarchy(e) || !w.has<MeshRenderer>(e)) continue;
+            if (!w.active_in_hierarchy(e) || !w.has<MeshRenderer>(e) || !mask.draws(w, e)) continue;
             Mat4 inv = w.world_matrix(e).inverse();
             Vec3 lo_ = inv.transform_point(o), ld = inv.transform_dir(d);
             float t;
@@ -143,7 +147,7 @@ Entity Editor::pick_at(Vec2 design) {
         ++order;
         if (!w.active_in_hierarchy(e)) continue;
         const PickBounds b = pick_bounds(w, e, measure);
-        if (!b.valid) continue;
+        if (!b.valid || (!b.screenSpace && !mask.draws(w, e))) continue;
         int layer = 0;
         // World-space entities are tested at the world point under the cursor, screen-space ones at the design pixel.
         if (!pick_hit(w, e, b, b.screenSpace ? design : Vec2{wp.x, wp.y}, designSize, &layer)) continue;
