@@ -6,7 +6,7 @@ async function json(res) {
     return res.json();
 }
 
-test("GET / serves the plain privacy page", async () => {
+test("GET / serves the plain privacy page and the rules", async () => {
     const { app } = makeServer();
     const res = await app.fetch(new Request("https://fb.example/"));
     assert.equal(res.status, 200);
@@ -15,6 +15,8 @@ test("GET / serves the plain privacy page", async () => {
     assert.match(html, /What is stored/);
     assert.match(html, /never stored/i);
     assert.match(html, /factoria feedback sharing never/);
+    assert.match(html, /Rules for reports/);
+    assert.match(html, /No warranty/);
     assert.doesNotMatch(html, /<script/i);
 });
 
