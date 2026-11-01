@@ -30,7 +30,8 @@ One command, safe to repeat. It installs wrangler from the lock file (`npm ci`),
 `HMAC_SECRET` and `ADMIN_TOKEN` only when they are not set yet (random values, never printed), writes
 `{endpoint, adminToken}` to `feedback-admin.json` next to the user `ai.json` (`~/.factoria/` on macOS and Linux,
 `%APPDATA%\factoria\` on Windows; the pull cursor of `factoria feedback pull` lives in the same file and is kept) and
-prints the URL. Build the engine with that URL as `FA_FEEDBACK_URL` (`cmake -DFA_FEEDBACK_URL=https://...`).
+prints the URL. A new Cloudflare account has no `workers.dev` subdomain yet: the first deploy asks for one in the
+terminal (once per account; it is part of the public URL, `factoria-feedback.<subdomain>.workers.dev`). Build the engine with that URL as `FA_FEEDBACK_URL` (`cmake -DFA_FEEDBACK_URL=https://...`).
 
 - `--rotate-admin` sets a new `ADMIN_TOKEN` (needed when the secret exists but `feedback-admin.json` was lost).
 - Never rotate `HMAC_SECRET`: installation keys, reporter keys and sign-in credentials derive from it.
