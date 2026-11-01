@@ -1053,6 +1053,8 @@ TEST_CASE("plan_extensions: an untrusted project's .claude settings are kept out
     CHECK_FALSE(has(read_file(trust), "claudeSettingsHash"));
 }
 
+#ifndef _WIN32  // the fake CLI that records the argv is a shell script
+
 TEST_CASE("claude-code run: an untrusted project's settings leave --setting-sources without project and local; trusted, nothing is added") {
     TempDir proj, scratch;
     ProviderConfig cfg = default_config().providers["claude-code"];
@@ -1105,6 +1107,8 @@ TEST_CASE("AgentSession: a hostile project's .claude settings are skipped with t
     REQUIRE(run(second).ok);
     CHECK_FALSE(has(read_file((scratch.path / "argv.txt").string()), "--setting-sources"));
 }
+
+#endif
 
 TEST_CASE("ai.extensions and the doctor report an untrusted project's .claude settings, and the deny rules keep working") {
     TempDir home, proj;

@@ -424,6 +424,7 @@ void Editor::at_build_tools_script() {
         step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at()); });
         struct Wheel {
             float dy, lastY = -1e9f;
+            bool lastOfWidget = false;
             int stuck = 0;
         };
         auto wheel = std::make_shared<Wheel>(Wheel{dy});
@@ -432,9 +433,16 @@ void Editor::at_build_tools_script() {
                 const std::string name = nameOf();
                 auto it = atWidgets_.find(name);
                 if (at_shown(name) && it != atWidgets_.end() && it->second.y < maxY && it->second.y > minY) return;
-                if (it != atWidgets_.end() && at_visible(name)) {
-                    wheel->stuck = it->second.y == wheel->lastY ? wheel->stuck + 1 : 0;
-                    wheel->lastY = it->second.y;
+                // Whether the wheel still moves anything: the widget's y while it is drawn, else the scroll of the window
+                // being wheeled (a widget scrolled out of a child window is not drawn at all, so its y never changes).
+                const bool ofWidget = it != atWidgets_.end() && at_visible(name);
+                const ImGuiContext& g = *ImGui::GetCurrentContext();
+                const ImGuiWindow* wheeled = g.WheelingWindow ? g.WheelingWindow : g.HoveredWindow;
+                if (ofWidget || wheeled) {
+                    const float y = ofWidget ? it->second.y : wheeled->Scroll.y;
+                    wheel->stuck = ofWidget == wheel->lastOfWidget && y == wheel->lastY ? wheel->stuck + 1 : 0;
+                    wheel->lastY = y;
+                    wheel->lastOfWidget = ofWidget;
                     if (wheel->stuck == 2) wheel->dy = -wheel->dy;
                 }
                 const Vec2 where = at();

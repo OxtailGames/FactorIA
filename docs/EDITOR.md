@@ -682,7 +682,7 @@ The icon of a game is its own (`factoria.json` `icon`, docs/EXPORTING.md), not t
   logic (`setup_job.*`: which setup fixes which Export row, an install on its worker thread with its progress, cancelling,
   the license loader and the cached status), all with an injected `fa::SetupContext` (a fake downloader and process runner and
   a temporary home): no test touches the network or your `~/.factoria`.
-- `editor_autotest_1` to `editor_autotest_4` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS and Windows; on Windows a screen of at least 1600x900): the real editor window. The autotest
+- `editor_autotest_1` to `editor_autotest_5` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS and Windows; on Windows a screen of at least 1600x900): the real editor window. The autotest
   clicks the viewport and the View menu with injected mouse events, edits through Console commands, checks undo and redo, saved
   files, play / pause / step / stop, keyboard input reaching the game, a scripted AI session, and the fake Claude Code of the AI
   tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint, the Export window
