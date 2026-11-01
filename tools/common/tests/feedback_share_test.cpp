@@ -2,6 +2,7 @@
 // Nothing here reaches the network or the real user config: a fake transport and a temp config folder.
 #include <doctest.h>
 
+#include <filesystem>
 #include <map>
 
 #include "fa/core/strings.h"
@@ -241,7 +242,12 @@ TEST_CASE("share settings: unset by default, installId is a UUID v4, unknown key
     ShareSettings st = load_share_settings(s.env);
     CHECK(st.mode == ShareMode::Unset);
     CHECK(st.installId.empty());
-    CHECK(st.path == s.dir.sub("home/.factoria/feedback-sharing.json"));
+#ifdef _WIN32
+    const std::string expected = s.dir.sub("home/factoria/feedback-sharing.json");  // %APPDATA%\factoria
+#else
+    const std::string expected = s.dir.sub("home/.factoria/feedback-sharing.json");
+#endif
+    CHECK(std::filesystem::path(st.path) == std::filesystem::path(expected));  // separators may differ on Windows
 
     auto id = ensure_install_id(s.env);
     REQUIRE(id.ok());

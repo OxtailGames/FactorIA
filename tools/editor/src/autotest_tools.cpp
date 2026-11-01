@@ -4407,8 +4407,32 @@ void Editor::at_build_tools_script() {
         struct EState {
             std::string path, installBefore;
             std::optional<ai::AiConfig> savedConfig;
+            ImGuiID row = 0, sibling = 0;  // the dock row of the panel made taller for this section, and the one it took from
+            float grown = 0;
         };
         auto x = std::make_shared<EState>();
+        // The bottom row of the dock gives the panel under 200 px on a small display (the macOS runner's 1024x642), where the
+        // table leaves the share boxes a few pixels: the row grows to 440 px for this section and gets its height back after.
+        auto grow_panel_row = [x](bool grow) {
+            if (!grow) {
+                ImGuiDockNode* row = ImGui::DockBuilderGetNode(x->row);
+                ImGuiDockNode* sib = ImGui::DockBuilderGetNode(x->sibling);
+                if (row && sib) row->SizeRef.y -= x->grown, sib->SizeRef.y += x->grown;
+                x->grown = 0;
+                return;
+            }
+            const ImGuiWindow* w = panel_window("Engine Feedback");
+            ImGuiDockNode* row = w ? w->DockNode : nullptr;
+            while (row && row->ParentNode && row->ParentNode->SplitAxis != ImGuiAxis_Y) row = row->ParentNode;
+            if (!row || !row->ParentNode) return;  // floating: it has its own size
+            ImGuiDockNode* sib = row->ParentNode->ChildNodes[0] == row ? row->ParentNode->ChildNodes[1] : row->ParentNode->ChildNodes[0];
+            if (!sib) return;
+            x->grown = std::clamp(440.0f - row->Size.y, 0.0f, std::max(0.0f, sib->Size.y - 120.0f));
+            x->row = row->ID;
+            x->sibling = sib->ID;
+            row->SizeRef.y += x->grown;
+            sib->SizeRef.y -= x->grown;
+        };
         auto entry_of = [x](const std::string& id) -> Json {
             auto doc = load_feedback(x->path);
             if (doc && doc->contains("entries"))
@@ -4485,6 +4509,7 @@ void Editor::at_build_tools_script() {
             showFeedback_ = true;
             focus_window("Engine Feedback");
         });
+        step(2, [grow_panel_row] { grow_panel_row(true); });
         // ---- the consent dialog
         wait_until([this] { return share_.consentOpen; });
         step(3, [this, x] {
@@ -4693,10 +4718,11 @@ void Editor::at_build_tools_script() {
         wait_until([shared_of] { return shared_of("FB-0004") == "sent"; });
         step(3, [this, reports] { at_check(reports() == 2 || reports() == 3, "Send now sent what was waiting once the server answered"); });
         click("share:settings:mode:never");
-        step(3, [this] {
+        step(3, [this, grow_panel_row] {
             at_check(load_share_settings(share_env()).mode == ShareMode::Never && load_outbox(share_env()).items.empty(),
                      "the Never radio button writes the mode and the outbox is empty");
             share_.settingsOpen = false;
+            grow_panel_row(false);
         });
     }
 

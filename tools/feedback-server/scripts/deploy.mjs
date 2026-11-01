@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const DB_NAME = "factoria-feedback";
@@ -67,10 +67,16 @@ export function parseWorkerUrl(deployOutput) {
     return m ? m[0] : null;
 }
 
-/** Folder of the user-level config (where ai.json lives): ~/.factoria/, or %APPDATA%\factoria\ on Windows. */
+/**
+ * Folder of the user-level config (where ai.json lives), the rule of fa::user_config_dir: the folder of
+ * $FACTORIA_AI_CONFIG when set, else %APPDATA%\factoria (or %USERPROFILE%\.factoria) on Windows, ~/.factoria elsewhere.
+ * The separators follow `platform`, not the host, so the rule can be tested for every OS anywhere.
+ */
 export function configDir(env = process.env, platform = process.platform, home = homedir()) {
-    if (platform === "win32") return join(env.APPDATA || join(home, "AppData", "Roaming"), "factoria");
-    return join(home, ".factoria");
+    const path = platform === "win32" ? win32 : posix;
+    if (env.FACTORIA_AI_CONFIG) return path.dirname(env.FACTORIA_AI_CONFIG);
+    if (platform === "win32") return env.APPDATA ? path.join(env.APPDATA, "factoria") : path.join(home, ".factoria");
+    return path.join(home, ".factoria");
 }
 
 /** The new content of feedback-admin.json: keeps unrelated keys (the pull cursor) and an existing token unless replaced. */
