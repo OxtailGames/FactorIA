@@ -41,6 +41,18 @@ Starts `count` read-only AI reviewers (1 to 5, one after the other, each with a 
 | `maxCostUsd` | number | no | Cost limit of each review. |
 | `stream` | boolean | no |  Default true. |
 
+## `ai.review_feedback` (modifies state)
+
+Since 0.10.0.
+
+Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet.
+
+Run this after feedback.report when you wrote a `share` text (a person also gets it as "Review with AI" in the Engine Feedback panel). A cheap model checks the entry against the engine's command list and documentation: (1) the gap is real, (2) it is about the engine and not about the game, (3) the engine cannot already do it. The text also goes through the automatic sanitizer, which refuses anything with names, paths or quotes from the game. On a PASS the entry is marked reviewed: true and, if the text needed it, `share` is rewritten in engine terms (components, fields, commands and API names only; nothing about the game). On a FAIL nothing is changed: you get `reasons` (which check failed and why) and `fix`, what to change (rewrite the share text, use what the engine already has, or drop `share`). The model is the "fast" role of ai.json, the cheapest one (the orchestrator when fast is off; docs/AI_PROVIDERS.md). The result is {id, pass, checks:{real, aboutEngine, notPossibleYet, sanitizer}, reasons, fix, rewritten, reviewed, share, role}. This command never changes the sharing mode and never sends anything: only a person decides whether entries leave the machine. Example: {"id":"FB-0003"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The entry to review, e.g. FB-0003 (feedback.list shows the ids). It needs a `share` text. |
+
 ## `ai.reviews`
 
 Since 0.4.0.

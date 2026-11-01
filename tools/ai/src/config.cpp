@@ -16,6 +16,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/mcp_config.h"
+#include "fa/tooling/user_config.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -284,13 +285,8 @@ RoleConfig AiConfig::role(std::string_view name) const {
 
 std::string default_config_path(const EnvLookup& env) {
     if (auto o = env("FACTORIA_AI_CONFIG"); !o.empty()) return o;
-#ifdef _WIN32
-    if (auto a = env("APPDATA"); !a.empty()) return (fsys::path(a) / "factoria" / "ai.json").string();
-    if (auto h = env("USERPROFILE"); !h.empty()) return (fsys::path(h) / ".factoria" / "ai.json").string();
-#else
-    if (auto h = env("HOME"); !h.empty()) return (fsys::path(h) / ".factoria" / "ai.json").string();
-#endif
-    return ".factoria/ai.json";
+    // The folder rule is shared with the other user-level files (feedback-sharing.json...): fa/tooling/user_config.h.
+    return (fsys::path(user_config_dir(env)) / "ai.json").string();
 }
 
 // ---------------------------------------------------------------------------
