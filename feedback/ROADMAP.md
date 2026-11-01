@@ -1388,7 +1388,7 @@ Left open:
 - A `Collider3D` on a procedural mesh is rebuilt on every `mesh.update` (costly for a mesh deformed each frame).
 - The editor picks glTF models and primitives by their unit box; only procedural meshes use their triangles.
 
-## M45. Extensions the user adds (skills, hooks, plugins) and fewer tokens per step (S-L each; the user) — PLANNED (0.11.0)
+## M45. Extensions the user adds (skills, hooks, plugins) and fewer tokens per step (S-L each; the user) — DONE (0.11.0)
 
 Asked by the user (2026-10-31) after seeing Microsoft's TokenEconomizer (a Claude Code / Codex / Copilot CLI plugin, Apache
 2.0, Python 3.10+: learned repo facts injected at session start, unused tools denied in `.claude/settings.local.json`, and
@@ -1464,6 +1464,13 @@ M45.6 needs M45.1):
   its hooks fire in `-p` runs, that its tool pruning does not hide a FactorIA tool a later task needs (or that M45.1's
   warning catches it), and what it saves next to M45.2 and M45.5. The result goes into AI_COSTS.md and the example's
   ENGINE_FEEDBACK.json.
+
+Result (2026-11-01): all six packages landed in 0.11.0. M45.6's six paid runs (Sky Hopper, Claude Code + Sonnet, three with
+TokenEconomizer and three without, alternated) all finished green: $1.27 with it and $1.08 without, a difference within the
+2.5x run-to-run spread. Its hooks fired in `-p` runs, but in three sessions it injected no fact, proposed no tool to prune
+and redirected no loop (0 tokens of overhead), so the pruning of FactorIA tools was not reached; M45.1's deny-rule warning
+covers it when it happens. Details in docs/AI_COSTS.md; the gap the runs reported (FB-0027, `legendFrom` not named by the
+unused-glyph warning) is fixed.
 
 ## M46. Feedback from every game reaches the engine developer (L; 4 packages; the user) — DONE (0.10.0)
 

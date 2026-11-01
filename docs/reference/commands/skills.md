@@ -4,7 +4,7 @@
 
 ## `skills.list`
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 List the skills (topic guides) available to a role: name, description, where each lives.
 
@@ -16,7 +16,7 @@ Skills are folders with a SKILL.md (Agent Skills format) that you read only when
 
 ## `skills.new` (modifies state)
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Create a skill: skills/<name>/SKILL.md in the project (or in ~/.factoria/skills).
 
@@ -30,7 +30,7 @@ Writes a SKILL.md from the Agent Skills template: frontmatter with `name` (lower
 
 ## `skills.read`
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Read a skill: its SKILL.md instructions, or another file of the skill.
 

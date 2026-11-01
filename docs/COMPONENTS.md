@@ -1077,7 +1077,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### `ai.extensions`
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading.
 
@@ -1089,7 +1089,7 @@ The user's "extensions" in ai.json plus the project's .factoria/extensions.json 
 
 ### `ai.hooks`
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 List the hooks (programs and JavaScript modules run on events) and the recent runs of every hook.
 
@@ -1102,7 +1102,7 @@ The "hooks" entries of `extensions` in ai.json and the project's .factoria/exten
 
 ### `ai.hooks_test`
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Run the configured hooks of one event with a sample input and show what they decide.
 
@@ -1127,7 +1127,7 @@ Asks the providers themselves, so newly released models show up: Claude Code thr
 
 ### `ai.plugin_install` (modifies state)
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions.
 
@@ -1217,7 +1217,7 @@ Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchest
 
 ### `ai.saver_fact` (modifies state)
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Accept or decline a proposed project fact: one line added to the project's AGENTS.md.
 
@@ -1231,7 +1231,7 @@ A command that failed with the same error code in several runs until a later cal
 
 ### `ai.saver_group` (modifies state)
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Accept or decline a proposed tool group for this project (loaded in full up front from the next run).
 
@@ -1245,7 +1245,7 @@ The runs of a project count the commands they load from the tool catalog (ai.sav
 
 ### `ai.savers`
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.
 
@@ -1266,7 +1266,7 @@ Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", t
 
 ### `ai.tool_plan`
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines.
 
@@ -3798,7 +3798,7 @@ Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows"
 
 ### `skills.list`
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 List the skills (topic guides) available to a role: name, description, where each lives.
 
@@ -3810,7 +3810,7 @@ Skills are folders with a SKILL.md (Agent Skills format) that you read only when
 
 ### `skills.new` (modifies state)
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Create a skill: skills/<name>/SKILL.md in the project (or in ~/.factoria/skills).
 
@@ -3824,7 +3824,7 @@ Writes a SKILL.md from the Agent Skills template: frontmatter with `name` (lower
 
 ### `skills.read`
 
-Not released yet (on main after 0.10.0).
+Since 0.11.0.
 
 Read a skill: its SKILL.md instructions, or another file of the skill.
 
