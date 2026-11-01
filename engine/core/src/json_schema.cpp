@@ -189,8 +189,10 @@ void validate_object(Ctx& ctx, const Json& schema, const Json& value, const std:
         } else if (additional) {
             validate_at(ctx, *additional, it.value(), childPtr, errors);
         } else if (!additionalAllowed) {
-            add(errors, childPtr, "unknown property '" + it.key() + "'",
-                propNames.empty() ? "This object takes no properties." : did_you_mean(it.key(), propNames));
+            // Valid: lists the accepted keys (up to 40), after a "Did you mean" for a near miss.
+            const std::string hint = propNames.empty() ? std::string("This object takes no properties.")
+                                                       : did_you_mean(it.key(), propNames, 40);
+            add(errors, childPtr, "unknown property '" + it.key() + "'", hint);
         }
     }
 }
@@ -316,5 +318,38 @@ std::vector<SchemaError> validate_json(const Json& schema, const Json& value) {
 }
 
 void apply_schema_defaults(const Json& schema, Json& value) { defaults_at(schema, schema, value, 0); }
+
+namespace {
+
+void close_in_place(Json& schema, int depth) {
+    if (!schema.is_object() || depth > 32) return;
+    auto props = schema.find("properties");
+    const bool hasProps = props != schema.end() && props->is_object();
+    // Recurse first: adding a key to an ordered_json object may move its members, which would invalidate `props`.
+    if (hasProps)
+        for (auto it = props->begin(); it != props->end(); ++it) close_in_place(it.value(), depth + 1);
+    if (hasProps && !schema.contains("additionalProperties")) schema["additionalProperties"] = false;
+    if (auto it = schema.find("items"); it != schema.end()) {
+        if (it->is_object()) close_in_place(*it, depth + 1);
+        else if (it->is_array())
+            for (Json& e : *it) close_in_place(e, depth + 1);
+    }
+    if (auto it = schema.find("additionalProperties"); it != schema.end() && it->is_object()) close_in_place(*it, depth + 1);
+    for (const char* key : {"anyOf", "oneOf"}) {
+        if (auto it = schema.find(key); it != schema.end() && it->is_array())
+            for (Json& e : *it) close_in_place(e, depth + 1);
+    }
+    for (const char* key : {"$defs", "definitions"}) {
+        if (auto it = schema.find(key); it != schema.end() && it->is_object())
+            for (auto d = it->begin(); d != it->end(); ++d) close_in_place(d.value(), depth + 1);
+    }
+}
+
+}  // namespace
+
+Json close_object_schemas(Json schema) {
+    close_in_place(schema, 0);
+    return schema;
+}
 
 }  // namespace fa

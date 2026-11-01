@@ -44,6 +44,7 @@ struct Endpoint {
         i.name = "scene.spawn";
         i.summary = "Stand-in: records the name.";
         i.readOnly = false;
+        i.inputSchema = Json::parse(R"({"type":"object","properties":{"name":{"type":"string","description":"Entity name."}}})");
         registry.add(i, [this](const Json& a) {
             spawned.push_back(a.value("name", std::string()));
             return Json::object({{"id", spawned.back()}});

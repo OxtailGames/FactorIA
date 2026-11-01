@@ -150,6 +150,7 @@ TEST_CASE("CommandRegistry interceptor: refuse, change the arguments, add to the
         CommandInfo info;
         info.name = name;
         info.summary = "Returns its arguments.";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{"x":{"type":"integer"},"added":{"type":"integer"}}})");
         reg.add(info, [](const Json& a) { return Json::object({{"args", a}}); });
     }
     int afters = 0;
@@ -186,4 +187,143 @@ TEST_CASE("CommandRegistry interceptor: refuse, change the arguments, add to the
     reg.set_interceptor(nullptr);
     CHECK_FALSE(reg.has_interceptor());
     CHECK_FALSE(reg.call("t.echo").result.contains("seen"));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Closed by default: a key the schema does not declare is an error, not something silently ignored.
+// ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+CommandRegistry closed_registry() {
+    CommandRegistry reg;
+    CommandInfo in;
+    in.name = "game.input";
+    in.summary = "Press things.";
+    in.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "press":{"type":"array","items":{"type":"string"}},
+        "entity":{"type":"string"},
+        "mouse":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}}},
+        "pads":{"type":"array","items":{"type":"object","properties":{"index":{"type":"integer"},"buttons":{"type":"array"}}}}}})");
+    reg.add(in, [](const Json& a) { return Json::object({{"args", a}}); });
+
+    CommandInfo open;
+    open.name = "scene.set_values";
+    open.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "id":{"type":"string"},
+        "fields":{"type":"object","additionalProperties":true},
+        "free":{"type":"object"},
+        "typed":{"type":"object","additionalProperties":{"type":"number"}}},
+        "additionalProperties":true})");
+    reg.add(open, [](const Json& a) { return Json::object({{"args", a}}); });
+
+    CommandInfo none;  // the default schema: no properties
+    none.name = "game.state";
+    reg.add(none, [](const Json&) { return Json::object(); });
+    return reg;
+}
+}  // namespace
+
+TEST_CASE("command: an undeclared top-level key is rejected with its pointer, near misses and the accepted keys") {
+    auto reg = closed_registry();
+    auto r = reg.call("game.input", Json::parse(R"({"press":["back"],"frames":2})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_arguments");
+    const std::string message = r.error["message"].get<std::string>();
+    CHECK(message.find("'game.input'") != std::string::npos);
+    CHECK(message.find("/frames") != std::string::npos);
+    CHECK(message.find("unknown property 'frames'") != std::string::npos);
+    const std::string hint = r.error["hint"].get<std::string>();
+    for (const char* key : {"press", "entity", "mouse", "pads"}) CHECK(hint.find(key) != std::string::npos);
+
+    auto typo = reg.call("game.input", Json::parse(R"({"entiy":"hero"})"));
+    REQUIRE_FALSE(typo.ok);
+    CHECK(typo.error["hint"].get<std::string>().find("Did you mean 'entity'") != std::string::npos);
+
+    CHECK(reg.call("game.input", Json::parse(R"({"press":["back"],"entity":"hero"})")).ok);
+}
+
+TEST_CASE("command: a command with no declared arguments takes none") {
+    auto reg = closed_registry();
+    CHECK(reg.call("game.state").ok);
+    CHECK(reg.call("game.state", Json::object()).ok);
+    auto r = reg.call("game.state", Json::parse(R"({"verbose":true})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_arguments");
+    CHECK(r.error["message"].get<std::string>().find("/verbose") != std::string::npos);
+    CHECK(r.error["hint"].get<std::string>().find("takes no properties") != std::string::npos);
+}
+
+TEST_CASE("command: nested objects that declare properties are closed too, arrays of them as well") {
+    auto reg = closed_registry();
+    auto mouse = reg.call("game.input", Json::parse(R"({"mouse":{"x":1,"y":2,"z":3}})"));
+    REQUIRE_FALSE(mouse.ok);
+    CHECK(mouse.error["message"].get<std::string>().find("/mouse/z") != std::string::npos);
+    CHECK(mouse.error["hint"].get<std::string>().find("Valid: x, y") != std::string::npos);
+
+    auto pads = reg.call("game.input", Json::parse(R"({"pads":[{"index":0},{"index":1,"buton":[]}]})"));
+    REQUIRE_FALSE(pads.ok);
+    CHECK(pads.error["message"].get<std::string>().find("/pads/1/buton") != std::string::npos);
+    CHECK(pads.error["hint"].get<std::string>().find("Did you mean 'buttons'") != std::string::npos);
+
+    CHECK(reg.call("game.input", Json::parse(R"({"mouse":{"x":1},"pads":[{"index":0,"buttons":[]}]})")).ok);
+}
+
+TEST_CASE("command: additionalProperties true (or a schema) is the explicit opt-out") {
+    auto reg = closed_registry();
+    // Root opened explicitly.
+    auto root = reg.call("scene.set_values", Json::parse(R"({"id":"a","anything":[1,2]})"));
+    REQUIRE(root.ok);
+    CHECK(root.result["args"]["anything"].size() == 2);
+    // A nested object that says true, a nested object with no properties at all, and one that types its values.
+    CHECK(reg.call("scene.set_values", Json::parse(R"({"fields":{"hp":3,"whatever":"x"}})")).ok);
+    CHECK(reg.call("scene.set_values", Json::parse(R"({"free":{"hp":3,"whatever":"x"}})")).ok);
+    CHECK(reg.call("scene.set_values", Json::parse(R"({"typed":{"a":1,"b":2}})")).ok);
+    auto typed = reg.call("scene.set_values", Json::parse(R"({"typed":{"a":"one"}})"));
+    REQUIRE_FALSE(typed.ok);
+    CHECK(typed.error["message"].get<std::string>().find("/typed/a") != std::string::npos);
+}
+
+TEST_CASE("command: the stored schema is the closed one, so describe shows what call enforces") {
+    auto reg = closed_registry();
+    const CommandInfo* in = reg.info("game.input");
+    REQUIRE(in != nullptr);
+    CHECK(in->inputSchema["additionalProperties"] == false);
+    CHECK(in->inputSchema["properties"]["mouse"]["additionalProperties"] == false);
+    CHECK(in->inputSchema["properties"]["pads"]["items"]["additionalProperties"] == false);
+    const CommandInfo* open = reg.info("scene.set_values");
+    CHECK(open->inputSchema["additionalProperties"] == true);
+    CHECK(open->inputSchema["properties"]["fields"]["additionalProperties"] == true);
+    CHECK_FALSE(open->inputSchema["properties"]["free"].contains("additionalProperties"));
+    CHECK(reg.info("game.state")->inputSchema["additionalProperties"] == false);
+    // describe() carries the same schema, and re-adding a stored schema changes nothing.
+    CHECK(reg.describe()[0]["inputSchema"] == reg.info(reg.describe()[0]["name"].get<std::string>())->inputSchema);
+    CommandRegistry again;
+    again.add(*in, [](const Json&) { return Json::object(); });
+    CHECK(again.info("game.input")->inputSchema == in->inputSchema);
+}
+
+TEST_CASE("command: a transport key in the arguments (MCP _meta) is not an unknown argument") {
+    auto reg = closed_registry();
+    auto r = reg.call("game.input", Json::parse(R"({"press":["back"],"_meta":{"progressToken":"t1"}})"));
+    REQUIRE(r.ok);
+    CHECK_FALSE(r.result["args"].contains("_meta"));  // the handler never sees it
+    CHECK(reg.call("game.state", Json::parse(R"({"_meta":{"progressToken":7}})")).ok);
+    // Other unknown keys next to it are still refused.
+    CHECK_FALSE(reg.call("game.state", Json::parse(R"({"_meta":{},"verbose":1})")).ok);
+}
+
+TEST_CASE("close_object_schemas: properties get closed, $defs too, objects without properties are left alone") {
+    Json s = close_object_schemas(Json::parse(R"({"type":"object","properties":{
+        "a":{"oneOf":[{"type":"object","properties":{"x":{"type":"number"}}},{"type":"string"}]},
+        "b":{"$ref":"#/$defs/Point"},
+        "c":{"type":"object"},
+        "default":{"type":"object","default":{"properties":{"k":1}}}},
+        "$defs":{"Point":{"type":"object","properties":{"x":{"type":"number"}}}}})"));
+    CHECK(s["additionalProperties"] == false);
+    CHECK(s["properties"]["a"]["oneOf"][0]["additionalProperties"] == false);
+    CHECK_FALSE(s["properties"]["a"]["oneOf"][1].contains("additionalProperties"));
+    CHECK(s["$defs"]["Point"]["additionalProperties"] == false);
+    CHECK_FALSE(s["properties"]["c"].contains("additionalProperties"));
+    CHECK(s["properties"]["default"]["default"] == Json::parse(R"({"properties":{"k":1}})"));  // data, not a schema
+    CHECK(close_object_schemas(Json::object({{"type", "string"}})) == Json::object({{"type", "string"}}));
 }
