@@ -303,6 +303,10 @@ Providers and roles are configured in `~/.factoria/ai.json` ([AI_PROVIDERS.md](A
 | `factoria ai config [--json]` | Config path, effective settings (redacted), example file |
 | `factoria ai run [project] "<task>" [--provider P] [--role orchestrator\|worker\|fast] [--model M] [--max-turns N] [--max-cost USD] [--no-delegate] [--json]` | Run a task; streams text, tool calls and cost |
 
+`factoria hooks run <hooks/module.js> [--project DIR] [--event NAME] [--timeout S]` runs a JavaScript hook module as a hook
+program: the event as JSON on stdin, the module's answer as JSON on stdout ([HOOKS.md](HOOKS.md)). Claude Code starts it for `js` hooks.
+Hooks of `beforeCommand` / `afterCommand` also apply to `factoria call` and to every command the CLI runs.
+
 `ai run` gives the agent the project's command registry as tools (the `ai.*` commands are hidden from it). Use `-`
 as the task to read stdin, `@file` to read it from a file. The transcript is saved in `<project>/.factoria/ai/sessions/`.
 Command results containing `"$image": {"path"|"base64", "mimeType"}` are sent to the model as images. A temporary
