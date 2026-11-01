@@ -26,6 +26,7 @@
 #include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/camera_mask.h"
 #include "fa/scene/ui_rect.h"
 #include "fa/scene/ui_tooltip.h"
 #include "fa/scene/world.h"
@@ -129,6 +130,10 @@ struct UiDropHooks {
 // the scene's cameras (fa/scene/camera_query.h), which is also what a game without a GPU gets.
 using UiProjectFn = std::function<Vec2(Vec3 world, const Vec2* pointer)>;
 
+// The Camera.showTags / hideTags of the camera that draws at `pointer` (null = the main camera), so world-space Interactables the
+// camera does not draw take no pointer. The runtime gives the renderer's camera; without one the UI uses the scene's cameras.
+using UiMaskFn = std::function<CameraMask(const Vec2* pointer)>;
+
 // Which mesh and triangle a pointer landed on, so a drag that started there can follow the pointer off the mesh. Opaque to the UI.
 struct UiSurfacePin {
     Entity mesh;                 // the entity with the MeshRenderer
@@ -137,9 +142,11 @@ struct UiSurfacePin {
 
 // The page behind the pointer: a MeshRenderer shows a render target (Camera.renderTarget), the pointer is on that mesh, and the
 // world-space Interactables are the ones of the page, not of the main view. `project` puts a world point on the page's pixels (the
-// target camera's view), `point` is where the pointer lands on it, in the same pixels.
+// target camera's view), `point` is where the pointer lands on it, in the same pixels. `mask` is the target camera's
+// showTags / hideTags: only the Interactables it draws are on the page.
 struct UiSurface {
     UiProjectFn project;
+    CameraMask mask;
     Vec2 point;
     UiSurfacePin pin;
 };
@@ -198,6 +205,8 @@ public:
 
     // The camera projection the world-space Interactable widgets are hit-tested with (see UiProjectFn). Empty = the default.
     void set_world_projection(UiProjectFn project) { project_ = std::move(project); }
+    // The culling mask of the camera that draws at the pointer (see UiMaskFn). Empty = no world-space Interactable is hidden.
+    void set_world_mask(UiMaskFn mask) { mask_ = std::move(mask); }
     // How the pointer reaches a render target shown on a mesh (see UiSurfaceFn). Empty = never: Interactables are only seen through the
     // main camera. Under the pointer a page replaces the main view's world-space Interactables with the ones seen by the page's camera:
     // hover, click, press / release and slider drags work through it. Screen widgets still win over the page.
@@ -208,7 +217,10 @@ public:
     Entity widget_at(const World& world, Vec2 designSize, Vec2 p, const VisualMeasure& measure = {}, Entity ignore = kNullEntity) const;
     // Where the Interactable `e` is on the screen, in design pixels: the box around its hit area, seen through the camera that draws
     // it. nullopt for an inactive entity, one that is no Interactable, or one with no hit area (no size and no children with bounds).
-    std::optional<Rect> interactable_rect(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {}) const;
+    // `hiddenByCamera` (optional) is set to true when the entity is an Interactable in world space whose hit area exists but the camera
+    // that draws at its centre does not draw it (Camera.showTags / hideTags): it takes no pointer through that camera.
+    std::optional<Rect> interactable_rect(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {},
+                                          bool* hiddenByCamera = nullptr) const;
 
     Entity focused() const { return focus_; }
     // Gives focus to `e` (kNullEntity clears it, and the focus then stays empty: an open Panel's autoFocus does not take
@@ -292,7 +304,9 @@ private:
     Entity hoverFocused_;                 // the hovered Interactable whose focusOnHover entry already moved the focus
     Entity prevHover_;                    // the Interactable the pointer was over at the last update (ui.hover is sent on a change)
     UiProjectFn project_;
+    UiMaskFn mask_;
     UiSurfaceFn surface_;
+    CameraMask mask_at(const Vec2* pointer) const { return mask_ ? mask_(pointer) : CameraMask{}; }
     UiSurfacePin pressSurface_;        // the page mesh the pressed Interactable sits on (mesh null: it is not on a page)
     std::unordered_set<u64> warnedKnobs_;  // knobs / fills that are not children of their slider, already reported
     bool focusCleared_ = false;   // set_focus(null) was called: autoFocus waits for a navigation press
