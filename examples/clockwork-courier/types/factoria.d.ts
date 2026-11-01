@@ -4918,12 +4918,12 @@ declare module "factoria" {
     set renderTargetSize(value: Vec2Like);
     /**
      * Culling mask, the allow list: an array of tag names (EntityInfo "tags"), default [] = no restriction. When it is not empty the camera draws only the entities that have one of these tags OR have an ancestor that does, so tagging the root of a page covers its Sprites, Text, Shape2D and every other child. Applies to what the camera draws in world space, on a screen camera and on one with renderTarget alike: Sprite, Shape2D, Text, Tilemap, ParticleEmitter and MeshRenderer (a world-space item; screen-space UI and items with space "screen" belong to the screen and ignore it). Lights are not filtered: a Light still lights everything its camera draws. An entity the camera does not draw casts no shadow in that camera's view, takes no click through it and is not picked by it: the pointer, Interactable hit tests (also through a mesh that shows a render target) and game.click only reach what the camera draws. Combine with hideTags: an entity is drawn when it passes showTags AND is not in hideTags. `factoria validate` warns about a tag no entity carries (with a did-you-mean) and rejects a tag in both lists. Example: the camera of a page, showTags ["page_left"]. Assign a whole new array to change it from a script (cam.showTags = ["page_right"]); a tag added with entity.addTag(...) takes effect on the next frame drawn. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.12.0
      */
     showTags: any;
     /**
      * Culling mask, the block list: an array of tag names (EntityInfo "tags"), default [] = nothing hidden. The camera does not draw the entities that have one of these tags or have an ancestor that does, whatever showTags says; it applies to the same things (world-space Sprite, Shape2D, Text, Tilemap, ParticleEmitter, MeshRenderer; shadows, pointer and game.click follow) and spares screen-space UI. Use it on the camera that draws a 3D model with render-target pages so it does not also see the pages' own content: hideTags ["page_left", "page_right"]. A tag in both showTags and hideTags is an error for `factoria validate`. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.12.0
      */
     hideTags: any;
   }
