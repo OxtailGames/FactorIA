@@ -14,7 +14,8 @@
 
 namespace fa::ai {
 
-struct ToolPlan;  // tool_catalog.h
+struct ToolPlan;      // tool_catalog.h
+struct LoopRedirect;  // savers.h
 
 // What carries a chat from one message to the next. The caller (the editor) keeps it between `AgentSession::run` calls:
 // pass the previous `SessionResult::conversation` in `SessionOptions::conversation`.
@@ -177,6 +178,9 @@ private:
     // command under its own name, so events and read-only checks see the command, not the wrapper).
     ToolResult execute_tool(const ToolCall& call, const std::string& role, int depth, McpToolSet* toolServers = nullptr,
                             const ToolPlan* plan = nullptr);
+    // The loop guard's judge (savers.loopGuardJudge): one short model call on the judge role's provider that writes the redirect. Its
+    // tokens go into the run's usage and cost. "" when it cannot be asked (`info` then says why); `info` gets what the transcript records.
+    std::string loop_judge(const LoopRedirect& redirect, const std::string& lastArguments, Json& info);
     void emit(AgentEvent e, int depth, const std::string& role);
     bool over_budget(std::string& why) const;
     bool over_budget(const Usage& usageNow, double costNow, std::string& why) const;  // with these totals instead

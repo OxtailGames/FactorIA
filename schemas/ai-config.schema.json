@@ -45,6 +45,17 @@
       "additionalProperties": { "$ref": "#/$defs/toolServer" }
     },
     "extensions": { "$ref": "#/$defs/extensions" },
+    "savers": {
+      "type": "object",
+      "description": "The engine's own token savers, which run in FactorIA's own agent loop (the API providers: anthropic, openai-compatible; Claude Code and Codex run their own loops). Their cost counts in the run's costs and limits. Each has a switch in the editor's AI settings > Extensions tab. Loop guard: the same command failing with the same error code three times in one run gets ONE short redirect (what failed, the error's hint, try another way) without asking the model anything. Learned tool groups: the tools a project's runs load from the catalog are counted, and the editor proposes the groups to load up front; applied only when you accept, nothing is ever denied. Project facts: a command that fails the same way in several runs until a fix works proposes one line for the project's AGENTS.md; written only when you accept. `ai.savers` shows the state and the proposals, `ai.saver_group` and `ai.saver_fact` accept or decline them. Example: {\"loopGuard\": true, \"loopGuardJudge\": \"fast\", \"projectFacts\": false}. See docs/AI_PROVIDERS.md, \"Token savers\".",
+      "properties": {
+        "loopGuard": { "type": "boolean", "default": true, "description": "true: after the same command fails with the same error code three times in one run, the third error carries one short redirect for the model. No model call is made for it (unless loopGuardJudge is set). false: never." },
+        "loopGuardJudge": { "type": "string", "default": "", "description": "A role (orchestrator, worker, fast, artist, audio, artCritic, reviewer) whose model reads the stuck run and writes the redirect, instead of the engine's fixed text. It costs one short model call per redirect, counted in the run's cost and limits. It must be a role on an API provider; otherwise the fixed text is used and the run says so. \"\" (default): no judge." },
+        "learnedToolGroups": { "type": "boolean", "default": true, "description": "true: count, per project, the commands the runs load from the tool catalog (tool_describe, or tool_call of a command that is not offered in full) and which groups (command categories) they belong to, so the editor can propose loading a group up front. Nothing is applied until you accept, and nothing is ever denied. The counts are kept in the project's .factoria/ai/savers.json." },
+        "projectFacts": { "type": "boolean", "default": true, "description": "true: remember, per project, a command that failed with the same error code in several runs until a call of it worked, and propose one line for the project's AGENTS.md. It is written only when you accept (editor, or `ai.saver_fact`)." }
+      },
+      "additionalProperties": false
+    },
     "roles": {
       "type": "object",
       "description": "Which provider/model plays each role. orchestrator plans and delegates, worker implements, fast does small mechanical tasks, artist makes the game's art, audio makes its sound and music, artCritic and reviewer (read-only) give opinions on the art and on the whole game when the user asks for a review. A role that is not listed gets a default that follows the provider and model of orchestrator (artist, artCritic, reviewer) or worker (audio), so an ai.json written before these roles existed keeps working on the same provider.",
