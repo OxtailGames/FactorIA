@@ -186,8 +186,9 @@ had a bug and you built a workaround or dropped the feature, record it immediate
 - Reporting the same gap again merges into the existing entry (counts occurrences), so do not
   worry about duplicates. Not reporting is the only wrong choice.
 - `ENGINE_FEEDBACK.json` holds the open entries; closed ones move to `ENGINE_FEEDBACK.archive.json` (never edit it); reporting a fixed gap again reopens it.
-- `share` (optional): the gap for the engine developer, engine terms only (`{title, missing, suggestion?}`, nothing about this game), with
-  `reviewed: true` after checking the docs. Only the user turns sending on (`factoria feedback sharing always|ask|never`); if the report says it is not set up, tell them once.
+- `share` (optional): the gap for the engine developer, written in engine terms only (component, field and command names;
+  `{title, missing, suggestion?}`, nothing about this game). Then run `ai.review_feedback {id}`: a cheap model checks it and sets `reviewed: true`
+  (it sends nothing). Only the user turns sending on (editor dialog, or `factoria feedback sharing always|ask|never`); if the report says it is not set up, tell them once.
 - Examples worth reporting: a component field you expected is missing; an error message did not
   say how to fix the problem; a doc was wrong or absent; a command you wanted does not exist; a
   crash; slow or flaky headless runs; anything you had to emulate in JS.

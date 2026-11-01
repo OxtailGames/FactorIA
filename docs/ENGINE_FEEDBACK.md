@@ -117,7 +117,8 @@ minimum after cleaning, the entry is not sent and `shared.reason` says why. `fac
 
 ### Modes: only you choose
 
-Nothing is sent until you choose, once, in your terminal:
+Nothing is sent until you choose, once, in the editor (the consent dialog it shows the first time, or File > Feedback
+Settings; docs/EDITOR.md, "Sharing feedback") or in your terminal:
 
 | Command | Effect |
 |---|---|
@@ -125,6 +126,12 @@ Nothing is sent until you choose, once, in your terminal:
 | `factoria feedback sharing ask` | They wait in the outbox; `factoria feedback share` shows them and sends what you confirm. |
 | `factoria feedback sharing never` | Nothing is sent; the outbox is emptied and its entries are marked `skipped`. |
 | `factoria feedback sharing` | Shows the mode, the server, whether you are signed in and the outbox. |
+
+In the editor the three choices are **Always**, **Ask me each time** and **Never**, with a preview of the next report exactly as
+it would leave the computer. In ask mode the editor notifies you when entries wait and opens a list that shows each share text as
+it will be sent, with Send and Don't send per entry and for all. The Engine Feedback panel shows a share column (not shared,
+waiting, sent, rejected with its reason, skipped) and lets you edit the share text: saving checks the limits and runs the
+sanitizer again.
 
 No command an AI can call changes the mode (`feedback.share_status` only reads it). While it is unset, `feedback.report`
 answers `share.status: "not_set_up"` with how the user turns sharing on, and nothing is queued or written. The setting
@@ -138,9 +145,20 @@ with its reason) or ban an installation; neither is retried. `shared.status` is 
 `feedback.share` (AI) sends what is due and allowed by the mode; `factoria feedback share` (person) sends now, ignoring the
 waiting times.
 
+### Review with AI
+
+`ai.review_feedback {id}` (editor: **Review with AI** in the Engine Feedback panel) has a cheap model check a `share` text
+before it can leave the machine: the gap is real, it is about the engine and not about the game, and the engine cannot do it
+already (it reads the command list and the documentation). The text also goes through the sanitizer. On a pass the entry is
+marked `reviewed: true` and `share` is rewritten in engine terms if it needed it; on a fail nothing changes and the answer has
+`reasons` and `fix`. It runs on the `fast` role of `ai.json` (the orchestrator when `fast` is off; docs/AI_PROVIDERS.md), spends
+tokens, sends nothing and never changes the mode. An AI writes `share` in engine terms and may run it after `feedback.report`;
+a person can run it too (`factoria call ai.review_feedback '{"id":"FB-0003"}'`).
+
 ### Signing in (optional)
 
-`factoria feedback signin github` uses GitHub's device flow: it prints a code to type at github.com/login/device. No GitHub
+`factoria feedback signin github` (in the editor: Feedback Settings > Sign in with GitHub, which shows the code and opens the
+address) uses GitHub's device flow: the code is typed at github.com/login/device. No GitHub
 permission is requested. The GitHub token goes once to the feedback server, which answers a credential; only the credential
 and your login are kept. `factoria feedback signout` forgets them. Reports are accepted without signing in.
 
