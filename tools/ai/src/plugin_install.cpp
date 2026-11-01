@@ -86,6 +86,25 @@ bool listing_has(const std::string& output, const std::vector<std::string>& need
     return false;
 }
 
+// Is `plugin` installed for the user (every project)? `claude plugin list --json` lists one object per install, with a
+// `scope`: an install of scope `local` or `project` belongs to another folder and does not count, since the ai.json entry
+// is for every project. An output of another shape falls back to listing_has.
+bool installed_for_user(const std::string& output, const std::string& plugin) {
+    const Json j = parse(output);
+    if (!j.is_discarded() && j.is_array()) {
+        bool sawEntries = false;
+        for (const Json& e : j) {
+            if (!e.is_object() || !e.contains("id") || !e["id"].is_string()) continue;
+            sawEntries = true;
+            if (lower(e["id"].get<std::string>()) != lower(plugin)) continue;
+            const std::string scope = e.contains("scope") && e["scope"].is_string() ? e["scope"].get<std::string>() : "user";
+            if (scope == "user") return true;
+        }
+        if (sawEntries) return false;
+    }
+    return listing_has(output, {plugin});
+}
+
 struct CliRun {
     bool started = false;
     bool ok = false;
@@ -280,10 +299,10 @@ Result<Json> plugin_install(const AiConfig& cfg, const PluginInstallRequest& req
     auto plugins = list_output(*base, {"plugin", "list"}, "the installed plugins", hooks, updateHint);
     if (!plugins) return plugins.error();
     const bool marketplaceListed = listing_has(*marketplaces, {req.marketplace, marketplaceName});
-    const bool pluginInstalled = listing_has(*plugins, {req.plugin});
+    const bool pluginInstalled = installed_for_user(*plugins, req.plugin);
 
     const std::vector<std::string> addCmd = {exe, "plugin", "marketplace", "add", req.marketplace};
-    const std::vector<std::string> installCmd = {exe, "plugin", "install", req.plugin};
+    const std::vector<std::string> installCmd = {exe, "plugin", "install", req.plugin, "--scope", "user"};
     const bool needMarketplace = !marketplaceListed && !pluginInstalled;
     const bool needPlugin = !pluginInstalled;
 
