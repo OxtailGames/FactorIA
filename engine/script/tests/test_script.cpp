@@ -729,7 +729,7 @@ TEST_CASE("destroyed entities free their ids for JS spawn in the same frame") {
 
 TEST_CASE("tools: ToolError carries hint and data, other errors are 'failed'") {
     TestHost h("toolerr");
-    h.file("tools/chk.js", "import { ToolError } from 'factoria';\nexport default { name: 'chk', summary: 's', run({mode}) {\n"
+    h.file("tools/chk.js", "import { ToolError } from 'factoria';\nexport default { name: 'chk', summary: 's', input: { type: 'object', properties: { mode: { type: 'string' } } }, run({mode}) {\n"
                            " if (mode === 'tool') throw new ToolError('bad level', 'edit levels.json', { errors: [1, 2] });\n"
                            " if (mode === 'plain') throw new Error('boom');\n return { ok: true }; } };\n");
     REQUIRE(h.start());

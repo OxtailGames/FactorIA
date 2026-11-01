@@ -1447,6 +1447,11 @@ export default {
 };
 ```
 
+A tool's arguments are closed: a key that `input` does not declare is refused before `run` (`invalid_arguments`,
+`/cuont: unknown property 'cuont'`, hint with the closest declared key and the accepted ones), and a tool with no `input`
+takes no arguments. Declare every key `run` reads. For an object whose keys are open-ended, opt out on that object:
+`additionalProperties: true` (any key) or a schema such as `{ type: "number" }` (every extra value must match it).
+
 Tools hot-reload when the file changes; MCP clients are notified. A tool file created while `factoria mcp` runs (even
 when the project had no `tools/` folder at start) is registered before the next request is handled, so `tools/list`,
 the MCP tool `project_<name>` and `fa.call("project.<name>")` see it at once; `script.eval {module, call}` re-imports

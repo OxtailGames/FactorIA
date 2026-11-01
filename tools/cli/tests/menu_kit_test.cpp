@@ -518,7 +518,8 @@ TEST_CASE("project.add_menu_kit: an unknown part says which parts exist; the com
     CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "scripts" / "settings.js"));  // nothing was written
     const fa::Json typo = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.add_menu_kit","args":{"overwite":true}})"));
     CHECK(typo["ok"] == false);
-    CHECK(typo["error"]["message"].get<std::string>().find("overwrite") != std::string::npos);
+    CHECK(typo["error"]["message"].get<std::string>().find("/overwite") != std::string::npos);
+    CHECK(typo["error"]["hint"].get<std::string>().find("Did you mean 'overwrite'") != std::string::npos);
     const fa::Json good = fa::cli::run_command_json(session->registry(), fa::Json::parse(R"({"command":"project.add_menu_kit","args":{"parts":["loading"]}})"));
     CHECK(good["ok"] == true);
     CHECK(has(good["result"]["added"], "scripts/loading.js"));

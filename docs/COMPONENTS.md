@@ -2571,7 +2571,7 @@ Names may be input actions from factoria.json, key names (Space, A, Left...) or 
 | `down` | boolean | no | New state for action/key. Default true. |
 | `press` | array | no |  |
 | `release` | array | no |  |
-| `mouse` | object | no | {position:[x,y] in design pixels, left/right/middle: bool}. |
+| `mouse` | object | no | Mouse state: position in design pixels and the buttons held. |
 | `gamepad` | any | no | {index?: 0..3, connected?: bool, buttons?: {A: true, DpadLeft: false...}, axes?: {LeftX: -1, RightTrigger: 0.5...}}, or an array of those for several pads. |
 | `touch` | any | no | {id?: number (default 1), position?: [x,y] design pixels, down?: bool (default true)}, or an array of those for several fingers. |
 | `back` | boolean | no | true: press the system Back button (Android). |
