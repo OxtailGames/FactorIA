@@ -1,4 +1,5 @@
 #include "fa/ai/cli_agent.h"
+#include "fa/ai/hooks.h"
 #include "fa/ai/extension_plan.h"
 
 #include <algorithm>
@@ -819,7 +820,9 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         static std::atomic<unsigned> extCounter{0};
         const bool canSettings = cfg_.kind == ProviderKind::ClaudeCode || templateHasSettings;
         const bool canPlugins = cfg_.kind == ProviderKind::ClaudeCode || templateHasPluginDirs;
-        const bool wantsHooks = req.hooks.is_object() && !req.hooks.empty() && canSettings;
+        // beforeCommand / afterCommand are the engine's and Claude Code never sees them; a "js" handler becomes `factoria hooks run`.
+        const Json cliHooks = req.hooks.is_object() ? hooks_for_claude_code(req.hooks, cfg_.factoriaCommand, projectDir) : Json::object();
+        const bool wantsHooks = !cliHooks.empty() && canSettings;
         const bool wantsSkills = cfg_.kind == ProviderKind::ClaudeCode && !req.skillDirs.empty();
         if (wantsHooks || wantsSkills) {
             std::error_code ec;
@@ -831,7 +834,7 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
                 // Hooks run programs, and a hook's command line may carry a secret: owner-only, like the MCP config.
                 const fsys::path file = dir / ("settings-" + tag + ".json");
                 runFiles.push_back(file);
-                if (auto ok = write_private_file(file.string(), dump_pretty(Json::object({{"hooks", req.hooks}})) + "\n"); !ok) return ok.error();
+                if (auto ok = write_private_file(file.string(), dump_pretty(Json::object({{"hooks", cliHooks}})) + "\n"); !ok) return ok.error();
                 settingsPath = file.string();
             }
             if (wantsSkills) {

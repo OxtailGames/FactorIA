@@ -20,7 +20,7 @@ bool argv_has(const ProviderConfig& p, const char* placeholder) {
     return std::any_of(p.argv.begin(), p.argv.end(), [&](const std::string& a) { return a.find(placeholder) != std::string::npos; });
 }
 
-const char* kApiSentence = "the API providers (anthropic, openai-compatible) do not use extensions yet";
+const char* kApiSentence = "the API providers (anthropic, openai-compatible) run hooks only; plugins and skills are for Claude Code";
 
 // Why `kind` cannot reach this provider, and what to do. Both empty when it can.
 void unsupported(const ProviderConfig& p, ExtensionKind kind, std::string& reason, std::string& fix) {
@@ -48,6 +48,7 @@ void unsupported(const ProviderConfig& p, ExtensionKind kind, std::string& reaso
             return;
         case ProviderKind::Anthropic:
         case ProviderKind::OpenAICompatible:
+            if (kind == ExtensionKind::Hooks) return;  // FactorIA's own loop runs them (hooks.h)
             reason = std::string(kApiSentence) + " (provider '" + p.name + "')";
             fix = "Give the role a Claude Code provider to run it with extensions.";
             return;
@@ -337,12 +338,31 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
                 for (const std::string& d : item.dirs)
                     if (seenSkill.insert(d).second) plan.skillDirs.push_back(d);
                 break;
-            case ExtensionKind::Hooks: hookSets.push_back(e->hooks); break;
+            case ExtensionKind::Hooks:
+                hookSets.push_back(e->hooks);
+                plan.hookSources.push_back({e->name, e->source, e->hooks});
+                break;
         }
         plan.received.push_back(std::move(item));
     }
     if (!hookSets.empty()) plan.hooks = merge_hooks(hookSets);
     plan.userPluginsOff = !cfg.extensions.inheritUserPlugins && plan.support.inheritSetting;
+    if (provider.kind == ProviderKind::Anthropic || provider.kind == ProviderKind::OpenAICompatible) {
+        // FactorIA's loop runs the events it knows; the others of Claude Code's list are for Claude Code.
+        const HookSet set = make_hook_set(plan.hookSources);
+        std::set<std::string> ignored;
+        for (const HookSource& src : plan.hookSources)
+            if (src.hooks.is_object())
+                for (auto it = src.hooks.begin(); it != src.hooks.end(); ++it)
+                    if (!parse_hook_event(it.key())) ignored.insert(it.key());
+        if (!ignored.empty()) {
+            std::string list;
+            for (const std::string& n : ignored) list += (list.empty() ? "" : ", ") + n;
+            plan.notes.push_back("Hook events not run by provider '" + provider.name + "' (FactorIA's own loop runs SessionStart, UserPromptSubmit, PreToolUse, "
+                                 "PostToolUse, PostToolUseFailure, Stop, SessionEnd, beforeCommand and afterCommand): " + list + ".");
+        }
+        for (const std::string& n : set.notRun) plan.notes.push_back(n + ".");
+    }
 
     // Notes: what the run did with the extensions, in the words of the user's settings.
     if (!plan.skipped.empty() && plan.received.empty() && !plan.support.any()) {
@@ -372,6 +392,28 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
         for (const DeniedTool& d : plan.denied) plan.notes.push_back(format_denied_tool(d));
     }
     return plan;
+}
+
+CommandHookConfig load_command_hooks(const AiConfig& cfg, const ExtensionContext& ctx) {
+    CommandHookConfig out;
+    const ProjectTrustState state = read_project_trust(ctx, false);
+    std::vector<const Extension*> all;
+    for (const Extension& e : cfg.extensions.entries)
+        if (e.kind == ExtensionKind::Hooks && e.enabled) all.push_back(&e);
+    if (state.extensions.error.empty())
+        for (const Extension& e : state.extensions.entries)
+            if (e.kind == ExtensionKind::Hooks && e.enabled) all.push_back(&e);
+    std::vector<HookSource> sources;
+    for (const Extension* e : all) {
+        ExtensionItem item = resolve_extension(*e, ctx, state.trusted);
+        if (!item.problem.empty()) {
+            out.skipped.push_back(std::move(item));
+            continue;
+        }
+        sources.push_back({e->name, e->source, e->hooks});
+    }
+    out.set = make_hook_set(sources).only(is_command_hook_event);
+    return out;
 }
 
 ExtensionContext make_extension_context(const AiConfig& cfg, std::string_view projectDir, const EnvLookup& env) {
@@ -484,7 +526,7 @@ Json extensions_report(const AiConfig& cfg, const ExtensionContext& ctx, std::st
 
     out["scope"] = "Only Claude Code (all three kinds) and a generic CLI whose argv has {plugin_dirs} / {settings} use extensions. "
                    "Codex gets none (FactorIA could not verify how it takes them). The API providers (anthropic, openai-compatible) "
-                   "do not use extensions yet.";
+                   "run the hooks in FactorIA's own loop (docs/HOOKS.md) and run hooks only: plugins and skills are for Claude Code.";
     if (!anyEntry) out["hint"] = "No extensions yet. Add them in the editor (AI settings > Extensions) or under \"extensions\" in ai.json; see docs/AI_PROVIDERS.md, \"Extensions\".";
     return out;
 }

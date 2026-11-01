@@ -8,6 +8,7 @@
 #include <set>
 
 #include "fa/ai/config.h"
+#include "fa/ai/hooks.h"
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
 #include "fa/core/strings.h"
@@ -37,6 +38,23 @@ bool Extension::serves_role(std::string_view role) const {
     return std::find(roles.begin(), roles.end(), role) != roles.end();
 }
 
+bool Extension::runs_program() const {
+    if (kind == ExtensionKind::Skill) return false;
+    if (kind == ExtensionKind::Plugin) return true;
+    // hooks: only the handlers that start a program (command) or reach out (http, prompt, agent) count; a "js" module is sandboxed
+    if (!hooks.is_object()) return false;
+    for (auto it = hooks.begin(); it != hooks.end(); ++it) {
+        if (!it.value().is_array()) continue;
+        for (const Json& group : it.value()) {
+            const Json* handlers = child(group, "hooks");
+            if (!handlers || !handlers->is_array()) continue;
+            for (const Json& h : *handlers)
+                if (util::str(h, "type") != "js") return true;
+        }
+    }
+    return false;
+}
+
 std::string extension_name_problem(std::string_view name) {
     if (name.empty()) return "the name is empty";
     if (name.size() > kMaxExtensionName)
@@ -50,7 +68,7 @@ std::string extension_name_problem(std::string_view name) {
 
 namespace {
 
-// Claude Code's hook events (docs.claude.com, "Hooks reference"). Anything else is a typo or an event this version of
+// Claude Code's hook events (docs.claude.com, "Hooks reference") and the two of FactorIA. Anything else is a typo or an event this version of
 // FactorIA has not heard of: the error lists these.
 const std::vector<std::string>& hook_events() {
     static const std::vector<std::string> v = {
@@ -58,7 +76,8 @@ const std::vector<std::string>& hook_events() {
         "PostToolUse",   "PostToolUseFailure", "PostToolBatch", "PermissionRequest", "PermissionDenied",   "Notification",
         "SubagentStart", "SubagentStop",     "Stop",          "StopFailure",      "TeammateIdle",        "TaskCreated",
         "TaskCompleted", "PreCompact",       "PostCompact",   "InstructionsLoaded", "ConfigChange",      "CwdChanged",
-        "FileChanged",   "WorktreeCreate",   "WorktreeRemove", "Elicitation",     "ElicitationResult"};
+        "FileChanged",   "WorktreeCreate",   "WorktreeRemove", "Elicitation",     "ElicitationResult",
+        "beforeCommand", "afterCommand"};  // the last two are FactorIA's own (hooks.h)
     return v;
 }
 
@@ -115,13 +134,20 @@ Result<void> validate_hooks(const Json& hooks, std::string_view atIn) {
             const std::string groupAt = eventAt + "/" + std::to_string(gi++);
             if (!group.is_object()) return err(groupAt + ": a group is an object {\"matcher\": \"...\", \"hooks\": [...]}", "");
             for (auto g = group.begin(); g != group.end(); ++g) {
-                if (g.key() != "matcher" && g.key() != "hooks") {
+                if (g.key() != "matcher" && g.key() != "match" && g.key() != "hooks") {
                     return err(groupAt + "/" + g.key() + ": unknown property '" + g.key() + "'",
-                               fa::did_you_mean(g.key(), std::vector<std::string>{"matcher", "hooks"}));
+                               fa::did_you_mean(g.key(), std::vector<std::string>{"matcher", "match", "hooks"}));
                 }
             }
-            if (const Json* m = child(group, "matcher"); m && !m->is_string())
-                return err(groupAt + "/matcher: the matcher is a string such as \"Edit|Write\"", "Use \"\" or leave it out to match everything.");
+            for (const char* key : {"matcher", "match"}) {
+                const Json* m = child(group, key);
+                if (!m) continue;
+                if (!m->is_string())
+                    return err(groupAt + "/" + key + ": the matcher is a string such as \"Edit|Write\" (tool names) or \"scene.*\" (command names)",
+                               "Use \"\" or leave it out to match everything.");
+                if (const std::string problem = hook_matcher_problem(m->get<std::string>()); !problem.empty())
+                    return err(groupAt + "/" + key + ": " + problem, "");
+            }
             const Json* handlers = child(group, "hooks");
             if (!handlers || !handlers->is_array() || handlers->empty()) {
                 return err(groupAt + "/hooks: a group needs its list of hooks, [{\"type\": \"command\", \"command\": \"...\"}]", "");
@@ -131,10 +157,21 @@ Result<void> validate_hooks(const Json& hooks, std::string_view atIn) {
                 const std::string hookAt = groupAt + "/hooks/" + std::to_string(hi++);
                 if (!h.is_object()) return err(hookAt + ": a hook is an object {\"type\": \"command\", \"command\": \"...\"}", "");
                 const std::string type = util::str(h, "type");
-                const std::vector<std::string> types = {"command", "http", "prompt", "agent"};
+                const std::vector<std::string> types = {"command", "js", "http", "prompt", "agent"};
                 if (type.empty() || std::find(types.begin(), types.end(), type) == types.end()) {
                     return err(hookAt + "/type: " + (type.empty() ? "a hook needs its \"type\"" : "unknown hook type '" + type + "'"),
-                               type.empty() ? "Use \"command\" to run a program." : fa::did_you_mean(type, types));
+                               type.empty() ? "Use \"command\" to run a program, or \"js\" for a JavaScript module of the hooks/ folder."
+                                            : fa::did_you_mean(type, types));
+                }
+                if (const Json* t = child(h, "timeout"); t && (!t->is_number() || t->get<double>() <= 0 || t->get<double>() > kMaxHookTimeoutSeconds))
+                    return err(hookAt + "/timeout: seconds, a number above 0 and up to " + std::to_string(int(kMaxHookTimeoutSeconds)),
+                               "The default is " + std::to_string(int(kDefaultHookTimeoutSeconds)) + " seconds; leave \"timeout\" out to use it.");
+                if (type == "js") {
+                    const Json* module = child(h, "module");
+                    if (!module || !module->is_string())
+                        return err(hookAt + "/module: a hook of type \"js\" needs its module, a file of the project's hooks/ folder", "Add \"module\": \"hooks/guard.js\".");
+                    if (const std::string problem = hook_module_problem(module->get<std::string>()); !problem.empty())
+                        return err(hookAt + "/module: " + problem, "See docs/HOOKS.md, \"JavaScript hooks\".");
                 }
                 if (type == "command" && util::str(h, "command").empty())
                     return err(hookAt + "/command: a hook of type \"command\" needs the program to run", "Add \"command\": \"./check.sh\".");

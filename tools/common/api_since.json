@@ -729,6 +729,8 @@
   },
   "commands": {
     "ai.extensions": "unreleased",
+    "ai.hooks": "unreleased",
+    "ai.hooks_test": "unreleased",
     "ai.models": "0.1.0",
     "ai.providers": "0.1.0",
     "ai.review": "0.4.0",

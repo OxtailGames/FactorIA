@@ -15,7 +15,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/config_schema.cpp.in
 add_library(fa_ai STATIC ${ai_srcs} ${CMAKE_CURRENT_BINARY_DIR}/generated/config_schema.cpp)
 target_include_directories(fa_ai PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(fa_ai PUBLIC cxx_std_20)
-target_link_libraries(fa_ai PUBLIC fa_core fa_tooling PRIVATE fa_warnings)
+target_link_libraries(fa_ai PUBLIC fa_core fa_tooling PRIVATE fa_warnings fa_ext_quickjs)  # fa_ext_quickjs: the sandbox of JavaScript hooks (hook_js.cpp)
 
 # HTTP: libcurl when available, otherwise the `curl` executable at runtime.
 find_package(CURL QUIET)
