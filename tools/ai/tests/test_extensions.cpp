@@ -752,7 +752,7 @@ TEST_CASE("AgentSession: a project plugin that is not trusted is skipped with th
     bool said = false;
     for (const auto& e : first) said = said || (e.type == AgentEvent::Type::Info && has(e.text, "not trusted") && has(e.text, "Trust this project"));
     CHECK(said);
-    CHECK_FALSE(has(read_file((scratch.path / "argv.txt").string()), "--plugin-dir"));
+    CHECK_FALSE(has(read_file((scratch.path / "argv.txt").string()), (proj.path / "tools" / "p").string()));  // (the engine skills plugin is there)
 
     REQUIRE(trust_project_extensions(so.extensionsTrustPath, proj.str(), load_project_extensions(proj.str()).hash));
     fsys::remove(scratch.path / "argv.txt");

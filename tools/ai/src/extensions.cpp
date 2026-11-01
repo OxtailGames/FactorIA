@@ -241,7 +241,10 @@ Result<Extension> parse_entry(ExtensionKind kind, const std::string& name, const
         return err(at + "/path: a skill needs the folder it lives in", "Add \"path\": \"~/skills/gdd\" (a folder with a SKILL.md, or a folder of skill folders).");
     }
 
-    if (hasPath) {
+    if (kind == ExtensionKind::Skill && is_engine_skill_path(e.path)) {
+        if (e.path.size() == kEngineSkillPrefix.size())
+            return err(at + "/path: '" + e.path + "' names no skill", "Write engine:<skill name>, for example \"engine:custom-shaders\" (skills.list shows the names).");
+    } else if (hasPath) {
         if (!project && !path_is_absolute_or_home(e.path)) {
             return err(at + "/path: '" + e.path + "' is relative, and ai.json is not inside any folder it could be relative to",
                        "Write the full path, or start with ~ for your home folder: \"~/" + e.path + "\".");

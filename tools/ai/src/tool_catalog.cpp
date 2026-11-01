@@ -28,6 +28,8 @@ const char* const kCore[] = {
     // checking the project, scripts, engine gaps
     "project.validate", "project.info", "project.test", "script.eval", "script.errors", "script.reload",
     "feedback.report", "assets.list", "assets.import",
+    // topic guides read on demand (skills.list and skills.new stay in the catalog)
+    "skills.read",
 };
 
 bool in_core(std::string_view name) {

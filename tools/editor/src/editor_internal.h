@@ -33,6 +33,7 @@
 #include "fa/ai/detect.h"
 #include "fa/ai/provider.h"
 #include "fa/ai/review.h"
+#include "fa/ai/skills.h"
 #include "fa/ai/session.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
@@ -845,6 +846,7 @@ public:
             std::string saveError, trustMessage;
             std::map<std::string, std::string> status; // by "kind:source:name": why it cannot load ("" = ready), refreshed every second
             double statusAt = -10;
+            std::vector<ai::SkillInfo> skills;         // every skill the Skills list shows (ai::scan_skills of the working copy), refreshed with `status`
         } ext;
     } aiSettings_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)

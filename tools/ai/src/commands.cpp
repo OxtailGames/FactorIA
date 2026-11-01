@@ -10,6 +10,7 @@
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/mcp_client.h"
 #include "fa/ai/review.h"
+#include "fa/ai/skills.h"
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -243,6 +244,13 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             out["configPath"] = cfg->sourcePath.empty() ? default_config_path(opts->runtime.env ? opts->runtime.env : system_env()) : cfg->sourcePath;
             return out;
         });
+    }
+    {
+        SkillsCommandOptions so;
+        so.loadConfig = load;
+        so.projectDir = project_dir;
+        so.env = opts->runtime.env;
+        register_skills_commands(registry, std::move(so));
     }
     {
         CommandInfo info;

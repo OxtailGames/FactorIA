@@ -54,6 +54,9 @@ struct ExtensionPlan {
     ExtensionSupport support;
     std::vector<std::string> pluginDirs;  // --plugin-dir / {plugin_dirs}
     std::vector<std::string> skillDirs;   // each skill folder; Claude Code gets them as one generated plugin
+    // The skills no entry names (the engine's, ~/.factoria/skills, <project>/skills) that the role is offered, for a provider that
+    // takes skill folders. They are not an extension the user configured, so they do not make the plan non-empty or get a note.
+    std::vector<std::string> implicitSkillDirs;
     Json hooks;                           // merged events object; null when there are none
     bool userPluginsOff = false;          // inheritUserPlugins false and the provider honours it
     // Claude Code only: the project's .claude/settings*.json runs a program or widens what the AI may do and the project is not trusted, so the run starts

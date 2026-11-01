@@ -6,6 +6,7 @@
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/config.h"
+#include "fa/ai/skills.h"
 #include "fa/ai/http.h"
 #include "fa/ai/mcp_client.h"
 #include "fa/ai/provider.h"
@@ -123,6 +124,15 @@ struct PromptContext {
     // The "# Tools" section (ToolPlan::catalogText): the commands that are not offered as tools of their own, one line each.
     // "" = every command is a tool. Part of the stable system prompt, so it must not change while a conversation goes on.
     std::string toolCatalog;
+    // The skills (topic guides, docs/SKILLS.md) this role is offered: the prompt lists them, one line each, and the craft guides of
+    // the artist and audio roles (make-art, make-audio) and the review-ready convention are read from them instead of being
+    // part of the prompt. `skillsKnown`: the host looked for skills (an empty list then means the role has none; false = it did not
+    // look, and the prompt carries those three texts itself). `skillsNative`: the CLI lists the skills itself (Claude Code, through
+    // the plugin FactorIA writes), so the prompt does not repeat the lines. `skillTool`: how the model reads one ("" = skills_read).
+    std::vector<SkillBrief> skills;
+    bool skillsKnown = false;
+    bool skillsNative = false;
+    std::string skillTool;
 };
 // The "External tools" section of the prompt of a role that got tool servers: each server with its note and how its tools are
 // named, and the rules for using them (they may cost credits; what they make comes into the project through assets_import).
