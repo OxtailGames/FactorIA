@@ -21,7 +21,8 @@ namespace {
 struct TimedLine {
     std::int64_t t = 0;
     std::string kind;
-    std::string tool;  // tool_end: the tool; tool_results: the tools, comma separated
+    std::string tool;  // tool_end: the tool; tool_results: the tools, comma separated; hook: "<Event> <extension>"
+    bool hookFailed = false;
 };
 
 bool waits_for_user(const std::string& tool) {
@@ -116,6 +117,10 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
         l.t = t;
         l.kind = str(j, "kind");
         if (l.kind == "tool_end") l.tool = str(j, "tool");
+        if (l.kind == "hook") {  // written when the handler finished, so the gap before it is the time the hook took
+            l.tool = str(j, "event") + " " + str(j, "extension");
+            l.hookFailed = j.value("failed", false);
+        }
         if (l.kind == "tool_results") {
             if (const Json* rs = child(j, "results"); rs && rs->is_array()) {
                 for (const auto& r : *rs) {
@@ -141,8 +146,9 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
     out["endedAt"] = iso_utc_ms(lines.back().t);
     out["totalSeconds"] = std::round((lines.back().t - lines.front().t) / 100.0) / 10;
 
-    Bucket tool, thinking, model, user;
-    std::map<std::string, Bucket> byTool;
+    Bucket tool, thinking, model, user, hook;
+    int hooksFailed = 0;
+    std::map<std::string, Bucket> byTool, byHook;
     Json gaps = Json::array();
     for (std::size_t i = 1; i < lines.size(); ++i) {
         const TimedLine& e = lines[i];
@@ -159,6 +165,12 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
                 tool.add(seconds);
                 byTool[e.tool.empty() ? "(unknown)" : e.tool].add(seconds);
             }
+        } else if (e.kind == "hook") {
+            activity = "hook";
+            detail = "hook " + e.tool + (e.hookFailed ? " (failed)" : "") + " was running";
+            hook.add(seconds);
+            byHook[e.tool].add(seconds);
+            if (e.hookFailed) ++hooksFailed;
         } else if (e.kind == "thinking") {
             activity = "thinking";
             detail = "the model was thinking";
@@ -186,8 +198,20 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
     }
     Json toolJson = tool.to_json();
     toolJson["byTool"] = byToolJson;
+    Json hookJson = hook.to_json();
+    hookJson["failed"] = hooksFailed;
+    Json byHookJson = Json::array();
+    std::vector<std::pair<std::string, Bucket>> hooksSorted(byHook.begin(), byHook.end());
+    std::sort(hooksSorted.begin(), hooksSorted.end(), [](auto& a, auto& b) { return a.second.seconds > b.second.seconds; });
+    for (const auto& [name, b] : hooksSorted) {
+        Json j = b.to_json();
+        j["hook"] = name;
+        byHookJson.push_back(std::move(j));
+    }
+    hookJson["byHook"] = byHookJson;
     out["gaps"] = gaps;
-    out["totals"] = Json::object({{"tool", toolJson}, {"thinking", thinking.to_json()}, {"model", model.to_json()}, {"user", user.to_json()}});
+    out["totals"] = Json::object({{"tool", toolJson}, {"thinking", thinking.to_json()}, {"model", model.to_json()}, {"user", user.to_json()},
+                                  {"hook", hookJson}});
     return out;
 }
 

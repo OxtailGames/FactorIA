@@ -784,12 +784,13 @@ called and nothing is spent).
 
 ## Extensions
 
-`extensions` loads plugins, skills and hooks into the AI agents that are command-line programs, next to the engine's own tools. It is
+`extensions` loads plugins, skills and hooks into the AI agents, next to the engine's own tools. It is
 the same idea as `mcpServers` ([above](#external-tools-mcp-servers)) for the things Claude Code calls plugins, skills and hooks: a plugin
 (a folder with `.claude-plugin/plugin.json`, a `.zip`, or one you installed with `claude plugin install name@marketplace`), a skill
 folder (one that holds a `SKILL.md`, or a folder of such folders) and hooks (a program that runs on an event such as
-`PostToolUse` or `Stop`, in the shape of Claude Code's `hooks`). Only **Claude Code** takes them today; see
-[what each provider does](#what-each-provider-does-with-extensions).
+`PostToolUse` or `Stop`, in the shape of Claude Code's `hooks`, or a small JavaScript file). **Claude Code** takes all three; the API
+providers (`anthropic`, `openai-compatible`) run the **hooks** in FactorIA's own loop, and the engine runs two hook events of its own
+around every command ([HOOKS.md](HOOKS.md)); see [what each provider does](#what-each-provider-does-with-extensions).
 
 It lives in two places, both validated with errors that name the JSON pointer and a fix, and with "did you mean" for a misspelled key,
 role or hook event:
@@ -827,7 +828,7 @@ The entry name is its key (`[A-Za-z0-9_-]`, up to 40 characters, unique among th
 |---|---|
 | `path` | `plugins`: a plugin folder or `.zip`. `skills`: a skill folder, or a folder of skill folders (each subfolder with a `SKILL.md` is one skill). `~` is your home folder. In `ai.json` it must be absolute or start with `~` (the file is not inside any folder it could be relative to); in a project file it is relative to the project. |
 | `plugin` | `plugins` instead of `path`: `name@marketplace` of a plugin you installed in Claude Code. FactorIA reads its `installPath` from `~/.claude/plugins/installed_plugins.json` (`$CLAUDE_CONFIG_DIR` when set); the one installed for this project wins over the one installed for you. If it is not installed the run says so and gives the `claude plugin install` command. |
-| `hooks` | `hooks`: Claude Code's hooks object, `event -> [{ "matcher", "hooks": [{ "type": "command", "command": ... }] }]`. |
+| `hooks` | `hooks`: Claude Code's hooks object, `event -> [{ "matcher", "hooks": [{ "type": "command", "command": ... }] }]`; a handler may also be `{ "type": "js", "module": "hooks/x.js" }` and take a `timeout` in seconds, and the events `beforeCommand` / `afterCommand` are FactorIA's own. Everything about hooks (events, what a hook reads and answers, trust, where failures show) is in [HOOKS.md](HOOKS.md). |
 | `note` | What it is for (shown in `ai.extensions` and the editor). |
 | `roles` | Who loads it (role names, see [Roles](#roles)). Left out: orchestrator, worker, fast, artist and audio; the review roles only when listed. |
 | `enabled` | `false` keeps the entry without loading it. |
@@ -840,7 +841,8 @@ The entry name is its key (`[A-Za-z0-9_-]`, up to 40 characters, unique among th
 | `claude-code` | One `--plugin-dir <folder>` per plugin; the skills go in a plugin FactorIA writes for the run (`factoria-extensions`, a copy of the skill folders under `<project>/.factoria/ai/ext-skills-*`); the hooks of the entries are merged into a private `--settings` file (`<project>/.factoria/ai/settings-*.json`, readable only by you). Both are removed when the run ends. `--setting-sources` is also passed when `inheritUserPlugins` is `false` (`project,local`) or when the project's own `.claude/settings*.json` runs a program or widens what the AI may do (see below) and the project is not trusted (`user`; an empty value with both), see [below](#trusting-a-projects-extensions). If your own `argv` uses `{plugin_dirs}` or `{settings}` those place the folders and the file and FactorIA adds no flag for them; an `argv` that already has `--settings` or `--setting-sources` is not given a second one. |
 | `codex` | None. FactorIA could not verify how Codex takes plugins, skills or hooks, so it passes none, and the run says so (an Info line in the chat and the CLI output) whenever extensions are listed for the role. |
 | `generic-cli` | Plugins when the `argv` has the `{plugin_dirs}` placeholder, hooks when it has `{settings}` (the path of the private settings file). `{plugin_dirs}` after a flag (`"--plugin-dir", "{plugin_dirs}"`) repeats that flag once per folder; with no folder, the placeholder and its flag are dropped. Skills are never passed. What cannot be passed is listed in the run output with the placeholder to add. |
-| `anthropic`, `openai-compatible` | Not yet: the API providers do not use extensions yet (planned with the built-in agent's skills and hooks), and `ai.extensions` and the run say so. |
+| `anthropic`, `openai-compatible` | **Hooks only**: FactorIA's own loop runs the seven events of Claude Code's hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SessionEnd`) for handlers of type `command` and `js`, with the same JSON on stdin and the same decisions on stdout, so one hook script serves Claude Code and these providers ([HOOKS.md](HOOKS.md)). Handlers of type `http`, `prompt` and `agent` are Claude Code's and are skipped. Plugins and skills are not used by these providers, and `ai.extensions` and the run say so for each one listed. |
+| every provider | `beforeCommand` and `afterCommand` hooks fire around every command of the engine, whoever calls it (an MCP client, the CLI, the editor, a script, the built-in AI), whatever provider the role has. |
 
 ### Trusting a project's extensions
 
@@ -891,6 +893,9 @@ and reports `mcp__factoria`, `mcp__factoria__*` and `mcp__factoria__<tool>` rule
 edits those files.
 
 ### Looking at what a run gets
+
+`ai.hooks` (read-only) lists the hooks entries with their handlers and the recent runs of each, and `ai.hooks_test` runs the hooks of one
+event with a sample input ([HOOKS.md](HOOKS.md#trying-a-hook)).
 
 `ai.extensions` (read-only, `{"role": "worker"}` optional) returns the entries with what stops each from loading, per role the
 provider and what it `receives`, `skipped` (reason and fix), `notes`, the project's file (`exists`, `hash`, `trusted`), `claudeSettings` (what in the project's `.claude/settings*.json` needs trust, whether the project

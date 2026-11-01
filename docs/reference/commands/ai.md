@@ -4,15 +4,43 @@
 
 ## `ai.extensions`
 
-Not released yet (on main after 0.9.0).
+Not released yet (on main after 0.10.0).
 
 Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading.
 
-The user's "extensions" in ai.json plus the project's .factoria/extensions.json (docs/AI_PROVIDERS.md, Extensions). Returns {inheritUserPlugins, projectFile:{path, exists, hash, trusted, error}, entries:[{kind plugin|skill|hooks, name, source user|project, enabled, roles, target (the folder it resolves to), problem + fix when it cannot load, trusted for a project's plugin or hooks}], roles:{<role>:{provider, providerKind, receives:[{kind, name, source}], skipped:[{kind, name, source, reason, fix}], notes, userPluginsOff, projectSettingsSkipped}}, claudeSettings:{files:[{path, exists, needsTrust, grants (what in the file runs a program or widens what the AI may do: hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Only Claude Code (and a generic CLI with {plugin_dirs} / {settings} in its argv) uses extensions: Codex gets none and the API providers (anthropic, openai-compatible) do not use them yet. A plugin or hook that comes from a project loads only after the USER trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only. Example: {"role":"worker"}
+The user's "extensions" in ai.json plus the project's .factoria/extensions.json (docs/AI_PROVIDERS.md, Extensions). Returns {inheritUserPlugins, projectFile:{path, exists, hash, trusted, error}, entries:[{kind plugin|skill|hooks, name, source user|project, enabled, roles, target (the folder it resolves to), problem + fix when it cannot load, trusted for a project's plugin or hooks}], roles:{<role>:{provider, providerKind, receives:[{kind, name, source}], skipped:[{kind, name, source, reason, fix}], notes, userPluginsOff, projectSettingsSkipped}}, claudeSettings:{files:[{path, exists, needsTrust, grants (what in the file runs a program or widens what the AI may do: hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Only Claude Code (and a generic CLI with {plugin_dirs} / {settings} in its argv) uses plugins and skills: Codex gets none, and the API providers (anthropic, openai-compatible) run only the hooks, in FactorIA's own loop. A plugin or hook that comes from a project loads only after the USER trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only. Example: {"role":"worker"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `role` | string | no | Only this role (orchestrator, worker, fast, artist, audio, artCritic, reviewer). Omit for all. |
+
+## `ai.hooks`
+
+Not released yet (on main after 0.10.0).
+
+List the hooks (programs and JavaScript modules run on events) and the recent runs of every hook.
+
+The "hooks" entries of `extensions` in ai.json and the project's .factoria/extensions.json (docs/HOOKS.md). Returns {entries:[{name, source user|project, enabled, roles, runsProgram, trusted (a project's entry that starts a program), events:{<Event>:[{matcher, handlers:[{type command|js|http|prompt|agent, target (the command, the module or the url), timeout?, runsHere}]}]}, problem + fix when it cannot be used}], events (the events FactorIA runs: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, and beforeCommand / afterCommand around every command of the registry), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), recentRuns:[{event, matched, extension, source, type, target, startedMs, ms, exitCode, timedOut, failed, error, decision, reason, output, stderr}] (this process's last runs, newest last)}. Read-only. Example: {"recent":20}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `role` | string | no | Only the entries this role loads (orchestrator, worker, fast, artist, audio, artCritic, reviewer). Omit for all. |
+| `recent` | integer | no | How many recent runs to include. Default 50. |
+
+## `ai.hooks_test`
+
+Not released yet (on main after 0.10.0).
+
+Run the configured hooks of one event with a sample input and show what they decide.
+
+Try a hook before relying on it: runs the handlers configured for `event` whose matcher fits `match` with `input` as the event's JSON (the common fields session_id, cwd, hook_event_name... are added), exactly as the AI loop or the registry would. The handlers REALLY run (a program does what it does). Returns {event, matched, groups, outcome:{blocked, reason, blockedBy, stop, stopReason, context, feedback, systemMessages, allowed, updatedInput?, failed, runs:[{...exitCode, ms, decision, reason, output, stderr, failed, error}]}, skipped, note?}. `match` is what the matcher is compared with: the tool name (PreToolUse, PostToolUse, PostToolUseFailure), the command name (beforeCommand, afterCommand), the source of SessionStart or the reason of SessionEnd. A project's hooks that start a program run only after the user trusts the project in the editor. Example: {"event":"PreToolUse","match":"scene_spawn","input":{"tool_name":"scene_spawn","tool_input":{"name":"Coin"}}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `event` | string | yes | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, beforeCommand or afterCommand. |
+| `match` | string | no | What the matcher is compared with (tool name, command name, source). Omit for events without a matcher. Default "". |
+| `input` | object | no | The event's own fields, e.g. {tool_name, tool_input} for PreToolUse, {command, args} for beforeCommand, {prompt} for UserPromptSubmit. Default {}. |
+| `role` | string | no | Whose entries count for the AI events (the engine's command events use every role's). Default "orchestrator". |
 
 ## `ai.models`
 
@@ -110,7 +138,7 @@ Reads one transcript of <project>/.factoria/ai/sessions/ (every event has "t", t
 
 ## `ai.tool_plan`
 
-Not released yet (on main after 0.9.0).
+Not released yet (on main after 0.10.0).
 
 Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines.
 

@@ -258,7 +258,7 @@ void Editor::draw_ai_settings_window() {
     }
     const bool extShown = ImGui::BeginTabItem("Extensions", nullptr, wantTab == 4 ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
     at_track("aiset:tab:extensions");
-    ImGui::SetItemTooltip("Plugins, skills and hooks the AI agents load (Claude Code): your own, and the ones this project brings. A project's plugins and hooks run only after you trust the project.");
+    ImGui::SetItemTooltip("Plugins, skills and hooks the AI agents load (Claude Code takes all three, the API providers the hooks): your own, and the ones this project brings. A project's plugins and hooks run only after you trust the project.");
     if (extShown) {
         draw_ai_extensions_tab(cfg, cfgErr.empty());
         ImGui::EndTabItem();
