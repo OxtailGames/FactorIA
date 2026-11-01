@@ -229,6 +229,84 @@ TEST_CASE("engine: input actions, edges and replay-style injection") {
     e.shutdown();
 }
 
+TEST_CASE("game.input: a press injected while paused survives the editor's idle frames until the next simulated frame") {
+    TempProject p("engine_input_paused");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    e.set_paused(true);  // the editor: frame() only redraws, step() simulates
+    e.frame(0.016);
+    auto idle_frames = [&](int n) { for (int i = 0; i < n; ++i) e.frame(0.016); };
+
+    // actions, keys, mouse, gamepad, touch and Back: all keep their edge across idle frames
+    auto r = e.commands().call("game.input", Json::parse(R"({"press":["jump"],"key":"F","down":true,
+        "mouse":{"left":true},"gamepad":{"buttons":{"A":true}}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    idle_frames(5);
+    CHECK(e.input().action_down("jump"));
+    CHECK(e.input().action_pressed("jump"));
+    CHECK(e.input().key_pressed(Key::F));
+    CHECK(e.input().mouse_pressed(MouseButton::Left));
+    CHECK(e.input().gamepad_pressed(0, GamepadButton::A));
+    e.step(1);  // the simulated frame consumed the edges once
+    CHECK(e.input().action_down("jump"));
+    CHECK_FALSE(e.input().action_pressed("jump"));
+    CHECK_FALSE(e.input().key_pressed(Key::F));
+    CHECK_FALSE(e.input().mouse_pressed(MouseButton::Left));
+    CHECK_FALSE(e.input().gamepad_pressed(0, GamepadButton::A));
+
+    // released keeps its edge the same way
+    r = e.commands().call("game.input", Json::parse(R"({"release":["jump"],"mouse":{"left":false}})"));
+    REQUIRE(r.ok);
+    idle_frames(3);
+    CHECK(e.input().action_released("jump"));
+    CHECK(e.input().mouse_released(MouseButton::Left));
+    e.step(1);
+    CHECK_FALSE(e.input().action_released("jump"));
+    CHECK_FALSE(e.input().mouse_released(MouseButton::Left));
+
+    // Back: the edge also waits for the next simulated frame
+    r = e.commands().call("game.input", Json::parse(R"({"back":true})"));
+    REQUIRE(r.ok);
+    idle_frames(3);
+    CHECK(e.input().back_pressed());
+    e.step(1);
+    CHECK_FALSE(e.input().back_pressed());
+
+    // idle frames still drop per-frame motion and typed text
+    e.input().on_text(U'x');
+    e.input().on_mouse_wheel(1.0f);
+    idle_frames(1);
+    CHECK(e.input().text_input().empty());
+    CHECK(e.input().mouse_wheel() == 0.0f);
+    e.shutdown();
+}
+
+TEST_CASE("game.input: frames steps like game.step, also while paused, and reports the frame") {
+    TempProject p("engine_input_frames");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    e.set_paused(true);
+    const std::uint64_t before = e.frame_index();
+    auto r = e.commands().call("game.input", Json::parse(R"({"press":["jump"],"frames":2})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(e.frame_index() == before + 2);
+    CHECK(r.result["frames"] == 2);
+    CHECK(r.result["frame"] == before + 2);
+    CHECK(e.input().action_down("jump"));
+    CHECK_FALSE(e.input().action_pressed("jump"));  // frame 1 saw the press, frame 2 did not
+    // without frames nothing steps and the result has no frame fields
+    r = e.commands().call("game.input", Json::parse(R"({"release":["jump"]})"));
+    REQUIRE(r.ok);
+    CHECK(e.frame_index() == before + 2);
+    CHECK_FALSE(r.result.contains("frames"));
+    // out of range is refused
+    r = e.commands().call("game.input", Json::parse(R"({"frames":-1})"));
+    CHECK_FALSE(r.ok);
+    e.shutdown();
+}
+
 TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)") {
     TempProject p("engine_commands");
     Engine e;

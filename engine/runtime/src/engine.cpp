@@ -469,7 +469,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     if (profiled) Profiler::get().end_frame();
 }
 
-void Engine::Impl::end_of_frame(double dt) {
+void Engine::Impl::end_of_frame(double dt, bool simulated) {
     world.flush();
     apply_scene_change();
     watchTimer += dt;
@@ -477,7 +477,9 @@ void Engine::Impl::end_of_frame(double dt) {
         watchTimer = 0.0;
         poll_hot_reload();
     }
-    input.begin_frame();
+    // Edges belong to the next SIMULATED frame: a paused redraw must not eat a press injected since the last one.
+    if (simulated) input.begin_frame();
+    else input.discard_idle_motion();
 }
 
 // ---------------------------------------------------------------- Engine --
@@ -721,7 +723,7 @@ void Engine::frame(double dt) {
     if (I.paused) {
         I.inFrame = true;
         I.render(0.0);
-        I.end_of_frame(dt);
+        I.end_of_frame(dt, false);
         I.inFrame = false;
         return;
     }
