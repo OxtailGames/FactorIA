@@ -13,6 +13,7 @@
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "feedback_review.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -444,6 +445,35 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             Json out = Json::object({{"kind", kind}, {"role", role}, {"reviews", reviews}, {"errors", errors}, {"costUsd", cost}});
             out["averageScore"] = scored > 0 ? Json(scoreSum / scored) : Json(nullptr);
             return out;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.review_feedback";
+        info.category = "ai";
+        info.summary = "Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet.";
+        info.description =
+            "Run this after feedback.report when you wrote a `share` text (a person also gets it as \"Review with AI\" in the Engine "
+            "Feedback panel). A cheap model checks the entry against the engine's command list and documentation: (1) the gap is real, "
+            "(2) it is about the engine and not about the game, (3) the engine cannot already do it. The text also goes through the "
+            "automatic sanitizer, which refuses anything with names, paths or quotes from the game. On a PASS the entry is marked "
+            "reviewed: true and, if the text needed it, `share` is rewritten in engine terms (components, fields, commands and API "
+            "names only; nothing about the game). On a FAIL nothing is changed: you get `reasons` (which check failed and why) and `fix`, "
+            "what to change (rewrite the share text, use what the engine already has, or drop `share`). The model is the \"fast\" "
+            "role of ai.json, the cheapest one (the orchestrator when fast is off; docs/AI_PROVIDERS.md). The result is "
+            "{id, pass, checks:{real, aboutEngine, notPossibleYet, sanitizer}, reasons, fix, rewritten, reviewed, share, role}. "
+            "This command never changes the sharing mode and never sends anything: only a person decides whether entries leave the "
+            "machine. Example: {\"id\":\"FB-0003\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "id":{"type":"string","description":"The entry to review, e.g. FB-0003 (feedback.list shows the ids). It needs a `share` text."}},
+            "required":["id"],"additionalProperties":false})");
+        info.readOnly = false;  // marks the entry reviewed and may rewrite its `share`; spends tokens
+        registry.add(std::move(info), [load, opts, project_dir, &registry](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string dir = project_dir();
+            if (dir.empty()) throw CommandError("no_project", "Reviewing feedback needs a project", "Open a project (or pass --project).");
+            return review_feedback_entry(registry, *cfg, *opts, dir, str(args, "id"));
         });
     }
     {

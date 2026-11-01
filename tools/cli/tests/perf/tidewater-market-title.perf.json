@@ -48,6 +48,19 @@
       "triangles": 0,
       "lights": 0,
       "textureMB": 15.77
+    },
+    "windows-msvc-d3d11-warp": {
+      "frames": 300,
+      "cpuMsAvg": 65.268,
+      "cpuMsP95": 82.653,
+      "cpuMsMax": 108.831,
+      "peakMemoryMB": 101.1,
+      "drawCalls": 10,
+      "entities": 112,
+      "graphics": "D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)",
+      "triangles": 0,
+      "lights": 0,
+      "textureMB": 15.77
     }
   }
 }

@@ -1749,6 +1749,23 @@ TEST_CASE("curl downloader: the real curl copies a file:// URL, with progress, a
 // setup webplayer: the web player built from the checkout (development builds)
 // ---------------------------------------------------------------------------------------------------------------------
 
+TEST_CASE("setup webplayer: a factoria without its checkout cannot build one and says where the web player comes from") {
+    World w;  // the default source folder does not exist
+    SetupContext c = w.ctx();
+    const SetupComponent st = setup_status(c, "webplayer").components[0];
+    CHECK(st.state == "unsupported");
+    CHECK_FALSE(st.canInstall);
+    CHECK(st.details.find("players --platforms web") != std::string::npos);
+    SetupInstallOptions o;
+    o.component = "webplayer";
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.code == "unsupported");
+    CHECK(r.error.hint.find("setup players --platforms web") != std::string::npos);
+    CHECK(w.calls.empty());
+}
+
+#ifndef _WIN32  // a POSIX PATH (":"-separated) and bash, as on the macOS and Linux hosts these tests simulate
 namespace {
 
 // A checkout `setup webplayer` accepts, a PATH with a CMake, and an Emscripten SDK folder.
@@ -1777,22 +1794,6 @@ void build_player(const World& w, const std::string& fingerprint) {
 }
 
 }  // namespace
-
-TEST_CASE("setup webplayer: a factoria without its checkout cannot build one and says where the web player comes from") {
-    World w;  // the default source folder does not exist
-    SetupContext c = w.ctx();
-    const SetupComponent st = setup_status(c, "webplayer").components[0];
-    CHECK(st.state == "unsupported");
-    CHECK_FALSE(st.canInstall);
-    CHECK(st.details.find("players --platforms web") != std::string::npos);
-    SetupInstallOptions o;
-    o.component = "webplayer";
-    const SetupResult r = setup_install(o, c);
-    REQUIRE_FALSE(r.ok);
-    CHECK(r.code == "unsupported");
-    CHECK(r.error.hint.find("setup players --platforms web") != std::string::npos);
-    CHECK(w.calls.empty());
-}
 
 TEST_CASE("setup webplayer: builds with the Emscripten SDK it finds, through a shell that loads the SDK") {
     World w;
@@ -1946,6 +1947,7 @@ TEST_CASE("setup webplayer: a failed build says what the build printed; a missin
     REQUIRE_FALSE(r2.ok);
     CHECK(r2.error.message.find("No CMake 3.24") != std::string::npos);
 }
+#endif
 
 TEST_CASE("setup webplayer: the pinned Emscripten version is the one CI, the releases and BUILDING.md use") {
     const stdfs::path root = FA_REPO_ROOT;

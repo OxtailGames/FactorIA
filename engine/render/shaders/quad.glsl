@@ -101,18 +101,16 @@ vec3 lit_color(vec4 base, float mode) {
         vec2 b = vec2(-t.y, t.x) * (mode > 5.5 ? -1.0 : 1.0);
         n = normalize(vec3(s.x * t + s.y * b, max(s.z, 0.05)));
     }
-    if (!use_normal && lit.z > 0.5) {
+    // One return at the end: fxc warns (X4000, logged at run time on D3D11) about an early return before the loop.
+    bool flat_lit = !use_normal && lit.z > 0.5;
+    vec3 total = flat_lit ? flat_ambient.rgb : ambient.rgb;
+    if (flat_lit && lit.z < 1.5) {
         // A flat surface faces every light head on, so each light adds color * falloff and they add up: the light buffer
         // already holds that sum (gl_FragCoord is the pixel of the same target, in the same orientation).
-        vec3 total = flat_ambient.rgb;
-        if (lit.z < 1.5) {
-            total += textureLod(sampler2D(light_tex, light_smp), gl_FragCoord.xy * light_map.xy, 0.0).rgb * light_map.z;
-        }
-        return base.rgb * total;
+        total += textureLod(sampler2D(light_tex, light_smp), gl_FragCoord.xy * light_map.xy, 0.0).rgb * light_map.z;
     }
-    vec3 total = ambient.rgb;
     for (int i = 0; i < 16; i++) {
-        if (float(i) >= lit.x) { break; }
+        if (flat_lit || float(i) >= lit.x) { break; }
         vec4 lp = light_pos[i];
         vec4 lc = light_color[i];
         vec3 l;

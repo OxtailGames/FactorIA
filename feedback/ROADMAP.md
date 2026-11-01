@@ -1388,7 +1388,7 @@ Left open:
 - A `Collider3D` on a procedural mesh is rebuilt on every `mesh.update` (costly for a mesh deformed each frame).
 - The editor picks glTF models and primitives by their unit box; only procedural meshes use their triangles.
 
-## M45. Extensions the user adds (skills, hooks, plugins) and fewer tokens per step (S-L each; the user) — PLANNED (0.10.0)
+## M45. Extensions the user adds (skills, hooks, plugins) and fewer tokens per step (S-L each; the user) — PLANNED (0.11.0)
 
 Asked by the user (2026-10-31) after seeing Microsoft's TokenEconomizer (a Claude Code / Codex / Copilot CLI plugin, Apache
 2.0, Python 3.10+: learned repo facts injected at session start, unused tools denied in `.claude/settings.local.json`, and
@@ -1464,6 +1464,25 @@ M45.6 needs M45.1):
   its hooks fire in `-p` runs, that its tool pruning does not hide a FactorIA tool a later task needs (or that M45.1's
   warning catches it), and what it saves next to M45.2 and M45.5. The result goes into AI_COSTS.md and the example's
   ENGINE_FEEDBACK.json.
+
+## M46. Feedback from every game reaches the engine developer (L; 4 packages; the user) — DONE (0.10.0)
+
+Asked by the user (2026-10-31): FactorIA has one developer, and the feedback of games made by other people must reach
+them. Today `ENGINE_FEEDBACK.json` stays on each user's machine and `feedback collect` only reads folders the developer
+has. Agreed design (docs/design/FEEDBACK_SHARING.md): a generic copy of each entry (`share`, engine terms only, cleaned
+by a sanitizer, nothing about the game) goes to the developer's own Cloudflare Worker after the user's consent; the
+server validates, rate-limits and bans; the ranking counts installations, not reports; GitHub sign-in is an optional
+identity that gives a report full weight; the user's AI checks a report before it is sent; the developer pulls into an
+inbox outside the repository with an AI classifier and a quarantine; each release ships the list of fixed gaps, which
+closes matching entries in the users' games.
+
+- M46.1 (L) The server: tools/feedback-server (Worker + D1, `node --test` suite in ctest), deploy script, privacy page.
+- M46.2 (L) The client: `share`/`reviewed`/`shared` fields, sanitizer, consent and outbox, the `feedback.share*`
+  commands and CLI, GitHub device flow, the embedded `feedback/fixed.json` and `feedback.check_fixed`.
+- M46.3 (L, after M46.2) The editor and the AI: consent dialog, Settings > Feedback, ask-mode confirmation, a new-entry
+  form, `ai.review_feedback`, AI_GUIDE.md and AGENTS.md.
+- M46.4 (L) The developer's side: `feedback pull` with classification and quarantine, bans, the per-installation
+  ranking in `collect`, `feedback fixed`.
 
 ## Out of scope: Roblox
 

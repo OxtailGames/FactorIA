@@ -187,19 +187,27 @@ void Editor::inject_char(unsigned codepoint) {
     on_event(&ev);
 }
 
+// A wait holds the script for at most 60 s: counting frames instead gave a Release build (thousands of frames a second
+// without vsync) only a second or two, less than the fake agents take.
+bool Editor::at_keep_waiting() {
+    const auto now = std::chrono::steady_clock::now();
+    if (atWaitCount_++ == 0) atWaitStart_ = now;
+    return now - atWaitStart_ < std::chrono::seconds(60);
+}
+
 void Editor::autotest_pre_frame() {
     ++atFramesDrawn_;
     if (atReopenIn_ > 0 && !engine_ && --atReopenIn_ == 0) open_project(atReopenDir_);  // section U: a stay on the welcome screen
     ++atFrame_;
     if (atWaitAi_) {  // hold the script until the (scripted) AI run finished
-        if (ai_running() && ++atWaitCount_ < 4000) {
+        if (ai_running() && at_keep_waiting()) {
             --atFrame_;
             return;
         }
         atWaitAi_ = false;
     }
     if (atWaitUntil_) {  // hold the script until a step's condition holds (an export on its worker thread)
-        if (!atWaitUntil_() && ++atWaitCount_ < 4000) {
+        if (!atWaitUntil_() && at_keep_waiting()) {
             --atFrame_;
             return;
         }

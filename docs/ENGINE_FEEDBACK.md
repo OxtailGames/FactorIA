@@ -15,6 +15,7 @@ Duplicates are harmless: a report similar to an open entry is merged into it.
 | Way | Use |
 |---|---|
 | Command `feedback.report` (MCP tool `feedback_report`, CLI `factoria call feedback.report '{...}'`) | Preferred: assigns id and date, merges duplicates |
+| `feedback.share_preview`, `feedback.share_status`, `feedback.share`, `feedback.check_fixed` | Sharing with the engine developer (see Sharing) |
 | `feedback.list`, `feedback.update` | Inspect entries; engine developers change `status` / `engineIssue` |
 | `feedback.archive` (CLI `factoria feedback archive`) | Move the closed entries to the archive (see Archive) |
 | Edit the JSON | Allowed; keep it valid against `schemas/engine-feedback.schema.json` |
@@ -73,12 +74,129 @@ file, so an interruption can leave an entry in both files but never loses one. B
 - `feedback collect` reads the archive next to each file, so its output is the same before and after archiving
   (closed entries still count only with `--include-closed`).
 
+## Sharing with the engine developer
+
+An entry may carry `share`: a generic copy of the gap, written in engine terms only, that can be sent to the engine
+developer so the gaps of every game reach the roadmap. The rest of the entry (`title`, `missing`, `workaround`, `notes`,
+files) stays in your project's file and is never sent.
+
+`share` is `{title (8-120 characters), missing (20-1500), suggestion? (up to 1500), workaround? (up to 1500)}`. Write the gap
+the way it would be true in any game: "Collider2D has no one-way option, so a body cannot pass up through a platform and
+land on it." Not: "the player of Lantern Keep cannot jump through the crypt platforms in scripts/jump.js". Use engine names
+(components, fields, commands, the scripting API) and nothing from the game. `reviewed: true` says that you checked against
+the docs that the gap is real and about the engine, not a mistake in the game.
+
+```json
+{"category": "physics", "severity": "major", "title": "No one-way platforms",
+ "missing": "Collider2D has no one-way option", "workaround": "scripts/one_way.js disables the collider going up",
+ "share": {"title": "No one-way platforms",
+           "missing": "Collider2D has no one-way option, so a body cannot pass up through a platform and land on it.",
+           "suggestion": "Add Collider2D.oneWay (bool)."},
+ "reviewed": true}
+```
+
+`feedback.report` and `factoria feedback add` take `share` and `reviewed` (CLI: `--share-title`, `--share-missing`,
+`--share-suggestion`, `--share-workaround`, `--reviewed`). A `share` that is malformed or outside the limits is not stored;
+the answer says why and the entry is recorded anyway. Reporting the same gap again keeps the longer `share`.
+
+### What is sent, what never is
+
+Sent, for each entry: `localId` (FB-0003), `category`, `severity`, `effort`, the sanitized `title`, `missing`, `suggestion`
+and `workaround`, `reporterKind` (`ai` or `human`) and `reviewed`; per request, the engine version and the platform (macos,
+windows, linux or other). Also sent with every request: a random installation id (UUID v4, created the first time, tied to no
+project and to no person) so that one installation counts once per gap, and, only if you signed in, the credential.
+
+Never sent: the project's name, id or version, file names and paths, scene, prefab, entity and script names, localization
+keys, the entry's own `title`, `missing`, `workaround`, `workaroundFiles`, `notes`, screenshots, code or assets.
+
+Before anything is queued a deterministic sanitizer cleans `share`: it removes paths and file names (anything with an
+extension), URLs, e-mail addresses, quoted text (`"..."`, `'...'`, backticks, guillemets) except names the engine itself
+defines, the project's own names, control characters and runs of more than 8 equal characters. If a field drops under its
+minimum after cleaning, the entry is not sent and `shared.reason` says why. `factoria feedback share --preview` (command
+`feedback.share_preview`) prints exactly what would be sent and what was removed; it sends nothing.
+
+### Modes: only you choose
+
+Nothing is sent until you choose, once, in the editor (the consent dialog it shows the first time, or File > Feedback
+Settings; docs/EDITOR.md, "Sharing feedback") or in your terminal:
+
+| Command | Effect |
+|---|---|
+| `factoria feedback sharing always` | New shareable entries are sent as they are recorded. |
+| `factoria feedback sharing ask` | They wait in the outbox; `factoria feedback share` shows them and sends what you confirm. |
+| `factoria feedback sharing never` | Nothing is sent; the outbox is emptied and its entries are marked `skipped`. |
+| `factoria feedback sharing` | Shows the mode, the server, whether you are signed in and the outbox. |
+
+In the editor the three choices are **Always**, **Ask me each time** and **Never**, with a preview of the next report exactly as
+it would leave the computer. In ask mode the editor notifies you when entries wait and opens a list that shows each share text as
+it will be sent, with Send and Don't send per entry and for all. The Engine Feedback panel shows a share column (not shared,
+waiting, sent, rejected with its reason, skipped) and lets you edit the share text: saving checks the limits and runs the
+sanitizer again.
+
+No command an AI can call changes the mode (`feedback.share_status` only reads it). While it is unset, `feedback.report`
+answers `share.status: "not_set_up"` with how the user turns sharing on, and nothing is queued or written. The setting
+lives in `feedback-sharing.json` and the outbox in `feedback-outbox.json`, both in the user config folder (`~/.factoria/` or
+`%APPDATA%\factoria\`, next to `ai.json`; `FACTORIA_AI_CONFIG` moves the whole set).
+
+Sending never makes a command fail and never waits long: with `always`, `feedback.report` makes one short attempt (3 s) and
+otherwise leaves the entry in the outbox, retried after 1 minute, 10 minutes, 1 hour and then once a day while the server
+is unreachable or busy (a `429` waits for its `Retry-After`). The server may refuse an entry (`shared.status: "rejected"`
+with its reason) or ban an installation; neither is retried. `shared.status` is `pending`, `sent`, `rejected` or `skipped`.
+Hitting a gap again after it was sent (the entry is merged and its `occurrences` go up) sends it once more, so the
+developer sees it matters to you; `shared.occurrences` counts the sends, and after 3 nothing more goes (the developer's
+ranking counts at most 3 per installation).
+`feedback.share` (AI) sends what is due and allowed by the mode; `factoria feedback share` (person) sends now, ignoring the
+waiting times.
+
+### Review with AI
+
+`ai.review_feedback {id}` (editor: **Review with AI** in the Engine Feedback panel) has a cheap model check a `share` text
+before it can leave the machine: the gap is real, it is about the engine and not about the game, and the engine cannot do it
+already (it reads the command list and the documentation). The text also goes through the sanitizer. On a pass the entry is
+marked `reviewed: true` and `share` is rewritten in engine terms if it needed it; on a fail nothing changes and the answer has
+`reasons` and `fix`. It runs on the `fast` role of `ai.json` (the orchestrator when `fast` is off; docs/AI_PROVIDERS.md), spends
+tokens, sends nothing and never changes the mode. An AI writes `share` in engine terms and may run it after `feedback.report`;
+a person can run it too (`factoria call ai.review_feedback '{"id":"FB-0003"}'`).
+
+### Signing in (optional)
+
+`factoria feedback signin github` (in the editor: Feedback Settings > Sign in with GitHub, which shows the code and opens the
+address) uses GitHub's device flow: the code is typed at github.com/login/device. No GitHub
+permission is requested. The GitHub token goes once to the feedback server, which answers a credential; only the credential
+and your login are kept. `factoria feedback signout` forgets them. Reports are accepted without signing in.
+
+### Builds without a server
+
+The feedback server address and the GitHub client id are compiled in (CMake cache variables `FA_FEEDBACK_URL` and
+`FA_FEEDBACK_GITHUB_CLIENT_ID`, empty by default). Without an address every sharing command says that sharing is not
+available in this build and how to set it (`endpoint` in `feedback-sharing.json` overrides it, for tests and self-hosting).
+
+### Fixed gaps
+
+Each release ships a list of the gaps it fixed (`feedback/fixed.json`, embedded in the binary). When the editor opens a
+project, and on `feedback.check_fixed`, every open entry with the same category (or family, e.g. `rendering-2d` and
+`rendering-3d`) and a title (`title` or `share.title`) similar to one of the fix's titles becomes `fixed-in-engine`, with
+`engineIssue` "FactorIA <version>" and a note to check whether your workaround can go; the next archive moves it to
+`ENGINE_FEEDBACK.archive.json`. Reporting the gap again reopens it as a possible regression.
+
 ## Collecting (engine developers)
 
 `factoria feedback collect <dirs-or-files...> [--out report.md|report.json]` groups similar entries across
-projects and ranks them by `sum(occurrences) x severity weight` (blocker 8, major 4, minor 2,
-nice-to-have 1). Each group lists title, category, projects affected, total occurrences, the best
-suggestion and sample workarounds. Only `open` entries count unless `--include-closed` is given.
+projects and ranks them. Each group lists title, category, installations (projects), verified installations, total
+occurrences, the best suggestion and sample workarounds. Only `open` entries count unless `--include-closed` is given.
+
+The score of a group is the sum, over the projects (a pulled installation is one project) that have an entry in it, of
+`severity weight x trust x min(occurrences, 3)`:
+
+- Severity weight: blocker 8, major 4, minor 2, nice-to-have 1 (the highest in that project's entries of the group).
+- Trust: 1 for a project of your own and for a pulled entry whose `remote.trust` is `verified` (the installation
+  signed in with GitHub); 0.5 for an anonymous one (`remote.trust` `anonymous`).
+- Occurrences of one project are capped at 3, so one installation that reports the same gap 50 times counts as 3, and
+  ten installations that each report it once count as ten. `totalOccurrences` in the report is not capped.
+
+A score with a half shows one decimal (1.5). The entries that `factoria feedback pull` writes
+(see docs/EXTENDING.md, section F) are collected like any project: `factoria feedback collect ~/.factoria/feedback-inbox`.
+The inbox's `quarantine/` folder holds `quarantine.json`, not an `ENGINE_FEEDBACK.json`, so collect ignores it.
 
 Two entries merge when their title, category, `suggestion` and `missing` text are alike enough (a title that merely
 contains another needs four shared significant words). The report prints, under each group with several entries, the

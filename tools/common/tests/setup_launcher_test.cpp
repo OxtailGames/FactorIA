@@ -141,6 +141,7 @@ TEST_CASE("setup launcher: a hand-made app in its place is reported and replaced
     CHECK(w.status().state == "installed");
 }
 
+#ifndef _WIN32  // Linux paths: a Windows path is not what a .desktop entry holds (its backslashes are escaped)
 TEST_CASE("setup launcher (Linux): a .desktop entry and its icon under ~/.local/share, or XDG_DATA_HOME") {
     LauncherWorld w("linux");
     CHECK(w.status().state == "missing");
@@ -161,6 +162,7 @@ TEST_CASE("setup launcher (Linux): a .desktop entry and its icon under ~/.local/
     REQUIRE(w.install().ok);
     CHECK(stdfs::is_regular_file(stdfs::path(data) / "applications/factoria.desktop"));
 }
+#endif
 
 TEST_CASE("setup launcher: not needed on Windows") {
     LauncherWorld w("windows");

@@ -145,7 +145,9 @@ Conversation Conversation::from_json(const Json& j) {
     return c;
 }
 
-bool is_agent_tool_excluded(std::string_view name) { return fa::starts_with(name, "ai."); }
+// The ai.* commands are for people (they start other agents or spend money); ai.review_feedback is the exception: the agent that
+// writes a feedback entry's `share` text checks it with it.
+bool is_agent_tool_excluded(std::string_view name) { return fa::starts_with(name, "ai.") && name != "ai.review_feedback"; }
 
 std::string tool_name_for_command(std::string_view name) {
     std::string out(name);

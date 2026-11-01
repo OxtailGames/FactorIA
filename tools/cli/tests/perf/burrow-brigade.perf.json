@@ -11,10 +11,10 @@
   "runners": {
     "linux-gcc-llvmpipe": {
       "frames": 300,
-      "cpuMsAvg": 99.079,
-      "cpuMsP95": 104.573,
-      "cpuMsMax": 6474.657,
-      "peakMemoryMB": 238.2,
+      "cpuMsAvg": 81.067,
+      "cpuMsP95": 269.012,
+      "cpuMsMax": 340.577,
+      "peakMemoryMB": 180.7,
       "drawCalls": 11,
       "entities": 145,
       "graphics": "EGL surfaceless / llvmpipe (LLVM 20.1.2, 256 bits) (GL 4.3 core, 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.24.04.4)",
