@@ -43,7 +43,7 @@ Starts `count` read-only AI reviewers (1 to 5, one after the other, each with a 
 
 ## `ai.review_feedback` (modifies state)
 
-Not released yet (on main after 0.9.0).
+Since 0.10.0.
 
 Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet.
 

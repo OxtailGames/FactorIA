@@ -87,7 +87,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.models`](commands/ai.md#aimodels): List the models each AI provider offers (the values for roles.<role>.model).
 - [`ai.providers`](commands/ai.md#aiproviders): List configured AI providers and roles, or diagnose which ones are usable (doctor).
 - [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Since 0.4.0._
-- [`ai.review_feedback`](commands/ai.md#aireview_feedback-modifies-state): Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet. _Not released yet._
+- [`ai.review_feedback`](commands/ai.md#aireview_feedback-modifies-state): Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet. _Since 0.10.0._
 - [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Since 0.4.0._
 - [`ai.run`](commands/ai.md#airun-modifies-state): Run an AI agent on a task in the current project (blocks until it finishes).
 - [`ai.session_timeline`](commands/ai.md#aisession_timeline): Show where the time of a recorded AI session went: the long gaps and what was going on in each. _Since 0.9.0._
@@ -171,12 +171,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 ### [feedback](commands/feedback.md)
 
 - [`feedback.archive`](commands/feedback.md#feedbackarchive-modifies-state): Move the closed feedback entries (fixed-in-engine, wont-fix, duplicate) to the archive file. _Since 0.4.0._
-- [`feedback.check_fixed`](commands/feedback.md#feedbackcheck_fixed-modifies-state): Close the open feedback entries whose gap this engine version fixed. _Not released yet._
+- [`feedback.check_fixed`](commands/feedback.md#feedbackcheck_fixed-modifies-state): Close the open feedback entries whose gap this engine version fixed. _Since 0.10.0._
 - [`feedback.list`](commands/feedback.md#feedbacklist): List the engine-feedback entries recorded for this project.
 - [`feedback.report`](commands/feedback.md#feedbackreport-modifies-state): Record an engine gap (missing feature, bug, confusing doc) and the workaround you used.
-- [`feedback.share`](commands/feedback.md#feedbackshare-modifies-state): Send the queued feedback to the engine developer now (only what the user's mode allows). _Not released yet._
-- [`feedback.share_preview`](commands/feedback.md#feedbackshare_preview): Show exactly what sharing would send for the entries that have a `share`, and what the sanitizer removed. _Not released yet._
-- [`feedback.share_status`](commands/feedback.md#feedbackshare_status): Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox. _Not released yet._
+- [`feedback.share`](commands/feedback.md#feedbackshare-modifies-state): Send the queued feedback to the engine developer now (only what the user's mode allows). _Since 0.10.0._
+- [`feedback.share_preview`](commands/feedback.md#feedbackshare_preview): Show exactly what sharing would send for the entries that have a `share`, and what the sanitizer removed. _Since 0.10.0._
+- [`feedback.share_status`](commands/feedback.md#feedbackshare_status): Sharing with the engine developer: the mode, the server, whether the user signed in, and the outbox. _Since 0.10.0._
 - [`feedback.update`](commands/feedback.md#feedbackupdate-modifies-state): Change the status of a feedback entry or link it to an engine issue.
 
 ### [fs](commands/fs.md)
