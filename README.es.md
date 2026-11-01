@@ -170,3 +170,5 @@ gratuitos o comerciales, siempre que el aviso de copyright y la licencia acompa�
 - **El nombre.** La licencia cubre el código, no el nombre ni el logo de FactorIA. Puedes decir que tu juego está
   "hecho con FactorIA"; un motor modificado o redistribuido no debe presentarse como FactorIA, ni como respaldado por
   FactorIA, sin permiso.
+- **Conducta.** Las issues, los pull requests, las discusiones y el servidor de feedback siguen el
+  [código de conducta](CODE_OF_CONDUCT.md) (en inglés).

@@ -2,6 +2,15 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## 0.11.1
+
+FactorIA 0.11.1 sets the rules for the feedback server and for every FactorIA space. The server's page now says what reports it accepts (only about the engine, no personal data, nothing illegal or abusive, no abuse of the server), that reports breaking the rules are deleted and their sender may be refused, that sending a report lets the developer use the idea freely, and that the server comes with no warranty and may stop at any time. A code of conduct covers the repository and the feedback server.
+
+### Changes
+
+- The feedback server's page (`GET /`) adds "Rules for reports" and "No warranty" (docs/design/FEEDBACK_SHARING.md, `GET /`), and points to File > Feedback Settings in the editor to stop sending.
+- `CODE_OF_CONDUCT.md` (new): what is expected and what is not accepted in issues, pull requests, discussions and the feedback server, including what an AI posts for you; how it is enforced and how to report. The README links it.
+
 ## 0.11.0
 
 FactorIA 0.11.0 (M45) spends fewer tokens and takes the AI tools you already use. The built-in agent gets the core commands in full and a one-line catalog for the rest (a step sends about 62 KB instead of 324 KB), the topic guides became skills read only when needed (system prompts 16% to 46% shorter), and three savers learn from your runs: a loop guard, tool groups to load up front and project facts, each applied only when you accept. Plugins, skills and hooks load into the AI runs from your `ai.json` or a trusted project, with Claude Code's hook events running for every provider and two of FactorIA's own around every engine command; a downloaded project's Claude Code settings no longer apply before you trust it. **Add TokenEconomizer** installs Microsoft's Claude Code plugin in one click; six paid runs measuring it are in docs/AI_COSTS.md.

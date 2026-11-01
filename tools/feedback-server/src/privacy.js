@@ -1,4 +1,5 @@
-// The page served at GET /: what the server stores and what it never stores. Plain HTML, no scripts, no external files.
+// The page served at GET /: what the server stores and what it never stores, and the rules for sending reports. Plain
+// HTML, no scripts, no external files.
 
 export const PRIVACY_HTML = `<!doctype html>
 <html lang="en">
@@ -39,9 +40,30 @@ discarded.</li>
 <p>Reports are kept until the engine developer deletes them. The developer reads them to decide what to build; the texts
 may be summarized in the public roadmap. Reports that are spam or abuse are deleted and their sender is refused.</p>
 
+<h2>Rules for reports</h2>
+<p>By sending reports to this server you accept these rules.</p>
+<ul>
+<li>Only reports about the FactorIA engine are accepted: what it lacks, what failed, what would help. Anything else is
+deleted without notice.</li>
+<li>Do not put personal data in a report: no names, e-mail addresses, phone numbers or anything else that identifies a
+person, and nothing about your game that you want to keep private. The engine removes paths, file names, URLs, e-mail
+addresses and quoted text before sending, and shows you the cleaned text first, but what remains is your
+responsibility.</li>
+<li>No illegal, hateful, harassing or sexual content, no advertising, and no text that is not yours to share.</li>
+<li>No attempts to flood, overload, probe or abuse the server. Requests are rate limited.</li>
+<li>Reports that break these rules are deleted, and the installation or account that sent them may be refused from then
+on, without notice.</li>
+<li>By sending a report you allow the engine developer to read it, keep it, summarize it in the public roadmap and use
+the idea in the engine, free of charge and without credit.</li>
+</ul>
+
+<h2>No warranty</h2>
+<p>This server is provided as is, free of charge and without any warranty. It may be changed, limited or shut down at any
+time, and reports may be lost or deleted. Nobody is owed a reply, a fix or a feature because of a report.</p>
+
 <h2>How to stop sending</h2>
-<p>Run <code>factoria feedback sharing never</code>, or choose Never in the editor under Settings, Feedback. Nothing is sent
-unless you chose Always or Ask.</p>
+<p>Run <code>factoria feedback sharing never</code>, or choose Never in the editor under File, Feedback Settings. Nothing is
+sent unless you chose Always or Ask.</p>
 </body>
 </html>
 `;
