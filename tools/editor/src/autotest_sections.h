@@ -52,6 +52,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"E2", "Feedback sharing: consent dialog, ask-mode review list, panel share column and boxes, Review with AI, Settings sign-in and Send now"},
     {"E3", "AI settings, Extensions tab: a plugin folder and pasted hooks added, a role switched off, Save keeps the other keys, a project's hooks need the trust and a changed file drops it"},
     {"H2", "AI settings, Extensions tab, Hooks: saved hooks with where each runs, three real runs (ok, failed, blocked) listed, Clear"},
+    {"K2", "AI settings, Extensions tab, Skills: the engine's and the project's skills listed, a role and an On box switched, Save keeps them as skill entries"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

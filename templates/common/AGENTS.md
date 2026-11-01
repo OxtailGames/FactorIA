@@ -38,11 +38,12 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |
 | `plugins/<name>/` | native plugins (C/C++: SDKs, platform services), `plugins.<name>.<fn>()` in scripts (optional: `project.new_plugin`, docs: extending, section G) |
 | `tests/*.test.js` | headless tests run by `factoria test` |
-| `levels/*.json` | ASCII level maps, the arguments of `scene.import_ascii`; the source of truth of a tile level (optional, see Tile levels below) |
+| `levels/*.json` | ASCII level maps, the arguments of `scene.import_ascii`; the source of truth of a tile level (optional, skill `tile-levels`) |
 | `data/*.json` | tuning data, imported with `import levels from "../data/levels.json";` (optional) |
 | `assets/` | textures, audio, fonts, models (add only what you really need) |
 | `types/factoria.d.ts` | script API typings (generated: `factoria validate --fix-types`) |
-| `REVIEW.md` | the note the art critics and game reviewers read first (never exported, see below) |
+| `REVIEW.md` | the note the art critics and game reviewers read first (never exported, skill `review-ready`) |
+| `skills/<name>/SKILL.md` | this game's own topic guides (optional, see Skills below) |
 | `ENGINE_FEEDBACK.json` | engine gaps you found (below) |
 | `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit. Scratch files: `.factoria/tmp/` |
 
@@ -74,40 +75,6 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 
 - **HUD in the corners:** `"space": "screen"` with `anchor` ([0,0] top-left, [1,1] bottom-right) and `pivot`
   (Text default [0,1]). Guide section 9.4.
-- **One-shot effects:** a `ParticleEmitter` with `emitting: false`, `burst: 24`, `autoDestroy: true` and
-  `blend: "additive"` fires once and removes itself. `particles.burst(entity, n)` bursts an existing one.
-- **Neon glow:** `"blend": "additive"` on bright Sprites/Shapes/particles plus `"bloom": true` on the primary `Camera`
-  (`bloomThreshold`, `bloomIntensity`, `bloomRadius`) over a dark `clearColor`. Never hand-draw blurred halo sprites.
-  `"bloomScreenSpace": false` keeps the HUD crisp. Spin a triangle with `pivot: [0.5, 0.3333]` (its centroid);
-  `Shape2D` also has `diamond`, `polygon` and `star`; `ParticleEmitter` takes `space: "screen"`. Guide section 9.20.
-- **Custom shaders:** `MeshRenderer.material` names a `materials/*.material.json` (a GLSL `surface()` snippet that changes
-  what the standard material computed, optional `vertex()`, typed params). Write the two files, call `shader.compile`
-  (MCP `shader_compile`) until `ok`, then look at a screenshot. Full guide with five worked examples: `factoria docs read shaders`.
-- **Menus and finishing the game:** a main menu, options, pause, saves, languages and accessibility are not in an empty project.
-  When the game needs them, `factoria call project.add_menu_kit` (MCP `project_add_menu_kit`; `parts` picks main-menu, options, pause, loading, ...) copies the kit and merges its texts into the locales (`factoria docs read menus` explains it), and `factoria docs read finishing` the ordered
-  path to a game ready for a store, with a checklist.
-- **Publishing:** `factoria docs read publishing` is the checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play,
-  App Store, itch.io, web): what the engine does and what the user must still do by hand. Tell the user the by-hand list.
-- **Web requests:** `http.fetch(url, {method, headers, body, timeout})` talks to a server; the hosts go in factoria.json
-  `"network": {"hosts": ["api.example.com"], "purpose": "..."}` (https only, undeclared hosts throw), tests script the
-  answers with `game.platform.respond("http.fetch", ...)`, and a script that awaits it checks `scene.current` before
-  using the answer: `factoria docs read networking`. Tell the user the privacy policy must mention the server.
-- **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
-- **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @levels/level1.json`) turns
-  ASCII `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Keep
-  the map in `levels/` and re-run it after every edit. Put `"path": "scenes/x.scene.json"` in the map file: it edits that scene
-  FILE (optionally starting `from` a base scene) and never touches the running game; no `--scene`, no `scene.save`. The file
-  keeps prefab references (`{"id", "prefab", "components": {overrides, position}}`) instead of expanded copies, and so does
-  the base scene's prefab entities, so editing a prefab changes every level without importing again. Maps can share a
-  legend: `"legendFrom": "levels/legend.json"` (merged under the map's own `legend`).
-  `Tilemap.columns` is optional (0 = derived from the tileset image width): leave it out. Guide section 9.8. Do not place
-  tile objects by hand or write a level generator.
-- **Camera and area limits:** `entity.bounds()` is the world rectangle `{x, y, w, h}` (bottom-left corner and size) of a
-  Tilemap, Sprite or Shape2D. Clamp a follow camera with `world.find("map").bounds()`, not with map sizes copied into props.
-  Guide section 9.6.
-- **Sounds and their tests:** `audio.play("assets/sfx/jump.wav")`. Assert it with
-  `expect(game.audioLog()).toContainPlayed("jump.wav")` (options `times`, `bus`, `source`; `game.clearAudioLog()`). A clip that
-  failed to load does not count. MCP `audio_log`. Guide sections 9.7 and 10.
 - **Prefab files and tidy JSON:** `prefab.save` (MCP `prefab_save`) saves an entity you built in the running game, with its
   children, as `prefabs/<name>.prefab.json` (it leaves out ids, the root position and `tilemap:` tags; it never overwrites
   without `"overwrite": true`). `scene.format` (MCP `scene_format`; `{"paths": [...]}` names the files, `{"check": true}` only lists; with neither it changes nothing and says so) puts hand-edited scenes and
@@ -119,40 +86,20 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - **Cross-scene state:** `session` is a plain object that survives `scene.load`. `storage` is for save files.
 - **Failing a check:** `throw new ToolError(message, hint, data?)`. For a list of every problem, return it as a
   normal result with `ok: false`.
-- **3D:** `RigidBody3D.angularVelocity`, `rollWithMotion` and `rollingFriction` (a rolling ball slows by that, not by
-  sliding friction; with `rollWithMotion` off a sphere is a rigid body that real friction rolls and spins);
-  box colliders follow `Transform.rotation` and fast bodies do not tunnel; dynamic boxes are
-  rigid bodies (collisions turn them: they tip, tumble and settle), so give a box-shaped character or an upright
-  crate `"lockRotation": true`; calm bodies fall asleep and wake when touched or written to; kinematic platforms
-  carry the bodies on them (3D, and 2D: a kinematic `RigidBody2D` with a script-set `velocity` carries the dynamic
-  bodies resting on it, and their own `velocity` is relative to the platform, so a player writing `velocity.x = 0`
-  stays put on it; moving the `Transform` instead teleports and carries nothing); `Shape2D.lit` shades a placeholder
-  shape with `Light2D` like `Sprite.lit`;
-  `Light.castShadows`; `settings.fogDensity` and `fogColor`.
 - **Vectors:** `vec2(...)`, `[x, y]` and `{x, y}` are accepted wherever a vector is expected.
 - **Replays:** `factoria run --headless --input replay.json` with `press`, `release`, `keys` and `mouse` entries.
 
 ## Debugging
 
 - `factoria validate` first: it loads every scene and checks assets, input bindings, scripts.
+- A screenshot that looks wrong: take it again with `game_screenshot {"region":[x,y,w,h],"zoom":8}` or a filmstrip (skill `inspect-the-picture`).
+  If it is black, check there is a primary `Camera`, that sprites have a `layer` and size, and that the colors are not 0..255.
 - `factoria run --headless --frames N --state-out out.json` dumps entities and components; MCP
   `game_state` / `scene_list_entities` give the same live. `game_logs` shows script errors.
 - To click in the running game (MCP `game_click`, CLI `factoria call game.click`): `{"id":"play"}` clicks the centre of a UI
   widget, `{"position":[640,360]}` a screen point in design pixels, `{"world":[3,-2]}` a world point. It moves the mouse, presses, steps
   one frame, releases and steps one more, so scripts see `input.mouse.pressed` and then `released` and Buttons get their `click`.
   `game_input {"mouse":{"position":[x,y],"left":true}}` + `game_step` presses too, but the button stays held until you set `left:false`.
-- Compare screenshots before/after a change. If the picture is black, check there is a
-  primary `Camera`, that sprites have a `layer` and size, and that the colors are not 0..255.
-- Look closely, do not trust a whole-view picture for fine detail. Seams, joins, outlines and the two ends of a gradient are a
-  few pixels wide: `game_screenshot {"region":[x,y,w,h],"zoom":8}` (design pixels) returns just that part magnified, sharp
-  up to 4x (the engine draws it again at that size) and blocky above. To judge an animation, take a filmstrip:
-  `game_screenshot {"frames":24,"everyFrames":4,"columns":4}` steps the game and lays the pictures out in one labelled sheet
-  (`region` and `zoom` apply to every tile). `render_inspect {"from":[x,y],"to":[x2,y2]}` lists where the brightness
-  jumps along a line (a hard edge, a missing gap), and `render_pick {"position":[x,y]}` tells which entities and layers
-  cover one pixel, topmost first, when a picture shows something you did not expect.
-- A screenshot taken without `path` is temporary: the MCP server or the editor attaches the image to its reply and deletes
-  the file, and the engine removes old `frame_*.png` from `.factoria/screenshots/` when the project opens. Give a `path`
-  for a picture that must stay (a baseline for the user, a store screenshot).
 - To act on a running game, use `factoria session`: one JSON request per stdin line, one JSON answer per
   stdout line, and the game keeps its state. For example
   `printf '%s\n' '{"command":"game.step","args":{"frames":30}}' '{"command":"script.eval","args":{"code":"world.find(\"player\").position"}}' | factoria session`.
@@ -165,13 +112,14 @@ screenshots, and an input replay of their session (`factoria run --headless --in
   A person debugs the same scripts with breakpoints in VS Code (F5; `factoria setup vscode`). Read `factoria docs read debugging`.
 - Headless runs and tests simulate every frame but draw only for screenshots (fast); `--render-all` draws all.
 
-## Keep the game reviewable
+## Skills (topic guides)
 
-The user can ask for an art critique or a game review: read-only agents play the build and score it. Keep `REVIEW.md`
-(project root, never exported) up to date: how to play (controls, goal), what is finished and what is a placeholder,
-how to reach EVERY scene, level and state in one step (scene paths for `scene_load`, a debug key or project tool, saved
-states in `review/`), replays or tests that play the first minutes, and known issues. Keep screenshots stable (fixed
-seed, no random shake at capture) and debug overlays out of normal play (`factoria docs read ai-guide`, 11.4).
+Longer guides are skills (the Agent Skills format: `skills/<name>/SKILL.md`), read only when the task needs one. List them with
+`skills_list` (CLI `factoria call skills.list`) and read one with `skills_read {"name":"..."}` (CLI `factoria call skills.read
+'{"name":"custom-shaders"}'`; a skill's other files with `"file"`). The engine's own: `custom-shaders`, `glow-and-effects`,
+`tile-levels`, `physics-3d`, `web-requests`, `menus-and-finishing`, `publishing-and-exporting`, `inspect-the-picture`,
+`make-art`, `make-audio` and `review-ready` (keep `REVIEW.md` current so the art critics and game reviewers can play the build:
+read it before you finish a feature). This project can have its own in `skills/` (`skills_new`; `factoria validate` checks them).
 
 ## Recording engine gaps (IMPORTANT)
 

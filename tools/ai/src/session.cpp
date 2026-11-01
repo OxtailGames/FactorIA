@@ -332,6 +332,16 @@ SessionResult AgentSession::run_role(const std::string& role, const std::string&
     return is_cli_kind(pc->kind) ? run_cli(role, rc, *pc, task, depth) : run_chat(role, rc, *pc, task, depth);
 }
 
+// The skills this role is offered, for its system prompt (docs/SKILLS.md). `native`: the CLI lists them itself.
+static void add_prompt_skills(PromptContext& pctx, const AiConfig& config, const SessionOptions& opt, const std::string& role, bool native) {
+    SkillsContext sctx;
+    sctx.projectDir = opt.projectDir;
+    sctx.env = opt.env;
+    pctx.skills = skills_for_prompt(scan_skills(config, sctx), role, config.disabled_delegable_roles());
+    pctx.skillsKnown = true;
+    pctx.skillsNative = native;
+}
+
 SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& rc, const ProviderConfig& pc,
                                     const std::string& task, int depth) {
     SessionResult res;
@@ -370,6 +380,9 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     if (!opt_.extensionsTrustPath.empty()) extCtx.trustPath = opt_.extensionsTrustPath;
     const ExtensionPlan extPlan = plan_extensions(config_, pc, role, extCtx);
     for (const std::string& note : extPlan.notes) serverNotes.push_back(note);
+    // Claude Code lists the skills itself. Codex also finds them (.agents/skills of the project), but the prompt keeps its lines: a
+    // Codex that does not scan that folder (an older one) still knows the names and reads them with skills_read.
+    add_prompt_skills(pctx, config_, opt_, role, extPlan.support.skills && pc.kind == ProviderKind::ClaudeCode);
     const std::string fullPrompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
     // A follow-up message continues the CLI's session: the system prompt is already part of it, so only the task is sent.
     const bool canResume = depth == 0 && cli_supports_resume(pc);
@@ -394,6 +407,7 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     req.toolServers = resolvedServers;
     req.pluginDirs = extPlan.pluginDirs;
     req.skillDirs = extPlan.skillDirs;
+    req.skillDirs.insert(req.skillDirs.end(), extPlan.implicitSkillDirs.begin(), extPlan.implicitSkillDirs.end());
     req.hooks = extPlan.hooks;
     req.userPluginsOff = extPlan.userPluginsOff;
     req.projectSettingsOff = extPlan.projectSettingsOff;
@@ -615,7 +629,10 @@ ToolResult AgentSession::execute_tool(const ToolCall& original, const std::strin
         for (const auto& [n, _] : toolToCommand_) names.push_back(n);
         return fail("unknown_tool", "No tool named '" + call.name + "'", fa::did_you_mean(call.name, names));
     }
-    CommandResult cr = registry_.call(it->second, call.input.is_object() ? call.input : Json::object());
+    Json callInput = call.input.is_object() ? call.input : Json::object();
+    // A skill is read as the role that asks: the skills switched off for it are not readable (docs/SKILLS.md).
+    if (it->second == "skills.read" || it->second == "skills.list") callInput["role"] = role;
+    CommandResult cr = registry_.call(it->second, callInput);
     if (!cr.ok) {
         // A command the model has not seen the definition of (listed in the catalog, not offered in full): the schema comes
         // with the error, so one failed call is enough to learn the arguments.
@@ -726,6 +743,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     planOptions.catalog = opt_.toolCatalog;
     const ToolPlan plan = plan_tools(registry_, planOptions);
     pctx.toolCatalog = plan.catalogText;
+    add_prompt_skills(pctx, config_, opt_, role, false);
     req.system = build_system_prompt(pctx);
     req.tools = plan.tools;
     if (!toolServers.empty()) {

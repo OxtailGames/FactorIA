@@ -8,6 +8,7 @@
 
 #include "common.h"  // tools/cli/src: Session
 #include "fa/ai/session.h"
+#include "fa/ai/skills.h"
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/fs.h"
 #include "fa/tooling/scaffold.h"
@@ -75,7 +76,12 @@ std::unique_ptr<cli::Session> open_game(const char* tag, stdfs::path& oldRoot) {
     REQUIRE_MESSAGE(made.ok(), made.error().to_string());
     cli::SessionOptions so;
     so.gfx = cli::Gfx::None;
-    return cli::Session::open(dir, so);
+    auto session = cli::Session::open(dir, so);
+    // The commands of the ai module live in the registry the CLI and the editor build, not in a bare Session: skills.read is a core tool.
+    ai::SkillsCommandOptions skills;
+    skills.projectDir = [dir]() { return dir; };
+    ai::register_skills_commands(session->registry(), std::move(skills));
+    return session;
 }
 
 }  // namespace

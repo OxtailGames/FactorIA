@@ -33,6 +33,7 @@
 #include "fa/ai/detect.h"
 #include "fa/ai/provider.h"
 #include "fa/ai/review.h"
+#include "fa/ai/skills.h"
 #include "fa/ai/session.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
@@ -847,6 +848,7 @@ public:
             double statusAt = -10;
             Json hooksReport;                          // ai::hooks_report as saved + the runs of this process, refreshed every second
             double hooksAt = -10;
+            std::vector<ai::SkillInfo> skills;         // every skill the Skills list shows (ai::scan_skills of the working copy), refreshed with `status`
         } ext;
     } aiSettings_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)

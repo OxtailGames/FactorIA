@@ -301,14 +301,16 @@ TEST_CASE("extension_support: who takes what") {
     CHECK(extension_support(provider_of(cfg, "claude-code")).skills);
     CHECK(extension_support(provider_of(cfg, "claude-code")).hooks);
     const ExtensionSupport codex = extension_support(provider_of(cfg, "codex"));
-    CHECK_FALSE(codex.any());
-    CHECK(has(codex.reason, "could not verify how Codex takes"));
+    CHECK(codex.skills);
+    CHECK_FALSE(codex.plugins);
+    CHECK_FALSE(codex.hooks);
+    CHECK(has(codex.reason, "Codex takes skills"));
     const ExtensionSupport api = extension_support(provider_of(cfg, "anthropic"));
     CHECK(api.any());
     CHECK(api.hooks);  // FactorIA's own loop runs them (docs/HOOKS.md)
+    CHECK(api.skills);  // listed in the system prompt, read with skills.read (docs/SKILLS.md)
     CHECK_FALSE(api.plugins);
-    CHECK_FALSE(api.skills);
-    CHECK(has(api.reason, "run hooks only"));
+    CHECK(has(api.reason, "but no plugins"));
     ProviderConfig generic;
     generic.name = "g";
     generic.kind = ProviderKind::GenericCli;
@@ -491,7 +493,7 @@ TEST_CASE("the trust gate: a project's plugin or hooks run only after the user t
     CHECK(has(broken.notes[0], "extensions file was ignored"));
 }
 
-TEST_CASE("plan_extensions: Codex and the API providers say they do not use extensions; a generic CLI takes what its argv names") {
+TEST_CASE("plan_extensions: Codex takes the skills only; the API providers do not use extensions; a generic CLI takes what its argv names") {
     TempDir home, proj;
     make_plugin(home.path / "plugins" / "notes");
     make_skill(home.path / "skills" / "gdd");
@@ -501,17 +503,24 @@ TEST_CASE("plan_extensions: Codex and the API providers say they do not use exte
     ExtensionContext ctx{proj.str(), fake_env({{"HOME", home.str()}}), ""};
 
     const ExtensionPlan codex = plan_extensions(cfg, provider_of(cfg, "codex"), "worker", ctx);
-    CHECK(codex.empty());
-    REQUIRE(codex.notes.size() == 1);
-    CHECK(has(codex.notes[0], "3 extensions for the role 'worker' not loaded"));
-    CHECK(has(codex.notes[0], "could not verify how Codex takes plugins, skills or hooks"));
+    CHECK(codex.pluginDirs.empty());
+    CHECK_FALSE(codex.hooks.is_object());
+    REQUIRE(codex.skillDirs.size() == 1);
+    CHECK(codex.skillDirs[0] == (home.path / "skills" / "gdd").string());
+    CHECK(codex.skipped.size() == 2);
+    REQUIRE(codex.notes.size() == 3);
+    CHECK(has(codex.notes[0], "Extension plugin 'notes'"));
+    CHECK(has(codex.notes[0], "Codex takes skills"));
+    CHECK(has(codex.notes[1], "Extension hooks"));
+    CHECK(has(codex.notes[2], "Extensions loaded: skill gdd"));
 
     const ExtensionPlan api = plan_extensions(cfg, provider_of(cfg, "anthropic"), "worker", ctx);
     CHECK_FALSE(api.empty());  // the hook set is run by FactorIA's loop
     CHECK(api.hookSources.size() == 1);
     bool saidSkipped = false;
-    for (const std::string& n : api.notes) saidSkipped = saidSkipped || (has(n, "run hooks only") && has(n, "anthropic"));
-    CHECK(saidSkipped);  // the plugin and the skill need Claude Code
+    for (const std::string& n : api.notes) saidSkipped = saidSkipped || (has(n, "but no plugins") && has(n, "anthropic"));
+    CHECK(saidSkipped);  // the plugin needs Claude Code
+    CHECK(api.skillDirs.size() == 1);  // the skill reaches the prompt
 
     // nothing for the role: nothing to say
     AiConfig none = default_config();
@@ -695,6 +704,50 @@ TEST_CASE("the run's settings file and skills plugin exist while the CLI runs, h
     for (const auto& entry : fsys::directory_iterator(proj.path / ".factoria" / "ai")) CHECK(entry.path().filename() == "mcp-claude-code.json");
 }
 
+TEST_CASE("codex run: the skills sit in the project's .agents/skills while it runs, git-ignored, and are removed when it ends") {
+    TempDir proj, home;
+    make_skill(home.path / "skills" / "gdd");
+    write_file(home.path / "skills" / "gdd" / "refs" / "notes.md", "n");
+    // The user's own skill folder next to ours stays untouched.
+    make_skill(proj.path / ".agents" / "skills" / "mine");
+    const std::string seen = (proj.path / "seen.txt").string();
+    ProviderConfig cfg = default_config().providers["codex"];
+    cfg.command = "sh";
+    cfg.argv = {"-c", "ls .agents/skills > \"$1\"; cat .agents/skills/.gitignore >> \"$1\"; cat .agents/skills/factoria-*gdd/refs/notes.md >> \"$1\"", "sh", seen};
+    CliRunRequest req{"task", "m", proj.str()};
+    req.skillDirs = {(home.path / "skills" / "gdd").string(), "engine:review-ready"};
+    REQUIRE(CliAgent(cfg).run(req, nullptr, nullptr));
+    const std::string text = read_file(seen);
+    CHECK(has(text, "mine"));
+    CHECK(has(text, "-gdd"));
+    CHECK(has(text, "-review-ready"));
+    CHECK(has(text, "factoria-*/"));
+    CHECK(has(text, "\nn"));
+    for (const auto& entry : fsys::directory_iterator(proj.path / ".agents" / "skills"))
+        CHECK((entry.path().filename() == "mine" || entry.path().filename() == ".gitignore"));
+    CHECK(fsys::exists(proj.path / ".agents" / "skills" / "mine" / "SKILL.md"));
+
+    // no skills: nothing is written
+    TempDir bare;
+    REQUIRE(CliAgent(cfg).run(CliRunRequest{"task", "m", bare.str()}, nullptr, nullptr));
+    CHECK_FALSE(fsys::exists(bare.path / ".agents"));
+}
+
+TEST_CASE("write_agents_skills: prefixed copies, engine skills written, collisions numbered, an existing .gitignore kept") {
+    TempDir src, out;
+    make_skill(src.path / "one");
+    make_skill(src.path / "two" / "one");
+    const std::string root = (out.path / ".agents" / "skills").string();
+    write_file(out.path / ".agents" / "skills" / ".gitignore", "mine\n");
+    auto made = write_agents_skills(root, "factoria-r1-", {(src.path / "one").string(), (src.path / "two" / "one").string(), "engine:review-ready"});
+    REQUIRE(made);
+    REQUIRE(made->size() == 3);
+    CHECK(fsys::exists(fsys::path(root) / "factoria-r1-one" / "SKILL.md"));
+    CHECK(fsys::exists(fsys::path(root) / "factoria-r1-one-2" / "SKILL.md"));
+    CHECK(fsys::exists(fsys::path(root) / "factoria-r1-review-ready" / "SKILL.md"));
+    CHECK(read_file(root + "/.gitignore") == "mine\n");
+}
+
 TEST_CASE("a generic CLI whose argv has no {plugin_dirs} or {settings} gets none of the extensions") {
     TempDir proj, scratch;
     const std::string argvFile = (scratch.path / "argv.txt").string();
@@ -711,7 +764,7 @@ TEST_CASE("a generic CLI whose argv has no {plugin_dirs} or {settings} gets none
     CHECK(read_file(argvFile) == "run\n");
 }
 
-TEST_CASE("AgentSession: a Codex run says that extensions are not passed; the notes come from the plan") {
+TEST_CASE("AgentSession: a Codex run says that plugins are not passed; the notes come from the plan") {
     TempDir proj, scratch, home;
     make_plugin(home.path / "plugins" / "notes");
     AiConfig cfg = default_config();
@@ -728,7 +781,7 @@ TEST_CASE("AgentSession: a Codex run says that extensions are not passed; the no
     s.set_event_handler([&](const AgentEvent& e) { events.push_back(e); });
     REQUIRE(s.run("Make a coin").ok);
     bool said = false;
-    for (const auto& e : events) said = said || (e.type == AgentEvent::Type::Info && has(e.text, "could not verify how Codex takes plugins"));
+    for (const auto& e : events) said = said || (e.type == AgentEvent::Type::Info && has(e.text, "Codex takes skills") && has(e.text, "plugin 'notes'"));
     CHECK(said);
 }
 
@@ -756,7 +809,7 @@ TEST_CASE("AgentSession: a project plugin that is not trusted is skipped with th
     bool said = false;
     for (const auto& e : first) said = said || (e.type == AgentEvent::Type::Info && has(e.text, "not trusted") && has(e.text, "Trust this project"));
     CHECK(said);
-    CHECK_FALSE(has(read_file((scratch.path / "argv.txt").string()), "--plugin-dir"));
+    CHECK_FALSE(has(read_file((scratch.path / "argv.txt").string()), (proj.path / "tools" / "p").string()));  // (the engine skills plugin is there)
 
     REQUIRE(trust_project_extensions(so.extensionsTrustPath, proj.str(), load_project_extensions(proj.str()).hash));
     fsys::remove(scratch.path / "argv.txt");
@@ -829,12 +882,12 @@ TEST_CASE("ai.extensions: the report per role, the project file with its trust, 
     CHECK(worker["receives"].size() == 1);
     CHECK(worker["skipped"].size() == 2);
     CHECK(has(worker["skipped"][0]["reason"].get<std::string>(), "is not a folder"));
-    CHECK(has(j["roles"]["fast"]["notes"][0].get<std::string>(), "could not verify how Codex"));
+    CHECK(has(j["roles"]["fast"]["notes"][0].get<std::string>(), "Codex takes skills"));
     CHECK(j["roles"]["fast"]["receives"].empty());
-    CHECK(has(j["roles"]["orchestrator"]["notes"][0].get<std::string>(), "run hooks only"));
+    CHECK(has(j["roles"]["orchestrator"]["notes"][0].get<std::string>(), "but no plugins"));
     REQUIRE(j["denyRules"].size() == 1);
     CHECK(j["denyRules"][0]["tool"] == "scene_spawn");
-    CHECK(has(j["scope"].get<std::string>(), "run hooks only"));
+    CHECK(has(j["scope"].get<std::string>(), "use skills (one line each in the system prompt"));
     CHECK(fsys::exists(trust) == false);  // looking changed nothing
 
     auto one = registry.call("ai.extensions", Json::object({{"role", "worker"}}));
@@ -857,7 +910,7 @@ TEST_CASE("the doctor report lists the extensions, what stops one, and the deny 
     cfg.extensions.inheritUserPlugins = false;
     const std::string report = format_doctor_report(cfg, {}, fake_env({{"HOME", home.str()}}), proj.str());
     CHECK(has(report, "1 plugin(s), 0 skill folder(s), 1 hook set(s); inheritUserPlugins off"));
-    CHECK(has(report, "not by Codex or the API providers yet"));
+    CHECK(has(report, "Codex takes the skills only"));
     CHECK(has(report, "plugin 'gone' (user)"));
     CHECK(has(report, "does not exist"));
     CHECK(has(report, "deny all FactorIA tools"));

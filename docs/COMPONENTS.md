@@ -1081,7 +1081,7 @@ Not released yet (on main after 0.10.0).
 
 Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading.
 
-The user's "extensions" in ai.json plus the project's .factoria/extensions.json (docs/AI_PROVIDERS.md, Extensions). Returns {inheritUserPlugins, projectFile:{path, exists, hash, trusted, error}, entries:[{kind plugin|skill|hooks, name, source user|project, enabled, roles, target (the folder it resolves to), problem + fix when it cannot load, trusted for a project's plugin or hooks}], roles:{<role>:{provider, providerKind, receives:[{kind, name, source}], skipped:[{kind, name, source, reason, fix}], notes, userPluginsOff, projectSettingsSkipped}}, claudeSettings:{files:[{path, exists, needsTrust, grants (what in the file runs a program or widens what the AI may do: hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Only Claude Code (and a generic CLI with {plugin_dirs} / {settings} in its argv) uses plugins and skills: Codex gets none, and the API providers (anthropic, openai-compatible) run only the hooks, in FactorIA's own loop. A plugin or hook that comes from a project loads only after the USER trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only. Example: {"role":"worker"}
+The user's "extensions" in ai.json plus the project's .factoria/extensions.json (docs/AI_PROVIDERS.md, Extensions). Returns {inheritUserPlugins, projectFile:{path, exists, hash, trusted, error}, entries:[{kind plugin|skill|hooks, name, source user|project, enabled, roles, target (the folder it resolves to), problem + fix when it cannot load, trusted for a project's plugin or hooks}], roles:{<role>:{provider, providerKind, receives:[{kind, name, source}], skipped:[{kind, name, source, reason, fix}], notes, userPluginsOff, projectSettingsSkipped}}, claudeSettings:{files:[{path, exists, needsTrust, grants (what in the file runs a program or widens what the AI may do: hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Claude Code uses plugins, skills and hooks; Codex uses skills only; a generic CLI uses plugins and hooks when its argv has {plugin_dirs} / {settings}; the API providers (anthropic, openai-compatible) use skills and hooks in FactorIA's own loop, not plugins. A plugin or hook that comes from a project loads only after the USER trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only. Example: {"role":"worker"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3738,6 +3738,50 @@ Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows"
 | `testCertificate` | boolean | no | Windows only: create (or reuse) a self-signed certificate whose subject is the package's Publisher, sign with it and save its public part next to the package, to install the package on this PC. Default false. |
 | `timestampUrl` | string | no | RFC 3161 time-stamp server. Default: http://timestamp.digicert.com. |
 | `dryRun` | boolean | no | Check everything and return the exact command lines in steps[]; sign nothing. Works on any computer. Default false. |
+
+## skills
+
+### `skills.list`
+
+Not released yet (on main after 0.10.0).
+
+List the skills (topic guides) available to a role: name, description, where each lives.
+
+Skills are folders with a SKILL.md (Agent Skills format) that you read only when a task needs them: the engine's own (make-art, make-audio, custom-shaders...), the user's (~/.factoria/skills) and the project's (skills/). Returns {skills:[{name, description, source engine|user|project, enabled, roles, dir, entry?, shadowedBy? (another skill of the same name wins), problem + fix? (SKILL.md invalid: not offered)}], count}. With `role`, only the skills that role is offered; without it, every skill with its settings. Read one with skills.read. docs/SKILLS.md. Example: {"role":"worker"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `role` | string | no | Only the skills this role is offered (orchestrator, worker, fast, artist, audio, artCritic, reviewer). Omit for all. |
+
+### `skills.new` (modifies state)
+
+Not released yet (on main after 0.10.0).
+
+Create a skill: skills/<name>/SKILL.md in the project (or in ~/.factoria/skills).
+
+Writes a SKILL.md from the Agent Skills template: frontmatter with `name` (lowercase letters, digits and hyphens, up to 64, the folder's name) and `description` (what the skill is for and WHEN to read it, up to 1024 characters), then a body to fill in. Add other files beside it and name them in the body. Never overwrites an existing skill. scope "project" (default) writes into the project's skills/ folder, which the game's other AIs and `factoria validate` see; "user" writes into ~/.factoria/skills for every project. Returns {path, name, scope}. docs/SKILLS.md. Example: {"name":"enemy-design","description":"How enemies are built in this game. Read before adding an enemy."}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Skill name and folder: lowercase letters, digits, single hyphens. |
+| `description` | string | no | What the skill covers and when to read it (up to 1024 characters). |
+| `scope` | string ["project","user"] | no | Where to create it. Default "project". |
+
+### `skills.read`
+
+Not released yet (on main after 0.10.0).
+
+Read a skill: its SKILL.md instructions, or another file of the skill.
+
+Loads the instructions of the skill `name` (see the Skills list in your prompt, or skills.list) before you start the kind of work it covers. Without `file` it returns the body of SKILL.md and lists the other files beside it; read one with `file` (a path relative to the skill, "reference.md"). Long files come in pieces: `truncated` and `nextOffset` say where the next call continues (`offset`, `limit` are bytes). Returns {name, source, file, description?, content, totalBytes, truncated?, nextOffset?, files?}. Unknown names and files answer with the ones that exist. docs/SKILLS.md. Example: {"name":"make-art"} or {"name":"make-art","file":"reference.md"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Skill name, as in the Skills list. |
+| `file` | string | no | File of the skill, relative to its folder. Default SKILL.md. |
+| `offset` | integer | no | Byte to start at (continue a truncated read with nextOffset). |
+| `limit` | integer | no | Most bytes to return. Default 60000. |
+| `role` | string | no | The role asking: only the skills it is offered can be read. FactorIA fills it in for you. |
 
 ## scene
 
