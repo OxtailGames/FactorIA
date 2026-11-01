@@ -595,6 +595,30 @@
       "suggestion": "Nothing to change in the engine, the error already names the right path; a `factoria validate` check of clip paths against the prefab would find it before running.",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0027",
+      "date": "2026-11-01",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "An unused legend glyph warning does not point at legendFrom",
+      "missing": "Adding a new legend letter (W, a feather pickup) to every level map made the level2 rebuild test fail with \"legend['W'] is not used in rows\". The agents asked for a shared legend file, which scene.import_ascii already has (legendFrom); 4 of the 6 M45.6 benchmark runs reported it and none found legendFrom.",
+      "workaround": "Declared W only in levels/level1.json, the map that uses it.",
+      "workaroundFiles": [
+        "levels/level1.json"
+      ],
+      "suggestion": "Name legendFrom in the warning itself.",
+      "occurrences": 4,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in M45 (0.11.0): the warning now says to remove the glyph or move a shared legend into a `legendFrom` file, whose unused entries are not warned about."
+      ],
+      "engineIssue": "M45"
     }
   ]
 }

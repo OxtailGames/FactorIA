@@ -626,6 +626,7 @@ TEST_CASE("import_ascii: unknown glyphs are reported together and warnings point
     REQUIRE_MESSAGE(r.ok, error_text(r));
     std::string w = r.result["warnings"].dump();
     CHECK(contains(w, "legend['z'] is not used"));
+    CHECK(contains(w, "`legendFrom` file"));  // teaches the shared legend instead of copying glyphs into every map
     CHECK(contains(w, "tileset is empty"));
     CHECK(contains(w, "solidTiles is empty"));
 }
