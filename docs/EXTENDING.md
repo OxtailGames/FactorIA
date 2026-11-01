@@ -43,6 +43,7 @@ export default {
 ```
 
 - **Schema keywords** the validator checks: `type`, `properties`, `required`, `additionalProperties`, `default`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `pattern`, `items`, `anyOf`, `oneOf`. Invalid arguments are refused before `run` is called. The error names the field and gives a hint, such as the allowed values.
+- **Closed by default.** A key that `input` (or a nested object with `properties`) does not declare is an error, not an ignored extra: `invalid_arguments`, `/crates: unknown property 'crates'`, with a "did you mean" and the accepted keys in the hint. So declare every key `run` reads, with a `description`. A tool without `input`, or with `properties: {}`, takes no arguments. If the keys really are open-ended (a free-form map), say so: `additionalProperties: true` on that object accepts any key, and `additionalProperties: { type: "number" }` accepts any key whose value matches the schema. A project from before this rule whose tools or scripts pass extra keys now gets this error: add the missing properties to `input` (or drop the key from the call).
 - **Hot reload.** Saving the file reloads the tool. MCP clients receive `notifications/tools/list_changed`.
 - **Errors.** Two kinds, and the caller sees them differently.
   - An *expected* failure, such as a check that found bad level data, is `throw new ToolError(message, hint, data?)` (import it from `"factoria"`). The caller gets code `tool_error`, the message, and your `hint`, which says how to fix the data or the call. `data` is an optional object with details. It appears in the JSON error of `factoria session` and `factoria call --batch`, and as `e.data` on the Error that `fa.call` throws in a script or test; MCP shows only the code, message and hint, so put what a fixer needs into the hint.
@@ -287,7 +288,7 @@ registry.add(std::move(info), [](const Json& args) -> Json {
 - **Results.** `CommandRegistry::call` returns `CommandResult{ok, result, error}`. `error` is `{code, message, hint}`.
 - **Replacement.** `add` replaces a command with the same name.
 - **Hooks.** `CommandRegistry::set_interceptor` takes a `CommandInterceptor` (`command.h`) whose `before` can refuse a call or change its arguments and whose `after` sees the outcome. `register_ai_commands` installs the one that runs the user's `beforeCommand` / `afterCommand` hooks (docs/HOOKS.md), so every command, whoever calls it, can be hooked without code of its own.
-- **Schema keywords** are the same as in section A.
+- **Schema keywords** are the same as in section A, and so is the rule that arguments are closed by default: `add` sets `additionalProperties: false` on every object schema that has `properties` and no `additionalProperties`, so declare every key the handler reads (a handler that reads an undeclared key never sees it). Open an object on purpose with `"additionalProperties": true` or a schema, and say why in the description. `tools/cli/tests/command_schema_test.cpp` fails when a command is open without being listed there.
 
 ### Where to register
 

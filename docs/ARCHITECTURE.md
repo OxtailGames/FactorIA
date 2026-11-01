@@ -125,6 +125,20 @@ Every command is automatically exposed through MCP (`factoria mcp`), the
 built-in AI agent, the CLI (`factoria call <name> '<json>'`), the editor console
 and scripts (`fa.call(name, args)`).
 
+**Arguments are closed by default.** A command's `inputSchema` is the contract, and a key it does not declare is an
+error, never silently dropped: `CommandRegistry::add` closes every object schema that has `properties` and no
+`additionalProperties` (it adds `additionalProperties: false`, at the root and in nested objects, array items and
+`anyOf`/`oneOf`/`$defs` branches; `fa::close_object_schemas`, core/json_schema.h). So `describe` and `tools/list` show
+what is enforced, and re-adding a command (the editor's AI panel does) changes nothing. A call with an unknown key fails
+with code `invalid_arguments`; the message names the key and its JSON pointer (`/frame: unknown property 'frame'`), and the
+hint is `fa::did_you_mean` plus the accepted keys. A command with no declared `properties` takes no arguments. The opt-out
+is explicit: `"additionalProperties": true` (any key) or a schema (every extra key must match it), for an object whose keys
+are really open-ended; only then can the handler read keys the schema does not list. Nothing in the engine's own command set
+uses it (`tools/cli/tests/command_schema_test.cpp` walks the whole registry and fails on a root that is open without being
+listed). The one key the registry removes before validating is `_meta`, the MCP transport's metadata, unless the command
+declares a property of that name. Defaults are applied first, then the check. When you add a command, declare every key
+the handler reads, with a `description`; the same rule applies to `project.<name>` tools (their `input`).
+
 ### Files: `fa::fs`
 Everything the engine reads of a game (scenes, prefabs, textures, sounds, fonts, scripts, `factoria.json`) goes through
 `fa::fs` (`core/fs.h`), by project-relative path (forward slashes, no `..`). The paths are answered from one of three

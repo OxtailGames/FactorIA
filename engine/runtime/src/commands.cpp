@@ -608,7 +608,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "down":{"type":"boolean","default":true,"description":"New state for action/key."},
                "press":{"type":"array","items":{"type":"string"}},
                "release":{"type":"array","items":{"type":"string"}},
-               "mouse":{"type":"object","description":"{position:[x,y] in design pixels, left/right/middle: bool}."},
+               "mouse":{"type":"object","description":"Mouse state: position in design pixels and the buttons held.","properties":{
+                   "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"[x, y] in design pixels."},
+                   "left":{"type":"boolean","description":"Left button held."},
+                   "right":{"type":"boolean","description":"Right button held."},
+                   "middle":{"type":"boolean","description":"Middle button held."}}},
                "gamepad":{"type":["object","array"],"description":"{index?: 0..3, connected?: bool, buttons?: {A: true, DpadLeft: false...}, axes?: {LeftX: -1, RightTrigger: 0.5...}}, or an array of those for several pads."},
                "touch":{"type":["object","array"],"description":"{id?: number (default 1), position?: [x,y] design pixels, down?: bool (default true)}, or an array of those for several fingers."},
                "back":{"type":"boolean","description":"true: press the system Back button (Android)."},

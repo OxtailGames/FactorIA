@@ -51,6 +51,7 @@ struct SaverHarness {
         make.name = "proj.make";
         make.category = "proj";
         make.summary = "Makes a thing.";
+        make.inputSchema = Json::parse(R"({"type":"object","properties":{"name":{"type":"string","description":"Must be ok."}}})");
         registry.add(make, [](const Json& a) -> Json {
             if (a.value("name", std::string()) != "ok") throw CommandError("bad_name", "name must be 'ok'", "Pass name \"ok\".");
             return Json::object({{"made", true}});

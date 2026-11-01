@@ -40,6 +40,11 @@ that.)
   `path`, and then the file stays. The engine also removes old engine-named shots (`frame_*.png` in
   `.factoria/screenshots/`) when a project opens: those older than 3 days, then the oldest beyond the newest 200.
   Failures are `isError` results: `code: message` and `hint: ...`.
+  A tool's `inputSchema` is closed: `tools/call` with an argument the tool does not declare fails with `invalid_arguments`
+  (`/frame: unknown property 'frame'`, the hint offers the closest declared name and lists the accepted ones) and runs nothing, so
+  an ignored typo cannot look like a success. An object that takes open-ended keys says `additionalProperties: true` in its
+  schema. `_meta` is the protocol's own key: it normally sits in `params`, and a client that puts it in `arguments` is not
+  refused (the server drops it before checking).
 - **Resources**: `factoria://docs/<file>` (embedded docs, `factoria://docs/components` generated),
   `factoria://project/factoria.json`, `.../ENGINE_FEEDBACK.json`, `.../AGENTS.md`.
 - **Prompts**: `make-game` (idea), `add-feature` (feature), `fix-bug` (description), `report-engine-gap`.
