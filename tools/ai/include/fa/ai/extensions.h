@@ -49,6 +49,11 @@ struct ExtensionsConfig {
     bool empty() const { return entries.empty() && inheritUserPlugins; }
 };
 
+// A skill entry's "path" can be "engine:<name>": one of the skills that ship inside the binary (skills/<name>/ of the repository,
+// see fa/tooling/skills.h). Lets the Extensions tab switch an engine skill off for a role, with the same fields as any other entry.
+inline const std::string kEngineSkillPrefix = "engine:";
+inline bool is_engine_skill_path(std::string_view path) { return path.rfind(kEngineSkillPrefix, 0) == 0; }
+
 // "" when `name` is usable, else what is wrong with it.
 std::string extension_name_problem(std::string_view name);
 

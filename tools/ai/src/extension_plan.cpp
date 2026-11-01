@@ -5,8 +5,10 @@
 #include <filesystem>
 #include <set>
 
+#include "fa/ai/skills.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/skills.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -199,6 +201,17 @@ ExtensionItem resolve_extension(const Extension& e, const ExtensionContext& ctx,
             return it;
         }
         case ExtensionKind::Skill: {
+            if (is_engine_skill_path(e.path)) {
+                const std::string name = e.path.substr(kEngineSkillPrefix.size());
+                const std::vector<std::string> names = fa::engine_skill_names();
+                it.target = e.path;
+                if (std::find(names.begin(), names.end(), name) == names.end()) {
+                    fail("this FactorIA has no engine skill named '" + name + "'", fa::did_you_mean(name, names));
+                    return it;
+                }
+                it.dirs.push_back(e.path);
+                return it;
+            }
             const std::string path = resolve_extension_path(e, ctx.projectDir, env);
             it.target = path;
             std::error_code ec;
@@ -257,6 +270,17 @@ Result<void> write_skills_plugin(const std::string& dir, const std::vector<std::
     if (auto ok = fs::write_text((fsys::path(dir) / ".claude-plugin" / "plugin.json").string(), dump_json(manifest)); !ok) return ok;
     std::set<std::string> used;
     for (const std::string& src : skillDirs) {
+        if (is_engine_skill_path(src)) {  // a skill inside the binary: write its files
+            const std::string name = src.substr(kEngineSkillPrefix.size());
+            std::string unique = name;
+            for (int n = 2; !used.insert(unique).second; ++n) unique = name + "-" + std::to_string(n);
+            for (const std::string& file : fa::engine_skill_files(name)) {
+                const auto text = fa::engine_skill_read(name, file);
+                if (!text) continue;
+                if (auto ok = fs::write_text((fsys::path(dir) / "skills" / unique / file).string(), *text); !ok) return ok;
+            }
+            continue;
+        }
         std::string name = fsys::path(src).filename().string();
         if (name.empty() || name == "." || name == "..") name = "skill";
         std::string unique = name;
@@ -342,6 +366,17 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
         plan.received.push_back(std::move(item));
     }
     if (!hookSets.empty()) plan.hooks = merge_hooks(hookSets);
+    // The skills no entry names (the engine's, ~/.factoria/skills, <project>/skills) that this role is offered, for a provider that
+    // takes skill folders (plan.implicitSkillDirs). An entry's skills came in above, with its own roles; a text file needs no trust.
+    if (plan.support.skills) {
+        SkillsContext sctx;
+        sctx.projectDir = ctx.projectDir;
+        sctx.env = ctx.env;
+        const std::vector<SkillInfo> found = project.error.empty() ? scan_skills(cfg.extensions.entries, project.entries, sctx)
+                                                                    : scan_skills(cfg.extensions.entries, {}, sctx);
+        for (const SkillInfo& sk : found)
+            if (sk.entry.empty() && sk.offered_to(role) && seenSkill.insert(sk.dir).second) plan.implicitSkillDirs.push_back(sk.dir);
+    }
     plan.userPluginsOff = !cfg.extensions.inheritUserPlugins && plan.support.inheritSetting;
 
     // Notes: what the run did with the extensions, in the words of the user's settings.

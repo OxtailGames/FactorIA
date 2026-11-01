@@ -5,7 +5,9 @@
 #include <sstream>
 
 #include "fa/ai/session.h"
+#include "fa/ai/skills.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/skills.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -70,20 +72,10 @@ processes).
 
 %REVIEWABLE%)";
 
-// The convention that lets the critics and the reviewers (who only look and play) test the game quickly. Given to every role
-// that builds the game; docs/AI_PROVIDERS.md, "Reviews", and the game's AGENTS.md say the same.
-constexpr const char* kReviewable = R"(# Build the game so it can be reviewed
-The art critics and the game reviewers play the build WITHOUT editing anything, in a few minutes. Keep these in place and up
-to date as the game grows:
-- REVIEW.md at the project root (never exported): the note they read first. Sections: "How to play" (controls, the goal, what
-  a session looks like), "Status" (what is finished and what is a placeholder, so they do not judge placeholders as final),
-  "Reach everything fast" (every scene/level/state and how to get there in one step: scene paths for scene_load, a debug
-  menu or cheat keys, a tool in tools/*.js, saved states in review/, input replays), "Bot-playable flows" (replays or
-  tests that play the first minutes, a whole level, the ending) and "Known issues" (what not to report again).
-- Every scene and state a reviewer should see (a boss, the shop, game over, the last level) reachable in one call, not by
-  playing for an hour: a project tool, a start scene prop, or a save/state loaded by REVIEW.md.
-- Stable screenshots: deterministic seeds and no random camera shake or fades at the moment a screenshot is taken.
-- No debug overlay in normal play: cheats and debug entry points live behind a key, an action or a tool named in REVIEW.md.)";
+// The convention that lets the critics and the reviewers (who only look and play) test the game quickly, the craft of the artist
+// and the audio role, and the other topic guides are engine skills (skills/<name>/SKILL.md, embedded in the binary; docs/SKILLS.md).
+// The prompt carries one line per skill the role is offered; a context that did not look for skills (`skillsKnown` false) gets the
+// text of the review-ready, make-art and make-audio skills inline, as before skills existed.
 
 constexpr const char* kReadOnlyRules = R"(You are READ-ONLY: you never edit files, scenes or settings, never save, never generate assets, and never delegate. You
 have only the tools that observe and play (screenshots, running scenes, stepping and input, state, logs, reading files and
@@ -99,17 +91,12 @@ How to work:
    impact. Say what works too: the team must know what to keep.
 4. Your persona below changes what you notice and how you speak, never the facts.)";
 
-// The craft of the artist and the audio role. Their own prompts add what they do not do and that they cannot delegate; an
-// orchestrator whose artist or audio role is off gets this text too (it does the work itself).
-constexpr const char* kArtistGuide = R"(You make all of the game's art: images and textures (assets_generate_image, assets_generate_texture), SVG to PNG
-(assets_rasterize_svg), sprites, sprite sheets and atlases, tilesets, UI skins, icons, the choice of fonts, 3D models
-through the asset providers, and materials and the overall look (palette, lighting, post effects). Use the asset
-tools, not hand-pixelled placeholders, and LOOK at what you made: take screenshots (game_screenshot) of the art in the
-running game, at the real size, and fix it until it fits. Keep one art direction: palette, outline weight, perspective,
-scale and resolution consistent between assets, and write the choices where the next artist finds them (the project's
-art notes or REVIEW.md). Record each asset's source and license as the asset tools do.
-A character that moves is built in parts (child Sprites with pivots at the joints, bones where a limb bends, IK for feet) and
-animated with the anim.* commands, then judged with anim_filmstrip and anim_check: docs_read {"name":"ai-guide","heading":"9.25.2"}.)";
+// The artist and the audio role: what they make in a few lines; the craft is the skill make-art / make-audio. Their own prompts add
+// what they do not do and that they cannot delegate; an orchestrator whose artist or audio role is off gets the same guidance.
+constexpr const char* kArtistIntro = "You make all of the game's art: images, textures, sprites, tilesets, UI skins, 3D models, materials and the look. "
+                                     "Use the asset tools, LOOK at what you made in screenshots of the running game, and keep one art direction.";
+constexpr const char* kAudioIntro = "You make all of the game's audio: sound effects, music, ambience, voice, buses and mixing. Use the asset and audio "
+                                    "tools; you cannot hear, so check every clip with the analysis tools and audio_log.";
 constexpr const char* kArtist = R"(# Your role: artist
 %GUIDE%
 You do not write gameplay code (that is the worker) or audio (that is the audio role); hook the art into scenes and
@@ -118,12 +105,6 @@ still missing.
 
 %REVIEWABLE%)";
 
-constexpr const char* kAudioGuide = R"(You make all of the game's audio: sound effects, music, ambience and voice (assets_generate_sound, assets_generate_music,
-assets_generate_voice, the synth and audio tools), and the audio buses and mixing (volumes per bus, ducking, music
-that loops cleanly, no clipping). Listen with the analysis tools (loudness, peaks, duration, loop points) since you
-cannot hear: check every clip against the audio tools and the game's audio log (audio_log). Keep one sonic identity
-(instruments, mood, loudness between clips) and name and place files consistently under assets/. Record each asset's
-source and license as the asset tools do.)";
 constexpr const char* kAudio = R"(# Your role: audio
 %GUIDE%
 You do not write gameplay code or art; wire sounds into scripts only as far as needed to test them. You cannot delegate.
@@ -160,6 +141,34 @@ exceptional; give a score for every sub-score you could judge):
 ```json
 {"score": 7.0, "subScores": {"fun": 7, "gameFeel": 6, "design": 7, "ux": 6, "stability": 8, "polish": 6, "art": 7, "audio": 5}, "summary": "one sentence"}
 ```)";
+
+// The body of an engine skill (what skills_read gives), "" when this build has no such skill.
+std::string engine_body(const char* name) {
+    const auto text = fa::engine_skill_read(name);
+    if (!text) return {};
+    auto fm = fa::parse_skill_md(*text, name);
+    return fm ? std::string(fa::trim(fm->body)) : std::string();
+}
+
+bool has_skill(const PromptContext& ctx, std::string_view name) {
+    return std::any_of(ctx.skills.begin(), ctx.skills.end(), [&](const SkillBrief& s) { return s.name == name; });
+}
+
+// What the prompt says about a craft guide (make-art, make-audio): a pointer when the role is offered the skill, nothing when the
+// user switched it off for the role, the whole guide when skills were not looked for.
+std::string craft_guide(const PromptContext& ctx, const char* skill, const char* intro) {
+    std::string tool = ctx.skillTool.empty() ? "skills_read" : ctx.skillTool;
+    if (has_skill(ctx, skill))
+        return std::string(intro) + "\nYour craft guide is the skill `" + skill + "`: read it before you start (" + tool + " {\"name\": \"" + skill + "\"}).";
+    if (ctx.skillsKnown) return intro;
+    return engine_body(skill);
+}
+
+// The review-ready convention, as the role's prompt carries it: nothing (the skill's line says when to read it) or the whole text.
+std::string reviewable(const PromptContext& ctx) {
+    if (ctx.skillsKnown || has_skill(ctx, "review-ready")) return {};
+    return engine_body("review-ready");
+}
 
 std::string read_head(const fsys::path& p, std::size_t maxBytes) {
     std::ifstream f(p, std::ios::binary);
@@ -302,10 +311,10 @@ std::string build_system_prompt(const PromptContext& ctx) {
             if (is_off(kRoleArtist)) self += "- artist is off: make the art yourself with the asset tools (guidance below).\n";
             if (is_off(kRoleAudio)) self += "- audio is off: make the audio yourself with the asset and audio tools (guidance below).\n";
             if (is_off(kRoleArtist)) {
-                self += "\n## The art, which you make yourself\n" + std::string(kArtistGuide) + "\n";
+                self += "\n## The art, which you make yourself\n" + craft_guide(ctx, "make-art", kArtistIntro) + "\n";
             }
             if (is_off(kRoleAudio)) {
-                self += "\n## The audio, which you make yourself\n" + std::string(kAudioGuide) + "\n";
+                self += "\n## The audio, which you make yourself\n" + craft_guide(ctx, "make-audio", kAudioIntro) + "\n";
             }
         }
         if (ctx.canDelegate) {
@@ -324,21 +333,21 @@ std::string build_system_prompt(const PromptContext& ctx) {
             std::string role = fill(fill(fill(kOrchestrator, "%ROLES%", lines), "%HANDOFF%", handoff), "%SELF%", self);
             role += "\n";
             role += kOrchestratorDelegation;
-            role = fill(fill(role, "%TOOL%", tool), "%REVIEWABLE%", kReviewable);
+            role = fill(fill(role, "%TOOL%", tool), "%REVIEWABLE%", reviewable(ctx));
             out += role;
         } else {
-            out += fill(fill(kOrchestratorAlone, "%SELF%", self), "%REVIEWABLE%", kReviewable);
+            out += fill(fill(kOrchestratorAlone, "%SELF%", self), "%REVIEWABLE%", reviewable(ctx));
         }
         out += "\n\n";
     } else if (ctx.role == kRoleWorker) {
         out += "# Your role: worker\nYou implement the task you were given completely and report concisely. You cannot delegate.\n\n";
-        out += std::string(kReviewable) + "\n\n";
+        if (const std::string r = reviewable(ctx); !r.empty()) out += r + "\n\n";
     } else if (ctx.role == kRoleFast) {
         out += "# Your role: fast\nYou do small mechanical tasks quickly and report in a few lines. You cannot delegate.\n\n";
     } else if (ctx.role == kRoleArtist) {
-        out += fill(fill(kArtist, "%GUIDE%", kArtistGuide), "%REVIEWABLE%", kReviewable) + "\n\n";
+        out += fill(fill(kArtist, "%GUIDE%", craft_guide(ctx, "make-art", kArtistIntro)), "%REVIEWABLE%", reviewable(ctx)) + "\n\n";
     } else if (ctx.role == kRoleAudio) {
-        out += fill(fill(kAudio, "%GUIDE%", kAudioGuide), "%REVIEWABLE%", kReviewable) + "\n\n";
+        out += fill(fill(kAudio, "%GUIDE%", craft_guide(ctx, "make-audio", kAudioIntro)), "%REVIEWABLE%", reviewable(ctx)) + "\n\n";
     } else if (ctx.role == kRoleArtCritic) {
         out += fill(kArtCritic, "%READONLY%", kReadOnlyRules) + "\n\n";
     } else if (ctx.role == kRoleReviewer) {
@@ -349,6 +358,10 @@ std::string build_system_prompt(const PromptContext& ctx) {
     }
     if (const std::string section = external_tools_prompt(ctx.toolServers, is_review_role(ctx.role)); !section.empty())
         out += section + "\n\n";
+    if (!ctx.skillsNative) {
+        if (const std::string section = skills_prompt(ctx.skills, ctx.skillTool.empty() ? "skills_read" : ctx.skillTool); !section.empty())
+            out += section + "\n";
+    }
     if (!ctx.toolCatalog.empty()) out += ctx.toolCatalog + "\n";
     out += "# Project context\n";
     if (ctx.projectDir.empty()) {
