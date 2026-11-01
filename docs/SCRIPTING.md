@@ -1466,6 +1466,34 @@ A `toolVersion` your tool returns itself is kept. If a result lists old behaviou
 (MCP and `factoria call` print it next to the message; it is not appended to the message). Any other thrown Error is a script bug: code `failed`, the message with `file:line`, and it is
 also recorded as a script error. `ToolError` is not recorded as a script error.
 
+## Hook modules (`hooks/*.js`)
+
+A hook module is a JavaScript file in the project's `hooks/` folder that FactorIA runs when the AI or the engine reaches an event
+(before a tool call, after a command, when the AI wants to stop...). It is **not a game script and not a tool**: it runs in a
+QuickJS runtime of its own with the language and `console` and nothing else. There is no `world`, `fa`, `input` or `assets`, no
+`fetch`, no files, no timers and no way to start a program, which is why it needs no trust even in a downloaded project. It has the
+handler's `timeout` (default 60 s) and a 64 MB memory limit, and answers synchronously. `import "./helpers.js"` works for files inside
+the project; there are no packages.
+
+The module exports one function per event, named like the event (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+`PostToolUseFailure`, `Stop`, `SessionEnd`, `beforeCommand`, `afterCommand`), on the default export or as named exports; a default export
+that is a function is called for every event. The argument is the event as an object (`tool_name`, `tool_input`, `command`, `args`...) and the return
+value is the answer: `{decision: "block", reason}` refuses where the event can, `{continue: false, stopReason}` stops the run,
+`{hookSpecificOutput: {additionalContext, updatedInput}}` adds context or changes the arguments, a string is context for
+`SessionStart` and `UserPromptSubmit`, and nothing means "no opinion". `console.log` goes to the hook's log, not to the model.
+
+```js
+// hooks/guard.js
+export default {
+  PreToolUse(input) {
+    if (input.tool_name === "scene_delete") return { decision: "block", reason: "Ask the user before deleting a scene." };
+  },
+};
+```
+
+Register it in `extensions` (`{"type": "js", "module": "hooks/guard.js"}`), try it with `factoria call ai.hooks_test` or
+`factoria hooks run hooks/guard.js`. The events, the fields and every decision are in [HOOKS.md](HOOKS.md).
+
 ## Debugging
 
 F5 in VS Code runs the game (or the tests) with breakpoints, stepping, the Variables view and a debug console; the

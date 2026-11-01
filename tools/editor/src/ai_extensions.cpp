@@ -1,12 +1,15 @@
-// The "Extensions" tab of the AI settings window: the plugins, skill folders and hooks the CLI agents load (Claude Code), from
+// The "Extensions" tab of the AI settings window: the plugins, skill folders and hooks the AI agents load (Claude Code; hooks also the API providers), from
 // the user's ai.json ("extensions") and from the open project's .factoria/extensions.json. Save writes only those two places
 // (ai::save_extensions keeps every other key of ai.json) and reloads. A project's plugins and hooks run only after the user
-// trusts the project here (docs/EDITOR.md "AI settings", docs/AI_PROVIDERS.md "Extensions").
+// trusts the project here (docs/EDITOR.md "AI settings", docs/AI_PROVIDERS.md "Extensions"). The last section lists the hooks as
+// saved (what `ai.hooks` returns) and the recent runs of this editor, failures in red (docs/HOOKS.md).
 #include <algorithm>
 #include <cfloat>
+#include <ctime>
 #include <filesystem>
 
 #include "editor_internal.h"
+#include "fa/ai/command_hooks.h"
 #include "fa/ai/extension_plan.h"
 #include "fa/core/strings.h"
 
@@ -79,7 +82,139 @@ std::string hook_commands(const Json& hooks) {
 
 std::size_t hook_events(const Json& hooks) { return hooks.is_object() ? hooks.size() : 0; }
 
+std::string run_result(const Json& r) {
+    if (r.value("timedOut", false)) return "timed out";
+    if (r.value("failed", false)) return "failed";
+    const std::string decision = r.value("decision", std::string());
+    return decision.empty() ? "ok" : decision;
+}
+
 }  // namespace
+
+// The "Hooks" section: every handler of the saved hooks entries with where it runs, then the recent runs of this editor.
+void Editor::draw_ai_hooks_view(const Json& report) {
+    const float em = ImGui::GetFontSize();
+    ImGui::SeparatorText("Hooks");
+    ImGui::TextDisabled("As saved, with the runs of this editor since it started. Claude Code's own runs are in its transcript, not here.");
+    const Json entries = report.value("entries", Json::array());
+    std::size_t handlers = 0;
+    if (ImGui::BeginTable("##hookhandlers", 6, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("Entry", ImGuiTableColumnFlags_WidthFixed, em * 8.0f);
+        ImGui::TableSetupColumn("Event", ImGuiTableColumnFlags_WidthFixed, em * 8.5f);
+        ImGui::TableSetupColumn("Matcher", ImGuiTableColumnFlags_WidthFixed, em * 7.0f);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, em * 5.0f);
+        ImGui::TableSetupColumn("Handler", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Runs in", ImGuiTableColumnFlags_WidthFixed, em * 11.0f);
+        ImGui::TableHeadersRow();
+        for (const Json& e : entries) {
+            if (!e.is_object() || !e.contains("events")) continue;
+            const std::string name = e.value("name", std::string()) + (e.value("source", std::string()) == "project" ? " (project)" : "");
+            const std::string problem = e.value("problem", std::string());
+            const bool off = !e.value("enabled", true) || !problem.empty();
+            for (const auto& [event, groups] : e["events"].items()) {
+                for (const Json& g : groups) {
+                    for (const Json& h : g.value("handlers", Json::array())) {
+                        ++handlers;
+                        const std::string type = h.value("type", std::string());
+                        const bool engineEvent = event == "beforeCommand" || event == "afterCommand";
+                        ImGui::TableNextRow();
+                        if (off) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(name.c_str());
+                        if (!problem.empty()) ImGui::SetItemTooltip("Not run: %s", problem.c_str());
+                        else if (!e.value("enabled", true)) ImGui::SetItemTooltip("Switched off in the list above.");
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(event.c_str());
+                        ImGui::TableNextColumn();
+                        const std::string matcher = g.value("matcher", std::string());
+                        ImGui::TextUnformatted(matcher.empty() ? "(all)" : matcher.c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(type.c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(h.value("target", std::string()).c_str());
+                        ImGui::SetItemTooltip("%s", h.value("target", std::string()).c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(engineEvent                     ? "FactorIA, all callers"
+                                               : h.value("runsHere", false) ? "Every provider"
+                                                                            : "Claude Code only");
+                        if (off) ImGui::PopStyleColor();
+                    }
+                }
+            }
+        }
+        ImGui::EndTable();
+    }
+    if (handlers == 0) ImGui::TextDisabled("No hooks yet. Paste a hooks JSON above, or write them in .factoria/extensions.json (docs/HOOKS.md).");
+    for (const Json& e : entries)
+        if (e.is_object() && e.contains("problem") && e.contains("events") && !e["events"].empty() && e.value("enabled", true))
+            ImGui::TextColored(kStatusWarn, "%s: %s", e.value("name", std::string()).c_str(), e.value("problem", std::string()).c_str());
+    if (report.contains("projectFileError"))
+        ImGui::TextColored(kStatusFailed, "The project's extensions file is ignored: %s", report["projectFileError"].get<std::string>().c_str());
+    for (const Json& n : report.value("notRun", Json::array()))
+        if (n.is_string()) ImGui::TextDisabled("%s", n.get<std::string>().c_str());
+
+    // The recent runs, newest first.
+    const Json runs = report.value("recentRuns", Json::array());
+    std::size_t failed = 0;
+    for (const Json& r : runs) failed += r.value("failed", false) ? 1 : 0;
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Recent runs: %zu", runs.size());
+    if (failed > 0) {
+        ImGui::SameLine();
+        ImGui::TextColored(kStatusFailed, "%zu failed", failed);
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(runs.empty());
+    if (ImGui::SmallButton("Clear")) {
+        ai::clear_recent_hook_runs();
+        aiSettings_.ext.hooksAt = -10;
+    }
+    ImGui::EndDisabled();
+    at_track("aiset:ext:hooks-clear", !runs.empty());
+    ImGui::SetItemTooltip("Forget the list of runs (the hooks stay).");
+    if (runs.empty()) {
+        ImGui::TextDisabled("No hook has run in this editor yet. A hook runs when the built-in AI (API providers) or a command of the engine reaches its event.");
+        return;
+    }
+    if (ImGui::BeginTable("##hookruns", 6, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("When", ImGuiTableColumnFlags_WidthFixed, em * 4.5f);
+        ImGui::TableSetupColumn("Event", ImGuiTableColumnFlags_WidthFixed, em * 8.5f);
+        ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, em * 9.0f);
+        ImGui::TableSetupColumn("Handler", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Result", ImGuiTableColumnFlags_WidthFixed, em * 5.5f);
+        ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, em * 3.5f);
+        ImGui::TableHeadersRow();
+        const i64 now = static_cast<i64>(std::time(nullptr));
+        int row = 0;
+        for (auto it = runs.rbegin(); it != runs.rend() && row < 25; ++it, ++row) {
+            const Json& r = *it;
+            const bool bad = r.value("failed", false);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(format_clock(r.value("startedMs", static_cast<i64>(0)) / 1000, now).c_str());
+            if (row == 0) at_track("aiset:ext:hookrun:first");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(r.value("event", std::string()).c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(r.value("matched", std::string()).c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted((r.value("extension", std::string()) + ": " + r.value("target", std::string())).c_str());
+            std::string tip = r.value("extension", std::string()) + " (" + r.value("source", std::string()) + "): " + r.value("target", std::string());
+            for (const char* key : {"error", "reason", "output", "stderr"})
+                if (r.contains(key) && r[key].is_string() && !r[key].get<std::string>().empty()) tip += std::string("\n") + key + ": " + r[key].get<std::string>();
+            if (r.contains("exitCode")) tip += "\nexit code " + std::to_string(r["exitCode"].get<int>());
+            ImGui::SetItemTooltip("%s", tip.c_str());
+            ImGui::TableNextColumn();
+            if (bad) ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
+            else if (r.value("decision", std::string()) == "block") ImGui::PushStyleColor(ImGuiCol_Text, kStatusWarn);
+            ImGui::TextUnformatted(run_result(r).c_str());
+            if (bad || r.value("decision", std::string()) == "block") ImGui::PopStyleColor();
+            ImGui::TableNextColumn();
+            ImGui::Text("%.0f", r.value("ms", 0.0));
+        }
+        ImGui::EndTable();
+    }
+}
 
 void Editor::ai_extensions_load(const ai::AiConfig& cfg) {
     auto& x = aiSettings_.ext;
@@ -122,8 +257,9 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     const float footerH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f + ImGui::GetTextLineHeightWithSpacing() * 2.0f;
     ImGui::BeginChild("##aiextbody", ImVec2(0, -footerH));
     ImGui::TextWrapped("Plugins, skills and hooks the AI agents load besides FactorIA's own tools: a plugin folder (or .zip, or one you installed "
-                       "in Claude Code), a skill folder, hooks that run a program on an event. Only Claude Code takes them today; Codex and the "
-                       "API providers (anthropic, openai-compatible) do not use extensions yet, and the run says so.");
+                       "in Claude Code), a skill folder, hooks that run a program or a script on an event. Claude Code takes them all. "
+                       "The API providers (anthropic, openai-compatible) run the hooks (not plugins or skills), and so does the engine around "
+                       "its own commands; Codex uses no extensions yet, and the run says so.");
 
     // What stops each entry from loading, looked up once a second (it reads the disk).
     ai::ExtensionContext ctx;
@@ -146,6 +282,11 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
             }
         }
         x.statusAt = ImGui::GetTime();
+    }
+    // The hooks as saved and the runs this editor made, looked up once a second as well (reads the disk).
+    if (ImGui::GetTime() - x.hooksAt > 1.0) {
+        x.hooksReport = ai::hooks_report(cfg, ctx, "", 40);
+        x.hooksAt = ImGui::GetTime();
     }
 
     // ------------------------------------------------------------------------------------------------ the list
@@ -466,6 +607,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         // Deny rules in the project's Claude Code settings that take FactorIA's own tools away.
         for (const ai::DeniedTool& denied : ai::find_denied_factoria_tools(projectDir_)) wrapped(kStatusWarn, ai::format_denied_tool(denied));
     }
+    draw_ai_hooks_view(x.hooksReport);
     ImGui::EndChild();
 
     // ------------------------------------------------------------------------------------------------ footer

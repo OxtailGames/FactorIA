@@ -20,6 +20,7 @@
 
 #include "autotest_sections.h"
 #include "editor_internal.h"
+#include "fa/ai/command_hooks.h"
 #include "fa/ai/extension_plan.h"
 #include "sokol_app.h"
 #include "imgui_internal.h"
@@ -4988,6 +4989,153 @@ void Editor::at_build_tools_script() {
                 stdfs::remove(x->claudeFile, ec);
                 stdfs::remove(projectDir_ + "/.claude", ec);  // only when it is empty
             }
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) {
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+            aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
+    section("H2");
+    // The Hooks section of the Extensions tab (docs/HOOKS.md, docs/EDITOR.md): the saved hooks with where each handler runs, then the
+    // recent runs of this editor with the failures marked. The handlers really run (ai::test_hooks, what `ai.hooks_test` calls): a
+    // program that answers, one that exits with an error, a JavaScript module that blocks; Clear forgets the list.
+    {
+        struct HState {
+            std::string path, previousEnv, module;
+            bool hadEnv = false, hadHooksDir = false;
+            std::vector<ai::ProviderStatus> savedStatus;
+        };
+        auto x = std::make_shared<HState>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
+        auto current_config = [this] {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            return aiConfig_;
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load() && !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            x->path = atOutDir_ + "/ai_hooks_scratch.json";
+            x->module = projectDir_ + "/hooks/autotest_gate.js";
+            const char* current = std::getenv("FACTORIA_AI_CONFIG");
+            x->hadEnv = current != nullptr;
+            x->previousEnv = current ? current : "";
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                x->savedStatus = aiStatus_;
+            }
+            std::error_code ec;
+            x->hadHooksDir = stdfs::exists(projectDir_ + "/hooks", ec);
+            write_file(x->module, "export default {\n  PreToolUse(input) {\n    if (input.tool_name === \"scene_delete\") return { decision: \"block\", reason: \"autotest: no deletes\" };\n  },\n};\n");
+            write_file(x->path, R"j({
+  "extensions": {
+    "hooks": {
+      "audit": {
+        "hooks": {
+          "PostToolUse": [{ "matcher": "scene_*", "hooks": [{ "type": "command", "command": "echo audited" }] }],
+          "beforeCommand": [{ "matcher": "scene.spawn", "hooks": [{ "type": "command", "command": "exit 3" }] }],
+          "Stop": [{ "hooks": [{ "type": "http", "url": "https://example.invalid/stop" }] }]
+        }
+      },
+      "gate": {
+        "hooks": { "PreToolUse": [{ "matcher": "scene_delete", "hooks": [{ "type": "js", "module": "hooks/autotest_gate.js" }] }] }
+      }
+    }
+  }
+})j");
+            ai::clear_recent_hook_runs();
+            set_env("FACTORIA_AI_CONFIG", x->path);
+            ai_refresh_providers();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { focus_window("AI Assistant"); });
+        click("menu:ai");
+        click("menu:ai-settings");
+        step(4, [this, x] {
+            at_check(showAiSettings_ && aiSettings_.loaded && aiSettings_.path == x->path, "AI > AI Settings... opens the window on the scratch file");
+            aiSettingsTab_ = 4;  // Extensions
+            aiSettings_.ext.hooksAt = -10;
+        });
+        // Nothing has run: the saved hooks are listed, the list of runs is empty.
+        step(4, [this] {
+            const Json& r = aiSettings_.ext.hooksReport;
+            at_check(r.is_object() && r.value("entries", Json::array()).size() == 2, "the saved report lists the two hooks entries");
+            at_check(r.value("recentRuns", Json::array()).empty(), "no hook has run yet");
+            at_check(at_visible("aiset:ext:hooks-clear") && !at_enabled("aiset:ext:hooks-clear"), "Clear is there and disabled while the list is empty");
+        });
+        // Three real runs: a program that answers, a program that fails, a JavaScript module that blocks.
+        step(3, [this, current_config] {
+            const ai::AiConfig cfg = current_config();
+            at_check(cfg.extensions.entries.size() == 2, "the editor loaded the two hooks entries from the scratch file");
+            const ai::ExtensionContext ctx = ai::make_extension_context(cfg, projectDir_, ai::system_env());
+            auto post = ai::test_hooks(cfg, ctx, ai::HookEvent::PostToolUse, "scene_spawn",
+                                       Json::object({{"tool_name", "scene_spawn"}, {"tool_input", Json::object()}}), "orchestrator", nullptr);
+            at_check(post && (*post)["outcome"]["runs"].size() == 1 && !(*post)["outcome"]["failed"].get<bool>(),
+                     "a PostToolUse program ran and answered");
+            auto before = ai::test_hooks(cfg, ctx, ai::HookEvent::BeforeCommand, "scene.spawn",
+                                         Json::object({{"command", "scene.spawn"}, {"args", Json::object()}}), "orchestrator", nullptr);
+            at_check(before && (*before)["outcome"]["failed"].get<bool>(), "a beforeCommand program that exits with 3 is a failed run");
+            auto gate = ai::test_hooks(cfg, ctx, ai::HookEvent::PreToolUse, "scene_delete",
+                                       Json::object({{"tool_name", "scene_delete"}, {"tool_input", Json::object()}}), "orchestrator", nullptr);
+            at_check(gate && (*gate)["outcome"]["blocked"].get<bool>(),
+                     "the JavaScript module blocked scene_delete (" + (gate ? (*gate)["outcome"].dump() : gate.error().to_string()) + ")");
+            aiSettings_.ext.hooksAt = -10;
+        });
+        step(4, [this] {
+            const Json& r = aiSettings_.ext.hooksReport;
+            const Json runs = r.value("recentRuns", Json::array());
+            at_check(runs.size() == 3, "the tab reads the three runs (" + std::to_string(runs.size()) + ")");
+            int failed = 0, blocked = 0;
+            for (const Json& run : runs) {
+                failed += run.value("failed", false) ? 1 : 0;
+                blocked += run.value("decision", std::string()) == "block" ? 1 : 0;
+            }
+            at_check(failed == 1 && blocked == 1, "...one failed and one blocked");
+            bool httpOnlyClaude = false;
+            for (const Json& e : r.value("entries", Json::array()))
+                if (e.value("name", std::string()) == "audit")
+                    for (const Json& g : e["events"]["Stop"])
+                        for (const Json& h : g["handlers"]) httpOnlyClaude = h.value("type", std::string()) == "http" && !h.value("runsHere", true);
+            at_check(httpOnlyClaude, "an http handler is listed as one FactorIA does not run");
+        });
+        scroll_to("aiset:ext:hooks-clear", "AI settings###AiSettings");  // the Hooks section is the last of a long page
+        step(3, [this] {
+            at_check(at_shown("aiset:ext:hooks-clear") && at_enabled("aiset:ext:hooks-clear"), "Clear is shown and enabled once there are runs");
+            at_check(at_shown("aiset:ext:hookrun:first"), "the newest run is on screen");
+        });
+        snap("editor_ai_hooks.png");
+        click("aiset:ext:hooks-clear");
+        step(4, [this] {
+            at_check(ai::recent_hook_runs().empty(), "Clear forgot the runs");
+            at_check(aiSettings_.ext.hooksReport.value("recentRuns", Json::array()).empty(), "...and the tab shows none");
+        });
+        click("aiset:ext:close");
+        step(4, [this] { at_check(!showAiSettings_ && !aiSettings_.loaded, "Close closes the window and drops the draft"); });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            set_env("FACTORIA_AI_CONFIG", x->hadEnv ? x->previousEnv : std::string());
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            stdfs::remove(x->module, ec);
+            if (!x->hadHooksDir) stdfs::remove(projectDir_ + "/hooks", ec);  // only when it is empty
+            ai::clear_recent_hook_runs();
             std::lock_guard<std::mutex> lock(aiMu_);
             if (atSavedConfig_) {
                 aiConfig_ = std::move(*atSavedConfig_);
