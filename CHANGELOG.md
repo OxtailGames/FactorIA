@@ -29,6 +29,7 @@ FactorIA 0.12.0 (M47) fixes the two gaps the user's own game, Roguestory, report
 
 - `game.input` presses (actions, keys, mouse buttons, gamepad buttons, touches, `back`) injected while the game is paused in the editor were lost before `game.step` could simulate a frame, so `input.pressed(...)` never fired; the pressed/released edge now waits for the next simulated frame.
 - An Interactable that stops being a hit target (inactive, or hidden from its camera) no longer keeps its hovered/pressed/focused flags.
+- On OpenGL, a `Camera.renderTarget` drawn before any `Camera.colorFilter` had been used left its texture blank and broke the colour filter for the rest of the run: the flip copy asked for the filter's pipeline before its shader existed and the failed pipeline stayed cached. The pipeline now makes its shader itself, and a pipeline asked for without a ready shader is reported and never cached.
 
 ## 0.11.1
 

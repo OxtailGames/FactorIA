@@ -524,7 +524,7 @@ TextureAsset* Renderer::Impl::resolve_target(const std::string& name) {
 
 // GL stores render targets bottom-up: copy the finished picture the right way up into the image the texture asset samples.
 void Renderer::Impl::flip_copy(ViewTarget& t) {
-    if (!t.flipCopy || !t.flip.id) return;
+    if (!t.flipCopy || !t.flip.id || !gpu.colorfilter_ready()) return;  // the copy draws with the colour filter's shader
     sg_pass p{};
     p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
     p.action.colors[0].store_action = SG_STOREACTION_STORE;
