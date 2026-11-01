@@ -609,6 +609,8 @@ public:
     // Camera.colorFilter: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
     // error when it cannot be created, and the game is then drawn unfiltered.
     bool colorfilter_ready();
+    // Makes the shader first when nothing has yet (GL's render-target flip copy can be its first user); invalid when the
+    // shader cannot be created.
     sg_pipeline colorfilter_pipeline();
 
     // The 2D light buffer (light.glsl). Its shader is created on first use, like the bloom ones; false + one logged error
