@@ -7,6 +7,7 @@
 #include "common.h"
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
+#include "fa/ai/extension_plan.h"
 #include "fa/ai/progress_file.h"
 #include "fa/ai/review.h"
 #include "fa/ai/session.h"
@@ -71,15 +72,20 @@ Command make_ai_command() {
     Command doctor;
     doctor.name = "doctor";
     doctor.summary = "Check which AI providers are usable (CLIs installed, keys visible). Never prints keys.";
-    doctor.flags = {{"json", "", "Machine-readable output."}};
-    doctor.examples = {"factoria ai doctor", "factoria ai doctor --json"};
+    doctor.flags = {{"json", "", "Machine-readable output."},
+                    {"project", "DIR", "Project folder whose extensions and Claude Code deny rules to check (default: the current folder when it is a project)."}};
+    doctor.examples = {"factoria ai doctor", "factoria ai doctor --json", "factoria ai doctor --project examples/pong"};
     doctor.run = [](Context& ctx) {
         ai::AiConfig cfg = load_config_or_throw();
+        std::string projectDir = ctx.args.str("project");
+        if (projectDir.empty() && fsys::exists(fsys::path(kProjectFileName))) projectDir = fsys::current_path().string();
         if (ctx.args.has("json")) {
-            print_json(ctx.out, providers_report(cfg, true));
+            Json rep = providers_report(cfg, true);
+            rep["extensions"] = ai::extensions_report(cfg, ai::make_extension_context(cfg, projectDir, ai::system_env()));
+            print_json(ctx.out, rep);
             return 0;
         }
-        ctx.out << ai::format_doctor_report(cfg, ai::detect_providers(cfg));
+        ctx.out << ai::format_doctor_report(cfg, ai::detect_providers(cfg), ai::system_env(), projectDir);
         return 0;
     };
 

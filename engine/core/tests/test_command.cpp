@@ -143,3 +143,47 @@ TEST_CASE("command progress: reports reach the sink of the calling thread's scop
     CHECK(outer == std::vector<std::string>{"one", "three"});
     CHECK(inner == std::vector<std::string>{"two"});
 }
+
+TEST_CASE("CommandRegistry interceptor: refuse, change the arguments, add to the result, skip what it does not want") {
+    CommandRegistry reg;
+    for (const char* name : {"t.echo", "t.skipped", "t.refused"}) {
+        CommandInfo info;
+        info.name = name;
+        info.summary = "Returns its arguments.";
+        reg.add(info, [](const Json& a) { return Json::object({{"args", a}}); });
+    }
+    int afters = 0;
+    double lastMs = -1;
+    auto icp = std::make_shared<CommandInterceptor>();
+    icp->wants = [](std::string_view n) { return n != "t.skipped"; };
+    icp->before = [](std::string_view n, Json& args) -> std::optional<CommandResult> {
+        if (n == "t.refused") return CommandResult{false, Json(), Json::object({{"code", "refused"}, {"message", "no"}})};
+        args["added"] = 1;
+        return std::nullopt;
+    };
+    icp->after = [&](std::string_view, const Json&, CommandResult& r, double ms) {
+        ++afters;
+        lastMs = ms;
+        if (r.ok) r.result["seen"] = true;
+    };
+    CHECK_FALSE(reg.has_interceptor());
+    reg.set_interceptor(icp);
+    CHECK(reg.has_interceptor());
+
+    auto refused = reg.call("t.refused");
+    REQUIRE_FALSE(refused.ok);
+    CHECK(refused.error["code"] == "refused");
+    CHECK(afters == 0);  // refused: the handler did not run and `after` was not called
+    auto changed = reg.call("t.echo", Json::object({{"x", 1}}));
+    REQUIRE(changed.ok);
+    CHECK(changed.result["args"]["added"] == 1);
+    CHECK(changed.result["seen"] == true);
+    CHECK(lastMs >= 0);
+    auto skipped = reg.call("t.skipped");
+    REQUIRE(skipped.ok);
+    CHECK_FALSE(skipped.result.contains("seen"));
+    CHECK(afters == 1);
+    reg.set_interceptor(nullptr);
+    CHECK_FALSE(reg.has_interceptor());
+    CHECK_FALSE(reg.call("t.echo").result.contains("seen"));
+}

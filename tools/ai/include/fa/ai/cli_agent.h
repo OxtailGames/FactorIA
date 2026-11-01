@@ -45,6 +45,17 @@ struct CliRunRequest {
     // gets them in the {mcp_config} file and `mcp__<name>` in --allowedTools; Codex (default argv) gets `-c mcp_servers.<name>.*`
     // arguments; any other CLI finds them in the {mcp_config} file if its argv has that placeholder.
     std::vector<ResolvedToolServer> toolServers;
+    // Extensions (plan_extensions, extension_plan.h): plugin folders / .zip files (`--plugin-dir` for Claude Code, {plugin_dirs}
+    // for a generic CLI), skill folders (Claude Code: copied into a plugin written for the run), the merged hooks (a private
+    // settings file for the run: `--settings` for Claude Code, {settings} for a generic CLI) and whether the user's own
+    // Claude Code plugins and settings stay out (`--setting-sources project,local`).
+    std::vector<std::string> pluginDirs;
+    std::vector<std::string> skillDirs;
+    Json hooks;
+    bool userPluginsOff = false;
+    // The project's .claude/settings*.json runs a program or widens what the AI may do (env, allowed tools) and the project is not trusted: Claude Code starts without the
+    // project and local setting sources (ExtensionPlan::projectSettingsOff).
+    bool projectSettingsOff = false;
     // Called once with the CLI process's pid when it started (ProcessOptions::onStart).
     std::function<void(long long pid)> onStart;
     // Asked after every parsed line with the usage so far (tokens, cost and whether the cost is an estimate); true kills
@@ -66,13 +77,18 @@ struct CliRunResult {
     bool cancelled = false;
 };
 
-// {prompt} {model} {project} {mcp_config} {session} {project_json} {factoria} {factoria_json}.
+// {prompt} {model} {project} {mcp_config} {session} {settings} {plugin_dirs} {project_json} {factoria} {factoria_json}.
 // Elements whose placeholder expands to an empty string are dropped together with
 // a preceding bare flag ("-m", "{model}" disappears when no model is set; "--resume", "{session}" when
 // there is no session to continue yet).
+// {settings} is the run's private hooks settings file (`settingsPath`); {plugin_dirs} is the plugin folders of the run
+// (`pluginDirs`): the element "{plugin_dirs}" after a bare flag repeats the flag once per folder ("--plugin-dir", "{plugin_dirs}"
+// -> --plugin-dir a --plugin-dir b), an element that only contains it ("--plugins={plugin_dirs}") repeats once per folder, and
+// with no folder the element goes away with its flag.
 // A template without {prompt} gets the prompt on standard input (the built-in ones do).
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
-                                         const std::string& mcpConfigPath, const std::string& factoriaCommand);
+                                         const std::string& mcpConfigPath, const std::string& factoriaCommand,
+                                         const std::string& settingsPath = {}, const std::vector<std::string>& pluginDirs = {});
 
 // The permission rules for the sites in `domains`, as Claude Code names them: `WebFetch(domain:host)` and the same for the host
 // with or without "www." (the rule matches the exact host).
@@ -83,6 +99,16 @@ std::vector<std::string> web_fetch_rules(const std::vector<std::string>& domains
 // built-in argv and a read-only role gets `--sandbox read-only` and `--read-only` for the FactorIA MCP server it starts.
 // Other CLIs are left alone.
 void apply_role_restrictions(ProviderKind kind, bool builtInArgv, const CliRunRequest& req, std::vector<std::string>& argv);
+
+// Adds the extensions of `req` to an expanded argv. Claude Code: `--plugin-dir <dir>` for every folder in `pluginDirs`,
+// `--settings <settingsPath>` when there is one, and `--setting-sources` with the sources that stay: `project,local` when
+// req.userPluginsOff (inheritUserPlugins false), `user` when req.projectSettingsOff (the project is not trusted), an empty
+// value when both. A flag the
+// template already produced through {plugin_dirs} / {settings} (`templateHasPluginDirs` / `templateHasSettings`) or that is
+// already in the argv is not added twice. Other CLIs get nothing here: only their {plugin_dirs} / {settings} placeholders.
+void apply_extension_args(ProviderKind kind, bool templateHasPluginDirs, bool templateHasSettings, const CliRunRequest& req,
+                          const std::vector<std::string>& pluginDirs, const std::string& settingsPath,
+                          std::vector<std::string>& argv);
 
 // True when the template of this provider (its "argv", else the built-in one) has a {session} placeholder: the CLI can
 // continue an earlier session, so a follow-up message needs only the new task.

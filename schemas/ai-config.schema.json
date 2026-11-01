@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "FactorIA AI config (~/.factoria/ai.json)",
-  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), the asset providers that generate images, sounds and 3D models, the websites the AI should search for assets, and the external tool servers (MCP) the AI may use (mcpServers). Lives in the user's home, NEVER inside a game project.",
+  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles (orchestrator, worker, fast, artist, audio, artCritic, reviewer), the asset providers that generate images, sounds and 3D models, the websites the AI should search for assets, and the external tool servers (MCP) the AI may use (mcpServers), and the extensions (plugins, skills, hooks) the CLI agents load (extensions). Lives in the user's home, NEVER inside a game project.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -43,6 +43,18 @@
       "type": "object",
       "description": "External tool servers (MCP) the AI may use when it helps the game, for example Scenario (AI game art) or a local program. The key is the server's name ([A-Za-z0-9_-], not \"factoria\"). The shape follows Claude Code's .mcp.json (type, url, headers, command, args, env) plus FactorIA's apiKeyEnv, apiKey, note, roles, enabled and timeoutSeconds. Only this user file can add servers, never a game project. The editor's AI settings window (External tools tab) edits this section. Example: {\"scenario\": {\"type\": \"http\", \"url\": \"https://mcp.scenario.com/mcp\", \"headers\": {\"Authorization\": \"Basic {key}\"}, \"apiKeyEnv\": \"SCENARIO_MCP_KEY\", \"note\": \"AI game art: sprites, textures, icons\"}}. See docs/AI_PROVIDERS.md, \"External tools (MCP servers)\".",
       "additionalProperties": { "$ref": "#/$defs/toolServer" }
+    },
+    "extensions": { "$ref": "#/$defs/extensions" },
+    "savers": {
+      "type": "object",
+      "description": "The engine's own token savers, which run in FactorIA's own agent loop (the API providers: anthropic, openai-compatible; Claude Code and Codex run their own loops). Their cost counts in the run's costs and limits. Each has a switch in the editor's AI settings > Extensions tab. Loop guard: the same command failing with the same error code three times in one run gets ONE short redirect (what failed, the error's hint, try another way) without asking the model anything. Learned tool groups: the tools a project's runs load from the catalog are counted, and the editor proposes the groups to load up front; applied only when you accept, nothing is ever denied. Project facts: a command that fails the same way in several runs until a fix works proposes one line for the project's AGENTS.md; written only when you accept. `ai.savers` shows the state and the proposals, `ai.saver_group` and `ai.saver_fact` accept or decline them. Example: {\"loopGuard\": true, \"loopGuardJudge\": \"fast\", \"projectFacts\": false}. See docs/AI_PROVIDERS.md, \"Token savers\".",
+      "properties": {
+        "loopGuard": { "type": "boolean", "default": true, "description": "true: after the same command fails with the same error code three times in one run, the third error carries one short redirect for the model. No model call is made for it (unless loopGuardJudge is set). false: never." },
+        "loopGuardJudge": { "type": "string", "default": "", "description": "A role (orchestrator, worker, fast, artist, audio, artCritic, reviewer) whose model reads the stuck run and writes the redirect, instead of the engine's fixed text. It costs one short model call per redirect, counted in the run's cost and limits. It must be a role on an API provider; otherwise the fixed text is used and the run says so. \"\" (default): no judge." },
+        "learnedToolGroups": { "type": "boolean", "default": true, "description": "true: count, per project, the commands the runs load from the tool catalog (tool_describe, or tool_call of a command that is not offered in full) and which groups (command categories) they belong to, so the editor can propose loading a group up front. Nothing is applied until you accept, and nothing is ever denied. The counts are kept in the project's .factoria/ai/savers.json." },
+        "projectFacts": { "type": "boolean", "default": true, "description": "true: remember, per project, a command that failed with the same error code in several runs until a call of it worked, and propose one line for the project's AGENTS.md. It is written only when you accept (editor, or `ai.saver_fact`)." }
+      },
+      "additionalProperties": false
     },
     "roles": {
       "type": "object",
@@ -92,6 +104,65 @@
       },
       "additionalProperties": false
     },
+    "extensions": {
+      "type": "object",
+      "description": "Extensions the CLI agents (Claude Code, a generic CLI with {plugin_dirs} / {settings} in its argv) load for a run: plugins (a directory, a .zip, or a Claude Code name@marketplace you installed), skill folders and hooks (Claude Code's hooks shape). Each entry has roles and enabled, like mcpServers. The same section is read from a game project's .factoria/extensions.json (without inheritUserPlugins); a plugin or a hook that comes from a project, and what the project's .claude/settings*.json runs or allows (hooks, plugins, env, permissions.allow...), apply only after you trust the project in AI settings > Extensions (until then Claude Code starts without the project and local setting sources). The API providers (anthropic, openai-compatible) run the hooks in FactorIA's own loop (docs/HOOKS.md) but use no plugins or skills yet; Codex gets none (FactorIA could not verify how it takes them). The editor's AI settings window (Extensions tab) edits this section. Example: {\"plugins\": {\"notes\": {\"path\": \"~/plugins/notes\"}, \"superpowers\": {\"plugin\": \"superpowers@claude-plugins-official\", \"roles\": [\"worker\"]}}, \"skills\": {\"gdd\": {\"path\": \"~/skills/gdd\"}}, \"hooks\": {\"log-edits\": {\"hooks\": {\"PostToolUse\": [{\"matcher\": \"Edit|Write\", \"hooks\": [{\"type\": \"command\", \"command\": \"echo edited >> ~/edits.log\"}]}]}}}}. See docs/AI_PROVIDERS.md, \"Extensions\".",
+      "properties": {
+        "inheritUserPlugins": { "type": "boolean", "default": true, "description": "true (the default): Claude Code also loads the plugins, skills and hooks of your own Claude Code setup (~/.claude and the project's .claude), as it always did. false: a FactorIA run loads only the extensions listed here (Claude Code is started with --setting-sources project,local, which drops ALL your user-level Claude Code settings: plugins, skills, hooks, permissions and env). User file only." },
+        "plugins": {
+          "type": "object",
+          "description": "Plugins by name ([A-Za-z0-9_-], up to 40 characters).",
+          "additionalProperties": { "$ref": "#/$defs/extensionPlugin" }
+        },
+        "skills": {
+          "type": "object",
+          "description": "Skill folders by name. Each is a folder with a SKILL.md, or a folder of such folders.",
+          "additionalProperties": { "$ref": "#/$defs/extensionSkill" }
+        },
+        "hooks": {
+          "type": "object",
+          "description": "Hook sets by name. Each holds Claude Code's hooks (events with matchers and commands).",
+          "additionalProperties": { "$ref": "#/$defs/extensionHooks" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "extensionPlugin": {
+      "type": "object",
+      "description": "One plugin: set path (a directory or a .zip) or plugin (name@marketplace of a Claude Code plugin you installed with `claude plugin install`).",
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "description": "A plugin directory or a .zip. ~ is the home folder. In ai.json it must be absolute or start with ~; in a project's extensions.json it may be relative to the project." },
+        "plugin": { "type": "string", "minLength": 1, "pattern": "^[^@\\s]+@[^@\\s]+$", "description": "name@marketplace of an installed Claude Code plugin; FactorIA finds its folder in ~/.claude/plugins/installed_plugins.json." },
+        "note": { "type": "string", "description": "What the extension is for (shown in the settings and in `factoria ai doctor`)." },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/roleName" }, "description": "Which roles load it. Default: orchestrator, worker, fast, artist, audio." },
+        "enabled": { "type": "boolean", "default": true, "description": "false keeps the entry but no run loads it." }
+      },
+      "additionalProperties": false
+    },
+    "extensionSkill": {
+      "type": "object",
+      "description": "One skill folder (SKILL.md inside), or a folder of skill folders.",
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "description": "The folder. ~ is the home folder. In ai.json absolute or ~; in a project's extensions.json relative to the project and inside it." },
+        "note": { "type": "string", "description": "What the extension is for." },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/roleName" }, "description": "Which roles load it. Default: orchestrator, worker, fast, artist, audio." },
+        "enabled": { "type": "boolean", "default": true, "description": "false keeps the entry but no run loads it." }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    },
+    "extensionHooks": {
+      "type": "object",
+      "description": "One set of Claude Code hooks. Claude Code and FactorIA's own loop (API providers) run them at the events (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd). Also beforeCommand and afterCommand, which fire around every engine command for every caller (FactorIA only). A handler is {type: command, command} or {type: js, module: hooks/x.js}; both accept timeout (seconds). A group may use match instead of matcher. See docs/HOOKS.md.",
+      "properties": {
+        "hooks": { "type": "object", "description": "Claude Code's hooks object: event name -> list of {matcher, hooks: [{type: command, command, timeout?} | {type: js, module, timeout?}]}.", "additionalProperties": { "type": "array" } },
+        "note": { "type": "string", "description": "What the extension is for." },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/roleName" }, "description": "Which roles load it. Default: orchestrator, worker, fast, artist, audio." },
+        "enabled": { "type": "boolean", "default": true, "description": "false keeps the entry but no run loads it." }
+      },
+      "required": ["hooks"],
+      "additionalProperties": false
+    },
     "roleName": { "enum": ["orchestrator", "worker", "fast", "artist", "audio", "artCritic", "reviewer"] },
     "siteList": {
       "type": "array",
@@ -136,6 +207,11 @@
           "type": "integer",
           "minimum": 100000,
           "description": "Most context a session keeps, in tokens (e.g. 400000 on a 1M model). Past it the earlier turns are summarized. Claude Code and the anthropic provider honour it; other providers ignore it. Omit for the model's whole window."
+        },
+        "toolGroups": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Built-in agent (API providers) only: tool groups to always load with their full definition, on top of the core commands. A group is a command category (assets, anim, audio, ui, i18n, platform, publish, perf, nav, physics, mesh...), an exact command name (assets.draw_icon) or \"all\" (every command in full, about 80k tokens on every step). Every other command is a line of the catalog in the system prompt that the agent describes (tool_describe) and calls (tool_call) on demand. Omit for the role's default (artist: assets; audio: assets and audio; others: none); [] loads none. `ai.tool_plan` shows what a role gets. CLI agents ignore it."
         }
       },
       "additionalProperties": false

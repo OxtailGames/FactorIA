@@ -88,6 +88,7 @@ struct AiChat {
     ai::Usage usage;                // tokens of the finished runs
     double costUsd = 0;
     u64 contextTokens = 0, contextWindow = 0;
+    ai::ContextSplit contextSplit;  // where the last model call's context went (built-in agent only; known() false otherwise)
 
     // Not saved:
     RunUsage run;                 // tokens and cost of the run in progress, per agent (not in usage / costUsd yet)

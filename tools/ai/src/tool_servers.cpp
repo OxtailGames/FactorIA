@@ -31,6 +31,13 @@ std::vector<const ToolServer*> AiConfig::tool_servers_for(std::string_view role)
     return out;
 }
 
+std::vector<const Extension*> AiConfig::extensions_for(std::string_view role) const {
+    std::vector<const Extension*> out;
+    for (const Extension& e : extensions.entries)
+        if (e.serves_role(role)) out.push_back(&e);
+    return out;
+}
+
 std::string tool_server_name_problem(std::string_view name) {
     if (name.empty()) return "the name is empty";
     if (name.size() > kMaxToolServerName)

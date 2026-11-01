@@ -9,13 +9,31 @@ _fa_filter_platform_sources(ai_srcs ${ai_srcs})
 set(FA_AI_SCHEMA_FILE ${FA_ROOT}/schemas/ai-config.schema.json)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FA_AI_SCHEMA_FILE})
 file(READ ${FA_AI_SCHEMA_FILE} FA_AI_SCHEMA_JSON)
+# MSVC caps one string literal at 16380 bytes (C2026): the schema goes in as adjacent raw literals of at most 8000
+# bytes, cut at line ends so that no piece splits a UTF-8 character.
+set(FA_AI_SCHEMA_PIECES "")
+set(_fa_rest "${FA_AI_SCHEMA_JSON}")
+string(LENGTH "${_fa_rest}" _fa_len)
+while(_fa_len GREATER 8000)
+    string(SUBSTRING "${_fa_rest}" 0 8000 _fa_head)
+    string(FIND "${_fa_head}" "\n" _fa_nl REVERSE)
+    if(_fa_nl LESS 0)
+        message(FATAL_ERROR "${FA_AI_SCHEMA_FILE} has a line longer than 8000 bytes; break it so the schema can be embedded")
+    endif()
+    math(EXPR _fa_cut "${_fa_nl} + 1")
+    string(SUBSTRING "${_fa_rest}" 0 ${_fa_cut} _fa_piece)
+    string(SUBSTRING "${_fa_rest}" ${_fa_cut} -1 _fa_rest)
+    string(APPEND FA_AI_SCHEMA_PIECES "R\"FAJSON(${_fa_piece})FAJSON\"\n           ")
+    string(LENGTH "${_fa_rest}" _fa_len)
+endwhile()
+string(APPEND FA_AI_SCHEMA_PIECES "R\"FAJSON(${_fa_rest})FAJSON\"")
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/config_schema.cpp.in
                ${CMAKE_CURRENT_BINARY_DIR}/generated/config_schema.cpp @ONLY)
 
 add_library(fa_ai STATIC ${ai_srcs} ${CMAKE_CURRENT_BINARY_DIR}/generated/config_schema.cpp)
 target_include_directories(fa_ai PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(fa_ai PUBLIC cxx_std_20)
-target_link_libraries(fa_ai PUBLIC fa_core fa_tooling PRIVATE fa_warnings)
+target_link_libraries(fa_ai PUBLIC fa_core fa_tooling PRIVATE fa_warnings fa_ext_quickjs)  # fa_ext_quickjs: the sandbox of JavaScript hooks (hook_js.cpp)
 
 # HTTP: libcurl when available, otherwise the `curl` executable at runtime.
 find_package(CURL QUIET)

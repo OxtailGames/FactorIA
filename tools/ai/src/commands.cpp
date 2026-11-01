@@ -2,12 +2,19 @@
 
 #include <algorithm>
 #include <atomic>
+#include <map>
 #include <memory>
 
 #include "asset_commands.h"
+#include "fa/ai/command_hooks.h"
 #include "fa/ai/detect.h"
+#include "fa/ai/extension_plan.h"
 #include "fa/ai/mcp_client.h"
+#include "fa/ai/plugin_install.h"
 #include "fa/ai/review.h"
+#include "fa/ai/savers.h"
+#include "fa/ai/skills.h"
+#include "fa/ai/tool_catalog.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "feedback_review.h"
@@ -114,6 +121,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             for (const auto& [name, r] : cfg->roles) {
                 roles[name] = Json::object({{"provider", r.provider}, {"model", r.model}, {"effort", r.effort}, {"enabled", r.enabled}});
                 if (r.maxContextTokens > 0) roles[name]["maxContextTokens"] = r.maxContextTokens;
+                if (r.toolGroups) roles[name]["toolGroups"] = *r.toolGroups;
             }
             Json assets = Json::object();
             for (const auto& [kind, r] : cfg->assets) {
@@ -128,7 +136,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             Json toolServers = Json::array();
             for (const auto& t : tool_server_statuses(*cfg, opts->runtime.env)) toolServers.push_back(t.to_json());
             out["toolServers"] = toolServers;
-            if (doctor) out["report"] = format_doctor_report(*cfg, status, opts->runtime.env);
+            if (doctor) out["report"] = format_doctor_report(*cfg, status, opts->runtime.env, project_dir());
             return out;
         });
     }
@@ -201,6 +209,246 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
                 servers.push_back(std::move(entry));
             }
             return Json::object({{"servers", servers}, {"configured", cfg->toolServers.size()}});
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.extensions";
+        info.category = "ai";
+        info.summary = "Show the extensions (plugins, skills, hooks) AI runs load, per role, and what stops one from loading.";
+        info.description =
+            "The user's \"extensions\" in ai.json plus the project's .factoria/extensions.json (docs/AI_PROVIDERS.md, Extensions). "
+            "Returns {inheritUserPlugins, projectFile:{path, exists, hash, trusted, error}, entries:[{kind plugin|skill|hooks, name, "
+            "source user|project, enabled, roles, target (the folder it resolves to), problem + fix when it cannot load, trusted for "
+            "a project's plugin or hooks}], roles:{<role>:{provider, providerKind, receives:[{kind, name, source}], "
+            "skipped:[{kind, name, source, reason, fix}], notes, userPluginsOff, projectSettingsSkipped}}, "
+            "claudeSettings:{files:[{path, exists, needsTrust, grants (what in the file runs a program or widens what the AI may do: "
+            "hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, "
+            "message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the "
+            "project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Claude Code uses plugins, "
+            "skills and hooks; Codex uses skills only; a generic CLI uses plugins and hooks when its argv has {plugin_dirs} / {settings}; "
+            "the API providers (anthropic, openai-compatible) use skills and hooks in FactorIA's own loop, not plugins. A plugin or hook that comes from a project loads only after the USER "
+            "trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only. Example: "
+            "{\"role\":\"worker\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "role":{"type":"string","description":"Only this role (orchestrator, worker, fast, artist, audio, artCritic, reviewer). Omit for all."}},
+            "additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [load, project_dir, opts](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string role = str(args, "role");
+            if (!role.empty() && !is_known_role(role)) {
+                const std::vector<std::string> names(std::begin(kAllRoles), std::end(kAllRoles));
+                throw CommandError("unknown_role", "No role named '" + role + "'", fa::did_you_mean(role, names));
+            }
+            ExtensionContext ctx = make_extension_context(*cfg, project_dir(), opts->runtime.env);
+            Json out = extensions_report(*cfg, ctx, role);
+            out["configPath"] = cfg->sourcePath.empty() ? default_config_path(opts->runtime.env ? opts->runtime.env : system_env()) : cfg->sourcePath;
+            return out;
+        });
+    }
+    {
+        SkillsCommandOptions so;
+        so.loadConfig = load;
+        so.projectDir = project_dir;
+        so.env = opts->runtime.env;
+        register_skills_commands(registry, std::move(so));
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.hooks";
+        info.category = "ai";
+        info.summary = "List the hooks (programs and JavaScript modules run on events) and the recent runs of every hook.";
+        info.description =
+            "The \"hooks\" entries of `extensions` in ai.json and the project's .factoria/extensions.json (docs/HOOKS.md). Returns "
+            "{entries:[{name, source user|project, enabled, roles, runsProgram, trusted (a project's entry that starts a program), "
+            "events:{<Event>:[{matcher, handlers:[{type command|js|http|prompt|agent, target (the command, the module or the url), "
+            "timeout?, runsHere}]}]}, problem + fix when it cannot be used}], events (the events FactorIA runs: SessionStart, "
+            "UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, and beforeCommand / afterCommand around "
+            "every command of the registry), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), "
+            "recentRuns:[{event, matched, extension, source, type, target, startedMs, ms, exitCode, timedOut, failed, error, decision, "
+            "reason, output, stderr}] (this process's last runs, newest last)}. Read-only. Example: {\"recent\":20}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "role":{"type":"string","description":"Only the entries this role loads (orchestrator, worker, fast, artist, audio, artCritic, reviewer). Omit for all."},
+            "recent":{"type":"integer","minimum":0,"maximum":300,"default":50,"description":"How many recent runs to include."}},
+            "additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [load, project_dir, opts](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string role = str(args, "role");
+            if (!role.empty() && !is_known_role(role)) {
+                const std::vector<std::string> names(std::begin(kAllRoles), std::end(kAllRoles));
+                throw CommandError("unknown_role", "No role named '" + role + "'", fa::did_you_mean(role, names));
+            }
+            ExtensionContext ctx = make_extension_context(*cfg, project_dir(), opts->runtime.env);
+            return hooks_report(*cfg, ctx, role, args.contains("recent") ? static_cast<std::size_t>(num(args, "recent")) : 50);
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.hooks_test";
+        info.category = "ai";
+        info.summary = "Run the configured hooks of one event with a sample input and show what they decide.";
+        info.description =
+            "Try a hook before relying on it: runs the handlers configured for `event` whose matcher fits `match` with `input` as the "
+            "event's JSON (the common fields session_id, cwd, hook_event_name... are added), exactly as the AI loop or the registry "
+            "would. The handlers REALLY run (a program does what it does). Returns {event, matched, groups, outcome:{blocked, reason, "
+            "blockedBy, stop, stopReason, context, feedback, systemMessages, allowed, updatedInput?, failed, runs:[{...exitCode, ms, "
+            "decision, reason, output, stderr, failed, error}]}, skipped, note?}. `match` is what the matcher is compared with: the tool "
+            "name (PreToolUse, PostToolUse, PostToolUseFailure), the command name (beforeCommand, afterCommand), the source of "
+            "SessionStart or the reason of SessionEnd. A project's hooks that start a program run only after the user trusts the "
+            "project in the editor. Example: {\"event\":\"PreToolUse\",\"match\":\"scene_spawn\",\"input\":{\"tool_name\":\"scene_spawn\","
+            "\"tool_input\":{\"name\":\"Coin\"}}}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "event":{"type":"string","description":"SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, beforeCommand or afterCommand."},
+            "match":{"type":"string","default":"","description":"What the matcher is compared with (tool name, command name, source). Omit for events without a matcher."},
+            "input":{"type":"object","default":{},"description":"The event's own fields, e.g. {tool_name, tool_input} for PreToolUse, {command, args} for beforeCommand, {prompt} for UserPromptSubmit."},
+            "role":{"type":"string","default":"orchestrator","description":"Whose entries count for the AI events (the engine's command events use every role's)."}},
+            "required":["event"],"additionalProperties":false})");
+        registry.add(std::move(info), [load, project_dir, opts](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string name = str(args, "event");
+            const auto event = parse_hook_event(name);
+            if (!event) {
+                throw CommandError("unknown_event", "No hook event named '" + name + "' that FactorIA runs",
+                                   fa::did_you_mean(name, engine_hook_event_names()) + " Events: " + fa::join(engine_hook_event_names(), ", ") + ".");
+            }
+            const Json* in = child(args, "input");
+            ExtensionContext ctx = make_extension_context(*cfg, project_dir(), opts->runtime.env);
+            auto out = test_hooks(*cfg, ctx, *event, str(args, "match"), in ? *in : Json::object(), str(args, "role", kRoleOrchestrator), opts->cancel);
+            if (!out) throw CommandError("unknown_role", out.error().message, out.error().hint);
+            return *out;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.savers";
+        info.category = "ai";
+        info.summary = "Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.";
+        info.description =
+            "The built-in agent loop (the API providers) has three savers, each with a switch in ai.json \"savers\" and in the editor's AI settings > "
+            "Extensions tab (docs/AI_PROVIDERS.md, Token savers). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts}, "
+            "thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, "
+            "status accepted|declined|\"\"}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, "
+            "facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, "
+            "code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. "
+            "Read-only. Example: {}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{},"additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [load, project_dir, &registry](const Json&) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            return savers_report(*cfg, registry, project_dir());
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.saver_group";
+        info.category = "ai";
+        info.summary = "Accept or decline a proposed tool group for this project (loaded in full up front from the next run).";
+        info.description =
+            "The runs of a project count the commands they load from the tool catalog (ai.savers shows the counts and proposals). Accept: from the "
+            "next run on, `role` loads the commands of `group` (a command category such as assets or anim) in full besides its own toolGroups, in "
+            "this project only (kept in .factoria/ai/savers.json; ai.json is not changed). Decline: the group is not proposed again. Forget: undecided "
+            "again. Nothing is ever denied: a command outside the loaded groups stays reachable through the catalog. Returns {role, group, status, "
+            "note}. Example: {\"role\":\"worker\",\"group\":\"assets\",\"answer\":\"accept\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "role":{"type":"string","description":"The role that gets the group: orchestrator, worker, fast, artist, audio, artCritic or reviewer."},
+            "group":{"type":"string","description":"A command category (the part of a command name before the dot, e.g. assets)."},
+            "answer":{"type":"string","enum":["accept","decline","forget"],"description":"accept, decline or forget (back to undecided)."}},
+            "required":["role","group","answer"],"additionalProperties":false})");
+        info.readOnly = false;
+        registry.add(std::move(info), [project_dir, &registry](const Json& args) -> Json {
+            const auto answer = parse_saver_answer(str(args, "answer"));
+            if (!answer) throw CommandError("invalid_arguments", "answer must be accept, decline or forget", "Example: {\"role\":\"worker\",\"group\":\"assets\",\"answer\":\"accept\"}");
+            auto r = answer_tool_group(registry, project_dir(), str(args, "role"), str(args, "group"), *answer);
+            if (!r) throw CommandError("saver_failed", r.error().message, r.error().hint);
+            return *r;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.saver_fact";
+        info.category = "ai";
+        info.summary = "Accept or decline a proposed project fact: one line added to the project's AGENTS.md.";
+        info.description =
+            "A command that failed with the same error code in several runs until a later call of it worked proposes one line for AGENTS.md "
+            "(ai.savers lists them with their id). Accept appends the line under \"## Project facts\" in the project's AGENTS.md (created when "
+            "missing); `line` replaces the proposed line. Nothing is written before an accept. Decline: not proposed again. Forget: undecided "
+            "again (the line is not removed from AGENTS.md). Returns {id, status, written?, file?}. Example: "
+            "{\"id\":\"scene.load:not_found\",\"answer\":\"accept\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "id":{"type":"string","description":"The fact's id as ai.savers shows it: command:code."},
+            "answer":{"type":"string","enum":["accept","decline","forget"],"description":"accept (write it), decline or forget (back to undecided)."},
+            "line":{"type":"string","description":"With accept: the line to write instead of the proposed one."}},
+            "required":["id","answer"],"additionalProperties":false})");
+        info.readOnly = false;
+        registry.add(std::move(info), [project_dir](const Json& args) -> Json {
+            const auto answer = parse_saver_answer(str(args, "answer"));
+            if (!answer) throw CommandError("invalid_arguments", "answer must be accept, decline or forget", "Example: {\"id\":\"scene.load:not_found\",\"answer\":\"accept\"}");
+            auto r = answer_fact(project_dir(), str(args, "id"), *answer, str(args, "line"));
+            if (!r) throw CommandError("saver_failed", r.error().message, r.error().hint);
+            return *r;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.plugin_install";
+        info.category = "ai";
+        info.summary = "Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions.";
+        info.description =
+            "Runs the Claude Code CLI's own commands with the executable of the claude-code provider: `claude plugin marketplace add "
+            "<marketplace>`, then `claude plugin install <plugin> --scope user`; a step already done (the marketplace listed by `claude plugin "
+            "marketplace list`, the plugin installed for the user by `claude plugin list`; an install for one folder does not count) is skipped. Then adds a plugin entry name@marketplace to the user's ai.json "
+            "\"extensions\" (the other keys stay), with `roles`. It installs software, so only the USER starts it (the editor's AI settings > "
+            "Extensions > Add TokenEconomizer, or the CLI); the built-in agent and the MCP server never offer it. `preset` \"tokeneconomizer\" "
+            "fills marketplace microsoft/TokenEconomizer, plugin tokeneconomizer@tokeneconomizer and requiresPython 3.10 (checks python3 / "
+            "python before installing). `dryRun` returns what it would do. Returns {ok, dryRun, provider, command, marketplace, plugin, "
+            "python:{required, command, version, ok, message}, steps:[{id marketplace|plugin|entry, command, needed, status "
+            "would_run|not_needed|done|skipped|failed, detail}], entry:{name, added, present, path}, message}. Failures name the step, what "
+            "the CLI said and how to fix it. Example: {\"preset\":\"tokeneconomizer\",\"dryRun\":true}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "preset":{"type":"string","enum":["tokeneconomizer"],"description":"A known plugin: fills marketplace, plugin and requiresPython (your own values win)."},
+            "marketplace":{"type":"string","description":"What `claude plugin marketplace add` takes: owner/repo of GitHub, a git URL or a path."},
+            "plugin":{"type":"string","description":"name@marketplace, as `claude plugin install` takes it."},
+            "roles":{"type":"array","items":{"type":"string"},"description":"Roles that load the entry (default: orchestrator, worker, fast, artist, audio)."},
+            "name":{"type":"string","description":"The entry's name in ai.json (default: the plugin's name)."},
+            "note":{"type":"string","description":"The entry's note."},
+            "requiresPython":{"type":"string","description":"Minimum Python version the plugin needs, e.g. 3.10. Checked before installing."},
+            "dryRun":{"type":"boolean","description":"Report the commands and whether each is needed; install nothing."}},
+            "additionalProperties":false})");
+        info.readOnly = false;
+        registry.add(std::move(info), [load](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            PluginInstallRequest req;
+            if (const std::string preset = str(args, "preset"); !preset.empty()) {
+                if (preset != "tokeneconomizer")
+                    throw CommandError("unknown_preset", "No preset named '" + preset + "'", "The only preset is tokeneconomizer; or give marketplace and plugin.");
+                req = token_economizer_request();
+            }
+            if (!str(args, "marketplace").empty()) req.marketplace = str(args, "marketplace");
+            if (!str(args, "plugin").empty()) req.plugin = str(args, "plugin");
+            if (!str(args, "name").empty()) req.entryName = str(args, "name");
+            if (!str(args, "note").empty()) req.note = str(args, "note");
+            if (!str(args, "requiresPython").empty()) req.requiresPython = str(args, "requiresPython");
+            if (const Json* roles = child(args, "roles"); roles && roles->is_array()) {
+                for (const Json& r : *roles) {
+                    if (r.is_string()) req.roles.push_back(r.get<std::string>());
+                }
+            }
+            req.dryRun = flag(args, "dryRun");
+            PluginInstallHooks hooks;
+            hooks.onStep = [](const Json& step) {
+                const std::string status = str(step, "status");
+                if (status == "running") report_command_progress(str(step, "detail"));
+            };
+            auto r = plugin_install(*cfg, req, hooks);
+            if (!r) throw CommandError("plugin_install_failed", r.error().message, r.error().hint);
+            return *r;
         });
     }
     {
@@ -473,7 +721,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "Returns `gaps`: each pause of at least minGapSeconds with start, end, seconds, activity (tool, thinking, model = "
             "waiting for the model, user = waiting for the user) and detail (the tool's name...), and `totals` per activity with "
             "the tools sorted by time. A session recorded before events carried times gives hasTimes false and a note. "
-            "Example: {\"minGapSeconds\":60}";
+            "`context` splits what each model call carried (built-in agent only): per step the system prompt, the tool "
+            "definitions and the conversation, in bytes and estimated tokens, plus how many commands were tools and how many "
+            "only catalog lines, and the totals of the run. Example: {\"minGapSeconds\":60}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "session":{"type":"string","description":"File name of the session (20261014-153012-orchestrator or with .jsonl) in .factoria/ai/sessions. Omit for the newest."},
             "minGapSeconds":{"type":"number","minimum":0,"default":30,"description":"List only the gaps at least this long (seconds). Totals always count every gap."}},
@@ -485,7 +735,88 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             return *r;
         });
     }
+    {
+        CommandInfo info;
+        info.name = "ai.tool_plan";
+        info.category = "ai";
+        info.summary = "Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines.";
+        info.description =
+            "The built-in agent (API providers) does not send every command's definition on every step: it gets the core commands "
+            "(files, docs, scene, running the game, validating, scripts) and the tool groups of the role (ai.json "
+            "roles.<role>.toolGroups, default: artist assets, audio assets and audio) in full, plus tool_describe and tool_call, "
+            "and lists the other commands in its system prompt. Returns `tools` (name and estimated bytes of each tool sent), "
+            "`catalogCommands`, the estimated `toolBytes`/`toolTokens` against `fullBytes`/`fullTokens` (every command in full), "
+            "`groups` (the tool groups loaded), `notes` (a group that matches nothing, with suggestions) and `categories` "
+            "(per category: commands, inCatalog, inFull). CLI agents (claude-code...) choose their own "
+            "tools; this plan is what the API providers get. Example: {\"role\":\"artist\",\"catalog\":true}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "role":{"type":"string","default":"orchestrator","description":"Role to plan for: orchestrator, worker, fast, artist, audio, artCritic, reviewer."},
+            "catalog":{"type":"boolean","default":false,"description":"Also list every catalog command (command, category, summary)."}},
+            "additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [load, &registry](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string role = str(args, "role", kRoleOrchestrator);
+            auto roleIt = cfg->roles.find(role);
+            if (roleIt == cfg->roles.end()) {
+                std::vector<std::string> names;
+                for (const auto& [n, _] : cfg->roles) names.push_back(n);
+                throw CommandError("unknown_role", "No role named '" + role + "'", fa::did_you_mean(role, names));
+            }
+            ToolPlanOptions po;
+            po.withDelegate = role == kRoleOrchestrator && cfg->can_delegate_to_anyone();
+            po.readOnly = is_review_role(role);
+            po.groups = roleIt->second.toolGroups ? *roleIt->second.toolGroups : default_tool_groups(role);
+            const ToolPlan plan = plan_tools(registry, po);
+            Json tools = Json::array();
+            for (const ToolDef& t : plan.tools) {
+                tools.push_back(Json::object({{"name", t.name},
+                                              {"bytes", t.name.size() + t.description.size() + dump(t.inputSchema).size() + 60}}));
+            }
+            std::map<std::string, int> total, inCatalog;
+            for (const CommandInfo* info : registry.list()) {
+                if (is_agent_tool_excluded(info->name) || (po.readOnly && !is_read_only_tool(*info))) continue;
+                ++total[info->category];
+            }
+            for (const CatalogEntry& e : plan.catalog) ++inCatalog[e.category];
+            Json categories = Json::object();
+            for (const auto& [cat, n] : total) {
+                categories[cat] = Json::object({{"commands", n}, {"inCatalog", inCatalog[cat]}, {"inFull", n - inCatalog[cat]}});
+            }
+            Json out = Json::object({{"role", role},
+                                     {"useCatalog", plan.useCatalog},
+                                     {"tools", tools},
+                                     {"toolCount", plan.tools.size()},
+                                     {"toolBytes", plan.toolBytes},
+                                     {"toolTokens", estimate_tokens(plan.toolBytes)},
+                                     {"catalogCommands", plan.catalog.size()},
+                                     {"catalogBytes", plan.catalogText.size()},
+                                     {"catalogTokens", estimate_tokens(plan.catalogText.size())},
+                                     {"fullBytes", plan.fullBytes},
+                                     {"fullTokens", estimate_tokens(plan.fullBytes)},
+                                     {"groups", plan.loadedGroups},
+                                     {"notes", plan.notes},
+                                     {"categories", categories}});
+            if (flag(args, "catalog", false)) {
+                Json catalog = Json::array();
+                for (const CatalogEntry& e : plan.catalog) {
+                    catalog.push_back(Json::object({{"command", e.command}, {"category", e.category}, {"summary", e.summary}}));
+                }
+                out["catalog"] = catalog;
+            }
+            return out;
+        });
+    }
     register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
+
+    // beforeCommand / afterCommand hooks around every command of this registry, for every caller (docs/HOOKS.md).
+    CommandHooksOptions hooksOptions;
+    hooksOptions.loadConfig = load;
+    hooksOptions.projectDir = project_dir;
+    hooksOptions.env = opts->runtime.env;
+    hooksOptions.cancel = opts->cancel;
+    install_command_hooks(registry, std::move(hooksOptions));
 }
 
 }  // namespace fa::ai

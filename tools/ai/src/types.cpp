@@ -153,6 +153,59 @@ Json Usage::to_json() const {
                          {"cacheReadTokens", cacheReadTokens}});
 }
 
+u64 estimate_tokens(u64 bytes) { return static_cast<u64>(static_cast<double>(bytes) / kBytesPerToken + 0.5); }
+
+Json ContextSplit::to_json() const {
+    return Json::object({{"systemBytes", systemBytes},
+                         {"catalogBytes", catalogBytes},
+                         {"toolBytes", toolBytes},
+                         {"conversationBytes", conversationBytes},
+                         {"systemTokens", estimate_tokens(systemBytes)},
+                         {"toolTokens", estimate_tokens(toolBytes)},
+                         {"conversationTokens", estimate_tokens(conversationBytes)},
+                         {"totalTokens", estimate_tokens(totalBytes())},
+                         {"toolCount", toolCount},
+                         {"catalogCount", catalogCount}});
+}
+
+ContextSplit ContextSplit::from_json(const Json& j) {
+    ContextSplit c;
+    if (!j.is_object()) return c;
+    auto u = [&](const char* key) {
+        auto it = j.find(key);
+        return (it != j.end() && it->is_number()) ? static_cast<u64>(it->get<double>()) : u64(0);
+    };
+    c.systemBytes = u("systemBytes");
+    c.catalogBytes = u("catalogBytes");
+    c.toolBytes = u("toolBytes");
+    c.conversationBytes = u("conversationBytes");
+    c.toolCount = static_cast<int>(u("toolCount"));
+    c.catalogCount = static_cast<int>(u("catalogCount"));
+    return c;
+}
+
+ContextSplit estimate_context(const ChatRequest& req) {
+    constexpr u64 kImageBytes = 4000;  // a picture costs about a thousand tokens whatever its base64 length
+    constexpr u64 kToolOverhead = 60;  // the JSON around a definition: keys, quotes, braces
+    auto dump = [](const Json& j) { return j.dump(-1, ' ', false, Json::error_handler_t::replace).size(); };
+    ContextSplit c;
+    c.systemBytes = req.system.size();
+    for (const ToolDef& t : req.tools) {
+        c.toolBytes += t.name.size() + t.description.size() + dump(t.inputSchema) + kToolOverhead;
+        ++c.toolCount;
+    }
+    for (const Message& m : req.messages) {
+        c.conversationBytes += m.text.size() + m.images.size() * kImageBytes;
+        if (m.raw.is_array()) {
+            c.conversationBytes += dump(m.raw);
+        } else {
+            for (const ToolCall& call : m.toolCalls) c.conversationBytes += call.name.size() + dump(call.input);
+        }
+        for (const ToolResult& r : m.toolResults) c.conversationBytes += r.content.size() + r.images.size() * kImageBytes;
+    }
+    return c;
+}
+
 // Prices are USD per 1M tokens for prompts <= 100K tokens (estimates only).
 Pricing builtin_pricing(std::string_view model) {
     auto has = [&](std::string_view s) { return model.find(s) != std::string_view::npos; };
