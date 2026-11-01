@@ -596,7 +596,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "the first finger also drives the mouse like a device. gamepad and touch also take an array for several pads/fingers. "
            "{\"back\":true} presses the system Back button of Android: the input.onBack handlers of the game run at the next "
            "frame, and when none consumes it the game asks to quit (game.state shows quitRequested). "
-           "The input is applied now and seen by the next frame (game.step). Example: game.input {\"press\":[\"jump\"]}",
+           "The input is applied now and seen by the next frame: a button that goes up to down is `pressed` (and one that goes down to up "
+           "`released`) exactly once there, whether that frame comes from game.step, the running game or the editor's Step button, and "
+           "however many editor frames are drawn while the game is paused in between. `frames` (default 0, max 100000) steps that many "
+           "frames right after applying the input, exactly like game.step (also while paused); the result then has `frames` and "
+           "`frame` (the frame counter afterwards). A press stays held afterwards: release it with a later call. "
+           "Example: game.input {\"press\":[\"jump\"],\"frames\":1}",
            parse_schema(R"({"type":"object","properties":{
                "action":{"type":"string","description":"Action name (with `down`)."},
                "key":{"type":"string","description":"Key or mouse button name (with `down`)."},
@@ -606,7 +611,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "mouse":{"type":"object","description":"{position:[x,y] in design pixels, left/right/middle: bool}."},
                "gamepad":{"type":["object","array"],"description":"{index?: 0..3, connected?: bool, buttons?: {A: true, DpadLeft: false...}, axes?: {LeftX: -1, RightTrigger: 0.5...}}, or an array of those for several pads."},
                "touch":{"type":["object","array"],"description":"{id?: number (default 1), position?: [x,y] design pixels, down?: bool (default true)}, or an array of those for several fingers."},
-               "back":{"type":"boolean","description":"true: press the system Back button (Android)."}}})"),
+               "back":{"type":"boolean","description":"true: press the system Back button (Android)."},
+               "frames":{"type":"integer","default":0,"minimum":0,"maximum":100000,"description":"Frames to step after applying the input, like game.step (works while paused)."}}})"),
            false, "game"},
           [&engine, &I](const Json& a) {
               std::string err;
@@ -635,7 +641,15 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   throw CommandError("invalid_argument", join(problems, "\n"),
                                      "gamepad: {\"index\":0,\"buttons\":{\"A\":true},\"axes\":{\"LeftX\":-1}}; "
                                      "touch: {\"id\":1,\"position\":[x,y],\"down\":true}.");
-              return I.input.snapshot();
+              Json out = I.input.snapshot();
+              const int frames = a.value("frames", 0);
+              if (frames > 0 && out.is_object()) {
+                  engine.step(frames);
+                  out = I.input.snapshot();
+                  out["frames"] = frames;
+                  out["frame"] = I.frame;
+              }
+              return out;
           });
 
     I.commands.add({"game.click", "Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click.",

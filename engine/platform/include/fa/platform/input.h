@@ -171,6 +171,10 @@ public:
     // input (end of the frame), so events arriving before the next frame's
     // update are not wiped. fa::run_app() does NOT call it for you.
     void begin_frame();
+    // A frame that does NOT simulate (a paused game redrawn by the editor): drops only what has no meaning later (mouse
+    // delta, wheel, typed text) and keeps every edge (pressed/released of keys, buttons, actions, pads, touches, Back, paste),
+    // so what arrived or was injected in between is seen once by the next simulated frame.
+    void discard_idle_motion();
 
     // -------- event feed (platform layer, tests, injection)
     void on_key(Key key, bool down);

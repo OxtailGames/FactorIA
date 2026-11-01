@@ -146,7 +146,7 @@ struct Engine::Impl {
     void draw(double dt);         // draws the world now
     void finish_scene_load(const LoadReport& report, const std::string& label, std::string* error);
     bool load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error);
-    void end_of_frame(double dt);
+    void end_of_frame(double dt, bool simulated = true);  // simulated false: a paused redraw keeps the input edges
     bool load_scene_impl(const std::string& path, std::string* error, bool keepProps = false);
     void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
     void apply_project_settings();
