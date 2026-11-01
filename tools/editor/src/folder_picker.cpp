@@ -217,6 +217,34 @@ std::string reveal_in_file_manager(const std::string& path) {
 }
 #endif
 
+// A web address in the default browser (the GitHub sign-in page). Only https:// addresses; returns "" or what went wrong.
+#ifdef _WIN32
+std::string open_url(const std::string& url) {
+    if (!url.starts_with("https://")) return "only https:// addresses are opened, not " + url;
+    const std::wstring wide(url.begin(), url.end());  // an address is ASCII
+    const auto r = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    return r > 32 ? std::string() : "the browser could not open " + url + " (error " + std::to_string(r) + ")";
+}
+#else
+std::string open_url(const std::string& url) {
+    if (!url.starts_with("https://")) return "only https:// addresses are opened, not " + url;
+#ifdef __APPLE__
+    const char* opener = "open";
+#else
+    const char* opener = "xdg-open";
+    if (ai::which(opener).empty()) return "xdg-open is not installed: open " + url + " yourself";
+#endif
+    std::thread([argv = std::vector<std::string>{opener, url}] {
+        ai::ProcessOptions po;
+        po.argv = argv;
+        po.timeoutSeconds = 30;
+        auto r = ai::run_process(po);
+        if (!r || r->exitCode != 0) FA_WARN("editor", "{} {} failed: {}", argv[0], argv[1], r ? r->stderrText : r.error().to_string());
+    }).detach();
+    return {};
+}
+#endif
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The clipboard's picture, as PNG bytes (empty when it holds no picture).
 

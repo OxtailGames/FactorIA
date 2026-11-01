@@ -63,6 +63,9 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "Package the game for Windows, macOS, Linux, Android or iOS"));
     file.push_back(with(menu::action("Platform Settings...", [this] { open_platform_settings(); }, have), "menu:platform-settings",
                         "The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team..."));
+    file.push_back(with(menu::action("Feedback Settings...", [this] { open_share_settings(); }), "menu:feedback-settings",
+                        "Share what the engine lacked with its developers: the mode (Always, Ask me each time, Never), the GitHub sign-in "
+                        "and what waits to be sent"));
     file.push_back(with(menu::action("Set Up This Computer...", [this] { open_setup_window(); }), "menu:setup",
                         "Install what an export needs: the Android build tools, the players of other platforms, CMake, Xcode"));
     if (!native) {  // on macOS Quit is in the app menu

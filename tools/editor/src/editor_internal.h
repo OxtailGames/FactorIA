@@ -56,6 +56,7 @@
 #include "anim_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
+#include "feedback_share_ui.h"
 #include "gizmo_model.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
@@ -273,6 +274,24 @@ public:
     Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
     bool ai_settings_dirty(const ai::AiConfig& cfg) const;
     void draw_feedback_panel();
+    // Feedback sharing (feedback_share_ui.cpp; docs/EDITOR.md, "Feedback sharing"). share_choose_mode is the only place that sets the
+    // sharing mode, reached by a click in the consent dialog or Feedback Settings and by nothing else: no command, MCP tool or script.
+    void feedback_share_tick();                 // once per frame: the threads' results, then (each second) consent, queue, ask, flush
+    void draw_share_consent();                  // the modal that asks while the mode is unset
+    void draw_share_review_window();            // ask mode: the share texts that wait for Send / Don't send
+    void draw_share_settings_window();          // File > Feedback Settings
+    void open_share_settings();
+    void share_choose_mode(ShareMode mode);
+    void share_start_flush(bool force);
+    void share_start_sign_in();
+    void share_start_ai_review(const std::string& id);
+    void draw_feedback_share_cell(const Json& entry);                          // the panel table's share column
+    void draw_feedback_share_detail(const Json& entry, const std::string& path);  // share boxes, buttons and review of the selected entry
+    void draw_feedback_new_share();             // the share boxes of the Add entry form
+    Json feedback_new_share(std::string& problem);  // that form's share, checked and sanitized (null = none; `problem` = limits not met)
+    ShareUi share_;
+    std::shared_ptr<ShareAutotestNet> atShareNet_;
+    std::unique_ptr<ScopedShareEnv> atShareEnv_;  // the autotest: a fake transport and a config folder of its own, no network
     void draw_audio_panel();
     // Animation panel (anim_panel.cpp; View > Animation): the clips of the selected entity's Animator as a dopesheet and a curve
     // view, a time ruler to scrub, event markers, record mode and the onion skin. Every edit of a clip is an anim.* command through
@@ -940,5 +959,7 @@ std::string open_in_file_manager(const std::string& dir);
 // Shows one file in the file manager, selected where the system can (Finder, Explorer); on Linux its folder opens.
 std::string reveal_in_file_manager(const std::string& path);
 const char* file_manager_name();
+// Opens an https:// address in the default browser without waiting. Returns "" or what went wrong.
+std::string open_url(const std::string& url);
 
 }  // namespace fa::editor

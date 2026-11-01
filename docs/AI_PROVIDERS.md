@@ -163,7 +163,7 @@ The editor shows the roles in three groups with readable names; the `ai.json` ke
 |---|---|---|---|
 | Orchestration and code | `orchestrator` (Orchestrator) | plans, reviews, delegates with the `agent_delegate` tool | `claude-opus-5-5`, effort `xhigh` |
 | Orchestration and code | `worker` (Worker) | implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
-| Orchestration and code | `fast` (Fast) | small mechanical edits | `claude-haiku-5-5`, effort `max` |
+| Orchestration and code | `fast` (Fast) | small mechanical edits; also the check of a feedback `share` text (`ai.review_feedback`) and, for the engine developer, the judging of pulled feedback | `claude-haiku-5-5`, effort `max` |
 | Art and audio | `artist` (Artist) | makes all the art: sprites, models, textures, palettes, animation, VFX, UI look | `claude-opus-5-5`, effort `high` |
 | Art and audio | `audio` (Audio) | sound effects, music, buses and mixing | `claude-sonnet-5-5`, effort `medium` |
 | Critics and reviewers | `artCritic` (Art critic) | **read-only**: looks at the game and the art, gives an opinion and a score | `claude-opus-5-5`, effort `high` |
