@@ -165,7 +165,10 @@ base64url(HMAC(HMAC_SECRET, payload))`; the server checks it on every report. Th
 ### `GET /`
 
 A short plain page: what the server stores, what it never stores, how long it keeps reports (until the developer
-deletes them), that texts may be summarized in the public roadmap, and how to stop sending (`never`).
+deletes them), that texts may be summarized in the public roadmap, the rules for reports (engine topics only, no
+personal data, no illegal or abusive content, no abuse of the server; reports that break them are deleted and their
+sender may be refused, without notice; sending a report lets the developer use it freely), that the server comes with
+no warranty and may stop at any time, and how to stop sending (`never`).
 
 ### Deploy
 
