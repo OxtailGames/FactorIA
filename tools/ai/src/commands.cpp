@@ -10,6 +10,7 @@
 #include "fa/ai/detect.h"
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/mcp_client.h"
+#include "fa/ai/plugin_install.h"
 #include "fa/ai/review.h"
 #include "fa/ai/savers.h"
 #include "fa/ai/skills.h"
@@ -390,6 +391,63 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             if (!answer) throw CommandError("invalid_arguments", "answer must be accept, decline or forget", "Example: {\"id\":\"scene.load:not_found\",\"answer\":\"accept\"}");
             auto r = answer_fact(project_dir(), str(args, "id"), *answer, str(args, "line"));
             if (!r) throw CommandError("saver_failed", r.error().message, r.error().hint);
+            return *r;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.plugin_install";
+        info.category = "ai";
+        info.summary = "Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions.";
+        info.description =
+            "Runs the Claude Code CLI's own commands with the executable of the claude-code provider: `claude plugin marketplace add "
+            "<marketplace>`, then `claude plugin install <plugin>`; a step already done (the marketplace listed by `claude plugin marketplace "
+            "list`, the plugin by `claude plugin list`) is skipped. Then adds a plugin entry name@marketplace to the user's ai.json "
+            "\"extensions\" (the other keys stay), with `roles`. It installs software, so only the USER starts it (the editor's AI settings > "
+            "Extensions > Add TokenEconomizer, or the CLI); the built-in agent and the MCP server never offer it. `preset` \"tokeneconomizer\" "
+            "fills marketplace microsoft/TokenEconomizer, plugin tokeneconomizer@tokeneconomizer and requiresPython 3.10 (checks python3 / "
+            "python before installing). `dryRun` returns what it would do. Returns {ok, dryRun, provider, command, marketplace, plugin, "
+            "python:{required, command, version, ok, message}, steps:[{id marketplace|plugin|entry, command, needed, status "
+            "would_run|not_needed|done|skipped|failed, detail}], entry:{name, added, present, path}, message}. Failures name the step, what "
+            "the CLI said and how to fix it. Example: {\"preset\":\"tokeneconomizer\",\"dryRun\":true}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "preset":{"type":"string","enum":["tokeneconomizer"],"description":"A known plugin: fills marketplace, plugin and requiresPython (your own values win)."},
+            "marketplace":{"type":"string","description":"What `claude plugin marketplace add` takes: owner/repo of GitHub, a git URL or a path."},
+            "plugin":{"type":"string","description":"name@marketplace, as `claude plugin install` takes it."},
+            "roles":{"type":"array","items":{"type":"string"},"description":"Roles that load the entry (default: orchestrator, worker, fast, artist, audio)."},
+            "name":{"type":"string","description":"The entry's name in ai.json (default: the plugin's name)."},
+            "note":{"type":"string","description":"The entry's note."},
+            "requiresPython":{"type":"string","description":"Minimum Python version the plugin needs, e.g. 3.10. Checked before installing."},
+            "dryRun":{"type":"boolean","description":"Report the commands and whether each is needed; install nothing."}},
+            "additionalProperties":false})");
+        info.readOnly = false;
+        registry.add(std::move(info), [load](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            PluginInstallRequest req;
+            if (const std::string preset = str(args, "preset"); !preset.empty()) {
+                if (preset != "tokeneconomizer")
+                    throw CommandError("unknown_preset", "No preset named '" + preset + "'", "The only preset is tokeneconomizer; or give marketplace and plugin.");
+                req = token_economizer_request();
+            }
+            if (!str(args, "marketplace").empty()) req.marketplace = str(args, "marketplace");
+            if (!str(args, "plugin").empty()) req.plugin = str(args, "plugin");
+            if (!str(args, "name").empty()) req.entryName = str(args, "name");
+            if (!str(args, "note").empty()) req.note = str(args, "note");
+            if (!str(args, "requiresPython").empty()) req.requiresPython = str(args, "requiresPython");
+            if (const Json* roles = child(args, "roles"); roles && roles->is_array()) {
+                for (const Json& r : *roles) {
+                    if (r.is_string()) req.roles.push_back(r.get<std::string>());
+                }
+            }
+            req.dryRun = flag(args, "dryRun");
+            PluginInstallHooks hooks;
+            hooks.onStep = [](const Json& step) {
+                const std::string status = str(step, "status");
+                if (status == "running") report_command_progress(str(step, "detail"));
+            };
+            auto r = plugin_install(*cfg, req, hooks);
+            if (!r) throw CommandError("plugin_install_failed", r.error().message, r.error().hint);
             return *r;
         });
     }

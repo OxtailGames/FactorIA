@@ -54,6 +54,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"H2", "AI settings, Extensions tab, Hooks: saved hooks with where each runs, three real runs (ok, failed, blocked) listed, Clear"},
     {"S2", "AI settings, Extensions tab, Token savers: switches and judge saved in ai.json (other keys kept), proposals from the project's runs, accept/decline change AGENTS.md and the tool groups only on accept"},
     {"K2", "AI settings, Extensions tab, Skills: the engine's and the project's skills listed, a role and an On box switched, Save keeps them as skill entries"},
+    {"F2", "AI settings, Extensions tab, Add TokenEconomizer: the confirmation, a fake Claude Code CLI run, the entry added, Save keeps the other keys, entry-only when the plugin is already installed"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).
