@@ -401,8 +401,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.summary = "Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions.";
         info.description =
             "Runs the Claude Code CLI's own commands with the executable of the claude-code provider: `claude plugin marketplace add "
-            "<marketplace>`, then `claude plugin install <plugin>`; a step already done (the marketplace listed by `claude plugin marketplace "
-            "list`, the plugin by `claude plugin list`) is skipped. Then adds a plugin entry name@marketplace to the user's ai.json "
+            "<marketplace>`, then `claude plugin install <plugin> --scope user`; a step already done (the marketplace listed by `claude plugin "
+            "marketplace list`, the plugin installed for the user by `claude plugin list`; an install for one folder does not count) is skipped. Then adds a plugin entry name@marketplace to the user's ai.json "
             "\"extensions\" (the other keys stay), with `roles`. It installs software, so only the USER starts it (the editor's AI settings > "
             "Extensions > Add TokenEconomizer, or the CLI); the built-in agent and the MCP server never offer it. `preset` \"tokeneconomizer\" "
             "fills marketplace microsoft/TokenEconomizer, plugin tokeneconomizer@tokeneconomizer and requiresPython 3.10 (checks python3 / "

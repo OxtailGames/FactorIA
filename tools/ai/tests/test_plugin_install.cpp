@@ -180,6 +180,29 @@ TEST_CASE("plugin_install: a marketplace that is already listed is not added aga
     CHECK_FALSE(has(t.cli.log(), "plugin install"));
 }
 
+TEST_CASE("plugin_install: an install for another folder (scope local or project) does not count; it installs for the user") {
+    Setup s;
+    // The shape of `claude plugin list --json` (Claude Code 2.1): one object per install, with its scope and folder.
+    std::ofstream(s.cli.dir.path / "marketplaces.json") << R"([{"name":"tokeneconomizer","repo":"microsoft/TokenEconomizer"}])";
+    std::ofstream(s.cli.dir.path / "plugins.json")
+        << R"([{"id":"tokeneconomizer@tokeneconomizer","version":"0.1.0","scope":"local","enabled":true,"projectPath":"/elsewhere"},
+              {"id":"notes@mine","version":"1.0","scope":"user","enabled":true}])";
+    auto r = plugin_install(s.config(), token_economizer_request(), s.cli.hooks());
+    REQUIRE(r);
+    CHECK((*r)["steps"][0]["status"] == "skipped");  // the marketplace is listed
+    CHECK((*r)["steps"][1]["status"] == "done");
+    CHECK(has(s.cli.log(), "plugin install tokeneconomizer@tokeneconomizer --scope user"));
+
+    // Installed for the user: nothing to install.
+    Setup t;
+    std::ofstream(t.cli.dir.path / "marketplaces.json") << R"([{"name":"tokeneconomizer","repo":"microsoft/TokenEconomizer"}])";
+    std::ofstream(t.cli.dir.path / "plugins.json") << R"([{"id":"tokeneconomizer@tokeneconomizer","scope":"user","enabled":true}])";
+    auto only = plugin_install(t.config(), token_economizer_request(), t.cli.hooks());
+    REQUIRE(only);
+    CHECK((*only)["steps"][1]["status"] == "skipped");
+    CHECK_FALSE(has(t.cli.log(), "plugin install"));
+}
+
 TEST_CASE("plugin_install: errors name the step, what the CLI said and the fix, and leave ai.json alone") {
     SUBCASE("the marketplace cannot be added") {
         Setup s;

@@ -954,7 +954,8 @@ you and adds it to the `extensions` of your `ai.json` (the editor's **Add TokenE
 CLI's own commands, with the executable of the configured `claude-code` provider, and skips a step that is already done:
 
 1. `claude plugin marketplace add <marketplace>` unless `claude plugin marketplace list` already shows it (or the plugin is installed);
-2. `claude plugin install <plugin>` unless `claude plugin list` already shows `plugin` (`name@marketplace`);
+2. `claude plugin install <plugin> --scope user` unless `claude plugin list` already shows `plugin` (`name@marketplace`) installed for
+   the user (an install of scope `local` or `project` belongs to one folder and does not count: the entry is for every project);
 3. a `plugin` entry `name@marketplace` in your `ai.json` `extensions` (with `roles`, default roles when left out), unless one exists. Every
    other key of the file stays. The roles are checked before anything is installed, so a typo leaves nothing half done.
 
