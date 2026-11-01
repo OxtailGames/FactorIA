@@ -304,8 +304,11 @@ TEST_CASE("extension_support: who takes what") {
     CHECK_FALSE(codex.any());
     CHECK(has(codex.reason, "could not verify how Codex takes"));
     const ExtensionSupport api = extension_support(provider_of(cfg, "anthropic"));
-    CHECK_FALSE(api.any());
-    CHECK(has(api.reason, "do not use extensions yet"));
+    CHECK(api.any());
+    CHECK(api.hooks);  // FactorIA's own loop runs them (docs/HOOKS.md)
+    CHECK_FALSE(api.plugins);
+    CHECK_FALSE(api.skills);
+    CHECK(has(api.reason, "run hooks only"));
     ProviderConfig generic;
     generic.name = "g";
     generic.kind = ProviderKind::GenericCli;
@@ -504,10 +507,11 @@ TEST_CASE("plan_extensions: Codex and the API providers say they do not use exte
     CHECK(has(codex.notes[0], "could not verify how Codex takes plugins, skills or hooks"));
 
     const ExtensionPlan api = plan_extensions(cfg, provider_of(cfg, "anthropic"), "worker", ctx);
-    CHECK(api.empty());
-    REQUIRE(api.notes.size() == 1);
-    CHECK(has(api.notes[0], "do not use extensions yet"));
-    CHECK(has(api.notes[0], "anthropic"));
+    CHECK_FALSE(api.empty());  // the hook set is run by FactorIA's loop
+    CHECK(api.hookSources.size() == 1);
+    bool saidSkipped = false;
+    for (const std::string& n : api.notes) saidSkipped = saidSkipped || (has(n, "run hooks only") && has(n, "anthropic"));
+    CHECK(saidSkipped);  // the plugin and the skill need Claude Code
 
     // nothing for the role: nothing to say
     AiConfig none = default_config();
@@ -761,7 +765,7 @@ TEST_CASE("AgentSession: a project plugin that is not trusted is skipped with th
     CHECK(has(read_file((scratch.path / "argv.txt").string()), "--plugin-dir\n" + (proj.path / "tools" / "p").string() + "\n"));
 }
 
-TEST_CASE("AgentSession with an API provider: the entries for the role are reported as not used yet") {
+TEST_CASE("AgentSession with an API provider: skills are reported as not used, hooks run") {
     TempDir proj, home;
     AiConfig cfg = default_config();
     cfg.extensions.entries = {make_ext(ExtensionKind::Skill, "gdd", "~/skills/gdd")};
@@ -778,7 +782,7 @@ TEST_CASE("AgentSession with an API provider: the entries for the role are repor
     s.set_event_handler([&](const AgentEvent& e) { events.push_back(e); });
     REQUIRE(s.run("Hi").ok);
     bool said = false;
-    for (const auto& e : events) said = said || (e.type == AgentEvent::Type::Info && has(e.text, "do not use extensions yet"));
+    for (const auto& e : events) said = said || (e.type == AgentEvent::Type::Info && has(e.text, "not loaded") && has(e.text, "gdd"));
     CHECK(said);
 }
 
@@ -827,10 +831,10 @@ TEST_CASE("ai.extensions: the report per role, the project file with its trust, 
     CHECK(has(worker["skipped"][0]["reason"].get<std::string>(), "is not a folder"));
     CHECK(has(j["roles"]["fast"]["notes"][0].get<std::string>(), "could not verify how Codex"));
     CHECK(j["roles"]["fast"]["receives"].empty());
-    CHECK(has(j["roles"]["orchestrator"]["notes"][0].get<std::string>(), "do not use extensions yet"));
+    CHECK(has(j["roles"]["orchestrator"]["notes"][0].get<std::string>(), "run hooks only"));
     REQUIRE(j["denyRules"].size() == 1);
     CHECK(j["denyRules"][0]["tool"] == "scene_spawn");
-    CHECK(has(j["scope"].get<std::string>(), "do not use extensions yet"));
+    CHECK(has(j["scope"].get<std::string>(), "run hooks only"));
     CHECK(fsys::exists(trust) == false);  // looking changed nothing
 
     auto one = registry.call("ai.extensions", Json::object({{"role", "worker"}}));

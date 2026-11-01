@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "asset_commands.h"
+#include "fa/ai/command_hooks.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/mcp_client.h"
@@ -222,8 +223,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "hooks, enabledPlugins, statusLine, env, permissions.allow, defaultMode...)}], needsTrust, trusted, loadedByClaudeCode, "
             "message + fix when a file needs trust and the project is not trusted: Claude Code then runs without them}, denyRules:[{file, rule, tool, fix}] (rules in the "
             "project's .claude/settings*.json that remove FactorIA's own tools from Claude Code), scope}. Only Claude Code (and a "
-            "generic CLI with {plugin_dirs} / {settings} in its argv) uses extensions: Codex gets none and the API providers "
-            "(anthropic, openai-compatible) do not use them yet. A plugin or hook that comes from a project loads only after the USER "
+            "generic CLI with {plugin_dirs} / {settings} in its argv) uses plugins and skills: Codex gets none, and the API providers "
+            "(anthropic, openai-compatible) run only the hooks, in FactorIA's own loop. A plugin or hook that comes from a project loads only after the USER "
             "trusts the project in the editor (AI settings > Extensions); no command can grant that. Read-only. Example: "
             "{\"role\":\"worker\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
@@ -242,6 +243,74 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             Json out = extensions_report(*cfg, ctx, role);
             out["configPath"] = cfg->sourcePath.empty() ? default_config_path(opts->runtime.env ? opts->runtime.env : system_env()) : cfg->sourcePath;
             return out;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.hooks";
+        info.category = "ai";
+        info.summary = "List the hooks (programs and JavaScript modules run on events) and the recent runs of every hook.";
+        info.description =
+            "The \"hooks\" entries of `extensions` in ai.json and the project's .factoria/extensions.json (docs/HOOKS.md). Returns "
+            "{entries:[{name, source user|project, enabled, roles, runsProgram, trusted (a project's entry that starts a program), "
+            "events:{<Event>:[{matcher, handlers:[{type command|js|http|prompt|agent, target (the command, the module or the url), "
+            "timeout?, runsHere}]}]}, problem + fix when it cannot be used}], events (the events FactorIA runs: SessionStart, "
+            "UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, and beforeCommand / afterCommand around "
+            "every command of the registry), defaultTimeoutSeconds, notRun (handlers only Claude Code runs), "
+            "recentRuns:[{event, matched, extension, source, type, target, startedMs, ms, exitCode, timedOut, failed, error, decision, "
+            "reason, output, stderr}] (this process's last runs, newest last)}. Read-only. Example: {\"recent\":20}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "role":{"type":"string","description":"Only the entries this role loads (orchestrator, worker, fast, artist, audio, artCritic, reviewer). Omit for all."},
+            "recent":{"type":"integer","minimum":0,"maximum":300,"default":50,"description":"How many recent runs to include."}},
+            "additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [load, project_dir, opts](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string role = str(args, "role");
+            if (!role.empty() && !is_known_role(role)) {
+                const std::vector<std::string> names(std::begin(kAllRoles), std::end(kAllRoles));
+                throw CommandError("unknown_role", "No role named '" + role + "'", fa::did_you_mean(role, names));
+            }
+            ExtensionContext ctx = make_extension_context(*cfg, project_dir(), opts->runtime.env);
+            return hooks_report(*cfg, ctx, role, args.contains("recent") ? static_cast<std::size_t>(num(args, "recent")) : 50);
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.hooks_test";
+        info.category = "ai";
+        info.summary = "Run the configured hooks of one event with a sample input and show what they decide.";
+        info.description =
+            "Try a hook before relying on it: runs the handlers configured for `event` whose matcher fits `match` with `input` as the "
+            "event's JSON (the common fields session_id, cwd, hook_event_name... are added), exactly as the AI loop or the registry "
+            "would. The handlers REALLY run (a program does what it does). Returns {event, matched, groups, outcome:{blocked, reason, "
+            "blockedBy, stop, stopReason, context, feedback, systemMessages, allowed, updatedInput?, failed, runs:[{...exitCode, ms, "
+            "decision, reason, output, stderr, failed, error}]}, skipped, note?}. `match` is what the matcher is compared with: the tool "
+            "name (PreToolUse, PostToolUse, PostToolUseFailure), the command name (beforeCommand, afterCommand), the source of "
+            "SessionStart or the reason of SessionEnd. A project's hooks that start a program run only after the user trusts the "
+            "project in the editor. Example: {\"event\":\"PreToolUse\",\"match\":\"scene_spawn\",\"input\":{\"tool_name\":\"scene_spawn\","
+            "\"tool_input\":{\"name\":\"Coin\"}}}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "event":{"type":"string","description":"SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd, beforeCommand or afterCommand."},
+            "match":{"type":"string","default":"","description":"What the matcher is compared with (tool name, command name, source). Omit for events without a matcher."},
+            "input":{"type":"object","default":{},"description":"The event's own fields, e.g. {tool_name, tool_input} for PreToolUse, {command, args} for beforeCommand, {prompt} for UserPromptSubmit."},
+            "role":{"type":"string","default":"orchestrator","description":"Whose entries count for the AI events (the engine's command events use every role's)."}},
+            "required":["event"],"additionalProperties":false})");
+        registry.add(std::move(info), [load, project_dir, opts](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            const std::string name = str(args, "event");
+            const auto event = parse_hook_event(name);
+            if (!event) {
+                throw CommandError("unknown_event", "No hook event named '" + name + "' that FactorIA runs",
+                                   fa::did_you_mean(name, engine_hook_event_names()) + " Events: " + fa::join(engine_hook_event_names(), ", ") + ".");
+            }
+            const Json* in = child(args, "input");
+            ExtensionContext ctx = make_extension_context(*cfg, project_dir(), opts->runtime.env);
+            auto out = test_hooks(*cfg, ctx, *event, str(args, "match"), in ? *in : Json::object(), str(args, "role", kRoleOrchestrator), opts->cancel);
+            if (!out) throw CommandError("unknown_role", out.error().message, out.error().hint);
+            return *out;
         });
     }
     {
@@ -602,6 +671,14 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         });
     }
     register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
+
+    // beforeCommand / afterCommand hooks around every command of this registry, for every caller (docs/HOOKS.md).
+    CommandHooksOptions hooksOptions;
+    hooksOptions.loadConfig = load;
+    hooksOptions.projectDir = project_dir;
+    hooksOptions.env = opts->runtime.env;
+    hooksOptions.cancel = opts->cancel;
+    install_command_hooks(registry, std::move(hooksOptions));
 }
 
 }  // namespace fa::ai

@@ -33,6 +33,7 @@ Command make_dap_command();
 Command make_ai_command();
 Command make_feedback_command();
 Command make_docs_command();
+Command make_hooks_command();
 
 // ---- output ----
 void print_json(std::ostream& out, const Json& j);  // pretty, newline-terminated
