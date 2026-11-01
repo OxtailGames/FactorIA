@@ -226,11 +226,16 @@ The height is kept with the layout.
   conversation a session keeps (full, or 100k to 800k): past it the earlier part is summarized, so each message costs
   less. It works with Claude Code and the Anthropic API.
 - **AI > AI Settings...** (the **AI** menu of the menu bar, next to File, Edit, View and Help; on macOS also **FactorIA > Settings...**, Cmd+,; there is no button for it in
-  the panel) opens a window with three tabs. **Roles** (the first) is the role table above, and **AI > Roles...** opens
+  the panel) opens a window with four tabs. **Roles** (the first) is the role table above, and **AI > Roles...** opens
   the window on it. The **External tools** tab lists the MCP servers the AI may use (a service such as Scenario): a form
   to add one (name, address or program, key), a **Test** button that connects and lists its tools, **Paste JSON** for a
   `.mcp.json` snippet from Claude Code, and **Remove**; **Save** keeps every other key of `ai.json` (see `docs/AI_PROVIDERS.md`,
-  "External tools (MCP servers)"). The **Assets** tab is for what the AI makes besides
+  "External tools (MCP servers)"). The **Extensions** tab lists the plugins, skill folders and hooks the AI agents load, with
+  on/off per role, **Trust this project** for a project's programs, and a **Hooks** section at its end: every saved hook
+  handler (entry, event, matcher, type, command or module) with where it runs (every provider, the engine's own events for every caller,
+  or Claude Code only), and the **Recent runs** of this editor (time, event, what it matched, handler, result `ok` / `block` /
+  `failed` in red, milliseconds; the tooltip has the error, reason, output and exit code) with a **Clear** button
+  (`docs/HOOKS.md`). The **Assets** tab is for what the AI makes besides
   code and where it finds it. **Asset generation** picks, for each kind (Image, Sound, Music, Voice, 3D model), the provider
   that makes it (only providers that can make that kind, or **None**, which leaves it to the procedural commands), the model
   and, for Voice, the voice id, with a status per row (key found, or what is missing); a masked box stores an API key in your
@@ -717,7 +722,7 @@ wrapping, right-click menu), G (delete a project), H (Export window), I (Platfor
 agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
 the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
 its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), B2 (the Animation panel: New clip, keys written in record mode by a gizmo drag, a key moved and its Undo, an easing from the context menu, an event, scrubbing that poses without changing the scene, the onion skin), C2 (the bone tools: a chain drawn by clicks, a sprite bound, weights painted as one undo step, an IK handle dragged, the overlay following the selected bone), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key), D2 (the External tools tab of that window: a server added with the form, Test, a pasted Claude Code JSON, Save keeping the other keys of `ai.json`, Remove), Z (sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets `SpriteAnimator.clip`) and W (two AI chats at once against a scripted model: both finish with their own answers, the
-same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run) and E2 (feedback sharing against a fake transport: the consent dialog and its preview, the ask-mode review list, the panel's share column and boxes, Review with AI against a scripted model, the Feedback Settings sign-in and Send now; it never touches the network and writes its settings under `<FA_EDITOR_AUTOTEST_OUT>/share_config`). While you work on one part of the editor, run only the sections that cover it:
+same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run) and E2 (feedback sharing against a fake transport: the consent dialog and its preview, the ask-mode review list, the panel's share column and boxes, Review with AI against a scripted model, the Feedback Settings sign-in and Send now; it never touches the network and writes its settings under `<FA_EDITOR_AUTOTEST_OUT>/share_config`), E3 (the Extensions tab: a plugin folder and pasted hooks added, a role switched off, Save keeping the other keys, a project's hooks needing the trust and a changed file dropping it) and H2 (its Hooks section: the saved hooks with where each runs, three real runs listed as ok, failed and blocked, Clear). While you work on one part of the editor, run only the sections that cover it:
 
 ```bash
 FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest

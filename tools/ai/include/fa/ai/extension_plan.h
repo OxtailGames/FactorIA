@@ -9,6 +9,7 @@
 
 #include "fa/ai/config.h"
 #include "fa/ai/extensions.h"
+#include "fa/ai/hooks.h"
 
 namespace fa::ai {
 
@@ -24,7 +25,7 @@ struct ExtensionSupport {
 };
 // Claude Code: plugins (--plugin-dir), skills (a plugin FactorIA writes for the run), hooks (--settings). Codex: nothing
 // (FactorIA could not verify how it takes them). A generic CLI: plugins when its argv has {plugin_dirs}, hooks when it has
-// {settings}. The API providers (anthropic, openai-compatible): nothing yet.
+// {settings}. The API providers (anthropic, openai-compatible): hooks (FactorIA's own loop runs them, hooks.h); plugins and skills not yet.
 ExtensionSupport extension_support(const ProviderConfig& provider);
 
 struct ExtensionContext {
@@ -55,6 +56,7 @@ struct ExtensionPlan {
     std::vector<std::string> pluginDirs;  // --plugin-dir / {plugin_dirs}
     std::vector<std::string> skillDirs;   // each skill folder; Claude Code gets them as one generated plugin
     Json hooks;                           // merged events object; null when there are none
+    std::vector<HookSource> hookSources;  // the same hooks entry by entry, for FactorIA's own loop (make_hook_set); filled for every provider that takes hooks
     bool userPluginsOff = false;          // inheritUserPlugins false and the provider honours it
     // Claude Code only: the project's .claude/settings*.json runs a program or widens what the AI may do and the project is not trusted, so the run starts
     // without the project and local setting sources. `untrustedSettings` says what would have run (ClaudeProjectSettings::describe).
@@ -74,6 +76,15 @@ ExtensionItem resolve_extension(const Extension& e, const ExtensionContext& ctx,
 
 ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provider, std::string_view role,
                               const ExtensionContext& ctx);
+
+// The hooks that fire around registry commands (beforeCommand, afterCommand) for EVERY caller, whatever role or provider: all
+// enabled "hooks" entries of the user and of the project, whatever their roles (a role says which AI loads an entry, and a command
+// is called by people and scripts too). A project's entry that needs trust and is not trusted is left out and listed in `skipped`.
+struct CommandHookConfig {
+    HookSet set;                        // only the command events
+    std::vector<ExtensionItem> skipped; // entries not used, each with problem + fix
+};
+CommandHookConfig load_command_hooks(const AiConfig& cfg, const ExtensionContext& ctx);
 
 // Merges hooks objects: the groups of the same event are appended in order.
 Json merge_hooks(const std::vector<Json>& sets);

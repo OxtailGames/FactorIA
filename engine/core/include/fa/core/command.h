@@ -17,6 +17,8 @@
 
 #include <functional>
 #include <map>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -77,6 +79,20 @@ struct CommandResult {
     Json error;
 };
 
+// Sees every call() of a registry from outside the engine's own modules (beforeCommand / afterCommand hooks, fa_ai's
+// command_hooks.h). Installed with CommandRegistry::set_interceptor; the registry stays free of any knowledge of what it does.
+struct CommandInterceptor {
+    // Asked at the start of every call() with the command name: false = this call is not intercepted. Must be cheap (a lookup in a
+    // table that was already built): it runs on every call.
+    std::function<bool(std::string_view name)> wants;
+    // Before the arguments are validated and the handler runs. May change `args`. Returns a failed CommandResult to refuse the call
+    // (the handler does not run, `after` is not called), nullopt to go ahead.
+    std::function<std::optional<CommandResult>(std::string_view name, Json& args)> before;
+    // After the handler ran, whatever the outcome, with the arguments it got and how long the call took. May add to `result`
+    // (the hooks add "hookWarnings" to an object result when a hook failed).
+    std::function<void(std::string_view name, const Json& args, CommandResult& result, double ms)> after;
+};
+
 class CommandRegistry {
 public:
     // Replaces an existing command with the same name.
@@ -99,13 +115,21 @@ public:
     // which replaces commands: that is only safe while no handler is running. Empty = none.
     void set_before_call(std::function<void(std::string_view)> hook) { beforeCall_ = std::move(hook); }
 
+    // Installs (or, with null, removes) the interceptor. Not to be called while another thread is inside call(). A registry without
+    // one pays a single pointer test per call.
+    void set_interceptor(std::shared_ptr<const CommandInterceptor> interceptor) { interceptor_ = std::move(interceptor); }
+    bool has_interceptor() const { return interceptor_ != nullptr; }
+
 private:
+    CommandResult call_inner(std::string_view name, const Json& args) const;
+
     struct Entry {
         CommandInfo info;
         CommandHandler handler;
     };
     std::map<std::string, Entry, std::less<>> commands_;
     std::function<void(std::string_view)> beforeCall_;
+    std::shared_ptr<const CommandInterceptor> interceptor_;
     mutable int callDepth_ = 0;
 };
 

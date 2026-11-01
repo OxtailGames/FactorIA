@@ -1,6 +1,7 @@
 #include "fa/core/command.h"
 
 #include <algorithm>
+#include <chrono>
 
 #include "fa/core/json_schema.h"
 #include "fa/core/log.h"
@@ -62,6 +63,21 @@ std::vector<const CommandInfo*> CommandRegistry::list(std::string_view category)
 }
 
 CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) const {
+    const std::shared_ptr<const CommandInterceptor> interceptor = interceptor_;  // one pointer test when there is none
+    if (!interceptor || !interceptor->wants || !interceptor->wants(name)) return call_inner(name, argsIn);
+    Json args = argsIn.is_null() ? Json::object() : argsIn;
+    if (interceptor->before) {
+        if (std::optional<CommandResult> refused = interceptor->before(name, args)) return *refused;
+    }
+    const auto t0 = std::chrono::steady_clock::now();
+    CommandResult result = call_inner(name, args);
+    if (interceptor->after) {
+        interceptor->after(name, args, result, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    }
+    return result;
+}
+
+CommandResult CommandRegistry::call_inner(std::string_view name, const Json& argsIn) const {
     struct DepthGuard {
         int& d;
         explicit DepthGuard(int& v) : d(v) { ++d; }

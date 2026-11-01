@@ -8,6 +8,7 @@
 #include <mutex>
 
 #include "fa/ai/extension_plan.h"
+#include "fa/ai/hooks.h"
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/date.h"
 #include "fa/core/log.h"
@@ -701,10 +702,14 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             pctx.toolServers.push_back({client->name(), s ? s->note : std::string(), client->name() + "__"});
         }
     }
-    {   // The API providers do not use extensions yet: say so when the role has any, instead of ignoring them silently.
+    // The extensions of this role: an API provider's loop runs the hooks (hooks.h); plugins and skills it cannot use are noted.
+    HookSet hookSet;
+    {
         ExtensionContext extCtx = make_extension_context(config_, opt_.projectDir, opt_.env);
         if (!opt_.extensionsTrustPath.empty()) extCtx.trustPath = opt_.extensionsTrustPath;
-        for (const std::string& note : plan_extensions(config_, pc, role, extCtx).notes) serverNotes.push_back(note);
+        const ExtensionPlan extPlan = plan_extensions(config_, pc, role, extCtx);
+        for (const std::string& note : extPlan.notes) serverNotes.push_back(note);
+        hookSet = make_hook_set(extPlan.hookSources).only([](HookEvent e) { return !is_command_hook_event(e); });
     }
     ChatRequest req;
     req.model = rc.model;
@@ -759,6 +764,41 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
                            {"toolGroups", plan.loadedGroups}, {"task", task}}));
     res.transcriptPath = tr.path();
 
+    // Hooks: the events of Claude Code that this loop runs. Every run goes to the transcript as a "hook" line; a hook that failed
+    // or refused something also shows in the chat as an Info event.
+    auto info_event = [&](const std::string& text) {
+        AgentEvent e;
+        e.type = AgentEvent::Type::Info;
+        e.text = text;
+        emit(e, depth, role);
+    };
+    HookRunContext hookCtx;
+    hookCtx.projectDir = opt_.projectDir;
+    hookCtx.sessionId = stamp_ + "-" + role + (depth ? "-" + std::to_string(delegateCount_) : "");
+    hookCtx.transcriptPath = tr.path();
+    hookCtx.cancel = cancel_;
+    hookCtx.agentType = depth ? role : std::string();
+    hookCtx.onRun = [&](const HookRunRecord& r) {
+        Json line = r.to_json();
+        line["kind"] = "hook";
+        line["depth"] = depth;
+        tr.write(std::move(line));
+        if (r.failed) info_event("Hook failed (" + std::string(hook_event_name(r.event)) + ", " + r.extension + ": " + r.target + "): " + r.error);
+    };
+    auto fire = [&](HookEvent event, std::string_view match, const Json& input) -> HookOutcome {
+        if (!hookSet.has_event(event)) return {};
+        HookOutcome out = run_hooks(hookSet, event, match, input, hookCtx);
+        for (const std::string& m : out.systemMessages) info_event(m);
+        return out;
+    };
+    auto context_text = [](const std::vector<std::string>& parts) {
+        std::string text;
+        for (const std::string& p : parts) text += (text.empty() ? "" : "\n") + p;
+        return text;
+    };
+    int stopContinuations = 0;
+    constexpr int kMaxStopContinuations = 8;  // a Stop hook that keeps refusing cannot hold the run forever
+
     ChatHooks hooks;
     hooks.onText = [&](std::string_view t) {
         AgentEvent e;
@@ -786,10 +826,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     const std::string convKey = pc.name + "/" + rc.model;
     std::vector<Message> history;
     if (depth == 0 && opt_.conversation.key == convKey) history = opt_.conversation.history;
-    history.push_back(Message::user(task, depth == 0 ? images_ : std::vector<ImageData>{}));
-    Json userLine = Json::object({{"kind", "user"}, {"text", task}});
-    if (depth == 0 && !imagePaths_.empty()) userLine["images"] = imagePaths_;
-    tr.write(userLine);
+    const bool resumed = !history.empty();
     int pauseStreak = 0;
 
     auto finish_with = [&](bool ok, const std::string& stop, const std::string& text, const std::string& error,
@@ -803,6 +840,13 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             res.conversation.key = convKey;
             res.conversation.history = history;
         }
+        if (depth == 0 && hookSet.has_event(HookEvent::SessionEnd)) {
+            // Also after a cancel: a hook that cleans up should run then (each hook still has its timeout).
+            HookRunContext endCtx = hookCtx;
+            endCtx.cancel = nullptr;
+            HookOutcome ended = run_hooks(hookSet, HookEvent::SessionEnd, stop, Json::object({{"reason", stop}}), endCtx);
+            for (const std::string& m : ended.systemMessages) info_event(m);
+        }
         Json endEvent = Json::object({{"kind", "end"}, {"ok", ok}, {"stopReason", stop}, {"text", text}, {"error", error}});
         if (stop == "cancelled") {
             res.cancelCause = cancelCause_ ? cancelCause_() : std::string();
@@ -814,6 +858,37 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         return res;
     };
 
+    // SessionStart and UserPromptSubmit: what their hooks print is added to the message; a refusal ends the run before the model
+    // is asked and the message does not become part of the conversation.
+    std::string userText = task;
+    if (depth == 0) {
+        std::vector<std::string> added;
+        const HookOutcome started =
+            fire(HookEvent::SessionStart, resumed ? "resume" : "startup",
+                 Json::object({{"source", resumed ? "resume" : "startup"}, {"model", rc.model}}));
+        added.insert(added.end(), started.context.begin(), started.context.end());
+        if (started.stop) {
+            return finish_with(false, "hook_stop", res.finalText, started.stopReason.empty() ? "A SessionStart hook stopped the run" : started.stopReason,
+                               "A SessionStart hook answered continue: false. `ai.hooks` lists the hooks.");
+        }
+        const HookOutcome prompted = fire(HookEvent::UserPromptSubmit, "", Json::object({{"prompt", task}}));
+        if (prompted.blocked || prompted.stop) {
+            const std::string why = prompted.blocked ? prompted.reason : prompted.stopReason;
+            const std::string by = prompted.blockedBy.empty() ? std::string("a UserPromptSubmit hook") : prompted.blockedBy;
+            return finish_with(false, "hook_blocked", res.finalText,
+                               "The message was not sent to the model: " + by + " refused it" + (why.empty() ? "." : ": " + why),
+                               "A UserPromptSubmit hook blocked the message. Change the message, or the hook (`ai.hooks` lists them).");
+        }
+        added.insert(added.end(), prompted.context.begin(), prompted.context.end());
+        if (!added.empty()) userText += "\n\n[Context from hooks]\n" + context_text(added);
+    }
+    history.push_back(Message::user(userText, depth == 0 ? images_ : std::vector<ImageData>{}));
+    Json userLine = Json::object({{"kind", "user"}, {"text", task}});
+    if (userText != task) userLine["hookContext"] = userText.substr(task.size());
+    if (depth == 0 && !imagePaths_.empty()) userLine["images"] = imagePaths_;
+    tr.write(userLine);
+
+    std::string hookStopReason;  // a hook answered continue: false during the tool calls of this step
     for (int turn = 1;; ++turn) {
         if (is_cancelled(cancel_)) return finish_with(false, "cancelled", res.finalText, "cancelled", "");
         if (turn > maxTurns) {
@@ -878,8 +953,97 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         }
 
         if (resp->message.toolCalls.empty()) {
+            if (depth == 0 && hookSet.has_event(HookEvent::Stop)) {
+                const HookOutcome stopped = fire(HookEvent::Stop, "",
+                                                 Json::object({{"stop_hook_active", stopContinuations > 0}, {"last_assistant_message", resp->message.text}}));
+                if (stopped.stop) {
+                    info_event("A Stop hook ended the run" + (stopped.stopReason.empty() ? std::string() : ": " + stopped.stopReason));
+                } else if (stopped.blocked) {
+                    if (stopContinuations < kMaxStopContinuations) {
+                        ++stopContinuations;
+                        const std::string why = stopped.reason.empty() ? "a Stop hook asked you to keep going" : stopped.reason;
+                        info_event("A Stop hook asked the model to continue: " + clip_text(why, 300));
+                        const std::string note = "[Stop hook] " + why;
+                        history.push_back(Message::user(note));
+                        tr.write(Json::object({{"kind", "user"}, {"text", note}, {"hook", stopped.blockedBy}}));
+                        continue;
+                    }
+                    info_event("A Stop hook kept refusing to let the run end; it was ended after " + std::to_string(kMaxStopContinuations) + " continuations.");
+                }
+            }
             return finish_with(true, "end_turn", resp->message.text, "", "");
         }
+
+        // One tool call with its hooks: PreToolUse can refuse it or change its arguments, PostToolUse / PostToolUseFailure add to
+        // the result the model sees. The hooks see the command a tool_call wrapper names, as the model asked for it.
+        auto run_tool = [&](const ToolCall& original) -> ToolResult {
+            const bool hooked = hookSet.has_event(HookEvent::PreToolUse) || hookSet.has_event(HookEvent::PostToolUse) ||
+                                hookSet.has_event(HookEvent::PostToolUseFailure);
+            if (!hooked) return execute_tool(original, role, depth, &toolServers, &plan);
+            ToolCall call = original;
+            std::string hookName = call.name;
+            Json hookInput = call.input.is_null() ? Json::object() : call.input;
+            bool wrapped = false;
+            if (plan.useCatalog && call.name == kToolCall && call.inputError.empty() && !str(call.input, "command").empty()) {
+                const Json* args = child(call.input, "arguments");
+                if (!args || args->is_null() || args->is_object()) {
+                    hookName = tool_name_for_command(str(call.input, "command"));
+                    hookInput = args && args->is_object() ? *args : Json::object();
+                    wrapped = true;
+                }
+            }
+            if (hookSet.has_event(HookEvent::PreToolUse)) {
+                const HookOutcome pre = fire(HookEvent::PreToolUse, hookName,
+                                             Json::object({{"tool_name", hookName}, {"tool_input", hookInput}, {"tool_use_id", call.id}}));
+                if (pre.updatedInput && pre.updatedInput->is_object()) {
+                    hookInput = *pre.updatedInput;
+                    if (wrapped) call.input["arguments"] = hookInput;
+                    else call.input = hookInput;
+                }
+                if (pre.blocked || pre.stop) {
+                    const std::string why = pre.blocked ? pre.reason : pre.stopReason;
+                    const std::string by = pre.blockedBy.empty() ? std::string("a PreToolUse hook") : pre.blockedBy;
+                    if (pre.stop && hookStopReason.empty()) hookStopReason = why.empty() ? "A hook stopped the run" : why;
+                    AgentEvent startEv;
+                    startEv.type = AgentEvent::Type::ToolStart;
+                    startEv.toolName = call.name;
+                    startEv.toolInput = call.input;
+                    emit(startEv, depth, role);
+                    Json err = Json::object({{"code", "blocked_by_hook"},
+                                             {"message", "The tool call was blocked by " + by + (why.empty() ? std::string(".") : ": " + why)},
+                                             {"hint", "The tool did not run. Change what you ask for so the hook accepts it, or tell the user what blocked it."}});
+                    AgentEvent endEv;
+                    endEv.type = AgentEvent::Type::ToolEnd;
+                    endEv.toolName = call.name;
+                    endEv.toolResult = err;
+                    endEv.isError = true;
+                    emit(endEv, depth, role);
+                    ToolResult r;
+                    r.toolUseId = call.id;
+                    r.isError = true;
+                    r.content = dump(err);
+                    return r;
+                }
+            }
+            ToolResult r = execute_tool(call, role, depth, &toolServers, &plan);
+            const HookEvent postEvent = r.isError ? HookEvent::PostToolUseFailure : HookEvent::PostToolUse;
+            if (hookSet.has_event(postEvent)) {
+                Json input = Json::object({{"tool_name", hookName}, {"tool_input", hookInput}, {"tool_use_id", call.id}});
+                if (r.isError) {
+                    input["error"] = r.content;
+                    input["is_interrupt"] = false;
+                } else {
+                    Json parsed = parse(r.content);
+                    input["tool_response"] = parsed.is_discarded() ? Json(r.content) : parsed;
+                }
+                const HookOutcome post = fire(postEvent, hookName, input);
+                if (post.updatedToolOutput) r.content = post.updatedToolOutput->is_string() ? post.updatedToolOutput->get<std::string>() : dump(*post.updatedToolOutput);
+                if (!post.feedback.empty()) r.content += "\n\n[Hook feedback]\n" + context_text(post.feedback);
+                if (!post.context.empty()) r.content += "\n\n[Context from hooks]\n" + context_text(post.context);
+                if (post.stop && hookStopReason.empty()) hookStopReason = post.stopReason.empty() ? "A hook stopped the run" : post.stopReason;
+            }
+            return r;
+        };
 
         // Execute ALL tool calls of this assistant turn and answer them in ONE user message.
         std::vector<ToolResult> results;
@@ -900,7 +1064,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
                 continue;
             }
             const std::int64_t toolStartMs = unix_time_ms_now();
-            results.push_back(execute_tool(call, role, depth, &toolServers, &plan));
+            results.push_back(run_tool(call));
             toolMs.push_back(unix_time_ms_now() - toolStartMs);
         }
         if (is_cancelled(cancel_)) {
@@ -927,6 +1091,10 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         }
         tr.write(Json::object({{"kind", "tool_results"}, {"results", trJson}}));
         history.push_back(Message::tool_results(std::move(results)));
+        if (!hookStopReason.empty()) {
+            return finish_with(false, "hook_stop", res.finalText, hookStopReason,
+                               "A hook answered continue: false. `ai.hooks` lists the hooks.");
+        }
     }
 }
 

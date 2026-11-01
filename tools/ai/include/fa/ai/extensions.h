@@ -34,8 +34,9 @@ struct Extension {
     bool enabled = true;
 
     bool from_project() const { return source == "project"; }
-    // Plugins and hooks can run a program (a hook command, a plugin's own hooks and servers); a skill is text.
-    bool runs_program() const { return kind != ExtensionKind::Skill; }
+    // Plugins and hooks can run a program (a hook command, a plugin's own hooks and servers); a skill is text. A hooks entry whose
+    // handlers are all of type "js" runs no program: its modules run in the engine's sandbox, so it needs no trust.
+    bool runs_program() const;
     // Enabled, and `role` is in `roles` (in the defaults when `roles` is empty). artCritic and reviewer only when listed.
     bool serves_role(std::string_view role) const;
 };
@@ -58,8 +59,9 @@ std::string extension_name_problem(std::string_view name);
 // folder to be relative to), resolved against the project folder later for a project entry; a project skill must stay inside
 // the project (no "~", no "..", not absolute).
 Result<ExtensionsConfig> parse_extensions(const Json& section, std::string_view at, std::string_view source = "user");
-// Checks Claude Code's hooks object (the value under "hooks" in a settings.json): known event names, matcher groups, handler
-// types, a "command" for type command. `at` is the pointer for errors.
+// Checks Claude Code's hooks object (the value under "hooks" in a settings.json), plus FactorIA's beforeCommand and afterCommand:
+// known event names, matcher groups ("match" is accepted for "matcher"), handler types (command, js, http, prompt, agent), a
+// "command" for type command, a "module" inside hooks/ for type js, a "timeout" in seconds. `at` is the pointer for errors.
 Result<void> validate_hooks(const Json& hooks, std::string_view at);
 // What a user pastes as hooks: {"hooks": {...}} (a settings.json or hooks.json), or the events object itself. Returns the
 // events object, validated.
