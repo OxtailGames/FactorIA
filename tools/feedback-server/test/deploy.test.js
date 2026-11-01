@@ -46,6 +46,8 @@ test("configDir is next to ai.json on each OS", () => {
     assert.equal(configDir({}, "darwin", "/Users/a"), "/Users/a/.factoria");
     assert.equal(configDir({}, "linux", "/home/a"), "/home/a/.factoria");
     assert.match(configDir({ APPDATA: "C:\\Users\\a\\AppData\\Roaming" }, "win32", "C:\\Users\\a"), /AppData.Roaming.factoria$/);
+    assert.equal(configDir({}, "win32", "C:\\Users\\a"), "C:\\Users\\a\\.factoria");
+    assert.equal(configDir({ FACTORIA_AI_CONFIG: "/tmp/p/ai.json" }, "linux", "/home/a"), "/tmp/p");
 });
 
 test("mergeAdminFile keeps the pull cursor and the old token unless a new one is given", () => {
