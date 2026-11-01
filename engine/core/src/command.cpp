@@ -40,6 +40,9 @@ bool report_command_progress(std::string_view message) {
 
 void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     std::string name = info.name;
+    // Closed by default: an argument the schema does not declare is an error, not something silently ignored. What
+    // describe() and MCP show is the normalised schema, so clients see exactly what call() enforces.
+    info.inputSchema = close_object_schemas(std::move(info.inputSchema));
     commands_[name] = Entry{std::move(info), std::move(handler)};
 }
 
@@ -105,7 +108,11 @@ CommandResult CommandRegistry::call_inner(std::string_view name, const Json& arg
 
     Json args = argsIn.is_null() ? Json::object() : argsIn;
     const Json& schema = entry.info.inputSchema;
-    if (args.is_object()) apply_schema_defaults(schema, args);
+    if (args.is_object()) {
+        // MCP and other transports may add their own bookkeeping key to the arguments: it is not an argument.
+        if (args.contains("_meta") && !(schema.contains("properties") && schema["properties"].contains("_meta"))) args.erase("_meta");
+        apply_schema_defaults(schema, args);
+    }
     std::vector<SchemaError> errors = validate_json(schema, args);
     if (!errors.empty()) {
         std::string message = "Invalid arguments for '" + entry.info.name + "': ";

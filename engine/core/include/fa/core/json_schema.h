@@ -24,6 +24,12 @@ struct SchemaError {
 };
 
 std::vector<SchemaError> validate_json(const Json& schema, const Json& value);
+// Returns `schema` with every object schema that declares "properties" but no "additionalProperties" closed
+// ("additionalProperties": false), at the root and in nested schemas (properties, items, anyOf/oneOf, $defs, an
+// additionalProperties schema). A schema that says "additionalProperties": true (or gives a schema) stays open: that is
+// the explicit opt-out for objects that really take open-ended keys. Objects with no "properties" at all are left alone.
+// CommandRegistry::add applies it to every command's inputSchema, so what describe/MCP show is what call enforces.
+Json close_object_schemas(Json schema);
 // Fills missing properties that have a "default" in the schema (recursively).
 void apply_schema_defaults(const Json& schema, Json& value);
 

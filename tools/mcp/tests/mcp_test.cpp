@@ -69,6 +69,7 @@ struct Fixture {
             CommandInfo i;
             i.name = "test.shot";
             i.summary = "Returns an image.";
+            i.inputSchema = Json::parse(R"({"type":"object","properties":{"path":{"type":"string","description":"Image file."}}})");
             registry.add(i, [](const Json& a) {
                 if (a.contains("path"))
                     return Json::object({{"$image", Json::object({{"path", a["path"]}, {"mimeType", "image/png"}})}, {"frame", 5}});
@@ -80,6 +81,7 @@ struct Fixture {
             CommandInfo i;
             i.name = "test.temp_shot";
             i.summary = "Returns a temporary image file.";
+            i.inputSchema = Json::parse(R"({"type":"object","properties":{"name":{"type":"string"},"temporary":{"type":"boolean"}}})");
             const std::string dir = tmp.path.string();
             registry.add(i, [dir](const Json& a) {
                 const std::string name = a.value("name", std::string("frame_9.png"));
@@ -215,6 +217,21 @@ TEST_CASE("mcp: tools/call success returns text and structuredContent") {
     Json arr = f.call("test_array_result")["result"];
     CHECK_FALSE(arr.contains("structuredContent"));
     CHECK(arr["isError"] == false);
+}
+
+TEST_CASE("mcp: an unknown argument is an error that teaches; the transport key _meta is not an argument") {
+    Fixture f;
+    Json bad = f.call("test_echo_value", {{"vlaue", 7}})["result"];
+    CHECK(bad["isError"] == true);
+    const std::string text = bad["content"][0]["text"].get<std::string>();
+    CHECK(text.find("invalid_arguments") != std::string::npos);
+    CHECK(text.find("/vlaue") != std::string::npos);
+    CHECK(text.find("did you mean 'value'") != std::string::npos);  // from the missing required 'value'
+    CHECK(text.find("unknown property 'vlaue'") != std::string::npos);
+    // Some clients put `_meta` inside the arguments object: it is stripped, never reported.
+    Json ok = f.call("test_echo_value", {{"value", 7}, {"_meta", {{"progressToken", "t1"}}}})["result"];
+    CHECK(ok["isError"] == false);
+    CHECK(ok["structuredContent"]["echo"] == 7);
 }
 
 TEST_CASE("mcp: tools/call failures are isError results with code, message and hint") {

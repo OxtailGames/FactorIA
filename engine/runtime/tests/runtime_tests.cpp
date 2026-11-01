@@ -226,6 +226,16 @@ TEST_CASE("engine: input actions, edges and replay-style injection") {
     auto bad = e.commands().call("game.input", Json::parse(R"({"press":["jumpp"]})"));
     CHECK_FALSE(bad.ok);
     CHECK(bad.error["message"].get<std::string>().find("jump") != std::string::npos);
+    // Unknown arguments are errors that teach, at the top level and inside `mouse`; nothing is applied then.
+    auto typo = e.commands().call("game.input", Json::parse(R"({"press":["jump"],"frame":2})"));
+    REQUIRE_FALSE(typo.ok);
+    CHECK(typo.error["code"] == "invalid_arguments");
+    CHECK(typo.error["message"].get<std::string>().find("/frame") != std::string::npos);
+    CHECK(typo.error["hint"].get<std::string>().find("frames") != std::string::npos);
+    auto mouseTypo = e.commands().call("game.input", Json::parse(R"({"mouse":{"lef":true}})"));
+    REQUIRE_FALSE(mouseTypo.ok);
+    CHECK(mouseTypo.error["message"].get<std::string>().find("/mouse/lef") != std::string::npos);
+    CHECK(mouseTypo.error["hint"].get<std::string>().find("left") != std::string::npos);
     e.shutdown();
 }
 
