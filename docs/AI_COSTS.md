@@ -187,6 +187,30 @@ optional judge costs one short call per redirect, counted in the run), tool grou
 for loading up front only when you accept, and project facts proposed for `AGENTS.md`. They are not measured on a paid run: the
 guard and the proposals are tested with a scripted provider.
 
+### TokenEconomizer with Claude Code: measured
+
+[TokenEconomizer](https://github.com/microsoft/TokenEconomizer) is a Claude Code plugin with similar savers for Claude Code
+itself: a loop guard, a deny list of the tools a repository never uses, and learned facts injected at session start. FactorIA
+can load it as an extension plugin (AI settings > Extensions, [AI_PROVIDERS.md](AI_PROVIDERS.md#extensions)). We measured it on
+six paid runs (2026-11-01, engine 0.11.0): the same task on a fresh copy of Sky Hopper (a double-jump feather pickup: a new
+prefab, a legend letter, a placement in level 1 and three tests), `factoria ai run --role worker --no-delegate` with Claude
+Code and Sonnet at medium effort, three runs with the plugin and three without, alternated, the project reset to the same
+commit between runs. `inheritUserPlugins` was off in both arms, so nothing else of the user's Claude Code setup was loaded,
+and the plugin kept its state in a folder of its own (`TOKENECONOMIZER_HOME`). Every run finished and left the tests green.
+
+| Run | With the plugin: cost, steps | Without: cost, steps |
+|---|---|---|
+| 1 | $0.64, 39 | $0.43, 35 |
+| 2 | $0.38, 31 | $0.33, 24 |
+| 3 | $0.25, 19 | $0.31, 28 |
+| Total | $1.27 | $1.08 |
+
+The difference is noise, not the plugin: its own report after the three runs says it injected no fact (they are off by
+default), proposed no tool for the deny list (it waits for more sessions of evidence) and redirected no loop (none happened),
+with 0 tokens of overhead. Over three runs it neither saved nor cost anything measurable; what it learns needs many sessions
+of the same repository, so judge it on your own projects over weeks with `/tokeneconomizer:status`, not on a short trial. Run
+to run, the same task varied by a factor of 2.5 in cost in each arm, so compare averages of several runs, never one.
+
 ## 4. How to cap it
 
 Put limits in your user-level `ai.json` (`~/.factoria/ai.json`, on Windows `%APPDATA%\factoria\ai.json`):

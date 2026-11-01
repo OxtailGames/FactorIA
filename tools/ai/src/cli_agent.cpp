@@ -546,7 +546,9 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
                 for (const auto& s : *mcp) {
                     std::string status = str(s, "status");
                     if (!status.empty() && status != "connected") {
-                        e.text += "; MCP server '" + str(s, "name") + "' is " + status + " (is `factoria` on PATH?)";
+                        // Only FactorIA's own server depends on `factoria`; the user's servers fail for their own reasons.
+                        e.text += "; MCP server '" + str(s, "name") + "' is " + status +
+                                  (str(s, "name") == "factoria" ? " (is `factoria` on PATH?)" : "");
                     }
                 }
             }
