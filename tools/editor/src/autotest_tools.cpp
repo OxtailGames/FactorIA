@@ -5478,6 +5478,214 @@ void Editor::at_build_tools_script() {
         });
     }
 
+    section("F2");
+    // Add TokenEconomizer in the Extensions tab (docs/AI_PROVIDERS.md, "Installing a plugin"): the tab asks a fake Claude Code CLI what is
+    // installed, the button shows what will be installed and runs nothing until Install, the install runs the CLI's plugin commands
+    // and adds the entry to ai.json (the other keys stay), Save keeps it, and with the entry removed but the plugin still installed
+    // the button offers only the entry. The CLI is a script of the autotest's output folder; the real claude is never run.
+    {
+        struct FState {
+            std::string path, dir, cli, python, previousEnv;
+            bool hadEnv = false;
+            std::vector<ai::ProviderStatus> savedStatus;
+        };
+        auto x = std::make_shared<FState>();
+        auto set_env = [](const char* name, const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(name, value.c_str());
+#else
+            setenv(name, value.c_str(), 1);
+#endif
+        };
+        const auto scroll_click = [&](const std::string& name) {
+            scroll_to(name, "AI settings###AiSettings");
+            click(name);
+        };
+        const auto probed = [this] {
+            std::lock_guard<std::mutex> lock(aiPluginJob_->mu);
+            return aiPluginJob_->probeDone && !aiPluginJob_->running;
+        };
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return aiDetected_.load() && !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            x->dir = atOutDir_ + "/fake_plugin_cli";
+            x->path = atOutDir_ + "/ai_eco_scratch.json";
+            std::error_code ec;
+            stdfs::remove_all(x->dir, ec);
+            stdfs::create_directories(x->dir, ec);
+            write_file(x->dir + "/marketplaces.json", "[]");
+            write_file(x->dir + "/plugins.json", "[]");
+#ifdef _WIN32
+            std::string d = x->dir;
+            std::replace(d.begin(), d.end(), '/', '\\');
+            x->cli = x->dir + "/claude.cmd";
+            x->python = x->dir + "/python.cmd";
+            write_file(x->cli,
+                       "@echo off\r\nset \"D=" + d + "\"\r\necho %* >> \"%D%\\argv.log\"\r\n"
+                       "if \"%1 %2 %3 %4\"==\"plugin marketplace list --json\" type \"%D%\\marketplaces.json\" & exit /b 0\r\n"
+                       "if \"%1 %2 %3\"==\"plugin list --json\" type \"%D%\\plugins.json\" & exit /b 0\r\n"
+                       "if \"%1 %2 %3\"==\"plugin marketplace add\" echo [{\"name\":\"tokeneconomizer\",\"repo\":\"microsoft/TokenEconomizer\"}]> \"%D%\\marketplaces.json\" & exit /b 0\r\n"
+                       "if \"%1 %2\"==\"plugin install\" echo [{\"id\":\"tokeneconomizer@tokeneconomizer\"}]> \"%D%\\plugins.json\" & exit /b 0\r\n"
+                       "if \"%1\"==\"--version\" echo 2.1.0 & exit /b 0\r\n"
+                       "exit /b 9\r\n");
+            write_file(x->python, "@echo off\r\necho Python 3.12.1\r\n");
+#else
+            x->cli = x->dir + "/claude";
+            x->python = x->dir + "/python3";
+            write_file(x->cli,
+                       "#!/bin/sh\nD='" + x->dir + "'\necho \"$*\" >> \"$D/argv.log\"\ncase \"$*\" in\n"
+                       "  \"plugin marketplace list --json\") cat \"$D/marketplaces.json\" ;;\n"
+                       "  \"plugin list --json\") cat \"$D/plugins.json\" ;;\n"
+                       "  \"plugin marketplace add \"*) echo '[{\"name\":\"tokeneconomizer\",\"repo\":\"microsoft/TokenEconomizer\"}]' > \"$D/marketplaces.json\"; echo added ;;\n"
+                       "  \"plugin install \"*) echo '[{\"id\":\"tokeneconomizer@tokeneconomizer\"}]' > \"$D/plugins.json\"; echo installed ;;\n"
+                       "  \"--version\") echo '2.1.0 (Claude Code)' ;;\n"
+                       "  *) echo \"unexpected: $*\" >&2; exit 9 ;;\nesac\n");
+            write_file(x->python, "#!/bin/sh\necho 'Python 3.12.1'\n");
+            stdfs::permissions(x->cli, stdfs::perms::owner_all, stdfs::perm_options::add, ec);
+            stdfs::permissions(x->python, stdfs::perms::owner_all, stdfs::perm_options::add, ec);
+#endif
+            const char* current = std::getenv("FACTORIA_AI_CONFIG");
+            x->hadEnv = current != nullptr;
+            x->previousEnv = current ? current : "";
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                x->savedStatus = aiStatus_;
+            }
+            Json cfg = Json::object({{"limits", Json::object({{"maxConcurrentRuns", 3}})},
+                                     {"roles", Json::object({{"worker", Json::object({{"provider", "anthropic"}, {"model", "sonnet"}})}})},
+                                     {"providers", Json::object({{"claude-code", Json::object({{"command", x->cli}})}})}});
+            write_file(x->path, cfg.dump(2));
+            aiPluginProbeInTest_ = true;
+            aiPluginPython_ = {x->python};
+            aiEconomizerMessage_.clear();
+            aiEconomizerConfirm_ = false;
+            set_env("FACTORIA_AI_CONFIG", x->path);
+            ai_refresh_providers();
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this] { focus_window("AI Assistant"); });
+        click("menu:ai");
+        click("menu:ai-settings");
+        step(4, [this, x] {
+            at_check(showAiSettings_ && aiSettings_.loaded && aiSettings_.path == x->path, "AI > AI Settings... opens the window on the scratch file");
+            aiSettingsTab_ = 4;  // Extensions
+        });
+        step(1, [this, probed] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = probed;
+        });
+        scroll_to("aiset:eco:add", "AI settings###AiSettings");
+        step(3, [this, x] {
+            at_check(at_shown("aiset:eco:add") && !at_visible("aiset:eco:installed"), "the TokenEconomizer section offers Add TokenEconomizer...");
+            at_check(read_file(x->dir + "/argv.log").find("marketplace add") == std::string::npos, "the dry run asked the CLI to list only: nothing was added");
+        });
+        // The confirmation: what will be installed, and nothing has run.
+        click("aiset:eco:add");
+        scroll_to("aiset:eco:confirm", "AI settings###AiSettings");
+        step(3, [this, x] {
+            at_check(aiEconomizerConfirm_ && at_shown("aiset:eco:confirm") && at_enabled("aiset:eco:confirm"), "the confirmation shows an Install button (Python 3.12.1 is enough)");
+            at_check(at_shown("aiset:eco:cancel"), "...and a Cancel button");
+            const std::string log = read_file(x->dir + "/argv.log");
+            at_check(log.find("marketplace add") == std::string::npos && log.find("plugin install") == std::string::npos, "the confirmation ran no install command");
+            at_check(read_file(x->path).find("tokeneconomizer") == std::string::npos, "...and wrote nothing to ai.json");
+        });
+        snap("editor_ai_economizer.png");
+        click("aiset:eco:cancel");
+        step(3, [this] { at_check(!aiEconomizerConfirm_, "Cancel closes the confirmation"); });
+        scroll_click("aiset:eco:add");
+        scroll_click("aiset:eco:confirm");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                std::lock_guard<std::mutex> lock(aiPluginJob_->mu);
+                return !aiPluginJob_->running && !aiPluginJob_->finished && !aiEconomizerMessage_.empty();
+            };
+        });
+        step(3, [this, x] {
+            const std::string log = read_file(x->dir + "/argv.log");
+            const auto add = log.find("plugin marketplace add microsoft/TokenEconomizer");
+            const auto install = log.find("plugin install tokeneconomizer@tokeneconomizer");
+            at_check(add != std::string::npos && install != std::string::npos && add < install, "Install ran the marketplace add, then the plugin install");
+            at_check(aiEconomizerOk_, "the result is a success: " + aiEconomizerMessage_);
+            const Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && j.contains("extensions") && j["extensions"]["plugins"]["tokeneconomizer"].value("plugin", std::string()) == "tokeneconomizer@tokeneconomizer",
+                     "ai.json has the plugin entry");
+            at_check(j.is_object() && j.contains("limits") && j.contains("roles") && j.contains("providers"), "...and kept its other keys");
+            const auto& u = aiSettings_.ext.user;
+            at_check(std::ranges::count_if(u, [](const ai::Extension& e) { return e.plugin == "tokeneconomizer@tokeneconomizer"; }) == 1,
+                     "the tab's list has the entry once");
+        });
+        step(1, [this, probed] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = probed;
+        });
+        scroll_to("aiset:eco:installed", "AI settings###AiSettings");
+        step(3, [this] { at_check(at_shown("aiset:eco:installed") && !at_visible("aiset:eco:add"), "the section now reads installed"); });
+        // Save keeps the entry and every other key.
+        scroll_click("aiset:ext:save");
+        step(4, [this, x] {
+            const Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && j.contains("limits") && j.contains("roles") && j.contains("providers") &&
+                         j["extensions"]["plugins"].size() == 1 && j["extensions"]["plugins"].contains("tokeneconomizer"),
+                     "Save kept the entry (once) and the other keys of ai.json");
+        });
+        // The entry removed, the plugin still installed: only the entry is offered.
+        scroll_click("aiset:ext:remove:plugin:tokeneconomizer");
+        scroll_click("aiset:ext:save");
+        step(1, [this, probed] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = probed;
+        });
+        step(3, [this, x] {
+            const Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && !j.contains("extensions"), "Remove and Save took the entry out of ai.json");
+        });
+        scroll_to("aiset:eco:entry", "AI settings###AiSettings");
+        step(3, [this] { at_check(at_shown("aiset:eco:entry") && !at_visible("aiset:eco:add"), "the section offers only the entry, since the plugin is installed"); });
+        click("aiset:eco:entry");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] {
+                std::lock_guard<std::mutex> lock(aiPluginJob_->mu);
+                return !aiPluginJob_->running && !aiPluginJob_->finished && aiPluginJob_->probeDone;
+            };
+        });
+        step(3, [this, x] {
+            const std::string log = read_file(x->dir + "/argv.log");
+            const auto first = log.find("plugin install ");
+            at_check(first != std::string::npos && log.find("plugin install ", first + 1) == std::string::npos, "adding only the entry did not install the plugin again");
+            const Json j = Json::parse(read_file(x->path), nullptr, false);
+            at_check(j.is_object() && j.contains("extensions") && j["extensions"]["plugins"].contains("tokeneconomizer"), "ai.json has the entry again");
+        });
+        click("aiset:ext:close");
+        step(4, [this] { at_check(!showAiSettings_ && !aiSettings_.loaded, "Close closes the window and drops the draft"); });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !aiDetecting_.load(); };
+        });
+        step(2, [this, x, set_env] {
+            set_env("FACTORIA_AI_CONFIG", x->hadEnv ? x->previousEnv : std::string());
+            aiPluginProbeInTest_ = false;
+            aiPluginPython_.clear();
+            aiEconomizerMessage_.clear();
+            std::error_code ec;
+            stdfs::remove(x->path, ec);
+            stdfs::remove_all(x->dir, ec);
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) {
+                aiConfig_ = std::move(*atSavedConfig_);
+                atSavedConfig_.reset();
+            }
+            aiStatus_ = std::move(x->savedStatus);
+        });
+    }
+
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;
     step(2, [this] {

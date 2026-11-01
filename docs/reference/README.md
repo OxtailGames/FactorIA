@@ -88,6 +88,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.hooks`](commands/ai.md#aihooks): List the hooks (programs and JavaScript modules run on events) and the recent runs of every hook. _Not released yet._
 - [`ai.hooks_test`](commands/ai.md#aihooks_test): Run the configured hooks of one event with a sample input and show what they decide. _Not released yet._
 - [`ai.models`](commands/ai.md#aimodels): List the models each AI provider offers (the values for roles.<role>.model).
+- [`ai.plugin_install`](commands/ai.md#aiplugin_install-modifies-state): Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions. _Not released yet._
 - [`ai.providers`](commands/ai.md#aiproviders): List configured AI providers and roles, or diagnose which ones are usable (doctor).
 - [`ai.review`](commands/ai.md#aireview-modifies-state): Ask the art critics (kind art) or the game reviewers (kind game) for their opinion and a score (blocks until done). _Since 0.4.0._
 - [`ai.review_feedback`](commands/ai.md#aireview_feedback-modifies-state): Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet. _Since 0.10.0._
