@@ -754,6 +754,22 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             cfg.limits.maxConcurrentRuns = std::clamp(cfg.limits.maxConcurrentRuns, 1, kMaxConcurrentRunsCap);
         }
     }
+    if (const Json* sv = child(j, "savers")) {
+        if (sv->is_object()) {
+            auto flag = [&](const char* key, bool& out) {
+                if (const Json* v = child(*sv, key); v && v->is_boolean()) out = v->get<bool>();
+            };
+            flag("loopGuard", cfg.savers.loopGuard);
+            flag("learnedToolGroups", cfg.savers.learnedToolGroups);
+            flag("projectFacts", cfg.savers.projectFacts);
+            cfg.savers.loopGuardJudge = str(*sv, "loopGuardJudge");
+            if (!cfg.savers.loopGuardJudge.empty() && !is_known_role(cfg.savers.loopGuardJudge)) {
+                const std::vector<std::string> names(std::begin(kAllRoles), std::end(kAllRoles));
+                return make_error(std::string(sourceName) + ": /savers/loopGuardJudge: no role named '" + cfg.savers.loopGuardJudge + "'",
+                                  fa::did_you_mean(cfg.savers.loopGuardJudge, names));
+            }
+        }
+    }
     (void)anyApiKey;
     return cfg;
 }
@@ -783,6 +799,38 @@ Result<AiConfig> load_config(std::string_view pathIn, const EnvLookup& env) {
     }
 #endif
     return cfg;
+}
+
+Json savers_to_json(const Savers& savers) {
+    Json out = Json::object();
+    const Savers def;
+    if (savers.loopGuard != def.loopGuard) out["loopGuard"] = savers.loopGuard;
+    if (!savers.loopGuardJudge.empty()) out["loopGuardJudge"] = savers.loopGuardJudge;
+    if (savers.learnedToolGroups != def.learnedToolGroups) out["learnedToolGroups"] = savers.learnedToolGroups;
+    if (savers.projectFacts != def.projectFacts) out["projectFacts"] = savers.projectFacts;
+    return out;
+}
+
+Result<void> save_savers(const Savers& savers, std::string_view path) {
+    Json j = Json::object();
+    std::error_code ec;
+    if (fsys::exists(fsys::path(path), ec)) {
+        auto text = fs::read_text(path);
+        if (!text) return text.error();
+        auto parsed = fa::parse_json(*text, path);
+        if (!parsed) return parsed.error();
+        if (!parsed->is_object()) {
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object", "Fix or delete the file, then save the settings again.");
+        }
+        j = std::move(*parsed);
+    }
+    if (!savers.loopGuardJudge.empty() && !is_known_role(savers.loopGuardJudge)) {
+        const std::vector<std::string> names(std::begin(kAllRoles), std::end(kAllRoles));
+        return make_error("No role named '" + savers.loopGuardJudge + "' for the loop guard's judge", fa::did_you_mean(savers.loopGuardJudge, names));
+    }
+    if (Json sj = savers_to_json(savers); sj.empty()) j.erase("savers");
+    else j["savers"] = std::move(sj);
+    return write_private_file(path, dump_json(j));
 }
 
 // The "assetSources" object ({} when there is nothing to say: no site and onlyListed off).
@@ -847,6 +895,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         out["mcpServers"] = std::move(servers);
     }
     if (Json ext = extensions_to_json(cfg.extensions, true); !ext.empty()) out["extensions"] = std::move(ext);
+    if (!cfg.savers.is_default()) out["savers"] = savers_to_json(cfg.savers);
     Json roles = Json::object();
     for (const auto& [name, r] : cfg.roles) {
         Json rj = Json::object();

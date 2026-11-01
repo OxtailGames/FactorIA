@@ -93,6 +93,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ai.review_feedback`](commands/ai.md#aireview_feedback-modifies-state): Check an ENGINE_FEEDBACK.json entry's `share` text before it can be shared: a real gap, about the engine, not possible yet. _Since 0.10.0._
 - [`ai.reviews`](commands/ai.md#aireviews): List the saved reviews of the art critics and the game reviewers, newest first, with their scores. _Since 0.4.0._
 - [`ai.run`](commands/ai.md#airun-modifies-state): Run an AI agent on a task in the current project (blocks until it finishes).
+- [`ai.saver_fact`](commands/ai.md#aisaver_fact-modifies-state): Accept or decline a proposed project fact: one line added to the project's AGENTS.md. _Not released yet._
+- [`ai.saver_group`](commands/ai.md#aisaver_group-modifies-state): Accept or decline a proposed tool group for this project (loaded in full up front from the next run). _Not released yet._
+- [`ai.savers`](commands/ai.md#aisavers): Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer. _Not released yet._
 - [`ai.session_timeline`](commands/ai.md#aisession_timeline): Show where the time of a recorded AI session went: the long gaps and what was going on in each. _Since 0.9.0._
 - [`ai.tool_plan`](commands/ai.md#aitool_plan): Show which commands the built-in AI agent of a role gets as tools in full and which only as catalog lines. _Not released yet._
 - [`ai.tool_servers`](commands/ai.md#aitool_servers): List the external tool servers (MCP) the user configured in ai.json, and optionally test them. _Since 0.8.0._

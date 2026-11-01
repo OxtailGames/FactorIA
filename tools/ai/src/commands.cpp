@@ -11,6 +11,7 @@
 #include "fa/ai/extension_plan.h"
 #include "fa/ai/mcp_client.h"
 #include "fa/ai/review.h"
+#include "fa/ai/savers.h"
 #include "fa/ai/skills.h"
 #include "fa/ai/tool_catalog.h"
 #include "fa/core/fs.h"
@@ -319,6 +320,77 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             auto out = test_hooks(*cfg, ctx, *event, str(args, "match"), in ? *in : Json::object(), str(args, "role", kRoleOrchestrator), opts->cancel);
             if (!out) throw CommandError("unknown_role", out.error().message, out.error().hint);
             return *out;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.savers";
+        info.category = "ai";
+        info.summary = "Show the engine's token savers (loop guard, learned tool groups, project facts), what this project's runs learned and the proposals waiting for an answer.";
+        info.description =
+            "The built-in agent loop (the API providers) has three savers, each with a switch in ai.json \"savers\" and in the editor's AI settings > "
+            "Extensions tab (docs/AI_PROVIDERS.md, Token savers). Returns {switches:{loopGuard, loopGuardJudge, learnedToolGroups, projectFacts}, "
+            "thresholds, projectFile:{path, exists} (.factoria/ai/savers.json), runs:{<role>:n}, groups:{<role>:{<group>:{runs, commands:{<command>:n}, "
+            "status accepted|declined|\"\"}}} (the commands the runs loaded from the tool catalog), acceptedGroups:{<role>:[group]}, "
+            "facts:{<id>:{runs, status, line}}, proposals:{toolGroups:[{role, group, runs, commands, definitionBytes}], facts:[{id, command, "
+            "code, runs, line}]}}. A proposal changes nothing until it is accepted with ai.saver_group or ai.saver_fact; nothing is ever denied. "
+            "Read-only. Example: {}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{},"additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [load, project_dir, &registry](const Json&) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            return savers_report(*cfg, registry, project_dir());
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.saver_group";
+        info.category = "ai";
+        info.summary = "Accept or decline a proposed tool group for this project (loaded in full up front from the next run).";
+        info.description =
+            "The runs of a project count the commands they load from the tool catalog (ai.savers shows the counts and proposals). Accept: from the "
+            "next run on, `role` loads the commands of `group` (a command category such as assets or anim) in full besides its own toolGroups, in "
+            "this project only (kept in .factoria/ai/savers.json; ai.json is not changed). Decline: the group is not proposed again. Forget: undecided "
+            "again. Nothing is ever denied: a command outside the loaded groups stays reachable through the catalog. Returns {role, group, status, "
+            "note}. Example: {\"role\":\"worker\",\"group\":\"assets\",\"answer\":\"accept\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "role":{"type":"string","description":"The role that gets the group: orchestrator, worker, fast, artist, audio, artCritic or reviewer."},
+            "group":{"type":"string","description":"A command category (the part of a command name before the dot, e.g. assets)."},
+            "answer":{"type":"string","enum":["accept","decline","forget"],"description":"accept, decline or forget (back to undecided)."}},
+            "required":["role","group","answer"],"additionalProperties":false})");
+        info.readOnly = false;
+        registry.add(std::move(info), [project_dir, &registry](const Json& args) -> Json {
+            const auto answer = parse_saver_answer(str(args, "answer"));
+            if (!answer) throw CommandError("invalid_arguments", "answer must be accept, decline or forget", "Example: {\"role\":\"worker\",\"group\":\"assets\",\"answer\":\"accept\"}");
+            auto r = answer_tool_group(registry, project_dir(), str(args, "role"), str(args, "group"), *answer);
+            if (!r) throw CommandError("saver_failed", r.error().message, r.error().hint);
+            return *r;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.saver_fact";
+        info.category = "ai";
+        info.summary = "Accept or decline a proposed project fact: one line added to the project's AGENTS.md.";
+        info.description =
+            "A command that failed with the same error code in several runs until a later call of it worked proposes one line for AGENTS.md "
+            "(ai.savers lists them with their id). Accept appends the line under \"## Project facts\" in the project's AGENTS.md (created when "
+            "missing); `line` replaces the proposed line. Nothing is written before an accept. Decline: not proposed again. Forget: undecided "
+            "again (the line is not removed from AGENTS.md). Returns {id, status, written?, file?}. Example: "
+            "{\"id\":\"scene.load:not_found\",\"answer\":\"accept\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "id":{"type":"string","description":"The fact's id as ai.savers shows it: command:code."},
+            "answer":{"type":"string","enum":["accept","decline","forget"],"description":"accept (write it), decline or forget (back to undecided)."},
+            "line":{"type":"string","description":"With accept: the line to write instead of the proposed one."}},
+            "required":["id","answer"],"additionalProperties":false})");
+        info.readOnly = false;
+        registry.add(std::move(info), [project_dir](const Json& args) -> Json {
+            const auto answer = parse_saver_answer(str(args, "answer"));
+            if (!answer) throw CommandError("invalid_arguments", "answer must be accept, decline or forget", "Example: {\"id\":\"scene.load:not_found\",\"answer\":\"accept\"}");
+            auto r = answer_fact(project_dir(), str(args, "id"), *answer, str(args, "line"));
+            if (!r) throw CommandError("saver_failed", r.error().message, r.error().hint);
+            return *r;
         });
     }
     {

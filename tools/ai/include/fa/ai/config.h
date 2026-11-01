@@ -119,6 +119,23 @@ struct Limits {
 };
 inline constexpr int kMaxConcurrentRunsCap = 8;
 
+// The engine's own token savers ("savers" in ai.json; savers.h, docs/AI_PROVIDERS.md "Token savers"). They run in FactorIA's own
+// loop, that is for the API providers (anthropic, openai-compatible); Claude Code and Codex run their own.
+struct Savers {
+    // The same command failing with the same error code three times in a run gets one short redirect, with no model call.
+    bool loopGuard = true;
+    // A role (orchestrator, worker, fast...) whose model reads the stuck run and writes the redirect instead; "" = the engine's
+    // fixed text. Its tokens count in the run's cost and limits. Off by default: it is an extra model call.
+    std::string loopGuardJudge;
+    // Count the tools the runs of a project load from the catalog and propose the groups to load up front (the user accepts).
+    bool learnedToolGroups = true;
+    // Propose one line for the project's AGENTS.md for a command that keeps failing the same way until a fix works.
+    bool projectFacts = true;
+
+    bool operator==(const Savers&) const = default;
+    bool is_default() const { return *this == Savers{}; }
+};
+
 inline constexpr const char* kRoleOrchestrator = "orchestrator";
 inline constexpr const char* kRoleWorker = "worker";
 inline constexpr const char* kRoleFast = "fast";
@@ -230,6 +247,7 @@ struct AiConfig {
     std::vector<ToolServer> toolServers;      // the external tool servers (MCP), in the file's order; empty unless the file sets "mcpServers"
     ExtensionsConfig extensions;              // plugins, skills and hooks the CLI agents load; empty unless the file sets "extensions"
     Limits limits;
+    Savers savers;                            // the token savers of the built-in loop; all on (no judge) unless the file sets "savers"
     std::string sourcePath;                   // "" when defaults only
     std::vector<std::string> warnings;
 
@@ -274,6 +292,10 @@ std::vector<SchemaError> validate_config_json(const Json& j);    // [] when vali
 Result<AiConfig> parse_config(const Json& j, std::string_view sourceName = "<memory>");
 // Missing file => defaults (ok). Present but invalid => error with JSON pointers.
 Result<AiConfig> load_config(std::string_view path = {}, const EnvLookup& env = system_env());
+// Writes ONLY "savers" into the config file at `path` (created when missing), keeping everything else; all defaults remove the
+// section. Owner-only permissions. A file that is not a JSON object is left alone (error).
+Result<void> save_savers(const Savers& savers, std::string_view path);
+Json savers_to_json(const Savers& savers);
 Result<void> save_config(const AiConfig& cfg, std::string_view path);  // writes user-editable JSON (no defaults noise)
 // Writes only "roles" into the config file at `path` (created when missing) and keeps everything else in it: providers,
 // limits, a role's maxTokens. An empty model or effort (or maxContextTokens 0) removes that key, so the role's default

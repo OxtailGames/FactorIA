@@ -849,6 +849,10 @@ public:
             Json hooksReport;                          // ai::hooks_report as saved + the runs of this process, refreshed every second
             double hooksAt = -10;
             std::vector<ai::SkillInfo> skills;         // every skill the Skills list shows (ai::scan_skills of the working copy), refreshed with `status`
+            ai::Savers savers;                         // the token savers' switches, the working copy (ai.json "savers")
+            Json saversReport;                         // ai::savers_report: this project's counts and the proposals, refreshed every second
+            double saversAt = -10;
+            std::string saversMessage;                 // what the last accept / decline did
         } ext;
     } aiSettings_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
@@ -861,6 +865,7 @@ public:
     void ai_tool_test(const ai::ToolServer& server);    // Test button: connects off the main thread, writes the draft's ToolTests
     void ai_settings_discard();           // closes the draft (stops a running Test)
     void draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable);  // ai_extensions.cpp
+    void draw_ai_savers_view(const ai::AiConfig& cfg);  // the Token savers section of that tab: switches, judge, proposals
     void draw_ai_hooks_view(const Json& report);        // the Hooks section of that tab: handlers and recent runs
     void ai_extensions_load(const ai::AiConfig& cfg);   // the Extensions draft from the loaded config and the open project's file
 
