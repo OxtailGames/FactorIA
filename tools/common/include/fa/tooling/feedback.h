@@ -92,6 +92,9 @@ struct FeedbackFilter {
 };
 Json list_feedback(const Json& doc, const FeedbackFilter& filter = {});  // array of entries
 
+// The feedback file of a project: <projectDir>/ENGINE_FEEDBACK.json, or the project's `feedbackFile` when factoria.json sets one.
+std::string feedback_file_for_project(const std::string& projectDir);
+
 // "ENGINE_FEEDBACK.json" -> "ENGINE_FEEDBACK.archive.json": where the closed entries of a feedback file go.
 std::string feedback_archive_path(const std::string& feedbackPath);
 
@@ -115,6 +118,17 @@ Json list_archived_feedback(const std::string& path, const FeedbackFilter& filte
 // An archived entry set to "open" moves back to the file. Returns the updated entry.
 Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
                                   std::string_view engineIssue, std::string_view note = {});
+
+struct FeedbackShareEdit {
+    Json share;                    // null = leave `share` as it is; else {title, missing, suggestion?, workaround?}
+    bool clearShare = false;       // remove `share` (the entry is not shared any more); wins over `share`
+    std::optional<bool> reviewed;  // null = a changed `share` becomes reviewed: false (nobody checked the new text); else as given
+};
+// Edits the `share` text and/or the `reviewed` flag of entry `id` of the feedback file (an entry of the archive is not edited).
+// The text is validated against the field limits (kShare*Min/Max); an invalid one is an error and nothing is written. A
+// changed text drops `shared` unless it says sent, so the entry goes through the sanitizer and the outbox again. This does not
+// run the sanitizer and does not change the sharing mode: the editor's panel and ai.review_feedback do. Returns the entry.
+Result<Json> set_feedback_share_file(const std::string& path, std::string_view id, const FeedbackShareEdit& edit);
 
 // Updates status and/or engineIssue of entry `id`. Returns the updated entry.
 Result<Json> update_feedback_entry(Json& doc, std::string_view id, std::string_view status,
