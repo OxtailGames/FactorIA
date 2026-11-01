@@ -23,9 +23,11 @@ struct ExtensionSupport {
     std::string reason;
     bool any() const { return plugins || skills || hooks; }
 };
-// Claude Code: plugins (--plugin-dir), skills (a plugin FactorIA writes for the run), hooks (--settings). Codex: nothing
-// (FactorIA could not verify how it takes them). A generic CLI: plugins when its argv has {plugin_dirs}, hooks when it has
-// {settings}. The API providers (anthropic, openai-compatible): hooks (FactorIA's own loop runs them, hooks.h); plugins and skills not yet.
+// Claude Code: plugins (--plugin-dir), skills (a plugin FactorIA writes for the run), hooks (--settings). Codex: skills only
+// (folders FactorIA writes to <project>/.agents/skills for the run; Codex has no plugin folder or hooks file to pass). A
+// generic CLI: plugins when its argv has {plugin_dirs}, hooks when it has {settings}. The API providers (anthropic,
+// openai-compatible): skills (listed in the system prompt, read with skills.read) and hooks (FactorIA's own loop runs
+// them, hooks.h); no plugins.
 ExtensionSupport extension_support(const ProviderConfig& provider);
 
 struct ExtensionContext {
@@ -55,6 +57,9 @@ struct ExtensionPlan {
     ExtensionSupport support;
     std::vector<std::string> pluginDirs;  // --plugin-dir / {plugin_dirs}
     std::vector<std::string> skillDirs;   // each skill folder; Claude Code gets them as one generated plugin
+    // The skills no entry names (the engine's, ~/.factoria/skills, <project>/skills) that the role is offered, for a provider that
+    // takes skill folders. They are not an extension the user configured, so they do not make the plan non-empty or get a note.
+    std::vector<std::string> implicitSkillDirs;
     Json hooks;                           // merged events object; null when there are none
     std::vector<HookSource> hookSources;  // the same hooks entry by entry, for FactorIA's own loop (make_hook_set); filled for every provider that takes hooks
     bool userPluginsOff = false;          // inheritUserPlugins false and the provider honours it
@@ -93,6 +98,14 @@ Json merge_hooks(const std::vector<Json>& sets);
 // dir/skills/<name>/ (a copy of each folder; symbolic links are not followed). Names that collide get -2, -3...
 Result<void> write_skills_plugin(const std::string& dir, const std::vector<std::string>& skillDirs);
 inline constexpr const char* kSkillsPluginName = "factoria-extensions";
+
+// Codex reads Agent Skills from <project>/.agents/skills. Copies each skill folder (or writes an engine skill) to
+// skillsRoot/<prefix><name>/ (a name that collides gets -2, -3...) and returns the folders it made, for the run to remove at
+// its end. A `.gitignore` of `factoria-*/` is written in skillsRoot when it has none, so a run that dies does not leave
+// files to commit. Nothing is left behind when it fails.
+inline constexpr const char* kAgentsSkillsPrefix = "factoria-";
+Result<std::vector<std::string>> write_agents_skills(const std::string& skillsRoot, const std::string& prefix,
+                                                     const std::vector<std::string>& skillDirs);
 
 // What the trust of a project covers, read from disk: its extensions file and its Claude Code settings.
 struct ProjectTrustState {

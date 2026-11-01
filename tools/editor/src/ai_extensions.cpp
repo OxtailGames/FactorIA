@@ -1,5 +1,6 @@
-// The "Extensions" tab of the AI settings window: the plugins, skill folders and hooks the AI agents load (Claude Code; hooks also the API providers), from
-// the user's ai.json ("extensions") and from the open project's .factoria/extensions.json. Save writes only those two places
+// The "Extensions" tab of the AI settings window: the plugins, skill folders and hooks the AI agents load (Claude Code; hooks also the
+// API providers), the skills every provider can read (engine, yours, the project's, with on/off per role), from the user's ai.json
+// ("extensions") and from the open project's .factoria/extensions.json. Save writes only those two places
 // (ai::save_extensions keeps every other key of ai.json) and reloads. A project's plugins and hooks run only after the user
 // trusts the project here (docs/EDITOR.md "AI settings", docs/AI_PROVIDERS.md "Extensions"). The last section lists the hooks as
 // saved (what `ai.hooks` returns) and the recent runs of this editor, failures in red (docs/HOOKS.md).
@@ -7,6 +8,7 @@
 #include <cfloat>
 #include <ctime>
 #include <filesystem>
+#include <set>
 
 #include "editor_internal.h"
 #include "fa/ai/command_hooks.h"
@@ -257,9 +259,10 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     const float footerH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f + ImGui::GetTextLineHeightWithSpacing() * 2.0f;
     ImGui::BeginChild("##aiextbody", ImVec2(0, -footerH));
     ImGui::TextWrapped("Plugins, skills and hooks the AI agents load besides FactorIA's own tools: a plugin folder (or .zip, or one you installed "
-                       "in Claude Code), a skill folder, hooks that run a program or a script on an event. Claude Code takes them all. "
-                       "The API providers (anthropic, openai-compatible) run the hooks (not plugins or skills), and so does the engine around "
-                       "its own commands; Codex uses no extensions yet, and the run says so.");
+                       "in Claude Code), a skill folder, hooks that run a program or a script on an event. Skills reach every provider: the "
+                       "built-in loop reads them with skills_read, Claude Code loads them itself and Codex finds them in the project's "
+                       ".agents/skills during the run. Plugins are for Claude Code; the API providers (anthropic, openai-compatible) run the "
+                       "hooks, and so does the engine around its own commands; Codex takes no plugins or hooks, and the run says so.");
 
     // What stops each entry from loading, looked up once a second (it reads the disk).
     ai::ExtensionContext ctx;
@@ -281,6 +284,9 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
                 x.status[entry_key(e)] = item.problem;
             }
         }
+        ai::SkillsContext sctx;
+        sctx.projectDir = projectDir_;
+        x.skills = ai::scan_skills(x.user, x.project, sctx);
         x.statusAt = ImGui::GetTime();
     }
     // The hooks as saved and the runs this editor made, looked up once a second as well (reads the disk).
@@ -370,6 +376,109 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
         auto& list = removeProject ? x.project : x.user;
         list.erase(list.begin() + remove);
         x.statusAt = -10;
+    }
+
+
+    // ------------------------------------------------------------------------------------------------ skills
+    // Every skill a role can be offered (docs/SKILLS.md): FactorIA's own, ~/.factoria/skills, the project's skills/ folder and the
+    // folders named by entries above. A change is kept as a skill entry of the list above, so Save writes it like any other.
+    ImGui::SeparatorText("Skills");
+    ImGui::TextDisabled("Topic guides the AI reads when the work needs them. On/off per role; Save keeps the choice.");
+    const auto skill_entry = [&](const ai::SkillInfo& s) -> ai::Extension& {
+        if (!s.entry.empty()) {
+            for (ai::Extension& e : s.entryScope == "project" ? x.project : x.user)
+                if (e.kind == ai::ExtensionKind::Skill && e.name == s.entry) return e;
+        }
+        const bool project = s.source == "project" && !projectDir_.empty();
+        std::vector<ai::Extension>& list = project ? x.project : x.user;
+        std::string name = s.name.substr(0, ai::kMaxExtensionName);
+        for (int n = 2; std::ranges::any_of(list, [&](const ai::Extension& e) { return e.kind == ai::ExtensionKind::Skill && e.name == name; }); ++n)
+            name = s.name.substr(0, ai::kMaxExtensionName - 4) + "-" + std::to_string(n);
+        ai::Extension e;
+        e.kind = ai::ExtensionKind::Skill;
+        e.name = name;
+        e.source = project ? "project" : "user";
+        if (s.is_engine()) {
+            e.path = s.dir;
+        } else if (project) {
+            e.path = stdfs::path(s.dir).lexically_relative(stdfs::path(projectDir_)).generic_string();
+        } else {
+            e.path = with_tilde(s.dir);
+        }
+        list.push_back(e);
+        x.statusAt = -10;
+        return list.back();
+    };
+    if (x.skills.empty()) ImGui::TextDisabled("No skills found.");
+    if (!x.skills.empty() && ImGui::BeginTable("##skills", 4 + 7 + 1, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+        ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, em * 2.5f);
+        ImGui::TableSetupColumn("Skill", ImGuiTableColumnFlags_WidthFixed, em * 12.5f);
+        ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, em * 4.2f);
+        ImGui::TableSetupColumn("What it is for", ImGuiTableColumnFlags_WidthStretch);
+        for (const char* r : kRoleShort) ImGui::TableSetupColumn(r, ImGuiTableColumnFlags_WidthFixed, em * 2.9f);
+        ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed, em * 8.0f);
+        ImGui::TableHeadersRow();
+        // Copy: a change below adds an entry and the list is rescanned a frame later.
+        const std::vector<ai::SkillInfo> shown = x.skills;
+        for (std::size_t i = 0; i < shown.size(); ++i) {
+            const ai::SkillInfo& s = shown[i];
+            const bool usable = s.problem.empty() && s.shadowedBy.empty();
+            const std::string key = s.name;
+            ImGui::PushID(static_cast<int>(i));
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::BeginDisabled(!usable);
+            bool enabled = s.enabled;
+            if (ImGui::Checkbox("##skillon", &enabled)) skill_entry(s).enabled = enabled;
+            ImGui::EndDisabled();
+            if (usable) at_track("aiset:ext:skill:enabled:" + key);
+            ImGui::SetItemTooltip("Off: no role is offered this skill; its files stay.");
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(s.name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%s", s.source == "engine" ? "engine" : s.source == "user" ? "you" : "project");
+            ImGui::SetItemTooltip("%s", s.is_engine() ? "Ships inside FactorIA." : s.dir.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(s.description.c_str());
+            ImGui::SetItemTooltip("%s", s.description.c_str());
+            const std::vector<std::string> now = s.effective_roles();
+            for (const char* r : ai::kAllRoles) {
+                ImGui::TableNextColumn();
+                ImGui::BeginDisabled(!usable);
+                bool on = std::ranges::find(now, std::string(r)) != now.end();
+                if (ImGui::Checkbox((std::string("##skillrole") + r).c_str(), &on)) {
+                    std::vector<std::string> next;
+                    for (const char* all : ai::kAllRoles) {
+                        const bool wanted = std::string_view(all) == r ? on : std::ranges::find(now, std::string(all)) != now.end();
+                        if (wanted) next.push_back(all);
+                    }
+                    const std::set<std::string> have(next.begin(), next.end()), def(s.defaultRoles.begin(), s.defaultRoles.end());
+                    skill_entry(s).roles = have == def ? std::vector<std::string>{} : next;
+                }
+                ImGui::EndDisabled();
+                if (usable) at_track(std::string("aiset:ext:skill:role:") + key + ":" + r);
+                ImGui::SetItemTooltip("%s", r);
+            }
+            ImGui::TableNextColumn();
+            if (!s.problem.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
+                ImGui::TextUnformatted("Cannot load");
+                ImGui::PopStyleColor();
+                ImGui::SetItemTooltip("%s %s", s.problem.c_str(), s.fix.c_str());
+            } else if (!s.shadowedBy.empty()) {
+                ImGui::TextDisabled("Replaced");
+                ImGui::SetItemTooltip("A %s with this name is used instead.", s.shadowedBy.c_str());
+            } else if (!s.enabled) {
+                ImGui::TextDisabled("Off");
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, kStatusReady);
+                ImGui::TextUnformatted("Ready");
+                ImGui::PopStyleColor();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
     }
 
     // ------------------------------------------------------------------------------------------------ add a folder

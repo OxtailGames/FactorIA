@@ -5,8 +5,10 @@
 #include <filesystem>
 #include <set>
 
+#include "fa/ai/skills.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/skills.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -20,7 +22,8 @@ bool argv_has(const ProviderConfig& p, const char* placeholder) {
     return std::any_of(p.argv.begin(), p.argv.end(), [&](const std::string& a) { return a.find(placeholder) != std::string::npos; });
 }
 
-const char* kApiSentence = "the API providers (anthropic, openai-compatible) run hooks only; plugins and skills are for Claude Code";
+const char* kApiSentence = "the API providers (anthropic, openai-compatible) take skills and hooks but no plugins (plugins are for Claude Code "
+                            "and a generic CLI)";
 
 // Why `kind` cannot reach this provider, and what to do. Both empty when it can.
 void unsupported(const ProviderConfig& p, ExtensionKind kind, std::string& reason, std::string& fix) {
@@ -29,8 +32,12 @@ void unsupported(const ProviderConfig& p, ExtensionKind kind, std::string& reaso
     switch (p.kind) {
         case ProviderKind::ClaudeCode: return;
         case ProviderKind::Codex:
-            reason = "FactorIA could not verify how Codex takes plugins, skills or hooks, so it passes none to provider '" + p.name + "'";
-            fix = "Give the role a Claude Code provider to run it with extensions.";
+            // Codex reads Agent Skills (SKILL.md folders) from .agents/skills of the project; it has no plugin folders or hooks file
+            // that FactorIA could pass.
+            if (kind == ExtensionKind::Skill) return;
+            reason = std::string("Codex takes skills (FactorIA writes them to the project's .agents/skills for the run) but no ") +
+                     (kind == ExtensionKind::Plugin ? "plugins" : "hooks") + ", so provider '" + p.name + "' gets none";
+            fix = "Give the role a Claude Code provider to run it with plugins and hooks.";
             return;
         case ProviderKind::GenericCli:
             if (kind == ExtensionKind::Plugin) {
@@ -48,9 +55,10 @@ void unsupported(const ProviderConfig& p, ExtensionKind kind, std::string& reaso
             return;
         case ProviderKind::Anthropic:
         case ProviderKind::OpenAICompatible:
-            if (kind == ExtensionKind::Hooks) return;  // FactorIA's own loop runs them (hooks.h)
+            // FactorIA's own loop runs the hooks (hooks.h) and lists the skills in the system prompt (skills.read).
+            if (kind == ExtensionKind::Hooks || kind == ExtensionKind::Skill) return;
             reason = std::string(kApiSentence) + " (provider '" + p.name + "')";
-            fix = "Give the role a Claude Code provider to run it with extensions.";
+            fix = "Give the role a Claude Code provider to run it with plugins.";
             return;
         default:
             reason = "provider '" + p.name + "' does not use extensions";
@@ -200,6 +208,17 @@ ExtensionItem resolve_extension(const Extension& e, const ExtensionContext& ctx,
             return it;
         }
         case ExtensionKind::Skill: {
+            if (is_engine_skill_path(e.path)) {
+                const std::string name = e.path.substr(kEngineSkillPrefix.size());
+                const std::vector<std::string> names = fa::engine_skill_names();
+                it.target = e.path;
+                if (std::find(names.begin(), names.end(), name) == names.end()) {
+                    fail("this FactorIA has no engine skill named '" + name + "'", fa::did_you_mean(name, names));
+                    return it;
+                }
+                it.dirs.push_back(e.path);
+                return it;
+            }
             const std::string path = resolve_extension_path(e, ctx.projectDir, env);
             it.target = path;
             std::error_code ec;
@@ -246,6 +265,48 @@ Json merge_hooks(const std::vector<Json>& sets) {
     return out;
 }
 
+Result<std::vector<std::string>> write_agents_skills(const std::string& skillsRoot, const std::string& prefix,
+                                                     const std::vector<std::string>& skillDirs) {
+    std::error_code ec;
+    fsys::create_directories(skillsRoot, ec);
+    if (ec) return make_error("Cannot create " + skillsRoot, "Is the project directory writable?");
+    // Whatever Codex finds there that is not ours must not end up in the user's repository: the folders of a run are git-ignored.
+    const fsys::path ignore = fsys::path(skillsRoot) / ".gitignore";
+    if (!fsys::exists(ignore, ec)) (void)fs::write_text(ignore.string(), std::string(kAgentsSkillsPrefix) + "*/\n");
+    std::vector<std::string> made;
+    auto remove_made = [&] {
+        std::error_code e2;
+        for (const std::string& m : made) fsys::remove_all(m, e2);
+    };
+    std::set<std::string> used;
+    for (const std::string& src : skillDirs) {
+        const bool engine = is_engine_skill_path(src);
+        std::string name = engine ? src.substr(kEngineSkillPrefix.size()) : fsys::path(src).filename().string();
+        if (name.empty() || name == "." || name == "..") name = "skill";
+        std::string unique = name;
+        for (int n = 2; !used.insert(unique).second; ++n) unique = name + "-" + std::to_string(n);
+        const fsys::path target = fsys::path(skillsRoot) / (prefix + unique);
+        made.push_back(target.string());
+        if (engine) {
+            for (const std::string& file : fa::engine_skill_files(name)) {
+                const auto text = fa::engine_skill_read(name, file);
+                if (!text) continue;
+                if (auto ok = fs::write_text((target / file).string(), *text); !ok) {
+                    remove_made();
+                    return ok.error();
+                }
+            }
+            continue;
+        }
+        fsys::copy(src, target, fsys::copy_options::recursive | fsys::copy_options::skip_symlinks, ec);
+        if (ec) {
+            remove_made();
+            return make_error("Cannot copy the skill '" + src + "' for this run: " + ec.message(), "Check that the folder is readable.");
+        }
+    }
+    return made;
+}
+
 Result<void> write_skills_plugin(const std::string& dir, const std::vector<std::string>& skillDirs) {
     std::error_code ec;
     fsys::remove_all(dir, ec);
@@ -258,6 +319,17 @@ Result<void> write_skills_plugin(const std::string& dir, const std::vector<std::
     if (auto ok = fs::write_text((fsys::path(dir) / ".claude-plugin" / "plugin.json").string(), dump_json(manifest)); !ok) return ok;
     std::set<std::string> used;
     for (const std::string& src : skillDirs) {
+        if (is_engine_skill_path(src)) {  // a skill inside the binary: write its files
+            const std::string name = src.substr(kEngineSkillPrefix.size());
+            std::string unique = name;
+            for (int n = 2; !used.insert(unique).second; ++n) unique = name + "-" + std::to_string(n);
+            for (const std::string& file : fa::engine_skill_files(name)) {
+                const auto text = fa::engine_skill_read(name, file);
+                if (!text) continue;
+                if (auto ok = fs::write_text((fsys::path(dir) / "skills" / unique / file).string(), *text); !ok) return ok;
+            }
+            continue;
+        }
         std::string name = fsys::path(src).filename().string();
         if (name.empty() || name == "." || name == "..") name = "skill";
         std::string unique = name;
@@ -346,6 +418,18 @@ ExtensionPlan plan_extensions(const AiConfig& cfg, const ProviderConfig& provide
         plan.received.push_back(std::move(item));
     }
     if (!hookSets.empty()) plan.hooks = merge_hooks(hookSets);
+    // The skills no entry names (the engine's, ~/.factoria/skills, <project>/skills) that this role is offered, for a provider that
+    // takes skill folders (plan.implicitSkillDirs). An entry's skills came in above, with its own roles; a text file needs no trust.
+    // The API providers get no folders: their prompt lists every skill of the role (scan_skills) and skills.read opens them.
+    if (plan.support.skills && is_cli_kind(provider.kind)) {
+        SkillsContext sctx;
+        sctx.projectDir = ctx.projectDir;
+        sctx.env = ctx.env;
+        const std::vector<SkillInfo> found = project.error.empty() ? scan_skills(cfg.extensions.entries, project.entries, sctx)
+                                                                    : scan_skills(cfg.extensions.entries, {}, sctx);
+        for (const SkillInfo& sk : found)
+            if (sk.entry.empty() && sk.offered_to(role) && seenSkill.insert(sk.dir).second) plan.implicitSkillDirs.push_back(sk.dir);
+    }
     plan.userPluginsOff = !cfg.extensions.inheritUserPlugins && plan.support.inheritSetting;
     if (provider.kind == ProviderKind::Anthropic || provider.kind == ProviderKind::OpenAICompatible) {
         // FactorIA's loop runs the events it knows; the others of Claude Code's list are for Claude Code.
@@ -524,9 +608,9 @@ Json extensions_report(const AiConfig& cfg, const ExtensionContext& ctx, std::st
         deny.push_back(Json::object({{"file", d.file}, {"rule", d.rule}, {"tool", d.tool}, {"fix", d.fix}}));
     out["denyRules"] = std::move(deny);
 
-    out["scope"] = "Only Claude Code (all three kinds) and a generic CLI whose argv has {plugin_dirs} / {settings} use extensions. "
-                   "Codex gets none (FactorIA could not verify how it takes them). The API providers (anthropic, openai-compatible) "
-                   "run the hooks in FactorIA's own loop (docs/HOOKS.md) and run hooks only: plugins and skills are for Claude Code.";
+    out["scope"] = "Claude Code uses all three kinds; Codex uses skills (written to the project's .agents/skills for the run), not plugins or hooks; "
+                   "a generic CLI uses plugins and hooks when its argv has {plugin_dirs} / {settings}. The API providers (anthropic, openai-compatible) "
+                   "use skills (one line each in the system prompt, read with skills.read) and hooks (FactorIA's own loop, docs/HOOKS.md), not plugins.";
     if (!anyEntry) out["hint"] = "No extensions yet. Add them in the editor (AI settings > Extensions) or under \"extensions\" in ai.json; see docs/AI_PROVIDERS.md, \"Extensions\".";
     return out;
 }
@@ -545,7 +629,7 @@ std::vector<std::string> extension_doctor_lines(const AiConfig& cfg, const Exten
         lines.push_back("Extensions: " + std::to_string(count(ExtensionKind::Plugin)) + " plugin(s), " +
                         std::to_string(count(ExtensionKind::Skill)) + " skill folder(s), " + std::to_string(count(ExtensionKind::Hooks)) +
                         " hook set(s); inheritUserPlugins " + (cfg.extensions.inheritUserPlugins ? "on" : "off") +
-                        ". Used by Claude Code (and a generic CLI with {plugin_dirs} / {settings}); not by Codex or the API providers yet.");
+                        ". Used by Claude Code (and a generic CLI with {plugin_dirs} / {settings}); Codex takes the skills only; the API providers do not use them yet.");
     }
     if (!project.error.empty()) lines.push_back("  ! The project's extensions file is ignored: " + project.error);
     for (const Extension* e : all) {

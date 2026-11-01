@@ -118,7 +118,7 @@ that takes twice the steps in a context twice as large costs four times as much.
 - **Clear tasks.** "Add a coin counter on screen" costs less than "make it better": a vague task makes the AI read and try
   more before it acts. Point it at the files and the doc to use (`factoria docs read finishing`).
 
-### The tool list: a fixed prefix of about 60 KB instead of 320 KB
+### The tool list: a fixed prefix of about 70 KB instead of 330 KB
 
 The built-in agent (API providers) sends the core commands, the tool groups of its role and two helper tools in full, and
 lists every other command as a line of the system prompt that the model describes (`tool_describe`) and calls (`tool_call`)
@@ -134,11 +134,11 @@ bytes, and tokens are bytes divided by 3.75 (an estimate, not a provider count):
 
 | First step of the task | System prompt | Tool definitions | Conversation | Total |
 |---|---|---|---|---|
-| Every command in full (170 tools) | 2.8 KB (0.7k tokens) | 320.8 KB (85.6k tokens) | 0.03 KB | **323.6 KB (86.3k tokens)** |
-| Core commands + catalog (40 tools, the catalog is 14.8 KB of the system prompt) | 17.6 KB (4.7k tokens) | 44.7 KB (11.9k tokens) | 0.03 KB | **62.3 KB (16.6k tokens)** |
+| Every command in full (177 tools) | 3.8 KB (1.0k tokens) | 329.9 KB (88.0k tokens) | 0.03 KB | **333.8 KB (89.0k tokens)** |
+| Core commands + catalog (41 tools, the catalog is about 15.5 KB of the system prompt) | 19.3 KB (5.2k tokens) | 48.6 KB (13.0k tokens) | 0.03 KB | **67.9 KB (18.1k tokens)** |
 
-That is 81% less on every step. Over the whole task, the catalog run takes six steps (one more: the describe) and sends 383 KB
-(102k tokens) against 1 623 KB (433k tokens) with every tool in full: 76% less. Both figures count a request's size before
+That is 80% less on every step. Over the whole task, the catalog run takes six steps (one more: the describe) and sends 417 KB
+(111k tokens) against 1 673 KB (446k tokens) with every tool in full: 75% less. Both figures count a request's size before
 caching, so they say how much is read, not what it costs: read from the cache, the large prefix is cheap, which is why the
 saving in dollars is smaller than the saving in tokens. What it does change is the size of the prefix that is written to the
 cache once (at 1.25 times the input price on Anthropic) and the room left in the context window.
@@ -153,6 +153,31 @@ catalog), tool definitions and conversation; `factoria call ai.session_timeline`
 `context`; `factoria call ai.tool_plan '{"role":"artist"}'` shows what a role would send. A role that always needs a
 category in full says so in `ai.json`: `"roles": {"worker": {"toolGroups": ["anim"]}}`; `["all"]` brings back the old
 behaviour (every command in full on every step).
+
+### Topic guides as skills: a shorter system prompt
+
+The guides for exporting, publishing, shaders, 3D physics, tile levels, the menu kit and the rest, and the craft guides of the
+artist and audio roles, used to be part of the system prompt (or of the project's `AGENTS.md`) on every step. They are now
+[skills](SKILLS.md): the prompt has one line per skill and the model reads the full guide only when the task needs it
+(`skills_read`), so the cost is paid once, in the step that reads it, not in every step of every chat.
+
+System prompt of each role, in bytes of text (without the tool catalog and without the task), before and after. The "after"
+counts the one-line skill list a built-in agent gets; Claude Code lists skills itself, so its prompt is the shorter of the two:
+
+| Role | Before | After |
+|---|---|---|
+| orchestrator | 5 553 | 4 647 |
+| orchestrator, artist and audio roles switched off (it does the art and audio itself) | 7 596 | 5 504 |
+| worker | 3 890 | 2 982 |
+| fast | 1 887 | 1 887 |
+| artist | 5 122 | 3 048 |
+| audio | 4 921 | 2 669 |
+| artCritic, reviewer | 3 919, 4 039 | the same (they are offered no skill) |
+
+The `AGENTS.md` that `factoria new` writes into a project went from 17.7 KB to about 12 KB, and the AI agents read it at the
+start of every session. Divide bytes by 3.75 for a token estimate. These are sizes of text, measured with the real prompt
+builder; they say how much is sent, not what it costs (the prompt is cached, see above). A step that reads a skill adds that
+skill's `SKILL.md` to the conversation, once.
 
 ## 4. How to cap it
 
