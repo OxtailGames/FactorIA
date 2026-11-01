@@ -152,8 +152,9 @@ Built-in providers exist without being listed: `anthropic`, `openai`,
 A top-level `"assets"` section assigns asset providers to the kinds of asset
 (see [Asset providers](#asset-providers)); roles cannot use asset-only providers. A top-level `"assetSources"` section lists
 the websites the AI should look at when it searches for assets (see [Asset sources](#asset-sources)). A top-level
-`"mcpServers"` section connects external tool servers such as Scenario (see [External tools](#external-tools-mcp-servers)). The
-editor's **AI settings** window edits all three ([below](#the-ai-settings-window)), so none has to be written by hand.
+`"mcpServers"` section connects external tool servers such as Scenario (see [External tools](#external-tools-mcp-servers)). A top-level
+`"extensions"` section loads plugins, skills and hooks into the CLI agents (see [Extensions](#extensions)). The
+editor's **AI settings** window edits all four ([below](#the-ai-settings-window)), so none has to be written by hand.
 
 ## Roles
 
@@ -175,7 +176,7 @@ already use instead of falling back to an Anthropic API key: `artist` and `audio
 `sonnet`, `haiku`, for the CLI providers). So a file with only `orchestrator` / `worker` / `fast` on `claude-code` keeps
 all seven roles on Claude Code, and old files keep working. Saving from the Roles window writes only the roles you set.
 
-Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?, enabled?}`. `effort` is one of
+Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?, enabled?, toolGroups?}`. `effort` is one of
 `low|medium|high|xhigh|max` and is always sent explicitly to Anthropic. For
 `openai-compatible` providers it is ignored unless `"sendReasoningEffort": true`
 (then mapped to `low|medium|high`). A CLI provider runs its own loop and
@@ -352,9 +353,15 @@ The models come from the `artCritic` and `reviewer` roles (or from the orchestra
 
 ## How the built-in agent behaves (API providers)
 
-* Tools: every registered command (`scene.spawn` -> `scene_spawn`), plus
-  `agent_delegate {role: worker|fast|artist|audio, task}` for the orchestrator. `ai.*`
-  commands are hidden from the model.
+* Tools: not every command is sent as a tool on every step (that was about 80k tokens of definitions on each one). The
+  built-in agent gets the **core commands** in full (`fs_*`, `docs_*`, the scene commands `scene_spawn`, `scene_set_component`,
+  `scene_save`..., `game_step`, `game_input`, `game_click`, `game_screenshot`, `game_state`, `game_logs`, `project_validate`,
+  `project_info`, `project_test`, `script_*`, `feedback_report`, `assets_list`, `assets_import`), the commands of the
+  **tool groups** of its role in full, and a **catalog** in the system prompt: one line (`command: what it does`) for every
+  other command. Two loop tools reach those: `tool_describe {commands: [...]}` returns the full definition (description and
+  input schema) of commands, and `tool_call {command, arguments}` runs one; a wrong call to a catalog command comes back
+  with its input schema. Plus `agent_delegate {role: worker|fast|artist|audio, task}` for the orchestrator. `ai.*`
+  commands are hidden from the model. See [Tool groups and the catalog](#tool-groups-and-the-catalog).
 * Safety limits: `limits.maxTurns`, `maxCostUsd`, `maxTotalTokens`, Ctrl+C /
   cancel flag. Transient errors (429, 5xx, 529) are retried with backoff and
   `Retry-After`.
@@ -375,8 +382,54 @@ The models come from the `artCritic` and `reviewer` roles (or from the orchestra
   newest by default) and returns the gaps of at least `minGapSeconds` (default 30) with what was going on (`tool`,
   `thinking`, `model` = waiting for the model, `user` = waiting for the user), plus `totals` per kind and per tool, so you
   can tell a long think from a slow tool. For a log without times it returns `hasTimes: false` and a note.
+* Context sizes in the transcript: each `assistant` line of the built-in agent has `context`, the split of the request that
+  call sent: `systemBytes` (the system prompt, `catalogBytes` of it the command catalog), `toolBytes` (the tool
+  definitions), `conversationBytes`, the same three as estimated tokens (bytes divided by 3.75, not the provider's count),
+  `toolCount` and `catalogCount`. The `start` line has `tools` (how many), `catalogCommands` and `toolGroups`.
+  `ai.session_timeline` returns a `context` object with this per step and the totals of the run (`toolShare` is the tool
+  definitions' share of everything the run sent). CLI agents send their own tool list, so their logs have none of it.
 * Screenshots: a command result `{"image": {"mediaType": "image/png", "data": "<base64>"}}`
   is attached to the model as an image.
+
+### Tool groups and the catalog
+
+Every command is a tool the model could use, but sending the definitions of all of them (summary, description and input
+schema: 186 commands, about 320 KB) on every step costs about 80k tokens before the model reads a word. The built-in agent
+offers instead:
+
+* the **core commands** in full (the list above; `is_core_tool` in `tools/ai/include/fa/ai/tool_catalog.h`),
+* the commands of the role's **tool groups** in full: a group is a command category (`assets`, `anim`, `audio`, `ui`, `i18n`,
+  `platform`, `publish`, `perf`, `nav`, `physics`, `mesh`... the `category` of `factoria commands`), the exact name of a command
+  (`assets.draw_icon`) or `"all"` (every command in full: the old behaviour),
+* `tool_describe` and `tool_call`, and
+* a `# Tools` section in the system prompt with one line per remaining command, grouped by category.
+
+The model reads the catalog, describes the commands it is about to use (several in one call) and calls them through
+`tool_call`, which runs the command under its own name: the chat shows `assets_slice_sheet`, not `tool_call`, and the transcript and
+the events carry the command's arguments. The catalog is used only when it saves something (the definitions it leaves out add
+up to more than 6000 bytes), so a small registry is offered in full.
+
+A role names its groups in `ai.json`, `"roles": {"artist": {"toolGroups": ["assets", "anim"]}}`. Without `toolGroups` the
+artist loads `assets` and the audio role `assets` and `audio`; every other role loads none. A list replaces the default
+(`[]` loads nothing but the core). A name that matches no category or command is reported as an Info line in the chat when the
+run starts, with suggestions. `factoria call ai.tool_plan '{"role":"artist"}'` shows what a role gets: the tools sent with
+their estimated sizes, the catalog's size, the groups that matched and the cost of offering everything in full.
+CLI agents (Claude Code, Codex...) choose their own tools and ignore `toolGroups`; see [MCP.md](MCP.md#tool-definitions-and-claude-code).
+
+Why this shape. Tool definitions are the start of the prompt cache's prefix (before the system prompt and the messages):
+adding a tool in the middle of a conversation would rewrite the cache of everything after it. So the tool list is computed once
+per run and **never changes while the conversation goes on**: describing a command does not add a tool, its definition comes
+back as the result of `tool_describe` and stays in the conversation like any other result. The catalog is part of the
+system prompt, which is also fixed for the run (the registry can change between two messages, for example when a project
+tool is added: then the next message pays one cache rewrite, as it does when the project's file listing changes).
+The alternative, Anthropic's server-side tool search (`defer_loading` on each tool plus a search tool), still sends every
+definition in every request and only keeps them out of the model's context, so the request stays large; it exists only on the
+Anthropic API and could not be tested offline, so the engine does the same on the client for every API provider.
+
+Read-only roles (`artCritic`, `reviewer`) get the same mechanism over the commands that look and play only: the catalog does
+not list a command that changes the project, `tool_describe` does not know it, and `tool_call` refuses it with `not_allowed`
+("a read-only role cannot use it"), the same set `is_read_only_tool` and `cli_disallowed_tools` already define. A command
+that is excluded for every agent (`ai.*`) is refused the same way.
 
 ## Conversations and resume
 
@@ -413,6 +466,8 @@ The AI panel shows what the provider reports, never a guess:
   use the same plan in between, so old numbers would be wrong. Until the first message of a run the panel shows a dim
   "Plan usage updates after the first message.".
 * **Context**: tokens in the model's context window now (the last request, not the sum of the run), for example `47k / 1M`.
+  Hover it with the built-in agent to see where the last call's context went (estimated): the system prompt (and the part of it
+  that is the command catalog), the tool definitions (and how many tools) and the conversation.
 * **Tokens** (in / out / cache) and **API cost est.** of the chat. The cost is an estimate of what the same tokens would cost
   on the provider's pay-per-token API (the CLI's own number when it reports one); on a subscription plan (Claude Code /
   Codex sign-in) none of it is billed on top of the plan, and the line says so. Both are live while an agent works (every assistant message adds its usage once,
@@ -561,6 +616,43 @@ The **External tools** tab (between Roles and Assets) sets up the `mcpServers` o
 * **Save** rewrites only `mcpServers` (the file is made private first when it holds a key) and reloads the file; every other key
   stays and a file that is not valid JSON is left alone. The next message uses the servers. **Close** drops what was not saved.
 
+The **Extensions** tab (after External tools) sets up the `extensions` of [Extensions](#extensions):
+
+* **Extensions.** One row per entry, yours and the open project's: On, its kind (plugin, skill, hooks), name, where it comes from
+  (`you` = `ai.json`, `project` = the project's file), where it points, one checkbox per role (the same defaults as the tool
+  servers: the review roles `ArtC` and `Rev` are off unless ticked), **Remove**, and a status: `Ready`, `Cannot load` (the tooltip
+  says why and how to fix it) or `Not trusted` (a project's plugin or hooks, see below).
+* **Skills.** Under the entries, one row per skill any role can be offered ([SKILLS.md](SKILLS.md)): FactorIA's own, the ones in
+  `~/.factoria/skills`, the project's `skills/` and the folders of the entries above. On, its name, where it comes from (`engine`,
+  `you`, `project`), what it is for, one checkbox per role and a status (`Ready`, `Off`, `Replaced` when another skill of the
+  same name wins, or `Cannot load` with the reason in the tooltip). A change is kept as a skill entry (an engine skill by its `engine:<name>`
+  path) and **Save** writes it like any other entry.
+* **Add.** A plugin folder or `.zip`, a skill folder, or an installed Claude Code plugin typed as `name@marketplace`; **Browse...**
+  picks a folder; the name is taken from the folder unless you type one; **Only for this project** keeps the entry in the project's
+  `.factoria/extensions.json` (the path is then stored relative to the project) instead of your `ai.json`. A mistake is refused with the
+  loader's own message, for example a relative path in `ai.json`.
+* **Paste hooks JSON...** takes the `hooks` of a Claude Code `settings.json` (`{"hooks": {...}}` or the events object itself), checks
+  the event names and handler types, and adds it as one named hooks entry.
+* **TokenEconomizer.** One click installs Microsoft's [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) plugin for Claude Code
+  ([Installing a plugin](#installing-a-plugin)). The section first asks the Claude Code CLI (in the background) what is installed.
+  **Add TokenEconomizer...** opens a confirmation that lists what will run (the marketplace `microsoft/TokenEconomizer`, the plugin
+  `tokeneconomizer@tokeneconomizer`, the two `claude plugin` commands, the entry added to your `ai.json`), whether Python 3.10 or newer was
+  found (**Install** stays off without it) and what the plugin does; nothing runs until **Install**. The install runs off the UI thread
+  with its steps listed and a **Stop** button. When the plugin is installed and listed the button reads **Installed**; when it is
+  installed but has no entry, **Add the entry** writes only the entry (it goes to `ai.json` at once, your other unsaved changes stay in the window).
+* **Claude Code also loads my own plugins, skills and hooks** is `inheritUserPlugins`. Off drops ALL of your own Claude Code
+  settings for FactorIA's runs (plugins, skills, hooks, permissions and env), not only the plugins.
+* **This project** shows the project's file and, when it lists plugins or hooks, or when its `.claude/settings*.json` runs a program or
+  widens what the AI may do (env, allowed tools), what they would run (**Review what would run...**) with **Trust this project** (and **Stop trusting this project**
+  afterwards); the trust covers both sources. A warning line appears when the project's
+  `.claude/settings*.json` denies FactorIA's own tools to Claude Code, naming the rule and how to remove it.
+* **Token savers.** The three savers of [Token savers](#token-savers): a switch each (Loop guard, Learned tool groups, Project
+  facts), the loop guard's **Judge** (a role, or "none (fixed text)"), and what this project's runs learned: **Load up front** /
+  **No thanks** for a tool group, **Add to AGENTS.md** / **No thanks** for a fact. Nothing is changed until you press one.
+* **Save** rewrites only `extensions` and `savers` of your `ai.json` and, when the project's entries changed, the project's
+  `.factoria/extensions.json`; every other key stays. A trust you had given carries over to a project file you save from here
+  (you just saw its content), but not to one that changed on disk behind the editor's back.
+
 ## Asset sources
 
 `assetSources` tells the AI where to get assets that it does not generate: websites for images and textures, 3D models, audio,
@@ -704,6 +796,199 @@ requests other than `ping`. Resources and prompts: only tools are used.
 string), where its key was found and which roles get it. The command `ai.tool_servers` returns the same as JSON and, with
 `{"test": true}`, connects to every enabled server that is ready and lists its tools (it only asks for the tool list: no tool is
 called and nothing is spent).
+
+## Token savers
+
+Three savers of FactorIA's own loop, for the providers that use it (the API providers; Claude Code and Codex run their own
+loops and ignore them). Each has a switch in **AI settings > Extensions > Token savers** and in the `savers` section of `ai.json`
+(all on by default; Save writes only what differs from the default, and every other key stays):
+
+```json
+"savers": { "loopGuard": true, "loopGuardJudge": "", "learnedToolGroups": true, "projectFacts": true }
+```
+
+* **Loop guard** (`loopGuard`). When the same command fails with the same error code three times in one turn, the third failure's
+  result carries a short `loopGuard` redirect (what failed, its hint, "try a different way") and the loop makes no model call
+  of its own for it; the model reads the redirect with its next step. `loopGuardJudge` names a role (for example `fast`) whose model
+  writes the redirect instead of the fixed text: one short model call per redirect, with its tokens and cost added to the run's
+  usage and checked against the run's limits like any other call. A judge on a CLI provider, without a model or whose call fails is
+  skipped and the fixed text is used (the transcript line says why). Every redirect is a `saver` line of the session transcript and an `Info` event "Loop guard: ...".
+  A command and code get one redirect; the count starts again after the command works.
+* **Learned tool groups** (`learnedToolGroups`). Per project, `.factoria/ai/savers.json` counts for each role the runs that
+  loaded a command outside its plan (`tool_describe`, or `tool_call` of a catalog command) and that command's group (its category).
+  After 3 runs that needed the same group, the editor proposes loading it in full up front for that role. Only **Load up front**
+  applies it, for that role in that project, from its next run; your `ai.json` is not changed. **No thanks** stops the proposal. Nothing
+  is ever denied: every command stays reachable through the catalog.
+* **Project facts** (`projectFacts`). A command that failed with the same code in 3 runs, where a later call of it worked, proposes
+  one line for the project's `AGENTS.md`. The file is written only on accept, under a `## Project facts` heading (created when
+  missing); accepting twice adds the line once.
+
+The state and the answers go through commands, so the CLI and MCP can use them:
+`ai.savers` (read-only: switches, thresholds, counts and proposals), `ai.saver_group {role, group, answer}` and
+`ai.saver_fact {id, answer, line?}` with `answer` of `accept`, `decline` or `forget` (`line` replaces the proposed text when accepting).
+
+## Extensions
+
+`extensions` loads plugins, skills and hooks into the AI agents, next to the engine's own tools. It is
+the same idea as `mcpServers` ([above](#external-tools-mcp-servers)) for the things Claude Code calls plugins, skills and hooks: a plugin
+(a folder with `.claude-plugin/plugin.json`, a `.zip`, or one you installed with `claude plugin install name@marketplace`), a skill
+folder (one that holds a `SKILL.md`, or a folder of such folders) and hooks (a program that runs on an event such as
+`PostToolUse` or `Stop`, in the shape of Claude Code's `hooks`, or a small JavaScript file). **Claude Code** takes all three;
+**skills** reach every provider ([Skills](#skills-for-every-provider)); the API providers (`anthropic`, `openai-compatible`) also run
+the **hooks** in FactorIA's own loop, and the engine runs two hook events of its own around every command ([HOOKS.md](HOOKS.md)); see
+[what each provider does](#what-each-provider-does-with-extensions).
+
+It lives in two places, both validated with errors that name the JSON pointer and a fix, and with "did you mean" for a misspelled key,
+role or hook event:
+
+* **Your `ai.json`**, `"extensions"`: yours, for every project. The only place for `inheritUserPlugins`.
+* **The project's `.factoria/extensions.json`**: the same sections at the top level, without `inheritUserPlugins`; it travels with the
+  project (commit it). Paths there are relative to the project and a skill must stay inside it. Its plugins and hooks need your
+  [trust](#trusting-a-projects-extensions); its skills (text only) do not.
+
+```json
+{
+  "extensions": {
+    "inheritUserPlugins": true,
+    "plugins": {
+      "notes":       { "path": "~/plugins/notes", "note": "keeps a design diary", "roles": ["orchestrator", "worker"] },
+      "superpowers": { "plugin": "superpowers@claude-plugins-official" }
+    },
+    "skills": {
+      "gdd": { "path": "~/skills/game-design", "enabled": false }
+    },
+    "hooks": {
+      "log-edits": {
+        "hooks": {
+          "PostToolUse": [{ "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "echo edited >> ~/edits.log" }] }]
+        }
+      }
+    }
+  }
+}
+```
+
+The entry name is its key (`[A-Za-z0-9_-]`, up to 40 characters, unique among the entries of its kind).
+
+| Field | Meaning |
+|---|---|
+| `path` | `plugins`: a plugin folder or `.zip`. `skills`: a skill folder, or a folder of skill folders (each subfolder with a `SKILL.md` is one skill). `~` is your home folder. In `ai.json` it must be absolute or start with `~` (the file is not inside any folder it could be relative to); in a project file it is relative to the project. |
+| `plugin` | `plugins` instead of `path`: `name@marketplace` of a plugin you installed in Claude Code. FactorIA reads its `installPath` from `~/.claude/plugins/installed_plugins.json` (`$CLAUDE_CONFIG_DIR` when set); the one installed for this project wins over the one installed for you. If it is not installed the run says so and gives the `claude plugin install` command. |
+| `hooks` | `hooks`: Claude Code's hooks object, `event -> [{ "matcher", "hooks": [{ "type": "command", "command": ... }] }]`; a handler may also be `{ "type": "js", "module": "hooks/x.js" }` and take a `timeout` in seconds, and the events `beforeCommand` / `afterCommand` are FactorIA's own. Everything about hooks (events, what a hook reads and answers, trust, where failures show) is in [HOOKS.md](HOOKS.md). |
+| `note` | What it is for (shown in `ai.extensions` and the editor). |
+| `roles` | Who loads it (role names, see [Roles](#roles)). Left out: orchestrator, worker, fast, artist and audio; the review roles only when listed. |
+| `enabled` | `false` keeps the entry without loading it. |
+| `inheritUserPlugins` | Top level of the section, `ai.json` only, default `true`: Claude Code also loads your own setup (`~/.claude`). `false` starts it with `--setting-sources project,local`, which drops ALL of your user-level Claude Code settings, not only the plugins: your plugins, skills and hooks, but also your permissions (`allow` / `deny` / `ask`) and `env`. Only what is listed here (and the trusted project's own `.claude`) loads. It applies to Claude Code only. |
+
+### What each provider does with extensions
+
+| Provider | How the extensions are used |
+|---|---|
+| `claude-code` | One `--plugin-dir <folder>` per plugin; the skills go in a plugin FactorIA writes for the run (`factoria-extensions`, a copy of the skill folders under `<project>/.factoria/ai/ext-skills-*`); the hooks of the entries are merged into a private `--settings` file (`<project>/.factoria/ai/settings-*.json`, readable only by you). Both are removed when the run ends. `--setting-sources` is also passed when `inheritUserPlugins` is `false` (`project,local`) or when the project's own `.claude/settings*.json` runs a program or widens what the AI may do (see below) and the project is not trusted (`user`; an empty value with both), see [below](#trusting-a-projects-extensions). If your own `argv` uses `{plugin_dirs}` or `{settings}` those place the folders and the file and FactorIA adds no flag for them; an `argv` that already has `--settings` or `--setting-sources` is not given a second one. |
+| `codex` | Skills only. Codex reads Agent Skills from `.agents/skills` of the folder it starts in, so FactorIA copies the skills of the run to `<project>/.agents/skills/factoria-r<tag>-<name>/` (and writes `.agents/skills/.gitignore` with `factoria-*/` when there is none) and removes them when the run ends; folders of your own there are not touched. Codex has no plugin folder or hooks file for FactorIA to fill: a plugin or hooks entry for a Codex role is skipped, and the run says so (an Info line in the chat and the CLI output). Codex also keeps the `# Skills` lines in the prompt and `skills_read`, so a Codex version that does not scan `.agents/skills` still reads the skills. Not tested against a real Codex here (no Codex was available): `codex` must be a version with Agent Skills. |
+| `generic-cli` | Plugins when the `argv` has the `{plugin_dirs}` placeholder, hooks when it has `{settings}` (the path of the private settings file). `{plugin_dirs}` after a flag (`"--plugin-dir", "{plugin_dirs}"`) repeats that flag once per folder; with no folder, the placeholder and its flag are dropped. A skill folder is not passed (no flag is known for it); the skills reach it as prompt lines and `skills_read`. What cannot be passed is listed in the run output with the placeholder to add. |
+| `anthropic`, `openai-compatible` | **Skills and hooks**: FactorIA's own loop runs the seven events of Claude Code's hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SessionEnd`) for handlers of type `command` and `js`, with the same JSON on stdin and the same decisions on stdout, so one hook script serves Claude Code and these providers ([HOOKS.md](HOOKS.md)). Handlers of type `http`, `prompt` and `agent` are Claude Code's and are skipped. Skills reach them as one line each in the system prompt, read with `skills_read` ([Skills](#skills-for-every-provider)). Plugins are not used by these providers, and `ai.extensions` and the run say so for each one listed. |
+| every provider | `beforeCommand` and `afterCommand` hooks fire around every command of the engine, whoever calls it (an MCP client, the CLI, the editor, a script, the built-in AI), whatever provider the role has. |
+
+### Skills for every provider
+
+A skill is a folder with a `SKILL.md` (the Agent Skills format) that the AI reads only when the task needs it. They come from the
+engine (baked into the binary), from `~/.factoria/skills`, from the project's `skills/` and from the skill entries above; the
+project's wins over yours, and yours over the engine's. The built-in agent (anthropic, openai-compatible), Codex and generic CLIs get
+one line per skill in the system prompt and read one with the tool `skills_read`; Claude Code and Codex are also given the skill
+folders (above). A skill entry may name an engine skill as `"path": "engine:<name>"` to set its `roles` or switch it off. Role
+defaults, the commands (`skills.list`, `skills.read`, `skills.new`) and the format are in [SKILLS.md](SKILLS.md).
+
+### Trusting a project's extensions
+
+A plugin or a hook runs a program with your permissions, and the project's `.factoria/extensions.json` can come from anyone (a
+downloaded project, a teammate, the AI itself). So a project's **plugins and hooks load only after you trust the project once**: in the
+editor, **AI > AI Settings... > Extensions > This project**, read what would run and press **Trust this project**. The trust is kept
+per project path and per hash of the project's files in `ai-trust.json` next to your `ai.json` (readable only by you) and ends as soon as
+one of them changes, so an edit by anyone shows up as "not trusted" again until you look at it. No command or tool can grant the trust:
+an AI cannot trust what it has just written. Until then the run lists each skipped entry with the reason and where to trust it; the
+project's skills still load.
+
+The same trust covers **Claude Code's own project settings**. Claude Code in `-p` mode (how FactorIA runs it) skips its own
+workspace-trust dialog, so a downloaded game's `.claude/settings.json` or `.claude/settings.local.json` would take effect in your AI runs
+without asking. Two kinds of content need your trust:
+
+* **They run programs:** `hooks`, `enabledPlugins`, `extraKnownMarketplaces`, `statusLine`, `apiKeyHelper`, `fileSuggestion`,
+  `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`, `enableAllProjectMcpServers`, `enabledMcpjsonServers`.
+* **They widen what the AI may do:** any non-empty `env` (`ANTHROPIC_BASE_URL` or a proxy would send your requests, with your key, to
+  another server; `BASH_ENV`, `NODE_OPTIONS`, `PATH`, `LD_PRELOAD` change what hooks, MCP servers and Bash run), any
+  `permissions.allow` rule (`Bash`, `Bash(*)`, `WebFetch`: there is no dialog in `-p` mode, so they grant tools FactorIA did not, to a
+  prompt injection hidden in the project too), a `permissions.defaultMode` other than `default` (`bypassPermissions`, `acceptEdits`,
+  `dontAsk`) and a non-empty `permissions.additionalDirectories`. `permissions.deny`, `ask` and `disableBypassPermissionsMode` only
+  restrict, so they do not count.
+* **Anything FactorIA does not know:** the rule is "trust unless known harmless". Only a short list of keys that run nothing, send
+  requests nowhere new and widen no permission is free (`$schema`, `model`, `outputStyle`, `language`, `cleanupPeriodDays`,
+  `includeCoAuthoredBy`, `includeGitInstructions`, `spinnerTipsEnabled`, `alwaysThinkingEnabled`, `disableAllHooks`,
+  `respectGitignore`, `showTurnDuration`, `prefersReducedMotion`, `companyAnnouncements`, `attribution`, `forceLoginMethod`,
+  `forceLoginOrgUUID`, `disabledMcpjsonServers`). Any other non-empty key, at the top level or inside `permissions`, is listed as
+  `unknown setting KEY` (the name only, never the value) and needs your trust, so a setting a newer Claude Code adds cannot slip in.
+  Empty values (`null`, `""`, `{}`, `[]`) count for nothing.
+
+When either file has any of these and the project is not trusted, FactorIA starts Claude Code without the `project` and `local` setting
+sources (`--setting-sources user`; with `inheritUserPlugins: false` an empty list, so nothing is loaded besides FactorIA's own
+`--settings` file). Side effect: the rest of those files is not applied either (their `deny` and `ask` rules and other settings). The run
+output, `ai.extensions` (`claudeSettings`, listing the `grants` of each file, and `projectSettingsSkipped` per role) and `factoria ai doctor`
+say what was skipped and how to trust the project. The hash covers both files together, and is empty (nothing to trust) while neither has
+any of the above, so a project whose `.claude` only holds `deny` rules or the harmless keys loads as before; the trust ends when either file
+changes. Only Claude Code runs are affected: other providers never read `.claude`. A project's `.mcp.json` is Claude Code's own
+mechanism and is not covered here.
+
+### Deny rules on FactorIA's tools
+
+Claude Code applies the `permissions.deny` rules of the project's `.claude/settings.json` and `.claude/settings.local.json` (when it loads
+them: an untrusted project's files are not loaded, but FactorIA reads them and reports the rule anyway) over the tools
+FactorIA allows, so a rule such as `mcp__factoria__*` silently takes the engine's tools away from the AI. FactorIA reads those two files
+and reports `mcp__factoria`, `mcp__factoria__*` and `mcp__factoria__<tool>` rules: in the run output, in `factoria ai doctor` and in
+`ai.extensions`, each naming the file, the rule, what is lost and how to restore it (remove that entry from `permissions.deny`). It never
+edits those files.
+
+### Installing a plugin
+
+`ai.plugin_install {marketplace, plugin, roles?, name?, note?, requiresPython?, preset?, dryRun?}` installs a Claude Code marketplace plugin for
+you and adds it to the `extensions` of your `ai.json` (the editor's **Add TokenEconomizer** button calls it). It runs the Claude Code
+CLI's own commands, with the executable of the configured `claude-code` provider, and skips a step that is already done:
+
+1. `claude plugin marketplace add <marketplace>` unless `claude plugin marketplace list` already shows it (or the plugin is installed);
+2. `claude plugin install <plugin> --scope user` unless `claude plugin list` already shows `plugin` (`name@marketplace`) installed for
+   the user (an install of scope `local` or `project` belongs to one folder and does not count: the entry is for every project);
+3. a `plugin` entry `name@marketplace` in your `ai.json` `extensions` (with `roles`, default roles when left out), unless one exists. Every
+   other key of the file stays. The roles are checked before anything is installed, so a typo leaves nothing half done.
+
+The lists are read with `--json` and, for a CLI without it, from the plain listing. `requiresPython` (for example `3.10`) checks `python3`
+(`python` on Windows) before the first command and refuses to install, with how to fix it, when it is missing or older; a plugin
+already installed needs no Python check. `dryRun` returns the same report without installing anything: each step with its `command`,
+whether it is `needed` and `status` (`would_run` or `not_needed`), the `python` check and the `entry` it would add. A failure names the
+step, the exit code and what the CLI printed, and the command to run in a terminal to see the rest; steps that finished before it are in the
+message, and a failed install writes nothing to `ai.json`.
+
+`preset: "tokeneconomizer"` fills in the marketplace `microsoft/TokenEconomizer` (GitHub), the plugin
+`tokeneconomizer@tokeneconomizer` and `requiresPython` 3.10. TokenEconomizer (Microsoft) is a Claude Code plugin that learns
+micro-skills per repository, prunes the tools the agent is offered (one command gives them back) and guards against failure loops; it
+needs Python 3.10 or newer. Because it installs software that runs hooks on your computer, only YOU start this command: the built-in agent
+never gets any `ai.*` command (except `ai.review_feedback`) and `factoria mcp` and the editor's MCP endpoint never list or run
+`ai.plugin_install`, so no AI client can call it.
+
+```
+factoria call ai.plugin_install '{"preset":"tokeneconomizer","dryRun":true}'
+factoria call ai.plugin_install '{"preset":"tokeneconomizer","roles":["orchestrator","worker"]}'
+```
+
+### Looking at what a run gets
+
+`ai.hooks` (read-only) lists the hooks entries with their handlers and the recent runs of each, and `ai.hooks_test` runs the hooks of one
+event with a sample input ([HOOKS.md](HOOKS.md#trying-a-hook)).
+
+`ai.extensions` (read-only, `{"role": "worker"}` optional) returns the entries with what stops each from loading, per role the
+provider and what it `receives`, `skipped` (reason and fix), `notes`, the project's file (`exists`, `hash`, `trusted`), `claudeSettings` (what in the project's `.claude/settings*.json` needs trust, whether the project
+is trusted and so whether Claude Code loads them), the deny rules
+and a `scope` sentence on the providers that do not use extensions. `factoria ai doctor` prints the same in its "Extensions" section;
+`factoria ai doctor --project DIR` (default: the current folder when it holds `factoria.json`) says which project's file and deny rules.
+The report never changes the trust file.
 
 ## Costs
 

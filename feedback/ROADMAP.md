@@ -1388,6 +1388,90 @@ Left open:
 - A `Collider3D` on a procedural mesh is rebuilt on every `mesh.update` (costly for a mesh deformed each frame).
 - The editor picks glTF models and primitives by their unit box; only procedural meshes use their triangles.
 
+## M45. Extensions the user adds (skills, hooks, plugins) and fewer tokens per step (S-L each; the user) — DONE (0.11.0)
+
+Asked by the user (2026-10-31) after seeing Microsoft's TokenEconomizer (a Claude Code / Codex / Copilot CLI plugin, Apache
+2.0, Python 3.10+: learned repo facts injected at session start, unused tools denied in `.claude/settings.local.json`, and
+a judge model that redirects a turn stuck in a failure loop; 18-31% lower cost on SWE-Bench): can FactorIA use it, and
+can the user add skills, hooks and plugins of their own to the engine?
+
+What the code says today:
+- A game's AI runs never see such a plugin unless it is installed at the user level of the CLI: FactorIA starts `claude
+  -p` in the game's folder, and nothing in `ai.json` names plugins, skills or hooks. The API providers run FactorIA's own
+  loop, where a CLI plugin cannot reach at all.
+- AI_COSTS.md: about 72% of a game's cost is cache reads, so the cost is context size x steps. The biggest single item
+  of the context is FactorIA's own: the built-in loop sends every command as a tool, with summary, full description and
+  schema (`tools_from_registry`, session.cpp). Measured on 0.9.0: 186 tools, 337 KB of JSON, roughly 80k tokens on every
+  step, before the system prompt and the conversation.
+- What TokenEconomizer does by hooks (SessionStart, UserPromptSubmit, PostToolUse, PostToolUseFailure, Stop, SessionEnd)
+  can be done by the engine for every provider, and its own cost then shows in the run's costs and limits.
+- Its tool pruning writes deny rules into the game's `.claude/settings.local.json`; a FactorIA tool used rarely
+  (`project_export`, `publish_*`) can be denied there and missing when a later task needs it. The role restrictions FactorIA
+  passes (`--allowedTools`, `--disallowedTools`) cannot undo a deny rule.
+- It supports Claude Code 2.1.300-2.1.310; this Mac runs 2.1.312.
+
+Packages (M45.1 first: M45.3 and M45.4 build on its config section; M45.2 is independent; M45.5 needs M45.2 and M45.4;
+M45.6 needs M45.1):
+
+- M45.1 (L) Extensions in `ai.json` and the CLI bridge: an `extensions` section (user `ai.json`, and a project file
+  `.factoria/extensions.json` that holds no keys) lists plugins (a directory, a `.zip`, or a Claude Code `name@marketplace`
+  the user installed), skill folders and hooks, each with `roles` and `enabled` like `mcpServers`. Claude Code gets
+  `--plugin-dir` per plugin and a per-run `--settings` file with the hooks (named per run, deleted after, like the MCP
+  config); Codex gets what its config takes (`-c` keys, its skills folder); the generic CLI gets `{plugin_dirs}` and
+  `{settings}` placeholders, and a run whose CLI cannot take an extension says so. Whether the user's own installed CLI
+  plugins load in FactorIA's runs becomes a setting (`inheritUserPlugins`, through `--setting-sources`), on by default as
+  today. Anything that runs a program and comes from a project (a plugin, a command hook) runs only after the user trusts
+  that project once in the editor (the trust is kept per project path and file hash, and dropped when the file changes),
+  so opening a downloaded game never runs its code. Deny rules on `mcp__factoria__*` found in the project's
+  `.claude/settings*.json` are reported by the run and by `factoria ai doctor`, with the tool and how to give it back.
+  A read-only `ai.extensions {role?}` lists what each role gets and from where, with problems and fixes; the editor's AI
+  settings get an **Extensions** tab (add folder, paste a `hooks` JSON, turn on and off per role, trust a project). Docs:
+  AI_PROVIDERS.md "Extensions". Tests for the argv of each provider, the trust gate and the schema; autotest section.
+- M45.2 (L) Fewer tool tokens on every step: the built-in loop offers a core set of tools in full (scene, files, game,
+  docs, the ones a role uses most) and every other command as one line of a catalog; `tools.search {query}` and
+  `tools.load {names}` bring in the full definition when the model needs it, and a loaded tool stays offered for the
+  rest of the conversation so the prompt cache keeps hitting. Long descriptions move behind `factoria commands <name>` /
+  a `commands.describe` call where the summary is enough to choose. A role can name tool groups to always load. The cost
+  panel and `ai.session_timeline` split the context of a step into system prompt, tool definitions and conversation, so
+  the saving is visible. Claude Code gets the same through its own MCP tool search (`ENABLE_TOOL_SEARCH`), checked
+  against the installed CLI. Measured before and after: the same scripted task with the fake provider (bytes sent per
+  step) and one real run of a reference-game task; the numbers go into AI_COSTS.md.
+- M45.3 (L) Skills for every provider: the Agent Skills format (`SKILL.md` with `name` and `description` frontmatter and
+  files beside it), so a skill written for Claude Code or Codex works unchanged. Sources: the engine's own (topic guides
+  such as exporting, publishing, 2D bones, shaders, cut from the always-sent prompt and loaded when needed), the user's
+  (`~/.factoria/skills`) and the project's (`skills/`). The built-in loop puts one line per skill in the system prompt
+  and reads a skill with `skills.read {name, file?}`; Claude Code and Codex get them through M45.1 natively. `skills.list`,
+  `skills.new {name}` (a template), `factoria validate` checks the frontmatter with "did you mean" for names, and the
+  editor lists them with on/off per role. Docs: a SKILLS.md and the AI guide.
+- M45.4 (L) Hooks for every provider: the events of Claude Code's hooks (SessionStart, UserPromptSubmit, PreToolUse,
+  PostToolUse, PostToolUseFailure, Stop, SessionEnd) with the same JSON on stdin and the same decisions on stdout
+  (`additionalContext`, block a tool call with a reason, stop), so one hook script serves Claude Code and FactorIA's own
+  loop; plus `beforeCommand` / `afterCommand {match}` on the command registry, for every caller (an MCP client, the CLI,
+  the editor). A hook is a program (user level, or a trusted project) or a JS module in the project's `hooks/` that runs
+  in the engine's script sandbox and needs no trust. Timeouts, the hook's output and its time go to the session log
+  (`hook` events) and the run timeline; a failing hook is reported, never silent. For Claude Code the same hooks go into
+  M45.1's `--settings` file. Docs: HOOKS.md; tests for each event and decision with the fake provider.
+- M45.5 (M) The engine's own token savers, for every provider and counted in the run's costs and limits, each with a
+  switch in the Extensions tab: (a) loop guard: the same command failing with the same error code three times in a turn
+  gets one short redirect (what failed, the hint, a different way), with no model call; an optional judge through a
+  role the user picks, its tokens in the run's cost; (b) learned tool groups: per project, the tools that runs load
+  (M45.2) are counted and the editor proposes the groups to load up front, applied only when the user accepts; nothing
+  is ever denied, only offered later; (c) project facts: a command that fails the same way in several runs until one
+  fix works proposes a line for the project's AGENTS.md, written only when the user accepts.
+- M45.6 (S) TokenEconomizer through M45.1 on a real game: a one-click **Add TokenEconomizer** in the Extensions tab that
+  shows what it will install (its marketplace and plugin, and that it needs Python 3.10+) and runs the CLI's own plugin
+  commands for the user; then a reference-game task run three times with Claude Code, with and without it, checking that
+  its hooks fire in `-p` runs, that its tool pruning does not hide a FactorIA tool a later task needs (or that M45.1's
+  warning catches it), and what it saves next to M45.2 and M45.5. The result goes into AI_COSTS.md and the example's
+  ENGINE_FEEDBACK.json.
+
+Result (2026-11-01): all six packages landed in 0.11.0. M45.6's six paid runs (Sky Hopper, Claude Code + Sonnet, three with
+TokenEconomizer and three without, alternated) all finished green: $1.27 with it and $1.08 without, a difference within the
+2.5x run-to-run spread. Its hooks fired in `-p` runs, but in three sessions it injected no fact, proposed no tool to prune
+and redirected no loop (0 tokens of overhead), so the pruning of FactorIA tools was not reached; M45.1's deny-rule warning
+covers it when it happens. Details in docs/AI_COSTS.md; the gap the runs reported (FB-0027, `legendFrom` not named by the
+unused-glyph warning) is fixed.
+
 ## M46. Feedback from every game reaches the engine developer (L; 4 packages; the user) — DONE (0.10.0)
 
 Asked by the user (2026-10-31): FactorIA has one developer, and the feedback of games made by other people must reach

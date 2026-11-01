@@ -139,6 +139,7 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md): the `factoria` CLI and the MCP server.
 - [docs/EDITOR.md](docs/EDITOR.md): the AI-first visual editor: viewport, AI chat, picking, audio log.
 - [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md): AI providers (Claude Code, Codex, API keys) and roles.
+- [docs/HOOKS.md](docs/HOOKS.md): hooks: programs or JavaScript modules that run before and after the AI's tool calls and the engine's commands, for every provider.
 - [docs/ASSETS.md](docs/ASSETS.md): generating and importing art, sound and models; import settings and provenance.
 - [docs/TEXT.md](docs/TEXT.md): fonts per language, fallback fonts, shaping, right-to-left text, wrapping and the text size option.
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): how AIs record what the engine is missing.

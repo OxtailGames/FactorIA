@@ -277,9 +277,12 @@ jobs:
           key: ccache-${{ runner.os }}-${{ matrix.ccache-key }}-${{ github.run_id }}
           restore-keys: ccache-${{ runner.os }}-${{ matrix.ccache-key }}-
 
+      # The feedback server and the GitHub OAuth app (docs/ENGINE_FEEDBACK.md) come from the repository variables
+      # FA_FEEDBACK_URL and FA_FEEDBACK_GITHUB_CLIENT_ID (both public); only releases get them, so CI and tests never
+      # reach the real server. Unset variables build a release where sharing says it is unavailable.
       - name: Configure (${{ matrix.preset }}, no tests)
         if: runner.os != 'Linux'
-        run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF -DFA_UPDATE_REPO=${{ github.repository }} ${{ matrix.cmake-args }}
+        run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF -DFA_UPDATE_REPO=${{ github.repository }} "-DFA_FEEDBACK_URL=${{ vars.FA_FEEDBACK_URL }}" "-DFA_FEEDBACK_GITHUB_CLIENT_ID=${{ vars.FA_FEEDBACK_GITHUB_CLIENT_ID }}" ${{ matrix.cmake-args }}
 
       - name: Build (${{ matrix.preset }})
         if: runner.os != 'Linux'
@@ -293,7 +296,7 @@ jobs:
       # sniper runtime image: `--version`, a new project, a headless frame.
       - name: Build in the Steam Runtime sniper container, check and run there (Linux)
         if: runner.os == 'Linux'
-        run: ./scripts/build-sniper.sh all -- -DFA_UPDATE_REPO=${{ github.repository }}
+        run: ./scripts/build-sniper.sh all -- -DFA_UPDATE_REPO=${{ github.repository }} "-DFA_FEEDBACK_URL=${{ vars.FA_FEEDBACK_URL }}" "-DFA_FEEDBACK_GITHUB_CLIENT_ID=${{ vars.FA_FEEDBACK_GITHUB_CLIENT_ID }}"
 
       - name: Check the universal binaries (macOS)
         if: runner.os == 'macOS'

@@ -79,6 +79,7 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     CHECK(tools == "mcp__factoria__project_validate;");
     CHECK(toolEnds == "mcp__factoria__project_validate:{\"ok\":true};");
     CHECK(infos.find("MCP server 'other' is failed") != std::string::npos);
+    CHECK(infos.find("'other' is failed (is `factoria` on PATH?)") == std::string::npos);  // the hint is for FactorIA's server
 
     std::string argv = read_file(argvFile);
     CHECK(argv.find("-p\n--output-format\n") == 0);

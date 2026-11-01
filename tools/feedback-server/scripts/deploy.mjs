@@ -67,6 +67,11 @@ export function parseWorkerUrl(deployOutput) {
     return m ? m[0] : null;
 }
 
+/** True when wrangler deploy failed because the account has no workers.dev subdomain yet (a new account). */
+export function needsWorkersSubdomain(output) {
+    return /register a workers\.dev subdomain/i.test(output);
+}
+
 /**
  * Folder of the user-level config (where ai.json lives), the rule of fa::user_config_dir: the folder of
  * $FACTORIA_AI_CONFIG when set, else %APPDATA%\factoria (or %USERPROFILE%\.factoria) on Windows, ~/.factoria elsewhere.
@@ -98,20 +103,24 @@ export function mergeAdminFile(existingText, endpoint, adminToken) {
 const wranglerJs = join(root, "node_modules", "wrangler", "bin", "wrangler.js");
 const localConfig = join(root, "wrangler.local.toml");
 
-/** Run wrangler. `capture` returns its stdout (also echoed); prompts still reach the terminal through stderr/stdin. */
-function wrangler(args, { capture = false, input, allowFail = false } = {}) {
+/**
+ * Run wrangler. `capture` returns its stdout (also echoed); prompts still reach the terminal through stderr/stdin.
+ * `captureErr` also returns stderr (echoed too), for errors the caller explains better than wrangler does.
+ */
+function wrangler(args, { capture = false, captureErr = false, input, allowFail = false } = {}) {
     const r = spawnSync(process.execPath, [wranglerJs, ...args], {
         cwd: root,
         encoding: "utf8",
         input,
-        stdio: [input === undefined ? "inherit" : "pipe", capture ? "pipe" : "inherit", "inherit"],
+        stdio: [input === undefined ? "inherit" : "pipe", capture ? "pipe" : "inherit", captureErr ? "pipe" : "inherit"],
         env: { ...process.env, WRANGLER_SEND_METRICS: process.env.WRANGLER_SEND_METRICS ?? "false" },
     });
     if (capture && r.stdout) process.stdout.write(r.stdout);
+    if (captureErr && r.stderr) process.stderr.write(r.stderr);
     if (r.status !== 0 && !allowFail) {
         throw new Error(`wrangler ${args.slice(0, 3).join(" ")} failed (exit ${r.status}). Read its message above, fix it and run the deploy again.`);
     }
-    return { status: r.status, stdout: r.stdout || "" };
+    return { status: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
 }
 
 function step(text) {
@@ -146,10 +155,24 @@ async function main() {
     console.log("Wrote wrangler.local.toml (untracked) with the database id.");
 
     step("Migrations");
-    wrangler(["d1", "migrations", "apply", DB_NAME, "--remote", "-c", "wrangler.local.toml"]);
+    // Piped stdin: wrangler takes the default answer (apply) instead of stopping at its "continue?" prompt.
+    wrangler(["d1", "migrations", "apply", DB_NAME, "--remote", "-c", "wrangler.local.toml"], { input: "" });
 
     step("Deploy");
-    const deployed = wrangler(["deploy", "-c", "wrangler.local.toml"], { capture: true }).stdout;
+    const deployArgs = ["deploy", "-c", "wrangler.local.toml"];
+    let deploy = wrangler(deployArgs, { capture: true, captureErr: true, allowFail: true });
+    if (deploy.status !== 0 && needsWorkersSubdomain(deploy.stdout + deploy.stderr)) {
+        // A new account has no workers.dev subdomain. wrangler registers one when it can ask (it answered "no" above
+        // because its output was captured): run it attached to the terminal, then again captured to read the URL.
+        console.log("\nThis Cloudflare account has no workers.dev subdomain yet (once per account). Answer yes and pick one:"
+            + " it is part of the public URL (factoria-feedback.<subdomain>.workers.dev).");
+        wrangler(deployArgs);
+        deploy = wrangler(deployArgs, { capture: true, captureErr: true, allowFail: true });
+    }
+    if (deploy.status !== 0) {
+        throw new Error(`wrangler deploy failed (exit ${deploy.status}). Read its message above, fix it and run the deploy again.`);
+    }
+    const deployed = deploy.stdout + deploy.stderr;
     const endpoint = parseWorkerUrl(deployed);
     if (!endpoint) throw new Error("The deploy worked but its URL was not in wrangler's output. Find it in the Cloudflare dashboard (Workers) and put it in feedback-admin.json and FA_FEEDBACK_URL by hand.");
 

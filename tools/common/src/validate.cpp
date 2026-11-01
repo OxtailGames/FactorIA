@@ -38,6 +38,7 @@
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/icons.h"
 #include "fa/tooling/publish.h"
+#include "fa/tooling/skills.h"
 #include "fa/tooling/shaders.h"
 #include "fa/ui/ui.h"
 #include "assets_internal.h"
@@ -728,6 +729,61 @@ void check_plugins(Ctx& c) {
             }
 }
 
+// The project's skills (docs/SKILLS.md): every folder of skills/ and every skill folder its .factoria/extensions.json names must be
+// a valid Agent Skill, because the AIs choose a skill by its frontmatter and read nothing of one that does not parse.
+void check_skills(Ctx& c) {
+    std::error_code ec;
+    std::set<std::string> checked;
+    auto check_folder = [&](const stdfs::path& dir) {
+        const std::string rel = stdfs::relative(dir, c.dir, ec).generic_string();
+        if (!checked.insert(rel).second) return;
+        for (const SkillProblem& p : check_skill_folder(dir.string(), rel)) {
+            ValidationIssue issue{p.file, "", p.message, p.hint};  // the message names the line
+            (p.warning ? c.report.warnings : c.report.errors).push_back(std::move(issue));
+        }
+    };
+    const stdfs::path skillsDir = stdfs::path(c.dir) / "skills";
+    if (stdfs::is_directory(skillsDir, ec)) {
+        std::vector<stdfs::path> children;
+        for (const auto& entry : stdfs::directory_iterator(skillsDir, ec)) children.push_back(entry.path());
+        std::sort(children.begin(), children.end());
+        for (const stdfs::path& child : children) {
+            const std::string name = child.filename().string();
+            if (!name.empty() && name[0] == '.') continue;
+            if (stdfs::is_directory(child, ec)) {
+                check_folder(child);
+            } else if (to_lower(name) == "skill.md") {
+                c.error("skills/" + name, "", "skills/" + name + " is a SKILL.md outside a skill folder",
+                        "A skill is a folder: move it to skills/<name>/SKILL.md, where <name> is the skill's `name`.");
+            }
+        }
+    }
+    // Skill folders named by the project's extensions file (a folder with a SKILL.md, or a folder of such folders).
+    const stdfs::path extFile = stdfs::path(c.dir) / ".factoria" / "extensions.json";
+    auto text = tooling_detail::read_file(extFile);
+    if (!text) return;
+    auto parsed = parse_json(*text, ".factoria/extensions.json");
+    if (!parsed.ok() || !parsed.value().is_object()) return;
+    const Json* group = parsed.value().contains("skills") ? &parsed.value()["skills"] : nullptr;
+    if (!group || !group->is_object()) return;
+    for (auto it = group->begin(); it != group->end(); ++it) {
+        if (!it.value().is_object() || !it.value().contains("path") || !it.value()["path"].is_string()) continue;
+        const std::string path = it.value()["path"].get<std::string>();
+        if (path.empty() || path.rfind("engine:", 0) == 0 || path[0] == '~' || stdfs::path(path).is_absolute()) continue;
+        const stdfs::path dir = (stdfs::path(c.dir) / path).lexically_normal();
+        if (!stdfs::is_directory(dir, ec)) continue;
+        if (stdfs::is_regular_file(dir / "SKILL.md", ec)) {
+            check_folder(dir);
+        } else {
+            std::vector<stdfs::path> children;
+            for (const auto& entry : stdfs::directory_iterator(dir, ec))
+                if (stdfs::is_regular_file(entry.path() / "SKILL.md", ec)) children.push_back(entry.path());
+            std::sort(children.begin(), children.end());
+            for (const stdfs::path& child : children) check_folder(child);
+        }
+    }
+}
+
 void check_feedback_file(Ctx& c, const std::string& file) {
     stdfs::path p = stdfs::path(c.dir) / file;
     if (!stdfs::exists(p)) {
@@ -823,6 +879,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     std::string mainScene, feedbackFile = kFeedbackFileName;
     check_project_file(c, mainScene, feedbackFile);
     check_plugins(c);
+    check_skills(c);
     check_feedback_file(c, feedbackFile);
     check_assets_manifest(c);
     for (ValidationIssue& w : check_audio_loudness(c.dir)) c.report.warnings.push_back(std::move(w));

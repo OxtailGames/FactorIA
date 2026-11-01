@@ -111,8 +111,105 @@ that takes twice the steps in a context twice as large costs four times as much.
   use it when you want everything done by one model.
 - **Effort.** `effort` (`low` to `max`, per role) is how much the model thinks, and thinking is output at $10 per million.
   The defaults are `medium` for the worker and `xhigh` for the orchestrator.
+- **Tool definitions.** Every step also carries the definitions of the tools the model may call. Offering all 186 commands in
+  full was about 320 KB, around 85k tokens, on every step before any conversation: that alone is most of what a short task
+  reads. The built-in agent now sends the commands it needs most in full and lists the rest in one line each (see below).
+  Claude Code defers tools by itself.
 - **Clear tasks.** "Add a coin counter on screen" costs less than "make it better": a vague task makes the AI read and try
   more before it acts. Point it at the files and the doc to use (`factoria docs read finishing`).
+
+### The tool list: a fixed prefix of about 70 KB instead of 330 KB
+
+The built-in agent (API providers) sends the core commands, the tool groups of its role and two helper tools in full, and
+lists every other command as a line of the system prompt that the model describes (`tool_describe`) and calls (`tool_call`)
+when it needs it ([AI_PROVIDERS.md](AI_PROVIDERS.md#tool-groups-and-the-catalog) has the mechanism and the reasons). The tool
+list and the catalog do not change while the conversation goes on, so the provider's prompt cache keeps working: the first
+step writes the prefix once, every later step reads it back at the cache price.
+
+Measured with a scripted provider (no model, no money) on the real command registry of a new `2d-empty` project, by the test
+`tool catalog: a scripted task on the real registry...` in `tools/cli/tests/tool_catalog_test.cpp`. The task is five tool
+steps and an answer: `fs_list`, `project_validate`, `scene_list_entities`, then `ui.state`, a command that is not a core tool
+(through `tool_describe` and `tool_call`; one direct call when every tool is in full). Sizes are what the request carries, in
+bytes, and tokens are bytes divided by 3.75 (an estimate, not a provider count):
+
+| First step of the task | System prompt | Tool definitions | Conversation | Total |
+|---|---|---|---|---|
+| Every command in full (177 tools) | 3.8 KB (1.0k tokens) | 329.9 KB (88.0k tokens) | 0.03 KB | **333.8 KB (89.0k tokens)** |
+| Core commands + catalog (41 tools, the catalog is about 15.5 KB of the system prompt) | 19.3 KB (5.2k tokens) | 48.6 KB (13.0k tokens) | 0.03 KB | **67.9 KB (18.1k tokens)** |
+
+That is 80% less on every step. Over the whole task, the catalog run takes six steps (one more: the describe) and sends 417 KB
+(111k tokens) against 1 673 KB (446k tokens) with every tool in full: 75% less. Both figures count a request's size before
+caching, so they say how much is read, not what it costs: read from the cache, the large prefix is cheap, which is why the
+saving in dollars is smaller than the saving in tokens. What it does change is the size of the prefix that is written to the
+cache once (at 1.25 times the input price on Anthropic) and the room left in the context window.
+
+**A real paid run was not done for these numbers.** They come from the request sizes of a scripted task; what a real model
+spends also depends on how many `tool_describe` steps it takes (describe several commands in one call; the system prompt
+tells it to) and on whether it picks the right command from a line of text. If you see an agent describe the same command
+twice or call the wrong one, tell it in `ENGINE_FEEDBACK.json`: the one-line summaries are the catalog's weak point.
+
+To see it in your own project: the Context bar's tooltip in the editor's AI panel splits the last call into system prompt (and
+catalog), tool definitions and conversation; `factoria call ai.session_timeline` returns the same per step and for the run in
+`context`; `factoria call ai.tool_plan '{"role":"artist"}'` shows what a role would send. A role that always needs a
+category in full says so in `ai.json`: `"roles": {"worker": {"toolGroups": ["anim"]}}`; `["all"]` brings back the old
+behaviour (every command in full on every step).
+
+### Topic guides as skills: a shorter system prompt
+
+The guides for exporting, publishing, shaders, 3D physics, tile levels, the menu kit and the rest, and the craft guides of the
+artist and audio roles, used to be part of the system prompt (or of the project's `AGENTS.md`) on every step. They are now
+[skills](SKILLS.md): the prompt has one line per skill and the model reads the full guide only when the task needs it
+(`skills_read`), so the cost is paid once, in the step that reads it, not in every step of every chat.
+
+System prompt of each role, in bytes of text (without the tool catalog and without the task), before and after. The "after"
+counts the one-line skill list a built-in agent gets; Claude Code lists skills itself, so its prompt is the shorter of the two:
+
+| Role | Before | After |
+|---|---|---|
+| orchestrator | 5 553 | 4 647 |
+| orchestrator, artist and audio roles switched off (it does the art and audio itself) | 7 596 | 5 504 |
+| worker | 3 890 | 2 982 |
+| fast | 1 887 | 1 887 |
+| artist | 5 122 | 3 048 |
+| audio | 4 921 | 2 669 |
+| artCritic, reviewer | 3 919, 4 039 | the same (they are offered no skill) |
+
+The `AGENTS.md` that `factoria new` writes into a project went from 17.7 KB to about 12 KB, and the AI agents read it at the
+start of every session. Divide bytes by 3.75 for a token estimate. These are sizes of text, measured with the real prompt
+builder; they say how much is sent, not what it costs (the prompt is cached, see above). A step that reads a skill adds that
+skill's `SKILL.md` to the conversation, once.
+
+### Savers that learn from your runs
+
+Three more savers of the built-in agent (switches in AI settings > Extensions, `savers` in `ai.json`; [AI_PROVIDERS.md](AI_PROVIDERS.md#token-savers)):
+a loop guard that answers a command failing the same way three times with a short redirect instead of more model steps (its
+optional judge costs one short call per redirect, counted in the run), tool groups your project's runs keep loading, proposed
+for loading up front only when you accept, and project facts proposed for `AGENTS.md`. They are not measured on a paid run: the
+guard and the proposals are tested with a scripted provider.
+
+### TokenEconomizer with Claude Code: measured
+
+[TokenEconomizer](https://github.com/microsoft/TokenEconomizer) is a Claude Code plugin with similar savers for Claude Code
+itself: a loop guard, a deny list of the tools a repository never uses, and learned facts injected at session start. FactorIA
+can load it as an extension plugin (AI settings > Extensions, [AI_PROVIDERS.md](AI_PROVIDERS.md#extensions)). We measured it on
+six paid runs (2026-11-01, engine 0.11.0): the same task on a fresh copy of Sky Hopper (a double-jump feather pickup: a new
+prefab, a legend letter, a placement in level 1 and three tests), `factoria ai run --role worker --no-delegate` with Claude
+Code and Sonnet at medium effort, three runs with the plugin and three without, alternated, the project reset to the same
+commit between runs. `inheritUserPlugins` was off in both arms, so nothing else of the user's Claude Code setup was loaded,
+and the plugin kept its state in a folder of its own (`TOKENECONOMIZER_HOME`). Every run finished and left the tests green.
+
+| Run | With the plugin: cost, steps | Without: cost, steps |
+|---|---|---|
+| 1 | $0.64, 39 | $0.43, 35 |
+| 2 | $0.38, 31 | $0.33, 24 |
+| 3 | $0.25, 19 | $0.31, 28 |
+| Total | $1.27 | $1.08 |
+
+The difference is noise, not the plugin: its own report after the three runs says it injected no fact (they are off by
+default), proposed no tool for the deny list (it waits for more sessions of evidence) and redirected no loop (none happened),
+with 0 tokens of overhead. Over three runs it neither saved nor cost anything measurable; what it learns needs many sessions
+of the same repository, so judge it on your own projects over weeks with `/tokeneconomizer:status`, not on a short trial. Run
+to run, the same task varied by a factor of 2.5 in cost in each arm, so compare averages of several runs, never one.
 
 ## 4. How to cap it
 
@@ -149,7 +246,8 @@ Asset providers are not covered by any limit. Cap those at the provider (a spend
 
 - **In the editor**, the usage lines above the AI transcript: **Session (5h)** and **Week** (plan windows, with the time
   they reset), **Context** (tokens in the window now), **Tokens** (in / out / cache) and **API cost est.** of the chat
-  ([EDITOR.md](EDITOR.md), [AI_PROVIDERS.md](AI_PROVIDERS.md#usage-display)). The plan windows are the provider's and sit above
+  ([EDITOR.md](EDITOR.md), [AI_PROVIDERS.md](AI_PROVIDERS.md#usage-display)); hover **Context** to see where the last call's
+  context went (system prompt, tool definitions, conversation; estimated). The plan windows are the provider's and sit above
   the chat tabs; the rest belongs to the chat. The dollars are what the same tokens would cost on the pay-per-token API:
   with a subscription (Claude Code / Codex sign-in) none of it is charged on top of the plan, and plan percentages are
   what the provider reports.
@@ -163,7 +261,8 @@ Asset providers are not covered by any limit. Cap those at the provider (a spend
   its own, `<time>-worker-1.jsonl`). The built-in agent writes one line per model request with `"kind": "assistant"`, a
   `usage` object (`inputTokens`, `outputTokens`, `cacheCreationTokens`, `cacheReadTokens`) and `costUsd`. Claude Code and Codex
   transcripts only hold the text and tool calls (`"kind": "usage"` lines carry no numbers); for those, use the editor's
-  display.
+  display. The same line has `context`: the estimated split of that request into system prompt, tool definitions and
+  conversation (bytes and tokens), and `ai.session_timeline` sums it up per step.
 
 An AI (or a script) adds up a project's built-in agent runs like this:
 

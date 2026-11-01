@@ -699,7 +699,9 @@ Json apply_import(World& W, bool flushNow, const Request& q, const Grid& grid, s
     }
 
     for (const LegendEntry& e : legend)
-        if (e.uses == 0 && !e.shared) diag.warn("legend['" + e.glyph + "'] is not used in rows.");
+        if (e.uses == 0 && !e.shared)
+            diag.warn("legend['" + e.glyph + "'] is not used in rows. Remove it, or for a legend shared by several maps "
+                      "put it in a `legendFrom` file (e.g. levels/legend.json): unused entries from there are not warned about.");
 
     Json out = Json::object();
     out["tilemap"] = q.mapId;

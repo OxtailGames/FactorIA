@@ -286,6 +286,7 @@ registry.add(std::move(info), [](const Json& args) -> Json {
 - **Errors.** Throw `CommandError(code, message, hint, data)` (defined in `command.h`; `hint` and `data` are optional). `command.h` names the codes `not_found`, `invalid_argument`, `failed` and `unavailable`; use the one that fits. Any other exception becomes `failed`. The registry itself reports `unknown_command` (with a did-you-mean hint) and `invalid_arguments`.
 - **Results.** `CommandRegistry::call` returns `CommandResult{ok, result, error}`. `error` is `{code, message, hint}`.
 - **Replacement.** `add` replaces a command with the same name.
+- **Hooks.** `CommandRegistry::set_interceptor` takes a `CommandInterceptor` (`command.h`) whose `before` can refuse a call or change its arguments and whose `after` sees the outcome. `register_ai_commands` installs the one that runs the user's `beforeCommand` / `afterCommand` hooks (docs/HOOKS.md), so every command, whoever calls it, can be hooked without code of its own.
 - **Schema keywords** are the same as in section A.
 
 ### Where to register

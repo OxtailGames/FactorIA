@@ -3,6 +3,6 @@
 
 namespace fa::ai {
 std::string_view config_schema_text() {
-    return R"FAJSON(@FA_AI_SCHEMA_JSON@)FAJSON";
+    return @FA_AI_SCHEMA_PIECES@;
 }
 }  // namespace fa::ai

@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DB_NAME, configDir, extractJson, findDatabaseId, mergeAdminFile, parseCreatedId, parseWorkerUrl, secretNames, withDatabaseId,
+    DB_NAME, configDir, extractJson, findDatabaseId, mergeAdminFile, needsWorkersSubdomain, parseCreatedId, parseWorkerUrl, secretNames, withDatabaseId,
 } from "../scripts/deploy.mjs";
 import { readFileSync } from "node:fs";
 
@@ -35,6 +35,11 @@ test("withDatabaseId replaces the placeholder and nothing else", () => {
     assert.equal(out.split("\n").length, toml.split("\n").length);
     assert.ok(!out.includes("00000000-0000"));
     assert.throws(() => withDatabaseId("name = 'x'", ID), /database_id/);
+});
+
+test("needsWorkersSubdomain", () => {
+    assert.equal(needsWorkersSubdomain("▲ [WARNING] You need to register a workers.dev subdomain before publishing to workers.dev"), true);
+    assert.equal(needsWorkersSubdomain("✘ [ERROR] Authentication error [code: 10000]"), false);
 });
 
 test("parseWorkerUrl", () => {

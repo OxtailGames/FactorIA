@@ -50,6 +50,11 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"C2", "Bone tools: a chain drawn by clicks, a sprite bound, weights painted (one undo step), an IK handle dragged, the overlay of the selected bone"},
     {"D2", "AI settings, External tools tab: add a server with the form, Test, paste Claude Code JSON, Save keeps the other keys, Remove"},
     {"E2", "Feedback sharing: consent dialog, ask-mode review list, panel share column and boxes, Review with AI, Settings sign-in and Send now"},
+    {"E3", "AI settings, Extensions tab: a plugin folder and pasted hooks added, a role switched off, Save keeps the other keys, a project's hooks need the trust and a changed file drops it"},
+    {"H2", "AI settings, Extensions tab, Hooks: saved hooks with where each runs, three real runs (ok, failed, blocked) listed, Clear"},
+    {"S2", "AI settings, Extensions tab, Token savers: switches and judge saved in ai.json (other keys kept), proposals from the project's runs, accept/decline change AGENTS.md and the tool groups only on accept"},
+    {"K2", "AI settings, Extensions tab, Skills: the engine's and the project's skills listed, a role and an On box switched, Save keeps them as skill entries"},
+    {"F2", "AI settings, Extensions tab, Add TokenEconomizer: the confirmation, a fake Claude Code CLI run, the entry added, Save keeps the other keys, entry-only when the plugin is already installed"},
 };
 
 // The ids named by FA_EDITOR_AUTOTEST_SECTIONS: separated by commas or spaces, in any case ("k,a2" picks K and A2).

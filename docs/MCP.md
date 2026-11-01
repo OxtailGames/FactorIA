@@ -62,10 +62,25 @@ that.)
   `game_input`, `game_click`, `game_screenshot`, `scene_load`, UI scale checks, ...). The others are not listed and a call
   to one is refused. `ai_run`, `ai_review` and everything that edits the project are among the hidden ones. FactorIA starts
   Codex's server this way for the `artCritic` and `reviewer` roles (`docs/AI_PROVIDERS.md`, Reviews).
+- **User-only commands**: `ai_plugin_install` (it installs a Claude Code plugin on the user's computer) is never listed or run by any MCP
+  server, read-only or not: the user starts it from the editor's AI settings or the CLI (`docs/AI_PROVIDERS.md`, "Installing a plugin").
 - **Roles of `ai_run`**: `ai_run {role, task}` runs the `worker`, `fast`, `artist` or `audio` role (and `orchestrator`, the default of the
   command). The art critics and the game reviewers are not available through it: the user asks for them.
 - **Instructions**: the server sends a short engine guide on `initialize`, including the rule to call
   `feedback_report` whenever the engine lacks something.
+
+### Tool definitions and Claude Code
+
+The server lists every command (about 190 tools, 320 KB of definitions). Claude Code 2.1.312 does not put them all in the
+model's context: it defers the tools of MCP servers behind its own tool search, so the model sees their names and loads a
+definition when it needs it. Checked on 2.1.312 with the FactorIA server and a one-word prompt: the context after the first
+message was 39,920 tokens by default and 78,425 with `ENABLE_TOOL_SEARCH=false` (tool search off, every definition loaded).
+So FactorIA sets nothing for it: `claude-code` roles already get this saving, and the engine's own catalog
+([AI_PROVIDERS.md](AI_PROVIDERS.md#tool-groups-and-the-catalog)) is for the API providers, whose loop it runs itself.
+If an agent keeps missing a tool of the server, `"alwaysLoad": true` on the server's entry in the client's MCP config opts
+that server out of deferral. This is Claude Code's own behaviour and can change in its next versions; check it with the
+`ENABLE_TOOL_SEARCH` comparison above before relying on a figure. Other clients list every tool: a client that is not billed
+per token does not mind, one that is can start the server with `factoria mcp --read-only` for the smaller set.
 
 Protocol versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05.
 

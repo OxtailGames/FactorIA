@@ -6,6 +6,7 @@
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/config.h"
+#include "fa/ai/skills.h"
 #include "fa/ai/http.h"
 #include "fa/ai/mcp_client.h"
 #include "fa/ai/provider.h"
@@ -13,6 +14,9 @@
 #include "fa/core/command.h"
 
 namespace fa::ai {
+
+struct ToolPlan;      // tool_catalog.h
+struct LoopRedirect;  // savers.h
 
 // What carries a chat from one message to the next. The caller (the editor) keeps it between `AgentSession::run` calls:
 // pass the previous `SessionResult::conversation` in `SessionOptions::conversation`.
@@ -43,6 +47,9 @@ struct SessionOptions {
     bool stream = true;
     bool saveTranscript = true;        // <project>/.factoria/ai/sessions/*.jsonl
     bool allowDelegation = true;       // orchestrator gets agent_delegate
+    // false = the built-in agent gets every command as a tool with its full definition (about 80k tokens on every step); the
+    // default offers the core commands and a catalog (tool_catalog.h). Tests and measurements set it.
+    bool toolCatalog = true;
     std::string extraSystem;           // appended to the system prompt
     std::string mcpUrl;                // CLI agents attach this MCP endpoint (the editor's) instead of `factoria mcp`
     // A CLI agent's process started (any depth): its pid (fa/core/process.h process_tree()) and role. Runs on the thread
@@ -50,6 +57,9 @@ struct SessionOptions {
     std::function<void(long long pid, const std::string& role)> onProcessStart;
     // How {key} and ${ENV} of the tool servers are filled in (empty = the process environment). Tests set it.
     EnvLookup env;
+    // Where the user's trust of project extensions is kept (extensions_trust_path). Empty = next to the ai.json the config was
+    // read from (the default path when it was not read from a file). Tests set it.
+    std::string extensionsTrustPath;
     // The HTTP the built-in agent uses to reach tool servers (empty = the real network). Tests set it to a fake server.
     HttpTransport toolServerTransport;
 };
@@ -86,7 +96,10 @@ std::string mcp_tool_name_for(std::string_view commandName);
 // start other agents or reviews (mcp__factoria__ai_run unless `canDelegate`, always mcp__factoria__ai_review), and for the
 // read-only roles also the file-editing tools, Bash and every FactorIA command that is not is_read_only_tool.
 std::vector<std::string> cli_disallowed_tools(const CommandRegistry& registry, std::string_view role, bool canDelegate);
-// Tool list from the registry, sorted by name (byte-stable for prompt caching). `readOnly`: only is_read_only_tool commands.
+// The agent_delegate tool (the orchestrator's way to start a sub-agent). Loop-internal: it is not a registry command.
+ToolDef delegate_tool_def();
+// EVERY command as a tool in full, sorted by name (byte-stable for prompt caching). `readOnly`: only is_read_only_tool commands.
+// The built-in agent loop uses plan_tools (tool_catalog.h) instead: the core commands in full and a catalog of the rest.
 std::vector<ToolDef> tools_from_registry(const CommandRegistry& registry, bool withDelegate, bool readOnly = false);
 
 // What the prompt says about one tool server.
@@ -109,6 +122,18 @@ struct PromptContext {
     std::vector<std::string> disabledRoles;
     // The user's external tool servers this role may use (ai.json "mcpServers"): the prompt gets an "External tools" section.
     std::vector<ToolServerBrief> toolServers;
+    // The "# Tools" section (ToolPlan::catalogText): the commands that are not offered as tools of their own, one line each.
+    // "" = every command is a tool. Part of the stable system prompt, so it must not change while a conversation goes on.
+    std::string toolCatalog;
+    // The skills (topic guides, docs/SKILLS.md) this role is offered: the prompt lists them, one line each, and the craft guides of
+    // the artist and audio roles (make-art, make-audio) and the review-ready convention are read from them instead of being
+    // part of the prompt. `skillsKnown`: the host looked for skills (an empty list then means the role has none; false = it did not
+    // look, and the prompt carries those three texts itself). `skillsNative`: the CLI lists the skills itself (Claude Code, through
+    // the plugin FactorIA writes), so the prompt does not repeat the lines. `skillTool`: how the model reads one ("" = skills_read).
+    std::vector<SkillBrief> skills;
+    bool skillsKnown = false;
+    bool skillsNative = false;
+    std::string skillTool;
 };
 // The "External tools" section of the prompt of a role that got tool servers: each server with its note and how its tools are
 // named, and the rules for using them (they may cost credits; what they make comes into the project through assets_import).
@@ -159,7 +184,13 @@ private:
                            const std::string& task, int depth);
     SessionResult run_cli(const std::string& role, const RoleConfig& rc, const ProviderConfig& pc,
                           const std::string& task, int depth);
-    ToolResult execute_tool(const ToolCall& call, const std::string& role, int depth, McpToolSet* toolServers = nullptr);
+    // `plan`: the run's tool plan; with its catalog in use, tool_describe and tool_call are answered here (tool_call runs the
+    // command under its own name, so events and read-only checks see the command, not the wrapper).
+    ToolResult execute_tool(const ToolCall& call, const std::string& role, int depth, McpToolSet* toolServers = nullptr,
+                            const ToolPlan* plan = nullptr);
+    // The loop guard's judge (savers.loopGuardJudge): one short model call on the judge role's provider that writes the redirect. Its
+    // tokens go into the run's usage and cost. "" when it cannot be asked (`info` then says why); `info` gets what the transcript records.
+    std::string loop_judge(const LoopRedirect& redirect, const std::string& lastArguments, Json& info);
     void emit(AgentEvent e, int depth, const std::string& role);
     bool over_budget(std::string& why) const;
     bool over_budget(const Usage& usageNow, double costNow, std::string& why) const;  // with these totals instead

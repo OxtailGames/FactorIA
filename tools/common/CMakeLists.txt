@@ -27,6 +27,8 @@ list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/reference/")
 list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/design/")
 file(GLOB_RECURSE FA_EMBED_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/templates/*)
 file(GLOB_RECURSE FA_EMBED_SCHEMAS CONFIGURE_DEPENDS ${FA_ROOT}/schemas/*.json)
+# The engine's own Agent Skills (skills/<name>/SKILL.md and the files beside it): fa/tooling/skills.h, docs/SKILLS.md.
+file(GLOB_RECURSE FA_EMBED_SKILLS CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/skills/*)
 file(GLOB_RECURSE FA_EMBED_PLATFORMS CONFIGURE_DEPENDS ${FA_ROOT}/platforms/*)
 # The tests of a store backend template (platforms/plugins/<name>/tests/: its mock SDK) are for the engine's CI, not for games.
 list(FILTER FA_EMBED_PLATFORMS EXCLUDE REGEX "/platforms/plugins/[^/]+/tests/")
@@ -51,7 +53,7 @@ file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/s
 # The VS Code extension of the script debugger (tools/vscode/): `factoria setup vscode` copies it into VS Code's extensions folder.
 file(GLOB FA_EMBED_VSCODE CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/tools/vscode/*)
 # Which version added each component, field and command (fa/tooling/api_export.h).
-set(FA_EMBED_ALL ${CMAKE_CURRENT_SOURCE_DIR}/api_since.json ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_PLATFORMS} ${FA_EMBED_LICENSES}
+set(FA_EMBED_ALL ${CMAKE_CURRENT_SOURCE_DIR}/api_since.json ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_SKILLS} ${FA_EMBED_PLATFORMS} ${FA_EMBED_LICENSES}
     ${FA_EMBED_SHADER_TEMPLATES} ${FA_EMBED_VSCODE}
     # The macOS icon of the app `factoria setup launcher` writes (Linux uses platforms/linux/factoria.png, embedded above).
     ${FA_ROOT}/tools/editor/icon/factoria.icns

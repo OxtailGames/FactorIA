@@ -31,8 +31,10 @@
 #include "fa/ai/commands.h"
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
+#include "fa/ai/plugin_install.h"
 #include "fa/ai/provider.h"
 #include "fa/ai/review.h"
+#include "fa/ai/skills.h"
 #include "fa/ai/session.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
@@ -791,7 +793,7 @@ public:
     std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in the Roles tab
     std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
     bool showAiSettings_ = false, aiSettingsFocus_ = false;
-    int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets
+    int aiSettingsTab_ = 0;         // tab to select next frame in the AI settings window: 0 none, 1 Roles, 2 Assets, 3 External tools, 4 Extensions
     struct AiSettingsDraft {                       // the AI settings window's working copy (dropped when it closes: a typed key must not linger)
         bool loaded = false;
         std::string path;                          // the ai.json it saves into
@@ -823,6 +825,36 @@ public:
             std::string saveError;
             std::shared_ptr<ToolTests> tests = std::make_shared<ToolTests>();
         } tools;
+        // The "Extensions" tab: plugins, skill folders and hooks (ai.json "extensions" and the project's .factoria/extensions.json).
+        struct ExtensionsDraft {
+            std::vector<ai::Extension> user;           // the user's entries, the working copy
+            bool inherit = true;                       // inheritUserPlugins
+            std::vector<ai::Extension> project;        // the open project's entries (.factoria/extensions.json), the working copy
+            bool projectExists = false;                // the project's file exists on disk
+            std::string projectError;                  // why the project's file could not be read ("" = fine)
+            std::string projectHash;                   // hash of the file as read; the trust applies to exactly this
+            std::string claudeHash;                    // ClaudeProjectSettings::hash as read ("" = nothing in .claude runs a program)
+            std::vector<std::string> claudeGrants;   // what in the project's .claude/settings*.json runs a program or widens what the AI may do (env, allowed tools)
+            bool projectTrusted = false;               // the user trusted the project for projectHash + claudeHash
+            std::vector<ai::Extension> userLoaded, projectLoaded;  // as saved, to tell what changed
+            int addKind = 0;                           // the add row: 0 plugin folder or .zip, 1 skill folder, 2 installed plugin name@marketplace
+            bool addToProject = false;                 // keep the new entry in the project's file instead of ai.json
+            std::string addPath, addName, addError;
+            bool showHooks = false;
+            std::string hooksText, hooksName, hooksMessage;
+            bool hooksFailed = false;
+            bool showTrust = false;                    // the "what would run" list of the Trust this project step
+            std::string saveError, trustMessage;
+            std::map<std::string, std::string> status; // by "kind:source:name": why it cannot load ("" = ready), refreshed every second
+            double statusAt = -10;
+            Json hooksReport;                          // ai::hooks_report as saved + the runs of this process, refreshed every second
+            double hooksAt = -10;
+            std::vector<ai::SkillInfo> skills;         // every skill the Skills list shows (ai::scan_skills of the working copy), refreshed with `status`
+            ai::Savers savers;                         // the token savers' switches, the working copy (ai.json "savers")
+            Json saversReport;                         // ai::savers_report: this project's counts and the proposals, refreshed every second
+            double saversAt = -10;
+            std::string saversMessage;                 // what the last accept / decline did
+        } ext;
     } aiSettings_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
     ai::HttpTransport aiToolTransport_;  // test hook: the HTTP the External tools tab's Test button uses (empty = the network)
@@ -833,6 +865,34 @@ public:
     Result<ai::ToolServer> ai_tool_form_build() const;  // the form as a server, validated like ai.json would
     void ai_tool_test(const ai::ToolServer& server);    // Test button: connects off the main thread, writes the draft's ToolTests
     void ai_settings_discard();           // closes the draft (stops a running Test)
+    void draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable);  // ai_extensions.cpp
+    // The Add TokenEconomizer section of that tab (ai_economizer.cpp): a dry run of ai::plugin_install says what is installed, the button
+    // asks first, the install runs on its own thread and the result lands in the draft. One job at a time.
+    struct AiPluginJob {
+        std::mutex mu;
+        bool running = false;        // a thread works (a dry run or an install)
+        bool installing = false;     // the running thread installs (its steps are in `lines`)
+        bool probeDone = false;      // `probe` / `probeError` hold the answer of the last dry run
+        Json probe = Json::object();  // ai::plugin_install dry-run report
+        std::string probeError;      // why the dry run failed ("" = it did not)
+        std::vector<std::string> lines;  // an install's progress, one line per step event
+        bool finished = false;       // an install ended and the UI has not applied it yet
+        bool ok = false;
+        std::string message;         // the install's result (or error with its hint)
+        CancelFlag cancel{false};
+    };
+    std::shared_ptr<AiPluginJob> aiPluginJob_ = std::make_shared<AiPluginJob>();
+    std::thread aiPluginThread_;
+    std::vector<std::string> aiPluginPython_;  // test hook: the Python programs ai::plugin_install tries (empty = python3 / python)
+    bool aiEconomizerConfirm_ = false;         // the confirmation of Add TokenEconomizer is open
+    bool aiPluginProbeInTest_ = false;         // test hook: the autotest lets the tab ask the real CLI only in the section that fakes it
+    bool aiEconomizerOk_ = true;
+    std::string aiEconomizerMessage_;          // what the last install did (or why it failed)
+    void draw_ai_economizer_view(const ai::AiConfig& cfg, bool configReadable);
+    void ai_plugin_start(const ai::AiConfig& cfg, const ai::PluginInstallRequest& request, bool install);  // off the UI thread
+    void draw_ai_savers_view(const ai::AiConfig& cfg);  // the Token savers section of that tab: switches, judge, proposals
+    void draw_ai_hooks_view(const Json& report);        // the Hooks section of that tab: handlers and recent runs
+    void ai_extensions_load(const ai::AiConfig& cfg);   // the Extensions draft from the loaded config and the open project's file
 
     // autotest
     bool autotest_ = false;
