@@ -633,6 +633,13 @@ The **Extensions** tab (after External tools) sets up the `extensions` of [Exten
   loader's own message, for example a relative path in `ai.json`.
 * **Paste hooks JSON...** takes the `hooks` of a Claude Code `settings.json` (`{"hooks": {...}}` or the events object itself), checks
   the event names and handler types, and adds it as one named hooks entry.
+* **TokenEconomizer.** One click installs Microsoft's [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) plugin for Claude Code
+  ([Installing a plugin](#installing-a-plugin)). The section first asks the Claude Code CLI (in the background) what is installed.
+  **Add TokenEconomizer...** opens a confirmation that lists what will run (the marketplace `microsoft/TokenEconomizer`, the plugin
+  `tokeneconomizer@tokeneconomizer`, the two `claude plugin` commands, the entry added to your `ai.json`), whether Python 3.10 or newer was
+  found (**Install** stays off without it) and what the plugin does; nothing runs until **Install**. The install runs off the UI thread
+  with its steps listed and a **Stop** button. When the plugin is installed and listed the button reads **Installed**; when it is
+  installed but has no entry, **Add the entry** writes only the entry (it goes to `ai.json` at once, your other unsaved changes stay in the window).
 * **Claude Code also loads my own plugins, skills and hooks** is `inheritUserPlugins`. Off drops ALL of your own Claude Code
   settings for FactorIA's runs (plugins, skills, hooks, permissions and env), not only the plugins.
 * **This project** shows the project's file and, when it lists plugins or hooks, or when its `.claude/settings*.json` runs a program or
@@ -939,6 +946,37 @@ FactorIA allows, so a rule such as `mcp__factoria__*` silently takes the engine'
 and reports `mcp__factoria`, `mcp__factoria__*` and `mcp__factoria__<tool>` rules: in the run output, in `factoria ai doctor` and in
 `ai.extensions`, each naming the file, the rule, what is lost and how to restore it (remove that entry from `permissions.deny`). It never
 edits those files.
+
+### Installing a plugin
+
+`ai.plugin_install {marketplace, plugin, roles?, name?, note?, requiresPython?, preset?, dryRun?}` installs a Claude Code marketplace plugin for
+you and adds it to the `extensions` of your `ai.json` (the editor's **Add TokenEconomizer** button calls it). It runs the Claude Code
+CLI's own commands, with the executable of the configured `claude-code` provider, and skips a step that is already done:
+
+1. `claude plugin marketplace add <marketplace>` unless `claude plugin marketplace list` already shows it (or the plugin is installed);
+2. `claude plugin install <plugin> --scope user` unless `claude plugin list` already shows `plugin` (`name@marketplace`) installed for
+   the user (an install of scope `local` or `project` belongs to one folder and does not count: the entry is for every project);
+3. a `plugin` entry `name@marketplace` in your `ai.json` `extensions` (with `roles`, default roles when left out), unless one exists. Every
+   other key of the file stays. The roles are checked before anything is installed, so a typo leaves nothing half done.
+
+The lists are read with `--json` and, for a CLI without it, from the plain listing. `requiresPython` (for example `3.10`) checks `python3`
+(`python` on Windows) before the first command and refuses to install, with how to fix it, when it is missing or older; a plugin
+already installed needs no Python check. `dryRun` returns the same report without installing anything: each step with its `command`,
+whether it is `needed` and `status` (`would_run` or `not_needed`), the `python` check and the `entry` it would add. A failure names the
+step, the exit code and what the CLI printed, and the command to run in a terminal to see the rest; steps that finished before it are in the
+message, and a failed install writes nothing to `ai.json`.
+
+`preset: "tokeneconomizer"` fills in the marketplace `microsoft/TokenEconomizer` (GitHub), the plugin
+`tokeneconomizer@tokeneconomizer` and `requiresPython` 3.10. TokenEconomizer (Microsoft) is a Claude Code plugin that learns
+micro-skills per repository, prunes the tools the agent is offered (one command gives them back) and guards against failure loops; it
+needs Python 3.10 or newer. Because it installs software that runs hooks on your computer, only YOU start this command: the built-in agent
+never gets any `ai.*` command (except `ai.review_feedback`) and `factoria mcp` and the editor's MCP endpoint never list or run
+`ai.plugin_install`, so no AI client can call it.
+
+```
+factoria call ai.plugin_install '{"preset":"tokeneconomizer","dryRun":true}'
+factoria call ai.plugin_install '{"preset":"tokeneconomizer","roles":["orchestrator","worker"]}'
+```
 
 ### Looking at what a run gets
 

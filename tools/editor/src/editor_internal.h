@@ -31,6 +31,7 @@
 #include "fa/ai/commands.h"
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
+#include "fa/ai/plugin_install.h"
 #include "fa/ai/provider.h"
 #include "fa/ai/review.h"
 #include "fa/ai/skills.h"
@@ -865,6 +866,30 @@ public:
     void ai_tool_test(const ai::ToolServer& server);    // Test button: connects off the main thread, writes the draft's ToolTests
     void ai_settings_discard();           // closes the draft (stops a running Test)
     void draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable);  // ai_extensions.cpp
+    // The Add TokenEconomizer section of that tab (ai_economizer.cpp): a dry run of ai::plugin_install says what is installed, the button
+    // asks first, the install runs on its own thread and the result lands in the draft. One job at a time.
+    struct AiPluginJob {
+        std::mutex mu;
+        bool running = false;        // a thread works (a dry run or an install)
+        bool installing = false;     // the running thread installs (its steps are in `lines`)
+        bool probeDone = false;      // `probe` / `probeError` hold the answer of the last dry run
+        Json probe = Json::object();  // ai::plugin_install dry-run report
+        std::string probeError;      // why the dry run failed ("" = it did not)
+        std::vector<std::string> lines;  // an install's progress, one line per step event
+        bool finished = false;       // an install ended and the UI has not applied it yet
+        bool ok = false;
+        std::string message;         // the install's result (or error with its hint)
+        CancelFlag cancel{false};
+    };
+    std::shared_ptr<AiPluginJob> aiPluginJob_ = std::make_shared<AiPluginJob>();
+    std::thread aiPluginThread_;
+    std::vector<std::string> aiPluginPython_;  // test hook: the Python programs ai::plugin_install tries (empty = python3 / python)
+    bool aiEconomizerConfirm_ = false;         // the confirmation of Add TokenEconomizer is open
+    bool aiPluginProbeInTest_ = false;         // test hook: the autotest lets the tab ask the real CLI only in the section that fakes it
+    bool aiEconomizerOk_ = true;
+    std::string aiEconomizerMessage_;          // what the last install did (or why it failed)
+    void draw_ai_economizer_view(const ai::AiConfig& cfg, bool configReadable);
+    void ai_plugin_start(const ai::AiConfig& cfg, const ai::PluginInstallRequest& request, bool install);  // off the UI thread
     void draw_ai_savers_view(const ai::AiConfig& cfg);  // the Token savers section of that tab: switches, judge, proposals
     void draw_ai_hooks_view(const Json& report);        // the Hooks section of that tab: handlers and recent runs
     void ai_extensions_load(const ai::AiConfig& cfg);   // the Extensions draft from the loaded config and the open project's file
