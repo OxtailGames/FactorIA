@@ -143,9 +143,12 @@ TEST_CASE("plugin_install: runs the CLI's own commands in order and adds the ai.
     CHECK(it->roles == std::vector<std::string>{"orchestrator", "worker"});
     CHECK(std::ranges::any_of(after->extensions.entries, [](const Extension& e) { return e.name == "gdd"; }));
 
-    // Again: everything is done, so nothing runs and the entry is not duplicated.
-    auto again = plugin_install(*after, req, s.cli.hooks());
-    REQUIRE(again);
+    // Again: everything is done, so nothing runs and the entry is not duplicated. s.config() reloads ai.json and points
+    // it at the fake CLI again: the reloaded file alone names the real `claude`, which must never run in a test.
+    const std::size_t logBefore = s.cli.log().size();
+    auto again = plugin_install(s.config(), req, s.cli.hooks());
+    REQUIRE_MESSAGE(again, (again ? std::string() : again.error().message));
+    CHECK(has(s.cli.log().substr(logBefore), "plugin list --json"));  // the fake answered, not the real CLI
     CHECK((*again)["entry"]["added"] == false);
     for (const Json& st : (*again)["steps"]) CHECK(st["status"] == "skipped");
     CHECK(s.cli.log().find("marketplace add", addAt + 40) == std::string::npos);
