@@ -4,12 +4,16 @@
 #include <iostream>
 
 #include "common.h"
+#include "feedback_admin.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/feedback.h"
+#include "fa/tooling/feedback_share.h"
 
 namespace fa::cli {
+
+void add_feedback_share_commands(Command& group);  // cmd_feedback_share.cpp
 
 namespace fsys = std::filesystem;
 
@@ -88,7 +92,12 @@ Command make_feedback_command() {
                                        {"reporter", "KIND", "ai or human (default human)."},
                                        {"agent", "NAME", "Reporter agent name (with --reporter ai)."},
                                        {"model", "MODEL", "Reporter model (with --reporter ai)."},
-                                       {"json", "JSON", "Entry as a JSON object instead of flags (same keys as the flags)."}});
+                                       {"share-title", "T", "For sharing: the title in engine terms only, nothing about the game (8-120 characters)."},
+                                       {"share-missing", "TEXT", "For sharing: what the engine lacks, in engine terms only (20-1500 characters)."},
+                                       {"share-suggestion", "TEXT", "For sharing: the engine change that would fix it."},
+                                       {"share-workaround", "TEXT", "For sharing: the kind of workaround, without project details."},
+                                       {"reviewed", "", "You checked against the docs that the gap is real and about the engine."},
+                                       {"json", "JSON", "Entry as a JSON object instead of flags (same keys as the flags; `share` is {title, missing, suggestion?, workaround?}, `reviewed` a boolean)."}});
     add.examples = {"factoria feedback add --category physics --severity major --title \"No one-way platforms\" \\\n"
                     "    --missing \"Collider2D has no one-way option\" --workaround \"scripts/one_way.js toggles the collider\" --files scripts/one_way.js",
                     "factoria feedback add --json '{\"category\":\"docs\",\"severity\":\"minor\",\"title\":\"...\",\"missing\":\"...\",\"workaround\":\"...\"}'"};
@@ -114,6 +123,14 @@ Command make_feedback_command() {
         in.workaroundFiles = split_list(a.all("files"));
         if (in.workaroundFiles.empty() && src.contains("workaroundFiles") && src["workaroundFiles"].is_array())
             for (const auto& f : src["workaroundFiles"]) in.workaroundFiles.push_back(f.get<std::string>());
+        {
+            Json share = src.contains("share") && src["share"].is_object() ? src["share"] : Json::object();
+            for (const char* k : {"title", "missing", "suggestion", "workaround"})
+                if (a.has(std::string("share-") + k)) share[k] = a.str(std::string("share-") + k);
+            if (!share.empty()) in.share = share;
+            if (a.has("reviewed")) in.reviewed = true;
+            else if (src.contains("reviewed") && src["reviewed"].is_boolean()) in.reviewed = src["reviewed"].get<bool>();
+        }
         std::vector<std::string> missing;
         for (auto [k, v] : {std::pair<const char*, const std::string*>{"category", &in.category}, {"severity", &in.severity}, {"title", &in.title},
                             {"missing", &in.missing}, {"workaround", &in.workaround}})
@@ -128,6 +145,11 @@ Command make_feedback_command() {
         auto r = add_feedback_entry_to_file(feedback_path(dir), in, project_name(dir));
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         ctx.out << (r->reopened ? "Reopened (fixed before, reported again) " : r->merged ? "Merged into " : "Added ") << r->id << " (occurrences: " << r->occurrences << ")\n";
+        if (!r->shareProblem.empty()) ctx.out << "The share text was not stored: " << r->shareProblem << ".\n";
+        else if (!in.share.is_null()) {
+            const Json summary = share_report_summary(share_env(), feedback_path(dir), dir, r->id, nullptr, true);
+            if (summary.is_object()) ctx.out << summary.value("message", std::string()) << "\n";
+        }
         return 0;
     };
 
@@ -187,6 +209,9 @@ Command make_feedback_command() {
             return 0;
         }
         ctx.out << "Updated " << id << ": status=" << r->value("status", std::string()) << "\n";
+        if (r->value("status", std::string()) == "fixed-in-engine")
+            if (std::string offer = fixed_add_offer(*r); !offer.empty())
+                ctx.out << "A pulled report: record the fix so every user's matching entry is closed when they update:\n  " << offer << "\n";
         return 0;
     };
 
@@ -273,6 +298,8 @@ Command make_feedback_command() {
     };
 
     g.subs = {init, add, list, update, archive, validate, collect};
+    add_feedback_share_commands(g);
+    for (auto& sub : make_feedback_admin_commands()) g.subs.push_back(std::move(sub));  // the engine developer's side
     return g;
 }
 

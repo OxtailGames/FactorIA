@@ -13,7 +13,7 @@
 //                        fixed-in-engine entry reopens it (a possible regression).
 //   collect_feedback     aggregate many projects' files into a ranked roadmap
 //                        report (similar titles grouped, ranked by
-//                        occurrences x severity weight).
+//                        severity weight x trust x min(occurrences, 3) per project).
 #pragma once
 
 #include <optional>
@@ -53,6 +53,10 @@ struct FeedbackInput {
     std::string suggestion;
     std::string effort;  // "", "small", "medium", "large"
     Json reporter;       // null or {kind, agent, model}
+    // The generic copy that may be shared with the engine developer: {title, missing, suggestion?, workaround?}, engine terms
+    // only (fa/tooling/feedback_share.h). Null = none. A malformed or out-of-limits one is not stored (FeedbackAddResult::shareProblem).
+    Json share;
+    std::optional<bool> reviewed;  // the reporter checked against the docs that the gap is real and about the engine
 };
 
 struct FeedbackAddResult {
@@ -61,6 +65,7 @@ struct FeedbackAddResult {
     bool reopened = false;  // true when the report matched an archived fixed-in-engine entry: it is open again, in the file
     int occurrences = 1;
     Json entry;  // the stored entry
+    std::string shareProblem;  // why `share` was not stored ("" = stored or not given)
 };
 
 // Title similarity in [0,1] used for dedupe/grouping (token overlap + edit distance).
@@ -87,6 +92,9 @@ struct FeedbackFilter {
 };
 Json list_feedback(const Json& doc, const FeedbackFilter& filter = {});  // array of entries
 
+// The feedback file of a project: <projectDir>/ENGINE_FEEDBACK.json, or the project's `feedbackFile` when factoria.json sets one.
+std::string feedback_file_for_project(const std::string& projectDir);
+
 // "ENGINE_FEEDBACK.json" -> "ENGINE_FEEDBACK.archive.json": where the closed entries of a feedback file go.
 std::string feedback_archive_path(const std::string& feedbackPath);
 
@@ -111,6 +119,17 @@ Json list_archived_feedback(const std::string& path, const FeedbackFilter& filte
 Result<Json> update_feedback_file(const std::string& path, std::string_view id, std::string_view status,
                                   std::string_view engineIssue, std::string_view note = {});
 
+struct FeedbackShareEdit {
+    Json share;                    // null = leave `share` as it is; else {title, missing, suggestion?, workaround?}
+    bool clearShare = false;       // remove `share` (the entry is not shared any more); wins over `share`
+    std::optional<bool> reviewed;  // null = a changed `share` becomes reviewed: false (nobody checked the new text); else as given
+};
+// Edits the `share` text and/or the `reviewed` flag of entry `id` of the feedback file (an entry of the archive is not edited).
+// The text is validated against the field limits (kShare*Min/Max); an invalid one is an error and nothing is written. A
+// changed text drops `shared` unless it says sent, so the entry goes through the sanitizer and the outbox again. This does not
+// run the sanitizer and does not change the sharing mode: the editor's panel and ai.review_feedback do. Returns the entry.
+Result<Json> set_feedback_share_file(const std::string& path, std::string_view id, const FeedbackShareEdit& edit);
+
 // Updates status and/or engineIssue of entry `id`. Returns the updated entry.
 Result<Json> update_feedback_entry(Json& doc, std::string_view id, std::string_view status,
                                    std::string_view engineIssue);
@@ -126,12 +145,17 @@ struct CollectOptions {
 // `paths`: ENGINE_FEEDBACK.json files, or directories (the file in the dir, or any
 // ENGINE_FEEDBACK.json found below it). Report JSON:
 // { sources[], projects[], totalEntries, errors[], clusters: [ { rank, title, category, severity, score,
-//   totalOccurrences, projects[], entries[{project,id,severity,status}], bestSuggestion,
-//   sampleWorkarounds[] } ] }
+//   totalOccurrences, installations, verifiedInstallations, projects[],
+//   entries[{project,id,severity,status,occurrences,trust,similarity}], bestSuggestion, sampleWorkarounds[] } ] }
+// score = sum over the cluster's projects (a local project or one installation) of severity weight (the worst of its
+// entries) x trust x min(occurrences, 3). trust is 1 for a local project and for an entry whose remote.trust is "verified",
+// 0.5 for "anonymous" (entries pulled from the feedback server carry `remote`). installations = projects in the cluster,
+// verifiedInstallations = those with a verified entry; totalOccurrences is the uncapped sum.
 Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, const CollectOptions& opts = {});
 
 // Registers feedback.report, feedback.list, feedback.update, feedback.archive bound to <projectDir>/ENGINE_FEEDBACK.json
-// (or the project's `feedbackFile`).
+// (or the project's `feedbackFile`), and the sharing commands feedback.share_preview, feedback.share_status, feedback.share and
+// feedback.check_fixed (fa/tooling/feedback_share.h, feedback_fixed.h).
 void register_feedback_commands(CommandRegistry& registry, const std::string& projectDir);
 
 }  // namespace fa

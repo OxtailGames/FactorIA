@@ -378,6 +378,7 @@ jobs:
           fa="$tmp/FactorIA/factoria${{ matrix.exe }}"
           version="$("$fa" version | tr -d '\r')"
           echo "$version"
+          version="${version%% (build *}"  # `factoria version` ends with the build fingerprint since 0.9.0
           # The editor offers a release when its tag is newer than `factoria version`: they must agree.
           if [[ "$GITHUB_REF" == refs/tags/v* && "$version" != "factoria ${GITHUB_REF_NAME#v}" ]]; then
             echo "::error::'$version' does not match the tag $GITHUB_REF_NAME: set project(VERSION) in CMakeLists.txt"
@@ -449,7 +450,7 @@ jobs:
           iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
           [[ -f "$iscc" ]] || choco install innosetup --version=6.7.1 -y --no-progress
           # platforms/windows/FactorIA.iss reads both from the environment.
-          export FA_INSTALLER_VERSION="$(dist/FactorIA/factoria.exe version | tr -d '\r' | sed 's/^factoria //')"
+          export FA_INSTALLER_VERSION="$(dist/FactorIA/factoria.exe version | tr -d '\r' | sed 's/^factoria //; s/ (build .*//')"
           export FA_INSTALLER_SOURCE="$(cygpath -w "$PWD/dist/FactorIA")"
           echo "Installer for FactorIA $FA_INSTALLER_VERSION"
           "$iscc" "/O$(cygpath -w "$PWD/dist")" "$(cygpath -w platforms/windows/FactorIA.iss)"

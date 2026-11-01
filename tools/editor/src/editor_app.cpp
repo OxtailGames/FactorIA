@@ -22,6 +22,7 @@
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "ui_backend.h"
+#include "fa/tooling/feedback_fixed.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/shaders.h"
 
@@ -226,6 +227,7 @@ Editor::~Editor() {
     if (atWatchdog_.joinable()) atWatchdog_.join();
     if (updateThread_.joinable()) updateThread_.join();
     if (launcherThread_.joinable()) launcherThread_.join();
+    share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
 }
 
 int Editor::run() {
@@ -313,6 +315,66 @@ void Editor::on_init() {
 #else
             setenv("FACTORIA_EXPORT_CONFIG", machineConfig.c_str(), 1);
 #endif
+        }
+        // Feedback sharing (feedback_share_ui.cpp) talks to a fake server and keeps its settings and outbox in a folder of the
+        // autotest's own: never the user's ~/.factoria and never the network. The mode starts at `never`, so the consent dialog does
+        // not cover the sections that add feedback entries; section E2 sets its own.
+        {
+            auto net = std::make_shared<ShareAutotestNet>();
+            atShareNet_ = net;
+            const stdfs::path dir = base / "share_config";
+            fs::remove_tree(dir, ec);
+            stdfs::create_directories(dir, ec);
+            ShareEnv env;
+            const std::string cfg = (dir / "ai.json").string();  // the config folder is its parent
+            env.env = [cfg](const std::string& n) { return n == "FACTORIA_AI_CONFIG" ? cfg : std::string(); };
+            env.now = [] { return std::int64_t(1760000000); };
+            env.sleep = [](double) { std::this_thread::sleep_for(std::chrono::milliseconds(10)); };
+            env.makeUuid = [net] {
+                char text[48];
+                std::snprintf(text, sizeof text, "00000000-0000-4000-8000-%012d", ++net->uuids);
+                return std::string(text);
+            };
+            env.defaultEndpoint = "https://feedback.autotest.invalid";
+            env.githubClientId = "autotest-client-id";
+            env.transport = [net](const HttpRequest& rq) -> HttpResponse {
+                {
+                    std::lock_guard<std::mutex> lock(net->mu);
+                    net->urls.push_back(rq.method + " " + rq.url);
+                    if (rq.url.ends_with("/v1/reports")) net->reportBodies.push_back(rq.body);
+                }
+                HttpResponse rs;
+                rs.ok = true;
+                rs.status = 200;
+                Json body = Json::object();
+                if (rq.url == "https://github.com/login/device/code") {
+                    body = Json::object({{"device_code", "autotest-device-code"}, {"user_code", "ABCD-1234"},
+                                         {"verification_uri", "https://github.com/login/device"}, {"expires_in", 900}, {"interval", 5}});
+                } else if (rq.url == "https://github.com/login/oauth/access_token") {
+                    body = net->authorize ? Json::object({{"access_token", "autotest-github-token"}, {"token_type", "bearer"}})
+                                          : Json::object({{"error", "authorization_pending"}});
+                } else if (rq.url.ends_with("/v1/auth/github")) {
+                    body = Json::object({{"ok", true}, {"credential", "autotest.credential"}, {"login", "octocat"}});
+                } else if (rq.url.ends_with("/v1/reports") && !net->failReports) {
+                    Json results = Json::array();
+                    const Json sent = Json::parse(rq.body, nullptr, false);
+                    int n = 0;
+                    if (sent.is_object() && sent.contains("entries"))
+                        for (const Json& e : sent["entries"])
+                            results.push_back(Json::object({{"localId", e.value("localId", std::string())}, {"status", "accepted"},
+                                                            {"shareId", "r_" + std::to_string(++n)}}));
+                    body = Json::object({{"ok", true}, {"results", results}});
+                } else {
+                    rs.ok = false;
+                    rs.status = 0;
+                    rs.error = rq.url.ends_with("/v1/reports") ? "the autotest's feedback server is down" : "the autotest reaches no address (" + rq.url + ")";
+                    return rs;
+                }
+                rs.body = body.dump();
+                return rs;
+            };
+            atShareEnv_ = std::make_unique<ScopedShareEnv>(env);
+            (void)set_share_mode(share_env(), ShareMode::Never);  // the test harness, not a command: only a click sets the mode in the product
         }
         // Set Up This Computer installs into FACTORIA_HOME: a folder of the autotest's own, never the user's ~/.factoria. And the
         // editor's setup context cannot download or run anything, so no click of the autotest can install a thing (the one
@@ -556,6 +618,9 @@ bool Editor::boot(const std::string& dirIn) {
         projectName_ = engine_->project().name;
         // Closed engine feedback moves to ENGINE_FEEDBACK.archive.json so the file only holds what is still open.
         if (const std::string fbPath = fs::join(projectDir_, engine_->project().feedbackFile); fs::exists(engine_->project().feedbackFile)) {
+            // First, the gaps this engine version fixed are closed (the list embedded in the binary), then archived below.
+            if (auto c = check_fixed_feedback_file(fbPath); !c) FA_WARN("editor", "feedback fixed check: {}", c.error().to_string());
+            else if (!c->closed.empty()) FA_INFO("editor", "{} feedback entries were fixed in this engine version", c->closed.size());
             if (auto r = archive_closed_feedback_file(fbPath); !r) FA_WARN("editor", "feedback archive: {}", r.error().to_string());
             else if (r->moved > 0) FA_INFO("editor", "moved {} closed feedback entries to the archive", r->moved);
         }
@@ -1280,7 +1345,11 @@ void Editor::build_ui() {
     draw_docs_window();
     draw_toasts();
     draw_mark_popup();
+    feedback_share_tick();
+    draw_share_review_window();
+    draw_share_settings_window();
     draw_update_popup();
+    draw_share_consent();
     draw_disk_update_notice();
     draw_recipe_notice();
 

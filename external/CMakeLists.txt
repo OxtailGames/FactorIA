@@ -138,6 +138,9 @@ target_compile_definitions(fa_ext_harfbuzz PRIVATE HB_LEAN HB_NO_AAT HB_OPTIMIZE
 add_library(fa_ext_harfbuzz_subset STATIC ${FA_HB}/src/harfbuzz-subset.cc)
 target_include_directories(fa_ext_harfbuzz_subset SYSTEM PUBLIC ${FA_HB}/src)
 target_compile_definitions(fa_ext_harfbuzz_subset PRIVATE HB_OPTIMIZE_SIZE)
+if(MSVC)  # a Debug build of it has more sections than a default object file holds (C1128)
+    target_compile_options(fa_ext_harfbuzz_subset PRIVATE /bigobj)
+endif()
 
 # SheenBidi: its unity build (Source/SheenBidi.c) is one translation unit; only the paragraph/line API is used.
 add_library(fa_ext_sheenbidi STATIC ${FA_EXT}/sheenbidi/Source/SheenBidi.c)
