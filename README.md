@@ -171,3 +171,5 @@ commercial, as long as the copyright notice and the license travel with the engi
   `THIRD_PARTY_NOTICES.txt`.
 - **The name.** The license covers the code, not the FactorIA name or logo. Say that your game is "made with FactorIA";
   a modified or redistributed engine must not present itself as FactorIA, or as endorsed by it, without permission.
+- **Conduct.** Issues, pull requests, discussions and the feedback server follow the
+  [code of conduct](CODE_OF_CONDUCT.md).

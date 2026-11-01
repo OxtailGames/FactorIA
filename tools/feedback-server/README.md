@@ -69,7 +69,7 @@ Every answer is JSON, `{ok: true, ...}` or `{ok: false, error: {code, message, h
 
 | Endpoint | What |
 |---|---|
-| `GET /` | Plain privacy page: what is stored, what never is, how to stop sending |
+| `GET /` | Plain privacy page: what is stored, what never is, the rules for reports, no warranty, how to stop sending |
 | `POST /v1/reports` | Up to 20 entries, 64 KB. Header `X-Factoria-Install` (UUID v4), optional `Authorization: Bearer <credential>`. Per entry: `accepted`, `merged` or `rejected` (`invalid_field`, `too_short`, `too_long`, `not_text`, `personal_data`). Errors: `400` (`missing_install`, `invalid_json`, `invalid_format`, `invalid_request`, `too_many_entries`), `401 invalid_credential`, `403 banned`, `413 too_large`, `429 rate_limited` + `Retry-After` |
 | `POST /v1/auth/github` | `{githubToken}` -> `{credential, login}`; calls `api.github.com/user` once, stores nothing about the account. `401 invalid_github_token`, `502 github_unavailable`, `429` after 20 sign-ins per network per day |
 | `GET /v1/admin/reports?since=&limit=` | Reports in arrival order and an opaque `next` cursor; a cursor always returns the same page |
