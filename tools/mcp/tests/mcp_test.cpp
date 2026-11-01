@@ -250,6 +250,25 @@ TEST_CASE("mcp: a command filter hides commands from tools/list and refuses to c
     CHECK(blocked["isError"] == true);
 }
 
+TEST_CASE("mcp: ai.plugin_install is neither listed nor callable (only the user installs software)") {
+    Fixture f;
+    bool ran = false;
+    CommandInfo i;
+    i.name = "ai.plugin_install";
+    i.summary = "Installs a plugin.";
+    i.readOnly = false;
+    f.registry.add(i, [&ran](const Json&) {
+        ran = true;
+        return Json::object();
+    });
+    f.initialize();
+    for (auto& t : f.rpc("tools/list")["result"]["tools"]) CHECK(t["name"] != "ai_plugin_install");
+    CHECK(f.call("ai_plugin_install")["result"]["isError"] == true);
+    CHECK_FALSE(ran);
+    CHECK(is_user_only_command("ai.plugin_install"));
+    CHECK_FALSE(is_user_only_command("ai.run"));
+}
+
 TEST_CASE("mcp: $image results add an image content block") {
     Fixture f;
     Json res = f.call("test_shot")["result"];

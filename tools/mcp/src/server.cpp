@@ -203,11 +203,13 @@ void McpServer::log(const std::string& level, const std::string& logger, const J
                        {"params", Json::object({{"level", level}, {"logger", logger}, {"data", data}})}}));
 }
 
+bool is_user_only_command(std::string_view commandName) { return commandName == "ai.plugin_install"; }
+
 Json McpServer::tools_json() const {
     Json tools = Json::array();
     std::set<std::string> seen;
     for (const CommandInfo* c : host_.commands().list()) {
-        if (filter_ && !filter_(*c)) continue;
+        if (is_user_only_command(c->name) || (filter_ && !filter_(*c))) continue;
         std::string name = mcp_tool_name(c->name);
         if (!seen.insert(name).second) continue;  // name collision after mapping: first wins
         Json t = Json::object();
@@ -293,7 +295,7 @@ Json McpServer::run_tool(const Json& params) {
     std::string command;
     std::vector<std::string> toolNames;
     for (const CommandInfo* c : host_.commands().list()) {
-        if (filter_ && !filter_(*c)) continue;
+        if (is_user_only_command(c->name) || (filter_ && !filter_(*c))) continue;
         std::string n = mcp_tool_name(c->name);
         if (n == toolName && command.empty()) command = c->name;
         toolNames.push_back(n);

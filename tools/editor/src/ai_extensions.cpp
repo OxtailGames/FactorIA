@@ -340,6 +340,10 @@ void Editor::ai_extensions_load(const ai::AiConfig& cfg) {
     x.userLoaded = x.user;
     x.inherit = cfg.extensions.inheritUserPlugins;
     x.savers = cfg.savers;
+    {
+        std::lock_guard<std::mutex> lock(aiPluginJob_->mu);
+        aiPluginJob_->probeDone = false;  // the tab asks the Claude Code CLI again about TokenEconomizer
+    }
     if (projectDir_.empty()) return;
     ai::ProjectExtensions p = ai::load_project_extensions(projectDir_);
     x.projectExists = p.exists;
@@ -753,6 +757,7 @@ void Editor::draw_ai_extensions_tab(const ai::AiConfig& cfg, bool configReadable
     ImGui::SetItemTooltip("On (default): what you installed in Claude Code (~/.claude) keeps working in FactorIA's runs, and the list above is added to it.\n"
                           "Off: runs get only the list above, and none of your Claude Code settings (~/.claude: plugins, skills, hooks, permissions, env).");
 
+    draw_ai_economizer_view(cfg, configReadable);
     draw_ai_savers_view(cfg);
 
     // ------------------------------------------------------------------------------------------------ trust

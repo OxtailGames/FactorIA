@@ -1125,6 +1125,25 @@ Asks the providers themselves, so newly released models show up: Claude Code thr
 |---|---|---|---|
 | `provider` | string | no | Only this provider (a name from ai.providers). Omit for every available one. |
 
+### `ai.plugin_install` (modifies state)
+
+Not released yet (on main after 0.10.0).
+
+Install a Claude Code marketplace plugin (the user's action) and add it to ai.json extensions.
+
+Runs the Claude Code CLI's own commands with the executable of the claude-code provider: `claude plugin marketplace add <marketplace>`, then `claude plugin install <plugin>`; a step already done (the marketplace listed by `claude plugin marketplace list`, the plugin by `claude plugin list`) is skipped. Then adds a plugin entry name@marketplace to the user's ai.json "extensions" (the other keys stay), with `roles`. It installs software, so only the USER starts it (the editor's AI settings > Extensions > Add TokenEconomizer, or the CLI); the built-in agent and the MCP server never offer it. `preset` "tokeneconomizer" fills marketplace microsoft/TokenEconomizer, plugin tokeneconomizer@tokeneconomizer and requiresPython 3.10 (checks python3 / python before installing). `dryRun` returns what it would do. Returns {ok, dryRun, provider, command, marketplace, plugin, python:{required, command, version, ok, message}, steps:[{id marketplace|plugin|entry, command, needed, status would_run|not_needed|done|skipped|failed, detail}], entry:{name, added, present, path}, message}. Failures name the step, what the CLI said and how to fix it. Example: {"preset":"tokeneconomizer","dryRun":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `preset` | string ["tokeneconomizer"] | no | A known plugin: fills marketplace, plugin and requiresPython (your own values win). |
+| `marketplace` | string | no | What `claude plugin marketplace add` takes: owner/repo of GitHub, a git URL or a path. |
+| `plugin` | string | no | name@marketplace, as `claude plugin install` takes it. |
+| `roles` | array | no | Roles that load the entry (default: orchestrator, worker, fast, artist, audio). |
+| `name` | string | no | The entry's name in ai.json (default: the plugin's name). |
+| `note` | string | no | The entry's note. |
+| `requiresPython` | string | no | Minimum Python version the plugin needs, e.g. 3.10. Checked before installing. |
+| `dryRun` | boolean | no | Report the commands and whether each is needed; install nothing. |
+
 ### `ai.providers`
 
 List configured AI providers and roles, or diagnose which ones are usable (doctor).

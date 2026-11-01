@@ -88,6 +88,10 @@ Result<McpResourceContent> default_mcp_read_resource(const std::string& projectD
 // "scene.list_entities" -> "scene_list_entities" (chars [a-zA-Z0-9_-], at most 64).
 std::string mcp_tool_name(std::string_view commandName);
 
+// Commands that install software on the user's computer: only the user starts them (the editor, the CLI). No MCP server
+// lists or runs them, whatever the filter says, so an AI client (Claude Code included) cannot. Today: ai.plugin_install.
+bool is_user_only_command(std::string_view commandName);
+
 inline constexpr const char* kMcpLatestProtocol = "2025-11-25";
 const std::vector<std::string>& mcp_supported_protocols();
 
