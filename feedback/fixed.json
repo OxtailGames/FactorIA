@@ -1,4 +1,25 @@
 {
   "format": "factoria.feedback-fixed/1",
-  "fixes": []
+  "fixes": [
+    {
+      "category": "tooling",
+      "titles": [
+        "game.input press on a paused game loses the pressed edge",
+        "input.pressed never fires after game.input while paused",
+        "game.input frames argument does not step the game"
+      ],
+      "fixedIn": "0.12.0",
+      "note": "A press injected while paused waits for the next simulated frame; game.input takes frames."
+    },
+    {
+      "category": "rendering-3d",
+      "titles": [
+        "Render-target cameras have no culling mask",
+        "Camera has no culling mask",
+        "No layer filter on cameras"
+      ],
+      "fixedIn": "0.12.0",
+      "note": "Camera.showTags / Camera.hideTags choose what a camera draws by entity tags."
+    }
+  ]
 }
