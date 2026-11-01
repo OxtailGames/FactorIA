@@ -761,7 +761,9 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
     // game.step with many frames: run it in slices of ~8 ms, one slice per UI frame. A first {frames:0} call applies
     // press/release (and reports bad input at once); the last one builds the same state summary a single call would,
     // with the new-error/warning counters measured from before the first slice.
-    if (name == "game.step" && args.is_object() && args.contains("frames") && args["frames"].is_number_integer() &&
+    // game.input with `frames` slices the same way (its result is the input snapshot with frames and frame).
+    const bool inputFrames = name == "game.input";
+    if ((name == "game.step" || inputFrames) && args.is_object() && args.contains("frames") && args["frames"].is_number_integer() &&
         args["frames"].get<long long>() > 30 && args["frames"].get<long long>() <= 100000) {
         Json first = args;
         first["frames"] = 0;
@@ -771,7 +773,8 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
         auto left = std::make_shared<int>(args["frames"].get<int>());
         const std::size_t errs0 = error_count();
         const std::uint64_t seq0 = log_last_seq();
-        slicedJob_ = [this, promise, left, errs0, seq0, finish]() {
+        const int total = *left;
+        slicedJob_ = [this, promise, left, total, inputFrames, errs0, seq0, finish]() {
             const auto s0 = std::chrono::steady_clock::now();
             while (*left > 0) {
                 engine_->step(1);
@@ -779,6 +782,15 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
                 if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count() > 8.0) break;
             }
             if (*left > 0) return false;
+            if (inputFrames) {
+                CommandResult r = engine_->commands().call("game.input", Json::object());
+                if (r.ok && r.result.is_object()) {
+                    r.result["frames"] = total;
+                    r.result["frame"] = engine_->frame_index();
+                }
+                finish(promise, std::move(r));
+                return true;
+            }
             CommandResult r = engine_->commands().call("game.step", Json::object({{"frames", 0}}));
             if (r.ok && r.result.is_object()) {
                 r.result["newLogErrors"] = error_count() - errs0;
