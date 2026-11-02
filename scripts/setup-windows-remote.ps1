@@ -26,6 +26,13 @@ $problems = New-Object System.Collections.ArrayList
 
 function Step([string]$Text) { Write-Host "==> $Text" }
 function Problem([string]$Text) { [void]$problems.Add($Text); Write-Host "!!  $Text" -ForegroundColor Yellow }
+# Runs a native program without letting its stderr stop the script: with $ErrorActionPreference = 'Stop', Windows
+# PowerShell 5.1 turns any stderr line of a native program into a terminating error. Callers check $LASTEXITCODE.
+function Invoke-Native([scriptblock]$Block) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Block 2>&1 | ForEach-Object { "$_" } } finally { $ErrorActionPreference = $saved }
+}
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -83,7 +90,8 @@ Write-Host "    $ps"
 # 4. The Mac's key. sshd reads administrators_authorized_keys instead of the user's file for members of Administrators,
 # and ignores it unless only SYSTEM and Administrators can write it.
 Step 'Mac key'
-$userIsAdmin = @(& net.exe localgroup Administrators 2>$null | Where-Object { $_ -eq $env:USERNAME -or $_ -like "*\$env:USERNAME" }).Count -gt 0
+# By SID (S-1-5-32-544), not by name: the group is "Administradores", "Administrateurs"... on a localized Windows.
+$userIsAdmin = @($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' }).Count -gt 0
 if ($userIsAdmin) {
     $keyFile = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'
 } else {
@@ -104,9 +112,9 @@ if (-not ($existing | Where-Object { $_ -like "*$keyBody*" })) {
     Write-Host "    key already in $keyFile"
 }
 if ($userIsAdmin) {
-    & icacls.exe $keyFile /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null
+    Invoke-Native { icacls.exe $keyFile /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' } | Out-Null
 } else {
-    & icacls.exe $keyFile /inheritance:r /grant "${env:USERNAME}:F" /grant '*S-1-5-18:F' | Out-Null
+    Invoke-Native { icacls.exe $keyFile /inheritance:r /grant "${env:USERNAME}:F" /grant '*S-1-5-18:F' } | Out-Null
 }
 if ($LASTEXITCODE -ne 0) { Problem "icacls failed on $keyFile; sshd will ignore the key until only SYSTEM, Administrators and you can write it." }
 Restart-Service sshd
@@ -124,7 +132,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $RepoPath '.git'))) {
 } else {
     Write-Host "    clone: $RepoPath"
     # Pushing into the checked-out repository is fine (the Mac only writes refs/heads/preflight/*); nothing to configure.
-    if ($git) { & git config --global --add safe.directory ($RepoPath -replace '\\', '/') 2>$null }
+    if ($git) { Invoke-Native { git config --global --add safe.directory ($RepoPath -replace '\\', '/') } | Out-Null }
 }
 $vs = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path -LiteralPath $vs)) {
