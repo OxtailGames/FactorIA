@@ -1,3 +1,4 @@
+#include "fa/core/engine_version.h"
 #include <doctest.h>
 
 #include "fa/core/build_info.h"

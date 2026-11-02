@@ -1,5 +1,6 @@
 // Editor application shell: sokol callbacks, project/scene lifecycle, play mode, undo/redo,
 // docking layout, toolbar and status bar. The main menu is in main_menu.cpp.
+#include "fa/core/engine_version.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>

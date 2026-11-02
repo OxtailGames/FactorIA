@@ -1,3 +1,4 @@
+#include "fa/core/engine_version.h"
 #include "fa/runtime/project.h"
 
 #include <algorithm>

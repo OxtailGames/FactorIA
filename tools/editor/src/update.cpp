@@ -1,4 +1,5 @@
 // Engine updates from GitHub Releases: see fa/editor/update.h.
+#include "fa/core/engine_version.h"
 #include "fa/editor/update.h"
 
 #include <algorithm>

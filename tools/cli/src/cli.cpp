@@ -1,3 +1,4 @@
+#include "fa/core/engine_version.h"
 #include "fa/cli/cli.h"
 
 #include <algorithm>
@@ -9,9 +10,6 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 
-#ifndef FA_ENGINE_VERSION
-#define FA_ENGINE_VERSION "0.0.0"
-#endif
 
 namespace fa::cli {
 

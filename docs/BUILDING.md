@@ -618,6 +618,9 @@ dependencies. English messages (`VSLANG=1033` with Visual Studio's English langu
 (`/Z7`) instead of one `.pdb` per target, which ccache needs. Tests find the checkout through the generated
 `fa_test_paths.h` (`FA_REPO_ROOT`...); include it only where a test needs a path, so the other tests keep sharing the
 cache.
+The engine version lives in a generated header (`fa/core/engine_version.h`, written by `configure_file` only when the
+version changes), not in a compile definition, so a version bump only recompiles the files that include it instead of
+missing the whole cache.
 
 With the Visual Studio presets CMake cannot launch ccache: copy `ccache.exe` (not a Chocolatey or Scoop shim) as
 `cl.exe` into an empty folder and set the environment variables `CLToolPath=<that folder>` and `UseMultiToolTask=true`

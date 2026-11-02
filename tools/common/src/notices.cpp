@@ -1,3 +1,4 @@
+#include "fa/core/engine_version.h"
 #include "fa/tooling/notices.h"
 
 #include "fa/tooling/bundle.h"
