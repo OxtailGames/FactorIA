@@ -116,6 +116,12 @@ check passes and deletes its branch:
 - Before every push run `scripts/test-all.sh`: every target built in Debug and the full Debug `ctest`, then the example
   games on a Release build (`ctest -L example`), not only the tests of the module you changed. CI
   should only find what this machine cannot run (other platforms, mobile).
+- A push must not fail CI: checking that a worker's package works is not enough. Before the push, read the branch's
+  whole diff for what this host does not exercise and fix it first: Windows file rules (a file open elsewhere cannot
+  be replaced or deleted, file times step ~15 ms, case-insensitive paths, CRLF), waits, timeouts and speed or memory
+  budgets that a loaded 4-vCPU CI VM misses, other compilers (MSVC and GCC warnings, missing includes), the GL and
+  D3D11 paths of render code. Run the editor autotest sections and examples the change touches a few times while the
+  machine is busy (timing bugs hide on a fast idle machine), and every `scripts/ci-local.sh` job this host supports.
 - Open the PR and turn on auto-merge with a merge commit (no need to ask):
   `gh pr merge <n> --auto --merge`. If CI fails, fix it on the same branch;
   never merge red. A PR that changes `.github/workflows/release.yml` is the
