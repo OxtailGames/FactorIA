@@ -6,15 +6,17 @@
 #   ./scripts/ci-local.sh                # all jobs this host supports
 #   ./scripts/ci-local.sh linux windows  # only some jobs
 #   FA_CI_JOBS=4 ./scripts/ci-local.sh   # parallel build jobs (default: nproc)
+#   FA_CI_CTEST_EXCLUDE=regex            # linux job: ctest -E regex (ci-docker.sh excludes the perf budgets, see there)
+#   FA_CI_WINE_TIMEOUT=600               # windows job on Linux: seconds one test program may run under Wine
 #
 # Jobs
-#   linux    Linux build (GCC/Clang) + `factoria setup shaders` + full ctest. GPU tests use Mesa llvmpipe
+#   linux    (on a Mac: in a Linux container, scripts/ci-docker.sh) Linux build (GCC/Clang) + `factoria setup shaders` + full ctest. GPU tests use Mesa llvmpipe
 #            through Xvfb when there is no display. The tests that need the real sokol-shdc fail (not skip) when it is missing.
 #   windows  On a Windows host: MSVC build + ctest through scripts/build.ps1
 #            (Visual Studio 2022+). On Linux: Windows x64 cross-build with
 #            MinGW-w64 (D3D11 backend) + every unit-test executable and a CLI
 #            smoke test under Wine (catches Windows API/backend bugs; MSVC-only
-#            quirks need the Windows host).
+#            quirks need the Windows host). On a Mac this job runs in the same container as linux.
 #   android  factoria_player for arm64-v8a (needs ANDROID_NDK_HOME, NDK r27+).
 #   web      Web player (Emscripten, preset web-release; needs EMSDK set), the factoria CLI, a template game exported with
 #            `factoria export --platform web`, the zip checked as itch.io takes it and the export run in headless Chrome
@@ -22,8 +24,12 @@
 #   macos    macOS build + ctest (only on a Mac).
 #   sniper   Linux release programs built in the Steam Runtime sniper SDK container, checked and run in the sniper
 #            runtime image (scripts/build-sniper.sh; needs Docker or Podman). Not part of the default set: it pulls
-#            about 1.5 GB of images the first time.
+#            about 1.5 GB of images the first time. On a Mac it runs through scripts/ci-docker.sh.
 #   ios      iOS Simulator build of factoria_player (only on a Mac with Xcode).
+#
+# Docker on a Mac: linux, windows and sniper delegate to scripts/ci-docker.sh (Colima + Docker, linux/amd64 through
+# Rosetta); set it up once with ./scripts/setup-docker-macos.sh. Without a running Docker those jobs are skipped with
+# that hint. ci-docker.sh can also be run on its own.
 #
 # Exit code: 0 if every job that ran passed, 1 otherwise.
 set -uo pipefail
@@ -64,8 +70,23 @@ install_shaders() {
     "$cli" setup shaders
 }
 
+# On a Mac the linux, windows and sniper jobs run in a Linux container (scripts/ci-docker.sh, Docker through Colima:
+# scripts/setup-docker-macos.sh). Records the result and returns 0 when the job was delegated.
+delegate_docker() {
+    [ "$HOST" = "Darwin" ] || return 1
+    local job="$1" code
+    "$ROOT/scripts/ci-docker.sh" "$job"; code=$?
+    case "$code" in
+        0)  record "$job" PASS "in Docker (scripts/ci-docker.sh; log $LOGDIR/docker-$job.log)" ;;
+        77) record "$job" SKIP "needs Docker on this Mac: run ./scripts/setup-docker-macos.sh" ;;
+        *)  record "$job" FAIL "in Docker, see $LOGDIR/docker-$job.log" ;;
+    esac
+    return 0
+}
+
 job_linux() {
     note "linux"
+    delegate_docker linux && return
     [ "$HOST" = "Linux" ] || { record linux SKIP "not a Linux host"; return; }
     local b=build/ci-linux
     run_logged "$LOGDIR/linux-configure.log" cmake -S . -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -73,7 +94,7 @@ job_linux() {
     run_logged "$LOGDIR/linux-build.log" cmake --build "$b" -j "$JOBS" \
         || { record linux FAIL "build (see $LOGDIR/linux-build.log)"; return; }
     run_logged "$LOGDIR/linux-shaders.log" install_shaders "$b" || { record linux FAIL "factoria setup shaders (see $LOGDIR/linux-shaders.log)"; return; }
-    if FA_REQUIRE_SHDC=1 run_logged "$LOGDIR/linux-test.log" with_display ctest --test-dir "$b" -j "$JOBS" --output-on-failure; then
+    if FA_REQUIRE_SHDC=1 run_logged "$LOGDIR/linux-test.log" with_display ctest --test-dir "$b" -j "$JOBS" --output-on-failure ${FA_CI_CTEST_EXCLUDE:+-E "$FA_CI_CTEST_EXCLUDE"}; then
         record linux PASS "$(grep -E 'tests passed' "$LOGDIR/linux-test.log" | tail -1)"
     else
         record linux FAIL "tests (see $LOGDIR/linux-test.log)"
@@ -93,6 +114,7 @@ job_windows_native() {
 job_windows() {
     if [ "$HOST" = "Windows" ]; then job_windows_native; return; fi
     note "windows (MinGW-w64 cross build + Wine)"
+    delegate_docker windows && return
     if ! command -v x86_64-w64-mingw32-g++-posix >/dev/null && ! command -v x86_64-w64-mingw32-g++ >/dev/null; then
         record windows SKIP "no MinGW-w64 (Debian/Ubuntu: apt install g++-mingw-w64-x86-64-posix)"; return
     fi
@@ -112,10 +134,12 @@ job_windows() {
     if [ ! -d "$WINEPREFIX" ]; then with_display wineboot -i >/dev/null 2>&1 || true; fi
     wineserver -w 2>/dev/null || true
     local failed=() passed=0
+    # A suite that hangs (Wine under emulation can) fails after FA_CI_WINE_TIMEOUT instead of stalling the job.
+    local WINE_TIMEOUT=""; command -v timeout >/dev/null && WINE_TIMEOUT="${FA_CI_WINE_TIMEOUT:-600}"
     while IFS= read -r exe; do
         local name; name="$(basename "$exe" .exe)"
         wineserver -w 2>/dev/null || true
-        if with_display wine "$exe" >"$LOGDIR/windows-$name.log" 2>&1 \
+        if with_display ${WINE_TIMEOUT:+timeout "$WINE_TIMEOUT"} wine "$exe" >"$LOGDIR/windows-$name.log" 2>&1 \
             && tr -d '\r' <"$LOGDIR/windows-$name.log" | grep -q 'Status: SUCCESS'; then
             passed=$((passed + 1))
         else
@@ -154,6 +178,7 @@ job_android() {
 
 job_sniper() {
     note "sniper"
+    delegate_docker sniper && return
     [ "$HOST" = "Linux" ] || { record sniper SKIP "not a Linux host"; return; }
     if ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
         record sniper SKIP "needs Docker or Podman"; return
