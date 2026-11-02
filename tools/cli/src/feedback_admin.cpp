@@ -1,3 +1,4 @@
+#include "fa/core/engine_version.h"
 #include "feedback_admin.h"
 
 #include <algorithm>
@@ -17,9 +18,6 @@
 #include "fa/core/strings.h"
 #include "fa/tooling/feedback.h"
 
-#ifndef FA_ENGINE_VERSION
-#define FA_ENGINE_VERSION "0.0.0"
-#endif
 
 namespace fa::cli {
 

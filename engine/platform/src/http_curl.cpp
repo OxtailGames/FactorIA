@@ -6,6 +6,7 @@
 // Compiled on every POSIX platform; Linux uses it, macOS exercises it in the tests (its own client is NSURLSession).
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 
+#include "fa/core/engine_version.h"
 #include <dlfcn.h>
 
 #include <algorithm>

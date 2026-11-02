@@ -1,5 +1,6 @@
 // Custom materials (MeshRenderer.material): the factoria.shader/1 twin -> sg_shader_desc (docs/design/CUSTOM_SHADERS.md),
 // and the packing of a material's params.
+#include "fa/core/engine_version.h"
 #include <cmath>
 #include <cstring>
 

@@ -15,6 +15,10 @@ const char* build_fingerprint();
 // Reading the bytes lets a factoria on one OS check the player of another.
 std::string find_build_fingerprint(std::string_view fileBytes);
 
+// The engine version of this build ("0.3.0"). A function so that headers need not include the generated
+// fa/core/engine_version.h: a version bump then recompiles only the files that really use the macro.
+const char* engine_version();
+
 // The engine version (FA_ENGINE_VERSION, "0.3.0") written in the bytes of a program file next to its fingerprint, "" when
 // it has none (a program built before the marker existed). The editor and the MCP server use it to name the release that
 // replaced them on disk.
