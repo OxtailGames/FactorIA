@@ -168,7 +168,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-2022  # the preset uses the "Visual Studio 17 2022" generator; windows-latest now ships VS 2026
-    timeout-minutes: 90  # a build with a cold ccache takes ~45 min, the tests ~25
+    timeout-minutes: 90  # a build with a cold ccache takes 35-45 min
     steps:
       - uses: actions/checkout@v4
 
@@ -182,7 +182,6 @@ jobs:
           mkdir "$RUNNER_TEMP/ccache-cl"
           cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
           { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
-          echo "CCACHE_LOGFILE=$RUNNER_TEMP\ccache.log" >> "$GITHUB_ENV"
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -201,26 +200,10 @@ jobs:
       - name: Build (windows-release)
         run: cmake --build --preset windows-release --parallel
 
-      # What ccache did with each compile: hits, misses and the reasons a call could not be cached.
       - name: ccache statistics
         if: ${{ !cancelled() }}
         shell: bash
-        run: |
-          set +e +o pipefail  # a grep with no match is a result here, not a failure
-          "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --show-stats --verbose
-          log="$RUNNER_TEMP/ccache.log"
-          test -f "$log" || { echo "no ccache log: MSBuild never ran ccache"; exit 0; }
-          echo "--- results"; grep -oE "Result: .*" "$log" | sort | uniq -c | sort -rn | head -20
-          echo "--- failures"; grep -iE "unsupported|failed|cannot|uncacheable|too hard|multiple source" "$log" | sed -E 's/^\[[^]]*\] //' | sort | uniq -c | sort -rn | head -30
-          echo "--- first compile"; grep -m1 -A40 "Command line:" "$log"
-
-      - name: Upload the ccache log
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ccache-log-windows
-          path: ${{ runner.temp }}/ccache.log
-          retention-days: 7
+        run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --show-stats --verbose'
 
       - name: Trim ccache to what this build used (see the linux job)
         shell: bash
