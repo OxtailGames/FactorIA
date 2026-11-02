@@ -122,6 +122,11 @@ check passes and deletes its branch:
   budgets that a loaded 4-vCPU CI VM misses, other compilers (MSVC and GCC warnings, missing includes), the GL and
   D3D11 paths of render code. Run the editor autotest sections and examples the change touches a few times while the
   machine is busy (timing bugs hide on a fast idle machine), and every `scripts/ci-local.sh` job this host supports.
+  `scripts/ci-preflight.sh` does all of it in one command (risk scan of the diff, `test-all.sh`, the stress pass under
+  CPU load, the other platforms; docs/BUILDING.md, "Before a push"): run it before every push and read its SKIP lines.
+  On a Mac it runs the Linux job in Docker (`scripts/setup-docker-macos.sh` once) and the native Windows check on the
+  user's PC over SSH (`scripts/ci-remote-windows.sh`). The PC is often off: never switch it on or wake it; when that
+  step exits 77 because the PC is off or nobody is logged in, ask the user in chat and wait until they say it is ready.
 - Open the PR and turn on auto-merge with a merge commit (no need to ask):
   `gh pr merge <n> --auto --merge`. If CI fails, fix it on the same branch;
   never merge red. A PR that changes `.github/workflows/release.yml` is the
