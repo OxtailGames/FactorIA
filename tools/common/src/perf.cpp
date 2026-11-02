@@ -427,7 +427,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     c.description =
         "Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, "
         "draw calls, entities, triangles, lights and texture memory (the last three only when the baseline has them) past their limit FAIL always. The file's \"budgets\" object ({maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities}) or the `budgets` argument sets absolute caps that fail whatever the baseline says, also on a runner with no baseline. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status \"warn\"), "
-        "because a developer machine can be busy. A time over the limit is measured a second time before it counts. A runner with no entry passes with status \"no_baseline\" and returns "
+        "because a developer machine can be busy. A time over the limit is measured up to twice more (the best time of each metric counts) before it fails. A runner with no entry passes with status \"no_baseline\" and returns "
         "`baselineEntry`: the exact JSON to add under \"runners\" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, "
         "exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {\"file\":\"perf.json\"}.";
     c.inputSchema = Json::parse(R"({"type":"object","properties":{
@@ -487,16 +487,17 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         }
         const PerfSample base = perf_sample_from_json(*entry);
         PerfVerdict v = perf_compare(s, base, tol, strictTime);
-        if (v.status != "pass") {  // a time over the limit may be a busy machine: measure again, keep the better of the two
+        // A time over the limit may be a busy machine (a shared CI VM can run a few times slower for seconds): measure up
+        // to twice more and keep the best time of each metric. A game that got heavier is slow every time and still fails.
+        for (int retry = 0; retry < 2 && v.status != "pass"; ++retry) {
             bool timeOnly = true;
             for (const PerfCheckRow& r : v.rows) timeOnly = timeOnly && (!r.exceeded || r.timing);
-            if (timeOnly) {
-                const PerfSample again = measure(projectDir, spec, 1);
-                s.cpuMsAvg = std::min(s.cpuMsAvg, again.cpuMsAvg);
-                s.cpuMsP95 = std::min(s.cpuMsP95, again.cpuMsP95);
-                s.cpuMsMax = std::min(s.cpuMsMax, again.cpuMsMax);
-                v = perf_compare(s, base, tol, strictTime);
-            }
+            if (!timeOnly) break;
+            const PerfSample again = measure(projectDir, spec, 1);
+            s.cpuMsAvg = std::min(s.cpuMsAvg, again.cpuMsAvg);
+            s.cpuMsP95 = std::min(s.cpuMsP95, again.cpuMsP95);
+            s.cpuMsMax = std::min(s.cpuMsMax, again.cpuMsMax);
+            v = perf_compare(s, base, tol, strictTime);
         }
         // The caps make the verdict fail whatever the baseline allows.
         for (const PerfCheckRow& r : capRows) {
