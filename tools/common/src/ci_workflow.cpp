@@ -1,6 +1,7 @@
 // project.new_ci_workflow: the GitHub Actions workflow of a game project. Behaviour: fa/tooling/ci_workflow.h and docs/EXPORTING.md
 // ("CI for your game"). The workflow text is a fixed template with the version, the repository, the platforms and the working
 // directory filled in; tests/ci_workflow_test.cpp checks its key steps.
+#include "fa/core/engine_version.h"
 #include "fa/tooling/ci_workflow.h"
 
 #include <algorithm>
@@ -16,9 +17,6 @@
 
 #ifndef FA_UPDATE_REPO
 #define FA_UPDATE_REPO ""
-#endif
-#ifndef FA_ENGINE_VERSION
-#define FA_ENGINE_VERSION "0.0.0"
 #endif
 
 namespace fa {

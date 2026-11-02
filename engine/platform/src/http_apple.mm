@@ -4,6 +4,7 @@
 // and refuses redirects to anything but https://.
 #import <Foundation/Foundation.h>
 
+#include "fa/core/engine_version.h"
 #include <algorithm>
 #include <cstring>
 
