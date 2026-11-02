@@ -66,6 +66,7 @@ void Editor::draw_project_panel() {
         pb.stale = false;
         pb.scanned = true;
         pb.recipesLoaded = true;
+        pb.recipesDirty = false;  // scan_project read the recipes too: the watcher must not rescan for the same write
         pb.inputsStamp = recipe_inputs_stamp(projectDir_, pb.listing);
         ++pb.scans;
         const bool known = pb.query.folder.empty() || std::find(pb.listing.folders.begin(), pb.listing.folders.end(), pb.query.folder) !=
