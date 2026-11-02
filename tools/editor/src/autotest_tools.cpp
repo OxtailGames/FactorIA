@@ -373,19 +373,33 @@ public:
         return r;
     }
 };
-// Section E2's reviewer of a share text: every check passes, the text is left as it is.
+// Section E2's reviewer of a share text (the Send feedback window checks the texts it is about to send). It answers by what the text
+// says: "glow" is something the engine already does (the check fails and says how to fix it), "gradient" passes with the text
+// rewritten in engine terms, anything else passes as it is.
 class ShareReviewProvider : public ai::ChatProvider {
 public:
     std::string name() const override { return "mock"; }
-    Result<ai::ChatResponse> chat(const ai::ChatRequest&, const ai::ChatHooks& hooks, const ai::CancelFlag*) override {
+    Result<ai::ChatResponse> chat(const ai::ChatRequest& req, const ai::ChatHooks& hooks, const ai::CancelFlag*) override {
         ai::ChatResponse r;
         r.message.role = ai::Role::Assistant;
         r.message.raw = Json::object();
-        r.message.text =
-            "{\"real\":{\"ok\":true,\"why\":\"The docs list no way to pause particles.\"},"
-            "\"aboutEngine\":{\"ok\":true,\"why\":\"It names an engine feature only.\"},"
-            "\"notPossibleYet\":{\"ok\":true,\"why\":\"No command or component does it.\",\"use\":\"\"},"
-            "\"share\":null,\"fix\":\"\"}";
+        std::string asked = req.messages.empty() ? std::string() : req.messages.back().text;
+        if (const std::size_t at = asked.find("## The share text to check"); at != std::string::npos) asked = asked.substr(at);
+        for (char& c : asked) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        const bool glow = asked.find("glow") != std::string::npos;
+        const bool gradient = asked.find("gradient") != std::string::npos;
+        std::string text = std::string("{\"real\":{\"ok\":") + (glow ? "false" : "true") + ",\"why\":\"" +
+                           (glow ? "The docs already list a bloom effect for lights." : "The docs list no way to do this.") + "\"},"
+                           "\"aboutEngine\":{\"ok\":true,\"why\":\"It names an engine feature only.\"},"
+                           "\"notPossibleYet\":{\"ok\":true,\"why\":\"No command or component does it.\",\"use\":\"\"},";
+        if (gradient)
+            text += "\"share\":{\"title\":\"SpriteRenderer lacks gradient tinting\","
+                    "\"missing\":\"SpriteRenderer only has a flat tint color, so a gradient across one sprite needs a custom material.\","
+                    "\"suggestion\":\"Add a gradient field to SpriteRenderer.\"},";
+        else
+            text += "\"share\":null,";
+        text += std::string("\"fix\":\"") + (glow ? "Use the bloom effect the engine already has." : "") + "\"}";
+        r.message.text = text;
         if (hooks.onText) hooks.onText(r.message.text);
         r.stopReason = ai::StopReason::EndTurn;
         return r;
@@ -4408,21 +4422,23 @@ void Editor::at_build_tools_script() {
     }
 
     section("E2");
-    // Feedback sharing (docs/EDITOR.md, "Feedback sharing"): the consent dialog writes the mode, the review list of the "ask" mode
-    // sends one entry and drops another, the Engine Feedback panel's share column and share boxes (suggest, limits, sanitizer),
-    // Review with AI against a mock model, Feedback Settings (GitHub sign-in with a code on screen, sign-out, reset id, Send now
-    // against a server that is down and then up) and the mode radio buttons. The client talks to the fake server of on_init: no
-    // network, and the settings and the outbox live in the autotest's own folder.
+    // Feedback sharing (docs/EDITOR.md, "Feedback sharing"): the consent dialog (also what Send feedback shows while no mode is
+    // chosen), the Send feedback window (every entry that would go, checked by default, with the exact text; a text without a share
+    // is made from the entry; an AI check of each text against a mock model; uncheck, Send and Cancel), the Add feedback window,
+    // the panel's share column, the closed entries going to the archive, Feedback Settings (GitHub sign-in with a code on screen,
+    // sign-out, reset id, Send now against a server that is down and then up) and the mode radio buttons. The client talks to the
+    // fake server of on_init: no network, and the settings and the outbox live in the autotest's own folder.
     {
         struct EState {
-            std::string path, installBefore;
+            std::string path, installBefore, alwaysId;
             std::optional<ai::AiConfig> savedConfig;
             ImGuiID row = 0, sibling = 0;  // the dock row of the panel made taller for this section, and the one it took from
             float grown = 0;
+            size_t reportsAtCancel = 0;
         };
         auto x = std::make_shared<EState>();
         // The bottom row of the dock gives the panel under 200 px on a small display (the macOS runner's 1024x642), where the
-        // table leaves the share boxes a few pixels: the row grows to 440 px for this section and gets its height back after.
+        // table leaves the detail a few pixels: the row grows to 440 px for this section and gets its height back after.
         auto grow_panel_row = [x](bool grow) {
             if (!grow) {
                 ImGuiDockNode* row = ImGui::DockBuilderGetNode(x->row);
@@ -4458,6 +4474,17 @@ void Editor::at_build_tools_script() {
             std::lock_guard<std::mutex> lock(atShareNet_->mu);
             return atShareNet_->reportBodies.size();
         };
+        auto all_reports = [this] {
+            std::lock_guard<std::mutex> lock(atShareNet_->mu);
+            std::string all;
+            for (const std::string& b : atShareNet_->reportBodies) all += b;
+            return all;
+        };
+        auto send_row = [this](const std::string& id) -> const ShareUi::SendRowUi* {
+            for (const ShareUi::SendRowUi& r : share_.sendRows)
+                if (r.row.id == id) return &r;
+            return nullptr;
+        };
         auto add_entry = [x](const std::string& title, const std::string& missing, const Json& share) {
             FeedbackInput in;
             in.category = feedback_categories().front();
@@ -4467,7 +4494,8 @@ void Editor::at_build_tools_script() {
             in.workaround = "Edited the scene file by hand.";
             in.reporter = Json::object({{"kind", "human"}, {"agent", "factoria-editor"}});
             in.share = share;
-            (void)add_feedback_entry_to_file(x->path, in, "Autotest Platformer");
+            auto r = add_feedback_entry_to_file(x->path, in, "Autotest Platformer");
+            return r ? r->id : std::string();
         };
         auto wait_until = [this, &step](std::function<bool()> cond) {
             step(1, [this, cond] {
@@ -4492,13 +4520,17 @@ void Editor::at_build_tools_script() {
             }
             atShareNet_->authorize = false;
             atShareNet_->failReports = false;
+            // No AI model for the first part: the Send window shows its texts as they are. (A dev machine's own key or CLI is never used.)
+            aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
+                return make_error("The autotest has no AI model for the share check.", "Section E2 gives it one later.");
+            };
             ShareUi& s = share_;
-            s.consentOpen = s.consentLater = s.settingsOpen = s.reviewOpen = false;
+            s.consentOpen = s.consentLater = s.settingsOpen = s.sendOpen = false;
+            s.sendLive = 0;
+            s.sendAfterConsent = false;
+            s.sendRows.clear();
             s.waiting.clear();
             s.notified.clear();
-            s.editId.clear();
-            s.newShare = ShareFields{};
-            s.reviewShown = Json();
             s.mode = ShareMode::Unset;
             s.docFile.clear();
             s.docStamp = INT64_MIN;
@@ -4522,13 +4554,13 @@ void Editor::at_build_tools_script() {
         step(2, [grow_panel_row] { grow_panel_row(true); });
         // ---- the consent dialog
         wait_until([this] { return share_.consentOpen; });
-        step(3, [this, x] {
+        step(3, [this] {
             at_check(at_visible("share:consent:always") && at_visible("share:consent:ask") && at_visible("share:consent:never") &&
                          at_visible("share:consent:later"),
                      "a project with feedback entries and no answer asks: Always, Ask me each time, Never and Decide later");
-            at_check(share_.consentEntries == 2 && share_.consentPreview.find("No one-way platforms") != std::string::npos &&
+            at_check(share_.consentEntries == 3 && share_.consentPreview.find("No one-way platforms") != std::string::npos &&
                          share_.consentPreview.find("Pause cannot stop particles") != std::string::npos,
-                     "the dialog previews the next report: the two share texts");
+                     "the dialog previews the next report: the texts of the three entries (the third one made from the entry)");
             at_check(share_.consentPreview.find("SecretLevelName") == std::string::npos &&
                          share_.consentPreview.find("Edited the scene") == std::string::npos &&
                          share_.consentPreview.find("Autotest Platformer") == std::string::npos,
@@ -4536,135 +4568,207 @@ void Editor::at_build_tools_script() {
             at_check(load_share_settings(share_env()).mode == ShareMode::Unset, "nothing is chosen until a click");
             std::lock_guard<std::mutex> lock(atShareNet_->mu);
             at_check(atShareNet_->urls.empty(), "the dialog sends nothing");
-            (void)x;
         });
         snap("editor_share_consent.png");
+        click("share:consent:later");
+        step(3, [this] {
+            at_check(!share_.consentOpen && load_share_settings(share_env()).mode == ShareMode::Unset, "Decide later closes the dialog and chooses nothing");
+        });
+        // ---- Send feedback while no mode is chosen: the dialog first, then the window
+        wait_until([this] { return at_enabled("feedback:send") && at_visible("feedback:table"); });
+        step(2, [this] {
+            at_check(at_visible("feedback:add") && at_visible("feedback:row:FB-0001") && at_visible("feedback:row:FB-0002") &&
+                         at_visible("feedback:row:FB-0003") && at_visible("feedback:share:FB-0003"),
+                     "the panel has Add feedback and Send feedback, and its table shows every entry with its share column");
+            at_check(!at_visible("feedback:share:suggest") && !at_visible("feedback:settings") && !at_visible("feedback:archive"),
+                     "...and no share editor, Sharing... or Archive closed button");
+        });
+        click("feedback:send");
+        step(3, [this] { at_check(share_.consentOpen && share_.sendAfterConsent && !share_.sendOpen, "Send feedback with no mode chosen asks first"); });
         click("share:consent:ask");
-        step(3, [this] {
-            at_check(load_share_settings(share_env()).mode == ShareMode::Ask && !share_.consentOpen, "Ask me each time writes the mode and closes the dialog");
+        wait_until([this] { return share_.sendOpen && at_visible("send:check:FB-0001"); });
+        // ---- the Send feedback window
+        step(3, [this, send_row, reports] {
+            at_check(load_share_settings(share_env()).mode == ShareMode::Ask && !share_.consentOpen,
+                     "Ask me each time writes the mode and the Send window opens");
+            at_check(at_visible("send:check:FB-0002") && at_visible("send:check:FB-0003") && at_visible("send:ok") && at_visible("send:cancel"),
+                     "the window lists the three open entries, each with a checkbox, and Send and Cancel");
+            bool allChecked = true;
+            for (const char* id : {"FB-0001", "FB-0002", "FB-0003"}) allChecked = allChecked && send_row(id) && send_row(id)->checked;
+            at_check(allChecked, "all of them are checked by default");
+            const ShareUi::SendRowUi* three = send_row("FB-0003");
+            at_check(three && three->row.madeHere && three->row.fields.title.find("Autotest Platformer") == std::string::npos &&
+                         !three->row.fields.title.empty() && at_visible("send:text:FB-0003"),
+                     "FB-0003 has no share text: its row shows the text made from the entry, with the project's name taken out");
+            at_check(!at_visible("send:reviewing:FB-0001") && !at_visible("send:review:FB-0001") && share_.sendAiAvailable == false,
+                     "with no AI set up the texts are shown as they are, without a word about it");
+            at_check(reports() == 0, "opening the window sends nothing");
         });
-        // ---- ask mode: the review list
-        wait_until([this] { return share_.waiting.size() == 2 && at_visible("share:notify"); });
-        step(2, [this, entry_of, reports] {
-            at_check(share_column(entry_of("FB-0001")).label == "waiting" && share_column(entry_of("FB-0002")).label == "waiting",
-                     "the entries with a share text wait in ask mode");
-            at_check(share_column(entry_of("FB-0003")).label == "-", "an entry without a share text is not shared");
-            at_check(reports() == 0, "ask mode sends nothing before the answer");
+        snap("editor_share_send.png");
+        click("send:check:FB-0001");
+        step(3, [this, send_row, shared_of, entry_of] {
+            at_check(send_row("FB-0001") && !send_row("FB-0001")->checked && send_row("FB-0002")->checked, "the checkbox unchecks one entry");
+            at_check(shared_of("FB-0001") != "skipped" && !entry_of("FB-0003").contains("share"), "...and changes nothing in the file yet");
         });
-        click("share:notify");
-        step(3, [this] {
-            at_check(share_.reviewOpen && at_visible("share:review:send:FB-0001") && at_visible("share:review:drop:FB-0001") &&
-                         at_visible("share:review:send:FB-0002") && at_visible("share:review:sendall") && at_visible("share:review:dropall"),
-                     "the notification opens the review list: Send and Don't send for each entry, and for all");
-        });
-        snap("editor_share_review.png");
-        click("share:review:drop:FB-0001");
-        step(3, [this, shared_of, reports] {
-            at_check(shared_of("FB-0001") == "skipped" && reports() == 0, "Don't send marks the entry skipped and sends nothing");
-        });
-        click("share:review:send:FB-0002");
-        wait_until([shared_of] { return shared_of("FB-0002") == "sent"; });
-        step(3, [this, entry_of, reports] {
-            at_check(reports() == 1, "Send sends the confirmed entry in one request");
-            std::lock_guard<std::mutex> lock(atShareNet_->mu);
-            const std::string body = atShareNet_->reportBodies.empty() ? std::string() : atShareNet_->reportBodies[0];
-            at_check(body.find("Pause cannot stop particles") != std::string::npos && body.find("FB-0002") != std::string::npos,
-                     "the report carries the share text of FB-0002");
-            at_check(body.find("FB-0001") == std::string::npos && body.find("SecretLevelName") == std::string::npos &&
-                         body.find("Edited the scene") == std::string::npos && body.find("Autotest Platformer") == std::string::npos,
-                     "...and nothing of the dropped entry, the entries' own text or the project's name");
+        click("send:ok");
+        wait_until([shared_of] { return shared_of("FB-0002") == "sent" && shared_of("FB-0003") == "sent"; });
+        step(3, [this, entry_of, shared_of, reports, all_reports, send_row] {
+            const std::string body = all_reports();
+            at_check(reports() >= 1 && body.find("Pause cannot stop particles") != std::string::npos && body.find("FB-0002") != std::string::npos &&
+                         body.find("FB-0003") != std::string::npos,
+                     "Send sends the checked entries");
+            at_check(body.find("FB-0001") == std::string::npos && body.find("No one-way platforms") == std::string::npos &&
+                         body.find("SecretLevelName") == std::string::npos && body.find("Edited the scene") == std::string::npos &&
+                         body.find("Autotest Platformer") == std::string::npos,
+                     "...and nothing of the unchecked one, the entries' own text or the project's name");
+            at_check(shared_of("FB-0001") == "skipped", "the unchecked entry is marked skipped");
+            const Json three = entry_of("FB-0003");
+            at_check(three.contains("share") && three["share"].value("title", std::string()) == (send_row("FB-0003") ? send_row("FB-0003")->row.fields.title : std::string("?")),
+                     "the text made for FB-0003 was stored in its entry when it was sent (" + three.value("share", Json::object()).dump() + ")");
             at_check(load_share_settings(share_env()).mode == ShareMode::Ask, "sending changed no setting");
-            at_check(share_column(entry_of("FB-0001")).label == "skipped" && share_column(entry_of("FB-0002")).label == "sent",
-                     "the share column reads skipped and sent");
-            share_.reviewOpen = false;  // out of the way of the panel
-            fbSelected_ = "FB-0003";
-            focus_window("Engine Feedback");
+            at_check(at_visible("send:result:FB-0002") && at_visible("send:result:FB-0003") && at_visible("send:close") && !at_visible("send:ok"),
+                     "each sent row says what happened, and the window offers Close");
+            at_check(share_column(entry_of("FB-0001")).label == "skipped" && share_column(entry_of("FB-0002")).label == "sent" &&
+                         share_column(entry_of("FB-0003")).label == "sent",
+                     "the share column reads skipped, sent and sent");
         });
-        // ---- the panel: the share column and the share boxes
-        wait_until([this] { return at_visible("feedback:share:FB-0001") && at_visible("feedback:share:FB-0002") && at_visible("feedback:share:suggest"); });
-        step(2, [this] { at_check(at_visible("feedback:share:FB-0003"), "the table has a share column for every entry"); });
-        // the boxes are in the scrolling detail of the panel: the wheel goes over it
-        auto detail_at = [this] {
-            auto it = atWidgets_.find("feedback:detail");
-            return it == atWidgets_.end() ? Vec2{500, 300} : it->second;
-        };
-        auto scroll_detail_to = [&scroll_until_at, detail_at](const std::string& name) {
-            scroll_until_at([name] { return name; }, -6, detail_at, 100000, -1e9f);
-        };
-        scroll_detail_to("feedback:share:suggest");
-        click("feedback:share:suggest");
+        click("send:close");
+        step(3, [this] { at_check(!share_.sendOpen && !at_visible("send:close"), "Close closes the window"); });
+        // ---- Add feedback: Cancel saves nothing, Add checks the form and adds the entry
+        click("feedback:add");
         step(3, [this] {
-            at_check(!share_.edit.title.empty() && share_.edit.title.find("Autotest Platformer") == std::string::npos &&
-                         share_.edit.missing.find("Autotest Platformer") == std::string::npos && !share_.editMessage.empty(),
-                     "Suggest fills the boxes from the entry with the project's name taken out (" + share_.editMessage + ")");
-            share_.edit.title = "short";  // under the 8 characters of the limit
+            at_check(share_.sendOpen == false && fbAddOpen_ && at_visible("add:category") && at_visible("add:severity") && at_visible("add:title") &&
+                         at_visible("add:missing") && at_visible("add:workaround") && at_visible("add:suggestion") && at_visible("add:ok") &&
+                         at_visible("add:cancel"),
+                     "Add feedback opens a window with category, severity, title, what is missing, workaround, suggestion, Add and Cancel");
+            at_check(!at_visible("add:share") && !at_visible("add:share:title"), "...and no share boxes");
+            fbNewTitle_ = "This one is cancelled";
+            fbNewMissing_ = "Typed and then cancelled.";
         });
-        scroll_detail_to("feedback:share:save");
-        click("feedback:share:save");
+        snap("editor_feedback_add.png");
+        click("add:cancel");
         step(3, [this, entry_of] {
-            at_check(share_.editMessage.find("share.title is too short") == 0 && !entry_of("FB-0003").contains("share"),
-                     "Save checks the limits: a title under 8 characters is not stored (" + share_.editMessage + ")");
-            share_.edit.title = "Autotest Platformer lacks a screen shake helper";  // the sanitizer takes the name out again
+            at_check(!fbAddOpen_ && !at_visible("add:ok") && fbNewTitle_.empty() && fbNewMissing_.empty(), "Cancel closes the window and forgets the form");
+            at_check(!entry_of("FB-0004").is_object() || entry_of("FB-0004").empty(), "...and saved nothing");
         });
-        scroll_detail_to("feedback:share:save");
-        click("feedback:share:save");
-        wait_until([shared_of] { return shared_of("FB-0003") == "pending"; });
+        click("feedback:add");
+        wait_until([this] { return at_visible("add:ok"); });
+        click("add:ok");
+        step(3, [this] {
+            at_check(fbAddOpen_ && at_visible("add:message") && fbMessage_.find("Fill in the title") == 0, "Add with an empty form says what is lacking (" + fbMessage_ + ")");
+            fbNewTitle_ = "Sprites cannot be tinted by a gradient";
+            fbNewMissing_ = "SpriteRenderer only has a flat tint color, so a gradient across one sprite needs a custom material.";
+            fbNewWorkaround_ = "Split the sprite in strips and tint each one.";
+        });
+        click("add:ok");
         step(3, [this, entry_of] {
-            const Json e = entry_of("FB-0003");
-            at_check(e.contains("share") && e["share"].value("title", std::string()).find("Autotest Platformer") == std::string::npos &&
-                         !e["share"].value("title", std::string()).empty(),
-                     "Save sanitizes again: the stored title has no project name (" + e.value("share", Json::object()).dump() + ")");
-            at_check(share_.editMessage.find("The sanitizer took out") != std::string::npos, "...and says what it took out (" + share_.editMessage + ")");
-            at_check(share_column(e).label == "waiting" && !e.value("reviewed", false), "the saved text waits for the answer, not yet reviewed");
+            const Json e = entry_of("FB-0004");
+            at_check(!fbAddOpen_ && e.value("title", std::string()) == "Sprites cannot be tinted by a gradient" && !e.contains("share") &&
+                         e.value("status", std::string()) == "open",
+                     "Add stores the entry, closes the window and writes no share text");
+            at_check(fbSelected_ == "FB-0004", "...and selects the new entry");
+            at_check(!entry_of("FB-0005").is_object() || entry_of("FB-0005").empty(), "the cancelled one is not there");
         });
-        // ---- Review with AI
-        step(2, [this, x] {
+        // ---- the AI checks the texts: a pass with a rewrite, a fail that unchecks the row, a text that cannot be made
+        step(2, [this, x, add_entry] {
             aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
                 return std::shared_ptr<ai::ChatProvider>(std::make_shared<ShareReviewProvider>());
             };
-            std::lock_guard<std::mutex> lock(aiMu_);
-            x->savedConfig = aiConfig_;
-            if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
-            for (const char* role : {ai::kRoleOrchestrator, ai::kRoleFast}) {
-                ai::RoleConfig& rc = aiConfig_.roles[role];
-                rc.provider = "anthropic";
-                rc.model = "mock";
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                x->savedConfig = aiConfig_;
+                if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+                for (const char* role : {ai::kRoleOrchestrator, ai::kRoleFast}) {
+                    ai::RoleConfig& rc = aiConfig_.roles[role];
+                    rc.provider = "anthropic";
+                    rc.model = "mock";
+                }
             }
+            // an AI agent's report: it wrote a share text, which the AI check will refuse (the engine already does it)
+            add_entry("Lights cannot glow through walls", "A lantern behind a wall shows no light on this side.",
+                      Json::object({{"title", "Lights cannot glow through walls"},
+                                    {"missing", "There is no option to let a lantern light glow past the colliders of a wall."}}));
+            // a report with so little text that no share text can be made from it
+            add_entry("Odd thing", "Odd one", Json());
         });
-        scroll_detail_to("feedback:share:review");
-        click("feedback:share:review");
-        wait_until([this] { return !share_.aiRunning && share_.reviewShown.is_object() && at_visible("feedback:share:review-result"); });
-        step(3, [this, entry_of, reports] {
-            at_check(share_.reviewShown.is_object() && share_.reviewShown.value("pass", false) && entry_of("FB-0003").value("reviewed", false),
-                     "Review with AI passes the text and marks the entry reviewed (" + share_.reviewShown.dump() + ")");
-            at_check(at_visible("feedback:share:review-result"), "the panel shows the result of the review");
-            at_check(load_share_settings(share_env()).mode == ShareMode::Ask && reports() == 1, "the review changed no setting and sent nothing");
-            aiFactory_ = nullptr;
+        wait_until([this] { return at_visible("share:notify"); });
+        click("share:notify");
+        wait_until([this] { return share_.sendOpen && at_visible("send:check:FB-0004") && at_visible("send:check:FB-0001"); });
+        wait_until([this] { return !share_.aiRunning && at_visible("send:review:FB-0004") && at_visible("send:review:FB-0005"); });
+        step(3, [this, send_row] {
+            const ShareUi::SendRowUi* gradient = send_row("FB-0004");
+            const ShareUi::SendRowUi* glow = send_row("FB-0005");
+            at_check(gradient && gradient->checked && gradient->rewritten && gradient->row.fields.title == "SpriteRenderer lacks gradient tinting" &&
+                         gradient->reviewNote.find("rewritten") != std::string::npos,
+                     "an AI check that passes with a rewrite replaces the text of the row" + (gradient ? " (" + gradient->reviewNote + ")" : std::string()));
+            at_check(glow && !glow->checked && glow->review == ShareUi::SendReview::Failed && glow->reviewNote.find("bloom") != std::string::npos,
+                     "an AI check that fails unchecks the row and shows why" + (glow ? " (" + glow->reviewNote + ")" : std::string()));
+            const ShareUi::SendRowUi* one = send_row("FB-0001");
+            at_check(one && !one->checked && one->row.leftOut && at_visible("send:text:FB-0001"),
+                     "an entry left out last time is listed again, unchecked, and was not sent to the AI check");
+            const ShareUi::SendRowUi* odd = send_row("FB-0006");
+            at_check(odd && !odd->row.canSend && !odd->checked && at_visible("send:problem:FB-0006") && !at_enabled("send:check:FB-0006") &&
+                         !send_row("FB-0002") && !send_row("FB-0003"),
+                     "a text that cannot be made is unchecked and disabled with the reason; sent entries are not listed");
         });
+        snap("editor_share_send_ai.png");
+        click("send:ok");
+        wait_until([shared_of] { return shared_of("FB-0004") == "sent"; });
+        step(3, [this, entry_of, shared_of, all_reports] {
+            const Json e = entry_of("FB-0004");
+            at_check(e.contains("share") && e["share"].value("title", std::string()) == "SpriteRenderer lacks gradient tinting" && e.value("reviewed", false),
+                     "Send stores the checked AI-rewritten text and marks it reviewed (" + e.value("share", Json::object()).dump() + ")");
+            at_check(shared_of("FB-0005") == "skipped" && shared_of("FB-0001") == "skipped" && shared_of("FB-0006").empty(),
+                     "the refused and the left-out rows are skipped; the one that could not be made is untouched");
+            const std::string body = all_reports();
+            at_check(body.find("SpriteRenderer lacks gradient tinting") != std::string::npos && body.find("glow") == std::string::npos,
+                     "the report carries the rewritten text and not the refused one");
+        });
+        click("send:close");
+        // ---- Cancel changes nothing
+        step(2, [x, reports] { x->reportsAtCancel = reports(); });
+        wait_until([this] { return at_enabled("feedback:send"); });
+        click("feedback:send");
+        wait_until([this] { return share_.sendOpen && at_visible("send:cancel"); });
+        step(3, [this, send_row] {
+            at_check(send_row("FB-0001") && send_row("FB-0005") && !send_row("FB-0004") && !send_row("FB-0001")->checked && !send_row("FB-0005")->checked,
+                     "the entries that were left out are offered again, unchecked; the sent one is not");
+        });
+        click("send:cancel");
+        step(3, [this, x, shared_of, reports] {
+            at_check(!share_.sendOpen && reports() == x->reportsAtCancel && shared_of("FB-0001") == "skipped" && shared_of("FB-0005") == "skipped" &&
+                         shared_of("FB-0006").empty(),
+                     "Cancel sends nothing and changes nothing");
+        });
+        // ---- an entry that is not open goes to the archive by itself
         step(2, [this, x] {
+            auto r = update_feedback_file(x->path, "FB-0006", "wont-fix", "");
+            at_check(r.ok(), "FB-0006 is marked wont-fix");
+        });
+        wait_until([this, entry_of] {
+            return !entry_of("FB-0006").contains("id") && stdfs::exists(projectDir_ + "/ENGINE_FEEDBACK.archive.json") && !at_visible("feedback:row:FB-0006");
+        });
+        step(3, [this, x] {
+            auto archive = load_feedback(projectDir_ + "/ENGINE_FEEDBACK.archive.json");
+            bool found = false;
+            if (archive && archive->contains("entries"))
+                for (const Json& e : (*archive)["entries"]) found = found || e.value("id", std::string()) == "FB-0006";
+            at_check(found && !at_visible("feedback:row:FB-0006"), "a closed entry is moved to the archive file, and the panel no longer lists it");
+            aiFactory_ = nullptr;
             std::lock_guard<std::mutex> lock(aiMu_);
             if (x->savedConfig) aiConfig_ = std::move(*x->savedConfig);
             x->savedConfig.reset();
         });
-        // "Don't send any" from the list that FB-0003 puts up again
-        wait_until([this] { return at_visible("share:notify"); });
-        click("share:notify");
-        step(3, [this] { at_check(share_.reviewOpen && at_visible("share:review:dropall"), "a new waiting entry notifies again"); });
-        click("share:review:dropall");
-        step(3, [this, shared_of] {
-            at_check(shared_of("FB-0003") == "skipped" && share_.waiting.empty(), "Don't send any drops everything that waits");
-            share_.reviewOpen = false;
-            focus_window("Engine Feedback");
-        });
         // ---- Feedback Settings: GitHub sign-in
-        wait_until([this] { return at_visible("feedback:settings"); });
-        click("feedback:settings");
+        step(2, [this] {
+            open_share_settings();
+        });
+        wait_until([this] { return at_visible("share:settings:signin"); });
         step(3, [this] {
             at_check(share_.settingsOpen && at_visible("share:settings:mode:always") && at_visible("share:settings:mode:ask") &&
                          at_visible("share:settings:mode:never") && at_visible("share:settings:installid"),
-                     "Sharing... opens Feedback Settings with the three modes and the installation id");
+                     "Feedback Settings has the three modes and the installation id");
         });
-        wait_until([this] { return at_visible("share:settings:signin"); });
         click("share:settings:signin");
         wait_until([this] {
             std::lock_guard<std::mutex> lock(share_.mu);
@@ -4708,11 +4812,11 @@ void Editor::at_build_tools_script() {
             at_check(is_uuid_v4(now) && now != x->installBefore, "Reset id makes a new installation id");
         });
         // ---- Always, a server that is down, Send now
-        step(2, [this, add_entry] {
+        step(2, [this, x, add_entry] {
             atShareNet_->failReports = true;
-            add_entry("Sprites cannot be tinted by a gradient", "SpriteRenderer only has a flat tint, so a gradient needs a custom material.",
-                      Json::object({{"title", "Sprites cannot be tinted by a gradient"},
-                                    {"missing", "SpriteRenderer only has a flat tint color, so a gradient across one sprite needs a custom material."}}));
+            x->alwaysId = add_entry("Tilemaps cannot flip a single tile", "Tilemap has no per-tile flip flag, so a mirrored tile needs a second tileset image.",
+                                    Json::object({{"title", "Tilemaps cannot flip a single tile"},
+                                                  {"missing", "Tilemap has no per-tile flip flag, so a mirrored tile needs a second tileset image."}}));
         });
         click("share:settings:mode:always");
         step(3, [this] { at_check(load_share_settings(share_env()).mode == ShareMode::Always, "the Always radio button writes the mode"); });
@@ -4720,17 +4824,19 @@ void Editor::at_build_tools_script() {
             const Json st = share_status(share_env());
             return st["outbox"]["failed"].size() == 1 && at_enabled("share:settings:sendnow");
         });
-        step(3, [this, shared_of] {
-            at_check(shared_of("FB-0004") == "pending" && at_visible("share:settings:outbox"), "a server that is down leaves the entry in the outbox, which the window shows");
+        step(3, [this, x, shared_of] {
+            at_check(shared_of(x->alwaysId) == "pending" && at_visible("share:settings:outbox"), "a server that is down leaves the entry in the outbox, which the window shows");
             atShareNet_->failReports = false;
         });
         click("share:settings:sendnow");
-        wait_until([shared_of] { return shared_of("FB-0004") == "sent"; });
-        step(3, [this, reports] { at_check(reports() == 2 || reports() == 3, "Send now sent what was waiting once the server answered"); });
+        wait_until([x, shared_of] { return shared_of(x->alwaysId) == "sent"; });
+        step(3, [this, reports] { at_check(reports() >= 3, "Send now sent what was waiting once the server answered"); });
         click("share:settings:mode:never");
         step(3, [this, grow_panel_row] {
             at_check(load_share_settings(share_env()).mode == ShareMode::Never && load_outbox(share_env()).items.empty(),
                      "the Never radio button writes the mode and the outbox is empty");
+            at_check(at_visible("feedback:send") && at_enabled("feedback:add") && !at_enabled("feedback:send"),
+                     "with sharing off, Send feedback is disabled and Add feedback is not");
             share_.settingsOpen = false;
             grow_panel_row(false);
         });

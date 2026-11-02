@@ -69,8 +69,8 @@ file, so an interruption can leave an entry in both files but never loses one. B
 - `feedback.update` also finds archived entries; setting one to `open` moves it back.
 - `feedback.list` shows the open file only; `includeArchive: true` (CLI `feedback list --archive`) adds the archived
   entries, marked `archived: true`, and the result has `archivedCount`.
-- The editor's Engine Feedback panel lists the open file; "Archive closed" moves the
-  closed ones right away.
+- The editor's Engine Feedback panel lists the open file. It moves an entry that is not open to the archive on its own, as
+  soon as it sees it (when the project opens and when you change the status in the panel); there is no button for it.
 - `feedback collect` reads the archive next to each file, so its output is the same before and after archiving
   (closed entries still count only with `--include-closed`).
 
@@ -95,7 +95,8 @@ the docs that the gap is real and about the engine, not a mistake in the game.
  "reviewed": true}
 ```
 
-`feedback.report` and `factoria feedback add` take `share` and `reviewed` (CLI: `--share-title`, `--share-missing`,
+An AI that reports a gap should always include `share`: it knows the engine's names, and the person then sends what the AI wrote
+(the editor only makes a text from the entry when there is none). `feedback.report` and `factoria feedback add` take `share` and `reviewed` (CLI: `--share-title`, `--share-missing`,
 `--share-suggestion`, `--share-workaround`, `--reviewed`). A `share` that is malformed or outside the limits is not stored;
 the answer says why and the entry is recorded anyway. Reporting the same gap again keeps the longer `share`.
 
@@ -128,10 +129,21 @@ Settings; docs/EDITOR.md, "Sharing feedback") or in your terminal:
 | `factoria feedback sharing` | Shows the mode, the server, whether you are signed in and the outbox. |
 
 In the editor the three choices are **Always**, **Ask me each time** and **Never**, with a preview of the next report exactly as
-it would leave the computer. In ask mode the editor notifies you when entries wait and opens a list that shows each share text as
-it will be sent, with Send and Don't send per entry and for all. The Engine Feedback panel shows a share column (not shared,
-waiting, sent, rejected with its reason, skipped) and lets you edit the share text: saving checks the limits and runs the
-sanitizer again.
+it would leave the computer.
+
+In the editor you never write a share text. The Engine Feedback panel has two buttons. **Add feedback** opens a form
+(category, severity, title, what is missing, workaround, suggestion) that only records the entry. **Send feedback** opens a
+window that lists every entry that would go (open, not sent yet, not refused by the server), all checked, each with the exact
+text that leaves the computer: the entry's `share` when it has one, otherwise a text the editor makes from the entry's title,
+what is missing and suggestion with the sanitizer's cuts applied (an entry too short to make a text from is listed unchecked
+with the reason). **Send** stores that text in the entry, queues the checked entries and sends them at once; what you uncheck is
+marked `skipped` and offered again, unchecked, the next time. **Cancel** changes nothing. When an AI model is set up, each text
+that was not reviewed is checked in the background while the window is open (see Review with AI): a pass can replace the text
+with the engine-terms rewrite, a fail unchecks the row and says why; with no model the texts are shown as they are. In Always
+mode an entry that already has a `share` still goes out as it is written; the entries without one wait for Send feedback.
+In Ask mode the editor notifies you when entries with a `share` wait and the notification opens the same window. The panel's
+table has a share column (not sent, waiting, sent, rejected with its reason, skipped). With sharing set to Never the Send
+feedback button is disabled.
 
 No command an AI can call changes the mode (`feedback.share_status` only reads it). While it is unset, `feedback.report`
 answers `share.status: "not_set_up"` with how the user turns sharing on, and nothing is queued or written. The setting
@@ -150,7 +162,8 @@ waiting times.
 
 ### Review with AI
 
-`ai.review_feedback {id}` (editor: **Review with AI** in the Engine Feedback panel) has a cheap model check a `share` text
+`ai.review_feedback {id}` (the editor runs it for you on every text in the Send feedback window; `share` optionally passes a
+candidate text to check instead of the stored one, and then nothing is written) has a cheap model check a `share` text
 before it can leave the machine: the gap is real, it is about the engine and not about the game, and the engine cannot do it
 already (it reads the command list and the documentation). The text also goes through the sanitizer. On a pass the entry is
 marked `reviewed: true` and `share` is rewritten in engine terms if it needed it; on a fail nothing changes and the answer has

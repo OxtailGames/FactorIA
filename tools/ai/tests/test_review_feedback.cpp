@@ -103,6 +103,41 @@ TEST_CASE("ai.review_feedback: a rewrite of share is stored when the model gives
     CHECK(e["title"] == "Knight cannot jump through ledges");
 }
 
+TEST_CASE("ai.review_feedback: a given share text is reviewed instead of the saved one and nothing is written") {
+    Fixture f;  // FB-0002 has no share
+    const Json candidate = Json::parse(kGoodShare);
+    f.provider->script = {text_response(kAllOk)};
+    auto r = f.registry.call("ai.review_feedback", Json::object({{"id", "FB-0002"}, {"share", candidate}}));
+    REQUIRE(r.ok);
+    CHECK(r.result["pass"] == true);
+    CHECK(r.result["stored"] == false);
+    CHECK(r.result["share"] == candidate);
+    CHECK_FALSE(f.entry("FB-0002").contains("share"));
+    CHECK_FALSE(f.entry("FB-0002").contains("reviewed"));
+    REQUIRE(f.provider->requests.size() == 1);
+    CHECK(f.provider->requests[0].messages[0].text.find("No one-way platforms") != std::string::npos);
+
+    // A rewrite comes back in `share`, still unstored; a fail stores nothing either.
+    f.provider->calls = 0;
+    f.provider->script = {text_response(
+        R"({"real":{"ok":true},"aboutEngine":{"ok":true},"notPossibleYet":{"ok":true},)"
+        R"("share":{"title":"Collider2D has no one-way option","missing":"Collider2D has no oneWay option, so a body cannot pass up through a platform."},"fix":""})")};
+    r = f.registry.call("ai.review_feedback", Json::object({{"id", "FB-0001"}, {"share", candidate}}));
+    REQUIRE(r.ok);
+    CHECK(r.result["rewritten"] == true);
+    CHECK(r.result["share"]["title"] == "Collider2D has no one-way option");
+    CHECK(f.entry()["share"] == candidate);  // the saved text of FB-0001 is untouched
+    CHECK_FALSE(f.entry().contains("reviewed"));
+
+    f.provider->calls = 0;
+    f.provider->script = {text_response(R"({"real":{"ok":false,"why":"The docs list it."},"aboutEngine":{"ok":true},"notPossibleYet":{"ok":true}})")};
+    r = f.registry.call("ai.review_feedback", Json::object({{"id", "FB-0002"}, {"share", candidate}}));
+    REQUIRE(r.ok);
+    CHECK(r.result["pass"] == false);
+    CHECK(r.result["stored"] == false);
+    CHECK_FALSE(f.entry("FB-0002").contains("share"));
+}
+
 TEST_CASE("ai.review_feedback: a failed check explains why and suggests a fix, and changes nothing") {
     Fixture f;
     f.provider->script = {text_response(

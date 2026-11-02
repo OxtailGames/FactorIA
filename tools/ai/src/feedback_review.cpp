@@ -113,7 +113,7 @@ Json check_json(bool ok, const std::string& why) { return Json::object({{"ok", o
 }  // namespace
 
 Json review_feedback_entry(CommandRegistry& registry, const AiConfig& cfg, const AiCommandOptions& options,
-                           const std::string& projectDir, const std::string& id) {
+                           const std::string& projectDir, const std::string& id, const Json& candidateShare) {
     const std::string path = feedback_file_for_project(projectDir);
     auto loaded = load_feedback(path);
     if (!loaded.ok()) throw CommandError("not_found", loaded.error().message, loaded.error().hint);
@@ -126,11 +126,14 @@ Json review_feedback_entry(CommandRegistry& registry, const AiConfig& cfg, const
     if (!entry)
         throw CommandError("not_found", "No feedback entry '" + id + "' in " + path + ". " + did_you_mean(id, ids),
                            "List the entries with feedback.list.");
-    const Json* shareJson = child(*entry, "share");
+    // A candidate text (the editor's Send feedback window reviews the text it will send before anything is stored) replaces the
+    // saved one and nothing is written back: the caller stores what it sends.
+    const bool candidate = candidateShare.is_object();
+    const Json* shareJson = candidate ? &candidateShare : child(*entry, "share");
     if (!shareJson || !shareJson->is_object())
         throw CommandError("no_share", "Entry " + id + " has no `share` text, so there is nothing to review.",
-                           "Write it first: feedback.report with `share` (engine terms only), or the Share field of the Engine "
-                           "Feedback panel. An entry without `share` is never sent.");
+                           "Write it first: feedback.report with `share` (engine terms only), or pass the text to review as `share`. "
+                           "An entry without `share` is never sent.");
     const Json share = *shareJson;
 
     // The deterministic part: what the sanitizer would send. A text it refuses is a failed review whatever the model says.
@@ -226,6 +229,16 @@ Json review_feedback_entry(CommandRegistry& registry, const AiConfig& cfg, const
                                 : "Do not share this entry: remove its `share` (the panel's Not shared, or feedback.report without it).";
         out["fix"] = fix;
         out["message"] = "The share text of " + id + " did not pass; it was not changed and stays unreviewed.";
+        if (candidate) out["stored"] = false;
+        return out;
+    }
+
+    if (candidate) {  // nothing is stored: the verdict and the text to use are the answer
+        out["rewritten"] = rewritten;
+        out["share"] = finalShare;
+        out["stored"] = false;
+        out["message"] = rewritten ? "Passed. The text was rewritten in engine terms; nothing was stored."
+                                   : "Passed. The text is fine as it is; nothing was stored.";
         return out;
     }
 
