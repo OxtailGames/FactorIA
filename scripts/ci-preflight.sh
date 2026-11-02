@@ -9,8 +9,9 @@
 #   3. stress      the editor autotests and example tests the diff touches, repeated (ctest --repeat until-fail:N) while
 #                  CPU burners keep every core busy, like a loaded CI VM. Needs the build dirs of step 2.
 #   4. platforms   scripts/ci-local.sh jobs this host supports (Mac: macos ios web android; Linux: linux windows android
-#                  web; they skip themselves when tooling is missing), then scripts/ci-docker.sh linux windows and
-#                  scripts/ci-remote-windows.sh when they exist (exit 0 pass, 1 fail, 77 not set up -> SKIP).
+#                  web; they skip themselves when tooling is missing), then (Mac) scripts/ci-docker.sh linux and
+#                  scripts/ci-remote-windows.sh, the native Windows check on a PC (exit 0 pass, 1 fail, 77 not set
+#                  up, PC off or nobody logged in -> SKIP).
 #   5. summary     PASS/FAIL/SKIP and time per step; logs in build/ci-logs/preflight-<step>.log; exit 1 if a step failed.
 #
 #   scripts/ci-preflight.sh                  # everything
@@ -300,7 +301,13 @@ if [ $DO_PLATFORMS = 1 ]; then
         # ci-local.sh prints one line per job: carry them into the summary (a skipped job is not a failure).
         grep -E '^(linux|windows|android|web|macos|ios) +(PASS|FAIL|SKIP) ' "$LOGDIR/preflight-ci-local.log" >"$TMP/ci-local-jobs.txt" 2>/dev/null
     fi
-    for s in ci-docker:"linux windows" ci-remote-windows:""; do
+    # The Docker linux job on a Mac (a Linux host ran it natively above). Its Windows job (MinGW + Wine under Rosetta)
+    # fails on the emulation, not the code, so the Windows check is the native one on the PC (ci-remote-windows.sh).
+    case "$HOST" in
+        Darwin) REMOTE_STEPS='ci-docker:linux ci-remote-windows:' ;;
+        *) REMOTE_STEPS='ci-remote-windows:' ;;
+    esac
+    for s in $REMOTE_STEPS; do
         name="${s%%:*}"; args="${s#*:}"
         if [ -x "$ROOT/scripts/$name.sh" ]; then
             # shellcheck disable=SC2086

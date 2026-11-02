@@ -480,8 +480,9 @@ compilers other than yours, other platforms):
    `tools/common/**`, `external/**` and the CMake files all of both; docs and scripts select nothing. The burners are killed when the
    script ends, fails or is interrupted. `--plan` prints the selection only.
 4. **Other platforms.** The `scripts/ci-local.sh` jobs this host supports (Mac: `macos ios web android`; Linux: `linux windows
-   android web`; a job without its tooling skips itself), then `scripts/ci-docker.sh linux windows` and
-   `scripts/ci-remote-windows.sh` when they exist (exit 0 pass, 1 fail, 77 not set up: reported as SKIP).
+   android web`; a job without its tooling skips itself), then on a Mac `scripts/ci-docker.sh linux` (the Linux job in
+   Docker; its MinGW + Wine Windows job is not a reference on a Mac, see below) and `scripts/ci-remote-windows.sh`, the
+   native Windows check on a PC (exit 0 pass, 1 fail, 77 not set up, PC off or nobody logged in: reported as SKIP).
 
 It ends with a PASS/FAIL/SKIP table with the time of each step and exits 1 if any step failed. Logs:
 `build/ci-logs/preflight-<step>.log`.
@@ -534,8 +535,8 @@ build has an identity in the container.
 
 What the container does not reproduce. The `linux` job is the reliable one: the same Ubuntu 24.04 and GCC as the
 runner, with two differences. The `*_perf` budget tests are not run (the numbers are the runner's; emulated x86-64
-uses about 30% more memory and twice the CPU time; `FA_CI_DOCKER_PERF=1` runs them), and a test that races a child
-process (`core`: the process-tree test) can fail once under the emulation. The `windows` job (MinGW-w64 under
+uses about 30% more memory and twice the CPU time; `FA_CI_DOCKER_PERF=1` runs them). The image has Node 22 like the
+runner, so the feedback server's tests run. The `windows` job (MinGW-w64 under
 Wine) is not a reference on a Mac: Ubuntu's Wine 9.0 under Rosetta has no `atan2` in its HLSL compiler, so every
 test that renders through D3D11 fails, some Windows file and process tests fail on the bind mount, and a hung
 program is stopped after `FA_CI_WINE_TIMEOUT` seconds (600). The build half of that job (the MinGW cross-compile)
@@ -657,8 +658,8 @@ or unreachable, the connection was lost halfway, or the windowed tests were skip
 (5 s at most). If it does not: in a terminal it asks "Can you switch it on?" and Enter means "I am switching it on, wait
 for it" (it waits for sshd, up to `--wait-timeout SECONDS`, default 300, with a note every 15 s), `s` skips (exit 77). Without a
 terminal (an AI agent runs it) it exits 77 at once saying so, and the agent asks you; once you say you are switching the
-PC on, it runs the script again with `--wait`. While the PC is off, the Docker MinGW + Wine job and the Windows
-file-rules emulation of `ci-local.sh` still cover part of what the MSVC check finds.
+PC on, it runs the script again with `--wait`. While the PC is off, the MinGW cross-compile of the Docker `windows`
+job and the Windows file rules that `ctest` turns on (see "Running tests") still cover part of what the MSVC check finds.
 If the connection drops during the run (the PC went to sleep or off, the network failed) the script says which part had
 run, that this is not a build or test failure, and exits 77; a dead PC is noticed after about a minute.
 Only committed work is tested: uncommitted changes to tracked files are listed in a warning and not sent. The first run
