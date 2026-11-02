@@ -22,6 +22,10 @@ FactorIA 0.14.1 makes the test runs of game authors and engine developers stop f
 
 - The editor's Project panel walked the project folder twice after the editor wrote a file (a prefab saved, an asset
   made): once for the write and again a second later, when the recipe watcher saw the same write. It walks it once.
+- On Windows a file write could be lost when another thread had the file open for reading: replacing an open file is
+  refused there, and the editor polls the feedback file every frame while the share thread writes it, so an entry sent
+  to the feedback server could stay unmarked and be offered again. `fs::write_bytes` tries the replace again for up to
+  about a second while the file is held open.
 
 ### Tests
 
