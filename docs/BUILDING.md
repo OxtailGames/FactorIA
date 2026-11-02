@@ -511,7 +511,8 @@ one test at a time: its editor autotests draw with the software D3D11 renderer (
 4 vCPUs, so running tests side by side made the step slower and its timing-sensitive tests fail. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run.
-Each job that compiles restores a ccache and saves it again with only the entries its build used; `CI result` then
+Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,
+so a run whose tests fail still leaves the next run a warm cache; `CI result` then
 deletes the older ccaches of the same branch or pull request. That keeps the repository's 10 GB of caches holding
 `main`'s, which every pull request starts from.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before

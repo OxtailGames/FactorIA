@@ -2,6 +2,14 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- CI saves each job's ccache right after the build instead of at the end of the job, which `actions/cache` only does
+  when every step passed: a run whose tests failed left the next run of the branch a stale cache (Windows rebuilt
+  cold with 11% hits, 35-45 min).
+
 ## 0.14.1
 
 FactorIA 0.14.1 makes the test runs of game authors and engine developers stop failing on a busy machine. Script time limits (a `factoria test` test, `script.eval`, callbacks, tools and module loads) now count the CPU time the script spends, with a wall-clock cap eight times larger for a script blocked forever, so a build running next to the tests no longer fails a test that passes alone. The example games' tests run on optimized builds only, and `scripts/test-all.sh` is the one command that runs everything before a push.
