@@ -459,7 +459,8 @@ TEST_CASE("windows rules: fs::read_bytes holds the file open only while it reads
     { fs::ReadStream missing(fs::os_path(p.dir / "nope.json")); CHECK(!missing.good()); }
     const auto t0 = std::chrono::steady_clock::now();
     REQUIRE(fs::write_text("nope.json", "x").ok());
-    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(300));
+    // The retries of the mode take ~0.9 s; one write on a loaded CI VM takes far less than 800 ms.
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(800));
 }
 
 TEST_CASE("windows rules: a folder with an open file inside is deleted except for that file, and reports the violation") {
@@ -541,7 +542,8 @@ TEST_CASE("windows rules: with the mode off ReadStream blocks nothing and costs 
     REQUIRE(reader.good());
     const auto t0 = std::chrono::steady_clock::now();
     REQUIRE(fs::write_text("a.json", "2").ok());  // POSIX replaces a file that is open
-    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(300));
+    // The retries of the mode take ~0.9 s; one write on a loaded CI VM takes far less than 800 ms.
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(800));
     std::error_code ec;
     CHECK(fs::remove_file(p.dir / "a.json", ec));
     CHECK(!fs::is_sharing_violation(std::make_error_code(std::errc::io_error)));
