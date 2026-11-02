@@ -4589,7 +4589,12 @@ void Editor::at_build_tools_script() {
         wait_until([this] { return share_.sendOpen && at_visible("send:check:FB-0001"); });
         // The AI check answers from a thread; with no AI set up it says so after the local servers refused to connect (slow
         // on Windows, where a refused connection is retried for a while).
-        wait_until([this] { return !share_.sendAiAvailable; });
+        wait_until([this] {
+            if (share_.sendAiAvailable || at_visible("send:reviewing:FB-0001")) return false;
+            for (const ShareUi::SendRowUi& r : share_.sendRows)
+                if (r.review == ShareUi::SendReview::Queued) return false;
+            return true;
+        });
         // ---- the Send feedback window
         step(3, [this, send_row, reports] {
             at_check(load_share_settings(share_env()).mode == ShareMode::Ask && !share_.consentOpen,
@@ -4603,8 +4608,13 @@ void Editor::at_build_tools_script() {
             at_check(three && three->row.madeHere && three->row.fields.title.find("Autotest Platformer") == std::string::npos &&
                          !three->row.fields.title.empty() && at_visible("send:text:FB-0003"),
                      "FB-0003 has no share text: its row shows the text made from the entry, with the project's name taken out");
+            std::string seen = std::string("sendAiAvailable=") + (share_.sendAiAvailable ? "true" : "false") +
+                               ", reviewing shown=" + (at_visible("send:reviewing:FB-0001") ? "yes" : "no") +
+                               ", review shown=" + (at_visible("send:review:FB-0001") ? "yes" : "no");
+            for (const ShareUi::SendRowUi& r : share_.sendRows)
+                seen += "; " + r.row.id + " review " + std::to_string(int(r.review)) + (r.reviewNote.empty() ? "" : " '" + r.reviewNote + "'");
             at_check(!at_visible("send:reviewing:FB-0001") && !at_visible("send:review:FB-0001") && share_.sendAiAvailable == false,
-                     "with no AI set up the texts are shown as they are, without a word about it");
+                     "with no AI set up the texts are shown as they are, without a word about it (" + seen + ")");
             at_check(reports() == 0, "opening the window sends nothing");
         });
         snap("editor_share_send.png");
