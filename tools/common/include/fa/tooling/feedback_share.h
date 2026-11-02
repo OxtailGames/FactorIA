@@ -249,6 +249,12 @@ int share_confirm(const ShareEnv& env, const std::vector<std::string>& keys = {}
 // The user said no: they leave the outbox and their entries are marked skipped. Returns how many.
 int share_drop(const ShareEnv& env, const std::vector<std::string>& keys = {});
 
+// The user left these entries of `feedbackFile` out of a batch (the editor's Send feedback window): they leave the outbox and
+// their `shared` says skipped with `reason` (an id that is not in the file is ignored). They are offered again, unchecked, the
+// next time. Not for turning sharing off: that is set_share_mode.
+void share_skip(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids,
+               const std::string& reason = "left out when sending feedback");
+
 // The preview: {mode, entries: [{id, ok, sent?, reason?, removed}], note}. Nothing is queued, sent or written.
 Json share_preview(const ShareEnv& env, const std::string& feedbackFile, const std::string& projectDir, const EngineNames& engine,
                    const std::vector<std::string>& ids = {});

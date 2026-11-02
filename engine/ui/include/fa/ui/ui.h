@@ -149,12 +149,32 @@ struct UiSurface {
     CameraMask mask;
     Vec2 point;
     UiSurfacePin pin;
+    Entity camera;  // the camera that draws the page (Camera.renderTarget), for tools that report how a click got there
 };
 
 // Where the pointer `screenPos` (design pixels) lands on a page. `pin` null: the nearest mesh showing a target under the pointer, nullopt
 // when there is none. `pin` given: stay on that mesh while a drag goes on, extending its last triangle's plane when the pointer is
 // off the mesh, so the point may lie outside the page. The runtime gives it (the renderer's cameras and the meshes' UVs).
 using UiSurfaceFn = std::function<std::optional<UiSurface>(Vec2 screenPos, const UiSurfacePin* pin)>;
+
+// Where the mouse has to go to click an Interactable that the main view does not show but a render target does (Camera.renderTarget shown
+// on a MeshRenderer). `relevant` is true when a camera with a render target draws the widget, so the answer replaces the plain
+// "the camera does not draw it" one. `point` (design pixels) is a point of the screen where the pointer, through the same path the
+// real mouse takes, reaches exactly this widget; `mesh` and `camera` say through which. Without a point, `problem` says why not.
+struct UiPageAim {
+    bool relevant = false;
+    std::optional<Vec2> point;
+    Entity mesh, camera;
+    std::string problem;
+};
+using UiPageAimFn = std::function<UiPageAim(Entity widget)>;
+
+// Where a click on a widget of the game goes (UiSystem::click_aim).
+struct UiClickAim {
+    std::optional<Vec2> point;  // design pixels; nullopt when the widget cannot be clicked, `problem` says why
+    Entity mesh, camera;        // set when the click goes through a render target shown on a mesh (UiPageAim)
+    std::string problem;        // why it cannot be clicked: no leading capital, no final full stop
+};
 
 class UiSystem {
 public:
@@ -212,6 +232,11 @@ public:
     // hover, click, press / release and slider drags work through it. Screen widgets still win over the page.
     void set_surface_pointer(UiSurfaceFn fn) { surface_ = std::move(fn); }
 
+    // How a click reaches a widget that is only shown on a page (see UiPageAimFn). Empty = never.
+    void set_page_aim(UiPageAimFn fn) { pageAim_ = std::move(fn); }
+    // The page under the screen point `p` (see UiSurfaceFn): the mesh and camera a click there goes through. nullopt over the main view.
+    std::optional<UiSurface> page_at(Vec2 p) const { return surface_ ? surface_(p, nullptr) : std::nullopt; }
+
     // ui_widget_at() plus the Interactable widgets: a screen widget (or screen-space Interactable) wins over a world-space one under the
     // same point, which is seen through the camera that draws at `p`. `measure` sizes the visuals of the Interactables.
     Entity widget_at(const World& world, Vec2 designSize, Vec2 p, const VisualMeasure& measure = {}, Entity ignore = kNullEntity) const;
@@ -221,6 +246,16 @@ public:
     // that draws at its centre does not draw it (Camera.showTags / hideTags): it takes no pointer through that camera.
     std::optional<Rect> interactable_rect(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {},
                                           bool* hiddenByCamera = nullptr) const;
+
+    // The hit area of the Interactable `e` as a quad of corners (design pixels, or page pixels when `project` is a page's), seen through
+    // `project` and `mask` (the camera it belongs to). nullopt for an entity that is no Interactable, is inactive, has no hit area, or is
+    // not drawn by `mask`. Does not use the main view's projection: this is how a page's camera sees the widget.
+    std::optional<std::array<Vec2, 4>> interactable_quad(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure,
+                                                         const UiProjectFn& project, const CameraMask& mask) const;
+    // Where to click the Interactable `e` (also any other widget with a screen rectangle): the centre of its rectangle on the screen,
+    // or, for a widget the main view does not show, a point of a mesh that shows the render target the widget is drawn on. When it
+    // cannot be clicked, `problem` says why and the caller adds how to fix it. Same checks as interactable_rect.
+    UiClickAim click_aim(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {}) const;
 
     Entity focused() const { return focus_; }
     // Gives focus to `e` (kNullEntity clears it, and the focus then stays empty: an open Panel's autoFocus does not take
@@ -306,6 +341,7 @@ private:
     UiProjectFn project_;
     UiMaskFn mask_;
     UiSurfaceFn surface_;
+    UiPageAimFn pageAim_;
     CameraMask mask_at(const Vec2* pointer) const { return mask_ ? mask_(pointer) : CameraMask{}; }
     UiSurfacePin pressSurface_;        // the page mesh the pressed Interactable sits on (mesh null: it is not on a page)
     std::unordered_set<u64> warnedKnobs_;  // knobs / fills that are not children of their slider, already reported
