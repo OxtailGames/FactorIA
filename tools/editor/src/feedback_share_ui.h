@@ -36,6 +36,7 @@ struct ShareUi {
     double tickAt = -10;
     std::string docFile;               // the feedback file the numbers below are about
     std::int64_t docStamp = INT64_MIN; // its modification time when they were read
+    bool docRecheck = false;            // read once more next tick: a write right after the read may have kept the same time
     ShareMode checkedMode = ShareMode::Unset;  // the mode the entries were last looked at under (a change reads them again)
     int entryCount = 0;                // entries in the file (the consent dialog's trigger)
     ShareMode mode = ShareMode::Unset;

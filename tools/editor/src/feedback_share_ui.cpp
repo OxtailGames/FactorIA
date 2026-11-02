@@ -297,7 +297,10 @@ void Editor::feedback_share_tick() {
         file = fs::join(projectDir_, engine_->project().feedbackFile);
         const bool exists = fs::exists(engine_->project().feedbackFile);
         std::int64_t stamp = exists ? fs::modified_time(engine_->project().feedbackFile) : 0;
-        if (file != s.docFile || stamp != s.docStamp || s.mode != s.checkedMode) {
+        // A file's time moves in steps (about 15 ms on Windows): a write right after the read can keep the time the read saw,
+        // so after a change the file is read once more on the next tick, whatever its time says.
+        if (file != s.docFile || stamp != s.docStamp || s.mode != s.checkedMode || s.docRecheck) {
+            s.docRecheck = file != s.docFile || stamp != s.docStamp || s.mode != s.checkedMode;
             s.docFile = file;
             s.docStamp = stamp;
             s.entryCount = 0;

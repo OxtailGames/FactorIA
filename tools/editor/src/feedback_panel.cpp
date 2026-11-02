@@ -37,11 +37,14 @@ void Editor::draw_feedback_panel() {
     const std::string path = fs::join(projectDir_, engine_->project().feedbackFile);
     // (Re)load when the file changed on disk (AIs append to it while the editor is open). Entries that are not open are moved to
     // the archive file by feedback_share_tick as soon as it sees them, so what is listed here is what is still open.
+    // A file's time moves in steps (about 15 ms on Windows): a write right after a read can keep the time the read saw, so
+    // after a change the file is read once more on the next poll, whatever its time says.
     if (time_ - feedbackPolled_ > 1.0) {
         feedbackPolled_ = time_;
         const bool exists = fs::exists(engine_->project().feedbackFile);
         const std::int64_t mt = exists ? fs::modified_time(engine_->project().feedbackFile) : 0;
-        if (mt != feedbackMtime_) {
+        if (mt != feedbackMtime_ || feedbackRecheck_) {
+            feedbackRecheck_ = mt != feedbackMtime_;
             feedbackMtime_ = mt;
             if (!exists) {
                 feedbackDoc_ = Json();

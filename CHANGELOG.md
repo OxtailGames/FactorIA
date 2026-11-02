@@ -26,6 +26,9 @@ FactorIA 0.14.1 makes the test runs of game authors and engine developers stop f
   refused there, and the editor polls the feedback file every frame while the share thread writes it, so an entry sent
   to the feedback server could stay unmarked and be offered again. `fs::write_bytes` tries the replace again for up to
   about a second while the file is held open.
+- The Engine Feedback panel and the share tick could miss an entry an AI agent wrote: they read the file again only
+  when its time changed, and on Windows a file's time moves in steps of about 15 ms, so a write right after a read kept
+  the time that read saw. After every change they read the file once more on the next poll.
 
 ### Tests
 
