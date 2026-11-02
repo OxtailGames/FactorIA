@@ -311,7 +311,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
            "corner of a sprite, the corners outside a circle and the parts of a gradient that fade out still count; an "
            "alpha-0 colour is skipped; inactive entities are skipped, and so are world visuals the camera at that pixel does not draw "
            "(Camera.showTags / hideTags). The world point is found through the primary camera; "
-           "`world` in the result is that point. `widget` is the UI widget a click there would reach (ui_widget_at), or null. "
+           "`world` in the result is that point. `widget` is the widget a click there would reach, through the same path the mouse takes: a screen "
+           "widget, else a world-space Interactable, and over a mesh that shows a render target (Camera.renderTarget) the Interactable of that "
+           "page under the point, or null. `via` ({mesh, target}: the MeshRenderer entity and the target camera's) is present when the point is "
+           "over such a mesh (`hits` still lists what the main camera draws there: the mesh, not the page behind it). "
            "Needs graphics (the camera is the renderer's). Example: render.pick {\"position\":[640,360]}",
            parse_schema(R"({"type":"object","properties":{
                "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"[x, y] in design pixels (origin top-left)."},
@@ -387,6 +390,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
               if (hits.size() > list.size()) j["truncated"] = true;
               const Entity under = I.ui.widget_at(I.world, design, p, measure);
               j["widget"] = under != kNullEntity && I.world.alive(under) ? Json(I.world.id_of(under)) : Json();
+              if (const std::optional<UiSurface> page = I.ui.page_at(p); page && page->pin.mesh && I.world.alive(page->pin.mesh) &&
+                                                                     !(under != kNullEntity && ui_kind(I.world, under) != UiKind::None))
+                  j["via"] = Json::object({{"mesh", I.world.id_of(page->pin.mesh)},
+                                           {"target", page->camera && I.world.alive(page->camera) ? Json(I.world.id_of(page->camera)) : Json()}});
               j["frame"] = I.frame;
               return j;
           });

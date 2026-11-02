@@ -3673,7 +3673,8 @@
 
   const stepN = (n) => N.testStep(n);
   // A position, or a widget id / Entity (an Interactable too, also one in world space): the centre of its laid-out rectangle (the
-  // safe area is included; a widget moves one game.step after game.setSafeArea).
+  // safe area is included; a widget moves one game.step after game.setSafeArea). An Interactable that only a render target shown on a
+  // mesh draws is aimed through the mesh: a point of the screen where the pointer reaches it.
   // A widget is laid out first (a panel opened since the last step has no rectangle yet) and one that cannot be clicked throws.
   const posArg = (p, what, check = true) => {
     if (typeof p === "string" || p instanceof Entity) {
@@ -3681,6 +3682,8 @@
       N.uiLayout();
       const why = what === "game.mouseMove" || !check ? null : N.uiUnclickable(h);
       if (why) throw new Error(`${what}: ${inspect(p)} cannot be clicked: ${why}`);
+      const aim = N.uiAim(h);  // an Interactable that only a render-target page shows: a point of the mesh that shows it
+      if (aim !== null) return aim;
       const r = N.screenRect(h);
       if (r === null) throw new Error(`${what}: ${inspect(p)} has no screen rectangle: pass a UI widget or a screen-space Text, or a position {x, y}`);
       return [r[0] + r[2] / 2, r[1] + r[3] / 2];

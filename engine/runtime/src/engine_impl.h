@@ -178,6 +178,7 @@ struct Engine::Impl {
 void apply_gamepad_json(Input& input, const Json& value, std::vector<std::string>& problems);
 void apply_touch_json(Input& input, const Json& value, std::vector<std::string>& problems);
 
+UiPageAimFn make_ui_page_aim(Engine::Impl& impl);  // surface_pointer.cpp: where to click a widget that only a render target shows (game.click {id})
 UiSurfaceFn make_ui_surface_pointer(Engine::Impl& impl);  // surface_pointer.cpp: the pointer through a render target shown on a mesh
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
