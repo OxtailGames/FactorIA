@@ -86,8 +86,10 @@ jobs:
 
       - name: Configure and build (linux-release)
         run: |
+          ccache --zero-stats
           cmake --preset linux-release
           cmake --build --preset linux-release
+          ccache --show-stats --verbose
 
       # The ccache saved at the end of the job keeps only the entries this build used (hit or written in the last two
       # hours). A restored cache otherwise keeps every object it ever held, and the repository's caches get 10 GB.
@@ -106,7 +108,7 @@ jobs:
       - name: Test under Xvfb (Mesa llvmpipe)
         env:
           FA_REQUIRE_SHDC: '1'
-        run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release --parallel 4  # the runner's 4 vCPUs
 
       # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
       # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
@@ -180,6 +182,7 @@ jobs:
           mkdir "$RUNNER_TEMP/ccache-cl"
           cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
           { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
+          echo "CCACHE_LOGFILE=$RUNNER_TEMP\ccache.log" >> "$GITHUB_ENV"
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -188,11 +191,36 @@ jobs:
           key: ccache-${{ runner.os }}-windows-${{ github.run_id }}
           restore-keys: ccache-${{ runner.os }}-windows-
 
+      - name: Reset the ccache statistics
+        shell: bash
+        run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --zero-stats'
+
       - name: Configure (windows-release)
         run: cmake --preset windows-release
 
       - name: Build (windows-release)
         run: cmake --build --preset windows-release --parallel
+
+      # What ccache did with each compile: hits, misses and the reasons a call could not be cached.
+      - name: ccache statistics
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set +e +o pipefail  # a grep with no match is a result here, not a failure
+          "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --show-stats --verbose
+          log="$RUNNER_TEMP/ccache.log"
+          test -f "$log" || { echo "no ccache log: MSBuild never ran ccache"; exit 0; }
+          echo "--- results"; grep -oE "Result: .*" "$log" | sort | uniq -c | sort -rn | head -20
+          echo "--- failures"; grep -iE "unsupported|failed|cannot|uncacheable|too hard|multiple source" "$log" | sed -E 's/^\[[^]]*\] //' | sort | uniq -c | sort -rn | head -30
+          echo "--- first compile"; grep -m1 -A40 "Command line:" "$log"
+
+      - name: Upload the ccache log
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccache-log-windows
+          path: ${{ runner.temp }}/ccache.log
+          retention-days: 7
 
       - name: Trim ccache to what this build used (see the linux job)
         shell: bash
@@ -217,7 +245,7 @@ jobs:
       - name: Test (windows-release)
         env:
           FA_REQUIRE_SHDC: '1'
-        run: ctest --preset windows-release
+        run: ctest --preset windows-release --parallel 4  # the runner's 4 vCPUs
 
       # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
       # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
@@ -260,8 +288,10 @@ jobs:
 
       - name: Configure and build (macos-release)
         run: |
+          ccache --zero-stats
           cmake --preset macos-release
           cmake --build --preset macos-release
+          ccache --show-stats --verbose
 
       - name: Trim ccache to what this build used (see the linux job)
         run: ccache --evict-older-than 7200s
@@ -278,7 +308,7 @@ jobs:
       - name: Test (macos-release)
         env:
           FA_REQUIRE_SHDC: '1'
-        run: ctest --preset macos-release
+        run: ctest --preset macos-release --parallel 3  # the runner's 3 vCPUs
 
       # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
       # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
