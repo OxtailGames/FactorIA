@@ -444,6 +444,44 @@ Pull requests from forks never receive the secrets. A pull request from a branch
 workflow runs on the ones that change `release.yml`: review those like any change that can read the secrets (a GitHub
 Environment with required reviewers is the stricter option).
 
+## Before a push
+
+`scripts/ci-preflight.sh` is the one command to run before every push, so the PR passes GitHub CI the first time. It
+covers what CI exercises and a developer machine does not (Windows file semantics, waits and budgets on loaded 4-vCPU VMs,
+compilers other than yours, other platforms):
+
+1. **Risk scan.** The lines the branch adds (`git diff <base>...HEAD`, base `origin/main`) are checked against a table of
+   patterns that failed CI before: `std::ofstream` or `rename`/`remove` on files others may hold open, `sleep_for`, wall-clock
+   time and timeouts in tests and editor autotests, perf/memory budget files, platform `#if` branches, `.glsl` edits without
+   regenerated headers, render-backend code, headers using `std::format`/`<ranges>`/`<thread>`/`<chrono>`/`<cstring>` without
+   the include, `long`/`%ld` formats, text parsing that may see CRLF, case-only path clashes and workflow changes. It prints
+   file:line, why it matters and what to check. The table is the `RULES` block of the script: add a line to add a pattern.
+   The scan reads commits only, and never fails the run unless `--strict`.
+2. **`scripts/test-all.sh`**, with the same environment variables.
+3. **Stress.** The editor autotests (`editor_autotest_*`, in the Debug dir) and the example tests (`example_<name>_*`, in the
+   Release dir) the diff touches run with `ctest --repeat until-fail:N` while one CPU burner per core keeps the machine busy.
+   `tools/editor/**` selects the editor autotests, `examples/<name>/**` that example's tests, `engine/**`, `tools/cli/**`,
+   `tools/common/**`, `external/**` and the CMake files all of both; docs and scripts select nothing. The burners are killed when the
+   script ends, fails or is interrupted. `--plan` prints the selection only.
+4. **Other platforms.** The `scripts/ci-local.sh` jobs this host supports (Mac: `macos ios web android`; Linux: `linux windows
+   android web`; a job without its tooling skips itself), then `scripts/ci-docker.sh linux windows` and
+   `scripts/ci-remote-windows.sh` when they exist (exit 0 pass, 1 fail, 77 not set up: reported as SKIP).
+
+It ends with a PASS/FAIL/SKIP table with the time of each step and exits 1 if any step failed. Logs:
+`build/ci-logs/preflight-<step>.log`.
+
+```bash
+scripts/ci-preflight.sh                      # everything
+scripts/ci-preflight.sh --quick              # risk scan + test-all only
+scripts/ci-preflight.sh --no-stress --no-platforms
+scripts/ci-preflight.sh --repeat 5 --base origin/main --strict
+scripts/ci-preflight.sh --scan-only          # the risk scan alone (seconds)
+scripts/ci-preflight.sh --no-test --no-platforms  # stress only, on the build dirs of an earlier run
+```
+
+On a Windows host the script (Git Bash) runs the risk scan and then points to `scripts\agent-build.ps1 build\agent-<name>
+-Test -Examples`, the Windows build and test path.
+
 ## Continuous integration (local, no GitHub minutes)
 
 CI runs on your own machine with one script. It runs every job the host can run

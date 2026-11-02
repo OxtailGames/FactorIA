@@ -6,6 +6,10 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ### Changes
 
+- `scripts/ci-preflight.sh`, the one command before a push: a risk scan of the branch's added lines against the patterns that
+  failed CI before, `scripts/test-all.sh`, a stress pass (the editor autotests and example tests the diff touches, repeated under
+  CPU load), the other platforms of `scripts/ci-local.sh` and the Docker/remote Windows scripts when present, and a PASS/FAIL/SKIP
+  summary (docs/BUILDING.md, "Before a push").
 - CI saves each job's ccache right after the build instead of at the end of the job, which `actions/cache` only does
   when every step passed: a run whose tests failed left the next run of the branch a stale cache (Windows rebuilt
   cold with 11% hits, 35-45 min).
