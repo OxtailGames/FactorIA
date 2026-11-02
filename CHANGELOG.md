@@ -6,6 +6,12 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ### Changes
 
+- **For engine developers:** the Mac can run the native Windows check (MSVC build, full ctest, example games) on a Windows
+  PC on the same network over SSH before a push: `scripts/setup-windows-remote.sh` (Mac) and
+  `scripts/setup-windows-remote.ps1` (the PC, administrator PowerShell, idempotent) set it up once, then
+  `scripts/ci-remote-windows.sh [--no-examples] [--wsl]` pushes HEAD to `refs/heads/preflight/<branch>` of the PC's clone,
+  builds it in a separate worktree and brings the logs back to `build/ci-logs/windows-remote/` (exit 77: not set up).
+  (docs/BUILDING.md, "Checking Windows from the Mac")
 - CI saves each job's ccache right after the build instead of at the end of the job, which `actions/cache` only does
   when every step passed: a run whose tests failed left the next run of the branch a stale cache (Windows rebuilt
   cold with 11% hits, 35-45 min).
