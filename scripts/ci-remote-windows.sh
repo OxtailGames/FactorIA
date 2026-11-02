@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Runs the native Windows check (MSVC Debug build + full ctest + the example games on a Release build, i.e.
 # `scripts\agent-build.ps1 build\agent-preflight -Test -Examples`) on the Windows PC over SSH, for the commit checked
-# out here. Nothing the user has on the PC is touched: the commit goes to the ref refs/heads/preflight/<branch> of the
-# PC's clone and is built in its own worktree, FactorIA-preflight, next to the clone.
+# out here. The check owns a folder on the PC (default %USERPROFILE%\FactorIA-remote: a bare repository repo.git that the
+# Mac pushes refs/heads/preflight/<branch> to, and the worktree work\ it builds in, kept between runs so the build is
+# incremental). Nothing the user has on the PC is touched, and a folder that is a git repository of its own is refused.
 #
 #   scripts/ci-remote-windows.sh [--no-examples] [--wsl] [--wait] [--wait-timeout SECONDS]
 #
@@ -10,6 +11,7 @@
 #   --wsl           also run `scripts/ci-local.sh linux android` in the PC's WSL Ubuntu-24.04, in its own clone
 #                   (~/FactorIA-preflight), fed from the Windows worktree's repository; ANDROID_NDK_HOME must be
 #                   exported in the WSL ~/.profile (CLAUDE.md), or the android job is skipped
+#   --check         only check that the PC answers and that its folder is ready (created on first use), then exit
 #   --wait          when the PC does not answer, wait for it to come up without asking (for when the user said they are
 #                   switching it on)
 #   --wait-timeout  how long to wait for the PC to come up (default 300 s)
@@ -25,22 +27,23 @@
 # records SKIP).
 #
 # Test hooks: FACTORIA_SSH / FACTORIA_SCP replace ssh / scp, FACTORIA_WINDOWS_HOST the `factoria-windows` alias,
-# FACTORIA_WINDOWS_REPO the stored clone path, FACTORIA_ASSUME_TTY=1 treats stdin as a terminal,
+# FACTORIA_WINDOWS_DIR the stored folder on the PC, FACTORIA_ASSUME_TTY=1 treats stdin as a terminal,
 # FACTORIA_REMOTE_FLAVOR=posix makes the commands that run on the far side POSIX shell instead of PowerShell (a fake
 # "PC" on this machine; FACTORIA_REMOTE_BUILD_CMD is then the build).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
-EXAMPLES=1 WSL=0 WAIT=0 WAIT_TIMEOUT=300
+EXAMPLES=1 WSL=0 WAIT=0 WAIT_TIMEOUT=300 CHECK=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-examples) EXAMPLES=0 ;;
         --wsl) WSL=1 ;;
+        --check) CHECK=1 ;;
         --wait) WAIT=1 ;;
         --wait-timeout) WAIT_TIMEOUT="${2:-}"; shift ;;
         --wait-timeout=*) WAIT_TIMEOUT="${1#*=}" ;;
-        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
         *) echo "error: unknown argument '$1' (see --help)" >&2; exit 2 ;;
     esac
     shift
@@ -54,7 +57,7 @@ FLAVOR="${FACTORIA_REMOTE_FLAVOR:-powershell}"
 COMMON="$(git rev-parse --path-format=absolute --git-common-dir)"
 CONF="$(dirname "$COMMON")/build/windows-remote.conf"
 conf_get() { [ -f "$CONF" ] && sed -n "s/^$1=//p" "$CONF" | head -1; }
-REPO="${FACTORIA_WINDOWS_REPO:-$(conf_get FACTORIA_WINDOWS_REPO)}"
+DIR="${FACTORIA_WINDOWS_DIR:-$(conf_get FACTORIA_WINDOWS_DIR)}"
 
 SKIP_MSG="Windows PC off/unreachable: native MSVC check skipped; the Docker MinGW+Wine job and the Windows file-rules emulation still cover part of it."
 not_set_up() {
@@ -62,19 +65,29 @@ not_set_up() {
     echo "  Set it up once: scripts/setup-windows-remote.sh (it prints what to run on the PC; docs/BUILDING.md, \"Checking Windows from the Mac\")." >&2
     exit 77
 }
-[ -n "$REPO" ] || not_set_up "no path of the PC's FactorIA clone is stored ($CONF)."
-REPO="$(printf '%s' "$REPO" | tr '\\' '/')"
-WT="${REPO%/*}/FactorIA-preflight"
+[ -n "$DIR" ] || not_set_up "the PC's folder for the check is not stored ($CONF)."
+DIR="$(printf '%s' "$DIR" | tr '\\' '/')"
+# The check owns this folder on the PC: a bare repository (repo.git) the Mac pushes to and the worktree (work) it builds in.
+# It never uses a clone of the user's (a folder with a .git of its own, or any other content, is refused).
+REPO="$DIR/repo.git"
+WT="$DIR/work"
 
 # Quote for a single-quoted PowerShell / sh string.
 q() { printf '%s' "$1" | sed "s/'/''/g"; }
 
 remote() { "$SSH_BIN" -o BatchMode=yes "$HOST" "$1"; }
 
-# Reachability: 0 answers, 1 the clone is missing / ssh refused the key, 2 no answer (off, asleep, other network).
+# What runs on the PC to find or create the folder this check owns. Exit 3 = refused (not ours), other non-zero = git missing.
+if [ "$FLAVOR" = posix ]; then
+    ENSURE="d='$(q "$DIR")'; g=\"\$d/repo.git\"; if [ -e \"\$d/.git\" ]; then echo \"REFUSED: \$d is a git repository of its own; use a dedicated folder\"; exit 3; fi; if [ ! -d \"\$g\" ]; then if [ -d \"\$d\" ] && [ -n \"\$(ls -A \"\$d\")\" ]; then echo \"REFUSED: \$d is not empty and is not a FactorIA-remote folder; use an empty or new one\"; exit 3; fi; mkdir -p \"\$d\" && git init --bare -q \"\$g\" || exit 4; fi; git -C \"\$g\" rev-parse --is-bare-repository >/dev/null"
+else
+    ENSURE="\$d='$(q "$DIR")'; \$g = \$d + '/repo.git'; if (Test-Path (\$d + '/.git')) { 'REFUSED: ' + \$d + ' is a git repository of its own, not this check; use a dedicated folder'; exit 3 }; if (-not (Test-Path \$g)) { if ((Test-Path \$d) -and @(Get-ChildItem -Force \$d).Count -gt 0) { 'REFUSED: ' + \$d + ' is not empty and is not a FactorIA-remote folder; use an empty or new one'; exit 3 }; New-Item -ItemType Directory -Force \$d | Out-Null; git init --bare -q \$g; if (\$LASTEXITCODE) { exit 4 } }; git -C \$g rev-parse --is-bare-repository | Out-Null; exit \$LASTEXITCODE"
+fi
+
+# Reachability: 0 answers (and the folder is ready), 1 refused / git missing / ssh refused the key, 2 no answer (off, asleep, other network).
 PROBE_OUT=""
 probe() {
-    PROBE_OUT="$("$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=5 "$HOST" "git -C '$(q "$REPO")' rev-parse --git-dir" 2>&1)"
+    PROBE_OUT="$("$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=5 "$HOST" "$ENSURE" 2>&1)"
     local rc=$?
     [ "$rc" -eq 0 ] && return 0
     if [ "$rc" -eq 255 ]; then
@@ -102,10 +115,10 @@ if [ -n "$DIRTY" ]; then
     echo "$DIRTY" | sed 's/^/    /' >&2
 fi
 
-echo "== Windows check of ${SHA:0:10} ($BRANCH) on $HOST, clone $REPO"
+echo "== Windows check of ${SHA:0:10} ($BRANCH) on $HOST, folder $DIR"
 probe; P=$?
 if [ "$P" -eq 1 ]; then
-    not_set_up "'ssh $HOST' answers but cannot use the PC's FactorIA clone: ${PROBE_OUT:-no output}"
+    not_set_up "'ssh $HOST' answers but the PC's folder for the check is not usable: ${PROBE_OUT:-no output}"
 fi
 if [ "$P" -eq 2 ]; then
     echo "ci-remote-windows: $SKIP_MSG" >&2
@@ -135,6 +148,8 @@ if [ "$P" -eq 2 ]; then
     done
     echo "== the PC is up after $((SECONDS - START))s"
 fi
+
+if [ "$CHECK" -eq 1 ]; then echo "== the PC answers and $DIR is ready"; exit 0; fi
 
 # From here the PC answered. A command that fails with the PC no longer answering is an interruption, not a failure.
 fail_or_interrupted() {

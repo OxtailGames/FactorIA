@@ -3,14 +3,17 @@
 # Windows from the Mac"). Safe to run again.
 #
 #   scripts/setup-windows-remote.sh                          # step 1: key + the line to paste on the PC
-#   scripts/setup-windows-remote.sh --host IP --user NAME --repo 'C:\Users\NAME\Documents\GitHub\FactorIA'
+#   scripts/setup-windows-remote.sh --host IP --user NAME [--repo 'C:\Users\NAME\FactorIA-remote']
 #                                                            # step 2: the line the PC printed at the end of its setup
 #
 # Step 1 creates ~/.ssh/factoria_windows (ed25519, no passphrase: the Mac runs the check unattended) if missing, copies
 # to the clipboard (pbcopy) and prints ONE PowerShell line. Paste it in an ADMINISTRATOR PowerShell on the PC: it carries
-# scripts/setup-windows-remote.ps1 and the public key, so nothing has to be cloned or downloaded first.
+# scripts/setup-windows-remote.ps1 and the public key, so nothing has to be cloned or downloaded on the PC.
 # Step 2 asks before it writes the `Host factoria-windows` block of ~/.ssh/config (between marker comments, so a rerun
-# replaces it), tests the connection and stores the clone path in <main checkout>/build/windows-remote.conf.
+# replaces it), tests the connection and stores the PC's folder in <main checkout>/build/windows-remote.conf.
+# --repo is the folder the check owns on the PC (default C:\Users\NAME\FactorIA-remote, made by the PC setup): a bare
+# repository the Mac pushes to plus a worktree. It is never a clone of the user's; a folder with a git repository of its
+# own is refused.
 #   --yes   do not ask before writing ~/.ssh/config
 set -euo pipefail
 
@@ -57,18 +60,18 @@ STEP 1 - on the Windows PC
 
 $LINE
 
-  If the clone is not at %USERPROFILE%\\Documents\\GitHub\\FactorIA, add  -RepoPath 'C:\\your\\clone'  at the end.
-  Once this branch is merged, the PC can also run its clone's copy:
+  To use another folder than %USERPROFILE%\\FactorIA-remote, add  -RemoteDir 'C:\\other\\folder'  at the end.
+  Once this branch is merged, a clone of FactorIA on the PC can also run its own copy:
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\setup-windows-remote.ps1 -PublicKey '$PUB'
 
 STEP 2 - back on this Mac
-  Run the command the PC printed (scripts/setup-windows-remote.sh --host <ip> --user <name> --repo '<clone>').
+  Run the command the PC printed (scripts/setup-windows-remote.sh --host <ip> --user <name>).
 MSG
     exit 0
 fi
 
 [ -n "$USER_NAME" ] || { echo "error: --user is required with --host (the PC printed it)" >&2; exit 2; }
-[ -n "$REPO" ] || REPO="C:\\Users\\$USER_NAME\\Documents\\GitHub\\FactorIA"
+[ -n "$REPO" ] || REPO="C:\\Users\\$USER_NAME\\FactorIA-remote"
 
 BLOCK="$BEGIN_MARK
 Host $ALIAS
@@ -101,13 +104,12 @@ rm -f "$TMP"
 echo "wrote $SSH_CONFIG"
 
 mkdir -p "$(dirname "$CONF")"
-printf 'FACTORIA_WINDOWS_REPO=%s\n' "$(printf '%s' "$REPO" | tr '\\' '/')" > "$CONF"
-echo "stored the PC's clone path in $CONF"
+printf 'FACTORIA_WINDOWS_DIR=%s\n' "$(printf '%s' "$REPO" | tr '\\' '/')" > "$CONF"
+echo "stored the PC's folder in $CONF"
 
 echo "Testing the connection..."
-REPO_FWD="$(printf '%s' "$REPO" | tr '\\' '/')"
-TESTCMD="git --version; git -C '$REPO_FWD' rev-parse --is-inside-work-tree"
-if OUT="$($SSH_BIN -o BatchMode=yes "$ALIAS" "$TESTCMD" 2>&1)"; then
+# ci-remote-windows.sh --check connects, creates the folder if needed and refuses one that is not ours.
+if OUT="$(FACTORIA_WINDOWS_DIR="$REPO" "$ROOT/scripts/ci-remote-windows.sh" --check 2>&1)"; then
     echo "$OUT"
     echo "OK. Run scripts/ci-remote-windows.sh before a push."
 else
@@ -116,7 +118,8 @@ else
 error: could not run a command on the PC. Check, in this order:
   - the PC is on and on the same network (ping $HOST), and its network is "Private" (the firewall rule is private-only);
   - step 1 finished without warnings on the PC (re-running it is safe);
-  - the clone exists at $REPO and git is installed there.
+  - git is installed on the PC, and $REPO is a new or empty folder (or the check's own: it holds repo.git); a folder
+    that is a git repository of its own is refused.
 MSG
     exit 1
 fi
