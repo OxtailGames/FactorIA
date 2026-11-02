@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "fa/core/json.h"
+#include "fa/core/perf.h"
 #include "fa/tooling/script_instrument.h"
 #include "fa_test_paths.h"  // FA_REPO_ROOT
 
@@ -676,11 +677,12 @@ TEST_CASE("script_instrument: speed on a ~1000 line file") {
     }
     (void)instr("big.js", big);  // warm up (creates the runtime, loads acorn)
     constexpr int kRuns = 5;
-    auto t0 = std::chrono::steady_clock::now();
+    // CPU time of this process, not the wall clock: other tests running beside this one (ctest --parallel) do not count.
+    const double t0 = fa::process_cpu_seconds();
     for (int i = 0; i < kRuns; i++) (void)instr("big.js", big);
-    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / kRuns;
-    std::cout << "[script_instrument] " << count_lines(big) << " lines: " << ms << " ms per run after warm-up\n";
-    CHECK(ms < 1000);  // generous: debug builds on loaded CI machines; the number is printed above
+    double ms = (fa::process_cpu_seconds() - t0) * 1000.0 / kRuns;
+    std::cout << "[script_instrument] " << count_lines(big) << " lines: " << ms << " ms of CPU per run after warm-up\n";
+    CHECK(ms < 1000);  // generous: debug builds on slow CI machines; the number is printed above
 }
 
 // ---------------------------------------------------------------------------------------------------- import cycle

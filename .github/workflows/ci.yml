@@ -228,7 +228,9 @@ jobs:
       - name: Test (windows-release)
         env:
           FA_REQUIRE_SHDC: '1'
-        run: ctest --preset windows-release --parallel 4  # the runner's 4 vCPUs
+        # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite already fill the 4
+        # vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the timing-sensitive tests failed.
+        run: ctest --preset windows-release
 
       # The hash of a physics replay, in the log of every job (FA_PHYSICS_REPLAY_HASH). The test above compares it with the value
       # committed in engine/physics/tests/test_determinism.cpp; this step prints it even when that test failed, so a mismatch
