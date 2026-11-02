@@ -725,6 +725,7 @@ public:
     Json feedbackDoc_;
     std::string feedbackError_;
     std::int64_t feedbackMtime_ = INT64_MIN;
+    bool feedbackRecheck_ = false;  // read once more next poll: a write right after the read may have kept the same time
     double feedbackPolled_ = -10;
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;

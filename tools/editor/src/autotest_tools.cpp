@@ -4439,6 +4439,7 @@ void Editor::at_build_tools_script() {
             ImGuiID row = 0, sibling = 0;  // the dock row of the panel made taller for this section, and the one it took from
             float grown = 0;
             size_t reportsAtCancel = 0;
+            stdfs::file_time_type stampBeforeAgent{};  // the file's time before the agent's writes, set back after them
         };
         auto x = std::make_shared<EState>();
         // The bottom row of the dock gives the panel under 200 px on a small display (the macOS runner's 1024x642), where the
@@ -4687,7 +4688,19 @@ void Editor::at_build_tools_script() {
             at_check(!entry_of("FB-0005").is_object() || entry_of("FB-0005").empty(), "the cancelled one is not there");
         });
         // ---- the AI checks the texts: a pass with a rewrite, a fail that unchecks the row, a text that cannot be made
+        // The share tick has just read the file as it is now (a change it saw, so one more read is due)...
+        step(1, [this] {
+            share_.docStamp = INT64_MIN;
+            share_.tickAt = -10;
+        });
+        wait_until([this, x] {
+            std::error_code ec;
+            const auto t = stdfs::last_write_time(x->path, ec);
+            return !ec && share_.docStamp == std::int64_t(t.time_since_epoch().count()) && share_.docRecheck;
+        });
         step(2, [this, x, add_entry] {
+            std::error_code ec;
+            x->stampBeforeAgent = stdfs::last_write_time(x->path, ec);
             aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
                 return std::shared_ptr<ai::ChatProvider>(std::make_shared<ShareReviewProvider>());
             };
@@ -4707,6 +4720,10 @@ void Editor::at_build_tools_script() {
                                     {"missing", "There is no option to let a lantern light glow past the colliders of a wall."}}));
             // a report with so little text that no share text can be made from it
             add_entry("Odd thing", "Odd one", Json());
+            // ...and the agent's writes right after that read keep the time the read saw, as writes within one step of the file
+            // clock do on Windows (about 15 ms): the tick must still see them.
+            stdfs::last_write_time(x->path, x->stampBeforeAgent, ec);
+            at_check(!ec, "the file's time can be set back (" + ec.message() + ")");
         });
         wait_until([this] { return at_visible("share:notify"); });
         click("share:notify");
