@@ -804,7 +804,7 @@ void register_anim_commands(Engine& engine, Engine::Impl& I) {
               if (a["clip"].is_null()) {
                   if (!fs::exists(path)) throw CommandError("not_found", "'" + path + "' does not exist, so there is nothing to delete.", "Nothing to undo here.");
                   std::error_code ec;
-                  std::filesystem::remove(fs::resolve(path), ec);
+                  fs::remove_file(fs::resolve(path), ec);
                   if (ec) throw CommandError("failed", path + ": " + ec.message(), "Check that the file is not open elsewhere.");
                   clear_anim_clip_cache();
                   return Json::object({{"path", path}, {"deleted", true}, {"undo", undo_of(path, before)}});

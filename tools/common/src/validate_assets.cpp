@@ -46,7 +46,7 @@ std::string megabytes(std::uint64_t bytes) { return std::format("{:.1f} MB", dou
 
 // The pixel size of an image file from its first bytes (a PNG header is 33 bytes, a JPEG's start rarely passes a few KB).
 bool image_size(const stdfs::path& file, int& width, int& height) {
-    std::ifstream in(fs::os_path(file), std::ios::binary);
+    fs::ReadStream in(fs::os_path(file), std::ios::binary);
     std::vector<char> head(256 * 1024);
     in.read(head.data(), std::streamsize(head.size()));
     int components = 0;

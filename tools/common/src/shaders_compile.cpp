@@ -81,7 +81,7 @@ void write_cached_twin(const std::string& path, const Json& twin) {
     const std::string tmp = path + ".tmp";
     if (!tooling_detail::write_file(tmp, twin.dump() + "\n")) return;  // a cache that cannot be written only costs time
     std::error_code ec;
-    stdfs::rename(tmp, path, ec);
+    fs::replace_file(tmp, path, ec);
     if (ec) stdfs::remove(tmp, ec);
 }
 

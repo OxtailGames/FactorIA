@@ -59,6 +59,6 @@ if(FA_BUILD_TESTS)
         target_link_libraries(fa_fake_mcp_server PRIVATE fa_core fa_warnings)
         add_dependencies(fa_test_ai fa_fake_mcp_server)
         add_test(NAME ai COMMAND fa_test_ai WORKING_DIRECTORY ${FA_ROOT})
-        set_tests_properties(ai PROPERTIES ENVIRONMENT "FA_FAKE_MCP_SERVER=$<TARGET_FILE:fa_fake_mcp_server>")
+        set_property(TEST ai APPEND PROPERTY ENVIRONMENT "FA_FAKE_MCP_SERVER=$<TARGET_FILE:fa_fake_mcp_server>")  # APPEND: keeps the Windows-rules variable
     endif()
 endif()
