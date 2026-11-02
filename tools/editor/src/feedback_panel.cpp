@@ -127,9 +127,11 @@ void Editor::draw_feedback_panel() {
     const float bodyH = ImGui::GetContentRegionAvail().y;
     const float lineH = ImGui::GetTextLineHeightWithSpacing();
     const float gap = ImGui::GetStyle().ItemSpacing.y;
+    // In a short panel (a small display) both give way so the body never overflows: the table keeps at least half of it.
+    const float tableMin = std::min(lineH * 3.0f + 8.0f, bodyH * 0.5f);
     const float detailMin = std::min(bodyH * 0.45f, lineH * 8.0f);
-    const float tableMax = std::max(lineH * 3.0f + 8.0f, bodyH - detailMin - gap);
-    const float tableH = std::clamp(lineH * float(entries.size() + 1) + 10.0f, lineH * 3.0f + 8.0f, tableMax);
+    const float tableMax = std::max(tableMin, bodyH - detailMin - gap);
+    const float tableH = std::clamp(lineH * float(entries.size() + 1) + 10.0f, tableMin, tableMax);
     if (ImGui::BeginTable("##fbt", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, tableH))) {
         ImGui::TableSetupScrollFreeze(0, 1);
