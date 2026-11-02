@@ -695,18 +695,27 @@ std::int64_t file_size(std::string_view path) {
     return ec ? -1 : std::int64_t(size);
 }
 
+std::int64_t file_time_ns(stdfs::file_time_type time) {
+    using namespace std::chrono;
+    using Clock = stdfs::file_time_type::clock;
+#if defined(_MSC_VER)
+    return duration_cast<nanoseconds>(time.time_since_epoch() - seconds(11644473600)).count();  // FILETIME counts from 1601
+#else
+    if constexpr (requires { Clock::to_sys(time); })
+        return duration_cast<nanoseconds>(Clock::to_sys(time).time_since_epoch()).count();
+    else
+        return duration_cast<nanoseconds>(time.time_since_epoch()).count();
+#endif
+}
+
 std::int64_t host_modified_time(const stdfs::path& file) {
     std::error_code ec;
-    auto t = stdfs::last_write_time(os_path(file), ec);
+    const auto t = stdfs::last_write_time(os_path(file), ec);
     if (ec) return -1;
-    if (emulating()) {
-        // Windows rule: a file's time moves in steps of 1/64 s (fs.h).
-        using Ns = std::chrono::nanoseconds;
-        std::int64_t ns = std::chrono::duration_cast<Ns>(t.time_since_epoch()).count();
-        ns -= ((ns % kWindowsTimeStepNs) + kWindowsTimeStepNs) % kWindowsTimeStepNs;
-        return std::int64_t(std::chrono::duration_cast<stdfs::file_time_type::duration>(Ns(ns)).count());
-    }
-    return std::int64_t(t.time_since_epoch().count());
+    std::int64_t ns = file_time_ns(t);
+    // Windows rule: a file's time moves in steps of 1/64 s (fs.h).
+    if (emulating()) ns -= ((ns % kWindowsTimeStepNs) + kWindowsTimeStepNs) % kWindowsTimeStepNs;
+    return ns;
 }
 
 std::int64_t modified_time(std::string_view path) {

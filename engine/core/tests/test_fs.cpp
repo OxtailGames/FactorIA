@@ -1,6 +1,7 @@
 #include <doctest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -503,6 +504,22 @@ TEST_CASE("windows rules: paths are case-insensitive and a relative or symlinked
     CHECK(fs::is_sharing_violation(ec));
 }
 
+TEST_CASE("fs: file times count nanoseconds from 1970 with every standard library") {
+    // libstdc++'s file clock starts in 2174 and MSVC's in 1601: the raw count of a file written today is negative on
+    // Linux, which read as "missing" before file_time_ns.
+    TempProject p;
+    REQUIRE(fs::write_text("a.json", "1").ok());
+    const std::int64_t t = fs::host_modified_time(p.dir / "a.json");
+    CHECK(t > 0);
+    CHECK(fs::modified_time("a.json") == t);
+    const std::int64_t sys = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch()).count();
+    const std::int64_t clock = fs::file_time_ns(stdfs::file_time_type::clock::now());
+    CHECK(std::abs(clock - sys) < std::int64_t(5'000'000'000));
+    CHECK(std::abs(t - sys) < std::int64_t(3600) * 1'000'000'000);
+    CHECK(fs::host_modified_time(p.dir / "missing.json") == -1);
+}
+
 TEST_CASE("windows rules: modified_time moves in steps of 15.625 ms") {
     TempProject p;
     REQUIRE(fs::write_text("a.json", "1").ok());
@@ -514,10 +531,10 @@ TEST_CASE("windows rules: modified_time moves in steps of 15.625 ms") {
     const std::int64_t aligned = baseNs - ((baseNs % 1'000'000'000) + 1'000'000'000) % 1'000'000'000;  // a whole second
     const std::int64_t odd = aligned + 3 * fs::kWindowsTimeStepNs + 7'500'000;
     stdfs::last_write_time(file, stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(Ns(odd))));
-    const auto set = std::chrono::duration_cast<Ns>(stdfs::last_write_time(file).time_since_epoch()).count();
+    const std::int64_t set = fs::file_time_ns(stdfs::last_write_time(file));
     {
         RulesScope off(false);
-        CHECK(fs::modified_time("a.json") == std::int64_t(stdfs::last_write_time(file).time_since_epoch().count()));
+        CHECK(fs::modified_time("a.json") == set);
     }
     {
         RulesScope on(true);

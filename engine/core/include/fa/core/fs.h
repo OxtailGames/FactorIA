@@ -162,13 +162,17 @@ Result<void> write_bytes(std::string_view path, const void* data, std::size_t si
 bool exists(std::string_view path);
 bool is_directory(std::string_view path);
 std::int64_t file_size(std::string_view path);      // bytes; -1 if missing or not a file
-// -1 if missing; any monotonic unit (a file of a pack: a fixed number). Under the Windows rules a file's time is rounded down to
+// -1 if missing; nanoseconds since 1970 (file_time_ns; a file of a pack: the pack's time). Under the Windows rules a file's time is rounded down to
 // steps of 15.625 ms: compare it for "changed" only together with something else (size, content), or read once more after a change.
 std::int64_t modified_time(std::string_view path);
 // The modification time of a file given as a host path (no pack, no project root), in the unit and with the rounding of
 // modified_time; -1 if missing. A change detector for a file outside what fs:: reads (editor state, tool stores) uses this
 // instead of std::filesystem::last_write_time, so the Windows rules cover it too.
 std::int64_t host_modified_time(const std::filesystem::path& file);
+// A std::filesystem file time as nanoseconds since 1970. Use it instead of the raw time_since_epoch().count(): each
+// standard library puts that clock's epoch elsewhere (libstdc++ in 2174, so a file written today counts negative and reads
+// as "missing"; MSVC in 1601).
+std::int64_t file_time_ns(std::filesystem::file_time_type time);
 
 // Lists files (project-relative paths, sorted). `extension` like ".png" filters.
 std::vector<std::string> list(std::string_view dir, bool recursive = true, std::string_view extension = {});
