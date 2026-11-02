@@ -261,4 +261,20 @@ std::optional<Vec2> surface_uv_on_plane(const MeshSurface& s, const Mat4& model,
     return s.uvs[ia] * (1.0f - u - v) + s.uvs[ib] * u + s.uvs[ic] * v;
 }
 
+std::vector<SurfacePoint> surface_points_at_uv(const MeshSurface& s, const Mat4& model, Vec2 uv, std::size_t max) {
+    std::vector<SurfacePoint> out;
+    for (std::size_t i = 0; i + 2 < s.indices.size() && out.size() < max; i += 3) {
+        const std::uint32_t ia = s.indices[i], ib = s.indices[i + 1], ic = s.indices[i + 2];
+        const Vec2 a = s.uvs[ia], e1 = s.uvs[ib] - a, e2 = s.uvs[ic] - a, p = uv - a;
+        const float det = e1.x * e2.y - e1.y * e2.x;
+        if (std::fabs(det) < 1e-12f) continue;  // no area in the picture
+        const float u = (p.x * e2.y - p.y * e2.x) / det, v = (e1.x * p.y - e1.y * p.x) / det;
+        constexpr float kEps = 1e-5f;
+        if (u < -kEps || v < -kEps || u + v > 1.0f + kEps) continue;
+        const Vec3 local = s.positions[ia] * (1.0f - u - v) + s.positions[ib] * u + s.positions[ic] * v;
+        out.push_back({model.transform_point(local), std::uint32_t(i / 3)});
+    }
+    return out;
+}
+
 }  // namespace fa

@@ -2,9 +2,9 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.14.0
 
-The Engine Feedback panel sends feedback with one button, and nobody writes a share text any more. The panel has two buttons, **Add feedback** (a form that records an entry) and **Send feedback** (a window listing every entry that would go, each with a checkbox and the exact text that leaves the computer). The share boxes, "Sharing...", "Archive closed" and "Review with AI" are gone: closed entries are archived by themselves, the text is the entry's `share` or one made from the entry, and an AI check runs by itself on each text when an AI model is set up.
+FactorIA 0.14.0 (M49) lets you send engine feedback with one button and fixes the gap Roguestory reported about its 3D storybook (FB-0038). The Engine Feedback panel has **Add feedback** and **Send feedback**; nobody writes a share text any more: the Send window lists every entry that would go, all checked, with the exact text that leaves the computer, made from the entry when it has none and checked by an AI when one is set up. `game.click` now names the widget it reached through a page shown on a mesh (`Camera.renderTarget`), and `game.click {id}` clicks widgets that only such a page shows.
 
 ### Changes
 
@@ -16,6 +16,10 @@ The Engine Feedback panel sends feedback with one button, and nobody writes a sh
 - The entries table of the panel is as tall as its rows need (up to two thirds of the panel) instead of at most 180 px.
 - `share_skip` (tools/common feedback sharing client) marks entries `skipped` and takes them out of the outbox.
 - Docs: AIs should include `share` in every `feedback.report` (docs/AI_GUIDE.md, the project AGENTS.md template); docs/EDITOR.md and docs/ENGINE_FEEDBACK.md describe the new flow.
+
+### Fixes
+
+- `game.click` follows render-target pages. `widget` is now the widget the pointer reached when the button went down, through the same path the mouse takes: a widget on a page shown on a mesh (`Camera.renderTarget` + `MeshRenderer.texture "target:<name>"`) is named, also when the click removes or changes it in that frame (it used to read `null` when the press already turned the page). The result adds `via: {mesh, target}` (the MeshRenderer entity and the render-target camera) when the click went through a page; `render.pick` reports the same `widget` and `via`. `game.click {id}` (and `game.click(id)` in a test) of an Interactable that only a page shows is aimed backwards (widget in the target camera's view, matching point of the mesh, its place on the screen) and clicks where the pointer really reaches that widget; when it cannot, the error says why (no mesh shows the target, mesh inactive / off screen / covered, widget outside the camera's view, a target shown inside another target) instead of "click the mesh with game.click {position}". New `surface_points_at_uv` (fa/scene/mesh_surface.h) and `UiSystem::click_aim` / `interactable_quad`.
 
 ## 0.13.0
 
