@@ -539,27 +539,31 @@ script got the plugin's answers. What they cover and what not is in [MOBILE.md](
 
 GitHub's Windows job (MSVC) is the one that fails most, and a Mac cannot build with MSVC. If you also have a Windows PC
 on the same home network, the Mac can run the native check on it over SSH before a push: the commit checked out on the
-Mac is pushed to the PC's clone (to the ref `refs/heads/preflight/<branch>`, so the branch checked out there is never
-touched), built in a separate worktree `FactorIA-preflight` next to that clone, and checked with
+Mac is pushed to a repository the check owns on the PC (to the ref `refs/heads/preflight/<branch>`), built in a
+worktree of it, and checked with
 `scripts\agent-build.ps1 build\agent-preflight -Test -Examples` (Debug build and ctest, then the Release build and the
-example games' tests). The output streams to the Mac terminal.
+example games' tests). The output streams to the Mac terminal. The PC needs no clone of FactorIA: the check works in its
+own folder `%USERPROFILE%\FactorIA-remote` (a bare repository `repo.git` and the worktree `work`, whose `build\` is kept
+between runs) and never touches any other folder. A folder that is a git repository of its own, or holds anything else, is
+refused (`--repo` on the Mac, `-RemoteDir` on the PC pick another one).
 
 **Setup, once** (two commands, one on each machine):
 
 1. On the Mac: `scripts/setup-windows-remote.sh`. It creates the key `~/.ssh/factoria_windows` if missing and prints (and
    copies to the clipboard) one PowerShell line that carries `scripts/setup-windows-remote.ps1` and the public key.
-2. On the PC: open PowerShell **as administrator** and paste that line (or, if the clone has the script, run
-   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows-remote.ps1 -PublicKey '<key>' [-RepoPath C:\path\FactorIA]`).
+2. On the PC: open PowerShell **as administrator** and paste that line (or, from a clone that has the script, run
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows-remote.ps1 -PublicKey '<key>' [-RemoteDir C:\path\FactorIA-remote]`).
    It installs and starts the OpenSSH Server, opens port 22 on **private networks only** (the rule Windows creates itself
    is turned off; if the home network is set to "Public" it warns and gives the command to change it), makes PowerShell
    the SSH shell, authorizes the key (`C:\ProgramData\ssh\administrators_authorized_keys` with the ACL sshd requires for
-   an administrator, `~\.ssh\authorized_keys` otherwise), checks git, the clone
-   (default `%USERPROFILE%\Documents\GitHub\FactorIA`) and Visual Studio, and ends by printing the command for the Mac.
+   an administrator, `~\.ssh\authorized_keys` otherwise), creates the check's folder, checks git,
+   Visual Studio 2022 with the C++ tools and its CMake and Ninja (what `agent-build.ps1` uses), prints what is missing with
+   the `winget` / installer command to add it (it installs none of them), and ends by printing the command for the Mac.
    Running it again changes nothing that is already right.
-3. On the Mac: run the command the PC printed, `scripts/setup-windows-remote.sh --host <ip> --user <name> --repo '<clone>'`.
+3. On the Mac: run the command the PC printed, `scripts/setup-windows-remote.sh --host <ip> --user <name>` (with `--repo` only if the PC folder is not the default).
    It shows the `Host factoria-windows` block it will write to `~/.ssh/config` and asks first (a rerun replaces the
-   block between its marker comments), stores the clone path in `build/windows-remote.conf` of the main checkout and tests
-   the connection.
+   block between its marker comments), stores the PC folder in `build/windows-remote.conf` of the main checkout and tests
+   the connection (`scripts/ci-remote-windows.sh --check`).
 
 **Every time:**
 
@@ -585,7 +589,7 @@ Only committed work is tested: uncommitted changes to tracked files are listed i
 builds everything cold on the PC; later runs reuse `build\agent-preflight` and `build\agent-preflight-release` in the
 worktree. Do not start two runs at once (they share that worktree). The logs come back to `build/ci-logs/windows-remote/`.
 `--wsl` fetches the commit into its own clone `~/FactorIA-preflight` in WSL (made by the first run, from the PC's
-clone); your `~/FactorIA` there is not used. It needs the WSL set-up of "Continuous integration" above, with
+`repo.git`); your `~/FactorIA` there is not used. It needs the WSL set-up of "Continuous integration" above, with
 `ANDROID_NDK_HOME` exported in `~/.profile` for the android job.
 
 ## Troubleshooting
