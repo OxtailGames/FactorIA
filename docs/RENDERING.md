@@ -165,9 +165,16 @@ Limits, so you do not look for a bug:
 - Only meshes with UVs that lay the picture out: the built-in primitives, glTF models and procedural meshes (`mesh.create`).
 - A `Sprite`, `Panel` or `Button` that shows a target is only a picture: it forwards no pointer input to the page. Use a
   `CameraView` (docs/MENUS.md) when the player must drag what a camera shows inside a menu.
-- `game.click(id)` of an entity of the page aims at where the main view would draw that entity, not at the model; when the main
-  camera hides it (`hideTags`) it is an error. In a test pass the screen position: `game.click(camera.worldToScreen(modelPoint))`, or
-  `game.mouseMove(pos)` then `game.click(pos)`.
+- `game.click(id)` of an `Interactable` that only the page shows (the main camera hides it with `hideTags`, or it is far off screen)
+  is aimed through the mesh: the engine takes a point of the widget in the target camera's view, finds the matching point of a mesh
+  that shows the target and clicks where the main camera puts it, but only where the pointer really reaches that widget (a mesh or
+  a widget in front is skipped). When no such point exists it is an error that says why: no mesh shows the target, the mesh is
+  inactive, off screen or covered, the widget is outside the target camera's view, or the mesh is itself drawn only by another render
+  target (a target shown inside a target is not reached by the pointer). An `Interactable` the main view shows on screen is clicked
+  where it is, as always.
+- The `game.click` command (and `render.pick`) answers `widget`, the widget the pointer reached, also through a mesh, and
+  `via: {mesh, target}` - the entity of the `MeshRenderer` and of the `Camera.renderTarget` camera - when the point was over a page
+  mesh (and no screen widget was on top). So `game.click {"position":[x,y]}` over the model tells you which widget of the page it hit.
 
 ### Tests
 
