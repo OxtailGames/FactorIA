@@ -1,5 +1,6 @@
 // The editor's main menu: the tree built from the editor's state (build_main_menu) and the two ways it is shown (draw_main_menu):
 // the system menu bar on macOS (native_menu_apple.mm), the in-window ImGui bar elsewhere (menu_imgui.cpp). See menu_model.h.
+#include "fa/core/engine_version.h"
 #include "editor_internal.h"
 #include "fa/core/build_info.h"
 #include "fa/tooling/docs.h"

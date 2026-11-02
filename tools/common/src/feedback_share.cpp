@@ -1,5 +1,6 @@
 // Feedback sharing, client side: environment, user settings, outbox, queue and send, and the commands
 // (fa/tooling/feedback_share.h; contract: docs/design/FEEDBACK_SHARING.md).
+#include "fa/core/engine_version.h"
 #include "fa/tooling/feedback_share.h"
 
 #include <algorithm>
@@ -22,9 +23,6 @@
 #endif
 #ifndef FA_FEEDBACK_GITHUB_CLIENT_ID
 #define FA_FEEDBACK_GITHUB_CLIENT_ID ""
-#endif
-#ifndef FA_ENGINE_VERSION
-#define FA_ENGINE_VERSION "0.0.0"
 #endif
 
 namespace fa {

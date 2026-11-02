@@ -1,5 +1,6 @@
 // The mechanics every installer of `factoria setup` uses: downloading with curl, checksums, unpacking, moving a folder
 // into place, and the bookkeeping of one install.
+#include "fa/core/engine_version.h"
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
@@ -208,11 +209,7 @@ std::string SetupContext::host_os() const { return host.empty() ? native_host() 
 std::string SetupContext::host_architecture() const { return hostArch.empty() ? native_arch() : hostArch; }
 std::string SetupContext::version() const {
     if (!engineVersion.empty()) return engineVersion;
-#ifdef FA_ENGINE_VERSION
     return FA_ENGINE_VERSION;
-#else
-    return "0.0.0";
-#endif
 }
 std::string SetupContext::config_path() const { return machineConfigPath.empty() ? machine_export_config_path(env) : machineConfigPath; }
 AndroidToolchainSearch SetupContext::search() const {

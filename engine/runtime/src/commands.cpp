@@ -1,4 +1,5 @@
 // Built-in commands: the AI/tool surface of a running game.
+#include "fa/core/engine_version.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>

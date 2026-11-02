@@ -2,6 +2,7 @@
 // reader, the error mapping and the cache, with an injected sokol-shdc (fixtures captured from the real tool, so they run on
 // every host), and the same material compiled by the real sokol-shdc where one is installed (SOKOL_SHDC or
 // `factoria setup shaders`; skipped with a message otherwise).
+#include "fa/core/engine_version.h"
 #include <doctest.h>
 
 #include <algorithm>

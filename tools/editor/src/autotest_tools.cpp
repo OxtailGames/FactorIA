@@ -6,6 +6,7 @@
 // them exactly as a person would. After each action it checks the effect on disk, in the world and in the editor state, and takes
 // window screenshots. A script of small steps, one step per frame followed by a wait, so a step never races the UI: a click is
 // move, press, release on different frames.
+#include "fa/core/engine_version.h"
 #include <algorithm>
 #include <cctype>
 #include <chrono>

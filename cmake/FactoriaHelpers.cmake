@@ -72,8 +72,7 @@ function(fa_add_module name)
     target_include_directories(fa_${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(fa_${name} PUBLIC ${ARG_DEPS} PRIVATE ${ARG_PRIVATE_DEPS} fa_warnings)
     target_compile_features(fa_${name} PUBLIC cxx_std_20)
-    target_compile_definitions(fa_${name} PUBLIC FA_ENGINE_VERSION="${FA_ENGINE_VERSION}"
-        FA_PLATFORM_NAME="${FA_PLATFORM}")
+    target_compile_definitions(fa_${name} PUBLIC FA_PLATFORM_NAME="${FA_PLATFORM}")
 endfunction()
 
 # fa_add_tests(<name> [DEPS ...] [LABELS ...])

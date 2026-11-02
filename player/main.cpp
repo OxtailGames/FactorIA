@@ -17,6 +17,7 @@
 //   Web     : main() in a browser page. The page writes game.pak to /game.pak of the in-memory file system first.
 //
 // Mobile entry points are UNTESTED on the Linux development machine (CI builds them).
+#include "fa/core/engine_version.h"
 #include <cctype>
 #include <filesystem>
 #include <string>

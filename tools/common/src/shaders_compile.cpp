@@ -1,5 +1,6 @@
 // Running sokol-shdc for a material: the cache, the error mapping back to the author's snippet (with hints for the frequent
 // mistakes), and the twin documents (docs/design/CUSTOM_SHADERS.md, "How it is compiled" and "Errors that teach").
+#include "fa/core/engine_version.h"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>

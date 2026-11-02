@@ -7,6 +7,10 @@ fa_add_module(core
 if(NOT MSVC AND NOT CMAKE_GENERATOR STREQUAL "Xcode")
     set_source_files_properties(src/video.cpp PROPERTIES COMPILE_OPTIONS "$<$<CONFIG:Debug>:-O2>")
 endif()
+# fa/core/engine_version.h: FA_ENGINE_VERSION as a generated header, not a compile definition (a version bump would change the
+# command line of every file and miss the whole ccache). configure_file only rewrites it when the version changes.
+configure_file(${FA_ROOT}/cmake/engine_version.h.in ${CMAKE_BINARY_DIR}/generated/include/fa/core/engine_version.h @ONLY)
+target_include_directories(fa_core PUBLIC $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/generated/include>)
 # The build fingerprint (fa/core/build_info.h): the commit, written to a header at every build; only build_info.cpp includes it.
 find_package(Git QUIET)
 set(FA_BUILD_FINGERPRINT_DIR ${CMAKE_BINARY_DIR}/generated)

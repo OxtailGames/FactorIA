@@ -1,4 +1,5 @@
 // Noticing that the running program was replaced on disk (fa/tooling/self_update.h) and what .mcp.json says.
+#include "fa/core/engine_version.h"
 #include <doctest.h>
 
 #include <chrono>
