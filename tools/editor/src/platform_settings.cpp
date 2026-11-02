@@ -11,6 +11,7 @@
 #include <iterator>
 #include <sstream>
 
+#include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/export.h"
@@ -147,13 +148,11 @@ std::string clean_path(std::string s) { return clean_project_path(s); }
 bool is_absolute_text(const std::string& v) { return !v.empty() && (v[0] == '/' || (v.size() >= 2 && v[1] == ':')); }
 
 std::int64_t mtime_of(const stdfs::path& p) {
-    std::error_code ec;
-    const auto t = stdfs::last_write_time(p, ec);
-    return ec ? -1 : static_cast<std::int64_t>(t.time_since_epoch().count());
+    return fs::host_modified_time(p);  // fs:: so the Windows file rules cover this change detector too
 }
 
 std::string read_all(const stdfs::path& p) {
-    std::ifstream in(p, std::ios::binary);
+    fa::fs::ReadStream in(p, std::ios::binary);
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 

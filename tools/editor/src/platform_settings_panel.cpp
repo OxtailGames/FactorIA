@@ -747,16 +747,14 @@ const TextureEntry* Editor::icon_preview(const std::string& relPath) {
     if (time_ - p.checkedAt >= 0.5) {  // the file may have been replaced (the AI makes icons too)
         p.checkedAt = time_;
         const stdfs::path full = stdfs::path(projectDir_) / rel;
-        std::error_code ec;
-        const auto t = stdfs::last_write_time(full, ec);
-        const std::int64_t mtime = ec ? -1 : static_cast<std::int64_t>(t.time_since_epoch().count());
+        const std::int64_t mtime = fs::host_modified_time(full);
         if (mtime != p.mtime) {
             p.mtime = mtime;
             if (p.tex.view || p.tex.image) ui::destroy_texture(p.tex.image, p.tex.view);
             p.tex = TextureEntry{};
             p.tex.failed = true;
             if (mtime >= 0) {
-                std::ifstream in(full, std::ios::binary);
+                fa::fs::ReadStream in(full, std::ios::binary);
                 const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
                 auto img = decode_image(bytes.data(), bytes.size());
                 if (img.ok() && !img->empty()) {
