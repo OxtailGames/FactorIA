@@ -9,6 +9,7 @@
 #include <string>
 
 #include "fa/core/fs.h"
+#include "fa/core/perf.h"
 #include "fa/physics/physics.h"
 
 using namespace fa;
@@ -326,7 +327,7 @@ TEST_CASE("3d shapes: a mesh ramp of thousands of triangles is fast to query") {
     const auto t0 = std::chrono::steady_clock::now();
     s.run(120);
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    CHECK(ms < 2000.0);  // 20 000 triangles; far under a frame budget per step
+    CHECK(ms < 2000.0 * fa::test_speed_budget_scale());  // 20 000 triangles; far under a frame budget per step
     CHECK(pos_of(s.world, ball).y > 0.6f);  // it rolled over the spheres, never fell into one
 }
 
@@ -617,7 +618,7 @@ TEST_CASE("3d character: walks up a 6400-triangle glTF mesh ramp, stays grounded
     CHECK(w.grounded);
     CHECK(w.last.groundNormal.y == doctest::Approx(std::cos(20.0f * kPiF / 180.0f)).epsilon(0.02));
     CHECK(w.last.groundNormal.x < -0.3f);
-    CHECK(ms < 3000.0);
+    CHECK(ms < 3000.0 * fa::test_speed_budget_scale());
     w.airborneFrames = 0;
     w.walk({-3, 0, 0}, 150);
     CHECK(pos_of(s.world, hero).x < 2.0f);
