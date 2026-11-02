@@ -89,7 +89,10 @@ job_linux() {
     delegate_docker linux && return
     [ "$HOST" = "Linux" ] || { record linux SKIP "not a Linux host"; return; }
     local b=build/ci-linux
-    run_logged "$LOGDIR/linux-configure.log" cmake -S . -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    # In the emulated x86-64 container of ci-docker.sh the example games run over twice as long as on GitHub's runners.
+    local timeout=300
+    [ "${FA_CI_IN_DOCKER:-}" = 1 ] && timeout=900
+    run_logged "$LOGDIR/linux-configure.log" cmake -S . -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_EXAMPLE_TEST_TIMEOUT=$timeout \
         || { record linux FAIL "configure (see $LOGDIR/linux-configure.log)"; return; }
     run_logged "$LOGDIR/linux-build.log" cmake --build "$b" -j "$JOBS" \
         || { record linux FAIL "build (see $LOGDIR/linux-build.log)"; return; }

@@ -136,7 +136,10 @@ if(FA_BUILD_TESTS)
         message(STATUS "Example game tests are DISABLED in this build (FA_EXAMPLE_TESTS=${FA_EXAMPLE_TESTS}, build type "
             "'${CMAKE_BUILD_TYPE}'): run them with scripts/test-all.sh, or configure an optimized build and run `ctest -L example`")
     endif()
-    set(fa_example_timeout 300)
+    # GitHub's Linux runners take 100-170 s for the longest example; the emulated x86-64 of scripts/ci-docker.sh on a Mac
+    # takes over twice that, so it raises the limit.
+    set(FA_EXAMPLE_TEST_TIMEOUT 300 CACHE STRING "Seconds an example game's test may run before ctest stops it")
+    set(fa_example_timeout ${FA_EXAMPLE_TEST_TIMEOUT})
     foreach(ex ${FA_EXAMPLE_PROJECTS})
         if(EXISTS ${ex}/factoria.json)
             get_filename_component(ex_name ${ex} NAME)

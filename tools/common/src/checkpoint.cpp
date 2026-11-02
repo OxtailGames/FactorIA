@@ -99,11 +99,11 @@ std::int64_t mtime_ns(const stdfs::path& p, std::error_code& ec) {
         return 0;
     }
     ec.clear();
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(stdfs::file_time_type::duration(t)).count();
+    return t;
 }
 
-std::int64_t now_ns() {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(stdfs::file_time_type::clock::now().time_since_epoch()).count();
+std::int64_t now_ns() {  // the clock of mtime_ns: nanoseconds since 1970
+    return fs::file_time_ns(stdfs::file_time_type::clock::now());
 }
 
 // ---- stat cache --------------------------------------------------------------------------------------------------

@@ -534,8 +534,9 @@ prefix and `~/.factoria` in the container live in Docker volumes (`factoria-ci-l
 build has an identity in the container.
 
 What the container does not reproduce. The `linux` job is the reliable one: the same Ubuntu 24.04 and GCC as the
-runner, with two differences. The `*_perf` budget tests are not run (the numbers are the runner's; emulated x86-64
-uses about 30% more memory and twice the CPU time; `FA_CI_DOCKER_PERF=1` runs them). The image has Node 22 like the
+runner, with three differences. The `*_perf` budget tests are not run (the numbers are the runner's; emulated x86-64
+uses about 30% more memory and twice the CPU time; `FA_CI_DOCKER_PERF=1` runs them), and an example game's test may
+run 900 s instead of 300 (`FA_EXAMPLE_TEST_TIMEOUT`; the longest takes ~170 s on the runner and over 300 s emulated). The image has Node 22 like the
 runner, so the feedback server's tests run. The `windows` job (MinGW-w64 under
 Wine) is not a reference on a Mac: Ubuntu's Wine 9.0 under Rosetta has no `atan2` in its HLSL compiler, so every
 test that renders through D3D11 fails, some Windows file and process tests fail on the bind mount, and a hung

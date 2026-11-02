@@ -221,7 +221,7 @@ Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& fi
     pack->file_ = file;
     pack->native_ = open_native(file);
     if (pack->native_ == -1) return make_error("Cannot open the game pack " + name, "Check that the file can be read.");
-    if (const auto t = stdfs::last_write_time(fs::os_path(file), ec); !ec) pack->mtime_ = std::int64_t(t.time_since_epoch().count());
+    if (const auto t = stdfs::last_write_time(fs::os_path(file), ec); !ec) pack->mtime_ = fs::file_time_ns(t);
     if (pack->mtime_ < 0) pack->mtime_ = 0;
 
     std::uint8_t header[kHeaderSize];
