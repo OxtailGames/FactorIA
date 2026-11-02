@@ -506,6 +506,8 @@ the branch protection of `main` requires, so a pull request with auto-merge on
 deletes its branch. `release.yml` is not part of `CI result`: a pull request that
 changes it is merged by hand once its Release run is green.
 
+The test steps run `ctest --parallel` with the runner's vCPUs (4 on Linux and Windows, 3 on macOS). The performance
+budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run.
 Each job that compiles restores a ccache and saves it again with only the entries its build used; `CI result` then
 deletes the older ccaches of the same branch or pull request. That keeps the repository's 10 GB of caches holding

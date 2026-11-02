@@ -10,6 +10,8 @@ FactorIA 0.14.1 makes the test runs of game authors and engine developers stop f
 
 - **For game authors:** the time limits of scripts count CPU time instead of wall-clock time: the 60 s of one test in `factoria test`, the 5 s of `script.eval`, the 2 s of a callback, the 10 s of a tool or a module load. A busy machine (a build running next to the tests) no longer fails a test that passes alone. A script blocked without using CPU is still stopped by a hard cap of 8 times the limit on the wall clock. The "script took too long" message now says which one ran out (`> 60 s of CPU time` or `> 480 s on the clock`) and the test message says to split the test. (docs/SCRIPTING.md)
 - The example games' tests, validations and perf budgets carry the ctest label `example` and run on optimized builds: `FA_EXAMPLE_TESTS=AUTO` (default) registers `example_*_test` and `example_*_perf` as `DISABLED` in a Debug build. `scripts/test-all.sh` (Windows: `scripts\agent-build.ps1 <dir> -Test -Examples`) is the one command before a push: the Debug suite plus a Release build running `ctest -L example`. (docs/BUILDING.md, "Running tests")
+- CI runs the tests in parallel on every platform (`ctest --parallel` with the runner's vCPUs). The perf budgets are
+  `RUN_SERIAL` so they still run alone. (docs/BUILDING.md, "Continuous integration")
 
 ### Tests
 
