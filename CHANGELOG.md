@@ -6,6 +6,10 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ### Changes
 
+- `scripts/setup-docker-macos.sh` installs Colima and Docker on a Mac and starts a VM with Rosetta; `scripts/ci-docker.sh`
+  runs the Linux and Windows (MinGW-w64 + Wine) jobs of `ci-local.sh` in an Ubuntu 24.04 `linux/amd64` container
+  (`tools/ci/docker/Dockerfile`), and `ci-local.sh` uses it on a Mac instead of skipping those jobs and `sniper`.
+
 - CI saves each job's ccache right after the build instead of at the end of the job, which `actions/cache` only does
   when every step passed: a run whose tests failed left the next run of the branch a stale cache (Windows rebuilt
   cold with 11% hits, 35-45 min).

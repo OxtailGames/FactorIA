@@ -456,15 +456,37 @@ and reports the others as skipped, with the reason:
 
 | Job | Runs on | What it checks |
 |---|---|---|
-| `linux` | Linux | full build + every ctest suite (GPU tests through Xvfb + Mesa llvmpipe) |
-| `windows` | Linux with `g++-mingw-w64-x86-64-posix` (+ `wine64 wine` to run tests) | Windows x64 cross-build (D3D11 backend), every unit-test `.exe` under Wine, and a CLI smoke test that creates, validates, tests and renders a game through D3D11 |
+| `linux` | Linux, or a Mac with Docker (see below) | full build + every ctest suite (GPU tests through Xvfb + Mesa llvmpipe) |
+| `windows` | Linux with `g++-mingw-w64-x86-64-posix` (+ `wine64 wine` to run tests), or a Mac with Docker (see below) | Windows x64 cross-build (D3D11 backend), every unit-test `.exe` under Wine, and a CLI smoke test that creates, validates, tests and renders a game through D3D11 |
 | `android` | any host with `ANDROID_NDK_HOME` (NDK r27+) | `factoria_player` for arm64-v8a |
 | `macos` | a Mac | macOS build + ctest |
 | `ios` | a Mac with Xcode | iOS Simulator app bundle with a demo game |
 | `web` | any host with `EMSDK` set (Emscripten 6.0.10), Node 22+ and Chrome or Chromium (`CHROME_BIN`) | the web player (`web-release`), the `factoria` CLI, a template game exported with `--platform web`, the zip checked as itch.io takes it (`index.html` at the root, at most 1000 files and 500 MB) and the export run in headless Chrome until `player: 60 frames rendered` (`scripts/web-smoke.sh`) |
-| `sniper` | Linux with Docker or Podman; only when named (`./scripts/ci-local.sh sniper`) | the Linux release programs built in the Steam Runtime sniper container, their symbol versions checked, and run in the sniper runtime (`scripts/build-sniper.sh all`) |
+| `sniper` | Linux with Docker or Podman, or a Mac with Docker; only when named (`./scripts/ci-local.sh sniper`) | the Linux release programs built in the Steam Runtime sniper container, their symbol versions checked, and run in the sniper runtime (`scripts/build-sniper.sh all`) |
 
 Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran failed.
+
+**Linux and Windows jobs on a Mac (Docker).** Run `./scripts/setup-docker-macos.sh` once: it installs Colima and the
+Docker CLI with Homebrew and starts a Colima VM (Apple Virtualization.framework with Rosetta, 6 CPUs, 8 GiB, 100 GiB
+disk; `FA_DOCKER_CPUS`, `FA_DOCKER_MEMORY` and `FA_DOCKER_DISK` change them). It is safe to run again. After that
+`./scripts/ci-local.sh` runs the `linux`, `windows` and `sniper` jobs through `./scripts/ci-docker.sh`, which you can
+also run on its own (`./scripts/ci-docker.sh linux windows`; exit code 77 means Docker is not set up, and `ci-local.sh`
+then skips those jobs). The jobs run in an Ubuntu 24.04 `linux/amd64` container (`tools/ci/docker/Dockerfile`, the
+GitHub runner's OS, built the first time) with the checkout mounted at `/src`. The Linux build trees, ccache, the Wine
+prefix and `~/.factoria` in the container live in Docker volumes (`factoria-ci-linux`, `factoria-ci-windows`,
+`factoria-ci-home`), so the second run is warm and your macOS build directories never see a Linux object;
+`FA_CI_DOCKER_RESET=1` deletes the volumes. A worktree's git directory is mounted read-only at its host path, so the
+build has an identity in the container.
+
+What the container does not reproduce. The `linux` job is the reliable one: the same Ubuntu 24.04 and GCC as the
+runner, with two differences. The `*_perf` budget tests are not run (the numbers are the runner's; emulated x86-64
+uses about 30% more memory and twice the CPU time; `FA_CI_DOCKER_PERF=1` runs them), and a test that races a child
+process (`core`: the process-tree test) can fail once under the emulation. The `windows` job (MinGW-w64 under
+Wine) is not a reference on a Mac: Ubuntu's Wine 9.0 under Rosetta has no `atan2` in its HLSL compiler, so every
+test that renders through D3D11 fails, some Windows file and process tests fail on the bind mount, and a hung
+program is stopped after `FA_CI_WINE_TIMEOUT` seconds (600). The build half of that job (the MinGW cross-compile)
+does catch Windows compile and link errors. For the Windows tests use a Windows host (`scripts/ci-remote-windows.sh`
+or the native MSVC build). Neither job reproduces MSVC, WARP, or the GitHub runner's CPU and ccache state.
 
 **The shader compiler.** Custom materials (`*.material.json`) are compiled with sokol-shdc, a separate program the
 build does not make (the release downloads carry it next to `factoria`, see Releasing). Install the pinned one with the CLI you just built: `factoria setup shaders` (about 10 MB, SHA-256
