@@ -2,7 +2,15 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-## Unreleased
+## 0.15.0
+
+FactorIA 0.15.0 (M50) is about pushes that pass CI the first time. Each failed CI round (a Windows file rule, a timing
+budget on a slow runner, an MSVC-only error) cost a day, so the checks CI makes now run before the push:
+`scripts/ci-preflight.sh` scans the diff for the patterns that failed before, runs the whole test suite, repeats the
+tests the change touches under load, runs the Linux job in a Docker container on the Mac and the native Windows check
+on a Windows PC of the same network, and prints what passed, failed or could not run. macOS and Linux test runs follow
+the Windows file rules, so the bugs that only Windows CI found show up on any machine; on the way it found that file
+times read as "missing" on Linux.
 
 ### Changes
 
@@ -23,7 +31,6 @@ The editor shows these notes when it offers an update, and each release on GitHu
 - `scripts/setup-docker-macos.sh` installs Colima and Docker on a Mac and starts a VM with Rosetta; `scripts/ci-docker.sh`
   runs the Linux and Windows (MinGW-w64 + Wine) jobs of `ci-local.sh` in an Ubuntu 24.04 `linux/amd64` container
   (`tools/ci/docker/Dockerfile`), and `ci-local.sh` uses it on a Mac instead of skipping those jobs and `sniper`.
-
 - **For engine developers:** the Mac can run the native Windows check (MSVC build, full ctest, example games) on a Windows
   PC on the same network over SSH before a push: `scripts/setup-windows-remote.sh` (Mac) and
   `scripts/setup-windows-remote.ps1` (the PC, administrator PowerShell, idempotent) set it up once, then
