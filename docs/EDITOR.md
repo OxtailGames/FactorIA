@@ -723,9 +723,11 @@ The icon of a game is its own (`factoria.json` `icon`, docs/EXPORTING.md), not t
   the autotest's own `factoria_home`; ctest never sets it.
   Run it with `FA_EDITOR_AUTOTEST=1 xvfb-run -a -s "-screen 0 1600x900x24" build/dev/tools/editor/fa_editor_autotest`
   (macOS: `FA_EDITOR_AUTOTEST=1 build/macos-debug/tools/editor/fa_editor_autotest`; Windows: set `FA_EDITOR_AUTOTEST=1` and run `fa_editor_autotest.exe` from the repository root; `FA_EDITOR_AUTOTEST=welcome` for the other).
-  The process exits with 1 if any check failed (`autotest_result.json` lists them). ctest splits the autotest into four
-  entries (`editor_autotest_1` to `_4`, a few sections each, see below) that `ctest -j` runs at the same time, each in its
-  own window, temp project and output folder (`<build>/test-output/editor/autotest_<n>`).
+  The process exits with 1 if any check failed (`autotest_result.json` lists them). ctest splits the autotest into five
+  entries (`editor_autotest_1` to `_5`, a few sections each, see below) that `ctest -j` runs at the same time, each in its
+  own window, temp project and output folder (`<build>/test-output/editor/autotest_<n>`). On Windows they share the ctest
+  resource lock `editor_autotest`, so one runs at a time beside the other tests (five editors at once on the CI runner's
+  software D3D11 ran past their timeout). Each entry has a 300 s timeout.
 
 The AI's commands run on the editor's main thread, but never for long at a time: queued commands share about 10 ms per frame, and `game.step` with many frames and `project.test` run in slices (frames / one test file per UI frame) so the window stays responsive while the AI works. The results are the same as a single call.
 
