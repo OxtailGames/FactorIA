@@ -234,7 +234,7 @@ std::filesystem::path corrupt_keep_path() {
 
 namespace {
 std::string read_whole_file(const std::filesystem::path& file, bool& ok) {
-    std::ifstream f(file, std::ios::binary);
+    fa::fs::ReadStream f(file, std::ios::binary);
     ok = bool(f);
     std::stringstream ss;
     if (f) ss << f.rdbuf();
@@ -245,7 +245,7 @@ std::string read_whole_file(const std::filesystem::path& file, bool& ok) {
 bool keep_damaged(const std::filesystem::path& file, const std::string& text, const std::string& what) {
     const std::filesystem::path keep = corrupt_keep_path();
     std::error_code ec;
-    std::filesystem::rename(file, keep, ec);
+    fs::replace_file(file, keep, ec);
     if (ec) {  // e.g. another volume: copy the bytes instead
         auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
         if (!w) {
@@ -278,7 +278,7 @@ void Impl::storage_write(const std::string& key, bool compress) {
 void Impl::storage_remove_file(const std::string& key) {
     if (storageMode == StorageMode::Memory) return;
     std::error_code ec;
-    std::filesystem::remove(storage_files::dir() / storage_files::file_name(key), ec);
+    fs::remove_file(storage_files::dir() / storage_files::file_name(key), ec);
     fs::user_dir_changed();
 }
 
@@ -346,7 +346,7 @@ void Impl::load_storage() {
         if (!storageMeta.count(it.key())) allWritten = false;
     }
     if (!allWritten) return;  // keep storage.json where it is; the next start tries again
-    std::filesystem::rename(legacy, fs::user_dir() / "storage.migrated.json", ec);
+    fs::replace_file(legacy, fs::user_dir() / "storage.migrated.json", ec);
     if (ec) log(LogLevel::Warn, "script", "storage.json was split into " + storage_files::dir().string() + " but could not be set aside: " + ec.message());
     else log(LogLevel::Info, "script", "storage.json was split into one file per key in " + storage_files::dir().string() + "; the old file is now storage.migrated.json");
     fs::user_dir_changed();
@@ -427,11 +427,11 @@ Json Impl::storage_clear_keys(const std::string& key, bool all) {
                 storage_files::Decoded d;
                 std::string problem;
                 if (storage_files::decode(read_whole_file(f, ok), d, problem) && ok) removed.insert(d.key);
-                std::filesystem::remove(f, ec);
+                fs::remove_file(f, ec);
             }
         } else {
             const std::filesystem::path f = root / storage_files::file_name(key);
-            if (std::filesystem::remove(f, ec)) removed.insert(key);
+            if (fs::remove_file(f, ec)) removed.insert(key);
         }
         fs::user_dir_changed();
     }
@@ -3543,7 +3543,7 @@ NATIVE(storageClear) {
         std::vector<std::filesystem::path> files;
         for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
             if (it->path().extension() == ".json") files.push_back(it->path());
-        for (const auto& f : files) std::filesystem::remove(f, ec);
+        for (const auto& f : files) fs::remove_file(f, ec);
         fs::user_dir_changed();
     }
     return JS_UNDEFINED;

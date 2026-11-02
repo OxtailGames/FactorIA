@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -28,6 +29,13 @@ struct TempProject {
         std::error_code ec;
         stdfs::remove_all(dir, ec);
     }
+};
+
+// Turns the Windows file rules on or off for a scope and puts the process's own setting back.
+struct RulesScope {
+    bool before = fs::windows_rules();
+    explicit RulesScope(bool on) { fs::set_windows_rules(on); }
+    ~RulesScope() { fs::set_windows_rules(before); }
 };
 }  // namespace
 
@@ -127,7 +135,8 @@ TEST_CASE("fs: a write replaces a file another thread is reading (Windows refuse
     REQUIRE(fs::write_text("data/shared.json", "{\"v\": 1}").ok());
     // A reader holds the file open (std::ifstream shares no delete access on Windows) and lets go a moment later, as the
     // editor's panels do when they poll a file another thread writes.
-    std::ifstream reader(fs::os_path(p.dir / "data" / "shared.json"), std::ios::binary);
+    // fs::ReadStream registers the file, so a Windows-rules run (FA_FS_WINDOWS_RULES, fs.h) refuses the replace like Windows.
+    fs::ReadStream reader(fs::os_path(p.dir / "data" / "shared.json"), std::ios::binary);
     REQUIRE(reader.good());
     std::thread release([&reader] {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -377,3 +386,164 @@ TEST_CASE("fs: a warm file that changed on disk is read again; unwarm drops it; 
     REQUIRE_FALSE(missing);
     CHECK(missing.error().message.find("nope.png") != std::string::npos);
 }
+
+// ---- Windows file rules (fs.h): what ctest turns on for every test on macOS and Linux -----------------------------------
+#ifndef _WIN32
+TEST_CASE("windows rules: a file open through ReadStream cannot be replaced; the write waits for the reader") {
+    RulesScope rules(true);
+    TempProject p;
+    REQUIRE(fs::write_text("data/a.json", "1").ok());
+    // Held for good: after the retries the write fails as on Windows, names the cause and leaves the original alone.
+    {
+        fs::ReadStream reader(fs::os_path(p.dir / "data" / "a.json"), std::ios::binary);
+        REQUIRE(reader.good());
+        const auto t0 = std::chrono::steady_clock::now();
+        const auto r = fs::write_text("data/a.json", "2");
+        const auto waited = std::chrono::steady_clock::now() - t0;
+        REQUIRE(!r.ok());
+        CHECK(r.error().message.find("being used by another process") != std::string::npos);
+        CHECK(waited > std::chrono::milliseconds(500));  // it tried for about a second
+        CHECK(fs::read_text("data/a.json").value() == "1");
+        CHECK(names_in(p.dir / "data") == std::vector<std::string>{"a.json"});  // no temporary file left
+        // The same holds for a delete, and read_text (which opens it again) does not break it.
+        std::error_code ec;
+        CHECK(!fs::remove_file(p.dir / "data" / "a.json", ec));
+        CHECK(fs::is_sharing_violation(ec));
+        CHECK(stdfs::exists(p.dir / "data" / "a.json"));
+    }
+    // Let go: the same write goes through at once (nothing left in the registry).
+    const auto t1 = std::chrono::steady_clock::now();
+    REQUIRE(fs::write_text("data/a.json", "2").ok());
+    CHECK(std::chrono::steady_clock::now() - t1 < std::chrono::milliseconds(300));
+    CHECK(fs::read_text("data/a.json").value() == "2");
+    std::error_code ec;
+    CHECK(fs::remove_file(p.dir / "data" / "a.json", ec));
+    CHECK(!ec);
+}
+
+TEST_CASE("windows rules: a reader that lets go within a moment does not lose the write (the retry path)") {
+    RulesScope rules(true);
+    TempProject p;
+    REQUIRE(fs::write_text("a.json", "1").ok());
+    fs::ReadStream reader(fs::os_path(p.dir / "a.json"), std::ios::binary);
+    REQUIRE(reader.good());
+    std::thread release([&reader] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(80));
+        reader.close();
+    });
+    const auto r = fs::write_text("a.json", "2");
+    release.join();
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
+    CHECK(fs::read_text("a.json").value() == "2");
+    // A reader that lets go while a delete waits.
+    fs::ReadStream again(fs::os_path(p.dir / "a.json"), std::ios::binary);
+    std::thread release2([&again] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(80));
+        again.close();
+    });
+    std::error_code ec;
+    CHECK(fs::remove_file(p.dir / "a.json", ec));
+    release2.join();
+    CHECK(!ec);
+}
+
+TEST_CASE("windows rules: fs::read_bytes holds the file open only while it reads, the registry forgets it after") {
+    RulesScope rules(true);
+    TempProject p;
+    REQUIRE(fs::write_text("a.json", "1").ok());
+    for (int i = 0; i < 20; ++i) {
+        REQUIRE(fs::read_text("a.json").ok());
+        REQUIRE(fs::write_text("a.json", std::to_string(i)).ok());  // would take a second each if a read stayed registered
+    }
+    // A failed open and a moved-from-nothing stream register nothing either.
+    { fs::ReadStream missing(fs::os_path(p.dir / "nope.json")); CHECK(!missing.good()); }
+    const auto t0 = std::chrono::steady_clock::now();
+    REQUIRE(fs::write_text("nope.json", "x").ok());
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(300));
+}
+
+TEST_CASE("windows rules: a folder with an open file inside is deleted except for that file, and reports the violation") {
+    RulesScope rules(true);
+    TempProject p;
+    REQUIRE(fs::write_text("tree/keep/open.txt", "o").ok());
+    REQUIRE(fs::write_text("tree/keep/other.txt", "o").ok());
+    REQUIRE(fs::write_text("tree/gone/x.txt", "x").ok());
+    REQUIRE(fs::write_text("tree/y.txt", "y").ok());
+    {
+        fs::ReadStream reader(fs::os_path(p.dir / "tree" / "keep" / "open.txt"), std::ios::binary);
+        REQUIRE(reader.good());
+        std::error_code ec;
+        fs::remove_tree(p.dir / "tree", ec);
+        CHECK(fs::is_sharing_violation(ec));
+        CHECK(stdfs::exists(p.dir / "tree" / "keep" / "open.txt"));
+        CHECK(!stdfs::exists(p.dir / "tree" / "keep" / "other.txt"));
+        CHECK(!stdfs::exists(p.dir / "tree" / "gone"));
+        CHECK(!stdfs::exists(p.dir / "tree" / "y.txt"));
+    }
+    std::error_code ec;
+    fs::remove_tree(p.dir / "tree", ec);
+    CHECK(!ec);
+    CHECK(!stdfs::exists(p.dir / "tree"));
+}
+
+TEST_CASE("windows rules: paths are case-insensitive and a relative or symlinked spelling meets the same file") {
+    RulesScope rules(true);
+    TempProject p;
+    REQUIRE(fs::write_text("Data/A.json", "1").ok());
+    fs::ReadStream reader(fs::os_path(p.dir / "Data" / "A.json"), std::ios::binary);
+    REQUIRE(reader.good());
+    // Other spellings of the same file: the folder in other letter case (Windows cannot tell the two apart), and a "." segment.
+    std::error_code ec;
+    fs::remove_tree(p.dir / "data", ec);
+    CHECK(fs::is_sharing_violation(ec));
+    CHECK(stdfs::exists(p.dir / "Data" / "A.json"));
+    ec.clear();
+    fs::replace_file(p.dir / "x.tmp", p.dir / "." / "Data" / "A.json", ec);
+    CHECK(fs::is_sharing_violation(ec));
+}
+
+TEST_CASE("windows rules: modified_time moves in steps of 15.625 ms") {
+    TempProject p;
+    REQUIRE(fs::write_text("a.json", "1").ok());
+    using Ns = std::chrono::nanoseconds;
+    const stdfs::path file = p.dir / "a.json";
+    // A time that is not on a step: 3 steps and 7.5 ms past the start of the clock's own epoch of a whole second.
+    const auto base = stdfs::last_write_time(file);
+    const std::int64_t baseNs = std::chrono::duration_cast<Ns>(base.time_since_epoch()).count();
+    const std::int64_t aligned = baseNs - ((baseNs % 1'000'000'000) + 1'000'000'000) % 1'000'000'000;  // a whole second
+    const std::int64_t odd = aligned + 3 * fs::kWindowsTimeStepNs + 7'500'000;
+    stdfs::last_write_time(file, stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(Ns(odd))));
+    const auto set = std::chrono::duration_cast<Ns>(stdfs::last_write_time(file).time_since_epoch()).count();
+    {
+        RulesScope off(false);
+        CHECK(fs::modified_time("a.json") == std::int64_t(stdfs::last_write_time(file).time_since_epoch().count()));
+    }
+    {
+        RulesScope on(true);
+        const std::int64_t t = fs::modified_time("a.json");
+        CHECK(t % fs::kWindowsTimeStepNs == 0);
+        CHECK(t <= set);
+        CHECK(set - t < fs::kWindowsTimeStepNs);
+        // Two writes less than a step apart keep one time: a detector comparing times alone misses the second.
+        stdfs::last_write_time(file, stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(Ns(odd + 5'000'000))));
+        CHECK(fs::modified_time("a.json") == t);
+        // A step later it differs.
+        stdfs::last_write_time(file, stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(Ns(odd + fs::kWindowsTimeStepNs))));
+        CHECK(fs::modified_time("a.json") == t + fs::kWindowsTimeStepNs);
+    }
+}
+
+TEST_CASE("windows rules: with the mode off ReadStream blocks nothing and costs the write nothing") {
+    RulesScope off(false);
+    TempProject p;
+    REQUIRE(fs::write_text("a.json", "1").ok());
+    fs::ReadStream reader(fs::os_path(p.dir / "a.json"), std::ios::binary);
+    REQUIRE(reader.good());
+    const auto t0 = std::chrono::steady_clock::now();
+    REQUIRE(fs::write_text("a.json", "2").ok());  // POSIX replaces a file that is open
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(300));
+    std::error_code ec;
+    CHECK(fs::remove_file(p.dir / "a.json", ec));
+    CHECK(!fs::is_sharing_violation(std::make_error_code(std::errc::io_error)));
+}
+#endif

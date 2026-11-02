@@ -7,6 +7,7 @@
 #include <system_error>
 
 #include "fa/core/build_info.h"
+#include "fa/core/fs.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -111,11 +112,9 @@ FileStamp file_stamp(const stdfs::path& file) {
     if (!stdfs::is_regular_file(file, ec)) return s;
     const auto size = stdfs::file_size(file, ec);
     if (ec) return s;
-    const auto time = stdfs::last_write_time(file, ec);
-    if (ec) return s;
     s.exists = true;
     s.size = size;
-    s.mtime = std::int64_t(time.time_since_epoch().count());
+    s.mtime = fs::host_modified_time(file);  // fs:: so the Windows file rules cover this change detector too
     return s;
 }
 

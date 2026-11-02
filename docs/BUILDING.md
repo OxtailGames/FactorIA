@@ -305,6 +305,22 @@ cmake --build build/my-build -j 2
   `ctest -L example`. `--debug-only` and `--examples-only` run one half; `FA_TEST_DEBUG_DIR`, `FA_TEST_RELEASE_DIR`,
   `FA_TEST_JOBS` and `FA_TEST_CTEST_JOBS` (default 3) tune it; ccache is used when installed. CI already builds Release,
   so its `ctest` runs the examples with no extra job.
+- **Windows file rules in tests (macOS and Linux).** Two Windows behaviours broke the engine and only the Windows CI job
+  found them: a file open for reading cannot be replaced or deleted (every `std::ifstream` opens without
+  `FILE_SHARE_DELETE`, so the atomic rename of `fs::write_bytes` fails while another thread reads the file), and a file's
+  modification time moves in steps of 15.625 ms, so a write right after a read keeps the time the read saw. On macOS and
+  Linux `ctest` runs every test with `fa::fs` emulating both (`FA_FS_WINDOWS_RULES_DEFAULT=1`, set by `add_test` in
+  `cmake/FactoriaHelpers.cmake`; `scripts/test-all.sh` too): a replace, rename or delete of a file held open through
+  `fs::ReadStream` (or `fs::read_bytes`) fails with a sharing violation after the same retries as on Windows, a folder
+  with such a file inside loses everything else and reports the violation, paths compare case-insensitively, and
+  `fs::modified_time` / `fs::host_modified_time` round down to 15.625 ms. A test that fails only with the mode on found a
+  real Windows bug: read the file with `fs::ReadStream` (not a bare `std::ifstream`, which the registry cannot see), and
+  never rely on a time change smaller than 16 ms. Details and limits: `core/fs.h`, "Windows file rules".
+  Switch it off for one run with `FA_FS_WINDOWS_RULES=0 ctest ...` (any value other than `0`, `false`, `off`, `no` turns
+  it on, also for a program run by hand: `FA_FS_WINDOWS_RULES=1 factoria test ...`), or for a build directory with
+  `cmake -DFA_TEST_WINDOWS_FILE_RULES=OFF`. A test that sets its own `ENVIRONMENT` property must `APPEND` to it
+  (`set_property(TEST <name> APPEND PROPERTY ENVIRONMENT ...)`); `set_tests_properties(... ENVIRONMENT ...)` replaces the
+  mode's variable.
 - **Time limits count CPU time.** The 60 s of one test of `factoria test`, the 5 s of `script.eval`, the 2 s of a callback
   and the like measure the CPU time the script thread spent (`CLOCK_THREAD_CPUTIME_ID`, `GetThreadTimes`), not the wall
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that
