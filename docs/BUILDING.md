@@ -588,6 +588,11 @@ run, that this is not a build or test failure, and exits 77; a dead PC is notice
 Only committed work is tested: uncommitted changes to tracked files are listed in a warning and not sent. The first run
 builds everything cold on the PC; later runs reuse `build\agent-preflight` and `build\agent-preflight-release` in the
 worktree. Do not start two runs at once (they share that worktree). The logs come back to `build/ci-logs/windows-remote/`.
+**Known limit (first real run):** an SSH session on Windows has no desktop, so the tests that open a window or a D3D11 swap
+chain (`editor_autotest_*`, `cli_player_frames`, the exported-game part of `cli_plugin`) fail there with
+`D3D11CreateDeviceAndSwapChain() failed`, and `script_instrument`'s timing check can be slower than on CI. Read those as
+not meaningful over SSH, and the build and the other tests as the result.
+
 `--wsl` fetches the commit into its own clone `~/FactorIA-preflight` in WSL (made by the first run, from the PC's
 `repo.git`); your `~/FactorIA` there is not used. It needs the WSL set-up of "Continuous integration" above, with
 `ANDROID_NDK_HOME` exported in `~/.profile` for the android job.
