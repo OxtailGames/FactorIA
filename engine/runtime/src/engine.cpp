@@ -557,6 +557,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     });
 
     I.ui.set_surface_pointer(make_ui_surface_pointer(I));  // the pointer through a render target shown on a mesh
+    I.ui.set_page_aim(make_ui_page_aim(I));                // ...and the way back: where to click a widget only such a mesh shows
 
     // World + input.
     I.world.rng().reseed(config.seed);

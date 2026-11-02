@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Fixes
+
+- `game.click` follows render-target pages. `widget` is now the widget the pointer reached when the button went down, through the same path the mouse takes: a widget on a page shown on a mesh (`Camera.renderTarget` + `MeshRenderer.texture "target:<name>"`) is named, also when the click removes or changes it in that frame (it used to read `null` when the press already turned the page). The result adds `via: {mesh, target}` (the MeshRenderer entity and the render-target camera) when the click went through a page; `render.pick` reports the same `widget` and `via`. `game.click {id}` (and `game.click(id)` in a test) of an Interactable that only a page shows is aimed backwards (widget in the target camera's view, matching point of the mesh, its place on the screen) and clicks where the pointer really reaches that widget; when it cannot, the error says why (no mesh shows the target, mesh inactive / off screen / covered, widget outside the camera's view, a target shown inside another target) instead of "click the mesh with game.click {position}". New `surface_points_at_uv` (fa/scene/mesh_surface.h) and `UiSystem::click_aim` / `interactable_quad`.
+
 ## 0.13.0
 
 FactorIA 0.13.0 (M48) makes every command reject arguments it does not know. Until now a key a command's schema did not declare was dropped without a word, so a typo (`{"entiy": ...}`) or an argument from a newer engine (`game.input {"frames": 2}` before 0.12.0) looked like it worked while doing nothing. Now it is an `invalid_arguments` error that names the key, says where it is and suggests the right one; `describe` and MCP's `tools/list` show the closed schemas, so a model client sees exactly what is accepted.
