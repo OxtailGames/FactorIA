@@ -30,6 +30,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/core/build_info.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 #include "fa/scene/ui_tooltip.h"
@@ -85,7 +86,7 @@ struct ProjectSettings {
     std::string name = "Untitled";
     std::string id = "com.example.game";
     std::string version = "0.1.0";
-    std::string engineVersion = FA_ENGINE_VERSION;
+    std::string engineVersion = engine_version();
     std::string mainScene = "scenes/main.scene.json";
     int width = 1280;
     int height = 720;

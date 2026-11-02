@@ -1,3 +1,4 @@
+#include "fa/core/engine_version.h"
 #include "fa/ai/review.h"
 
 #include <algorithm>
@@ -228,9 +229,7 @@ Result<Review> save_review(const std::string& projectDir, Review r) {
     if (projectDir.empty()) return make_error("No project is open, so the review cannot be saved", "Open a project first.");
     if (r.time.empty()) r.time = now_stamp("%Y-%m-%dT%H:%M:%S");
     if (r.engineVersion.empty()) {
-#ifdef FA_ENGINE_VERSION
         r.engineVersion = FA_ENGINE_VERSION;
-#endif
     }
     if (r.gameName.empty() || r.gameVersion.empty()) {
         if (auto text = fs::read_text((fsys::path(projectDir) / "factoria.json").string())) {

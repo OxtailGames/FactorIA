@@ -90,8 +90,9 @@ All three work on the project they run in (`--project DIR`) and are also MCP too
 - `factoria call perf.check` measures with the settings of the file and compares. Memory, draw calls and entities past
   their limit always fail. A time past its limit fails when the `CI` environment variable is set (GitHub Actions sets it)
   and only warns (`status: "warn"`) elsewhere, because a developer machine can be busy while the full test suite runs;
-  `{"strictTime":true}` makes it fail anywhere. A time over its limit is measured a second time before it counts. A
-  failure is the error `perf_budget_exceeded`, with every metric's measured value, limit and baseline.
+  `{"strictTime":true}` makes it fail anywhere. A time over its limit is measured up to twice more, and the best time of
+  each metric counts: a shared CI machine can run a few times slower for some seconds, while a game that got heavier is
+  slow every time. A failure is the error `perf_budget_exceeded`, with every metric's measured value, limit and baseline.
 - `factoria call perf.measure` just measures.
 - **Budgets for what a scene draws.** Besides the baseline, `perf.json` may hold absolute caps that fail whatever the
   baseline says, on any runner and also where there is no baseline yet:

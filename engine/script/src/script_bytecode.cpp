@@ -1,4 +1,5 @@
 // Compiled scripts (QuickJS bytecode) for game packs: fa/script/bytecode.h. The loader side is in script_system.cpp.
+#include "fa/core/engine_version.h"
 #include "fa/script/bytecode.h"
 
 #include <cstdio>

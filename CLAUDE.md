@@ -14,9 +14,16 @@ cmake --build build/dev -j4
 ctest --test-dir build/dev --output-on-failure
 ```
 
+- The example games' tests (`example_*`, ctest label `example`) run the whole engine for minutes, so they are DISABLED in
+  a Debug build and run on a Release one: `ctest -L example` in a Release build dir (`FA_EXAMPLE_TESTS`, docs/BUILDING.md).
+  **`scripts/test-all.sh` is the one command that does both**: Debug build of every target + the Debug suite, then a
+  Release build of `factoria` + `ctest -L example` (`--debug-only` / `--examples-only` for one half; Windows:
+  `scripts\agent-build.ps1 build\agent-<name> -Test -Examples`). Script time limits (60 s per test, 5 s eval, 2 s
+  callbacks) count CPU time, so a loaded machine does not fail them.
+
 - Build a single module's tests: `cmake --build build/dev --target fa_test_core`.
 - Editor autotest while iterating: `FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M <build>/tools/editor/fa_editor_autotest`
-  runs only those sections (docs/EDITOR.md, "Run only some sections"); the full `ctest` is still required before a push.
+  runs only those sections (docs/EDITOR.md, "Run only some sections"); the full run (`scripts/test-all.sh`) is still required before a push.
 - Windows, from any shell (loads MSVC itself; prints only errors, unique warnings and failing tests, full logs in the
   build dir): `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\agent-<name>
   [-Target fa_test_core] [-Tests core | -Test]`.
@@ -106,8 +113,8 @@ check passes and deletes its branch:
 - Start from the latest `origin/main` (`git fetch` first); merge `origin/main`
   into the branch again before opening the PR. If the task needs work whose PR
   has not merged yet, branch from that PR's branch instead.
-- Before every push, build every target (`cmake --build <dir>`, no `--target`)
-  and run the full `ctest`, not only the tests of the module you changed. CI
+- Before every push run `scripts/test-all.sh`: every target built in Debug and the full Debug `ctest`, then the example
+  games on a Release build (`ctest -L example`), not only the tests of the module you changed. CI
   should only find what this machine cannot run (other platforms, mobile).
 - Open the PR and turn on auto-merge with a merge commit (no need to ask):
   `gh pr merge <n> --auto --merge`. If CI fails, fix it on the same branch;

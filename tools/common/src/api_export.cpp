@@ -1,3 +1,4 @@
+#include "fa/core/engine_version.h"
 #include "fa/tooling/api_export.h"
 
 #include <algorithm>

@@ -1,3 +1,4 @@
+#include "fa/core/engine_version.h"
 #include "fa/tooling/self_update.h"
 
 #include <chrono>

@@ -1,5 +1,6 @@
 // Feedback sharing, client side: environment, user settings, outbox, queue and send, and the commands
 // (fa/tooling/feedback_share.h; contract: docs/design/FEEDBACK_SHARING.md).
+#include "fa/core/engine_version.h"
 #include "fa/tooling/feedback_share.h"
 
 #include <algorithm>
@@ -22,9 +23,6 @@
 #endif
 #ifndef FA_FEEDBACK_GITHUB_CLIENT_ID
 #define FA_FEEDBACK_GITHUB_CLIENT_ID ""
-#endif
-#ifndef FA_ENGINE_VERSION
-#define FA_ENGINE_VERSION "0.0.0"
 #endif
 
 namespace fa {
@@ -792,6 +790,19 @@ int share_drop(const ShareEnv& env, const std::vector<std::string>& keys) {
     }
     if (n) (void)save_outbox(env, box);
     return n;
+}
+
+void share_skip(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids, const std::string& reason) {
+    if (ids.empty()) return;
+    Outbox box = load_outbox(env);
+    bool boxChanged = false;
+    for (std::size_t i = box.items.size(); i-- > 0;)
+        if (box.items[i].file == feedbackFile && contains(ids, box.items[i].localId)) {
+            box.items.erase(box.items.begin() + std::ptrdiff_t(i));
+            boxChanged = true;
+        }
+    if (boxChanged) (void)save_outbox(env, box);
+    for (const std::string& id : ids) write_entry_shared(feedbackFile, id, shared_state(env, "skipped", reason));
 }
 
 Result<void> set_share_mode(const ShareEnv& env, ShareMode mode) {

@@ -295,6 +295,52 @@ std::optional<Rect> UiSystem::interactable_rect(const World& w, Entity e, Vec2 d
     return again ? again->rect : first->rect;
 }
 
+std::optional<std::array<Vec2, 4>> UiSystem::interactable_quad(const World& w, Entity e, Vec2 design, const VisualMeasure& measure,
+                                                               const UiProjectFn& project, const CameraMask& mask) const {
+    if (!ui_detail::is_custom(w, e) || !w.active_in_hierarchy(e)) return std::nullopt;
+    for (ui_detail::Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project, nullptr, mask))
+        if (it.e == e) return it.quad;
+    return std::nullopt;
+}
+
+UiClickAim UiSystem::click_aim(const World& w, Entity e, Vec2 design, const VisualMeasure& measure) const {
+    UiClickAim out;
+    if (!ui_detail::is_custom(w, e)) return out;
+    if (!w.active_in_hierarchy(e)) {
+        out.problem = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
+        return out;
+    }
+    bool hidden = false;
+    const std::optional<Rect> box = interactable_rect(w, e, design, measure, &hidden);
+    const Vec2 centre = box ? Vec2{box->x + box->w / 2, box->y + box->h / 2} : Vec2{};
+    // The main view shows it where the player can click: that is the place (a widget far off screen is not).
+    if (box && centre.x >= 0 && centre.y >= 0 && centre.x <= design.x && centre.y <= design.y) {
+        out.point = centre;
+        return out;
+    }
+    if (pageAim_) {
+        UiPageAim page = pageAim_(e);
+        if (page.point) {
+            out.point = page.point;
+            out.mesh = page.mesh;
+            out.camera = page.camera;
+            return out;
+        }
+        if (page.relevant) {
+            out.problem = std::move(page.problem);
+            return out;
+        }
+    }
+    if (box) {
+        out.point = centre;  // off the screen, and no page shows it: the click goes where the main view puts it
+        return out;
+    }
+    out.problem = hidden ? "the camera that draws where it is does not draw it (Camera.showTags / hideTags), so a click through that camera cannot "
+                           "reach it, and no camera with a Camera.renderTarget draws it either"
+                         : "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from";
+    return out;
+}
+
 void UiSystem::sync_interactables(World& w, Vec2 design, const VisualMeasure& measure) {
     const bool anyIa = !w.entities_with(&World::type_of<Interactable>()).empty();
     const bool anyVis = !w.entities_with(&World::type_of<InteractableVisual>()).empty();
