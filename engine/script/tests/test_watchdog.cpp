@@ -1,6 +1,9 @@
 // The script watchdog: a callback stopped for running too long ends only itself.
 #include <doctest.h>
 
+#include <chrono>
+#include <thread>
+
 #include "test_host.h"
 
 using namespace fa;
@@ -131,4 +134,54 @@ TEST_CASE("Array.prototype.find and its variants keep the standard behaviour") {
 ])");
     REQUIRE(r.ok());
     CHECK(r->dump() == R"([2,-1,2,1,true,true,-1,"b",5,0,0,true,true,true,true,true])");
+}
+
+// The limit counts the CPU time of the script, not the wall clock: a loaded machine, or a native call that waits, does not
+// stop a script. A hard cap of 8 times the limit on the clock still stops a script blocked for good.
+namespace {
+ScriptPlugin napping_plugin() {
+    ScriptPlugin p;
+    p.name = "nap";
+    p.functions.push_back({"ms", "Blocks the calling thread for the given milliseconds (a test of the watchdog).",
+                           [](const Json& args) {
+                               std::this_thread::sleep_for(std::chrono::milliseconds(args.at(0).get<int>()));
+                               return Json(nullptr);
+                           }});
+    return p;
+}
+
+void run_nap_case(TestHost& h, const std::string& body) {
+    h.file("scripts/nap.js", "import { Behaviour, plugins } from \"factoria\";\nglobalThis.frames = 0;\n"
+                             "export default class Nap extends Behaviour {\n  onUpdate() {\n" + body + "\n  }\n}\n");
+    h.file("scenes/main.scene.json", watchdog_scene(Json::array({script_entity("nap", "scripts/nap.js")})).dump());
+    h.scripts.set_plugins({napping_plugin()});
+    REQUIRE(h.start());
+    h.scripts.set_callback_limit(0.2);
+    h.load_scene_now("scenes/main.scene.json");
+    h.step_frames(1);
+}
+}  // namespace
+
+TEST_CASE("watchdog: a busy loop is stopped by CPU time and the message names the limit and the unit") {
+    TestHost h("watchdog_cpu");
+    run_nap_case(h, "    while (true) {}");
+    REQUIRE(count_errors(h.scripts, "took too long") == 1);
+    CHECK(count_errors(h.scripts, "0.2 s of CPU time") == 1);
+}
+
+TEST_CASE("watchdog: time spent waiting in a native is not charged to the script") {
+    TestHost h("watchdog_wait");
+    // 0.5 s on the clock is 2.5 times the CPU limit (0.2 s) but under the wall cap (1.6 s); the script uses almost no CPU.
+    run_nap_case(h, "    plugins.nap.ms(500); globalThis.frames++;");
+    CHECK(count_errors(h.scripts, "took too long") == 0);
+    auto frames = h.scripts.eval("frames");
+    REQUIRE(frames.ok());
+    CHECK(frames->get<int>() == 1);
+}
+
+TEST_CASE("watchdog: a script blocked past the wall-clock cap is stopped") {
+    TestHost h("watchdog_wall");
+    run_nap_case(h, "    plugins.nap.ms(1900); while (true) {}");  // cap = 8 x 0.2 s = 1.6 s
+    REQUIRE(count_errors(h.scripts, "took too long") == 1);
+    CHECK(count_errors(h.scripts, "1.6 s on the clock") == 1);
 }

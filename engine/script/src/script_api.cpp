@@ -416,7 +416,7 @@ Json ScriptSystem::Impl::api_manifest() const {
     out["notes"] = Json::array({"Component views are live: body.velocity.x = 3 writes into the engine.",
                                 "Enums are lowercase strings; asset fields are path strings; Json fields are plain-object copies.",
                                 "Math.random is routed to the deterministic world RNG; prefer rng.*.",
-                                "Callbacks that run longer than 2 s are aborted with 'script took too long'."});
+                                "Callbacks that use more than 2 s of CPU time are aborted with 'script took too long'."});
     return out;
 }
 

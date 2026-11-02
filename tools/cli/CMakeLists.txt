@@ -121,18 +121,29 @@ if(FA_BUILD_TESTS)
     if(DEFINED ENV{CI} AND NOT "$ENV{CI}" STREQUAL "" AND NOT "$ENV{CI}" STREQUAL "0" AND NOT "$ENV{CI}" STREQUAL "false")
         set(fa_perf_require true)
     endif()
-    # Scripts run several times slower in a Debug build: Clockwork Courier's tests take about 50 s in Release (CI) and
-    # 250-420 s in Debug on a busy developer machine.
-    set(fa_example_timeout 300)
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(fa_example_timeout 900)
+    # The example games run the whole engine for minutes (Clockwork Courier's tests take about 50 s in Release and 250-420 s in
+    # Debug on a busy developer machine), so they are tests of an optimized build: FA_EXAMPLE_TESTS=AUTO (the default) enables
+    # them in Release, RelWithDebInfo, MinSizeRel and multi-config generators, and registers them DISABLED in Debug or an
+    # unoptimized build (ctest lists them as "Not Run (Disabled)"; the validation of each example still runs). ON or OFF forces it.
+    # All of them carry the ctest label `example`: `ctest -L example` runs them, `ctest -LE example` leaves them out.
+    set(FA_EXAMPLE_TESTS "AUTO" CACHE STRING "Run the example games' tests and perf budgets: AUTO (optimized builds only), ON, OFF")
+    set_property(CACHE FA_EXAMPLE_TESTS PROPERTY STRINGS AUTO ON OFF)
+    set(fa_examples_disabled false)
+    if(FA_EXAMPLE_TESTS STREQUAL "OFF" OR (FA_EXAMPLE_TESTS STREQUAL "AUTO" AND (CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "")
+                                           AND NOT CMAKE_CONFIGURATION_TYPES))
+        set(fa_examples_disabled true)
+        message(STATUS "Example game tests are DISABLED in this build (FA_EXAMPLE_TESTS=${FA_EXAMPLE_TESTS}, build type "
+            "'${CMAKE_BUILD_TYPE}'): run them with scripts/test-all.sh, or configure an optimized build and run `ctest -L example`")
     endif()
+    set(fa_example_timeout 300)
     foreach(ex ${FA_EXAMPLE_PROJECTS})
         if(EXISTS ${ex}/factoria.json)
             get_filename_component(ex_name ${ex} NAME)
             add_test(NAME example_${ex_name}_validate COMMAND factoria validate ${ex} WORKING_DIRECTORY ${FA_ROOT})
             add_test(NAME example_${ex_name}_test COMMAND factoria test ${ex} WORKING_DIRECTORY ${FA_ROOT})
-            set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu" TIMEOUT ${fa_example_timeout})
+            set_tests_properties(example_${ex_name}_validate PROPERTIES LABELS "example")
+            set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu;example" TIMEOUT ${fa_example_timeout}
+                DISABLED ${fa_examples_disabled})
             # Performance budget (docs/PERFORMANCE.md): a fixed number of frames with the GPU renderer, compared with the
             # baseline of this runner in tests/perf/<example>.perf.json. Memory and draw calls fail always, a time only in CI
             # (the CI environment variable). A runner with no baseline fails in CI and prints the entry to commit; on a
@@ -149,7 +160,8 @@ if(FA_BUILD_TESTS)
                 add_test(NAME example_${perf_name}_perf
                     COMMAND factoria call --no-graphics --project ${ex} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/${perf_name}.args.json
                     WORKING_DIRECTORY ${FA_ROOT})
-                set_tests_properties(example_${perf_name}_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600)
+                set_tests_properties(example_${perf_name}_perf PROPERTIES LABELS "gpu;perf;example" TIMEOUT 600
+                    DISABLED ${fa_examples_disabled})
             endforeach()
         endif()
     endforeach()

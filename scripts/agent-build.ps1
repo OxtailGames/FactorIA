@@ -3,7 +3,10 @@
 .SYNOPSIS
     Build (and test) a Ninja + MSVC Debug tree from any shell, printing only what matters. See docs/BUILDING.md.
 
-        powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\agent-<name> [-Target fa_test_core[,fa_test_scene]] [-Test] [-Tests <ctest -R regex>] [-Jobs 8]
+        powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\agent-<name> [-Target fa_test_core[,fa_test_scene]] [-Test] [-Tests <ctest -R regex>] [-Examples] [-Jobs 8]
+
+    The full check before a push: -Test -Examples (the Debug suite, then a Release build of factoria in <BuildDir>-release
+    running `ctest -L example`, the example games' tests, which are disabled in a Debug build). -ExamplesOnly skips the Debug part.
 #>
 [CmdletBinding()]
 param(
@@ -18,6 +21,12 @@ param(
 
     # Run only the tests matching this regex (ctest -R); implies -Test.
     [string]$Tests,
+
+    # After the Debug part: build factoria in Release (<BuildDir>-release) and run the example games' tests (ctest -L example).
+    [switch]$Examples,
+
+    # Only the Release example run (implies -Examples; no Debug build or tests).
+    [switch]$ExamplesOnly,
 
     [int]$Jobs = 8
 )
@@ -64,6 +73,34 @@ foreach ($tool in 'cl', 'cmake', 'ninja', 'ctest') {
         Stop-Build "$tool not found after loading the MSVC environment. Install the VS 2022 workload 'Desktop development with C++' (it includes CMake and Ninja)."
     }
 }
+
+if ($ExamplesOnly) { $Examples = $true }
+
+# Release build of the CLI and `ctest -L example`: the example games run the whole engine for minutes, so they are tests of
+# an optimized build (FA_EXAMPLE_TESTS, docs/BUILDING.md).
+function Invoke-ExampleTests {
+    $relDir = "$BuildDir-release"
+    New-Item -ItemType Directory -Force -Path $relDir | Out-Null
+    if (-not (Test-Path -LiteralPath (Join-Path $relDir 'build.ninja'))) {
+        $log = Join-Path $relDir 'agent-configure.log'
+        if (Invoke-Logged $log "cmake -S . -B `"$relDir`" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl") {
+            Get-Content -LiteralPath $log -Tail 40
+            Stop-Build "release configure failed (full log: $log)"
+        }
+    }
+    $log = Join-Path $relDir 'agent-build.log'
+    if (Invoke-Logged $log "cmake --build `"$relDir`" -j $Jobs --target factoria") {
+        Get-Content -LiteralPath $log -Tail 40
+        Stop-Build "release build failed (full log: $log)"
+    }
+    Write-Output "release build: ok ($relDir)"
+    $log = Join-Path $relDir 'agent-ctest.log'
+    $rc = Invoke-Logged $log "ctest --test-dir `"$relDir`" -L example -j 3 --output-on-failure"
+    Get-Content -LiteralPath $log | Where-Object { $_ -match '\*\*\*|^\d+% tests passed|^Total Test time|^\s+\d+ - .+\(|No tests were found' }
+    Write-Output "example tests: $(if ($rc) { 'FAILED' } else { 'ok' }). Full log: $log"
+    if ($rc) { exit 1 }
+}
+if ($ExamplesOnly) { Invoke-ExampleTests; exit 0 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $BuildDir 'build.ninja'))) {
     $log = Join-Path $BuildDir 'agent-configure.log'
@@ -131,3 +168,5 @@ if ($Test -or $Tests) {
         exit 1
     }
 }
+
+if ($Examples) { Invoke-ExampleTests }
