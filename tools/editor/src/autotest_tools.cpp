@@ -4587,6 +4587,9 @@ void Editor::at_build_tools_script() {
         step(3, [this] { at_check(share_.consentOpen && share_.sendAfterConsent && !share_.sendOpen, "Send feedback with no mode chosen asks first"); });
         click("share:consent:ask");
         wait_until([this] { return share_.sendOpen && at_visible("send:check:FB-0001"); });
+        // The AI check answers from a thread; with no AI set up it says so after the local servers refused to connect (slow
+        // on Windows, where a refused connection is retried for a while).
+        wait_until([this] { return !share_.sendAiAvailable; });
         // ---- the Send feedback window
         step(3, [this, send_row, reports] {
             at_check(load_share_settings(share_env()).mode == ShareMode::Ask && !share_.consentOpen,
