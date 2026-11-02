@@ -13,6 +13,9 @@ FactorIA 0.14.1 makes the test runs of game authors and engine developers stop f
 - The example games' tests, validations and perf budgets carry the ctest label `example` and run on optimized builds: `FA_EXAMPLE_TESTS=AUTO` (default) registers `example_*_test` and `example_*_perf` as `DISABLED` in a Debug build. `scripts/test-all.sh` (Windows: `scripts\agent-build.ps1 <dir> -Test -Examples`) is the one command before a push: the Debug suite plus a Release build running `ctest -L example`. (docs/BUILDING.md, "Running tests")
 - CI runs the tests in parallel on every platform (`ctest --parallel` with the runner's vCPUs). The perf budgets are
   `RUN_SERIAL` so they still run alone. (docs/BUILDING.md, "Continuous integration")
+- `perf.check` measures a time over its limit up to twice more (it was once) and keeps the best time of each metric: a
+  shared CI machine can run a few times slower for some seconds. A game that got heavier is slow every time and still
+  fails. (docs/PERFORMANCE.md)
 
 ### Tests
 
