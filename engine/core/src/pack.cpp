@@ -177,7 +177,7 @@ Result<void> PackWriter::write(const stdfs::path& out) const {
     file.close();
     if (!file) return fail("Cannot write " + quoted(tmp), "Is the disk full?");
 
-    stdfs::rename(osTmp, fs::os_path(out), ec);
+    fs::replace_file(osTmp, fs::os_path(out), ec);
     if (ec) return fail("Cannot move the finished pack to " + quoted(out) + ": " + ec.message(), "Is a file of that name open in another program?");
     return {};
 }

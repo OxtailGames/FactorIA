@@ -151,6 +151,18 @@ folder: use `fs::`, or the file will be missing from a packed game. The pack rea
 it is safe from any thread. `script/bytecode.h` compiles scripts for the pack; the module loader reads a compiled script from
 the same `.js` path.
 
+**Windows file rules.** Windows refuses to replace or delete a file another thread has open for reading and moves a file's
+time in steps of about 15.6 ms; POSIX does neither, so bugs that follow from them only showed in the Windows CI job. On
+macOS and Linux the environment variable `FA_FS_WINDOWS_RULES=1` (ctest sets it for every test: docs/BUILDING.md, "Running
+tests") makes `fa::fs` follow both rules: `fs::ReadStream` (a `std::ifstream` that registers its file while open; `fs::read_*`
+use it) makes `fs::replace_file`, `fs::remove_file`, `fs::remove_tree` and `fs::write_bytes` fail on that file the way Windows
+does, and `fs::modified_time` / `fs::host_modified_time` round down to 15.625 ms. Code that reads a file another thread or
+process writes uses `fs::ReadStream` (or `fs::read_*`) instead of `std::ifstream`; code that replaces or deletes a file
+that may be read uses `fs::replace_file` / `fs::remove_file` (they wait for readers, as `write_bytes` does) instead of
+`std::filesystem::rename` / `remove`; a change detector uses `fs::modified_time` / `host_modified_time` instead of
+`std::filesystem::last_write_time`, and still reads once more after a change (a time that did not move does not prove the
+file did not change). With the mode off, the registry costs one atomic load per call.
+
 ### Game loop
 See `engine/runtime/include/fa/runtime/engine.h`. Fixed-step simulation
 (default 60 Hz) + variable render. Headless `Engine::step(n)` advances exactly

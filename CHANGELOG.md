@@ -10,6 +10,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
   failed CI before, `scripts/test-all.sh`, a stress pass (the editor autotests and example tests the diff touches, repeated under
   CPU load), the other platforms of `scripts/ci-local.sh` and the Docker/remote Windows scripts when present, and a PASS/FAIL/SKIP
   summary (docs/BUILDING.md, "Before a push").
+- **For engine developers:** the "Windows file rules" mode of `fa::fs` makes macOS and Linux test runs find the file bugs
+  that only the Windows CI job found. With `FA_FS_WINDOWS_RULES=1` a file open through the new `fs::ReadStream` (or
+  `fs::read_bytes` / `read_text`) cannot be replaced, renamed or deleted (`fs::write_bytes`, the new `fs::replace_file` and
+  `fs::remove_file`, `fs::remove_tree` fail with a sharing violation after the retries Windows needs), and
+  `fs::modified_time` / the new `fs::host_modified_time` round a file's time down to 15.625 ms. `ctest` turns it on for
+  every test on macOS and Linux (`FA_FS_WINDOWS_RULES=0 ctest` for one run without; `-DFA_TEST_WINDOWS_FILE_RULES=OFF`
+  for a build). Change detectors of the editor, the checkpoint store, the MCP module watcher and self-update read times
+  through `fs::`; the readers of files that other threads write (stores, settings, chats, the project file, progress
+  files) read through `fs::ReadStream`; their replaces and deletes go through `fs::replace_file` / `remove_file`.
+  (docs/BUILDING.md, "Running tests"; docs/ARCHITECTURE.md, "Files")
 - CI saves each job's ccache right after the build instead of at the end of the job, which `actions/cache` only does
   when every step passed: a run whose tests failed left the next run of the branch a stale cache (Windows rebuilt
   cold with 11% hits, 35-45 min).

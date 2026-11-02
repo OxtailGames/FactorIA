@@ -1,3 +1,4 @@
+#include "fa/core/fs.h"
 #include "fa/core/hash.h"
 
 #include <algorithm>
@@ -37,7 +38,7 @@ void pad_and_finish(Hasher& h, std::uint64_t totalBytes) {
 
 template <class Hasher>
 Result<std::string> hash_file(const std::filesystem::path& path, Hasher h) {
-    std::ifstream in(path, std::ios::binary);
+    fa::fs::ReadStream in(path, std::ios::binary);
     if (!in)
         return make_error("Cannot read " + path.string() + " to compute its checksum.",
                           "Check that the file exists and is readable.");

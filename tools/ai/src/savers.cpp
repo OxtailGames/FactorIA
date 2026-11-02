@@ -46,7 +46,7 @@ Json fresh_store() { return Json::object({{"version", 1}, {"runs", Json::object(
 Json load_store(std::string_view projectDir) {
     Json j = fresh_store();
     if (projectDir.empty()) return j;
-    std::ifstream in(store_path(projectDir), std::ios::binary);
+    fa::fs::ReadStream in(store_path(projectDir), std::ios::binary);
     if (!in) return j;
     std::stringstream ss;
     ss << in.rdbuf();
@@ -352,7 +352,7 @@ Result<Json> answer_fact(std::string_view projectDir, std::string_view id, Saver
         if (line.rfind("- ", 0) != 0) line = "- " + line;
         const fsys::path file = fsys::path(std::string(projectDir)) / "AGENTS.md";
         std::string text;
-        if (std::ifstream in(file, std::ios::binary); in) {
+        if (fa::fs::ReadStream in(file, std::ios::binary); in) {
             std::stringstream ss;
             ss << in.rdbuf();
             text = ss.str();

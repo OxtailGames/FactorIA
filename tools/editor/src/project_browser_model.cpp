@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <map>
 
+#include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "inspector_model.h"
@@ -66,8 +67,8 @@ std::string recipe_inputs_stamp(const std::string& projectDir, const ProjectList
             std::error_code ec;
             const stdfs::path file = stdfs::path(projectDir) / in;
             const auto size = stdfs::file_size(file, ec);
-            const auto time = ec ? stdfs::file_time_type::min() : stdfs::last_write_time(file, ec);
-            out += in + ':' + (ec ? std::string("-") : std::to_string(std::uint64_t(size)) + '@' + std::to_string(std::int64_t(time.time_since_epoch().count()))) + ';';
+            const std::int64_t time = ec ? -1 : fs::host_modified_time(file);  // fs:: so the Windows file rules cover it
+            out += in + ':' + (ec ? std::string("-") : std::to_string(std::uint64_t(size)) + '@' + std::to_string(time)) + ';';
         }
     return out;
 }

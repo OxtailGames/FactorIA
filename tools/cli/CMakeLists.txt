@@ -58,7 +58,8 @@ if(FA_BUILD_TESTS)
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration.py $<TARGET_FILE:factoria>
             WORKING_DIRECTORY ${FA_ROOT})
         # Template JS tests must pass (strict): templates are what every new game starts from.
-        set_tests_properties(cli_integration PROPERTIES TIMEOUT 600 ENVIRONMENT "FA_CLI_STRICT_TESTS=1" LABELS "gpu")
+        set_tests_properties(cli_integration PROPERTIES TIMEOUT 600 LABELS "gpu")
+        set_property(TEST cli_integration APPEND PROPERTY ENVIRONMENT "FA_CLI_STRICT_TESTS=1")  # APPEND: keeps the Windows-rules variable
 
         # Native plugins end to end: the template plugin (platforms/plugin) built as the plugin "example", loaded by
         # `factoria run` and by the game `factoria export` makes (which opens a window: label gpu).
@@ -191,7 +192,8 @@ if(FA_BUILD_TESTS)
         COMMAND factoria call --no-graphics --project ${fx} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/regression.args.json
         WORKING_DIRECTORY ${FA_ROOT})
     set_tests_properties(perf_regression_detected PROPERTIES LABELS "gpu;perf" TIMEOUT 300
-        ENVIRONMENT "FACTORIA_PERF_RUNNER=regression-test" PASS_REGULAR_EXPRESSION "perf_budget_exceeded")
+        PASS_REGULAR_EXPRESSION "perf_budget_exceeded")
+    set_property(TEST perf_regression_detected APPEND PROPERTY ENVIRONMENT "FACTORIA_PERF_RUNNER=regression-test")  # APPEND: keeps the Windows-rules variable
     # The finished project of docs/MAKE_BY_HAND.md. Tutorial and fixture are one thing: when one changes, change the other
     # (the `cli` test "docs/MAKE_BY_HAND.md: every file it gives is the tested fixture's" fails when they differ).
     set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/gem-grab)

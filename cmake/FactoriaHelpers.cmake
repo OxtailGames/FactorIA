@@ -123,3 +123,16 @@ function(fa_embed_files target ns header_name)
     target_sources(${target} PRIVATE ${out_cpp} ${out_h})
     target_include_directories(${target} PRIVATE ${out_dir})
 endfunction()
+
+# add_test() that also gives every test the Windows file rules emulation of fa::fs (FA_TEST_WINDOWS_FILE_RULES, top-level
+# CMakeLists.txt; engine/core/include/fa/core/fs.h). FA_FS_WINDOWS_RULES_DEFAULT is only a default: the variable
+# FA_FS_WINDOWS_RULES in the environment of the ctest run wins, so `FA_FS_WINDOWS_RULES=0 ctest` turns it off for one run.
+# It is the "NAME <name> COMMAND ..." form only (all this repo uses). A test that sets its own ENVIRONMENT must APPEND to
+# the property (set_property(TEST <name> APPEND PROPERTY ENVIRONMENT ...)): set_tests_properties(... ENVIRONMENT ...)
+# replaces this one.
+function(add_test)
+    _add_test(${ARGV})
+    if(NOT WIN32 AND FA_TEST_WINDOWS_FILE_RULES AND "${ARGV0}" STREQUAL "NAME")
+        set_property(TEST ${ARGV1} APPEND PROPERTY ENVIRONMENT "FA_FS_WINDOWS_RULES_DEFAULT=1")
+    endif()
+endfunction()
