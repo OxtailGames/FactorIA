@@ -160,7 +160,8 @@ if(FA_BUILD_TESTS)
                 add_test(NAME example_${perf_name}_perf
                     COMMAND factoria call --no-graphics --project ${ex} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/${perf_name}.args.json
                     WORKING_DIRECTORY ${FA_ROOT})
-                set_tests_properties(example_${perf_name}_perf PROPERTIES LABELS "gpu;perf;example" TIMEOUT 600
+                # RUN_SERIAL: under `ctest -j` the other tests would load the CPU and GPU and skew the measured times.
+                set_tests_properties(example_${perf_name}_perf PROPERTIES LABELS "gpu;perf;example" TIMEOUT 600 RUN_SERIAL TRUE
                     DISABLED ${fa_examples_disabled})
             endforeach()
         endif()
@@ -181,7 +182,7 @@ if(FA_BUILD_TESTS)
     add_test(NAME fixture_skinned_sprites_perf
         COMMAND factoria call --no-graphics --project ${fx} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/skinned-sprites.args.json
         WORKING_DIRECTORY ${FA_ROOT})
-    set_tests_properties(fixture_skinned_sprites_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600)
+    set_tests_properties(fixture_skinned_sprites_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600 RUN_SERIAL TRUE)
     set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/menus)
     # The budget check must fail on a game heavier than its baseline: tests/perf/regression.perf.json holds an impossibly
     # small baseline for the runner id "regression-test" (FACTORIA_PERF_RUNNER), so memory and draw calls are over it.
