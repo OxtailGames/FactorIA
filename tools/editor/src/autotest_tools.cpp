@@ -2469,6 +2469,9 @@ void Editor::at_build_tools_script() {
             at_check(at_visible("proj:file:assets/blip.wav"), "the Project panel lists a file of the project (assets/blip.wav)");
             at_check(at_visible("proj:folder:") && at_visible("proj:folder:assets"), "...and a folder tree");
             bz->scans = projBrowser_.scans;
+            // The scan read the recipes too: the watcher's next poll (every second, so maybe after the 30 frames below on a
+            // fast machine) must not walk the disk again for the prefab.save above.
+            at_check(!projBrowser_.recipesDirty, "...and leaves the recipe watcher no second walk of the disk to do");
         });
         step(30, [this, bz] { at_check(projBrowser_.scans == bz->scans, "the panel does not read the disk again while nothing changed"); });
         snap("editor_project_panel.png");

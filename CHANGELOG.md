@@ -18,6 +18,11 @@ FactorIA 0.14.1 makes the test runs of game authors and engine developers stop f
   shared CI machine can run a few times slower for some seconds. A game that got heavier is slow every time and still
   fails. (docs/PERFORMANCE.md)
 
+### Fixes
+
+- The editor's Project panel walked the project folder twice after the editor wrote a file (a prefab saved, an asset
+  made): once for the write and again a second later, when the recipe watcher saw the same write. It walks it once.
+
 ### Tests
 
 - `test_watchdog`: a busy loop stops by CPU time, a native that waits is not charged, and a script blocked past the wall-clock cap is stopped.
