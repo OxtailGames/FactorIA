@@ -10,7 +10,7 @@ The editor shows these notes when it offers an update, and each release on GitHu
   PC on the same network over SSH before a push: `scripts/setup-windows-remote.sh` (Mac) and
   `scripts/setup-windows-remote.ps1` (the PC, administrator PowerShell, idempotent) set it up once, then
   `scripts/ci-remote-windows.sh [--no-examples] [--wsl]` pushes HEAD to `refs/heads/preflight/<branch>` of the PC's clone,
-  builds it in a separate worktree and brings the logs back to `build/ci-logs/windows-remote/` (exit 77: not set up).
+  builds it in a separate worktree and brings the logs back to `build/ci-logs/windows-remote/`. A PC that is off is not a failure: after a 5 s check the script asks in a terminal whether you are switching it on (or waits with `--wait`, `--wait-timeout`) and otherwise exits 77, as it does when not set up or when the connection drops mid-run; it never switches the PC on or off.
   (docs/BUILDING.md, "Checking Windows from the Mac")
 - CI saves each job's ccache right after the build instead of at the end of the job, which `actions/cache` only does
   when every step passed: a run whose tests failed left the next run of the branch a stale cache (Windows rebuilt

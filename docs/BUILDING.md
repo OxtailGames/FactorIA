@@ -569,14 +569,24 @@ scripts/ci-remote-windows.sh --no-examples
 scripts/ci-remote-windows.sh --wsl        # also scripts/ci-local.sh linux android in the PC's WSL Ubuntu-24.04
 ```
 
-Exit status 0 = passed, 1 = failed, 77 = not set up or the PC is off or unreachable (the message names the setup script).
+Exit status: 0 = passed, 1 = a build or a test failed, 77 = the check could not be done or finished, which is not a
+failure (`scripts/ci-preflight.sh` records it as a skip): not set up (the message names the setup script), the PC is off
+or unreachable, or the connection was lost halfway.
+
+**The PC is often off, and the script never switches it on or puts it to sleep.** It first checks that the PC answers
+(5 s at most). If it does not: in a terminal it asks "Can you switch it on?" and Enter means "I am switching it on, wait
+for it" (it waits for sshd, up to `--wait-timeout SECONDS`, default 300, with a note every 15 s), `s` skips (exit 77). Without a
+terminal (an AI agent runs it) it exits 77 at once saying so, and the agent asks you; once you say you are switching the
+PC on, it runs the script again with `--wait`. While the PC is off, the Docker MinGW + Wine job and the Windows
+file-rules emulation of `ci-local.sh` still cover part of what the MSVC check finds.
+If the connection drops during the run (the PC went to sleep or off, the network failed) the script says which part had
+run, that this is not a build or test failure, and exits 77; a dead PC is noticed after about a minute.
 Only committed work is tested: uncommitted changes to tracked files are listed in a warning and not sent. The first run
 builds everything cold on the PC; later runs reuse `build\agent-preflight` and `build\agent-preflight-release` in the
 worktree. Do not start two runs at once (they share that worktree). The logs come back to `build/ci-logs/windows-remote/`.
 `--wsl` fetches the commit into its own clone `~/FactorIA-preflight` in WSL (made by the first run, from the PC's
 clone); your `~/FactorIA` there is not used. It needs the WSL set-up of "Continuous integration" above, with
-`ANDROID_NDK_HOME` exported in `~/.profile` for the android job. The SSH session dies if the Mac sleeps; a build
-already started keeps running on the PC.
+`ANDROID_NDK_HOME` exported in `~/.profile` for the android job.
 
 ## Troubleshooting
 
