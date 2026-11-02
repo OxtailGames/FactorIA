@@ -2,6 +2,21 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+The Engine Feedback panel sends feedback with one button, and nobody writes a share text any more. The panel has two buttons, **Add feedback** (a form that records an entry) and **Send feedback** (a window listing every entry that would go, each with a checkbox and the exact text that leaves the computer). The share boxes, "Sharing...", "Archive closed" and "Review with AI" are gone: closed entries are archived by themselves, the text is the entry's `share` or one made from the entry, and an AI check runs by itself on each text when an AI model is set up.
+
+### Changes
+
+- **Engine Feedback panel:** two buttons, **Add feedback** and **Send feedback**; the per-entry share editor, the "Sharing..." button and the "Archive closed" button were removed. File > Feedback Settings keeps Always / Ask me each time / Never, GitHub sign-in and the outbox.
+- **Send feedback window:** lists the open entries that were not sent and were not refused (all checked), with the exact text of each; **Send** stores the text, queues the checked entries and sends them at once, showing the outcome per row; unchecked entries are marked `skipped` and offered again unchecked; **Cancel** changes nothing. With no mode chosen it shows the consent dialog first; with Never the button is disabled. In Ask mode the old review list is this window. An entry sent before is listed again only when its occurrences went up (at most 3 sends).
+- **Add feedback window:** category, severity, title, what is missing, workaround and an optional suggestion, with **Add** and **Cancel**; it has no share boxes.
+- **AI check by itself:** when an AI provider is configured, each text of the Send window that was not reviewed is checked in the background with `ai.review_feedback`: a pass may replace the text with the engine-terms rewrite, a fail unchecks the row and shows why; with no provider nothing is shown. `ai.review_feedback` takes an optional `share` (a candidate text to check; nothing is written then).
+- Entries that are not open are moved to `ENGINE_FEEDBACK.archive.json` by the editor as soon as it sees them.
+- The entries table of the panel is as tall as its rows need (up to two thirds of the panel) instead of at most 180 px.
+- `share_skip` (tools/common feedback sharing client) marks entries `skipped` and takes them out of the outbox.
+- Docs: AIs should include `share` in every `feedback.report` (docs/AI_GUIDE.md, the project AGENTS.md template); docs/EDITOR.md and docs/ENGINE_FEEDBACK.md describe the new flow.
+
 ## 0.13.0
 
 FactorIA 0.13.0 (M48) makes every command reject arguments it does not know. Until now a key a command's schema did not declare was dropped without a word, so a typo (`{"entiy": ...}`) or an argument from a newer engine (`game.input {"frames": 2}` before 0.12.0) looked like it worked while doing nothing. Now it is an `invalid_arguments` error that names the key, says where it is and suggests the right one; `describe` and MCP's `tools/list` show the closed schemas, so a model client sees exactly what is accepted.

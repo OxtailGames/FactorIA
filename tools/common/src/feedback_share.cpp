@@ -794,6 +794,19 @@ int share_drop(const ShareEnv& env, const std::vector<std::string>& keys) {
     return n;
 }
 
+void share_skip(const ShareEnv& env, const std::string& feedbackFile, const std::vector<std::string>& ids, const std::string& reason) {
+    if (ids.empty()) return;
+    Outbox box = load_outbox(env);
+    bool boxChanged = false;
+    for (std::size_t i = box.items.size(); i-- > 0;)
+        if (box.items[i].file == feedbackFile && contains(ids, box.items[i].localId)) {
+            box.items.erase(box.items.begin() + std::ptrdiff_t(i));
+            boxChanged = true;
+        }
+    if (boxChanged) (void)save_outbox(env, box);
+    for (const std::string& id : ids) write_entry_shared(feedbackFile, id, shared_state(env, "skipped", reason));
+}
+
 Result<void> set_share_mode(const ShareEnv& env, ShareMode mode) {
     ShareSettings s = load_share_settings(env);
     s.mode = mode;

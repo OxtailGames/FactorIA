@@ -276,21 +276,24 @@ public:
     Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
     bool ai_settings_dirty(const ai::AiConfig& cfg) const;
     void draw_feedback_panel();
-    // Feedback sharing (feedback_share_ui.cpp; docs/EDITOR.md, "Feedback sharing"). share_choose_mode is the only place that sets the
+    void draw_feedback_add_window();            // the Add feedback modal of the panel
+    // Feedback sharing (feedback_share_ui.cpp; docs/EDITOR.md, "Sharing feedback"). share_choose_mode is the only place that sets the
     // sharing mode, reached by a click in the consent dialog or Feedback Settings and by nothing else: no command, MCP tool or script.
     void feedback_share_tick();                 // once per frame: the threads' results, then (each second) consent, queue, ask, flush
     void draw_share_consent();                  // the modal that asks while the mode is unset
-    void draw_share_review_window();            // ask mode: the share texts that wait for Send / Don't send
+    void draw_send_window();                    // the Send feedback modal: every entry that would be sent, with its text and a checkbox
     void draw_share_settings_window();          // File > Feedback Settings
     void open_share_settings();
+    void open_send_window();                    // Send feedback: by the mode, the window, the consent dialog first, or why not
+    void build_send_window();                   // plans the rows from the feedback file and starts their AI check
+    void send_window_apply();                   // Send: store and queue the checked rows, leave the others out, flush
+    void send_window_finished(int sent, const std::string& message);  // the flush Send asked for is over
+    void share_fill_consent_preview(const std::string& file, const Json& doc);
     void share_choose_mode(ShareMode mode);
-    void share_start_flush(bool force);
+    void share_start_flush(bool force, std::uint64_t session = 0);
     void share_start_sign_in();
-    void share_start_ai_review(const std::string& id);
-    void draw_feedback_share_cell(const Json& entry);                          // the panel table's share column
-    void draw_feedback_share_detail(const Json& entry, const std::string& path);  // share boxes, buttons and review of the selected entry
-    void draw_feedback_new_share();             // the share boxes of the Add entry form
-    Json feedback_new_share(std::string& problem);  // that form's share, checked and sanitized (null = none; `problem` = limits not met)
+    void share_start_ai_checks();
+    void draw_feedback_share_cell(const Json& entry, const char* track = nullptr);                          // the panel table's share column
     ShareUi share_;
     std::shared_ptr<ShareAutotestNet> atShareNet_;
     std::unique_ptr<ScopedShareEnv> atShareEnv_;  // the autotest: a fake transport and a config folder of its own, no network
@@ -725,7 +728,7 @@ public:
     double feedbackPolled_ = -10;
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;
-    bool fbAddOpen_ = false;        // the Add entry section is open (the layout reserves its room)
+    bool fbAddOpen_ = false;        // the Add feedback modal is open
     int fbNewCategory_ = 0, fbNewSeverity_ = 1;
     std::string fbNewTitle_, fbNewMissing_, fbNewWorkaround_, fbNewSuggestion_, fbMessage_;
 
