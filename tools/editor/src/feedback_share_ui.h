@@ -1,10 +1,11 @@
-// The editor's state for sharing feedback with the engine developer (docs/EDITOR.md, "Feedback sharing"): the consent dialog,
-// the Feedback Settings window, the review list of the "Ask me each time" mode and the share part of the Engine Feedback panel.
-// The drawing and the polling are feedback_share_ui.cpp; the rules (what a share column says, the limits, the suggestion) are
-// feedback_share_model.h and run in unit tests.
+// The editor's state for sharing feedback with the engine developer (docs/EDITOR.md, "Sharing feedback"): the consent dialog,
+// the Feedback Settings window, the Send feedback window and the share column of the Engine Feedback panel.
+// The drawing and the polling are feedback_share_ui.cpp; the rules (what a share column says, which entries the Send window
+// lists, what Send stores and queues) are feedback_share_model.h and run in unit tests.
 //
-// The blocking calls (GitHub sign-in, a flush of the outbox, ai.review_feedback) run on one thread each; what they produce
-// waits under `mu` for the next frame. ~Editor joins all three.
+// The blocking calls (GitHub sign-in, a flush of the outbox, the AI check of the texts in the Send window) run on one thread
+// each; what they produce waits under `mu` for the next frame, tagged with the Send window session it belongs to so a result
+// never lands on a window that was closed and opened again. ~Editor joins all three.
 #pragma once
 
 #include <atomic>
@@ -35,6 +36,7 @@ struct ShareUi {
     double tickAt = -10;
     std::string docFile;               // the feedback file the numbers below are about
     std::int64_t docStamp = INT64_MIN; // its modification time when they were read
+    bool docRecheck = false;            // read once more next tick: a write right after the read may have kept the same time
     ShareMode checkedMode = ShareMode::Unset;  // the mode the entries were last looked at under (a change reads them again)
     int entryCount = 0;                // entries in the file (the consent dialog's trigger)
     ShareMode mode = ShareMode::Unset;
@@ -54,11 +56,52 @@ struct ShareUi {
     Json status;                       // share_status
     std::string settingsMessage;
 
-    // --- ask mode: the entries that wait for the person's answer
-    bool reviewOpen = false;
-    bool reviewFocus = false;
+    // --- ask mode: the entries that wait for the person's answer (the Send feedback window lists them; a notification opens it)
     std::vector<OutboxItem> waiting;
     std::set<std::string> notified;    // outbox keys the person was already told about
+
+    // --- the Send feedback window. One session per opening: everything that arrives later from a thread carries the session it was
+    // started for and is dropped when the window is closed or was opened again since.
+    enum class SendReview { None, Queued, Running, Passed, Failed, Error };
+    struct SendRowUi {
+        SendRow row;
+        Json entry;                    // the local entry as it was when the window opened
+        bool checked = false;
+        SendReview review = SendReview::None;  // the AI check of the text: None = not done (reviewed already, or no AI)
+        bool reviewPassed = false;
+        bool rewritten = false;        // the AI check rewrote the text
+        std::string reviewNote;        // its reasons, what it fixed, or why it could not run
+        std::string result;            // after Send: the outcome shown in the row (sent, rejected + reason, waiting for a retry...)
+        std::string resultKind;        // queued | sent | waiting | rejected | failed | skipped
+    };
+    bool sendOpen = false;
+    bool sendFocus = false;
+    std::uint64_t sendSession = 0;
+    std::atomic<std::uint64_t> sendLive{0};  // the session whose results are still wanted (0 = none); read by the AI thread
+    std::string sendFile;
+    std::vector<SendRowUi> sendRows;
+    enum class SendPhase { Choose, Sending, Done };
+    SendPhase sendPhase = SendPhase::Choose;
+    std::string sendMessage;           // under the buttons: why nothing was sent, or what happened
+    bool sendAfterConsent = false;     // the person pressed Send feedback while the mode was unset: the window opens after they choose
+    bool sendFlushWanted = false;      // Send queued rows: flush as soon as no flush is running
+    std::uint64_t sendFlushSession = 0;  // the session that asked for the flush in flight
+    bool sendAiAvailable = true;       // false once the AI check answered "no model": the rows are shown without it
+    bool sendAiStart = false;          // a thread is to be started for aiJobs
+    struct AiJob {
+        std::uint64_t session = 0;
+        std::string id;
+        ShareFields text;
+    };
+    struct AiDone {
+        std::uint64_t session = 0;
+        std::string id;
+        Json result;                   // the answer of ai.review_feedback, or {error, code, hint}
+    };
+    std::vector<AiJob> aiJobs;         // for the next thread (main thread only)
+    std::vector<AiDone> aiDone;        // under mu
+    std::uint64_t flushSession = 0;    // under mu: the session the finished flush was started for
+    bool sharingAvailable = true;      // this build has an endpoint
 
     // --- background threads and what they hand over (under mu)
     std::mutex mu;
@@ -77,17 +120,6 @@ struct ShareUi {
     bool flushNew = false;
     std::thread aiThread;
     std::atomic<bool> aiRunning{false};
-    std::string aiId;                  // the entry the review is about
-    Json aiResult;                     // the answer of ai.review_feedback, or {error}
-    bool aiNew = false;
-
-    // --- the share part of the panel
-    std::string editId;                // the entry the edit boxes hold
-    ShareFields edit, base;            // what the boxes hold, and what the file held when they were filled
-    Json baseShare;                    // the entry's `share` when they were filled (a change on disk refills untouched boxes)
-    std::string editMessage;
-    Json reviewShown;                  // the last review result of editId, shown under the buttons
-    ShareFields newShare;              // the share text of the Add entry form
 
     ~ShareUi() { join_all(); }
     // Stops what can be stopped and waits for the threads (the sign-in polls for the code until its flag is set).

@@ -8,6 +8,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include "fa/core/engine_version.h"
 #include <windows.h>
 #include <winhttp.h>
 

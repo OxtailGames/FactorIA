@@ -48,4 +48,13 @@ std::optional<SurfaceHit> raycast_surface(const MeshSurface& surface, const Mat4
 // is parallel to the plane or the triangle has no area.
 std::optional<Vec2> surface_uv_on_plane(const MeshSurface& surface, const Mat4& model, std::uint32_t triangle, Vec3 origin, Vec3 dir);
 
+// The inverse of raycast_surface: the points of the surface drawn with `model` whose texture coordinate is `uv`, in world space. One
+// per triangle that covers `uv` (a mesh that lays the picture out twice, or a cylinder's seam, answers more than one), at most `max`.
+// Empty when no triangle covers it. This is how a tool aims the mouse at a place of the picture (game.click on a widget of a page).
+struct SurfacePoint {
+    Vec3 world;
+    std::uint32_t triangle = 0;
+};
+std::vector<SurfacePoint> surface_points_at_uv(const MeshSurface& surface, const Mat4& model, Vec2 uv, std::size_t max = 8);
+
 }  // namespace fa

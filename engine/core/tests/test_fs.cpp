@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 
 #include "fa/core/fs.h"
@@ -119,6 +120,24 @@ TEST_CASE("fs: writes replace the file atomically through a temporary file that 
     REQUIRE(fs::write_text(abs, "{}").ok());
     CHECK(fs::read_text("scenes/a.scene.json").value() == "{}");
     CHECK(names_in(p.dir / "scenes") == std::vector<std::string>{"a.scene.json"});
+}
+
+TEST_CASE("fs: a write replaces a file another thread is reading (Windows refuses while it is open)") {
+    TempProject p;
+    REQUIRE(fs::write_text("data/shared.json", "{\"v\": 1}").ok());
+    // A reader holds the file open (std::ifstream shares no delete access on Windows) and lets go a moment later, as the
+    // editor's panels do when they poll a file another thread writes.
+    std::ifstream reader(fs::os_path(p.dir / "data" / "shared.json"), std::ios::binary);
+    REQUIRE(reader.good());
+    std::thread release([&reader] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        reader.close();
+    });
+    const auto r = fs::write_text("data/shared.json", "{\"v\": 2}");
+    release.join();
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
+    CHECK(fs::read_text("data/shared.json").value() == "{\"v\": 2}");
+    CHECK(names_in(p.dir / "data") == std::vector<std::string>{"shared.json"});
 }
 
 TEST_CASE("fs: paths longer than Windows' MAX_PATH are read and written (os_path)") {

@@ -1,4 +1,5 @@
 // Built-in commands: the AI/tool surface of a running game.
+#include "fa/core/engine_version.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -662,16 +663,25 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "It moves the mouse, presses `button` (left by default) and steps 1 frame (scripts read input.mouse.pressed in it, "
            "a Button gets its press), keeps the button down for `hold` frames in all (default 1), then releases and steps 1 more "
            "frame (input.mouse.released, the ui \"click\" event). The same sequence as game.click in a test, so it runs hold + 1 frames. "
-           "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList, a world-space Interactable the camera does not "
-           "draw because of Camera.showTags / hideTags) is an error that says why; a click at a position or world point reaches only what "
+           "A widget that cannot be clicked (inactive, no area, scrolled out of its ScrollList, a world-space Interactable that no camera "
+           "shows where a player can reach it) is an error that says why and how to fix it; a click at a position or world point reaches only what "
            "the camera there draws. "
+           "A page shown on a mesh: a camera with Camera.renderTarget draws world-space Interactables into a texture and a MeshRenderer shows it "
+           "(texture \"target:<name>\"). A `position` over that mesh reaches the widget under it through the mesh's UVs, exactly like the real mouse, "
+           "and `widget` is that widget. `id` of a widget that only such a page shows (the main camera hides it with hideTags, or it is far off screen) "
+           "is aimed backwards: a point of its hit area in the target camera's view, the matching point of the mesh, its place on the screen; the "
+           "command uses the first point where the pointer really reaches this widget (a mesh or widget in front is skipped) and, when there is none, "
+           "says why (no mesh shows the target, the widget is outside the camera's view, the mesh is off screen or covered, a target shown inside "
+           "another target is not reachable). "
            "game.input {\"mouse\":{\"position\":[x,y],\"left\":true}} only sets the state for the next frame and leaves the button "
            "held; a click is move + press + frame + release + frame, which this command does in one call. Returns "
-           "{position, button, frames, widget, frame}: `widget` is the id of the topmost UI widget or Interactable under the click (null over the "
-           "world). Examples: game.click {\"id\":\"play\"}, game.click {\"position\":[640,360]}, "
+           "{position, button, frames, widget, via?, frame}: `widget` is the id of the topmost UI widget or Interactable the pointer reached when the "
+           "button went down (null over the world; the widget a click removes or changes in that frame is still named); `via` is {mesh, target} - the "
+           "entity of the MeshRenderer and of the Camera.renderTarget camera whose page the click went through - present only when it went through "
+           "a page and no screen widget was on top. Examples: game.click {\"id\":\"play\"}, game.click {\"position\":[640,360]}, "
            "game.click {\"world\":[3,-2],\"button\":\"right\"}",
            parse_schema(R"({"type":"object","properties":{
-               "id":{"type":"string","description":"Entity id (or name) of a UI widget, an Interactable (also in world space) or a screen-space Text; its centre is clicked."},
+               "id":{"type":"string","description":"Entity id (or name) of a UI widget, an Interactable (also in world space, also one that only a render-target page shows: it is clicked through the mesh) or a screen-space Text; its centre is clicked."},
                "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"Screen position [x, y] in design pixels (top-left origin, +Y down)."},
                "world":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"description":"World position [x, y] or [x, y, z], projected through the main camera (needs a renderer)."},
                "button":{"type":"string","enum":["left","right","middle"],"default":"left","description":"Mouse button."},
@@ -694,29 +704,30 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   const Entity e = need_entity(I.world, a, "id");
                   const std::string id = I.world.id_of(e);
                   I.ui.layout(I.world, design, I.measure(), false);  // a panel opened since the last step has no rectangle yet
-                  std::string why;
                   const bool custom = ui_is_interactable(I.world, e);
+                  std::optional<Rect> box;
                   if (custom) {
-                      if (!I.world.active_in_hierarchy(e)) why = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
-                      else {
-                          bool hidden = false;
-                          if (!I.ui.interactable_rect(I.world, e, design, I.measure(), &hidden))
-                              why = hidden ? "the camera that draws where it is does not draw it (Camera.showTags / hideTags), so a click through that camera cannot reach it. "
-                                             "If it is a page shown on a mesh (Camera.renderTarget), click the mesh with game.click {position} or {world}"
-                                           : "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from";
-                      }
+                      // An Interactable: the centre of its area on the screen, else (a page of a render target shown on a mesh) a point of the
+                      // mesh where the pointer reaches it, the way the mouse would.
+                      const UiClickAim aim = I.ui.click_aim(I.world, e, design, I.measure());
+                      if (!aim.point)
+                          throw CommandError("invalid_argument", "'" + id + "' cannot be clicked: " + aim.problem + ".",
+                                             "ui.state lists the widgets you can click. A page shown on a mesh (Camera.renderTarget) is clicked through the mesh: "
+                                             "the widget must be inside the target camera's view and the mesh on screen and in front.");
+                      box = Rect{aim.point->x, aim.point->y, 0.0f, 0.0f};
                   } else if (ui_kind(I.world, e) != UiKind::None) {
+                      std::string why;
                       const std::optional<Rect> r = ui_rect(I.world, e, design);
                       const std::optional<Rect> clip = ui_clip_rect(I.world, e, design);
                       if (!I.world.active_in_hierarchy(e)) why = "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks";
                       else if (!r || !(r->w > 0) || !(r->h > 0)) why = "it has no area (its size is 0), so it was never laid out: give it a size, or make it a child of a Panel with a layout";
                       else if (clip && (!(clip->w > 0) || !(clip->h > 0) || !clip->overlaps(*r)))
                           why = "it is scrolled out of its ScrollList, so it is clipped away: scroll it into view first (ui.focus scrolls to it)";
+                      if (!why.empty()) throw CommandError("invalid_argument", "'" + id + "' cannot be clicked: " + why + ".", "ui.state lists the widgets you can click.");
+                      box = !I.world.active_in_hierarchy(e) ? std::nullopt : ui_screen_rect(I.world, e, design, I.measure());
+                  } else {
+                      box = !I.world.active_in_hierarchy(e) ? std::nullopt : ui_screen_rect(I.world, e, design, I.measure());
                   }
-                  if (!why.empty()) throw CommandError("invalid_argument", "'" + id + "' cannot be clicked: " + why + ".", "ui.state lists the widgets you can click.");
-                  const std::optional<Rect> box = !I.world.active_in_hierarchy(e) ? std::nullopt
-                                                  : custom ? I.ui.interactable_rect(I.world, e, design, I.measure())
-                                                           : ui_screen_rect(I.world, e, design, I.measure());
                   if (!box)
                       throw CommandError("invalid_argument", "'" + id + "' has no screen rectangle.",
                                          "Pass a UI widget or a screen-space Text id, or a position/world target.");
@@ -731,15 +742,22 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                          "Run with graphics, or click a screen `position` (design pixels) instead.");
                   p = I.renderer->world_to_screen(Vec3{w[0].get<float>(), w[1].get<float>(), w.size() > 2 ? w[2].get<float>() : 0.0f});
               }
+              // What the pointer reaches when the button goes down, through the path the real mouse takes (a screen widget, else a widget of
+              // a page shown on a mesh, else a world Interactable): a click can change or remove the widget in that very frame.
+              const Entity pressed = I.ui.widget_at(I.world, design, p, I.measure());
+              const std::optional<UiSurface> page = I.ui.page_at(p);
               I.input.on_mouse_move(p);
               I.input.on_mouse_button(button, true);
               engine.step(1);
-              const Entity under = I.ui.widget_at(I.world, design, p, I.measure());
+              const Entity under = pressed != kNullEntity && I.world.alive(pressed) ? pressed : I.ui.widget_at(I.world, design, p, I.measure());
               if (hold > 1) engine.step(hold - 1);
               I.input.on_mouse_button(button, false);
               engine.step(1);
               Json out = Json::object({{"position", Json::array({p.x, p.y})}, {"button", bname}, {"frames", hold + 1}});
               out["widget"] = under != kNullEntity && I.world.alive(under) ? Json(I.world.id_of(under)) : Json();
+              // Through a page: the click landed on a mesh that shows a render target, unless a screen widget was on top of it.
+              if (page && page->pin.mesh && I.world.alive(page->pin.mesh) && !(under != kNullEntity && ui_kind(I.world, under) != UiKind::None))
+                  out["via"] = Json::object({{"mesh", I.world.id_of(page->pin.mesh)}, {"target", page->camera && I.world.alive(page->camera) ? Json(I.world.id_of(page->camera)) : Json()}});
               out["frame"] = I.frame;
               return out;
           });

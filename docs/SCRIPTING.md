@@ -1695,8 +1695,12 @@ keys, mouse buttons and touches are released. Results are deterministic. Extras:
 received object with an equal value, recursively; the object may have more). Failures print expected/received and
 `file:line` of the failing `expect`. A `TypeError: ... is not a function` in a test or a script shows the source line
 with a caret under the call, because QuickJS does not name the missing function.
-A test that runs longer than 60 s (an endless loop, a `while` waiting for something that never happens) is stopped,
-and the rest of its file is skipped; a file has no limit of its own, so split a test, not the file.
+A test that spends more than 60 s of CPU time (an endless loop, a `while` waiting for something that never happens) is
+stopped, and the rest of its file is skipped; a file has no limit of its own, so split a test, not the file. The limit counts
+the time the engine actually computed, not the wall clock, so a busy machine does not fail a test; a test blocked without
+using CPU is stopped after 8 times the limit (480 s) on the clock. The limit is fixed (60 s per test, 5 s for
+`script.eval`): if a test needs more, it does too much for one test, so split it or lower the amount of work (fewer
+entities, fewer steps).
 
 Timing in a test: `world.emit(name, data)` is queued, and its listeners (`world.on`, `onEvent`) run at the next
 `game.step`, so call `game.step(1)` after emitting before you check or await a script that waits for it. The answers
@@ -1706,7 +1710,7 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
 ## Runtime notes
 - `Math.random()` is routed to the deterministic world RNG (`rng.*`); never use
   wall-clock time in simulation.
-- Callbacks running longer than 2 s are aborted ("script took too long") and the
+- Callbacks using more than 2 s of CPU time are aborted ("script took too long") and the
   behaviour is disabled until its file is reloaded. A timer, tween or `world.on`
   listener stopped this way ends alone; the scripts after it run. Exceptions are recorded once
   per (file, line, message) with a hint; the behaviour keeps running.

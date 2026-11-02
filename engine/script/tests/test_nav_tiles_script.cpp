@@ -117,7 +117,7 @@ TEST_CASE("nav benchmark: 600 walkers on a 60x60 grid, array form vs kept grid v
       const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s >> 8; };
       globalThis.start = [];
       while (start.length < 600) { const i = rnd() % (W * H); if (cost[i] !== Infinity) start.push([i % W, (i - i % W) / W, rnd() % goals.length]); }
-      // begin(mode) sets the walkers up; tick(n) runs n ticks (the watchdog limits one eval to 5 seconds)
+      // begin(mode) sets the walkers up; tick(n) runs n ticks (the watchdog limits one eval to 5 seconds of CPU time, so the test asks for 100 walkers at a time)
       globalThis.begin = (mode) => {
         globalThis.mode = mode;
         globalThis.walkers = start.map((w) => ({ c: w[0], r: w[1], g: w[2] }));
@@ -125,9 +125,9 @@ TEST_CASE("nav benchmark: 600 walkers on a 60x60 grid, array form vs kept grid v
         globalThis.fields = mode === "flow" ? goals.map((g) => nav.flowField(grid, g)) : null;
         globalThis.moved = 0;
       };
-      globalThis.tick = (n) => {
+      globalThis.tick = (n, lo = 0, hi = walkers.length) => {
         for (let t = 0; t < n; t++)
-          for (const w of walkers) {
+          for (const w of walkers.slice(lo, hi)) {
             let nx = null;
             if (fields) nx = fields[w.g].stepToward(w.c, w.r);
             else { const p = nav.findTilePath(grid, [w.c, w.r], goals[w.g]); if (p.found && p.cells.length > 1) nx = p.cells[1]; }
@@ -136,13 +136,14 @@ TEST_CASE("nav benchmark: 600 walkers on a 60x60 grid, array form vs kept grid v
       };
       globalThis.result = () => [moved, walkers.reduce((a, w) => a + w.c * 100 + w.r, 0)];
     )");
-    // Runs `ticks` ticks one eval at a time (the watchdog stops an eval after 5 seconds) and returns {ms, result}.
+    // Runs `ticks` ticks, 100 walkers per eval (the watchdog stops an eval after 5 seconds of CPU time) and returns {ms, result}.
     auto time_it = [&](const char* mode, int ticks) {
         eval_ok(h, (std::string("begin('") + mode + "')").c_str());
         double ms = 0;
         for (int t = 0; t < ticks; ++t) {
             const auto t0 = std::chrono::steady_clock::now();
-            eval_ok(h, "tick(1)");
+            for (int lo = 0; lo < 600; lo += 100)  // a tick of the array form is seconds of CPU in a Debug build
+                eval_ok(h, ("tick(1, " + std::to_string(lo) + ", " + std::to_string(lo + 100) + ")").c_str());
             ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         }
         return std::make_pair(ms, eval_ok(h, "result()"));

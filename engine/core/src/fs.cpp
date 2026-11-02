@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <fstream>
 #include <map>
 #include <mutex>
 #include <system_error>
+#include <thread>
 
 #ifdef _WIN32
 #include <process.h>
@@ -442,6 +444,17 @@ Result<void> write_bytes(std::string_view path, const void* data, std::size_t si
     auto existing = stdfs::status(osFull, ec);  // keep the mode (executable bit, read-only) of the file being replaced
     if (stdfs::is_regular_file(existing)) stdfs::permissions(osTmp, existing.permissions(), ec);
     stdfs::rename(osTmp, osFull, ec);
+#ifdef _WIN32
+    // Windows refuses to replace a file that is open somewhere else (a reader without FILE_SHARE_DELETE, as every
+    // std::ifstream is: another thread polling the file, an antivirus scan). Such readers let go within milliseconds:
+    // try again for up to about a second before giving up, or a write racing a read is lost.
+    for (int attempt = 0; ec && !stdfs::is_directory(existing) && attempt < 100; ++attempt) {
+        const int code = ec.value();
+        if (code != 5 && code != 32 && code != 33) break;  // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+        std::this_thread::sleep_for(std::chrono::milliseconds(attempt < 10 ? 1 : 10));
+        stdfs::rename(osTmp, osFull, ec);
+    }
+#endif
     if (ec) {
         std::error_code ignored;
         stdfs::remove(osTmp, ignored);

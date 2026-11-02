@@ -20,6 +20,14 @@
       ],
       "fixedIn": "0.12.0",
       "note": "Camera.showTags / Camera.hideTags choose what a camera draws by entity tags."
+    },
+    {
+      "category": "tooling",
+      "titles": [
+        "game.click does not report widgets reached through a render-target mesh"
+      ],
+      "fixedIn": "0.14.0",
+      "note": "game.click names the widget reached through a render-target mesh (widget, via) and game.click {id} clicks widgets that only a page shows"
     }
   ]
 }

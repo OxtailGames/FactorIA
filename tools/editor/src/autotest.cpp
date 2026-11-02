@@ -4,6 +4,7 @@
 // The editor has no manual editing UI (the AI edits), so edits go through the same commands the AI and the Console call.
 // Output directory: FA_EDITOR_AUTOTEST_OUT (default: <tmp>/fa_editor_autotest_out).
 // Only some sections: FA_EDITOR_AUTOTEST_SECTIONS=K,M (autotest_sections.h; this file is section S).
+#include "fa/core/engine_version.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>

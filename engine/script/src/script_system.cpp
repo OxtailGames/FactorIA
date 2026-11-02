@@ -5,6 +5,13 @@
 #include <cstring>
 #include <format>
 #include <sstream>
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <time.h>
+#endif
 
 #include "fa_script_js.h"
 #include "fa/audio/audio.h"
@@ -154,13 +161,32 @@ void rejection_cb(JSContext* ctx, JSValueConst promise, JSValueConst reason, boo
 // ---------------------------------------------------------------------------------------------------------------------
 size_t ScriptSystem::Impl::push_guard(const std::string& label, double seconds) {
     const size_t depth = guards.size();
-    guards.push_back({label, seconds, std::chrono::steady_clock::now() +
-                                 std::chrono::microseconds(static_cast<long long>(seconds * 1e6))});
+    guards.push_back({label, seconds, thread_cpu_seconds() + seconds,
+                      std::chrono::steady_clock::now() +
+                          std::chrono::microseconds(static_cast<long long>(seconds * kWallCapFactor * 1e6))});
     return depth;
 }
 
 void ScriptSystem::Impl::pop_guard(size_t depth) {
     if (guards.size() > depth) guards.erase(guards.begin() + static_cast<std::ptrdiff_t>(depth), guards.end());
+}
+
+double ScriptSystem::Impl::thread_cpu_seconds() {
+#if defined(_WIN32)
+    FILETIME creation, exit, kernel, user;
+    if (!GetThreadTimes(GetCurrentThread(), &creation, &exit, &kernel, &user)) return 0;
+    auto to_s = [](const FILETIME& f) { return static_cast<double>((static_cast<uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime) * 1e-7; };
+    return to_s(kernel) + to_s(user);
+#else
+    timespec ts{};
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) != 0) return 0;
+    return static_cast<double>(ts.tv_sec) + static_cast<double>(ts.tv_nsec) * 1e-9;
+#endif
+}
+
+std::string ScriptSystem::Impl::limit_text(double seconds) const {
+    return timedOutWall ? std::format("> {:g} s on the clock", seconds * kWallCapFactor)
+                        : std::format("> {:g} s of CPU time", seconds);
 }
 
 bool ScriptSystem::Impl::debug_session_ended() const { return debugger && debugger->impl().interrupt_requested(); }
@@ -173,8 +199,11 @@ bool ScriptSystem::Impl::check_interrupt() {
     }
     if (guards.empty()) return false;
     auto now = std::chrono::steady_clock::now();
+    const double cpu = thread_cpu_seconds();
     for (size_t i = guards.size(); i-- > 0;) {
-        if (now > guards[i].deadline) {
+        const bool cpuOut = cpu > guards[i].cpuDeadline;
+        if (cpuOut || now > guards[i].wallDeadline) {
+            timedOutWall = !cpuOut;
             timedOut = true;
             timedOutLabel = guards[i].label;
             timedOutSeconds = guards[i].seconds;
@@ -207,7 +236,7 @@ void ScriptSystem::Impl::run_jobs() {
                 timedOut = false;
                 JS_FreeValue(ctx, JS_GetException(ctx));
                 ScriptError e;
-                e.message = std::format("script took too long (> {:g} s) in {}", timedOutSeconds, timedOutLabel);
+                e.message = std::format("script took too long ({}) in {}", limit_text(timedOutSeconds), timedOutLabel);
                 record_error(std::move(e), "promise job");
                 continue;
             }
@@ -456,7 +485,7 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
             ScriptError e;
             // A JS guard inside this call ran out first (a timer callback, a world.on listener): name that one.
             const bool inner = timedOutDepth > depth && !timedOutLabel.empty();
-            e.message = std::format("script took too long (> {:g} s) in {}", inner ? timedOutSeconds : limit,
+            e.message = std::format("script took too long ({}) in {}", limit_text(inner ? timedOutSeconds : limit),
                                     inner ? timedOutLabel : label);
             e.file = label;
             e.entityId = entityId;
@@ -818,7 +847,7 @@ Result<JSValue> ScriptSystem::Impl::import_module(const std::string& path, Scrip
         if (timedOut) {
             timedOut = false;
             e.message = debug_session_ended() ? "loading " + path + " was stopped because the debug session ended"
-                                              : "script took too long (> 10 s) while loading " + path;
+                                              : "script took too long (" + limit_text(10.0) + ") while loading " + path;
             e.file = path;
         }
         std::string where = e.file.empty() || e.file == "<import>" ? path : e.file;

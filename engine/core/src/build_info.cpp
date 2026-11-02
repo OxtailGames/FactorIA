@@ -1,3 +1,4 @@
+#include "fa/core/engine_version.h"
 #include "fa/core/build_info.h"
 
 #include <cctype>
@@ -25,6 +26,8 @@ __attribute__((used))
 const char kVersionMarker[] = FA_VERSION_PREFIX FA_ENGINE_VERSION ";";
 
 }  // namespace
+
+const char* engine_version() { return FA_ENGINE_VERSION; }
 
 const char* build_fingerprint() {
     // Touches the marker, so that every program that asks for its fingerprint keeps it (a linker would drop unused data).

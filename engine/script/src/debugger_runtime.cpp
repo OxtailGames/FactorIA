@@ -1004,7 +1004,7 @@ void Dbg::pause_at(DebugStop stop, const std::vector<JSValue>& recs, JSValueCons
     inPause = false;
     const auto paused = std::chrono::steady_clock::now() - t0;
     sys->guards = std::move(savedGuards);
-    for (auto& g : sys->guards) g.deadline += paused;
+    for (auto& g : sys->guards) g.wallDeadline += paused;  // the CPU deadline needs no shift: the stopped thread spends no CPU
     sys->timedOut = savedTimedOut;
 
     if (terminating.load()) resume = DebugResume::Continue;

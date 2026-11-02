@@ -1,5 +1,6 @@
 // `factoria export --platform web`: the folder (index.html, the player's two files, game.pak), the page's placeholders, the
 // zip for itch.io, and the errors of a missing player. The player is a fake: two small files with the right names.
+#include "fa/core/engine_version.h"
 #include <doctest.h>
 
 #include <algorithm>

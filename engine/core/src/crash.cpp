@@ -1,5 +1,6 @@
 // Crash reports, the part that runs in a healthy process: options, the report header, the ring of recent log lines,
 // pruning old reports, "did the previous run crash?". The handlers themselves are crash_posix.cpp / crash_win32.cpp.
+#include "fa/core/engine_version.h"
 #include "fa/core/crash.h"
 
 #include <algorithm>

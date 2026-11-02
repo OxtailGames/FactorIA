@@ -1,6 +1,7 @@
 // The window title and the Export window's logic (export_job.h): which platforms it offers, the options a button
 // exports with, each row's check (fa::plan_export) and the export on its worker thread (fa::export_project).
 // GPU-free: a scaffolded project in a temporary folder and a stand-in player, like the export tests of fa_test_tooling.
+#include "fa/core/engine_version.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>

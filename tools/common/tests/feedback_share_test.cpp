@@ -452,6 +452,26 @@ TEST_CASE("share queue: ask waits for the user; confirm and drop") {
     }
 }
 
+TEST_CASE("share skip: a left-out entry leaves the outbox, reads skipped, and is queued again when asked") {
+    Share s;
+    const std::string proj = s.project();
+    const std::string file = s.feedback_file(proj);
+    s.mode(ShareMode::Ask);
+    REQUIRE(share_queue(s.env, file, proj, engine_names()).ok());
+    REQUIRE(load_outbox(s.env).items.size() == 1);
+    share_skip(s.env, file, {"FB-0001", "FB-9999"}, "left out in the Send window");  // an unknown id is ignored
+    CHECK(load_outbox(s.env).items.empty());
+    const Json shared = load_feedback(file).value()["entries"][0]["shared"];
+    CHECK(shared["status"] == "skipped");
+    CHECK(shared["reason"] == "left out in the Send window");
+    CHECK(entry_is_shareable(load_feedback(file).value()["entries"][0]));  // asking again is possible
+    s.mode(ShareMode::Always);
+    auto q = share_queue(s.env, file, proj, engine_names(), {"FB-0001"});
+    REQUIRE(q.ok());
+    CHECK(q->queued == 1);
+    CHECK(load_feedback(file).value()["entries"][0]["shared"]["status"] == "pending");
+}
+
 TEST_CASE("share mode: never empties the outbox; always promotes what waited") {
     Share s;
     const std::string proj = s.project();
