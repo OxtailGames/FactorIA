@@ -575,7 +575,7 @@ scripts/ci-remote-windows.sh --wsl        # also scripts/ci-local.sh linux andro
 
 Exit status: 0 = passed, 1 = a build or a test failed, 77 = the check could not be done or finished, which is not a
 failure (`scripts/ci-preflight.sh` records it as a skip): not set up (the message names the setup script), the PC is off
-or unreachable, or the connection was lost halfway.
+or unreachable, the connection was lost halfway, or the windowed tests were skipped because nobody is logged in.
 
 **The PC is often off, and the script never switches it on or puts it to sleep.** It first checks that the PC answers
 (5 s at most). If it does not: in a terminal it asks "Can you switch it on?" and Enter means "I am switching it on, wait
@@ -588,10 +588,19 @@ run, that this is not a build or test failure, and exits 77; a dead PC is notice
 Only committed work is tested: uncommitted changes to tracked files are listed in a warning and not sent. The first run
 builds everything cold on the PC; later runs reuse `build\agent-preflight` and `build\agent-preflight-release` in the
 worktree. Do not start two runs at once (they share that worktree). The logs come back to `build/ci-logs/windows-remote/`.
-**Known limit (first real run):** an SSH session on Windows has no desktop, so the tests that open a window or a D3D11 swap
-chain (`editor_autotest_*`, `cli_player_frames`, the exported-game part of `cli_plugin`) fail there with
-`D3D11CreateDeviceAndSwapChain() failed`, and `script_instrument`'s timing check can be slower than on CI. Read those as
-not meaningful over SSH, and the build and the other tests as the result.
+**Windowed tests.** An SSH session on Windows has no desktop, so a D3D11 swap chain cannot be created there. The tests
+that open a window carry the ctest label `window` (`editor_autotest_*`, `cli_player_frames`, `cli_plugin`, which exports
+and runs a game) and are left out of the SSH run (`agent-build.ps1 -NoWindowTests`). The script then runs them in the desktop
+session of the user logged in on the PC (`scripts\windows-run-interactive.ps1`, `agent-build.ps1 -WindowTestsOnly`): a
+one-shot scheduled task with an interactive logon for that user, whose output and exit code come back through the SSH
+session, and which is deleted afterwards even if the run is stopped (nothing persistent is left, and power and sleep
+settings are not touched). While it runs, windows may flash on that desktop. If nobody is logged in, those tests are
+reported as `SKIPPED` (not passed) in the summary and the exit status is 77; the one-line fix is to log in to the PC (it
+can be locked afterwards) and run the script again.
+
+**Timing checks in tests.** A test that asserts a speed budget scales it with `fa::test_speed_budget_scale()`
+(`fa/core/perf.h`): 4 on an MSVC Debug build, whose unoptimized code ran `script_instrument`'s 1000 ms check in 2.1 s,
+and 1 everywhere else, so an optimized build keeps the tight budget.
 
 `--wsl` fetches the commit into its own clone `~/FactorIA-preflight` in WSL (made by the first run, from the PC's
 `repo.git`); your `~/FactorIA` there is not used. It needs the WSL set-up of "Continuous integration" above, with
