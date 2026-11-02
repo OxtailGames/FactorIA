@@ -28,7 +28,13 @@ param(
     # Only the Release example run (implies -Examples; no Debug build or tests).
     [switch]$ExamplesOnly,
 
-    [int]$Jobs = 8
+    [int]$Jobs = 8,
+
+    # The tests that open a window (ctest label `window`: editor_autotest_*, cli_plugin, cli_player_frames) need a desktop.
+    # A shell without one (an SSH session) cannot run them: -NoWindowTests leaves them out of the -Test run, and
+    # -WindowTestsOnly (implies -Test) runs only them, from a process that has a desktop. scripts\windows-run-interactive.ps1 does that.
+    [switch]$NoWindowTests,
+    [switch]$WindowTestsOnly
 )
 
 Set-StrictMode -Version Latest
@@ -75,6 +81,7 @@ foreach ($tool in 'cl', 'cmake', 'ninja', 'ctest') {
 }
 
 if ($ExamplesOnly) { $Examples = $true }
+if ($WindowTestsOnly) { $Test = $true; $Examples = $false }
 
 # Release build of the CLI and `ctest -L example`: the example games run the whole engine for minutes, so they are tests of
 # an optimized build (FA_EXAMPLE_TESTS, docs/BUILDING.md).
@@ -143,9 +150,11 @@ if ($rc) {
 }
 
 if ($Test -or $Tests) {
-    $log = Join-Path $BuildDir 'agent-ctest.log'
+    $log = Join-Path $BuildDir $(if ($WindowTestsOnly) { 'agent-ctest-window.log' } else { 'agent-ctest.log' })
     $filter = ''
     if ($Tests) { $filter = "-R `"$Tests`"" }
+    if ($NoWindowTests) { $filter += ' -LE window' }
+    if ($WindowTestsOnly) { $filter += ' -L window' }
     $rc = Invoke-Logged $log "ctest --test-dir `"$BuildDir`" --output-on-failure $filter"
     $lines = @(Get-Content -LiteralPath $log)
     # A failing test's result line (***Failed, ***Exception, ***Timeout, ***Not Run) is followed by its output, up to
