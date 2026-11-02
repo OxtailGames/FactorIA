@@ -109,11 +109,17 @@ struct ScriptSystem::Impl {
     void flush_rejections();
 
     // ---- guard (timeouts)
+    // A guard limits the CPU time this thread spends in the script (a loaded machine, a script waiting on a native or a
+    // debugger pause are not charged) and, as a hard cap for a script blocked forever, the wall clock: kWallCapFactor times
+    // the limit.
     struct GuardFrame {
         std::string label;
         double seconds = 0;
-        std::chrono::steady_clock::time_point deadline;
+        double cpuDeadline = 0;  // thread_cpu_seconds() value at which the CPU limit runs out
+        std::chrono::steady_clock::time_point wallDeadline;
     };
+    static constexpr double kWallCapFactor = 8.0;
+    bool timedOutWall = false;  // the frame that ran out hit the wall-clock cap (the CPU limit was not reached)
     std::vector<GuardFrame> guards;
     bool timedOut = false;
     bool lastCallTimedOut = false;
@@ -121,6 +127,9 @@ struct ScriptSystem::Impl {
     size_t timedOutDepth = 0;  // index in `guards` of the frame that ran out (a caller's frame is below the callee's)
     double timedOutSeconds = 0;
     double callbackLimit = 2.0;
+    // "(> 5 s of CPU time)" or "(> 40 s on the clock)" for the guard that ran out last.
+    std::string limit_text(double seconds) const;
+    static double thread_cpu_seconds();
 
     // ---- modules
     std::map<std::string, int> versions;  // project path -> reload counter (0 = pristine)

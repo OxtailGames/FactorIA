@@ -170,7 +170,7 @@ void Impl::reload_tools() {
             if (failed) {
                 if (debug_session_ended())
                     throw CommandError("failed", "tool " + cname + " was stopped because the debug session ended", "");
-                throw CommandError("failed", "script took too long (> 10 s) in tool " + cname, "Avoid infinite loops in tools.");
+                throw CommandError("failed", "script took too long (" + limit_text(10.0) + ") in tool " + cname, "Avoid infinite loops in tools.");
             }
             JsVal result(ctx, r);
             if (JS_PromiseState(ctx, result.get()) != JS_PROMISE_NOT_A_PROMISE) {
@@ -214,7 +214,7 @@ Result<Json> Impl::eval(std::string_view code) {
         if (timedOut) {
             timedOut = false;
             e.message = debug_session_ended() ? "eval was stopped because the debug session ended"
-                                              : "script took too long (> 5 s) in eval";
+                                              : "script took too long (" + limit_text(5.0) + ") in eval";
         }
         std::string msg = e.message;
         if (e.line > 0 && e.file != "<eval>" && !e.file.empty()) msg += " (at " + e.file + ":" + std::to_string(e.line) + ")";
@@ -515,7 +515,9 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
                 timedOut = false;
                 e.message = debug_session_ended()
                                 ? "the tests were stopped because the debug session ended; the rest of " + path + " was skipped"
-                                : "a test ran longer than 60 s and was stopped; the rest of " + path + " was skipped";
+                                : "a test used more than 60 s of CPU time (or " + std::to_string(static_cast<int>(60 * kWallCapFactor)) +
+                                      " s on the clock while blocked) and was stopped; the rest of " + path +
+                                      " was skipped. Split the test in two, or make the work it does cheaper";
             }
             JsVal curV(ctx, JS_UNDEFINED);
             {

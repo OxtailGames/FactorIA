@@ -140,7 +140,7 @@ and regenerate the committed file on any OS:
 ### Windows, short output: `scripts/agent-build.ps1`
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 <build dir> [-Target t1,t2] [-Test] [-Tests REGEX] [-Jobs 8]
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 <build dir> [-Target t1,t2] [-Test] [-Tests REGEX] [-Examples | -ExamplesOnly] [-Jobs 8]
 ```
 
 Made for AI agents, and handy for anyone who wants a Debug build from any shell (PowerShell, cmd, Git Bash). It loads
@@ -148,7 +148,9 @@ the Visual Studio 2022 C++ environment when `cl.exe` is not on the path, configu
 `windows-ninja-debug` preset the first time, builds it (`-Jobs`, default 8) and, with `-Test` (every test) or `-Tests`
 (`ctest -R`), runs the tests serially as CI does. The full output goes to `agent-configure.log`, `agent-build.log` and
 `agent-ctest.log` in the build directory; the console shows only the errors, each distinct warning once, every failing
-test with its output, and the summary. Exit status 0 means everything passed.
+test with its output, and the summary. Exit status 0 means everything passed. `-Examples` adds, after the Debug part, a
+Release build of `factoria` in `<build dir>-release` and `ctest -L example` (the example games, see "Running tests");
+`-Test -Examples` is the full check before a push, `-ExamplesOnly` skips the Debug part.
 
 ### Linux release: `scripts/build-sniper.sh`
 
@@ -291,6 +293,23 @@ cmake --build build/my-build -j 2
   them, for example on machines without a GPU.
 - Tests run with the repository root as their working directory, so fixture
   paths are relative to the root.
+- **The example games run on an optimized build.** `example_<name>_test` (their JS tests), `example_<name>_validate` and
+  the perf budgets (`example_*_perf`) carry the CTest label `example`. The games' tests run the whole engine for minutes
+  (the biggest take ten minutes in Debug under load, about a tenth of that in Release), so the cache variable
+  `FA_EXAMPLE_TESTS` (`AUTO`, `ON`, `OFF`) decides whether they run: `AUTO`, the default, runs them in Release,
+  RelWithDebInfo, MinSizeRel and multi-config builds (Visual Studio, Xcode), and registers `_test` and `_perf` as
+  `DISABLED` in a Debug build (`ctest` prints them as "Not Run (Disabled)"; CMake says so while configuring; the
+  validations still run). `ctest -L example` selects them, `ctest -LE example` leaves them out.
+- **Before a push, one command:** `scripts/test-all.sh` (Windows: `scripts\agent-build.ps1 <dir> -Test -Examples`). It builds
+  every target in Debug and runs the whole Debug suite, then builds `factoria` in Release (`build/release`) and runs
+  `ctest -L example`. `--debug-only` and `--examples-only` run one half; `FA_TEST_DEBUG_DIR`, `FA_TEST_RELEASE_DIR`,
+  `FA_TEST_JOBS` and `FA_TEST_CTEST_JOBS` (default 3) tune it; ccache is used when installed. CI already builds Release,
+  so its `ctest` runs the examples with no extra job.
+- **Time limits count CPU time.** The 60 s of one test of `factoria test`, the 5 s of `script.eval`, the 2 s of a callback
+  and the like measure the CPU time the script thread spent (`CLOCK_THREAD_CPUTIME_ID`, `GetThreadTimes`), not the wall
+  clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that
+  never returns) is still stopped by a hard cap of 8 times the limit on the wall clock. The messages say which one ran out:
+  `(> 60 s of CPU time)` or `(> 480 s on the clock)`.
 
 ## Headless and GPU notes
 
