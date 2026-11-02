@@ -4,12 +4,12 @@
     One-time setup of this Windows PC so a Mac can run the native Windows check over SSH (docs/BUILDING.md,
     "Checking Windows from the Mac"). Run it from an ADMINISTRATOR PowerShell. Safe to run again.
 
-        powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows-remote.ps1 -PublicKey "ssh-ed25519 AAAA... mac" [-RepoPath C:\path\FactorIA]
+        powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows-remote.ps1 -PublicKey "ssh-ed25519 AAAA... mac" [-RemoteDir C:\path\FactorIA-remote]
 
     The Mac prints the exact line to paste here: run scripts/setup-windows-remote.sh on the Mac first.
 
     What it does: installs and starts the OpenSSH Server, opens port 22 on PRIVATE networks only, makes PowerShell the
-    SSH shell, authorizes the Mac's key, checks git and the FactorIA clone, and prints what to run on the Mac.
+    SSH shell, authorizes the Mac's key, creates the folder it builds in, checks git, Visual Studio and CMake/Ninja, and prints what to run on the Mac.
 #>
 [CmdletBinding()]
 param(
@@ -17,8 +17,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$PublicKey,
 
-    # The FactorIA clone on this PC. Default: %USERPROFILE%\Documents\GitHub\FactorIA.
-    [string]$RepoPath = (Join-Path $env:USERPROFILE 'Documents\GitHub\FactorIA')
+    # The folder the Windows check owns on this PC (a bare repository repo.git the Mac pushes to, and the worktree work
+    # where it builds). It needs no clone of FactorIA and never uses one: a folder that is a git repository of its own, or
+    # that holds anything else, is refused. Default: %USERPROFILE%\FactorIA-remote.
+    [string]$RemoteDir = (Join-Path $env:USERPROFILE 'FactorIA-remote')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -119,24 +121,50 @@ if ($userIsAdmin) {
 if ($LASTEXITCODE -ne 0) { Problem "icacls failed on $keyFile; sshd will ignore the key until only SYSTEM, Administrators and you can write it." }
 Restart-Service sshd
 
-# 5. git and the clone.
-Step 'git and the FactorIA clone'
+# 5. git, the folder the check owns, and what agent-build.ps1 needs.
+Step 'git, the check folder and the build tools'
 $git = Get-Command git -ErrorAction SilentlyContinue
 if (-not $git) {
-    Problem 'git is not installed (winget install --id Git.Git -e). The check pushes the Mac commit with git.'
+    Problem 'git is not installed: winget install --id Git.Git -e   (the check pushes the Mac commit with git)'
 } else {
     Write-Host "    $(& git --version)"
+    $repoGit = Join-Path $RemoteDir 'repo.git'
+    if (Test-Path -LiteralPath (Join-Path $RemoteDir '.git')) {
+        Problem "$RemoteDir is a git repository of its own, so the check will refuse to use it. Run this again with -RemoteDir <a new or empty folder>."
+    } elseif (-not (Test-Path -LiteralPath $repoGit)) {
+        if ((Test-Path -LiteralPath $RemoteDir) -and @(Get-ChildItem -LiteralPath $RemoteDir -Force).Count -gt 0) {
+            Problem "$RemoteDir exists, is not empty and is not a FactorIA-remote folder, so the check will refuse to use it. Run this again with -RemoteDir <a new or empty folder>."
+        } else {
+            New-Item -ItemType Directory -Force -Path $RemoteDir | Out-Null
+            Invoke-Native { git init --bare -q $repoGit } | Out-Null
+            Write-Host "    created $repoGit"
+        }
+    } else {
+        Write-Host "    check folder: $RemoteDir"
+    }
 }
-if (-not (Test-Path -LiteralPath (Join-Path $RepoPath '.git'))) {
-    Problem "no FactorIA clone at $RepoPath. Clone it there, or run this script again with -RepoPath <your clone>."
+# agent-build.ps1: Visual Studio 2022 with the C++ tools found by vswhere; it takes cmake, ninja and ctest from the
+# MSVC environment (vcvars64.bat), where Visual Studio's own CMake and Ninja components put them.
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+$vsPath = $null
+if (Test-Path -LiteralPath $vswhere) {
+    $vsPath = & $vswhere -latest -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+}
+if (-not $vsPath) {
+    Problem 'Visual Studio 2022 with the C++ tools was not found. Install it: winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.CMake.Project --includeRecommended"'
 } else {
-    Write-Host "    clone: $RepoPath"
-    # Pushing into the checked-out repository is fine (the Mac only writes refs/heads/preflight/*); nothing to configure.
-    if ($git) { Invoke-Native { git config --global --add safe.directory ($RepoPath -replace '\\', '/') } | Out-Null }
+    Write-Host "    Visual Studio: $vsPath"
+    $cmakeBin = Join-Path $vsPath 'Common7\IDE\CommonExtensions\Microsoft\CMake'
+    $haveCMake = (Test-Path -LiteralPath (Join-Path $cmakeBin 'CMake\bin\cmake.exe')) -or (Get-Command cmake -ErrorAction SilentlyContinue)
+    $haveNinja = (Test-Path -LiteralPath (Join-Path $cmakeBin 'Ninja\ninja.exe')) -or (Get-Command ninja -ErrorAction SilentlyContinue)
+    if (-not ($haveCMake -and $haveNinja)) {
+        Problem ("CMake or Ninja is missing from that Visual Studio. Add the component: & '{0}' modify --installPath '{1}' --add Microsoft.VisualStudio.Component.VC.CMake.Project --passive" -f (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\setup.exe'), $vsPath)
+    } else {
+        Write-Host '    cmake and ninja: found'
+    }
 }
-$vs = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-if (-not (Test-Path -LiteralPath $vs)) {
-    Problem 'Visual Studio 2022 with "Desktop development with C++" was not found (docs/BUILDING.md, Windows); the build needs it.'
+if (-not (Get-Command ccache -ErrorAction SilentlyContinue)) {
+    Write-Host '    ccache: not installed (optional, makes the Release example build faster: winget install --id Ccache.Ccache -e)'
 }
 
 # 6. What to run on the Mac.
@@ -153,6 +181,8 @@ if ($problems.Count) {
 Write-Host ''
 Write-Host 'Now, on the Mac, run:'
 Write-Host ''
-Write-Host "    scripts/setup-windows-remote.sh --host $ip --user $env:USERNAME --repo '$RepoPath'"
+$repoArg = ''
+if ($RemoteDir -ne "C:\Users\$env:USERNAME\FactorIA-remote") { $repoArg = " --repo '$RemoteDir'" }
+Write-Host "    scripts/setup-windows-remote.sh --host $ip --user $env:USERNAME$repoArg"
 Write-Host ''
 exit 0
