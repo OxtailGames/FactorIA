@@ -11,8 +11,9 @@ The editor shows these notes when it offers an update, and each release on GitHu
   `scripts/setup-windows-remote.ps1` (the PC, administrator PowerShell, idempotent) set it up once, then
   `scripts/ci-remote-windows.sh [--no-examples] [--wsl]` pushes HEAD to `refs/heads/preflight/<branch>` of a repository it owns on the PC
   (`%USERPROFILE%\FactorIA-remote`, no clone needed; a folder that is a git repository of its own is refused),
-  builds it in a worktree there and brings the logs back to `build/ci-logs/windows-remote/`. A PC that is off is not a failure: after a 5 s check the script asks in a terminal whether you are switching it on (or waits with `--wait`, `--wait-timeout`) and otherwise exits 77, as it does when not set up or when the connection drops mid-run; it never switches the PC on or off.
+  builds it in a worktree there and brings the logs back to `build/ci-logs/windows-remote/`. A PC that is off is not a failure: after a 5 s check the script asks in a terminal whether you are switching it on (or waits with `--wait`, `--wait-timeout`) and otherwise exits 77, as it does when not set up or when the connection drops mid-run; it never switches the PC on or off. The tests that need a window (ctest label `window`) run in the desktop session of the user logged in on the PC through a one-shot scheduled task; with nobody logged in they are reported as skipped and the exit status is 77.
   (docs/BUILDING.md, "Checking Windows from the Mac")
+- Tests with a speed budget scale it with `fa::test_speed_budget_scale()` (4 on an MSVC Debug build, 1 elsewhere); the `mcp` test no longer reads a freed temporary in a range-for, which the MSVC debug heap exposed. `/bigobj` is on for MSVC builds.
 - CI saves each job's ccache right after the build instead of at the end of the job, which `actions/cache` only does
   when every step passed: a run whose tests failed left the next run of the branch a stale cache (Windows rebuilt
   cold with 11% hits, 35-45 min).

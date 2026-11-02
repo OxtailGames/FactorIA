@@ -112,7 +112,7 @@ if(FA_BUILD_TESTS)
                     WORKING_DIRECTORY ${FA_ROOT})
                 # TIMEOUT: an entry takes 45-110 s alone; under ctest -j the five share the runner's CPUs (and its software GPU),
                 # so 120 s was too tight. A hang is still caught: each wait of a section gives up after 60 s.
-                set_tests_properties(editor_autotest_${editor_autotest_n} PROPERTIES LABELS "gpu" TIMEOUT 300
+                set_tests_properties(editor_autotest_${editor_autotest_n} PROPERTIES LABELS "gpu;window" TIMEOUT 300
                     ENVIRONMENT "FA_EDITOR_AUTOTEST=1;FA_EDITOR_AUTOTEST_SECTIONS=${editor_autotest_sections};FA_EDITOR_AUTOTEST_OUT=${CMAKE_BINARY_DIR}/test-output/editor/autotest_${editor_autotest_n}")
                 # Windows: one entry at a time (the other tests still run beside it). Five editors at once on the CI runner's
                 # software D3D11 (WARP) and 4 vCPUs all ran past their timeout; Linux gives each entry its own Xvfb.
@@ -135,7 +135,7 @@ if(FA_BUILD_TESTS)
             add_test(NAME editor_autotest_welcome
                 COMMAND ${editor_autotest_launcher} $<TARGET_FILE:fa_editor_autotest>
                 WORKING_DIRECTORY ${FA_ROOT})
-            set_tests_properties(editor_autotest_welcome PROPERTIES LABELS "gpu" TIMEOUT 120
+            set_tests_properties(editor_autotest_welcome PROPERTIES LABELS "gpu;window" TIMEOUT 120
                 ENVIRONMENT "FA_EDITOR_AUTOTEST=welcome;FA_EDITOR_AUTOTEST_OUT=${CMAKE_BINARY_DIR}/test-output/editor/welcome")
         endif()
     endif()

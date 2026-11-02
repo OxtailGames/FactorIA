@@ -22,14 +22,18 @@
 # --wait makes it wait instead.
 # Only COMMITTED work is tested: uncommitted changes to tracked files are not sent (a warning lists them).
 # Logs come back to build/ci-logs/windows-remote/.
+# The tests that open a window (ctest label "window": editor autotests, player frames, exported game) cannot run in an
+# SSH session, which has no desktop: they run in the desktop session of the user logged in on the PC, through a one-shot
+# scheduled task that is deleted afterwards (scripts/windows-run-interactive.ps1). With nobody logged in they are
+# reported as SKIPPED (not passed) and the exit status is 77.
 # Exit status: 0 everything passed, 1 a build or test failed, 77 the check could not be done or finished: not set up,
-# the PC is off/unreachable, or the connection was lost mid-run (never reported as a failure; scripts/ci-preflight.sh
-# records SKIP).
+# the PC is off/unreachable, the connection was lost mid-run, or the windowed tests were skipped for lack of a logged-in
+# user (never reported as a failure; scripts/ci-preflight.sh records SKIP).
 #
 # Test hooks: FACTORIA_SSH / FACTORIA_SCP replace ssh / scp, FACTORIA_WINDOWS_HOST the `factoria-windows` alias,
 # FACTORIA_WINDOWS_DIR the stored folder on the PC, FACTORIA_ASSUME_TTY=1 treats stdin as a terminal,
 # FACTORIA_REMOTE_FLAVOR=posix makes the commands that run on the far side POSIX shell instead of PowerShell (a fake
-# "PC" on this machine; FACTORIA_REMOTE_BUILD_CMD is then the build).
+# "PC" on this machine; FACTORIA_REMOTE_BUILD_CMD is then the build, FACTORIA_REMOTE_WINDOW_CMD the windowed tests).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,7 +47,7 @@ while [ $# -gt 0 ]; do
         --wait) WAIT=1 ;;
         --wait-timeout) WAIT_TIMEOUT="${2:-}"; shift ;;
         --wait-timeout=*) WAIT_TIMEOUT="${1#*=}" ;;
-        -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
         *) echo "error: unknown argument '$1' (see --help)" >&2; exit 2 ;;
     esac
     shift
@@ -174,23 +178,44 @@ if ! remote "$PREP"; then
     fail_or_interrupted "could not prepare the worktree on the PC" "preparing the worktree" "The commit was pushed; nothing was built."
 fi
 
-STATUS=0 LOST=""
+STATUS=0 LOST="" WINDOWED=""
 echo "== building and testing on the PC (the Debug build is incremental after the first run)"
 if [ "$FLAVOR" = posix ]; then
     BUILD="cd '$(q "$WT")' && ${FACTORIA_REMOTE_BUILD_CMD:-true}"
 else
-    FLAGS="-Test"; [ "$EXAMPLES" -eq 1 ] && FLAGS="-Test -Examples"
+    FLAGS="-Test -NoWindowTests"; [ "$EXAMPLES" -eq 1 ] && FLAGS="-Test -Examples -NoWindowTests"
     BUILD="Set-Location -LiteralPath '$(q "$WT")'; powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\agent-build.ps1 build\\agent-preflight $FLAGS; exit \$LASTEXITCODE"
 fi
 # A dead PC is noticed after 4 missed keep-alives (about a minute) instead of the 10 minutes of ~/.ssh/config.
 "$SSH_BIN" -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$HOST" "$BUILD"; RC=$?
+RC_MAIN=$RC
 if [ "$RC" -eq 255 ]; then
+    RC_MAIN_TXT=INTERRUPTED
     LOST="the Windows build and tests"
     echo "== Windows: INTERRUPTED (connection lost)"
 elif [ "$RC" -eq 0 ]; then
     echo "== Windows: PASSED"
 else
     echo "== Windows: FAILED (exit $RC)"; STATUS=1
+fi
+
+# The windowed tests (ctest label "window": editor autotests, player frames, exported game) need a desktop, which an SSH
+# session does not have. They run in the desktop session of the user logged in on the PC (windows-run-interactive.ps1).
+if [ -z "$LOST" ]; then
+    echo "== windowed tests in the PC's desktop session"
+    if [ "$FLAVOR" = posix ]; then
+        WINBUILD="cd '$(q "$WT")' && ${FACTORIA_REMOTE_WINDOW_CMD:-exit 78}"
+    else
+        WINBUILD="Set-Location -LiteralPath '$(q "$WT")'; powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\windows-run-interactive.ps1 -WorkDir '$(q "$WT")'; exit \$LASTEXITCODE"
+    fi
+    "$SSH_BIN" -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$HOST" "$WINBUILD"; RC=$?
+    case "$RC" in
+        255) LOST="the windowed tests"; WINDOWED="INTERRUPTED"; echo "== Windowed tests: INTERRUPTED (connection lost)" ;;
+        0)   WINDOWED="PASSED"; echo "== Windowed tests: PASSED" ;;
+        78)  WINDOWED="SKIPPED"; echo "== Windowed tests: SKIPPED (not run, NOT passed): nobody is logged in on the PC desktop" ;;
+        79)  WINDOWED="FAILED"; STATUS=1; echo "== Windowed tests: FAILED (did not finish in time)" ;;
+        *)   WINDOWED="FAILED"; STATUS=1; echo "== Windowed tests: FAILED (exit $RC)" ;;
+    esac
 fi
 
 if [ "$WSL" -eq 1 ] && [ -z "$LOST" ]; then
@@ -232,12 +257,18 @@ if [ -z "$LOST" ]; then
     fi
 fi
 
+echo "== summary: build and tests (no window): $([ "$RC_MAIN" = 0 ] && echo PASSED || echo "${RC_MAIN_TXT:-FAILED}"); windowed tests: ${WINDOWED:-not reached}"
 if [ "$STATUS" -ne 0 ]; then
     echo "== FAILED: Windows check of ${SHA:0:10}; the failing builds and tests are above, full logs in ${DEST:-build/ci-logs/windows-remote}"
     exit 1
 fi
 if [ -n "$LOST" ]; then
     interrupted "$LOST" "Not a failure, but not a pass either: the check of ${SHA:0:10} did not finish. Everything before it passed or was not reached."
+fi
+if [ "$WINDOWED" = SKIPPED ]; then
+    echo "== INCOMPLETE: everything that runs without a desktop passed, but the windowed tests were NOT run." >&2
+    echo "   Log in to the PC (and unlock it if you like), then run this again; it only needs the desktop to be logged in." >&2
+    exit 77
 fi
 echo "== PASSED: Windows check of ${SHA:0:10}${DIRTY:+ (WITHOUT the uncommitted changes listed above)}"
 exit 0
