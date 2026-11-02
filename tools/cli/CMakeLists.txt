@@ -62,7 +62,7 @@ if(FA_BUILD_TESTS)
         set_property(TEST cli_integration APPEND PROPERTY ENVIRONMENT "FA_CLI_STRICT_TESTS=1")  # APPEND: keeps the Windows-rules variable
 
         # Native plugins end to end: the template plugin (platforms/plugin) built as the plugin "example", loaded by
-        # `factoria run` and by the game `factoria export` makes (which opens a window: label gpu).
+        # `factoria run` and by the game `factoria export` makes (which opens a window: labels gpu and window).
         add_library(fa_test_plugin_example SHARED ${FA_ROOT}/platforms/plugin/src/plugin.c)
         target_include_directories(fa_test_plugin_example PRIVATE ${FA_ROOT}/engine/runtime/include/fa/runtime)
         target_compile_definitions(fa_test_plugin_example PRIVATE FA_PLUGIN_NAME=example)
@@ -71,14 +71,14 @@ if(FA_BUILD_TESTS)
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/plugin_test.py $<TARGET_FILE:factoria>
                     $<TARGET_FILE:fa_test_plugin_example> $<TARGET_FILE:factoria_player>
             WORKING_DIRECTORY ${FA_ROOT})
-        set_tests_properties(cli_plugin PROPERTIES TIMEOUT 300 LABELS "gpu")
+        set_tests_properties(cli_plugin PROPERTIES TIMEOUT 300 LABELS "gpu;window")
 
-        # factoria_player --frames N: exits 0 after N frames, 1 after a script error (opens a window: label gpu).
+        # factoria_player --frames N: exits 0 after N frames, 1 after a script error (opens a window: labels gpu and window).
         add_test(NAME cli_player_frames
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/player_frames_test.py $<TARGET_FILE:factoria>
                     $<TARGET_FILE:factoria_player>
             WORKING_DIRECTORY ${FA_ROOT})
-        set_tests_properties(cli_player_frames PROPERTIES TIMEOUT 300 LABELS "gpu")
+        set_tests_properties(cli_player_frames PROPERTIES TIMEOUT 300 LABELS "gpu;window")
 
         # factoria_player --input / --dump-state / --screenshot: an exported build plays a replay headless and its state and
         # screenshot equal `factoria run`'s (offscreen GPU: label gpu).

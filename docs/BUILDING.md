@@ -611,6 +611,77 @@ changes the font size), and upload their logs, the screenshot and crash reports 
 `android-apk` with the NDK, outside the game's folder through `FA_CI_PLUGINS`), and the emulator job checks that its
 script got the plugin's answers. What they cover and what not is in [MOBILE.md](MOBILE.md).
 
+### Checking Windows from the Mac
+
+GitHub's Windows job (MSVC) is the one that fails most, and a Mac cannot build with MSVC. If you also have a Windows PC
+on the same home network, the Mac can run the native check on it over SSH before a push: the commit checked out on the
+Mac is pushed to a repository the check owns on the PC (to the ref `refs/heads/preflight/<branch>`), built in a
+worktree of it, and checked with
+`scripts\agent-build.ps1 build\agent-preflight -Test -Examples` (Debug build and ctest, then the Release build and the
+example games' tests). The output streams to the Mac terminal. The PC needs no clone of FactorIA: the check works in its
+own folder `%USERPROFILE%\FactorIA-remote` (a bare repository `repo.git` and the worktree `work`, whose `build\` is kept
+between runs) and never touches any other folder. A folder that is a git repository of its own, or holds anything else, is
+refused (`--repo` on the Mac, `-RemoteDir` on the PC pick another one).
+
+**Setup, once** (two commands, one on each machine):
+
+1. On the Mac: `scripts/setup-windows-remote.sh`. It creates the key `~/.ssh/factoria_windows` if missing and prints (and
+   copies to the clipboard) one PowerShell line that carries `scripts/setup-windows-remote.ps1` and the public key.
+2. On the PC: open PowerShell **as administrator** and paste that line (or, from a clone that has the script, run
+   `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows-remote.ps1 -PublicKey '<key>' [-RemoteDir C:\path\FactorIA-remote]`).
+   It installs and starts the OpenSSH Server, opens port 22 on **private networks only** (the rule Windows creates itself
+   is turned off; if the home network is set to "Public" it warns and gives the command to change it), makes PowerShell
+   the SSH shell, authorizes the key (`C:\ProgramData\ssh\administrators_authorized_keys` with the ACL sshd requires for
+   an administrator, `~\.ssh\authorized_keys` otherwise), creates the check's folder, checks git,
+   Visual Studio 2022 with the C++ tools and its CMake and Ninja (what `agent-build.ps1` uses), prints what is missing with
+   the `winget` / installer command to add it (it installs none of them), and ends by printing the command for the Mac.
+   Running it again changes nothing that is already right.
+3. On the Mac: run the command the PC printed, `scripts/setup-windows-remote.sh --host <ip> --user <name>` (with `--repo` only if the PC folder is not the default).
+   It shows the `Host factoria-windows` block it will write to `~/.ssh/config` and asks first (a rerun replaces the
+   block between its marker comments), stores the PC folder in `build/windows-remote.conf` of the main checkout and tests
+   the connection (`scripts/ci-remote-windows.sh --check`).
+
+**Every time:**
+
+```bash
+scripts/ci-remote-windows.sh              # Windows: Debug build + ctest + Release example games
+scripts/ci-remote-windows.sh --no-examples
+scripts/ci-remote-windows.sh --wsl        # also scripts/ci-local.sh linux android in the PC's WSL Ubuntu-24.04
+```
+
+Exit status: 0 = passed, 1 = a build or a test failed, 77 = the check could not be done or finished, which is not a
+failure (`scripts/ci-preflight.sh` records it as a skip): not set up (the message names the setup script), the PC is off
+or unreachable, the connection was lost halfway, or the windowed tests were skipped because nobody is logged in.
+
+**The PC is often off, and the script never switches it on or puts it to sleep.** It first checks that the PC answers
+(5 s at most). If it does not: in a terminal it asks "Can you switch it on?" and Enter means "I am switching it on, wait
+for it" (it waits for sshd, up to `--wait-timeout SECONDS`, default 300, with a note every 15 s), `s` skips (exit 77). Without a
+terminal (an AI agent runs it) it exits 77 at once saying so, and the agent asks you; once you say you are switching the
+PC on, it runs the script again with `--wait`. While the PC is off, the Docker MinGW + Wine job and the Windows
+file-rules emulation of `ci-local.sh` still cover part of what the MSVC check finds.
+If the connection drops during the run (the PC went to sleep or off, the network failed) the script says which part had
+run, that this is not a build or test failure, and exits 77; a dead PC is noticed after about a minute.
+Only committed work is tested: uncommitted changes to tracked files are listed in a warning and not sent. The first run
+builds everything cold on the PC; later runs reuse `build\agent-preflight` and `build\agent-preflight-release` in the
+worktree. Do not start two runs at once (they share that worktree). The logs come back to `build/ci-logs/windows-remote/`.
+**Windowed tests.** An SSH session on Windows has no desktop, so a D3D11 swap chain cannot be created there. The tests
+that open a window carry the ctest label `window` (`editor_autotest_*`, `cli_player_frames`, `cli_plugin`, which exports
+and runs a game) and are left out of the SSH run (`agent-build.ps1 -NoWindowTests`). The script then runs them in the desktop
+session of the user logged in on the PC (`scripts\windows-run-interactive.ps1`, `agent-build.ps1 -WindowTestsOnly`): a
+one-shot scheduled task with an interactive logon for that user, whose output and exit code come back through the SSH
+session, and which is deleted afterwards even if the run is stopped (nothing persistent is left, and power and sleep
+settings are not touched). While it runs, windows may flash on that desktop. If nobody is logged in, those tests are
+reported as `SKIPPED` (not passed) in the summary and the exit status is 77; the one-line fix is to log in to the PC (it
+can be locked afterwards) and run the script again.
+
+**Timing checks in tests.** A test that asserts a speed budget scales it with `fa::test_speed_budget_scale()`
+(`fa/core/perf.h`): 4 on an MSVC Debug build, whose unoptimized code ran `script_instrument`'s 1000 ms check in 2.1 s,
+and 1 everywhere else, so an optimized build keeps the tight budget.
+
+`--wsl` fetches the commit into its own clone `~/FactorIA-preflight` in WSL (made by the first run, from the PC's
+`repo.git`); your `~/FactorIA` there is not used. It needs the WSL set-up of "Continuous integration" above, with
+`ANDROID_NDK_HOME` exported in `~/.profile` for the android job.
+
 ## Troubleshooting
 
 **`CMake Error: Could not use disabled preset "windows-release"`**
