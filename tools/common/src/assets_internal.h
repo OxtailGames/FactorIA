@@ -123,6 +123,7 @@ void register_audio_doc_commands(CommandRegistry& registry, const std::string& p
 void register_model_commands(CommandRegistry& registry, const std::string& projectDir);  // model.info, model.bake, model.create, model.edit (assets_model.cpp)
 void register_model_uv_command(CommandRegistry& registry, const std::string& projectDir);  // model.uv (assets_model_uv.cpp)
 void register_model_texture_commands(CommandRegistry& registry, const std::string& projectDir);  // model.texture, model.decal, model.palette, model.bake_maps (assets_model_texture.cpp)
+void register_model_eyes_commands(CommandRegistry& registry, const std::string& projectDir);  // model.preview, model.check (assets_model_preview.cpp)
 Json model_uv_report_json(const ModelUvReport& report);  // the measurements of a uv section as JSON (model.uv, and `uv` in the model.* measurements)
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);

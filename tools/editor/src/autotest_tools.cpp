@@ -570,7 +570,7 @@ void Editor::at_build_tools_script() {
             if (showAnimation_ || anim_.posed) anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
             anim_ = AnimUi{};
             bone_ = BoneUi{};
-            showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = false;
+            showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = showModeler_ = false;
             sound_close_document();   // section K3: the Sound panel, its sound and its playback are not carried over
             sound_release_textures();
             if (sound_.player) sound_.player->stop();
@@ -579,6 +579,10 @@ void Editor::at_build_tools_script() {
             music_.preview.reset();
             music_.model.reset();
             music_ = MusicUi{};
+            modeler_close_document();   // section N3: the Model panel and its document are not carried over
+            modeler_release_textures();
+            modeler_.model.reset();
+            modeler_ = ModelerUi{};
             vector_release_textures();
             vector_ = VectorUi{};   // section J2: the Vector panel, its drawing and its tools are not carried over
             image_release_textures();   // section I2: the Image panel, its document and its tools are not carried over
@@ -6900,6 +6904,176 @@ void Editor::at_build_tools_script() {
             FA_INFO("autotest", "music panel: last render {:.1f} ms", music_.model->last_render_ms());
             showMusic_ = false;
             music_close_document();
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            project_files_changed();
+        });
+    }
+
+    section("N3");
+    // The Model panel (docs/EDITOR.md, "Model panel"): a model document opens as its operation tree with a live view of the mesh; picking a node
+    // highlights its part; a slider is clicked (ONE model.edit, one undo step) and Undo/Redo walk it through the editor's stack; a node is added,
+    // switched off and removed; the view is orbited with the mouse; the 1.8 m figure and Check show their results; Save bakes the .glb. Every wait
+    // counts frames or state.
+    {
+        struct Ns {
+            size_t undo = 0;
+            double height = 0;
+            size_t rows = 0;
+            std::uint64_t renders = 0;
+            float yaw = 0;
+        };
+        auto ns = std::make_shared<Ns>();
+        const std::string dir = "assets/at-model";
+        const std::string doc = dir + "/t.model.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        // The document is open, evaluated, and the viewport drew that mesh.
+        auto settled = [this] {
+            const ModelerModel* m = modeler_.model.get();
+            return m && m->is_open() && m->valid() && !m->busy() && m->build_is_fresh() && modeler_.picture.view != 0 && !m->has_live();
+        };
+        auto height_of = [this]() -> double {
+            const ModelerBuildPtr b = modeler_.model ? modeler_.model->build() : nullptr;
+            return b ? double(b->stats.bmax.y - b->stats.bmin.y) : 0.0;
+        };
+        step(2, [this, doc] {
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/assets/at-model", ec);   // a leftover of an earlier run
+            const Json args = Json::parse(R"({"bake":false,"nodes":[
+                {"op":"box","id":"base","size":[1,0.2,1],"part":"base","align":"bottom"},
+                {"op":"group","id":"top","part":"top","position":[0,0.2,0],"children":[
+                    {"op":"cylinder","id":"post","radius":0.2,"height":1,"align":"bottom"},
+                    {"op":"sphere","id":"ball","radius":0.3,"position":[0,1.3,0]}]}]})");
+            Json a = args;
+            a["path"] = doc;
+            const CommandResult r = engine_->commands().call("model.create", a);
+            after_command("model.create", a, r);
+            at_check(r.ok, "model.create worked: " + (r.ok ? std::string() : command_error_text(r.error)));
+            open_model_document(doc);
+        });
+        wait_until([this, settled] { return at_visible("mod:view") && at_visible("mod:save") && at_visible("mod:node:3") && settled(); });
+        step(3, [this, ns, height_of] {
+            ModelerModel& m = *modeler_.model;
+            at_check(m.valid() && m.rows().size() == 4, "the panel opened the document with its four nodes in the tree");
+            at_check(m.build() && m.build()->stats.triangles > 0, "...evaluated it to a mesh");
+            at_check(modeler_.renderCount > 0 && modeler_.picture.w > 0, "...and the viewport drew it");
+            at_check(at_visible("mod:check") && at_visible("mod:figure") && at_visible("mod:part:base") && at_visible("mod:part:top"), "...with Check, the figure toggle and its two parts listed");
+            ns->undo = undo_depth();
+            ns->height = height_of();
+            ns->renders = modeler_.renderCount;
+        });
+        snap("editor_model_panel.png");
+
+        // ---- a node picked: its part is highlighted and its parameters are listed
+        click_widget("mod:node:2");
+        wait_until([this, settled] { return modeler_.selected == "/nodes/1/children/0" && at_visible("mod:param:height") && settled(); });
+        step(3, [this, ns] {
+            at_check(modeler_.highlight == "top", "picking the post highlighted its part, `top`");
+            at_check(modeler_.renderCount > ns->renders, "...and the view was drawn again with it");
+            at_check(at_visible("mod:param:radius") && at_visible("mod:param:segments") && at_visible("mod:param:capTop") && at_visible("mod:param:position"),
+                     "...and the cylinder's parameters are listed, with the fields every node has");
+        });
+        snap("editor_model_part.png");
+
+        // ---- a slider clicked: one model.edit, one undo step
+        click_widget("mod:param:height");
+        wait_until(settled);
+        step(3, [this, ns, height_of] {
+            const Json* n = modeler_.model->node("/nodes/1/children/0");
+            at_check(n && n->contains("height") && (*n)["height"].get<double>() > 2.0, "a click on the height slider wrote its value to the document");
+            at_check(height_of() > ns->height + 1.0, "...and the model in the view is taller");
+            at_check(undo_depth() == ns->undo + 1, "...as one undo step");
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ns, height_of] {
+            at_check(std::fabs(height_of() - ns->height) < 1e-4 && undo_depth() == ns->undo, "Undo brought the height back");
+        });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        step(3, [this, ns, height_of] { at_check(height_of() > ns->height + 1.0 && undo_depth() == ns->undo + 1, "Redo made it taller again"); });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+
+        // ---- a part picked in the list
+        click_widget("mod:part:base");
+        step(3, [this] { at_check(modeler_.highlight == "base", "a click on `base` in the part list highlights it"); });
+
+        // ---- a node added, switched off, removed
+        step(2, [this, ns] {
+            ns->undo = undo_depth();
+            ns->rows = modeler_.model->rows().size();
+            modeler_.newOp = "torus";
+        });
+        click_widget("mod:add");
+        wait_until([this, settled] { return modeler_.model->rows().size() == 5 && settled(); });
+        step(3, [this, ns] {
+            at_check(undo_depth() == ns->undo + 1, "Add put a torus in the tree as one undo step");
+            at_check(modeler_.model->rows()[4].op == "torus" && modeler_.selected == "/nodes/2", "...and picked it");
+        });
+        click_widget("mod:enabled:4");
+        wait_until([this, settled] { return !modeler_.model->rows().empty() && !modeler_.model->rows()[4].enabled && settled(); });
+        step(3, [this, ns] { at_check(undo_depth() == ns->undo + 2, "the node's check box switched it off as one undo step"); });
+        click_widget("mod:remove");
+        wait_until([this, settled] { return modeler_.model->rows().size() == 4 && settled(); });
+        step(3, [this, ns] { at_check(undo_depth() == ns->undo + 3 && modeler_.selected.empty(), "Remove took it out as one undo step"); });
+        step(2, [this] { undo(); });
+        step(2, [this] { undo(); });
+        step(2, [this] { undo(); });
+        wait_until([this, settled] { return modeler_.model->rows().size() == 4 && settled(); });
+        step(3, [this, ns] {
+            at_check(undo_depth() == ns->undo && modeler_.model->rows().size() == ns->rows, "three Undos took the torus out again");
+            std::ifstream in(projectDir_ + "/assets/at-model/t.model.json");
+            std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            at_check(text.find("torus") == std::string::npos, "...and out of the document on disk");
+        });
+
+        // ---- the view: orbit with the mouse, the 1.8 m figure, Check
+        step(2, [this, ns] {
+            ns->yaw = modeler_.yaw;
+            ns->renders = modeler_.renderCount;
+        });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, modeler_screen_pos(0.5f, 0.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, modeler_screen_pos(0.5f, 0.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, modeler_screen_pos(0.6f, 0.5f)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, modeler_screen_pos(0.7f, 0.45f)); });
+        step(3, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, modeler_screen_pos(0.7f, 0.45f)); });
+        wait_until(settled);
+        step(3, [this, ns] {
+            at_check(std::fabs(modeler_.yaw - ns->yaw) > 5.0f, "dragging in the view orbited the model");
+            at_check(modeler_.renderCount > ns->renders, "...and the view was drawn again");
+        });
+        click_widget("mod:figure");
+        wait_until([this, settled] { return modeler_.figure && settled(); });
+        step(3, [this] { at_check(modeler_.figure, "the figure toggle stands a 1.8 m figure beside the model"); });
+        snap("editor_model_figure.png");
+        click_widget("mod:check");
+        wait_until([this] { return at_visible("mod:finding:0") || (modeler_.check.is_object() && modeler_.check["findings"].empty()); });
+        step(3, [this] {
+            at_check(modeler_.check.is_object() && modeler_.check.contains("mesh") && modeler_.check["mesh"]["triangles"].get<int>() > 0, "Check ran model.check on the document");
+            at_check(modeler_.checkError.empty(), "...with no error");
+        });
+
+        // ---- Save bakes the .glb
+        click_widget("mod:save");
+        step(10, [this] {
+            const std::string out = modeler_.model->baked_path();
+            at_check(!out.empty() && stdfs::exists(projectDir_ + "/" + out), "Save baked the model: " + out);
+        });
+        step(2, [this, dir] {
+            FA_INFO("autotest", "model panel: last evaluation {:.1f} ms, last picture {:.1f} ms", modeler_.model->last_eval_ms(), modeler_.renderMs);
+            showModeler_ = false;
+            modeler_close_document();
             std::error_code ec;
             stdfs::remove_all(projectDir_ + "/" + dir, ec);
             project_files_changed();

@@ -819,6 +819,78 @@ triangle counts and hashes).
 Limits: the capsule is always along Y (the report warns when the model is wider than tall); a decomposition that finds no
 pieces falls back to the convex hull and says so; a LOD never removes a submesh entirely.
 
+## Looking at a model: `model.preview` and `model.check`
+
+Two read-only commands let you (or an AI) look at a model without a graphics device, a window or Blender. Both build the
+document in memory and look at the mesh the game gets: with `gameReady` settings in the document, their `origin` and `merge`
+are applied first (the result says `"mesh": "gameReady"` or `"evaluated"`). Pass `path` (a `.model.json`) or `document` (the JSON
+itself, to try an idea before it is a file). Nothing in the project changes.
+
+```bash
+factoria call model.preview '{"path":"assets/models/crate.model.json","views":4,"mode":"shaded_wireframe"}'
+factoria call model.check   '{"path":"assets/models/crate.model.json","expectedHeight":0.5,"platforms":["mobile"]}'
+```
+
+**`model.preview`** draws one PNG, a turntable sheet: `views` sides (4 to 8, default 6) evenly spaced around the model from
+`yaw` (degrees; 0 looks at the +Z side, 90 at the +X side), seen from `pitch` degrees above the horizon, each cell `cell` pixels
+(96 to 640) and all framed the same way so sizes compare across the sheet. A blue figure 1.8 m tall stands beside the model
+(`figure: false` removes it) on a grid at y = 0 whose two origin axes are brighter (`ground: false` removes it), so scale, how
+the model stands and where its origin is read at a glance. The header names the file and gives the triangle count, the size in
+metres and the number of parts. `mode` is `shaded` (default), `wireframe` (the triangle edges; hidden ones stay hidden) or
+`shaded_wireframe`. A dark red surface is one seen from inside (a flipped triangle). `part` draws one part in orange. A software
+renderer draws it, so the same document gives the same picture on every machine. The result has `stats` (triangles, vertices,
+submeshes, bounds, `heightVersusFigure`, and the triangles of each part), the `views` angles and `picture`; the PNG comes back as
+`$image` in a temporary file, and `out` (a project-relative `.png`; `overwrite` to replace one) keeps it in the project.
+
+**`model.check`** measures what a picture cannot. Each finding has a `code`, a `severity` (`error`: the model is wrong; `warning`:
+probably wrong; `info`), a `message` (what is wrong and where: the parts and bounds), a `hint` (how to fix it) and, for mesh
+faults, `count`, `parts`, `bounds` and up to `samples` positions in model space. `ok` is false when there is an error.
+
+| Code | Severity | Found when |
+|---|---|---|
+| `empty` | error | The mesh has no triangles. |
+| `inside_out` | error | A closed piece has a negative volume: every triangle faces inward. |
+| `inconsistent_winding` | error | Two neighbouring triangles disagree on which side is out: one is flipped. |
+| `non_manifold` | error | An edge is shared by more than two triangles. |
+| `flipped_normals` | warning | Stored normals point against their triangle's winding. |
+| `open_edges` | warning | Edges used by one triangle: a hole, so the model is not a closed solid. |
+| `degenerate` | warning | Triangles with no area. |
+| `scale` | warning | The height differs from `expectedHeight` by more than `tolerance` (a fraction, default 0.25) or, with no `expectedHeight`, the largest side is under 2 cm or over 100 m: probably authored in the wrong unit. |
+| `origin` | warning | The model is far from its own origin, so placing an entity puts it somewhere else. |
+| `triangle_budget` | warning | More triangles than a platform's budget for one model (information when a LOD of the document's `gameReady` fits). |
+| `draw_call_budget` | warning | More submeshes than a platform's budget. |
+
+The budgets are the table of Game-ready models (`model.game_ready` reports the same numbers); `platforms` limits which are
+checked (default all) and `ignore` lists codes not to report (an open surface that is meant to be open: `["open_edges"]`). The
+result also has `mesh` (the counts behind the findings, `closedVolume`, `height`) and `checked`. With no `path` or `document`,
+`model.check {}` returns the catalog of checks and budgets.
+
+A workflow that needs no eyes on the screen: `model.create` or `model.edit`, then `model.check` until `ok` and no warning is
+unexpected, then `model.preview` with `mode: "shaded_wireframe"` to see the triangles, and `model.bake`. A model whose check is
+clean can still look wrong: the picture is the check for how it looks.
+
+## The Model panel in the editor
+
+View > Model (or a double click on a `*.model.json` in the Project panel) opens a document. The panel has three parts and
+uses the commands above, so what it writes is what the Console, an AI or a script would write:
+
+- **The operation tree**, in document order, with a checkbox per node (`enabled`), Add (the catalog's operations, into the
+  selected group or modifier, or at the top level) and Remove. Picking a node highlights the part it belongs to in the viewport.
+- **The viewport**: the evaluated mesh drawn by the same software renderer as `model.preview` (drag to turn, wheel to zoom;
+  shaded, wireframe, the 1.8 m figure and the ground are buttons). The highlighted part is drawn in orange; the part
+  list also picks one. The mesh is evaluated in the background a few frames after a change and the last picture stays until the
+  next one is ready.
+- **The parameters** of the selected node, from the catalog: a slider for a number or integer (with its range), a checkbox,
+  a slider per axis for a vector, a combo for a choice, a text box for a string, and a reset button per field that removes it
+  (back to its default). A type with no widget (a list of points or nodes, for example) is shown read-only with a note to use
+  `model.edit`. While a slider is dragged the viewport follows it from a copy of the document; letting go writes ONE
+  `model.edit set`, so a drag is one undo step. Ctrl+Z / Ctrl+Y undo and redo through the editor's undo stack.
+
+The panel's edits write the document but do not bake, so the `.glb` stays as it was until **Save** (a `model.bake`, forcing a
+rebuild; **Overwrite** allows replacing a file that no document baked). A change made to the file behind the panel's back is
+read again. Ctrl+S saves too. The panel's **Check** button runs `model.check` on the file and lists the findings; hovering one shows its hint and picking one highlights its first part.
+The viewport does not pick parts by clicking: pick them in the tree or the part list.
+
 ## Determinism
 
 The same document gives the same mesh and the same `.glb` bytes on every platform. The kernel builds with `+ - * /`, `sqrt`
@@ -841,6 +913,8 @@ a `text` node: an engine font is data the binary ships; a project `.ttf` is a fi
 | `model.bake_maps {path, maps?, size?, samples?, distance?, thicknessDistance?, edgeAngle?, edgeWidth?, picture?}` | Measures the occlusion, curvature and thickness maps that wear is built from and returns them as a picture. Writes nothing; keep a map with `texturing.maps.write`. |
 | `model.game_ready {path, origin?, merge?, lods?, collider?, platforms?, clear?, bake?}` | Sets the game-ready settings of a document (each value given replaces that setting; null removes it; `clear` removes all), then bakes the `.glb`, LODs, collider and prefab. With no setting it only reports the budget check. See Game-ready models. |
 | `model.bake {path?, force?, dryRun?, overwrite?}` | Builds the documents whose `.glb` is missing or stale (one with `path`; `force` also the fresh ones). Writes the `.glb` the way `mesh.save` writes a mesh, with provenance and a recipe in `assets.json`. |
+| `model.preview {path \| document, views?, yaw?, pitch?, cell?, mode?, figure?, ground?, part?, out?, overwrite?}` | A turntable sheet PNG (4 to 8 views, shaded and/or wireframe) beside a 1.8 m figure, with the triangle count and size; returns the picture and `stats`. Read-only. See "Looking at a model". |
+| `model.check {path \| document, expectedHeight?, tolerance?, platforms?, ignore?, samples?}` | Scale, origin, flipped and inconsistent triangles, open and non-manifold edges, degenerate triangles and the platform budgets, each finding with where, what and how to fix. Read-only; with no document it returns the catalog. |
 
 `assets.regenerate` rebuilds a stale model, `project.validate` lists documents that do not load (an error per issue) or were
 never baked (a warning), and `factoria export` bakes the stale ones first. A file at the output that no model document
@@ -872,6 +946,5 @@ A bad `model.edit` writes nothing.
 - `sdf`: no sharp features (a box is rounded to about a cell; use the `box` primitive for a crisp one), a feature thinner than a cell can vanish, and The distance of an ellipsoid and of a shape with a non-uniform `scale` is an approximation, exact on the surface, so a `smooth` next to one is a little wider or narrower than its number. An `sdf` node is meshed on its own: two `sdf` nodes do not blend into each other (put both in one).
 - `bevel` leaves an edge sharp where it ends inside a smooth surface or meets other bevelled edges in a way it cannot join cleanly, and `subdivide` merges triangle pairs into quads only when they are coplanar. `smooth` with `taubin` can move the extremes of a shape a little outside its original bounds. A `bend` keeps the model straight beyond `from` and `to`.
 - `text`: overlapping contours of a glyph are not merged (holes are found by nesting), and the ear-clipping triangulation may drop a sliver of almost no area; a glyph the font does not have is left out with a warning.
-- `model.preview` and `model.check` (pictures and the mesh-quality checks) are not there yet: `model.info` measures what the model builds, and the numbers it returns are the checks that exist today.
 - Texturing: the whole model shares one atlas (one texture per model, not per part), the maps see only the model itself, the pixels you paint on the texture do not follow a changed UV layout, and a large `size` with many `samples` is slow (CPU only). See "Texturing", "Cost and limits".
 - A baked `.glb` is a static mesh: no skeleton or animation.

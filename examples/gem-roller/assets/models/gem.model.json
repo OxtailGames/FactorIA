@@ -1,0 +1,46 @@
+{
+  "format": "factoria.model/1",
+  "materials": {
+    "crystal": {
+      "color": [
+        0.2,
+        0.9,
+        1,
+        1
+      ],
+      "metallic": 0.3,
+      "roughness": 0.2
+    }
+  },
+  "nodes": [
+    {
+      "op": "shade",
+      "id": "cut",
+      "mode": "flat",
+      "children": [
+        {
+          "op": "lathe",
+          "id": "gem",
+          "segments": 8,
+          "align": "center",
+          "part": "gem",
+          "material": "crystal",
+          "profile": [
+            [
+              0,
+              -0.5
+            ],
+            [
+              0.5,
+              0
+            ],
+            [
+              0.3,
+              0.5
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}
