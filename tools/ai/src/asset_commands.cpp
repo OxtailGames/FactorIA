@@ -661,4 +661,23 @@ void register_asset_commands(CommandRegistry& registry, std::function<Result<AiC
         Json::parse(R"({"type":"object","properties":{},"additionalProperties":false})"), true, disclosure);
 }
 
+namespace asset_support {
+
+ProjectScope::ProjectScope(const std::string& dir) : previous(fs::project_root()), changed(std::filesystem::path(dir) != previous) {
+    if (changed) fs::set_project_root(dir);
+}
+ProjectScope::~ProjectScope() {
+    if (changed) fs::set_project_root(previous);
+}
+StyleGuide load_house_style() { return load_style(); }
+std::vector<ReferenceImage> load_reference_images(const std::vector<std::string>& paths) { return load_references(paths); }
+std::vector<std::string> normalized_unique_paths(const std::vector<std::string>& raw) { return unique_paths(raw); }
+Json image_provenance(const Json& args, const ProviderConfig& provider, const AssetResult& made, const std::string& prompt,
+                      const std::vector<std::string>& references, const std::string& notes) {
+    return generated_provenance(args, provider, made, MediaKind::Image, prompt, references, notes);
+}
+void record_provenance(const std::string& path, const Json& provenance) { record(path, provenance); }
+
+}  // namespace asset_support
+
 }  // namespace fa::ai

@@ -273,7 +273,7 @@ Json bake_result_json(const std::string& projectDir, const ImageBakeResult& r) {
     return out;
 }
 
-namespace {
+
 
 std::optional<Image> read_png_file(const std::string& projectDir, const std::string& rel) {
     auto path = resolve_project_path(projectDir, rel);
@@ -294,7 +294,7 @@ void write_png_file(const std::string& projectDir, const std::string& rel, const
         fail("failed", "Cannot write '" + rel + "': " + err, "Check that the folder is writable.");
 }
 
-}  // namespace
+
 
 std::optional<Image> render_document_json(const std::string& projectDir, const Json& doc) {
     const FrameScope* fs = FrameScope::current();

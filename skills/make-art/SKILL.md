@@ -28,6 +28,11 @@ A texture or wall that repeats is drawn in tile mode (image_tile_set: edits wrap
 (3 x 3 preview, bad seams in red). An autotile ground, wall or water (the 16 or 47 tiles) is not drawn tile by tile: image_tileset_build
 makes it from four parts (inside, edge, corner, innerCorner), bakes the sheet, writes the Tilemap rules and takes `variations` + `seed`;
 image_tileset_check compares every pair of tiles that touch. docs_read {"name":"images"}, "Tiles".
+Part of a picture you want an image provider to paint is not regenerated whole: select it (image_select), look at the cost with
+image_inpaint {"dryRun": true}, then image_inpaint {path, selection, prompt} adds the result as a masked `provider` layer you can hide or
+remove, and image_generate_layer {path, prompt, size?, placement?, selection?} adds a new picture as a layer. Both keep the provenance and
+the seed; without a provider (`no_provider`) the error names the offline route, so carry on with image_edit / image_paint / image_layer_add.
+Never call them in a loop hoping for a better picture: each call is paid. docs_read {"name":"images"}, "Pictures from a provider".
 A character that moves is built in parts (child Sprites with pivots at the joints, bones where a limb bends, IK for feet) and
 animated with the anim.* commands, then judged with anim_filmstrip and anim_check: docs_read {"name":"ai-guide","heading":"9.25.2"}.
 

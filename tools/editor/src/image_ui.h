@@ -4,11 +4,16 @@
 
 #include <cstdint>
 #include <memory>
+#include <atomic>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <thread>
+
+#include "fa/ai/image_provider.h"
 #include "image_model.h"
 
 namespace fa::editor {
@@ -19,6 +24,28 @@ struct ImageTexture {
     std::uint32_t image = 0, view = 0;
     int w = 0, h = 0;
     std::uint64_t revision = ~std::uint64_t(0);
+};
+
+// A picture asked of an image provider from the panel (Inpaint selection / Generate layer). The provider call runs on its own thread
+// and touches only `shared`; the plan was made, and the answer is stored, on the main thread (image_provider_panel.cpp).
+struct ImageProviderShared {
+    std::atomic<bool> cancel{false}, done{false};
+    std::optional<Result<ai::AssetResult>> result;   // set before `done`
+};
+struct ImageProviderJob {
+    bool inpaint = false;
+    std::string doc;                    // the document the picture is for: the answer is dropped if another one is open by then
+    ai::ImageEditPlan plan;
+    std::shared_ptr<ImageProviderShared> shared;
+    std::thread thread;
+    double startedAt = 0;               // ImGui time, for the elapsed seconds
+    ImageProviderJob() = default;
+    ImageProviderJob(const ImageProviderJob&) = delete;
+    ImageProviderJob& operator=(const ImageProviderJob&) = delete;
+    ~ImageProviderJob() {
+        if (shared) shared->cancel = true;
+        if (thread.joinable()) thread.join();
+    }
 };
 
 struct ImageUi {
@@ -54,6 +81,16 @@ struct ImageUi {
     double tfStartScaleX = 1, tfStartScaleY = 1, tfStartRotate = 0, tfStartDist = 1, tfStartAngle = 0;
     int tfStartDx = 0, tfStartDy = 0;
     int tfDirX = 0, tfDirY = 0;         // the scale handle being dragged: -1, 0 or 1 along each axis
+
+    // ---- provider pictures (Inpaint selection... / Generate layer...)
+    std::unique_ptr<ImageProviderJob> job;      // the one in flight
+    bool providerAsk = false;                   // the prompt popup is to open
+    bool providerInpaint = true;                // what the popup asks for
+    std::string providerPrompt;
+    std::string providerError;                  // why the last request could not start or finish (shown in the popup)
+    std::string noGenerate, noInpaint;          // why each action is off ("" = a provider is ready)
+    int layersBefore = 0, providerUndo = 0;     // autotest bookkeeping
+    std::uint64_t providerChecked = ~std::uint64_t(0);
 
     // ---- textures
     ImageTexture picture, selectionTint;

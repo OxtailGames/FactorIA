@@ -668,7 +668,7 @@ void Editor::draw_image_layers(ImageModel& m) {
             at_track(std::string("img:layer:add:") + k);
         }
         ImGui::Separator();
-        ImGui::TextDisabled("procedural, svg and provider layers:\nimage.layer.add in the Console");
+        ImGui::TextDisabled("procedural and svg layers:\nimage.layer.add in the Console");
         ImGui::EndPopup();
     }
     ImGui::SameLine();
@@ -681,6 +681,7 @@ void Editor::draw_image_layers(ImageModel& m) {
     at_track("img:layer:remove");
     ImGui::EndDisabled();
     ImGui::EndDisabled();
+    draw_image_provider(m);
 
     ImGui::BeginChild("##imglist", ImVec2(0, std::max(120.0f, ImGui::GetContentRegionAvail().y * 0.4f)), true);
     const std::vector<ImageLayerRow> rows = m.layer_rows();

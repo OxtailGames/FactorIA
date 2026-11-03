@@ -2,7 +2,7 @@
 
 A FactorIA 3D arcade game: roll a ball across floating platforms, ride two moving ones, and collect every gem
 before the 90 second timer runs out. A fall costs 5 seconds and puts you back at the last checkpoint. Meshes are
-built-in primitives plus one `.glb` gem; the sounds are placeholders in `assets/sfx/`.
+built-in primitives plus one `.glb` gem; the sounds are placeholders in `assets/sfx/`. The two textures, `assets/textures/ball.png` and `tile.png`, are baked from layered image documents (`ball.image.json`, `tile.image.json`: fills in a few layers): change a layer and run `image.bake` to remake the PNG.
 
 ```bash
 factoria validate

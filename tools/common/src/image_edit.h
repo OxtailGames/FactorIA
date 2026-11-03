@@ -63,6 +63,10 @@ std::string index_path_string(const std::vector<int>& path);
 // A name for a new layer that no layer of the document uses: "pixels", then "pixels 2", ...
 std::string unique_layer_name(const Json& doc, const std::string& base);
 
+// A PNG of the project as a picture (nullopt when it is missing or does not decode), and a picture written as a PNG of the project.
+std::optional<Image> read_png_file(const std::string& projectDir, const std::string& rel);
+void write_png_file(const std::string& projectDir, const std::string& rel, const Image& img);
+
 // ---- results ------------------------------------------------------------------------------------------------------
 
 struct Region {
@@ -94,6 +98,9 @@ Json commit_document(const std::string& projectDir, const std::string& rel, cons
 // `docJson` (the document the layer belongs to) supplies the `palette` and `ramps` an indexed layer needs.
 Image render_layer_alone(const std::string& projectDir, const Json& layerJson, int width, int height, int offX, int offY,
                          std::vector<std::string>* warnings = nullptr, const Json* docJson = nullptr);
+
+// image.select (image_select.cpp), called by the code that takes an inline selection.
+Json image_select(const std::string& projectDir, const Json& args);
 
 // ---- masks and selections -----------------------------------------------------------------------------------------
 
@@ -158,6 +165,7 @@ void register_select_commands(CommandRegistry& registry, const std::string& proj
 void register_pixel_commands(CommandRegistry& registry, const std::string& projectDir);   // image_edit_pixels.cpp
 void register_indexed_commands(CommandRegistry& registry, const std::string& projectDir);  // image_indexed.cpp
 void register_pixel_helper_commands(CommandRegistry& registry, const std::string& projectDir);  // image_pixel_helpers.cpp
+void register_provider_commands(CommandRegistry& registry, const std::string& projectDir);      // image_provider.cpp
 void register_tile_commands(CommandRegistry& registry, const std::string& projectDir);          // image_tile_commands.cpp
 
 // ---- PSD (image_psd.cpp) ------------------------------------------------------------------------------------------
