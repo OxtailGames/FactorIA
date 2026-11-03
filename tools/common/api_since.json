@@ -931,6 +931,7 @@
     "model.decal": "unreleased",
     "model.edit": "unreleased",
     "model.game_ready": "unreleased",
+    "model.import_clean": "unreleased",
     "model.info": "unreleased",
     "model.palette": "unreleased",
     "model.preview": "unreleased",
