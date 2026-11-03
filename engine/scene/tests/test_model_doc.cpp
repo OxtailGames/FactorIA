@@ -57,7 +57,8 @@ ModelTextOutline square_glyph() {
 TEST_CASE("model doc: the catalog lists every operation with documented fields") {
     const char* expected[] = {"box", "rounded_box", "cylinder", "cone", "sphere", "capsule", "torus", "grid", "stairs", "arch", "pipe", "text", "group",
                               "lathe", "sweep", "loft", "boolean", "mirror", "array", "radial_array", "bevel", "subdivide", "solidify",
-                              "bend", "twist", "taper", "noise", "smooth", "weld", "shade"};
+                              "bend", "twist", "taper", "noise", "smooth", "weld", "shade",
+                              "sdf", "sdf_group", "sdf_sphere", "sdf_capsule", "sdf_ellipsoid", "sdf_box", "sdf_cylinder", "sdf_cone", "sdf_torus"};
     REQUIRE(model_ops().size() == std::size(expected));
     for (const char* name : expected) {
         const ModelOpInfo* found = nullptr;

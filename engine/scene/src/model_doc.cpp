@@ -262,6 +262,56 @@ std::vector<ModelOpInfo> build_ops() {
                            {choice("mode", "\"auto\" (smooth below `angle`), \"flat\" or \"smooth\".", {"auto", "flat", "smooth"}, "auto"),
                             number("angle", "Degrees for \"auto\": corners of faces that turn by less than this share a normal.", 30, 0, 180)},
                            "The nodes to shade; they are merged into one mesh first."));
+    // ---- signed-distance shapes (docs/MODELING.md, "Organic shapes: sdf") --------------------------------------------------------------
+    {
+        auto blend_fields = [](std::vector<ModelFieldInfo> fields) {
+            fields.push_back(choice("blend", "How this joins the shapes before it in its sdf (the first shape of a group starts it and ignores this): \"union\" adds it, \"subtract\" cuts it out of what is there, \"intersect\" keeps only what both have.",
+                                    {"union", "subtract", "intersect"}, "union"));
+            fields.push_back(number("smooth", "Blend distance in metres: 0 is a hard edge; above 0 the two surfaces melt into each other over about this distance (a union fills the crease, a subtraction rounds the cut). The quadratic smooth min/max.", 0, 0, 100));
+            return fields;
+        };
+        auto shape = [&](std::string op, std::string doc, std::vector<ModelFieldInfo> fields) {
+            return ModelOpInfo{std::move(op), "sdf_shape", std::move(doc), blend_fields(std::move(fields))};
+        };
+        ops.push_back(shape("sdf_sphere", "A ball, as a shape of an `sdf` node. Its transform (`position`, `rotation`, `scale`) places it in the sdf; `part`, `material` and `color` give it its look and name the part its surface becomes.",
+                            {number("radius", "Radius in metres.", 0.5, kMinSize, kMaxSize)}));
+        ops.push_back(shape("sdf_capsule", "A capsule or, with a different `radiusTop`, a round cone (a ball at each end and the smooth hull between them): a limb, a tail, a horn, a trunk. Upright, centred between the two balls' centres; `height` is tip to tip.",
+                            {number("radius", "Radius of the bottom ball, in metres.", 0.5, kMinSize, kMaxSize),
+                             number_opt("radiusTop", "Radius of the top ball. Left out: the same as `radius`.", kMinSize, kMaxSize),
+                             number("height", "Tip to tip along Y, in metres. At least twice the larger radius (equal: a ball).", 2, 2 * kMinSize, kMaxSize)}));
+        ops.push_back(shape("sdf_ellipsoid", "A stretched ball with one radius per axis: a body, a head, a pebble. Its distance is an approximation (exact on the surface), which only matters for the width of a smooth blend next to it.",
+                            {field("radii", "size3", "Radius along X, Y and Z in metres: one number for a ball, or [x, y, z].", Json::array({0.6, 0.4, 0.4}), kMinSize, kMaxSize)}));
+        ops.push_back(shape("sdf_box", "A box with optionally rounded edges, centred on its origin.",
+                            {field("size", "size3", "Width, height and depth in metres: one number for a cube, or [x, y, z].", Json::array({1, 1, 1}), kMinSize, kMaxSize),
+                             number("round", "Radius of the rounded edges and corners in metres; at most half the smallest side (that is a pill or a ball).", 0, 0, kMaxSize)}));
+        ops.push_back(shape("sdf_cylinder", "An upright cylinder with optionally rounded edges, centred on its origin: a trunk, a post, a mushroom stem.",
+                            {number("radius", "Radius in metres.", 0.5, kMinSize, kMaxSize),
+                             number("height", "Height along Y in metres.", 1, kMinSize, kMaxSize),
+                             number("round", "Radius of the rounded rims in metres; at most the radius and half the height.", 0, 0, kMaxSize)}));
+        ops.push_back(shape("sdf_cone", "A cone, point up (a frustum when `radiusTop` is above 0), centred on its origin: a spike, a roof, a conifer.",
+                            {number("radius", "Radius of the base in metres.", 0.5, kMinSize, kMaxSize),
+                             number("radiusTop", "Radius of the top: 0 is a sharp point, above 0 cuts the tip off.", 0, 0, kMaxSize),
+                             number("height", "Height along Y in metres.", 1, kMinSize, kMaxSize)}));
+        ops.push_back(shape("sdf_torus", "A ring lying flat in XZ with its hole along Y, centred on its origin: a handle, a loop, a rim.",
+                            {number("radius", "Radius of the ring: from the centre to the middle of the tube, in metres.", 0.5, kMinSize, kMaxSize),
+                             number("tube", "Radius of the tube, in metres. At most `radius`.", 0.15, kMinSize, kMaxSize)}));
+        ModelFieldInfo groupChildren = field("children", "nodes", "The shapes (`sdf_sphere`, `sdf_capsule`... and more `sdf_group`s), joined in order: the first starts the shape, each next one is added to, cut from or intersected with what came before according to its own `blend` and `smooth`.");
+        ops.push_back({"sdf_group", "sdf_group",
+                       "Several shapes of an `sdf` node treated as one: they are joined in order, the group is placed by its own transform, and then it joins the shapes before it with its own `blend` and `smooth`, like a single shape. How a creature is built: a body group, a head group, subtract the eyes' sockets from the head only. `mirror` repeats it across a plane.",
+                       blend_fields({choice("mirror", "Repeats what is on the positive side of a plane through the group's origin on the other side (a symmetric creature: model one side): \"x\", \"y\" or \"z\" is the axis the plane is perpendicular to. The shapes should sit on the positive side; \"none\" leaves them as they are.", {"none", "x", "y", "z"}, "none"), groupChildren})});
+        ops.push_back({"sdf", "sdf",
+                       "Organic shapes by signed distance fields instead of triangles: its `children` (`sdf_sphere`, `sdf_capsule`, `sdf_ellipsoid`, `sdf_box`, `sdf_cylinder`, `sdf_cone`, `sdf_torus`, `sdf_group`) describe a solid, joined in order with union, subtraction or intersection and a blend distance that melts them into each other (a creature, a rock, a tree, a mushroom, a prop that looks grown rather than assembled). The solid is meshed on a grid (marching tetrahedra: always a closed manifold surface), decimated with a quadric error metric that keeps the part boundaries, and given smooth normals from the field. The result is an ordinary mesh node: `align` and the transform place it, modifiers can wrap it and a boolean can take it as an operand. Each shape's `part`, `material` and `color` are kept: a triangle belongs to the part of the shape that owns the surface there, a vertex colour melts across a smooth blend.",
+                       {number_opt("voxelSize", "Size of a sampling cell in metres: smaller is more detailed and slower; a feature thinner than a cell can vanish. Left out: `quality` decides.", 0.0005, 10),
+                        choice("quality", "Cells along the longest side of the shape when `voxelSize` is left out: \"draft\" 40, \"normal\" 96, \"fine\" 160, \"ultra\" 200. A request that would sample too many points (12 million, or 300 million shape evaluations) is an error that says the voxel size that fits.",
+                               {"draft", "normal", "fine", "ultra"}, "normal"),
+                        integer_opt("targetTriangles", "Decimate down to about this many triangles. Left out: only `maxError` limits the decimation.", 8, 1000000),
+                        number_opt("maxError", "Largest error decimation may introduce, in metres (root mean square distance of a merged vertex from the planes it replaced). 0: no decimation. Left out: a quarter of a cell when there is no `targetTriangles`, else no limit.", 0, 1),
+                        number("noiseAmplitude", "Roughness: seeded value noise of about this size in metres moves the surface along its normal (rock, bark, hide). 0: smooth.", 0, 0, 10),
+                        number("noiseFrequency", "Noise features per metre (3 = a bump about every 0.3 m).", 3, 0.001, 1000),
+                        integer("noiseOctaves", "Layers of noise: each doubles the frequency and halves the amplitude.", 1, 1, 6),
+                        integer("noiseSeed", "Chooses the noise pattern; change it for another rock.", 0, 0, 2000000000),
+                        field("children", "nodes", "The shapes, joined in order (see `sdf_group`). At least one enabled shape; a shape's own transform, part, material and colour apply to it.")}});
+    }
     {
         ModelFieldInfo children = field("children", "nodes", "The nodes in the group, evaluated in order and merged into one mesh. A group is also how a `part`, `material` or `color` is given to several nodes at once, and how one transform moves them together.");
         ops.push_back({"group", "group", "Several nodes treated as one: the group's transform applies to all of them, and its part, material and colour are inherited by the ones that do not name their own.", {children}});
@@ -525,7 +575,7 @@ Vec3 to_vec3(const Json& a) { return {a[0].get<float>(), a[1].get<float>(), a[2]
 std::vector<std::string> allowed_keys(const ModelOpInfo& op) {
     std::vector<std::string> keys;
     for (const ModelFieldInfo& f : model_common_fields()) keys.push_back(f.key);
-    if (op.kind == "primitive") keys.push_back("align");
+    if (op.kind == "primitive" || op.op == "sdf") keys.push_back("align");
     for (const ModelFieldInfo& f : op.fields) keys.push_back(f.key);
     return keys;
 }
@@ -554,6 +604,22 @@ void check_op(Reader& r, const ModelNode& n, const std::string& at) {
             r.err(at + "/openingHeight", std::format("arch openingHeight {} is less than half the opening's width ({}): the half circle does not fit", num("openingHeight"), num("openingWidth") / 2),
                   "Raise `openingHeight` to at least " + num_text(num("openingWidth") / 2) + " or narrow the opening.");
     }
+    if (n.op == "sdf_capsule") {
+        const double top = p.contains("radiusTop") ? num("radiusTop") : num("radius");
+        const double need = 2 * std::max(num("radius"), top);
+        if (num("height") < need - 1e-9)
+            r.err(at + "/height", std::format("sdf_capsule height {} is less than twice its larger radius ({}): the two balls do not fit", num("height"), need),
+                  "`height` is tip to tip. Raise it to at least " + num_text(need) + ", or lower the radii; for a ball use sdf_sphere.");
+    }
+    if (n.op == "sdf_box" && num("round") > 0.5 * std::min({p["size"][0].get<double>(), p["size"][1].get<double>(), p["size"][2].get<double>()}) + 1e-9)
+        r.err(at + "/round", std::format("sdf_box round {} is more than half its smallest side ({})", num("round"), 0.5 * std::min({p["size"][0].get<double>(), p["size"][1].get<double>(), p["size"][2].get<double>()})),
+              "Lower `round`, or make the box bigger: half the smallest side rounds it into a pill or a ball.");
+    if (n.op == "sdf_cylinder" && num("round") > std::min(num("radius"), 0.5 * num("height")) + 1e-9)
+        r.err(at + "/round", std::format("sdf_cylinder round {} is more than its radius ({}) or half its height ({})", num("round"), num("radius"), 0.5 * num("height")),
+              "Lower `round` to at most " + num_text(std::min(num("radius"), 0.5 * num("height"))) + ".");
+    if (n.op == "sdf_torus" && num("tube") > num("radius"))
+        r.err(at + "/tube", std::format("sdf_torus tube {} is larger than its ring radius {}: the tube would cross itself", num("tube"), num("radius")),
+              "Make `tube` at most `radius`.");
     if (n.op == "cylinder" && p.contains("radiusTop") && num("radius") == 0 && num("radiusTop") == 0)
         r.err(at + "/radius", "a cylinder with both radii 0 has no volume", "Give `radius` or `radiusTop` a size above 0.");
     if (n.op == "lathe") {
@@ -604,7 +670,7 @@ bool valid_id(const std::string& id) {
     return true;
 }
 
-ModelNode read_node(Reader& r, const Json& j, const std::string& at, int depth) {
+ModelNode read_node(Reader& r, const Json& j, const std::string& at, int depth, const ModelOpInfo* parent = nullptr) {
     ModelNode n;
     n.pointer = at;
     if (++r.nodeCount > kModelDocMaxNodes) {
@@ -630,6 +696,17 @@ ModelNode read_node(Reader& r, const Json& j, const std::string& at, int depth) 
     if (!op) {
         r.err(at + "/op", "unknown operation \"" + n.op + "\"", did_you_mean(n.op, op_names())); 
         return n;
+    }
+    // sdf shapes live inside an sdf and nothing else does
+    {
+        const bool inSdf = parent && (parent->kind == "sdf" || parent->kind == "sdf_group");
+        const bool sdfPart = op->kind == "sdf_shape" || op->kind == "sdf_group";
+        if (sdfPart && !inSdf)
+            r.err(at + "/op", n.op + " is a shape of an `sdf` node and works only inside one",
+                  "Wrap it: {\"op\": \"sdf\", \"children\": [{\"op\": \"" + n.op + "\"}]} makes a mesh of it.");
+        else if (inSdf && !sdfPart)
+            r.err(at + "/op", n.op + " cannot go inside " + parent->op + ": its children are signed-distance shapes",
+                  "Use sdf_sphere, sdf_capsule, sdf_ellipsoid, sdf_box, sdf_cylinder, sdf_cone, sdf_torus or sdf_group here. To combine a mesh with an sdf, put both under a `boolean` (or a `group`) outside the sdf.");
     }
     const std::vector<std::string> keys = allowed_keys(*op);
     for (auto it = j.begin(); it != j.end(); ++it) {
@@ -695,7 +772,7 @@ ModelNode read_node(Reader& r, const Json& j, const std::string& at, int depth) 
         }
         (f.key == "position" ? n.position : f.key == "rotation" ? n.rotation : n.scale) = to_vec3(out);
     }
-    if (op->kind == "primitive") {
+    if (op->kind == "primitive" || op->op == "sdf") {
         if (auto it = j.find("align"); it != j.end()) {
             Json out;
             if (read_field(r, model_align_fields()[0], *it, at + "/align", out)) n.align = out.get<std::string>();
@@ -715,7 +792,7 @@ ModelNode read_node(Reader& r, const Json& j, const std::string& at, int depth) 
                 r.err(at + "/children", std::format("groups and modifiers are nested more than {} levels deep", kModelDocMaxDepth), "Flatten the tree: a group inside a group inside... rarely needs to be that deep.");
                 continue;
             }
-            for (std::size_t i = 0; i < it->size(); ++i) n.children.push_back(read_node(r, (*it)[i], at + "/children/" + std::to_string(i), depth + 1));
+            for (std::size_t i = 0; i < it->size(); ++i) n.children.push_back(read_node(r, (*it)[i], at + "/children/" + std::to_string(i), depth + 1, op));
             continue;
         }
         if (it == j.end()) {
@@ -950,7 +1027,7 @@ Json model_doc_schema() {
             if (f.key == "op") continue;
             props[f.key] = field_schema(f);
         }
-        if (op.kind == "primitive")
+        if (op.kind == "primitive" || op.op == "sdf")
             for (const ModelFieldInfo& f : model_align_fields()) props[f.key] = field_schema(f);
         for (const ModelFieldInfo& f : op.fields) {
             props[f.key] = field_schema(f);
@@ -976,7 +1053,7 @@ Json model_doc_schema() {
         {{"$schema", "https://json-schema.org/draft/2020-12/schema"},
          {"$id", "https://factoria.dev/schemas/model.schema.json"},
          {"title", "FactorIA model document (*.model.json)"},
-         {"description", "A 3D model as a tree of operations (primitives, modifiers, groups, transforms) with named parts, materials and vertex colours. `model.bake` evaluates it and writes the .glb next to it; the same bytes on every platform. Errors name the file and the JSON pointer; docs/MODELING.md explains the format and `model.info {}` lists the operations."},
+         {"description", "A 3D model as a tree of operations (primitives, modifiers, organic `sdf` shapes, groups, transforms) with named parts, materials and vertex colours. `model.bake` evaluates it and writes the .glb next to it; the same bytes on every platform. Errors name the file and the JSON pointer; docs/MODELING.md explains the format and `model.info {}` lists the operations."},
          {"type", "object"},
          {"required", Json::array({"format", "nodes"})},
          {"additionalProperties", false},
