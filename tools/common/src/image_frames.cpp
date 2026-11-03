@@ -3,6 +3,7 @@
 #include "image_frames.h"
 
 #include <algorithm>
+#include <set>
 #include <cmath>
 #include <format>
 
@@ -276,7 +277,10 @@ ImageOnionSkin onion_arg(const char* command, const Json& v) {
 FrameScope::FrameScope(const std::string& projectDir, const std::string& rel, Json& doc, const Json& args, const char* command)
     : projectDir_(projectDir), rel_(rel), command_(command), doc_(&doc) {
     frames_ = json_frame_count(doc);
-    if (auto it = args.find("frame"); it != args.end() && !it->is_null()) frame_ = frame_number(command, *it, "/frame", frames_);
+    if (auto it = args.find("frame"); it != args.end() && !it->is_null()) {
+        frame_ = frame_number(command, *it, "/frame", frames_);
+        frameGiven_ = true;
+    }
     if (auto it = args.find("onion"); it != args.end() && !it->is_null() && !(it->is_boolean() && !it->get<bool>())) {
         ImageOnionSkin o = onion_arg(command, *it);
         if (frames_ > 1) onion_ = o;
@@ -349,6 +353,36 @@ void FrameScope::open_layer(const Json& doc, const LayerRef& ref) {
     opened_.push_back(std::move(o));
 }
 
+void FrameScope::confine_new_layer(Json& doc, const std::string& indexPath) {
+    if (!active_ || !frameGiven_ || frames_ <= 1 || &doc != doc_) return;
+    std::string pointer;
+    std::size_t at = 0;
+    while (at <= indexPath.size()) {
+        const std::size_t slash = indexPath.find('/', at);
+        const std::string part = indexPath.substr(at, slash == std::string::npos ? std::string::npos : slash - at);
+        if (part.empty()) return;
+        pointer += "/layers/" + part;
+        if (slash == std::string::npos) break;
+        at = slash + 1;
+    }
+    Json* layer = nullptr;
+    try {
+        layer = &doc.at(Json::json_pointer(pointer));
+    } catch (const std::exception&) {
+        return;
+    }
+    const std::string kind = layer->value("kind", std::string());
+    if (kind != "pixels" && kind != "indexed") return;
+    std::vector<CelData> table = layer_cels(*layer, frames_);
+    const CelData mine = table[0];
+    for (CelData& c : table) {
+        c = CelData();
+        c.empty = true;
+    }
+    table[std::size_t(frame_)] = mine;
+    write_layer_cels(*layer, table, projectDir_);
+}
+
 Json FrameScope::folded(const Json& doc) {
     Json out = doc;
     for (Opened& o : opened_) {
@@ -408,9 +442,61 @@ void FrameScope::record_files(const std::string& command) {
     }
 }
 
+// ---- orphan cel pictures --------------------------------------------------------------------------------------------------
+
+namespace {
+
+void collect_strings(const Json& j, std::set<std::string>& out) {
+    if (j.is_string()) out.insert(fs::normalize(j.get<std::string>()));
+    else if (j.is_array())
+        for (const Json& v : j) collect_strings(v, out);
+    else if (j.is_object())
+        for (auto it = j.begin(); it != j.end(); ++it) collect_strings(it.value(), out);
+}
+
+}  // namespace
+
+std::vector<std::string> prune_orphan_cels(const std::string& projectDir, const std::string& rel, const Json& oldDoc, const Json& newDoc) {
+    std::vector<std::string> removed;
+    if (!json_animated(oldDoc) && !json_animated(newDoc)) return removed;
+    if (rel.size() <= std::string(kImageDocSuffix).size()) return removed;
+    const std::string dir = rel.substr(0, rel.size() - std::string(kImageDocSuffix).size()) + ".layers/";
+    std::set<std::string> before, after;
+    collect_strings(oldDoc, before);
+    collect_strings(newDoc, after);
+    std::vector<std::string> candidates;
+    for (const std::string& s : before) {
+        if (s.size() <= dir.size() + 4 || s.compare(0, dir.size(), dir) != 0 || s.find('/', dir.size()) != std::string::npos) continue;
+        if (s.compare(s.size() - 4, 4, ".png") != 0 || after.count(s)) continue;
+        candidates.push_back(s);
+    }
+    if (candidates.empty()) return removed;
+    // another document of the project may share one of these pictures
+    std::vector<std::string> otherText;
+    for (const std::string& other : list_image_documents(projectDir)) {
+        if (fs::normalize(other) == fs::normalize(rel)) continue;
+        auto p = resolve_project_path(projectDir, other);
+        auto text = p.ok() ? tooling_detail::read_file(*p) : std::nullopt;
+        if (text) otherText.push_back(std::move(*text));
+    }
+    assets_detail::ProjectRootGuard root(projectDir);
+    for (const std::string& c : candidates) {
+        bool shared = false;
+        for (const std::string& t : otherText) shared = shared || t.find(c) != std::string::npos;
+        if (shared) continue;
+        auto p = resolve_project_path(projectDir, c);
+        std::error_code ec;
+        if (!p.ok() || !stdfs::is_regular_file(*p, ec)) continue;
+        if (!stdfs::remove(*p, ec)) continue;
+        (void)assets::update_entry(c, [](Json& e) { e = Json::object(); });
+        removed.push_back(c);
+    }
+    return removed;
+}
+
 // ---- schema pieces and previews -------------------------------------------------------------------------------------------
 
-void add_frame_support(CommandInfo& info, const char* what, bool withOnion) {
+void add_frame_support(CommandInfo& info, const char* what, bool withOnion, const char* tail) {
     Json props = Json::object(
         {{"frame", Json::object({{"type", "integer"}, {"minimum", 0},
                                  {"description", std::string("Which frame of an animated document ") + what + " (0 = the first; default 0). A document with one frame has only frame 0. "
@@ -422,9 +508,12 @@ void add_frame_support(CommandInfo& info, const char* what, bool withOnion) {
     if (!info.inputSchema.contains("properties")) info.inputSchema["properties"] = Json::object();
     if (!withOnion) props.erase("onion");
     for (auto it = props.begin(); it != props.end(); ++it) info.inputSchema["properties"][it.key()] = it.value();
-    info.description += std::string(" Frames: in an animated document (docs.read IMAGES, \"Frames and tags\") `frame` (default 0) is the frame ") + what +
-                        (withOnion ? ": the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture."
-                                   : ": the picture of that frame is written.");
+    std::string rest;
+    if (withOnion) rest = ": the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. "
+                          "A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. "
+                          "A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.";
+    else rest = std::string(": ") + (tail ? tail : "the picture of that frame is written") + ".";
+    info.description += std::string(" Frames: in an animated document (docs.read IMAGES, \"Frames and tags\") `frame` (default 0) is the frame ") + what + rest;
 }
 
 void add_frame_keys(std::vector<std::string>& keys) {

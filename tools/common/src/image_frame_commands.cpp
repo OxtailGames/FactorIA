@@ -391,7 +391,7 @@ void register_frame_commands(CommandRegistry& registry, const std::string& proje
         registry.add(info, [projectDir, fn](const Json& args) { return fn(projectDir, args); });
     };
     const std::string resultDoc =
-        " Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; docs.read IMAGES, \\\"Frames and tags\\\".";
+        " Result: the baked document (a sprite sheet: `sheet` has the grid and the clips), `animation` {frameCount, totalMs, frames: [{frame, duration}], tags} and next steps; `removedFiles` lists the cel pictures (PNGs in `<document>.layers/`) that nothing read any more and were deleted in the same save; docs.read IMAGES, \\\"Frames and tags\\\".";
 
     add("image.frame.add", "Add frames to an image document (making it an animation), copying a frame or blank, and keep the tags in place.",
         "Inserts `count` frames at `at` (0..number of frames; default: at the end). Each new frame shows what frame `from` shows (default the frame before `at`, or frame 0 when `at` is 0), "

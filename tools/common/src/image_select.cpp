@@ -9,6 +9,7 @@
 #include "fa/tooling/project_fs.h"
 #include "image_doc_internal.h"
 #include "image_edit.h"
+#include "image_frames.h"
 #include "util.h"
 
 namespace fa::imgedit {
@@ -70,8 +71,9 @@ int distance(const std::uint8_t* p, const std::uint8_t* q) {
 Json image_select(const std::string& projectDir, const Json& a) {
     check_arg_keys(kCmd, a, "",
                    {"path", "name", "by", "mode", "then", "clear", "color", "at", "tolerance", "contiguous", "threshold", "layer", "x", "y", "width", "height", "points", "rect",
-                    "ellipse", "polygon"});
+                    "ellipse", "polygon", "frame"});
     DocFile d = open_doc(projectDir, arg_string(a, "path", true), kCmd);
+    FrameScope frameScope(projectDir, d.rel, d.json, a, kCmd);   // color / alpha / layer selections read the picture of `frame`
     const int W = d.json.value("width", 0), H = d.json.value("height", 0);
     const std::string name = arg_string(a, "name", false, "selection");
     if (!valid_selection_name(name) || name == "all")
@@ -114,7 +116,9 @@ Json image_select(const std::string& projectDir, const Json& a) {
                 std::vector<ImageIssue> issues;
                 auto parsed = parse_image_document(d.json, d.rel, projectDir, &issues);
                 if (!parsed.ok()) fail("invalid_argument", parsed.error().message, parsed.error().hint);
-                auto render = composite_image_document(*parsed, {projectDir});
+                ImageRenderOptions options{projectDir};
+                options.frame = frameScope.frame();
+                auto render = composite_image_document(*parsed, options);
                 if (!render.ok()) fail("failed", render.error().message, render.error().hint);
                 source = std::move(render->image);
             }
@@ -288,6 +292,8 @@ void register_select_commands(CommandRegistry& registry, const std::string& proj
         "PERSISTENCE: the selection is saved as a grey PNG of the canvas at .factoria/selections/<document path>/<name>.png (white = selected) and stays until replaced or "
         "cleared; later calls use it by name (the name \"all\" is the whole canvas without a file). Changing the canvas size makes old selections unusable (they say so). "
         "The result has `selected` (pixels), `coverage`, the bounding box as `region` {x,y,width,height} and the picture with the selection marked as `$image`. "
+        "IN AN ANIMATION (frames, docs.read IMAGES \"Frames and tags\") color, alpha and layer selections read the picture of `frame` (default 0: the layer's cel for that frame, or the whole picture "
+        "of that frame); the stored selection is one mask of the canvas per document and name, the same for every frame, so select on the frame you are working on. "
         "Example: {\"path\":\"assets/art/hero.image.json\",\"name\":\"cape\",\"by\":\"color\",\"at\":[20,30],\"contiguous\":true,\"tolerance\":20,\"then\":[{\"grow\":1}]}";
     info.inputSchema = Json::parse(R"({"type":"object","required":["path"],"properties":{
       "path":{"type":"string","description":"The image document, project-relative, ending in .image.json."},
@@ -307,6 +313,7 @@ void register_select_commands(CommandRegistry& registry, const std::string& proj
       "width":{"type":"number","minimum":0,"description":"rect / ellipse: width of the box."},
       "height":{"type":"number","minimum":0,"description":"rect / ellipse: height of the box."},
       "points":{"type":"array","items":{"type":"array","items":{"type":"number"}},"description":"polygon: the corners [[x,y],...], at least three."}}})");
+    add_frame_support(info, "the color, alpha and layer selections read", false, "the selection reads the picture of that frame; the stored selection itself is the same for every frame");
     registry.add(info, [projectDir](const Json& args) { return image_select(projectDir, args); });
 }
 

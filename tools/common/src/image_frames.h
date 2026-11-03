@@ -73,6 +73,12 @@ public:
     int frame() const { return frame_; }
     int frames() const { return frames_; }
     const std::optional<ImageOnionSkin>& onion() const { return onion_; }
+    bool frame_given() const { return frameGiven_; }   // the command got a `frame` argument
+
+    // A layer the command has just added (index path "1" or "1/0", as add_pixels_layer returns it) shows its picture in this frame only
+    // and nothing in the others. Does nothing without a `frame` argument or in a document of one frame: the new layer then shows in
+    // every frame, as it always did.
+    void confine_new_layer(Json& doc, const std::string& indexPath);
 
     // The scope of the running command (nullptr outside one, or when it has none).
     static FrameScope* current();
@@ -96,6 +102,7 @@ private:
     std::string projectDir_, rel_, command_;
     const Json* doc_ = nullptr;
     bool active_ = false;
+    bool frameGiven_ = false;
     int frame_ = 0, frames_ = 1;
     std::optional<ImageOnionSkin> onion_;
     std::vector<Opened> opened_;
@@ -104,9 +111,15 @@ private:
 
 // Adds the `frame` and `onion` properties to the command's input schema and a sentence to its description. `what` finishes "Which frame of
 // an animated document <what>".
-void add_frame_support(CommandInfo& info, const char* what, bool withOnion = true);
+void add_frame_support(CommandInfo& info, const char* what, bool withOnion = true, const char* tail = nullptr);
 // The keys check_arg_keys must let through for those properties.
 void add_frame_keys(std::vector<std::string>& keys);
+
+// After a command saved the document: deletes the cel pictures the old document read from its `<name>.layers/` folder that nothing reads any
+// more (a removed frame, a cleared or replaced cel, a removed layer), and returns their project paths. Only a PNG directly in that folder
+// goes; a file that the new document still names anywhere, or that another image document of the project names, stays. Their
+// assets.json records go with them. Nothing happens unless one of the two documents is animated.
+std::vector<std::string> prune_orphan_cels(const std::string& projectDir, const std::string& rel, const Json& oldDoc, const Json& newDoc);
 
 // The picture of the document at one frame (with the onion skin when given); None when the document does not load.
 std::optional<Image> render_frame_json(const std::string& projectDir, const Json& doc, int frame, const std::optional<ImageOnionSkin>& onion = std::nullopt);
