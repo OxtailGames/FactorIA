@@ -122,6 +122,7 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
 void register_image_commands(CommandRegistry& registry, const std::string& projectDir);  // image.bake, image.save (image_doc_commands.cpp)
 void register_vector_commands(CommandRegistry& registry, const std::string& projectDir);  // vector.* (vector_commands.cpp, docs/VECTOR.md)
+void register_vector_rig_command(CommandRegistry& registry, const std::string& projectDir);  // vector.to_rig (vector_rig.cpp)
 
 // Title text as a tightly cropped transparent image (assets_draw_icon.cpp: the rasterizer of assets.draw_icon's text
 // layers), the largest that fits maxW x maxH; `outline` (or null) draws an outline around the letters. A project font is
