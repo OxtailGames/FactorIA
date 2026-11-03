@@ -39,6 +39,7 @@ struct Ctx {
     const ImageDocument& doc;
     std::string projectDir;
     std::map<std::string, Image> images;
+    const std::map<std::string, Image>* stand = nullptr;  // ImageRenderOptions::pictures: read before the disk, never copied
     std::set<std::string> inputs;
     std::vector<std::string> warnings;
     std::optional<StyleGuide> styleGuide;  // read from assets.json the first time an operation asks
@@ -64,6 +65,10 @@ struct Ctx {
     const Image& image(const std::string& pointer, const std::string& rel) {
         auto it = images.find(rel);
         if (it != images.end()) return it->second;
+        if (stand) {
+            auto st = stand->find(rel);
+            if (st != stand->end()) return st->second;
+        }
         auto path = resolve_project_path(projectDir, rel);
         if (!path.ok()) fail(pointer, path.error().message, path.error().hint);
         auto img = assets_detail::load_image(*path);
@@ -493,7 +498,7 @@ Result<ImageRender> composite_image_document(const ImageDocument& doc, const Ima
     if (options.frame < 0 || options.frame >= frames)
         return make_error(std::format("Frame {} does not exist: the document has {} frame{} (0 to {}).", options.frame, frames, frames == 1 ? "" : "s", frames - 1),
                           frames == 1 ? "Add frames with image.frame.add, or draw frame 0." : "Use a frame from 0 to " + std::to_string(frames - 1) + ".");
-    Ctx ctx{doc, options.projectDir, {}, {}, {}};
+    Ctx ctx{doc, options.projectDir, {}, options.pictures, {}, {}};
     assets_detail::ProjectRootGuard root(options.projectDir);  // fonts are read through the VFS
     try {
         if (options.onion && frames > 1) return finish(ctx, draw_with_onion(ctx, options.frame, *options.onion));
@@ -505,7 +510,7 @@ Result<ImageRender> composite_image_document(const ImageDocument& doc, const Ima
 
 Result<ImageRender> composite_image_sheet(const ImageDocument& doc, const ImageSheetPlan& plan, const ImageRenderOptions& options) {
     if (auto ok = check_canvas(doc); !ok.ok()) return ok.error();
-    Ctx ctx{doc, options.projectDir, {}, {}, {}};
+    Ctx ctx{doc, options.projectDir, {}, options.pictures, {}, {}};
     assets_detail::ProjectRootGuard root(options.projectDir);
     try {
         Image sheet;

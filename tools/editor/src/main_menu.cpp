@@ -108,6 +108,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "Where the time goes while the game plays: milliseconds per engine system and per script behaviour class, GPU time, memory"));
     view.push_back(with(toggle("Animation", showAnimation_), "menu:animation",
                         "The clips of the selected entity's Animator: dopesheet and curves, scrubbing, record mode, event markers and the onion skin"));
+    view.push_back(with(toggle("Image", showImage_), "menu:image",
+                        "Paint and edit an image document (*.image.json): layers, brushes, selections, transform, adjustments and effects; Save bakes the PNG"));
     view.push_back(with(toggle("Bone tools", showBoneTools_), "menu:bonetools",
                         "Draw a bone chain by clicking in the viewport, bind a sprite to bones, paint weights and drag IK targets"));
     view.push_back(menu::separator());
