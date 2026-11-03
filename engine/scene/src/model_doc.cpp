@@ -45,6 +45,28 @@ ModelOpInfo prim(std::string op, std::string doc, std::vector<ModelFieldInfo> fi
     return {std::move(op), "primitive", std::move(doc), std::move(fields)};
 }
 
+// A list field: `points2` / `points3` of minItems..maxItems entries, or `rings` of minItems..maxItems sections of innerMin..innerMax points.
+ModelFieldInfo list_field(std::string key, std::string type, std::string doc, int minItems, int maxItems, double mn, double mx, bool required = true) {
+    ModelFieldInfo f = field(std::move(key), std::move(type), std::move(doc), std::nullopt, mn, mx);
+    f.required = required;
+    f.minItems = minItems;
+    f.maxItems = maxItems;
+    return f;
+}
+ModelFieldInfo choice(std::string key, std::string doc, std::vector<std::string> choices, const std::string& def) {
+    ModelFieldInfo f = field(std::move(key), "choice", std::move(doc), Json(def));
+    f.choices = std::move(choices);
+    return f;
+}
+ModelFieldInfo axis_field(std::string key, std::string doc, const std::string& def) { return choice(std::move(key), std::move(doc), {"x", "y", "z"}, def); }
+
+// A modifier wraps its `children`: they are evaluated and merged like a group's, then the operation changes that mesh.
+ModelOpInfo modifier(std::string op, std::string doc, std::vector<ModelFieldInfo> fields, const std::string& childrenDoc) {
+    ModelFieldInfo children = field("children", "nodes", childrenDoc);
+    fields.push_back(std::move(children));
+    return {std::move(op), "modifier", std::move(doc), std::move(fields)};
+}
+
 constexpr double kMaxSize = 1000.0;
 constexpr double kMinSize = 0.001;
 
@@ -124,6 +146,122 @@ std::vector<ModelOpInfo> build_ops() {
                             number("letterSpacing", "Extra space after every letter, in ems.", 0, -1, 5),
                             number("lineSpacing", "Distance between lines, as a multiple of the font's own.", 1, 0.1, 5)}));
     }
+
+    // ---- generators from profiles -------------------------------------------------------------------------------------------------
+    ops.push_back(prim("lathe", "A profile turned about the Y axis: a vase, a chess piece, a column, a bottle. `profile` is a list of [radius, height] points walked from one end to the other (either way round); the turn goes from +Z towards +X like the round primitives, and a point on the axis (radius 0) is a single vertex. It is a primitive: `align` places it, and it can be wrapped in a modifier.",
+                       {list_field("profile", "points2", "The outline as [radius, height] points in metres, at least 2, e.g. [[0,0],[0.4,0],[0.3,0.8],[0.1,1]]. Radius is 0 or more; height is along Y and may be negative. Corners of the outline stay sharp when they turn more than `creaseAngle`.", 2, 256, -kMaxSize, kMaxSize),
+                        integer("segments", "Steps around the axis (the whole turn when `angle` is 360).", 24, 3, 256),
+                        number("angle", "Degrees turned, from +Z towards +X. 360 closes the ring; less leaves an open wedge.", 360, 1, 360),
+                        boolean("cap", "Close an end of the outline that is off the axis with a flat disc, and the two ends of a partial turn with a flat wall. false leaves a hole there (an open vase, a bowl).", true),
+                        number("creaseAngle", "Degrees: corners of the outline that turn more than this stay hard, smaller ones are shaded smooth.", 40, 0, 180)}));
+    ops.push_back(prim("sweep", "A closed profile moved along a path: a pipe, a rail, a rope, a road edge, a handle. The profile is drawn in a plane (x to the right of the direction of travel, y up) and kept perpendicular to the path; frames are rotation-minimising, so a path with no twist of its own gives a surface with none. It is a primitive: `align` places it.",
+                       {list_field("profile", "points2", "The closed cross-section as [x, y] points in metres, at least 3, in either direction round: a square [[-0.1,-0.1],[0.1,-0.1],[0.1,0.1],[-0.1,0.1]], a circle of many points.", 3, 256, -kMaxSize, kMaxSize),
+                        list_field("path", "points3", "The points to follow, [x, y, z] in metres, at least 2 and no two in a row in the same place.", 2, 256, -kMaxSize, kMaxSize),
+                        boolean("smooth", "true: a smooth curve through the path points (Catmull-Rom); false: straight pieces with mitred corners.", true),
+                        integer("pathSegments", "Pieces per span of a smooth path.", 8, 1, 64),
+                        boolean("closed", "The path comes back to its first point (a ring): the ends are joined and there are no caps. Needs 3 or more path points.", false),
+                        number("scaleStart", "Scale of the profile at the start of the path (the end gets `scaleEnd`, in between it changes steadily).", 1, 0.001, 1000),
+                        number("scaleEnd", "Scale of the profile at the end of the path.", 1, 0.001, 1000),
+                        number("twist", "Degrees the profile turns about the path over its whole length.", 0, -7200, 7200),
+                        boolean("cap", "Close the two ends of an open path with a flat face.", true),
+                        number("creaseAngle", "Degrees: edges turning more than this stay hard, smaller ones are shaded smooth.", 50, 0, 180)}));
+    {
+        ModelFieldInfo sections = list_field("sections", "rings", "The cross-sections in order, each a list of [x, y, z] points in metres; every section has the same number of points (point i of one is joined to point i of the next), in the same order round. e.g. a square at y = 0 and a smaller one at y = 1.", 2, 64, -kMaxSize, kMaxSize);
+        sections.innerMinItems = 2;
+        sections.innerMaxItems = 256;
+        ops.push_back(prim("loft", "A skin through several cross-sections: a hull, a bottle that goes from a square base to a round neck, a wing. Section i is joined to section i+1 point by point; the surface passes through every section (a smooth curve through three or more, straight pieces between two). It is a primitive: `align` places it.",
+                           {sections,
+                            boolean("closed", "Each section is a loop (its last point joins its first). false: an open ribbon.", true),
+                            boolean("smooth", "A smooth curve through the sections (Catmull-Rom; needs three or more). false: straight between sections.", true),
+                            integer("steps", "Rows between two sections.", 4, 1, 64),
+                            boolean("cap", "Close the first and last section with a flat face (loops only).", true),
+                            number("creaseAngle", "Degrees: edges turning more than this stay hard, smaller ones are shaded smooth.", 50, 0, 180)}));
+    }
+
+    // ---- modifiers (they wrap their children) ---------------------------------------------------------------------------------------
+    ops.push_back(modifier("boolean", "Combines the solids made by its children: union (all of them together), difference (the first enabled child minus all the others) or intersection (only what all have in common). Each child is one operand with its own transform; a child that is a group is merged into one solid first. Every operand must be a closed solid with its faces out (box, sphere, cylinder with caps, torus, lathe, another boolean...); the error names the operand that is not. Exact for faces that touch or lie in the same plane. Parts, uvs and colours stay with the surface they were on; the new faces cut inside the first operand by a difference take the part and material of the operand that cut them.",
+                           {choice("mode", "\"union\", \"difference\" (the first child minus the rest) or \"intersection\".", {"union", "difference", "intersection"}, "union")},
+                           "The operands, in order. For a difference the first is the solid that is cut and the others are the cutters. At most 400000 triangles together."));
+    ops.push_back(modifier("mirror", "Adds the mirror image of its children across a plane: model half a face, a car or a column and mirror it. The mirrored copy is turned so its faces still point out and keeps the parts, uvs and colours.",
+                           {axis_field("axis", "The plane is perpendicular to this axis: \"x\" mirrors left-right across x = `offset`.", "x"),
+                            number("offset", "Where the plane cuts the axis, in metres.", 0, -kMaxSize, kMaxSize),
+                            boolean("merge", "Vertices within `mergeDistance` of the plane are put exactly on it and joined to their copy, so the two halves become one surface with no seam. false keeps them apart.", true),
+                            number("mergeDistance", "Metres from the plane within which `merge` acts.", 0.001, 0, 1)},
+                           "The nodes to mirror; they are merged into one mesh first."));
+    ops.push_back(modifier("array", "Repeats its children `count` times along a step: a fence, a row of windows, stairs of boxes, a colonnade. Copy k is the children moved by k steps; with a rotation or scale per step the copies spiral or shrink.",
+                           {integer("count", "Copies including the original. count x the triangles of the children must stay under 1000000.", 2, 1, 4096),
+                            field("offset", "vec3", "Step between one copy and the next, [x, y, z] in metres (or in sizes of the children's bounding box when `relative`).", Json::array({1, 0, 0}), -kMaxSize, kMaxSize),
+                            boolean("relative", "true: `offset` is a multiple of the bounding box size of the children ([1, 0, 0] puts the copies edge to edge along X).", false),
+                            field("stepRotation", "vec3", "Degrees added per copy, [pitch (X), yaw (Y), roll (Z)], about the origin of the children.", Json::array({0, 0, 0}), -3600, 3600),
+                            field("stepScale", "size3", "Factor applied per copy, a number or [x, y, z]: 0.9 makes each copy 10% smaller than the one before.", Json::array({1, 1, 1}), 0.01, 100),
+                            boolean("merge", "Join vertices of neighbouring copies that are within `mergeDistance` (copies that touch become one surface).", false),
+                            number("mergeDistance", "Metres within which `merge` joins vertices.", 0.001, 0, 1)},
+                           "The nodes to repeat; they are merged into one mesh first."));
+    ops.push_back(modifier("radial_array", "Repeats its children around an axis: wheel spokes, columns round a fountain, gear teeth, petals. Copy k is turned by k steps of angle/count (360 degrees: the last copy is not on the first).",
+                           {integer("count", "Copies including the original.", 6, 1, 1024),
+                            axis_field("axis", "The axis the copies turn about.", "y"),
+                            number("angle", "Degrees from the first copy to the last: 360 spreads them evenly round a full circle; less (90 with 4 copies) puts the first at 0 and the last at `angle`.", 360, 0.001, 360),
+                            field("center", "vec3", "A point the axis passes through, [x, y, z] in metres.", Json::array({0, 0, 0}), -kMaxSize, kMaxSize),
+                            boolean("faceCenter", "true: each copy turns with the circle (spokes). false: the copies are moved round the circle but keep their orientation (all the chairs face the same way).", true),
+                            boolean("merge", "Join vertices of neighbouring copies within `mergeDistance`.", false),
+                            number("mergeDistance", "Metres within which `merge` joins vertices.", 0.001, 0, 1)},
+                           "The nodes to repeat; they are merged into one mesh first."));
+    ops.push_back(modifier("bevel", "Rounds or chamfers the sharp edges of its children: edges whose two faces turn by more than `angle` are replaced by a strip of `segments` rows, so the edge catches light. Big faces stay flat; the strips are shaded smooth. An edge that ends inside a smooth surface is left sharp.",
+                           {number("width", "How far the bevel reaches from the edge along each face, in metres. Too wide for the faces (a face would turn inside out) fails with a message that says how wide it can be.", 0.05, 0.0001, kMaxSize),
+                            integer("segments", "Rows of the strip: 1 is a flat chamfer, 2 or 3 a soft round.", 2, 1, 16),
+                            number("angle", "Degrees: only edges whose faces turn by more than this are bevelled. 30 leaves the gently curved parts of a rounded shape alone.", 30, 0, 180),
+                            number("roundness", "0: straight chamfer rows with flat shading. 1: a round profile with the normals blending between the two faces.", 1, 0, 1)},
+                           "The nodes to bevel; they are merged into one mesh first."));
+    ops.push_back(modifier("subdivide", "Catmull-Clark subdivision: smooths its children into a rounder surface, `levels` times (each level multiplies the faces by 4). A box becomes a rounded blob; set `creaseAngle` to keep the sharp edges. Triangles that were a flat quad are treated as that quad, so a box subdivides like a box.",
+                           {integer("levels", "Times to subdivide. 1 doubles the detail along each direction; 4 is the most allowed and the triangle limit (1000000) applies.", 1, 1, 4),
+                            number("creaseAngle", "Degrees: edges whose faces turn by more than this (and open boundaries) stay sharp. 180 smooths everything.", 180, 0, 180)},
+                           "The nodes to subdivide; they are merged into one mesh first."));
+    ops.push_back(modifier("solidify", "Gives a surface thickness: adds a second, inverted surface offset along the vertex normals and walls along any open edge. A grid becomes a slab; a closed solid becomes a hollow shell (a helmet, a bowl).",
+                           {number("thickness", "Wall thickness in metres.", 0.05, 0.0001, kMaxSize),
+                            number("offset", "-1: the original surface is the outside and the wall grows against its normals (inwards). 1: it grows along the normals (outwards). 0: centred on the original surface.", -1, -1, 1),
+                            boolean("even", "Stretch the offset at sharp corners so the wall keeps its thickness there.", true)},
+                           "The nodes to thicken; they are merged into one mesh first."));
+    ops.push_back(modifier("bend", "Bends its children along an axis into an arc: a curved pipe, a bent plank, a banana. The part between `from` and `to` curves through `angle` degrees; beyond them the model continues straight. Give it enough `segments` first (a box with 1 segment only tilts).",
+                           {axis_field("axis", "The length axis the model bends along.", "y"),
+                            number("angle", "Degrees of the arc over [from, to]; negative bends the other way.", 90, -360, 360),
+                            number("direction", "Degrees: which way it bends, round the axis. 0 bends towards +Z when `axis` is y, towards +Y when it is x and towards +X when it is z (the next axis in the order x, y, z); 90 bends towards the one after that (+X for y).", 0, -360, 360),
+                            number_opt("from", "Start of the stretch that bends, as a coordinate on `axis`. Left out: the bottom of the model along that axis.", -kMaxSize, kMaxSize),
+                            number_opt("to", "End of the stretch that bends. Left out: the top of the model along that axis. Must be above `from`.", -kMaxSize, kMaxSize)},
+                           "The nodes to bend; they are merged into one mesh first."));
+    ops.push_back(modifier("twist", "Twists its children about an axis, more the further along it: a screw, a rope, a twisted column. Give the model enough `segments` along the axis first.",
+                           {axis_field("axis", "The axis to twist about (through the origin of the children).", "y"),
+                            number("angle", "Degrees turned over [from, to]; beyond `to` the model stays turned by all of it.", 90, -3600, 3600),
+                            number_opt("from", "Where the twist starts, as a coordinate on `axis`. Left out: the bottom of the model.", -kMaxSize, kMaxSize),
+                            number_opt("to", "Where the twist ends. Left out: the top of the model. Must be above `from`.", -kMaxSize, kMaxSize)},
+                           "The nodes to twist; they are merged into one mesh first."));
+    ops.push_back(modifier("taper", "Scales the cross-section of its children along an axis: a tower narrowing to the top, a flared leg, a horn. Give the model enough `segments` along the axis first.",
+                           {axis_field("axis", "The axis along which the scale changes.", "y"),
+                            number("startScale", "Scale of the cross-section at `from` (1 = unchanged).", 1, 0, 100),
+                            number("endScale", "Scale of the cross-section at `to`; 0 pinches to a point.", 0.5, 0, 100),
+                            number_opt("from", "Where `startScale` applies, as a coordinate on `axis`. Left out: the bottom of the model.", -kMaxSize, kMaxSize),
+                            number_opt("to", "Where `endScale` applies. Left out: the top of the model. Must be above `from`.", -kMaxSize, kMaxSize)},
+                           "The nodes to taper; they are merged into one mesh first."));
+    ops.push_back(modifier("noise", "Roughens the surface of its children with seeded value noise: rock, terrain, hammered metal, a lumpy clay look. The same seed and position always give the same displacement, so seams stay closed and the result is identical on every run. Give the model enough `segments` for the bumps to show.",
+                           {number("amplitude", "The largest displacement of the first octave, in metres.", 0.05, 0, kMaxSize),
+                            number("frequency", "Noise features per metre (3 = a bump about every 0.3 m).", 3, 0.001, 1000),
+                            integer("octaves", "Layers of noise: each doubles the frequency and halves the amplitude.", 1, 1, 6),
+                            integer("seed", "Chooses the pattern; change it for another rock.", 0, 0, 2000000000),
+                            boolean("alongNormal", "true: move vertices along the surface normal (bumps in and out). false: a free 3D offset.", true)},
+                           "The nodes to roughen; they are merged into one mesh first."));
+    ops.push_back(modifier("smooth", "Relaxes the shape of its children by moving each vertex towards the average of its neighbours (Laplacian smoothing, with Taubin's correction so the shape does not shrink): removes jaggedness left by noise, rounds a lumpy shape. It changes positions only; use `subdivide` to add detail.",
+                           {integer("iterations", "Passes. More passes smooth further.", 4, 1, 100),
+                            number("factor", "How far a vertex moves towards the average per pass (0 none, 1 all the way).", 0.5, 0, 1),
+                            boolean("taubin", "A second, opposite pass per iteration so the model keeps its volume. false: plain Laplacian (it shrinks).", true),
+                            boolean("lockBoundary", "Vertices on an open edge stay where they are.", true),
+                            number("sharpAngle", "Degrees: vertices on an edge whose faces turn by more than this stay put, so box corners survive. 180 = nothing is locked.", 180, 0, 180)},
+                           "The nodes to smooth; they are merged into one mesh first."));
+    ops.push_back(modifier("weld", "Joins vertices that are closer than `distance`: closes the hairline gaps between pieces that were meant to touch and removes the triangles that collapse.",
+                           {number("distance", "Metres: vertices closer than this are moved to their common centre.", 0.001, 0, 1)},
+                           "The nodes to weld; they are merged into one mesh first."));
+    ops.push_back(modifier("shade", "Chooses flat or smooth shading for its children: flat shows every face (a cut gem, low poly), smooth blends the normals over shared vertices (a ball), auto blends only where faces meet at less than `angle` (the usual choice: a box stays sharp, a rounded edge is smooth). It changes normals only, not the shape.",
+                           {choice("mode", "\"auto\" (smooth below `angle`), \"flat\" or \"smooth\".", {"auto", "flat", "smooth"}, "auto"),
+                            number("angle", "Degrees for \"auto\": corners of faces that turn by less than this share a normal.", 30, 0, 180)},
+                           "The nodes to shade; they are merged into one mesh first."));
     {
         ModelFieldInfo children = field("children", "nodes", "The nodes in the group, evaluated in order and merged into one mesh. A group is also how a `part`, `material` or `color` is given to several nodes at once, and how one transform moves them together.");
         ops.push_back({"group", "group", "Several nodes treated as one: the group's transform applies to all of them, and its part, material and colour are inherited by the ones that do not name their own.", {children}});
@@ -261,6 +399,36 @@ bool check_number(Reader& r, const ModelFieldInfo& f, const Json& v, const std::
     return true;
 }
 
+// A list of `dims`-number points, at least f.minItems and at most f.maxItems of them, every number within f.min..f.max.
+bool read_points(Reader& r, const ModelFieldInfo& f, const Json& v, const std::string& pointer, std::size_t dims, Json& out) {
+    const std::string shape = dims == 2 ? "a list of [a, b] points" : "a list of [x, y, z] points";
+    const std::size_t lo = std::size_t(f.minItems.value_or(0)), hi = std::size_t(f.maxItems.value_or(1 << 20));
+    if (!v.is_array() || v.size() < lo || v.size() > hi) {
+        r.err(pointer, f.key + " must be " + shape + " (" + std::to_string(lo) + " to " + std::to_string(hi) + " of them), got " +
+                           (v.is_array() ? std::to_string(v.size()) + " points" : describe_json_value(v)),
+              f.doc);
+        return false;
+    }
+    Json points = Json::array();
+    bool ok = true;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const std::string at = pointer + "/" + std::to_string(i);
+        if (!v[i].is_array() || v[i].size() != dims) {
+            r.err(at, "point " + std::to_string(i) + " of " + f.key + " must be " + (dims == 2 ? "[a, b]" : "[x, y, z]") + ", got " + describe_json_value(v[i]), f.doc);
+            ok = false;
+            continue;
+        }
+        Json point = Json::array();
+        for (std::size_t k = 0; k < dims; ++k) {
+            if (!check_number(r, f, v[i][k], at + "/" + std::to_string(k), f.key + "[" + std::to_string(i) + "][" + std::to_string(k) + "]", false)) ok = false;
+            else point.push_back(v[i][k].get<double>());
+        }
+        if (point.size() == dims) points.push_back(point);
+    }
+    if (ok) out = points;
+    return ok;
+}
+
 // Reads the value `v` of `f` into `out` (normalised). False when it had a problem (reported).
 bool read_field(Reader& r, const ModelFieldInfo& f, const Json& v, const std::string& pointer, Json& out) {
     const std::string& t = f.type;
@@ -315,6 +483,31 @@ bool read_field(Reader& r, const ModelFieldInfo& f, const Json& v, const std::st
         if (ok) out = parts;
         return ok;
     }
+    if (t == "points2" || t == "points3" || t == "rings") {
+        const std::size_t dims = t == "points2" ? 2 : 3;
+        if (t == "rings") {
+            const std::string shape = "a list of sections, each a list of [x, y, z] points";
+            if (!v.is_array() || v.size() < std::size_t(f.minItems.value_or(0)) || v.size() > std::size_t(f.maxItems.value_or(1 << 20))) {
+                r.err(pointer, f.key + " must be " + shape + " (" + std::to_string(f.minItems.value_or(0)) + " to " + std::to_string(f.maxItems.value_or(0)) + " sections), got " +
+                                   (v.is_array() ? std::to_string(v.size()) + " entries" : describe_json_value(v)),
+                      f.doc);
+                return false;
+            }
+            Json sections = Json::array();
+            bool ok = true;
+            for (std::size_t k = 0; k < v.size(); ++k) {
+                Json one;
+                ModelFieldInfo inner = f;
+                inner.minItems = f.innerMinItems;
+                inner.maxItems = f.innerMaxItems;
+                if (read_points(r, inner, v[k], pointer + "/" + std::to_string(k), 3, one)) sections.push_back(one);
+                else ok = false;
+            }
+            if (ok) out = sections;
+            return ok;
+        }
+        return read_points(r, f, v, pointer, dims, out);
+    }
     if (t == "color") {
         if (!parse_color(v)) {
             r.err(pointer, f.key + " must be [r, g, b] or [r, g, b, a] with numbers from 0 to 1, or \"#rrggbb\", got " + describe_json_value(v), "Example: [0.8, 0.2, 0.1] or \"#cc3319\".");
@@ -363,6 +556,41 @@ void check_op(Reader& r, const ModelNode& n, const std::string& at) {
     }
     if (n.op == "cylinder" && p.contains("radiusTop") && num("radius") == 0 && num("radiusTop") == 0)
         r.err(at + "/radius", "a cylinder with both radii 0 has no volume", "Give `radius` or `radiusTop` a size above 0.");
+    if (n.op == "lathe") {
+        bool anyRadius = false;
+        const Json& prof = p["profile"];
+        for (std::size_t k = 0; k < prof.size(); ++k) {
+            if (prof[k][0].get<double>() < 0)
+                r.err(at + "/profile/" + std::to_string(k) + "/0", std::format("lathe profile point {} has a negative radius ({})", k, num_text(prof[k][0].get<double>())),
+                      "Points are [radius, height] with radius 0 or more; to put something on the other side of the axis, the turn already does it.");
+            if (prof[k][0].get<double>() > 0) anyRadius = true;
+        }
+        if (!anyRadius) r.err(at + "/profile", "every point of the lathe profile is on the axis (radius 0): it has no volume", "Give at least one point a radius above 0, e.g. [[0,0],[0.5,0],[0.5,1],[0,1]].");
+    }
+    if (n.op == "sweep") {
+        const Json& prof = p["profile"];
+        double area = 0;
+        for (std::size_t k = 0; k < prof.size(); ++k) {
+            const Json& a = prof[k];
+            const Json& b = prof[(k + 1) % prof.size()];
+            area += a[0].get<double>() * b[1].get<double>() - b[0].get<double>() * a[1].get<double>();
+        }
+        if (std::fabs(area) < 1e-12) r.err(at + "/profile", "the sweep profile has no area (its points are on a line)", "Give a closed shape with at least 3 points that are not in a straight line.");
+        if (p["closed"].get<bool>() && p["path"].size() < 3)
+            r.err(at + "/closed", "a closed sweep path needs at least 3 points, it has " + std::to_string(p["path"].size()), "Add path points, or set `closed` to false.");
+    }
+    if (n.op == "loft") {
+        const Json& sec = p["sections"];
+        for (std::size_t k = 1; k < sec.size(); ++k)
+            if (sec[k].size() != sec[0].size())
+                r.err(at + "/sections/" + std::to_string(k), std::format("loft section {} has {} points but section 0 has {}", k, sec[k].size(), sec[0].size()),
+                      "Every section needs the same number of points: point i of a section is joined to point i of the next. Add or remove points so they match.");
+        if (p["closed"].get<bool>() && !sec.empty() && sec[0].size() < 3)
+            r.err(at + "/sections/0", "a closed loft section needs at least 3 points, it has " + std::to_string(sec[0].size()), "Add points, or set `closed` to false for an open ribbon.");
+    }
+    if ((n.op == "bend" || n.op == "twist" || n.op == "taper") && p.contains("from") && p.contains("to") && num("from") >= num("to"))
+        r.err(at + "/to", std::format("{} `to` ({}) is not above `from` ({})", n.op, num_text(num("to")), num_text(num("from"))),
+              "`from` and `to` are coordinates along the axis, with `from` the lower one. Swap them, or leave both out to use the model's own extent.");
     if (n.op == "text" && p["text"].get<std::string>().empty())
         r.err(at + "/text", "text is empty", "Write the text to build, e.g. \"EXIT\".");
     if (n.op == "text" && p["text"].get<std::string>().size() > 200)
@@ -484,7 +712,7 @@ ModelNode read_node(Reader& r, const Json& j, const std::string& at, int depth) 
                 continue;
             }
             if (depth >= kModelDocMaxDepth) {
-                r.err(at + "/children", std::format("groups are nested more than {} levels deep", kModelDocMaxDepth), "Flatten the tree: a group inside a group inside... rarely needs to be that deep.");
+                r.err(at + "/children", std::format("groups and modifiers are nested more than {} levels deep", kModelDocMaxDepth), "Flatten the tree: a group inside a group inside... rarely needs to be that deep.");
                 continue;
             }
             for (std::size_t i = 0; i < it->size(); ++i) n.children.push_back(read_node(r, (*it)[i], at + "/children/" + std::to_string(i), depth + 1));
@@ -689,6 +917,18 @@ Json field_schema(const ModelFieldInfo& f) {
     } else if (t == "color") {
         Json array = Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}})}, {"minItems", 3}, {"maxItems", 4}});
         s = Json::object({{"anyOf", Json::array({array, Json::object({{"type", "string"}, {"pattern", "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"}})})}});
+    } else if (t == "points2" || t == "points3") {
+        const std::size_t n = t == "points2" ? 2 : 3;
+        s = Json::object({{"type", "array"}, {"items", Json::object({{"type", "array"}, {"items", number_schema(f, false)}, {"minItems", n}, {"maxItems", n}})}});
+        if (f.minItems) s["minItems"] = std::size_t(*f.minItems);
+        if (f.maxItems) s["maxItems"] = std::size_t(*f.maxItems);
+    } else if (t == "rings") {
+        Json section = Json::object({{"type", "array"}, {"items", Json::object({{"type", "array"}, {"items", number_schema(f, false)}, {"minItems", 3}, {"maxItems", 3}})}});
+        if (f.innerMinItems) section["minItems"] = std::size_t(*f.innerMinItems);
+        if (f.innerMaxItems) section["maxItems"] = std::size_t(*f.innerMaxItems);
+        s = Json::object({{"type", "array"}, {"items", section}});
+        if (f.minItems) s["minItems"] = std::size_t(*f.minItems);
+        if (f.maxItems) s["maxItems"] = std::size_t(*f.maxItems);
     } else if (t == "nodes") {
         s = Json::object({{"type", "array"}, {"items", Json::object({{"$ref", "#/$defs/node"}})}});
     }
@@ -719,7 +959,7 @@ Json model_doc_schema() {
         defs[op.op] = Json::object({{"type", "object"}, {"description", op.doc}, {"required", required}, {"additionalProperties", false}, {"properties", props}});
         alternatives.push_back(Json::object({{"$ref", "#/$defs/" + op.op}}));
     }
-    defs["node"] = Json::object({{"description", "One operation of the tree: a primitive or a group. `op` says which."}, {"oneOf", alternatives}});
+    defs["node"] = Json::object({{"description", "One operation of the tree: a primitive, a modifier (wraps its `children`) or a group. `op` says which."}, {"oneOf", alternatives}});
     Json material = Json::object(
         {{"type", "object"},
          {"additionalProperties", false},
@@ -736,7 +976,7 @@ Json model_doc_schema() {
         {{"$schema", "https://json-schema.org/draft/2020-12/schema"},
          {"$id", "https://factoria.dev/schemas/model.schema.json"},
          {"title", "FactorIA model document (*.model.json)"},
-         {"description", "A 3D model as a tree of operations (primitives, groups, transforms) with named parts, materials and vertex colours. `model.bake` evaluates it and writes the .glb next to it; the same bytes on every platform. Errors name the file and the JSON pointer; docs/MODELING.md explains the format and `model.info {}` lists the operations."},
+         {"description", "A 3D model as a tree of operations (primitives, modifiers, groups, transforms) with named parts, materials and vertex colours. `model.bake` evaluates it and writes the .glb next to it; the same bytes on every platform. Errors name the file and the JSON pointer; docs/MODELING.md explains the format and `model.info {}` lists the operations."},
          {"type", "object"},
          {"required", Json::array({"format", "nodes"})},
          {"additionalProperties", false},
