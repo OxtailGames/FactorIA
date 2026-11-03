@@ -25,6 +25,7 @@
 #include "fa/core/types.h"
 #include "fa/scene/mesh_store.h"
 #include "fa/scene/model_kernel.h"
+#include "fa/scene/model_texture.h"
 #include "fa/scene/model_uv.h"
 
 namespace fa {
@@ -101,6 +102,10 @@ struct ModelDoc {
     std::vector<std::pair<std::string, MeshMaterial>> materials;  // in document order; the key is the material's name
     std::vector<ModelNode> nodes;
     std::optional<ModelUvSettings> uv;  // the `uv` section (model_uv.h): none = every primitive keeps its own uvs
+    std::optional<ModelTexturing> texturing;         // the `texturing` section (model_texture.h): none = no texture is baked
+    std::optional<ModelVertexColors> vertexColors;   // the `vertexColors` section (model_texture.h): none = the nodes' own colours
+    std::vector<std::pair<std::string, ModelMaterialTexturing>> materialTexturing;  // per material of `materials`, same order: mapping, textureScale...
+    const ModelMaterialTexturing* texturing_of(const std::string& material) const;  // nullptr for "" or an unknown name
 };
 
 // Reads the `uv` section of a document (the JSON under "uv"). Problems go to `issues` with pointers starting at "/uv"; none is returned
@@ -159,6 +164,7 @@ struct ModelSelectionReport {
 
 struct ModelEvalOptions {
     ModelTextSource text;  // none: a `text` node fails with an error saying the evaluator has no font source
+    std::vector<Vec4> stylePalette;   // the project's style palette, for a `vertexColors` section with "palette": "style" (empty: the project has none)
     float defaultTexelsPerMeter = 0;  // the texel density of a `uv` section that gives none (the project's style guide); 0 = 128
     // Called for every enabled node that reaches its operation, with the mesh the operation receives (the merged children of a group or
     // modifier, or the mesh a primitive made) and its place in the tree. model.select uses it to try a query on the mesh at a node.
@@ -181,6 +187,7 @@ struct ModelBuild {
     std::vector<ModelSelectionReport> edits;  // one per edit node (extrude_faces...), in evaluation order: what its selection matched
     std::vector<std::string> inputs;  // project files the evaluation read (fonts, material textures), sorted
     std::optional<ModelUvReport> uv;  // the measurements of the document's `uv` section; none when it has none
+    std::optional<ModelVertexColorReport> vertexColors;  // what the document's `vertexColors` section did; none when it has none
 };
 
 // Evaluates the tree in document order. Fails (with the node's pointer in the message) when a text node cannot be made, or the mesh has

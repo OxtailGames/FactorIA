@@ -926,7 +926,7 @@ Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file, std::v
         r.err("", "a model document must be a JSON object, got " + describe_json_value(json), "Start from `model.create`, or write {\"format\": \"factoria.model/1\", \"nodes\": [{\"op\": \"box\"}]}.");
         return finish();
     }
-    static const std::vector<std::string> topKeys = {"$schema", "format", "doc", "output", "materials", "uv", "gameReady", "nodes"};
+    static const std::vector<std::string> topKeys = {"$schema", "format", "doc", "output", "materials", "uv", "texturing", "vertexColors", "gameReady", "nodes"};
     for (auto it = json.begin(); it != json.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             r.err("/" + it.key(), "\"" + it.key() + "\" is not a field of a model document", did_you_mean(it.key(), topKeys));
@@ -970,7 +970,11 @@ Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file, std::v
                     r.err(at + "/name", "a material is named by its key (\"" + m.key() + "\"), not by a `name` field", "Remove `name`.");
                     continue;
                 }
-                auto mat = mesh_material_from_json(*m, "material '" + m.key() + "'");
+                // the texturing fields (mapping, textureScale...) are the document's, not the glTF material's
+                Json glTFMaterial = *m;
+                ModelMaterialTexturing texturing = parse_model_material_texturing(*m, at, r.issues);
+                for (const std::string& k : model_material_texturing_keys()) glTFMaterial.erase(k);
+                auto mat = mesh_material_from_json(glTFMaterial, "material '" + m.key() + "'");
                 if (!mat.ok()) {
                     r.err(at, mat.error().message, mat.error().hint);
                     continue;
@@ -980,6 +984,7 @@ Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file, std::v
                         r.err(at + "/" + k, std::string(k) + " must be from 0 to 1, got " + describe_json_value((*m)[k]), "0 is none, 1 is full.");
                 mat->name = m.key();
                 r.materialNames.push_back(m.key());
+                doc.materialTexturing.emplace_back(m.key(), texturing);
                 doc.materials.emplace_back(m.key(), std::move(*mat));
             }
     }
@@ -990,6 +995,21 @@ Result<ModelDoc> parse_model_doc(const Json& json, std::string_view file, std::v
     else
         for (std::size_t i = 0; i < it->size(); ++i) doc.nodes.push_back(read_node(r, (*it)[i], "/nodes/" + std::to_string(i), 1));
     if (auto it = json.find("uv"); it != json.end()) doc.uv = parse_model_uv(*it, r.issues);
+    if (auto it = json.find("vertexColors"); it != json.end()) doc.vertexColors = parse_model_vertex_colors(*it, r.issues);
+    if (auto it = json.find("texturing"); it != json.end()) {
+        doc.texturing = parse_model_texturing(*it, r.issues);
+        if (!json.contains("uv") || (doc.uv && doc.uv->layout != "atlas"))
+            r.err("/texturing", !json.contains("uv") ? "texturing bakes into the model's uv atlas, and the document has no `uv` section"
+                                                      : "texturing bakes into a uv atlas, and the `uv` section's layout is \"tile\"",
+                  "Add \"uv\": {\"method\": \"unwrap\"} (or `model.texture` does it), or set uv.layout to \"atlas\".");
+        if (doc.texturing)
+            for (const auto& [name, mt] : doc.materialTexturing)
+                if (mt.mappingGiven && mt.mapping == "uv" && !name.empty())
+                    for (const auto& [mn, mat] : doc.materials)
+                        if (mn == name && !mat.texture.empty())
+                            r.err("/materials/" + name + "/mapping", "material \"" + name + "\" draws its texture \"uv\", but the `texturing` section replaces the uvs with an atlas and bakes the model into one texture",
+                                  "Use \"mapping\": \"triplanar\" (the texture is projected and baked), or remove `texturing` to draw the texture through the model's uvs.");
+    }
     return finish();
 }
 
@@ -1124,6 +1144,14 @@ Json field_schema(const ModelFieldInfo& f) {
 
 }  // namespace
 
+std::optional<Vec4> model_parse_color(const Json& value) { return parse_color(value); }
+
+const ModelMaterialTexturing* ModelDoc::texturing_of(const std::string& material) const {
+    for (const auto& [name, t] : materialTexturing)
+        if (name == material) return &t;
+    return nullptr;
+}
+
 Json model_doc_schema() {
     Json defs = Json::object();
     Json alternatives = Json::array();
@@ -1159,6 +1187,8 @@ Json model_doc_schema() {
                         {"emissive", Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}})}, {"minItems", 3}, {"maxItems", 4}, {"description", "Light the surface gives off [r, g, b], 0..1. Default none."}})},
                         {"doubleSided", Json::object({{"type", "boolean"}, {"description", "Draw back faces too (flat leaves, cloth). Default false."}})},
                         {"blend", Json::object({{"type", "boolean"}, {"description", "Alpha-blended (glass); the alpha of `color` and of vertex colours shows. Default false."}})}})}});
+    const Json texturingProps = model_material_texturing_schema_properties();
+    for (auto it = texturingProps.begin(); it != texturingProps.end(); ++it) material["properties"][it.key()] = it.value();
     return Json::object(
         {{"$schema", "https://json-schema.org/draft/2020-12/schema"},
          {"$id", "https://factoria.dev/schemas/model.schema.json"},
@@ -1176,6 +1206,8 @@ Json model_doc_schema() {
                         {"gameReady", game_ready_schema()},
                         {"materials", Json::object({{"type", "object"}, {"description", "Named materials the nodes refer to with `material`."}, {"additionalProperties", material}})},
                         {"uv", model_uv_schema()},
+                        {"texturing", model_texturing_schema()},
+                        {"vertexColors", model_vertex_colors_schema()},
                         {"nodes", Json::object({{"type", "array"}, {"description", "The tree: operations evaluated in order and merged into one mesh."}, {"items", Json::object({{"$ref", "#/$defs/node"}})}})}})},
          {"$defs", defs}});
 }
