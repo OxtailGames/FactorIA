@@ -935,7 +935,7 @@ and next steps with the component settings to use. Each written file gets an `as
 | `.ttf` `.otf` | Copied into `assets/fonts/`. A game that shows Chinese, Japanese, Korean or Arabic ships such a font (see [TEXT.md](TEXT.md)). |
 | `.glb` `.gltf` | Copied into `assets/models/`, with the `.bin` buffers and images its `uri`s point at (the `.glb` carries its own data; only external files count), keeping their relative paths next to the model (`Textures/colormap.png` lands in `assets/models/Textures/`). Each copied file gets a provenance record. A missing buffer is an error, a missing image a warning. A file with the same name that is already there and identical is shared; a DIFFERENT image is kept, and the result warns (kits often ship different `colormap.png` files under one name), while a DIFFERENT buffer is an `exists` error (a model cannot load another one's geometry): import each kit into its own folder with `path` (`"assets/models/town/"`) or pass `overwrite`. `factoria validate` reports a model whose texture or buffer is missing. |
 | `.aseprite` `.ase` | A PNG sprite sheet plus its `sheet` entry (see below). |
-| `.psd` | A PNG of the merged image. |
+| `.psd` | A layered image document (`<name>.image.json`) with one PNG per layer in `<name>.layers/`, and the PNG baked from it (see PSD below). A file whose layers cannot be read imports its merged image as a PNG. |
 | `.obj` (+ `.mtl`, textures) | A `.gltf` with its data embedded, plus the textures next to it. |
 | `.fbx` | A `.glb`, converted by FBX2glTF or Blender (see below). |
 | `.mpg` `.mpeg` | Copied into `assets/video/` after the engine opened it (it must be MPEG-1 video; the size, length and frame rate are in `details`). |
@@ -971,9 +971,20 @@ layers. Slices and user data are ignored. A damaged file is an error that names 
 
 ### PSD
 
-The merged image saved in the file (8 and 16 bit RGB) becomes a PNG, with a warning that the layers were
-flattened. If it cannot be read the error says how to save it again (Maximize PSD Compatibility) or to export a PNG.
-Export layers one by one from Photoshop (File > Export > Layers to Files) when you need them separately.
+A PSD (8 or 16 bit, RGB or grayscale) imports as a **layered image document** ([IMAGES.md](IMAGES.md)): `assets/<name>.image.json`
+with every layer as a `pixels` layer, one PNG per layer in `assets/<name>.layers/`, and `assets/<name>.png` baked from the document
+(the path `assets.import` reports is that PNG, as before). Kept: layer names (the unicode name), position, opacity, visibility,
+clipping, groups (as `group` layers) and these blend modes: normal, multiply, screen, overlay, darken, lighten, color dodge,
+color burn, hard light, soft light, difference, exclusion, linear dodge (add), subtract, hue, saturation, color, luminosity. A layer
+mask is baked into the layer's alpha (a disabled mask is ignored). Warned about and approximated: other blend modes (linear burn,
+vivid and linear light...) and pass-through groups (image groups are isolated). Skipped with a warning: layers with no pixels
+(adjustment layers, empty layers). Layer styles, vector masks, smart-object filters and the fill opacity are not read.
+
+Edit the result with `image.layer.set`, `image.edit` and `image.paint`. If the layers cannot be read (a cut-short file, CMYK,
+indexed or 32 bit colour) the merged image saved in the file becomes the PNG, with a warning that says why the layers were flattened
+(for a damaged one: re-save it; for the mode: Image > Mode > RGB Color, 8 Bits/Channel). If that cannot be read either the error says
+how to save it again (Maximize PSD Compatibility) or to export a PNG. Importing again needs `overwrite`, which replaces the document,
+the layer PNGs and the PNG.
 
 ### OBJ
 

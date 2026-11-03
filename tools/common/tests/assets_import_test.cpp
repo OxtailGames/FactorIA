@@ -309,7 +309,7 @@ TEST_CASE("assets.import: a .gltf brings its buffer and images along") {
     CHECK_FALSE(remote.ok);
 }
 
-TEST_CASE("assets.import: a PSD becomes a PNG of its merged image") {
+TEST_CASE("assets.import: a PSD without layers becomes a PNG of its merged image") {
     AssetsProject p;
     auto be16 = [](Bytes& b, unsigned v) { b.u8(v >> 8).u8(v & 255); };
     auto be32 = [&](Bytes& b, unsigned v) { be16(b, v >> 16); be16(b, v & 0xffff); };
@@ -330,7 +330,7 @@ TEST_CASE("assets.import: a PSD becomes a PNG of its merged image") {
     const Json r = p.ok("assets.import", {{"source", art(p, "layers.psd", std::string(psd.v.begin(), psd.v.end()))}});
     CHECK(r["importer"] == "psd");
     CHECK(r["path"] == "assets/layers.png");
-    CHECK(has_text(r["warnings"], "flattened"));
+    CHECK(has_text(r["warnings"], "no layers"));
     const Image img = read_png(p.file("assets/layers.png"));
     CHECK(get(img, 0, 0) == Rgba{255, 0, 0, 255});
     CHECK(get(img, 1, 0) == Rgba{0, 255, 0, 255});

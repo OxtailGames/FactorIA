@@ -41,6 +41,8 @@ struct ImportOutput {
     Json details;                 // importer-specific facts for the result
     std::vector<std::string> warnings;
     std::vector<std::string> nextSteps;
+    Json document;                // a layered image document to save (and bake) once the files are written; null = none
+    std::string documentPath;     // where: project-relative, ending in .image.json; it bakes to files[0]
 };
 
 struct ImportRequest {
