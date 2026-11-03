@@ -16,7 +16,7 @@ constexpr const char* kBlendNames[] = {"normal",    "multiply",  "screen",   "ov
                                        "add",        "subtract",  "hue",      "saturation", "color",     "luminosity"};
 constexpr int kBlendCount = int(sizeof(kBlendNames) / sizeof(kBlendNames[0]));
 
-constexpr const char* kKindNames[] = {"pixels", "fill", "gradient", "procedural", "svg", "text", "provider", "group", "adjustment"};
+constexpr const char* kKindNames[] = {"pixels", "fill", "gradient", "procedural", "svg", "text", "provider", "group", "adjustment", "indexed"};
 
 }  // namespace
 

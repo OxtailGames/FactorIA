@@ -45,6 +45,7 @@ void register_image_commands(CommandRegistry& registry, const std::string& proje
     imgedit::register_edit_commands(registry, projectDir);
     imgedit::register_select_commands(registry, projectDir);
     imgedit::register_pixel_commands(registry, projectDir);
+    imgedit::register_indexed_commands(registry, projectDir);
     {
         CommandInfo info;
         info.name = "image.bake";

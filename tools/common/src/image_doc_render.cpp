@@ -223,6 +223,26 @@ Raster render_content(Ctx& ctx, const ImageLayer& layer) {
             composite_layers(ctx, layer.children, inner);
             return inner;
         }
+        case ImageLayerKind::Indexed: {
+            const int w = layer.width > 0 ? layer.width : cw, h = layer.height > 0 ? layer.height : ch;
+            Raster r(w, h);
+            if (layer.rows.empty()) return r;  // a blank layer
+            if (ctx.doc.palette.empty())
+                ctx.fail(layer.pointer, "The layer is indexed but the document has no palette to look its colours up in.",
+                         "Add `palette` to the document (a list of colours), or set style.palette in assets.json and parse the document with its project folder.");
+            for (int y = 0; y < h && y < int(layer.rows.size()); ++y)
+                for (int x = 0; x < w; ++x) {
+                    const int idx = pixel_char_index(layer.rows[std::size_t(y)][std::size_t(x)]);
+                    if (idx < 0 || idx >= ctx.doc.palette.size()) continue;
+                    float* d = r.at(x, y);
+                    const auto& c = ctx.doc.palette.entries[std::size_t(idx)].rgb;
+                    d[0] = float(c[0]) / 255.0f;
+                    d[1] = float(c[1]) / 255.0f;
+                    d[2] = float(c[2]) / 255.0f;
+                    d[3] = 1.0f;
+                }
+            return r;
+        }
         case ImageLayerKind::Adjustment: break;
     }
     return Raster();

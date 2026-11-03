@@ -109,7 +109,7 @@ Json image_select(const std::string& projectDir, const Json& a) {
         if (!source) {
             if (a.contains("layer") && !a["layer"].is_null()) {
                 LayerRef ref = find_layer(d.json, a["layer"], kCmd);
-                source = render_layer_alone(projectDir, *ref.layer, W, H, ref.parentX, ref.parentY, &warnings);
+                source = render_layer_alone(projectDir, *ref.layer, W, H, ref.parentX, ref.parentY, &warnings, &d.json);
             } else {
                 std::vector<ImageIssue> issues;
                 auto parsed = parse_image_document(d.json, d.rel, projectDir, &issues);

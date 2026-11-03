@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factoria.dev/schemas/image.schema.json",
   "title": "FactorIA layered image (*.image.json)",
-  "description": "The source of a picture: a canvas and a list of layers (pixels, fill, gradient, procedural texture, SVG, text, provider image, group, adjustment) with opacity, blend mode, masks, clipping and an offset. One CPU compositor draws it; the PNG a Sprite uses is baked next to it (hero.image.json -> hero.png) with a recipe in assets.json, so assets.regenerate remakes it and a changed source warns as stale. Errors name the file and the JSON pointer; docs/IMAGES.md explains the format, the colour rules and the blend modes.",
+  "description": "The source of a picture: a canvas and a list of layers (pixels, fill, gradient, procedural texture, SVG, text, provider image, group, adjustment, indexed pixel art) with opacity, blend mode, masks, clipping and an offset. One CPU compositor draws it; the PNG a Sprite uses is baked next to it (hero.image.json -> hero.png) with a recipe in assets.json, so assets.regenerate remakes it and a changed source warns as stale. Errors name the file and the JSON pointer; docs/IMAGES.md explains the format, the colour rules and the blend modes.",
   "type": "object",
   "required": [
     "width",
@@ -61,6 +61,74 @@
       "items": {
         "$ref": "#/$defs/layer"
       }
+    },
+    "palette": {
+      "description": "Palette the document's indexed layers are locked to: \"style\" (the style.palette of assets.json) or a list of 1 to 81 different opaque colours, each \"#rrggbb\" (any colour the engine reads) or {\"name\": ..., \"color\": ...}. The colour at position N is the index N; an indexed layer's rows write it as the Nth character of 0-9a-zA-Z!#$%&*+-/:;<=>?@^_~. Left out, an indexed layer uses the style palette; image.pixel / image.draw copy it in here the first time, so a later change of the style does not recolour the picture.",
+      "anyOf": [
+        {
+          "const": "style"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 81,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "color"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "The name commands use for this colour (\"skin\"); unique ignoring case; not \".\", \"transparent\" or \"none\"."
+                  },
+                  "color": {
+                    "description": "The opaque colour: \"#rrggbb\" or [r, g, b] in 0..1.",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "ramps": {
+      "type": "array",
+      "description": "Colour ramps of the palette: each is a list of at least two palette colours (index, name or colour) from the darkest to the lightest; a colour is in one ramp. A step of image.pixel / image.draw ({\"step\": -1}) follows the colour's ramp; a colour in no ramp steps to the nearest palette colour that is darker (lighter) in OKLab.",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "description": "A palette colour: its index, its name or its colour."
+        }
+      }
     }
   },
   "$defs": {
@@ -70,7 +138,7 @@
         "kind"
       ],
       "additionalProperties": false,
-      "description": "One layer. The fields that apply depend on `kind`: pixels and provider take `source`; fill `color`; gradient `gradient`; procedural `texture`; svg `source` or `svg`; text `text`, `font`, `size`, `color`, `align`, `lineHeight`; group `layers`; adjustment only `adjustments` (it applies them to everything below it and takes no `blend` or `effects`). A field a kind does not take is an error.",
+      "description": "One layer. The fields that apply depend on `kind`: pixels and provider take `source`; fill `color`; gradient `gradient`; procedural `texture`; svg `source` or `svg`; text `text`, `font`, `size`, `color`, `align`, `lineHeight`; group `layers`; indexed `rows` (or a blank `width` x `height`) and `ai`; adjustment only `adjustments` (it applies them to everything below it and takes no `blend` or `effects`). A field a kind does not take is an error.",
       "properties": {
         "kind": {
           "type": "string",
@@ -83,9 +151,10 @@
             "text",
             "provider",
             "group",
-            "adjustment"
+            "adjustment",
+            "indexed"
           ],
-          "description": "pixels: a PNG of the project. fill: one colour. gradient: linear or radial colour stops. procedural: a texture made by the arguments of assets.generate_texture. svg: an SVG rasterized with the engine's rasterizer. text: text in an engine font. provider: a PNG made by an image provider (counts as AI-made). group: layers drawn together, then blended as one. adjustment: colour operations on everything below."
+          "description": "pixels: a PNG of the project. fill: one colour. gradient: linear or radial colour stops. procedural: a texture made by the arguments of assets.generate_texture. svg: an SVG rasterized with the engine's rasterizer. text: text in an engine font. provider: a PNG made by an image provider (counts as AI-made). group: layers drawn together, then blended as one. adjustment: colour operations on everything below. indexed: pixel art stored as palette indices (`rows`), locked to the document's palette; it takes no masks, adjustments or effects, and image.paint / image.edit refuse it (use image.pixel / image.draw)."
         },
         "name": {
           "type": "string",
@@ -230,13 +299,13 @@
         },
         "width": {
           "type": "integer",
-          "description": "fill, gradient: the size of the layer's box in pixels (default: the canvas). svg: the width the SVG is fitted into (aspect kept, centred).",
+          "description": "fill, gradient: the size of the layer's box in pixels (default: the canvas). svg: the width the SVG is fitted into (aspect kept, centred). indexed without `rows`: the size of the blank layer.",
           "minimum": 1,
           "maximum": 4096
         },
         "height": {
           "type": "integer",
-          "description": "fill, gradient: the height of the box (default: the canvas). svg: the height the SVG is fitted into.",
+          "description": "fill, gradient: the height of the box (default: the canvas). svg: the height the SVG is fitted into. indexed without `rows`: the height of the blank layer.",
           "minimum": 1,
           "maximum": 4096
         },
@@ -374,6 +443,20 @@
           "items": {
             "$ref": "#/$defs/layer"
           }
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "description": "indexed layer: the pixels as text, one string per row, one character per pixel, all rows equally long (the layer's size). '.' is transparent; 0-9a-zA-Z!#$%&*+-/:;<=>?@^_~ are palette indices 0, 1, 2, ...; an index beyond the palette is an error. Example: [\"..11..\", \".1221.\", \"..11..\"]. Put at x and y.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "ai": {
+          "type": "boolean",
+          "description": "indexed layer: true when AI made these pixels; the baked PNG is then recorded as AI-made (image.layer.convert sets it when the source was AI-made)."
         }
       }
     },

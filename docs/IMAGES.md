@@ -1,7 +1,7 @@
 # Layered images: `*.image.json`
 
 A layered image is a small JSON file that is the SOURCE of a picture: a canvas and a list of layers (a PNG, a fill, a
-gradient, a procedural texture, an SVG, text, a picture from an image provider, a group, an adjustment), each with an
+gradient, a procedural texture, an SVG, text, a picture from an image provider, a group, an adjustment, indexed pixel art), each with an
 opacity, a blend mode, masks, clipping and an offset. The PNG a `Sprite` draws is BAKED from it next to the document
 (`hero.image.json` -> `hero.png`), the way the other offline makers write their files ([ASSETS.md](ASSETS.md)). You change the
 picture by changing the document and baking again; nothing needs a GPU, a window or another program.
@@ -35,6 +35,7 @@ picture (`$image`). The schema is `schemas/image.schema.json`; `$schema` may poi
 | `background` | A colour the canvas starts with. Without it the canvas starts fully transparent. |
 | `output` | The PNG to bake, project-relative, ending in `.png`. Default: the document's name with `.image.json` replaced by `.png`. |
 | `description` | A sentence for people and AIs; unused by the drawing. |
+| `palette`, `ramps` | The colours the `indexed` layers are locked to, and their shades (see "Pixel art"). |
 | `layers` | The layers, **bottom first**: a later layer is drawn over the earlier ones. |
 
 Colours are `"#rrggbb"`, `"#rrggbbaa"`, `"#rgb"`, a CSS name (`"white"`) or `[r, g, b]` / `[r, g, b, a]` with components in
@@ -73,6 +74,8 @@ The kinds and the fields they add:
 - **`text`**: `text` (`\n` starts a new line), `font` (default the engine's DejaVu Sans; `"builtin:pixel"` and the other
   built-in fonts, or a `.ttf` / `.otf` of the project), `size` (the em height in pixels), `color`, `align` (`left`, `center`
   or `right` of the layer's `x`) and `lineHeight` (in ems, default 1.2). `y` is the top of the first line.
+- **`indexed`**: pixel art as palette indices: `rows` (text), or `width` / `height` for a blank layer, and `ai`. No masks,
+  adjustments or effects (see "Pixel art").
 - **`provider`**: a PNG made by an image provider (`source`), drawn like `pixels`, plus `provenance`: the record of how it was
   made (`provider`, `model`, `prompt`, `seed`, `references`, `license`, `author`, `notes`). A provider layer makes the
   baked picture AI-made (see "Baking"); the record goes to `assets.json` for the source PNG when it has none yet.
@@ -255,7 +258,8 @@ child of the group at 1. A wrong name or index is an error with "did you mean" a
 - `image.create {path, width, height, background?, layers?, description?, overwrite?}` writes a new document (it refuses to
   replace one unless `overwrite`).
 - `image.info {path}` lists the layers as a tree (index path, name, kind, size, source, number of masks, adjustments and
-  effects), whether the document is valid, its bake status, the files it reads and its stored selections. Read-only.
+  effects), whether the document is valid, its palette (source, number of colours and ramps) when it has one, its bake status,
+  the files it reads and its stored selections. Read-only.
 - `image.export {path, out, scale?, layer?, trim?, filter?}` writes a plain PNG copy: the whole picture, or one layer or group
   (at full opacity, normal blend). `scale` resamples with `nearest` (the default when `style.pixelArt` is true) or `bilinear`.
 
@@ -339,6 +343,165 @@ apply in order and the same input always gives the same pixels. `create: true` m
 no layer has that name; `selection` limits where the strokes paint; a layer that is not a pixels layer is rasterized as in
 `image.edit`.
 
+## Pixel art
+
+Pixel art needs exact pixels, a fixed palette and shapes without anti-aliasing. An `indexed` layer is that: its pixels are
+palette INDICES written as text, so the file is readable, a change shows up in a diff, and a colour that is not in the palette
+cannot be there. Baking draws each index in its palette colour through the normal compositor (alpha 255; `.` is transparent),
+so an indexed layer takes `opacity`, `blend`, `clip`, `x`, `y` and sits in groups like any other. It takes no `masks`,
+`adjustments` or `effects` (they would blend colours that are not in the palette); `image.layer.convert` to `pixels` first if
+you want them.
+
+```json
+{
+  "format": "factoria.image/1", "width": 8, "height": 8,
+  "palette": [{"name": "outline", "color": "#1a1c2c"}, {"name": "skin-dark", "color": "#b06a40"},
+              {"name": "skin", "color": "#e0a070"}, {"name": "skin-light", "color": "#f8d0a8"}],
+  "ramps": [["skin-dark", "skin", "skin-light"]],
+  "layers": [{"kind": "indexed", "name": "orb", "rows": [
+    "..0000..",
+    ".033320.",
+    "03322220",
+    "03222220",
+    "02222110",
+    "02221110",
+    ".011110.",
+    "..0000.."]}]
+}
+```
+
+- **The palette** is the document's `palette`: a list of 1 to 81 different opaque colours, each `"#rrggbb"` (or any colour the
+  engine reads) or `{"name", "color"}`; names are unique ignoring case and are what commands use (`"skin"`). Left out, an
+  indexed layer uses `style.palette` of `assets.json` ("House style" in [ASSETS.md](ASSETS.md)); `image.pixel` and `image.draw`
+  then copy it into the document, so changing the style later does not recolour finished art. `"palette": "style"` says it
+  explicitly and keeps following the style (bake again after changing it: the recipe does not track `assets.json`).
+- **The index characters** are `0-9a-zA-Z!#$%&*+-/:;<=>?@^_~`: position N is palette colour N (`0` the first, `a` the eleventh);
+  `.` is transparent. All rows have the same length. An index beyond the palette is an error with its row and column.
+- **Replacing the palette keeps the indices**, so the pixels change colour: append colours to keep the old ones.
+- **Ramps** (`ramps`) group palette colours from the darkest to the lightest. `{"step": -1}` in a command is one step darker
+  along the ramp of the colour already in the pixel, `{"step": 1}` one lighter, `{"color": "skin", "step": 1}` the colour one
+  step lighter than `skin`; the step stops at the end of the ramp. A colour in no ramp steps to the palette colour nearest to
+  it in OKLab that has a lower (higher) lightness, so shading works without declaring ramps; the same palette always gives the
+  same answer. `image.palette` lists every colour's `shade` and `light`.
+- **`ai: true`** on a layer marks its pixels as AI-made; the baked PNG is then recorded as AI-made ([ASSETS.md](ASSETS.md),
+  "Provenance and store disclosure"). `image.layer.convert` sets it when it converts an AI-made picture.
+
+A colour in a command is a palette index (`3`), a name (`"skin"`), the index character (`"3"`), a colour that IS in the palette
+(`"#e0a070"`), or `null` / `"."` / `"transparent"` for transparent. Anything else is refused with a teaching error:
+
+```
+error: invalid_argument: image.pixel /pixels/1/2: The colour #e0a071 is not in the palette. The nearest palette colour is skin #e0a070 (index 2).
+  hint: Use that colour, or add the new colour to the document's palette (image.palette).
+```
+
+An unknown name suggests the near names ("did you mean skin?"), and a document whose rows hold a wrong character or an index
+the palette does not have is refused with the JSON pointer of the row (`/layers/0/rows/4`).
+
+### Commands
+
+All of them work on one document, make no anti-aliased pixel, write the document, bake it, and return the baked picture, the
+changed `region` and `changed` like the other `image.*` commands. The `$image` of these four is the picture MAGNIFIED with hard
+pixels (`scale` 1 to 32, default as large as fits 512 pixels; `previewScale` tells which; the preview file is
+`.factoria/previews/<document>.png`), so every pixel is visible.
+
+- `image.pixel {path, layer, pixels?, runs?, stamp?, create?, scale?, bake?}`: exact pixels. `pixels` is `[[x, y, colour], ...]`,
+  `runs` is `[[x, y, length, colour], ...]` (to the right), `stamp` is `{x, y, rows, clear?}` with text rows in the document's own
+  characters (`.` leaves the pixel alone, or erases it with `clear: true`). `layer` is an indexed layer's name or index path; with
+  `create: true` an unknown name makes a blank canvas-sized indexed layer on top. Coordinates are canvas pixels (the layer's
+  own `x`, `y` and those of its groups are accounted for); pixels outside the layer are counted in a warning.
+- `image.draw {path, layer, shapes, create?, scale?, bake?}`: shapes drawn in order.
+  - `line` `{points, color, perfect?, closed?}`: Bresenham between consecutive points. `perfect: true` removes the L-corner of a
+    bend, so the line is one pixel thick everywhere (a straight or diagonal run is unchanged; a point where the line turns
+    loses its corner pixel).
+  - `rect` `{x, y, width, height, color?, fill?}` and `ellipse` `{x, y, width, height, color?, fill?}`: the box includes its
+    last row and column (`x: 2, width: 5` covers columns 2 to 6); the ellipse is inscribed in it (midpoint algorithm, odd and
+    even sizes, symmetric). `color` is the outline, `fill` the inside (a colour, or `true` for `color`); the fill goes first so
+    the outline stays on top.
+  - `polygon` `{points, color?, fill?}`: at least three corners; the fill takes the pixels whose centre is inside (even-odd)
+    plus the outline.
+  - `fill` `{at, color, connectivity?}`: the pixels connected to `at` that hold the same colour (or transparency) as it. `4` (the
+    default) goes through edges and does not leak through a diagonal gap in an outline; `8` goes through corners too.
+- `image.palette {path, palette?, ramps?}`: without `palette` or `ramps` it reads the palette, each colour with its index and
+  character, name, `#rrggbb`, how many pixels use it, its ramp, `shade` and `light`. With them it rewrites them (`null` removes)
+  and bakes.
+- `image.layer.convert {path, layer, to, palette?, dither?, space?, strength?, alphaThreshold?}`: `to: "indexed"` draws the layer
+  alone (with its masks, adjustments and effects), crops it to what it shows and gives each pixel its nearest palette colour
+  (OKLab, or `space: "rgb"`), with the optional `dither` of the `dither` adjustment (`bayer2`, `bayer4`, `bayer8`,
+  `floydSteinberg`, `atkinson`) at `strength`. Pixels at least `alphaThreshold` (0.5) opaque stay, the rest become transparent;
+  a pixel that already is a palette colour keeps it. `to: "pixels"` writes the layer's PNG (in `<document>.layers/`) and turns it
+  into a pixels layer, which is the way back to `image.edit`, `image.paint` and the effects.
+
+`image.paint` and `image.edit` REFUSE an indexed layer with an error that names `image.pixel`, `image.draw` and
+`image.layer.convert`: a soft brush would put colours outside the palette on it. `image.select` and `image.export` work with it
+like with any layer.
+
+### A 16x16 face, step by step
+
+Make the document with its palette and a ramp (the picture is empty until the first layer):
+
+```json
+{"command": "image.create", "args": {"path": "assets/art/face.image.json", "width": 16, "height": 16,
+  "palette": [{"name": "outline", "color": "#1a1c2c"}, {"name": "skin-dark", "color": "#b06a40"},
+              {"name": "skin", "color": "#e0a070"}, {"name": "skin-light", "color": "#f8d0a8"},
+              {"name": "white", "color": "#ffffff"}],
+  "ramps": [["skin-dark", "skin", "skin-light"]]}}
+```
+
+A filled circle with an outline, on a new indexed layer:
+
+```json
+{"command": "image.draw", "args": {"path": "assets/art/face.image.json", "layer": "face", "create": true,
+  "shapes": [{"type": "ellipse", "x": 1, "y": 1, "width": 14, "height": 14, "fill": "skin", "color": "outline"}]}}
+```
+
+Eyes and a mouth that bends without doubled pixels:
+
+```json
+{"command": "image.draw", "args": {"path": "assets/art/face.image.json", "layer": "face", "shapes": [
+  {"type": "rect", "x": 4, "y": 5, "width": 2, "height": 3, "fill": "outline"},
+  {"type": "rect", "x": 10, "y": 5, "width": 2, "height": 3, "fill": "outline"},
+  {"type": "line", "points": [[4, 10], [6, 12], [10, 12], [12, 10]], "color": "outline", "perfect": true}]}}
+```
+
+A glint in each eye, and a shade one step darker along the bottom (the outline has no darker colour, so it stays):
+
+```json
+{"command": "image.pixel", "args": {"path": "assets/art/face.image.json", "layer": "face",
+  "pixels": [[4, 5, "white"], [10, 5, "white"]],
+  "runs": [[3, 13, 10, {"step": -1}], [5, 14, 6, {"step": -1}]]}}
+```
+
+A highlight stamped from text (`3` is `skin-light`, `.` leaves the pixel as it is):
+
+```json
+{"command": "image.pixel", "args": {"path": "assets/art/face.image.json", "layer": "face",
+  "stamp": {"x": 3, "y": 2, "rows": ["..333", "3333."]}}}
+```
+
+The layer in the document now reads:
+
+```
+................
+......0000......
+....03332200....
+...3333222220...
+..022222222220..
+..024022224020..
+.02200222200220.
+.02200222200220.
+.02222222222220.
+.02222222222220.
+..020222222200..
+..022022222020..
+...0220000020...
+....00111100....
+......0000......
+................
+```
+
+Every command returned the baked `assets/art/face.png` and a magnified preview; the document is the source, so a later
+`image.pixel` edits single pixels of it and the diff shows exactly which.
+
 ## Validation
 
 A document is checked completely before anything is drawn: every problem is collected, and the error names the file, the
@@ -353,6 +516,7 @@ art/bad.image.json /layers/1/blend: Unknown blend mode 'multiplyy'. (and 2 more 
 - Wrong types and values out of range (`opacity` 2, a canvas of 0 or 5000 pixels, stops out of order, `clip` on the bottom layer).
 - A `source`, mask picture, SVG or font that is not in the project (or climbs out of it).
 - A `procedural` layer's `texture` arguments are checked by the texture generator (a wrong preset lists the real ones).
+- An `indexed` layer's `rows` (equal lengths, valid characters, indices inside the palette) and the `palette` and `ramps` (unique names, unique opaque colours, at most 81, ramps that name palette colours), each with its pointer.
 
 `factoria validate` reports a document that does not load as an **error** (file, pointer, hint), and a document never baked,
 or whose PNG `assets.json` does not record as its bake, as a **warning** with the `image.bake` call. `factoria export` bakes
