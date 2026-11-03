@@ -674,6 +674,18 @@ lists the paths in `removedFiles` (the file and its `assets.json` entry go). Onl
 still names it: another frame, layer or `link` of the document, or any other image document of the project. A file you put
 somewhere else and pointed a cel at is never deleted.
 
+## The Image panel
+
+The editor opens a document in the Image panel (View > Image, or a double click on a `*.image.json` in the Project panel):
+a canvas with the composite, a layer list and inspector, brush, fill, eraser and picker, the five selection tools, a transform box, the
+adjustment and effect lists with live previews and a frame strip. It is a front end for the commands of this page, not a second
+editor: every edit it makes calls the same command (`image.layer.add/set/move/remove`, `image.select`, `image.edit`, `image.paint`,
+`image.pixel`, `image.draw` and `image.palette`), the brush and the transform use the functions of `fa/tooling/image_paint.h` that those commands
+use, and the canvas is drawn by `composite_image_document`. So a stroke you paint is the stroke `image.paint` writes, pixel for
+pixel, and an AI and a person can take turns on the same document. An edit writes the document at once; the PNG next to it is baked
+by **Save** (the panel says "not baked" until then), the way `image.save` bakes. Each edit is one step of the editor's Undo. The panel's
+section of [EDITOR.md](EDITOR.md) lists the tools, shortcuts and what is kept only for the session.
+
 ## Validation
 
 A document is checked completely before anything is drawn: every problem is collected, and the error names the file, the
