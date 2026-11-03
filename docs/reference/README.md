@@ -162,11 +162,21 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`assets.subset_font`](commands/assets.md#assetssubset_font-modifies-state): Cut a font down to the characters of the locale tables plus Latin and punctuation (a CJK font from 17 MB to a few hundred KB), pinning a variable font's axes. _Since 0.3.0._
 - [`assets.synth_sound`](commands/assets.md#assetssynth_sound-modifies-state): Make a game sound (bark, growl, coin, jump, explosion...) offline from a preset: a deterministic WAV, no provider and no key. _Since 0.3.0._
 - [`image.bake`](commands/assets.md#imagebake-modifies-state): Draw a layered image document (*.image.json) into its PNG and return the picture. _Not released yet._
+- [`image.create`](commands/assets.md#imagecreate-modifies-state): Make a new layered image document (*.image.json) with a canvas size, a background and optional first layers, and bake its PNG. _Not released yet._
+- [`image.edit`](commands/assets.md#imageedit-modifies-state): Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer. _Not released yet._
+- [`image.export`](commands/assets.md#imageexport-modifies-state): Write the flattened picture of a document, or one layer or group of it, to a PNG, optionally scaled or trimmed. _Not released yet._
+- [`image.info`](commands/assets.md#imageinfo): Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections. _Not released yet._
+- [`image.layer.add`](commands/assets.md#imagelayeradd-modifies-state): Add a layer to an image document (at the top, or at an index, or inside a group) and bake the picture. _Not released yet._
+- [`image.layer.move`](commands/assets.md#imagelayermove-modifies-state): Move a layer to another position in its list, or into another group (or back to the top level), and bake. _Not released yet._
+- [`image.layer.remove`](commands/assets.md#imagelayerremove-modifies-state): Remove a layer (and the children of a group) from an image document and bake. _Not released yet._
+- [`image.layer.set`](commands/assets.md#imagelayerset-modifies-state): Change fields of one layer (name, visible, opacity, blend, x, y, clip, masks, adjustments, effects, its kind's fields) and bake. _Not released yet._
+- [`image.paint`](commands/assets.md#imagepaint-modifies-state): Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked. _Not released yet._
 - [`image.save`](commands/assets.md#imagesave-modifies-state): Check an image document, write it to a *.image.json file and bake its PNG; nothing is written when the document has a problem. _Not released yet._
 - [`sfx.bake`](commands/assets.md#sfxbake-modifies-state): Render every sound patch of the project whose WAV is missing or out of date. _Not released yet._
 - [`sfx.info`](commands/assets.md#sfxinfo): Check a sound patch and say what it holds and how loud it renders, without writing anything. _Not released yet._
 - [`sfx.preset`](commands/assets.md#sfxpreset-modifies-state): List the sound presets, return one as an editable patch, or write it to a *.sfx.json file. _Not released yet._
 - [`sfx.render`](commands/assets.md#sfxrender-modifies-state): Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic. _Not released yet._
+- [`image.select`](commands/assets.md#imageselect-modifies-state): Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint. _Not released yet._
 
 ### [audio](commands/audio.md)
 
