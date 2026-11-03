@@ -194,7 +194,7 @@ TEST_CASE("project.validate: a model document with mistakes is an error per issu
 TEST_CASE("model.info: with no arguments lists the operations; with a document checks and measures it, and reports every issue of a broken one") {
     AssetsProject p;
     const Json catalog = p.ok("model.info", {});
-    REQUIRE(catalog["operations"].size() == 45);
+    REQUIRE(catalog["operations"].size() == 46);
     CHECK(catalog["operations"][0]["op"] == "box");
     // the modifiers are in the catalogue with their children, ranges and defaults
     const Json* array = nullptr;

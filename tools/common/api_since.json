@@ -928,6 +928,7 @@
     "model.create": "unreleased",
     "model.edit": "unreleased",
     "model.game_ready": "unreleased",
+    "model.import_clean": "unreleased",
     "model.info": "unreleased",
     "model.select": "unreleased",
     "model.uv": "unreleased",

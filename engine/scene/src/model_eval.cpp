@@ -6,6 +6,8 @@
 #include <set>
 
 #include "fa/core/strings.h"
+#include "fa/core/fs.h"
+#include "fa/scene/gltf_mesh.h"
 #include "fa/scene/model_doc.h"
 #include "fa/scene/model_modifiers.h"
 #include "fa/scene/model_select.h"
@@ -170,6 +172,57 @@ bool build_primitive(Eval& eval, const ModelNode& n, ModelMesh& mesh) {
     } else {
         eval.error = n.pointer + ": internal: operation " + n.op + " has no builder";
         return false;
+    }
+    return true;
+}
+
+// A `mesh` node: the triangles of a project glTF, one group per submesh of the file. The file's materials are matched by name to the document's
+// `materials` (a node's own `material` or `part` replaces them), a primitive's part comes from its extras.
+bool build_mesh_node(Eval& eval, const ModelNode& n, const Inherited& in, ModelMesh& mesh) {
+    const std::string source = n.params["source"].get<std::string>();
+    auto read = read_gltf_mesh(source);
+    if (!read) {
+        fail(eval, n, read.error().message, read.error().hint.empty() ? "Check the path; the file must be inside the project." : read.error().hint);
+        return false;
+    }
+    eval.inputs.insert(fs::normalize(source));
+    for (const std::string& w : read->warnings) eval.out.warnings.push_back(std::format("{}: {}: {}", n.pointer, source, w));
+    const MeshData& d = read->data;
+    if (d.triangle_count() > kModelMaxTriangles) {
+        fail(eval, n, std::format("'{}' has {} triangles, more than the {} a node may make", source, d.triangle_count(), kModelMaxTriangles),
+             "Clean and decimate it first: model.import_clean {\"source\":\"" + source + "\"} brings it to a platform's triangle budget.");
+        return false;
+    }
+    const std::size_t verts = d.vertex_count();
+    mesh.positions.resize(verts);
+    mesh.normals.resize(verts);
+    mesh.uvs.resize(verts);
+    for (std::size_t v = 0; v < verts; ++v) {
+        mesh.positions[v] = {d.positions[v * 3], d.positions[v * 3 + 1], d.positions[v * 3 + 2]};
+        mesh.normals[v] = {d.normals[v * 3], d.normals[v * 3 + 1], d.normals[v * 3 + 2]};
+        mesh.uvs[v] = {d.uvs[v * 2], d.uvs[v * 2 + 1]};
+    }
+    if (!d.colors.empty()) {
+        mesh.colors.resize(verts);
+        for (std::size_t v = 0; v < verts; ++v) mesh.colors[v] = {d.colors[v * 4], d.colors[v * 4 + 1], d.colors[v * 4 + 2], d.colors[v * 4 + 3]};
+    }
+    std::set<std::string> unknown;
+    for (const MeshSubmesh& sm : d.submeshes) {
+        Inherited g = in;
+        if (!n.part && !sm.part.empty()) g.part = sm.part;
+        if (!n.material && !sm.material.name.empty()) {
+            const bool known = std::any_of(eval.doc.materials.begin(), eval.doc.materials.end(), [&](const auto& m) { return m.first == sm.material.name; });
+            if (known) g.material = sm.material.name;
+            else unknown.insert(sm.material.name);
+        }
+        const std::uint32_t group = eval.group_of(g);
+        for (std::uint32_t k = sm.start; k < sm.start + sm.count; ++k) mesh.indices.push_back(d.indices[k]);
+        mesh.triParts.insert(mesh.triParts.end(), sm.count / 3, group);
+    }
+    if (!unknown.empty()) {
+        std::string names;
+        for (const std::string& u : unknown) names += (names.empty() ? "" : ", ") + u;
+        eval.out.warnings.push_back(std::format("{}: the materials {} of '{}' are not in the document's `materials`, so those triangles have the default material (add entries with these names, or set `material` on the node)", n.pointer, names, source));
     }
     return true;
 }
@@ -545,6 +598,15 @@ bool eval_node(Eval& eval, const ModelNode& n, const Inherited& parent, ModelMes
         mesh.bounds(bmin, bmax);
         if (n.align == "bottom") mesh.transform(Mat4::translate({0, -bmin.y, 0}));
         else if (n.align == "top") mesh.transform(Mat4::translate({0, -bmax.y, 0}));
+    } else if (n.op == "mesh") {
+        if (!build_mesh_node(eval, n, in, mesh)) return false;
+        if (mesh.empty()) return true;
+        Vec3 bmin, bmax;
+        mesh.bounds(bmin, bmax);
+        if (n.align == "bottom") mesh.transform(Mat4::translate({0, -bmin.y, 0}));
+        else if (n.align == "top") mesh.transform(Mat4::translate({0, -bmax.y, 0}));
+        if (in.color) mesh.set_color(*in.color);
+        probe(eval, n, mesh, in);
     } else {
         if (!build_primitive(eval, n, mesh)) return false;
         if (mesh.empty()) return true;

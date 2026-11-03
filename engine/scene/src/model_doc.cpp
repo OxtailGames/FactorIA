@@ -149,6 +149,13 @@ std::vector<ModelOpInfo> build_ops() {
                             number("lineSpacing", "Distance between lines, as a multiple of the font's own.", 1, 0.1, 5)}));
     }
 
+    {
+        ModelFieldInfo source = field("source", "string", "The project .glb or .gltf to take the mesh from, e.g. \"assets/models/robot_clean.mesh.glb\". All its meshes are merged in their own transforms; its materials are matched by name to the document's `materials`, and a primitive's `extras.part` becomes its part.");
+        source.required = true;
+        ops.push_back(prim("mesh", "A triangle mesh read from a project .glb/.gltf file: the way an imported or generated mesh joins a model document, so modifiers, selection edits, a `uv` section and `gameReady` apply to it like to any primitive. `model.import_clean` writes the cleaned mesh to a .glb and a document with this node. The file is an input of the bake: changing it makes the baked model stale. Centred where the file has it (use `align` to stand it on y = 0). A `part` or `material` on the node replaces the file's own for every triangle.",
+                           {source}));
+    }
+
     // ---- generators from profiles -------------------------------------------------------------------------------------------------
     ops.push_back(prim("lathe", "A profile turned about the Y axis: a vase, a chess piece, a column, a bottle. `profile` is a list of [radius, height] points walked from one end to the other (either way round); the turn goes from +Z towards +X like the round primitives, and a point on the axis (radius 0) is a single vertex. It is a primitive: `align` places it, and it can be wrapped in a modifier.",
                        {list_field("profile", "points2", "The outline as [radius, height] points in metres, at least 2, e.g. [[0,0],[0.4,0],[0.3,0.8],[0.1,1]]. Radius is 0 or more; height is along Y and may be negative. Corners of the outline stay sharp when they turn more than `creaseAngle`.", 2, 256, -kMaxSize, kMaxSize),
@@ -754,6 +761,12 @@ void check_op(Reader& r, const ModelNode& n, const std::string& at) {
               "`from` and `to` are coordinates along the axis, with `from` the lower one. Swap them, or leave both out to use the model's own extent.");
     if (n.op == "text" && p["text"].get<std::string>().empty())
         r.err(at + "/text", "text is empty", "Write the text to build, e.g. \"EXIT\".");
+    if (n.op == "mesh") {
+        const std::string source = p["source"].get<std::string>(), lower = to_lower(source);
+        const bool glTF = ends_with(lower, ".glb") || ends_with(lower, ".gltf");
+        if (!glTF) r.err(at + "/source", "mesh source '" + source + "' is not a .glb or .gltf file", "Give a glTF 2.0 file of the project, e.g. \"assets/models/robot_clean.mesh.glb\". An OBJ or FBX is converted by assets.import (or cleaned by model.import_clean) first.");
+        else if (fs::normalize(source).empty() || fs::is_absolute(source)) r.err(at + "/source", "mesh source '" + source + "' is not inside the project", "Use a project-relative path such as \"assets/models/robot_clean.mesh.glb\".");
+    }
     if (n.op == "text" && p["text"].get<std::string>().size() > 200)
         r.err(at + "/text", "text is longer than 200 characters", "Split it into several text nodes.");
 }
