@@ -3533,6 +3533,9 @@ NATIVE(testDevice) {  // (overrides object); no argument = back to the host's va
     SETUP;
     I->testDevice = argc > 0 ? I->to_json(argv[0]) : Json::object();
     if (!I->testDevice.is_object()) I->testDevice = Json::object();
+    Json d = I->host->device_info();
+    for (auto it = I->testDevice.begin(); it != I->testDevice.end(); ++it) d[it.key()] = it.value();
+    I->host->device_overridden(d);
     return JS_UNDEFINED;
 }
 

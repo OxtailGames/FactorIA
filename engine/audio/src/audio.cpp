@@ -224,9 +224,13 @@ struct MusicRt {
         std::string section;
         std::optional<MusicQuantize> quantize;
         float bars = -1.0f;
+        bool lenient = false;                 // a reload or a device change: a section the new source lacks starts it at the beginning
     } entry;
     std::uint64_t seen = 0;
     bool announcedReady = false;
+    bool reload = false;                      // its song changed on disk: fetch it again and crossfade to it
+    std::uint64_t epoch = 0;                  // the Impl::musicEpoch its mode was resolved at
+    MusicMode resolved = MusicMode::Live;     // the mode of the source it asked for
 };
 
 }  // namespace
@@ -291,7 +295,9 @@ struct Audio::Impl {
     std::map<std::string, std::shared_ptr<const MusicSource>> musicCache;   // by "song|mode"
     std::map<std::string, std::shared_ptr<MusicLoad>> musicLoads;
     std::map<std::string, std::string> musicErrors;       // why a load failed, by key
+    std::vector<std::shared_ptr<MusicLoad>> musicStale;   // loads of a song that changed while they ran: joined, then dropped
     MusicDeviceProfile musicDevice;
+    std::uint64_t musicEpoch = 1;                         // raised when the device profile changes (players re-resolve `auto`)
     std::uint64_t mixedTotal = 0;
     std::vector<MusicEvent> musicScratch;
     std::vector<GameEvent> musicOut;
@@ -306,6 +312,7 @@ struct Audio::Impl {
     void music_orphan(MusicRt* rt);
     void music_events(World& world, MusicRt& rt);
     void music_shutdown();
+    void music_invalidate(const std::string& song);
 
     // play log (game thread)
     const World* clockWorld = nullptr;
@@ -1795,6 +1802,22 @@ void Audio::reload_clip(std::string_view pathIn) {
             if (v.pos >= double(clip->frames)) v.pos = v.loop ? std::fmod(v.pos, double(clip->frames)) : double(clip->frames);
         }
     }
+    // A song played from its rendered stems has them cached: a stem file that changed is a song that changed.
+    std::vector<std::string> songs;
+    for (const auto& [key, src] : impl_->musicCache)
+        if (key.size() > 6 && key.compare(key.size() - 6, 6, "|stems") == 0) songs.push_back(key.substr(0, key.size() - 6));
+    for (const std::string& song : songs) {
+        const MusicStemPlan plan = music_stem_plan_of(song);
+        bool uses = plan.mixPath == path;
+        for (const MusicStemFile& f : plan.files) uses = uses || f.path == path;
+        if (uses) impl_->music_invalidate(song);
+    }
+}
+
+void Audio::reload_song(std::string_view songPath) {
+    const std::string song = fs::normalize(songPath);
+    if (song.empty()) return;
+    impl_->music_invalidate(song);
 }
 
 // ============================================================ adaptive music ==
@@ -1856,6 +1879,8 @@ void Audio::Impl::music_request(MusicRt& rt, const MusicPlayer& mp) {
                          "(hint: run music.render on the song, or set mode to \"auto\" or \"live\")", rt.id, rt.song);
     const std::string key = music_cache_key(rt.song, mode);
     rt.waitKey = key;
+    rt.resolved = mode;
+    rt.epoch = musicEpoch;
     if (musicCache.find(key) == musicCache.end() && musicLoads.find(key) == musicLoads.end()) {
         auto load = std::make_shared<MusicLoad>();
         load->key = key;
@@ -1878,6 +1903,14 @@ void Audio::Impl::music_request(MusicRt& rt, const MusicPlayer& mp) {
 
 // Moves the loads that finished into the cache; drops the sources nobody plays when the cache is over its size.
 void Audio::Impl::music_poll() {
+    for (auto it = musicStale.begin(); it != musicStale.end();) {
+        if (!(*it)->done) {
+            ++it;
+            continue;
+        }
+        if ((*it)->worker.joinable()) (*it)->worker.join();
+        it = musicStale.erase(it);
+    }
     for (auto it = musicLoads.begin(); it != musicLoads.end();) {
         MusicLoad& l = *it->second;
         if (!l.done) {
@@ -2011,6 +2044,8 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
             if (c != musicCache.end()) {
                 rt.src = c->second;
                 rt.sent = c->second;
+                rt.resolved = mode;
+                rt.epoch = musicEpoch;
             } else {
                 adopted = false;
                 std::lock_guard<std::mutex> lk(mu);
@@ -2052,6 +2087,35 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
         music_poll();
         music_resolve(rt);
     }
+    // Its song changed on disk, or the device it runs on is another one now and `auto` picks another mode: fetch the source again and
+    // crossfade to it at the beat, in the section that sounds (a section the new version lacks starts it at the beginning).
+    if (!rt.song.empty()) {
+        bool refetch = rt.reload;
+        if (!refetch && rt.epoch != musicEpoch && rt.src) {
+            rt.epoch = musicEpoch;
+            if (mp.mode == MusicMode::Auto) {
+                const MusicStemPlan plan = music_stem_plan_of(rt.song);
+                refetch = music_resolve_mode(mp.mode, musicDevice, !plan.files.empty()) != rt.resolved;
+            }
+        }
+        if (refetch) {
+            rt.reload = false;
+            std::string current;
+            if (mp.playing && rt.sent) {
+                std::lock_guard<std::mutex> lk(mu);
+                if (tr.playing()) current = tr.status().section;
+            }
+            if (!current.empty()) {
+                rt.entry = MusicRt::Entry{};
+                rt.entry.set = true;
+                rt.entry.section = current;
+                rt.entry.quantize = MusicQuantize::Beat;
+                rt.entry.bars = 0.5f;
+                rt.entry.lenient = true;
+            }
+            music_request(rt, mp);
+        }
+    }
     if (rt.src && !rt.announcedReady) {
         rt.announcedReady = true;
         world.events().game.push_back(GameEvent{"music.ready", Json::object({{"id", rt.id}, {"song", rt.song}, {"mode", rt.src->mode}}), rt.e});
@@ -2075,7 +2139,7 @@ void Audio::Impl::music_drive(World& world, Entity e, MusicPlayer& mp, MusicRt& 
         int section = -1;
         if (!wanted.empty()) {
             section = map.section_index(wanted);
-            if (section < 0)
+            if (section < 0 && !rt.entry.lenient)
                 FA_ERROR("audio", "MusicPlayer on '{}': song '{}' has no section '{}'. {} (starting at the beginning)", rt.id, rt.song, wanted,
                          did_you_mean(wanted, map.section_names()));
         }
@@ -2196,15 +2260,40 @@ void Audio::Impl::music_update(World& world) {
 void Audio::Impl::music_shutdown() {
     for (auto& [k, l] : musicLoads)
         if (l->worker.joinable()) l->worker.join();
+    for (auto& l : musicStale)
+        if (l->worker.joinable()) l->worker.join();
     std::lock_guard<std::mutex> lk(mu);
     musicLoads.clear();
+    musicStale.clear();
     musicCache.clear();
     musicErrors.clear();
     musicEnts.clear();
     musicOrphans.clear();
 }
 
-void Audio::set_music_device(const MusicDeviceProfile& device) { impl_->musicDevice = device; }
+void Audio::set_music_device(const MusicDeviceProfile& device) {
+    Impl& im = *impl_;
+    const MusicDeviceProfile& old = im.musicDevice;
+    if (old.formFactor != device.formFactor || old.tier != device.tier || old.web != device.web) ++im.musicEpoch;
+    im.musicDevice = device;
+}
+
+// The song changed on disk: what was rendered of it is stale. The loads that run are given up, the cached sources dropped, and every
+// player of the song fetches it again and crossfades into the new render (music_drive).
+void Audio::Impl::music_invalidate(const std::string& song) {
+    for (const char* mode : {"|live", "|stems"}) {
+        const std::string key = song + mode;
+        auto load = musicLoads.find(key);
+        if (load != musicLoads.end()) {
+            musicStale.push_back(std::move(load->second));
+            musicLoads.erase(load);
+        }
+        musicCache.erase(key);
+        musicErrors.erase(key);
+    }
+    for (auto& [bits, rt] : musicEnts)
+        if (rt->song == song) rt->reload = true;
+}
 
 std::uint64_t Audio::mixed_frames() const {
     std::lock_guard<std::mutex> lk(impl_->mu);

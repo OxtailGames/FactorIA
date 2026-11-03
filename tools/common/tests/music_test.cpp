@@ -760,3 +760,52 @@ TEST_CASE("song schema: the document music.create writes passes it, an unknown k
     badFont["tracks"]["lead"]["instrument"] = {{"soundfont", "assets/audio/piano.wav"}};
     CHECK_FALSE(validate_json(*schema, badFont).empty());
 }
+
+TEST_CASE("music.notes and music.edit set_pattern with a list of notes: the piano roll's way of changing a pattern") {
+    AssetsProject p;
+    make_song(p);
+    const Json before = p.ok("music.notes", {{"path", kSong}, {"track", "bass"}, {"pattern", "line"}});
+    CHECK(before["ticksPerQuarter"] == 960);
+    CHECK(before["drums"] == false);
+    REQUIRE(before["notes"].is_array());
+    REQUIRE(!before["notes"].empty());
+    CHECK(before["notes"][0].contains("pitch"));
+    CHECK(before["notes"][0]["name"].is_string());
+    CHECK(before["text"].is_string());
+
+    // the list goes back as it came: the same notes, written as text
+    p.ok("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_pattern"}, {"track", "bass"}, {"pattern", "line"}, {"notes", before["notes"]}, {"bars", before["bars"]}}})}});
+    const Json same = p.ok("music.notes", {{"path", kSong}, {"track", "bass"}, {"pattern", "line"}});
+    CHECK(same["notes"] == before["notes"]);
+    CHECK(same["bars"] == before["bars"]);
+
+    // a new note, by name, in a new pattern: the bars follow the last note
+    p.ok("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_pattern"}, {"track", "bass"}, {"pattern", "extra"}, {"notes", Json::array({{{"pitch", "A2"}, {"tick", 0}, {"duration", 960}},
+                                                                                                                                                    {{"pitch", 45}, {"tick", 5760}, {"duration", 1920}, {"velocity", 70}}})}}})}});
+    const Json extra = p.ok("music.notes", {{"path", kSong}, {"track", "bass"}, {"pattern", "extra"}});
+    CHECK(extra["bars"] == 2);
+    REQUIRE(extra["notes"].size() == 2);
+    CHECK(extra["notes"][0]["pitch"] == 45);
+    CHECK(extra["notes"][1]["tick"] == 5760);
+    CHECK(extra["notes"][1]["duration"] == 1920);
+    CHECK(extra["notes"][1]["velocity"] == 70);
+
+    // errors name the note and the fix, and write nothing
+    const std::string fileBefore = read_all(p.file(kSong));
+    CommandResult bad = p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_pattern"}, {"track", "bass"}, {"pattern", "extra"}, {"notes", Json::array({{{"pitch", 300}, {"tick", 0}, {"duration", 960}}})}}})}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(read_all(p.file(kSong)) == fileBefore);
+    CommandResult typo = p.call("music.edit", {{"path", kSong}, {"ops", Json::array({{{"op", "set_pattern"}, {"track", "bass"}, {"pattern", "extra"}, {"notes", Json::array({{{"pich", 60}, {"tick", 0}, {"duration", 960}}})}}})}});
+    REQUIRE_FALSE(typo.ok);
+    CHECK(typo.error["message"].get<std::string>().find("notes[0]") != std::string::npos);
+    CHECK(typo.error["hint"].get<std::string>().find("pitch") != std::string::npos);
+    CommandResult noTrack = p.call("music.notes", {{"path", kSong}, {"track", "bas"}, {"pattern", "line"}});
+    REQUIRE_FALSE(noTrack.ok);
+    CHECK(noTrack.error["hint"].get<std::string>().find("bass") != std::string::npos);
+
+    // a drum pattern answers with its grid and hits
+    const Json drums = p.ok("music.notes", {{"path", kSong}, {"track", "drums"}, {"pattern", "groove"}});
+    CHECK(drums["drums"] == true);
+    CHECK(drums.contains("grid"));
+    CHECK(!drums["hits"].empty());
+}

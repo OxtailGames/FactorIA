@@ -351,11 +351,66 @@ void apply_play_map(Json& song, const OpCtx& c, const Json& map) {
     }
 }
 
-Json pattern_value(const OpCtx& c, const Json& op) {
+// The notes array of a set_pattern ([{pitch, tick, duration, velocity, accent, staccato}, ...], the shape music.notes returns) as note text.
+// Note times are ticks (960 per quarter) from the start of the pattern; the text is as long as `bars` (default: the bars the last note needs).
+Json notes_array_value(const OpCtx& c, const Json& op, const Json& song) {
+    const SongMeter meter = song.contains("meter") && song["meter"].is_string() ? parse_meter_text(song["meter"].get<std::string>(), "music.edit") : SongMeter{};
+    std::vector<SongRollNote> notes;
+    std::int64_t last = 0;
+    std::size_t n = 0;
+    for (const Json& j : op["notes"]) {
+        ++n;
+        const std::string at = "notes[" + std::to_string(n - 1) + "]";
+        if (!j.is_object()) op_fail(c, at + " must be an object {pitch, tick, duration}, got " + j.dump() + ".", "Example: {\"pitch\": 60, \"tick\": 0, \"duration\": 960}.");
+        for (auto it = j.begin(); it != j.end(); ++it)
+            if (it.key() != "pitch" && it.key() != "tick" && it.key() != "duration" && it.key() != "velocity" && it.key() != "accent" && it.key() != "staccato" && it.key() != "name")
+                op_fail(c, at + " has no field '" + it.key() + "'.", "A note has pitch, tick, duration, velocity, accent and staccato. " + did_you_mean(it.key(), std::vector<std::string>{"pitch", "tick", "duration", "velocity", "accent", "staccato"}));
+        SongRollNote r;
+        if (!j.contains("pitch")) op_fail(c, at + " has no `pitch`.", "Give a MIDI number (60 is C4) or a note name (\"C4\").");
+        if (j["pitch"].is_string()) {
+            const auto pitch = song_parse_pitch(j["pitch"].get<std::string>());
+            if (!pitch) op_fail(c, at + ": '" + j["pitch"].get<std::string>() + "' is not a note name.", "Write a name such as \"C4\", \"F#3\" or \"Bb5\", or a MIDI number.");
+            r.pitch = *pitch;
+        } else if (j["pitch"].is_number_integer()) {
+            r.pitch = int(std::clamp<long long>(j["pitch"].get<long long>(), -1000, 1000));
+        } else {
+            op_fail(c, at + ": `pitch` must be a MIDI number or a note name, got " + j["pitch"].dump() + ".", "Write 60 or \"C4\".");
+        }
+        for (const char* key : {"tick", "duration"})
+            if (!j.contains(key) || !j[key].is_number()) op_fail(c, at + ": `" + key + "` must be a number of ticks (960 per quarter note).", std::string("Write \"") + key + "\": " + (std::string(key) == "tick" ? "0" : "960") + ".");
+        r.tick = std::int64_t(std::llround(j["tick"].get<double>()));
+        r.duration = std::int64_t(std::llround(j["duration"].get<double>()));
+        if (j.contains("velocity")) {
+            if (!j["velocity"].is_number_integer()) op_fail(c, at + ": `velocity` must be a whole number 1 to 127.", "Write \"velocity\": 90.");
+            r.velocity = int(std::clamp<long long>(j["velocity"].get<long long>(), -1000, 1000));
+        }
+        if (j.contains("accent") && j["accent"].is_boolean()) r.accent = j["accent"].get<bool>();
+        if (j.contains("staccato") && j["staccato"].is_boolean()) r.staccato = j["staccato"].get<bool>();
+        last = std::max(last, r.tick + r.duration);
+        notes.push_back(r);
+    }
+    int bars = 0;
+    if (op.contains("bars")) {
+        if (!op["bars"].is_number_integer() || op["bars"].get<long long>() < 1 || op["bars"].get<long long>() > kSongMaxBars)
+            op_fail(c, "`bars` must be a whole number from 1 to " + std::to_string(kSongMaxBars) + ", got " + op["bars"].dump() + ".", "Write \"bars\": 2.");
+        bars = int(op["bars"].get<long long>());
+    } else {
+        bars = int(std::max<std::int64_t>(1, (last + meter.barTicks() - 1) / meter.barTicks()));
+    }
+    auto text = song_write_note_text(notes, meter, bars);
+    if (!text) op_fail(c, text.error().message, text.error().hint);
+    return Json(*text);   // padded with rests to `bars` bars, so the text alone says the length
+}
+
+Json pattern_value(const OpCtx& c, const Json& op, const Json& song) {
+    if (op.contains("notes") && op["notes"].is_array() && !op.contains("grid")) {
+        if (op.contains("step")) op_fail(c, "`step` only applies to a drum `grid`.", "Remove it, or use `grid` for a drum pattern.");
+        return notes_array_value(c, op, song);
+    }
     const bool hasNotes = op.contains("notes"), hasGrid = op.contains("grid");
     if (hasNotes == hasGrid) op_fail(c, "give exactly one of `notes` (note text for a pitched track) and `grid` (drum lanes).", "Example: {\"notes\": \"C4:4 E4 G4 r\"} or {\"grid\": {\"kick\": \"x...x...\"}, \"step\": \"8\"}.");
     if (hasNotes) {
-        if (!op["notes"].is_string()) op_fail(c, "`notes` must be note text, got " + op["notes"].dump() + ".", "Write \"notes\": \"C4:4 E4 G4 r\" (docs/MUSIC.md has the notation).");
+        if (!op["notes"].is_string()) op_fail(c, "`notes` must be note text or a list of notes, got " + op["notes"].dump() + ".", "Write \"notes\": \"C4:4 E4 G4 r\" (docs/MUSIC.md has the notation) or [{\"pitch\": 60, \"tick\": 0, \"duration\": 960}].");
         if (op.contains("step")) op_fail(c, "`step` only applies to a drum `grid`.", "Remove it, or use `grid` for a drum pattern.");
         if (!op.contains("bars")) return op["notes"];
         return Json::object({{"notes", op["notes"]}, {"bars", op["bars"]}});
@@ -534,7 +589,7 @@ std::string apply_op(Json& song, const OpCtx& c, const Json& op) {
         op_keys(c, op, {"track", "pattern", "notes", "grid", "step", "bars", "play"});
         const std::string track = op_string(c, op, "track", true), pattern = op_string(c, op, "pattern", true);
         find_track_json(song, c, track);
-        const Json value = pattern_value(c, op);
+        const Json value = pattern_value(c, op, song);
         const bool existed = ensure_object(song["tracks"][track], "patterns").contains(pattern);
         song["tracks"][track]["patterns"][pattern] = value;
         if (op.contains("play")) {
@@ -706,6 +761,44 @@ Json music_edit_command(const std::string& projectDir, const Json& a) {
         edits.push_back(apply_op(song, c, op));
     }
     return finish_edit(projectDir, a, rel, song, edits, "music.edit");
+}
+
+// ---------------------------------------------------------------- music.notes ---
+
+Json music_notes_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("music.notes", a, "", {"path", "track", "pattern"});
+    const std::string rel = song_path(arg_string(a, "path", true));
+    const Loaded loaded = load_song_file(projectDir, rel);
+    const std::string trackName = arg_string(a, "track", true), patternName = arg_string(a, "pattern", true);
+    const SongTrack* track = loaded.doc.find_track(trackName);
+    if (!track) {
+        std::vector<std::string> names;
+        for (const SongTrack& t : loaded.doc.tracks) names.push_back(t.name);
+        fail("invalid_argument", "music.notes: " + rel + " has no track '" + trackName + "'.", did_you_mean(trackName, names) + " Tracks: " + join_names(names) + ".");
+    }
+    const SongPattern* pattern = track->find_pattern(patternName);
+    if (!pattern) {
+        std::vector<std::string> names;
+        for (const SongPattern& p : track->patterns) names.push_back(p.name);
+        fail("invalid_argument", "music.notes: the track '" + trackName + "' has no pattern '" + patternName + "'.", did_you_mean(patternName, names) + " Patterns: " + join_names(names) + ".");
+    }
+    Json result = Json::object({{"track", trackName}, {"pattern", patternName}, {"bars", pattern->bars}, {"meter", meter_text(loaded.doc.meter)},
+                                {"ticksPerQuarter", kSongPpq}, {"ticks", pattern->lengthTicks}, {"drums", track->drums}});
+    if (track->drums) {
+        Json hits = Json::array();
+        for (const SongEvent& e : pattern->events) hits.push_back(Json::object({{"lane", e.drum}, {"tick", e.tick}, {"duration", e.duration}, {"velocity", e.velocity}, {"accent", e.accent}}));
+        result["grid"] = pattern->grid;
+        result["hits"] = hits;
+        result["nextSteps"] = Json::array({"A drum pattern is edited as a grid: music.edit set_pattern {track, pattern, grid, step, bars}."});
+        return result;
+    }
+    Json notes = Json::array();
+    for (const SongRollNote& n : song_roll_notes(*pattern))
+        notes.push_back(Json::object({{"pitch", n.pitch}, {"name", song_pitch_name(n.pitch)}, {"tick", n.tick}, {"duration", n.duration}, {"velocity", n.velocity}, {"accent", n.accent}, {"staccato", n.staccato}}));
+    result["notes"] = notes;
+    result["text"] = pattern->text;
+    result["nextSteps"] = Json::array({"music.edit set_pattern {track, pattern, notes: <this list, changed>} writes the notes back as note text (chord names and groups become the notes they play; starts and ends round to 40 ticks)."});
+    return result;
 }
 
 // ---------------------------------------------------------------- music.create ---
@@ -1185,7 +1278,7 @@ void register_music_edit_commands(CommandRegistry& registry, const std::string& 
         "Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song (otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). Each op is an object with `op` and its fields: "
         "set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; "
         "set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, \"x.sf2#Preset\" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/MUSIC.md \"Mixer\"; a bus merges field by field, null removes a bus or a field); set_layers {layers: {name: [tracks] | {tracks, intensity, doc} | null}} (the groups of tracks music.render writes as stems and a layered player brings in; docs/MUSIC.md \"Layers\"); remove_track {track} (and every mention in the sections); "
-        "set_pattern {track, pattern, notes | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; "
+        "set_pattern {track, pattern, notes (note text, or a list of {pitch, tick, duration, velocity, accent, staccato} that is written as note text) | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; "
         "set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} "
         "(\"a a b*2 rest\", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} "
         "(no points removes the lane). `play` in add_track and set_pattern is {section: entries} to place the pattern at once. Note text is in docs/MUSIC.md. Returns the song's summary and what each op did. "
@@ -1196,6 +1289,13 @@ void register_music_edit_commands(CommandRegistry& registry, const std::string& 
                                                     {"description", "The operations, applied in order."}})}})),
                {"path", "ops"}),
         music_edit_command);
+
+    add("music.notes", true, "List the notes of one pitched pattern of a song (pitch, tick, duration, velocity), or the hits of a drum pattern, as a piano roll sees them.",
+        "Reads the pattern `pattern` of `track` in the song at `path` and returns its notes sorted by start: `pitch` (MIDI, 60 is C4), `name`, `tick` and `duration` (960 ticks per quarter note, from the start of the pattern), `velocity`, `accent` and `staccato`; "
+        "a chord is one note per pitch. `text` is the note text as written. The list goes back through music.edit set_pattern with `notes` as a list (changing, adding or removing notes), which writes it as note text again. A drum pattern returns its `grid` and `hits`. "
+        "Example: {\"path\":\"assets/music/theme.song.json\",\"track\":\"bass\",\"pattern\":\"line\"}",
+        schema(obj({{"path", pathArg}, {"track", str("The track.")}, {"pattern", str("The pattern of that track.")}}), {"path", "track", "pattern"}),
+        music_notes_command);
 
     add("music.instrument", false, "List the built-in song instruments (by family), the drum kits and lanes, sfx presets and project SoundFonts, show the patch behind an instrument, or list a SoundFont's presets.",
         "Without `name` it lists what a track's `instrument` can be: the built-in pitched instruments (with family, note range and polyphony), the drum kits (acoustic \"kit\", \"kit:electronic\", \"kit:chiptune\") and their lanes (\"kit:kick\"), the sfx presets, the .sfx.json patches and the .sf2 SoundFonts in the project. "

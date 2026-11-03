@@ -35,3 +35,11 @@ Screenshots (`screenshots/`) come from the headless runner:
 factoria run . --headless --scene scenes/title.scene.json --frames 60 --screenshot-at 59 --screenshot-pattern screenshots/title.png
 factoria run . --headless --scene scenes/game.scene.json --frames 330 --input replays/aim.json --screenshot-at 329 --screenshot-pattern screenshots/gameplay.png
 ```
+
+## The adaptive score
+
+The music is the song `assets/music/score.song.json` (docs/MUSIC.md), played by a `MusicPlayer` on the entity `score` of `scenes/game.scene.json`. It has three layers: the pad and
+bass always play, the drums come in at intensity 0.3 and the arpeggio at 0.65. Two loop sections, `calm` and `battle`, differ in the bass and the drum pattern.
+`scripts/game.js` drives it: the intensity follows the danger (what is on the field or still to spawn, the hit points lost), a wave goes to `battle` on the bar line and the clear back to `calm`,
+the wave horn and a hit are stingers that duck the music, and dying fades it out. Open the song in the editor's Music panel (View > Music) to change the notes, the layers or the mix;
+`tests/neon.test.js` ("adaptive score") checks that the intensity follows the gameplay.

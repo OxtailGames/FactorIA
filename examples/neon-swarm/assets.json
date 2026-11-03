@@ -85,39 +85,6 @@
         "source": "art/shockwave.anim.js"
       }
     },
-    "assets/music/loop.wav": {
-      "provenance": {
-        "origin": "original",
-        "ai": false,
-        "kind": "sound",
-        "provider": "factoria audio.bake",
-        "license": "CC0-1.0",
-        "author": "factoria",
-        "source": "assets/music/loop.audio.json",
-        "notes": "Rendered from the audio document 'assets/music/loop.audio.json' (2 steps), 15.75 s, -18.0 LUFS.",
-        "date": "2026-11-03",
-        "recipe": {
-          "command": "audio.bake",
-          "args": {
-            "path": "assets/music/loop.audio.json"
-          },
-          "inputs": [
-            {
-              "path": "assets/music/loop.audio.json",
-              "sha256": "2947c49ce0f68374119422cac873994902ab1e415cbb95eb1c763698969e012a"
-            },
-            {
-              "path": "assets/source/music_loop.wav",
-              "sha256": "3366a9204ca9ae8befbdbad6ed04e24762044387d6c8d226972b2f5b9ff34b01"
-            }
-          ]
-        }
-      },
-      "import": {
-        "loopStart": 0.0,
-        "loopEnd": 15.749977
-      }
-    },
     "assets/sfx/explode.wav": {
       "provenance": {
         "origin": "original",
