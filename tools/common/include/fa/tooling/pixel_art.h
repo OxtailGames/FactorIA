@@ -6,6 +6,8 @@
 //   - IndexGrid: a picture of palette indices (-1 = transparent), and its text form (one string per row);
 //   - the drawing algorithms (Bresenham lines with the pixel-perfect option, rectangles, midpoint ellipses, polygons, flood fill).
 //     They return the pixels a shape covers and know nothing of colours, layers or documents; no anti-aliasing anywhere.
+//   - the pixel helpers (outline, shade, dither, clean-up, RotSprite rotation, scaling, picture -> pixel art), which change an
+//     IndexGrid by palette index only and never mix colours, so the result stays palette-exact.
 // Everything is integer arithmetic or deterministic float, with no random numbers and no clock.
 #pragma once
 
@@ -110,5 +112,120 @@ std::vector<PixelPoint> pixel_ellipse(int x, int y, int width, int height, bool 
 std::vector<PixelPoint> pixel_polygon(const std::vector<PixelPoint>& points, bool filled);
 // The pixels connected to (x, y) that hold the same index as it (4 or 8 neighbours), sorted row by row. Empty when (x, y) is outside.
 std::vector<PixelPoint> pixel_flood(const IndexGrid& grid, int x, int y, bool eightConnected);
+
+// ---- pixel helpers ---------------------------------------------------------------------------------------------------------
+//
+// They change an IndexGrid in place and return how many pixels changed. `mask` (w * h bytes, non-zero = may be written, EMPTY =
+// everywhere) is the stored selection of the caller, already thresholded: the helpers know nothing of documents or selections.
+
+using PixelMask = std::vector<std::uint8_t>;
+
+// The unit vector TOWARDS the light for a direction in degrees counter-clockwise from +x (right), in pixel coordinates (y points down):
+// 135 = upper-left = (-0.707, -0.707).
+struct PixelLight {
+    double x = 0, y = 0;
+};
+PixelLight pixel_light(double degrees);
+
+// The Bayer threshold matrix value at (x, y) for an n x n matrix (n = 2, 4 or 8): 0 .. n*n-1, tiled over the plane.
+int pixel_bayer(int n, int x, int y);
+
+// -- outline
+
+struct PixelOutline {
+    enum class Colour {
+        Flat,         // `color`
+        RampDarkest,  // the darkest colour of the ramp of the fill colour it touches (a colour in no ramp: the darkest derived one)
+        Selective     // sel-out: the fill colour it touches, `shade` steps darker; `litShade` on the side facing the light
+    };
+    bool inner = false;           // false: outside the shape, on transparent pixels next to it. true: the shape's own edge pixels
+    bool eightConnected = false;  // false: pixels touching by an edge count as next to each other (a thin outline); true: corners too
+    Colour colour = Colour::Flat;
+    int color = 0;                // Flat: the palette index
+    int shade = 2;                // Selective: steps darker on the shadow side
+    int litShade = 1;             // Selective: steps darker on the side facing the light (needs `light`)
+    bool hasLight = false;
+    double lightDegrees = 135;
+};
+// Outlines the shape (every pixel that is not transparent). Returns the pixels it changed.
+int pixel_outline(IndexGrid& grid, const PixelPalette& palette, const PixelOutline& options, const PixelMask& mask = {});
+
+// -- shading
+
+struct PixelShade {
+    double lightDegrees = 135;
+    int shadowWidth = 2;      // pixels per shadow band, measured along the light's axis from the edge facing away from the light
+    int shadowLevels = 1;     // bands: the one at the edge is `shadowLevels` steps darker, the next one less
+    int highlightWidth = 1;
+    int highlightLevels = 1;  // 0 = no highlight
+    int dither = 0;           // pixels of dithered transition at the inner edge of each band (0 = hard bands, at most the band width)
+    PixelPoint origin{0, 0};  // canvas position of the grid's top-left pixel (the dither pattern lines up with the canvas)
+};
+// Shades the shape (the non-transparent pixels in `mask`): the colour of each pixel steps along its ramp (PixelPalette::step). Returns
+// the pixels changed.
+int pixel_shade(IndexGrid& grid, const PixelPalette& palette, const PixelShade& options, const PixelMask& mask = {});
+
+// -- dither
+
+enum class DitherPattern { Checker, Bayer2, Bayer4, Bayer8 };
+// Fills the pixels of `mask` (all of them when empty; the transparent ones too unless onlyFilled) with a blend of colours a and b:
+// `level` 0..1 is the share of b. Bayer2 has 5 levels, Bayer4 17, Bayer8 65; Checker is a and b alternating (anything between a quarter and
+// three quarters), or one colour alone.
+// `origin` is the canvas position of the grid's top-left pixel, so the pattern lines up with the canvas, not with the layer.
+int pixel_dither_blend(IndexGrid& grid, int a, int b, double level, DitherPattern pattern, const PixelMask& mask = {}, bool onlyFilled = false,
+                       PixelPoint origin = {0, 0});
+// A gradient through `colors` (two or more palette indices, evenly spaced) along the line from `from` to `to`, dithered between
+// neighbouring colours; pixels before `from` take the first colour, after `to` the last.
+int pixel_dither_gradient(IndexGrid& grid, const std::vector<int>& colors, PixelPoint from, PixelPoint to, DitherPattern pattern, const PixelMask& mask = {},
+                          bool onlyFilled = false, PixelPoint origin = {0, 0});
+
+// -- clean-up
+
+struct PixelCleanup {
+    bool orphans = true;           // a pixel with no neighbour of its colour takes the commonest opaque colour around it (none: it is removed)
+    bool doubles = true;           // the corner pixel of a one-pixel line where it bends in an L (two pixels thick at the bend) is removed
+    bool jaggies = true;           // a nearly straight one-pixel line with uneven steps is redrawn as an even one
+    bool holes = false;            // orphans: a transparent pixel with no transparent neighbour is filled too
+    bool eightConnected = true;    // orphans: a diagonal neighbour of the same colour keeps a pixel
+    double tolerance = 1.0;        // jaggies: the most a line may stray from the straight line between its ends (pixels) to be redrawn
+    std::vector<int> keep;         // palette indices the clean-up never touches (a one-pixel highlight on purpose)
+};
+struct PixelCleanupReport {
+    int orphans = 0, doubles = 0, jaggies = 0;     // pixels changed by each pass
+    std::vector<PixelPoint> changed;               // every pixel that changed, row by row
+};
+PixelCleanupReport pixel_cleanup(IndexGrid& grid, const PixelCleanup& options, const PixelMask& mask = {});
+
+// -- scaling and rotation
+
+// Scale2x / EPX: the picture doubled, the corners between neighbours of one colour rounded off instead of copied. Transparent counts as a colour.
+IndexGrid pixel_scale2x(const IndexGrid& grid);
+// Scale3x, the same idea at three times.
+IndexGrid pixel_scale3x(const IndexGrid& grid);
+
+enum class PixelResample {
+    Nearest,  // each new pixel takes the pixel under its centre
+    Mode      // each new pixel takes the commonest colour of the old pixels it covers (opaque wins a tie): a clean downscale
+};
+// The picture at newWidth x newHeight (>= 1). No new colour appears.
+IndexGrid pixel_resample(const IndexGrid& grid, int newWidth, int newHeight, PixelResample method);
+
+enum class PixelRotateMethod {
+    RotSprite,  // x8 with Scale2x three times, rotate by nearest, take the commonest colour of each 8x8 block
+    Nearest     // rotate by nearest sample only: fast and blocky
+};
+// The picture rotated `degrees` clockwise about its centre. The result is just large enough to hold the rotated picture; its centre is
+// the old centre. A multiple of 90 degrees is an exact turn of the pixels (no resampling). No new colour appears.
+IndexGrid pixel_rotate(const IndexGrid& grid, double degrees, PixelRotateMethod method);
+
+// -- from a picture
+
+// A picture at width x height with the area of every new pixel taken into account (a box filter with fractional edges, alpha-weighted
+// colour): not bilinear, every old pixel counts for exactly the share of the new pixel it covers.
+Image pixel_area_downscale(const Image& src, int width, int height);
+// The picture as palette indices at width x height: every old pixel takes its nearest palette colour first, then each new pixel the
+// commonest colour of the old pixels it covers, so the result has palette colours only and no blends. A new pixel whose covered area is less
+// than `alphaThreshold` opaque is transparent.
+IndexGrid pixel_dominant_downscale(const Image& src, const PixelPalette& palette, int width, int height, double alphaThreshold);
 
 }  // namespace fa

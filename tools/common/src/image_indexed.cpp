@@ -15,6 +15,7 @@
 #include "image_doc_internal.h"
 #include "image_edit.h"
 #include "image_frames.h"
+#include "image_indexed.h"
 #include "util.h"
 
 namespace fa::imgedit {
@@ -24,7 +25,7 @@ using assets_detail::check_arg_keys;
 using tooling_detail::arg_bool;
 using tooling_detail::arg_string;
 
-namespace {
+namespace indexed {
 
 bool looks_like_index_path(const std::string& s) {
     return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) { return std::isdigit((unsigned char)c) || c == '/'; });
@@ -122,14 +123,6 @@ int scale_arg(const Json& a, const char* cmd) {
 
 // ---- the layer to draw on -----------------------------------------------------------------------------------------------------
 
-struct Target {
-    LayerRef ref;
-    PixelPalette pal;
-    IndexGrid grid;
-    int ox = 0, oy = 0;       // canvas position of the grid's top-left pixel
-    Json extra = Json::object();
-    std::vector<std::string> warnings;
-};
 
 Target open_target(const std::string& projectDir, DocFile& d, const Json& a, const char* cmd) {
     Target t;
@@ -680,7 +673,9 @@ Json image_layer_convert(const std::string& projectDir, const Json& a) {
     return out;
 }
 
-}  // namespace
+}  // namespace indexed
+
+using namespace indexed;
 
 void register_indexed_commands(CommandRegistry& registry, const std::string& projectDir) {
     const std::string pathDoc = "The image document, project-relative, ending in .image.json.";
