@@ -1636,13 +1636,29 @@ Not released yet (on main after 0.14.1).
 
 Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields.
 
-A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a tree of operations: primitives (box, rounded_box, cylinder, cone, sphere, capsule, torus, grid, stairs, arch, pipe, text, lathe, sweep, loft), groups, modifiers that wrap their children and change the mesh they make (boolean, mirror, array, radial_array, bevel, subdivide, solidify, bend, twist, taper, noise, smooth, weld, shade), and a transform, a part name, a material and a vertex colour on any node. With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns the tree (pointer, op, id, part, material per node), where it bakes to and whether that .glb is fresh or stale, and (unless evaluate is false) builds it in memory: vertices, triangles, bounds and size in metres, whether the surface is closed, volume, and the triangles and bounds of every part. With no argument it returns the catalog of operations with every field, its range, default and doc string. Example: {"path":"assets/models/door.model.json"}
+A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a tree of operations: primitives (box, rounded_box, cylinder, cone, sphere, capsule, torus, grid, stairs, arch, pipe, text, lathe, sweep, loft), groups, modifiers that wrap their children and change the mesh they make (boolean, mirror, array, radial_array, bevel, subdivide, solidify, bend, twist, taper, noise, smooth, weld, shade), edits on a selection chosen by meaning (extrude_faces, inset_faces, loop_cut, bevel_edges, delete_faces, assign_faces: see model.select and the "selections" of the catalog), and a transform, a part name, a material and a vertex colour on any node. With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns the tree (pointer, op, id, part, material per node), where it bakes to and whether that .glb is fresh or stale, and (unless evaluate is false) builds it in memory: vertices, triangles, bounds and size in metres, whether the surface is closed, volume, and the triangles and bounds of every part. With no argument it returns the catalog of operations with every field, its range, default and doc string. Example: {"path":"assets/models/door.model.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
 | `document` | object | no | The document itself, as JSON, to check before writing it to a file (format is filled in). |
 | `evaluate` | boolean | no | Build the mesh in memory for the measurements. Turn it off to only check the document. Default true. |
+
+## `model.select`
+
+Not released yet (on main after 0.14.1).
+
+Try a selection of faces or edges chosen by meaning (normal direction, part, region, top/bottom, border, sharp, seam) on the mesh a node receives, and report what it matched.
+
+The edit operations extrude_faces, inset_faces, bevel_edges, delete_faces and assign_faces take a selection written as a query, never as indices: {"by": "normal", "direction": "top"}, {"by": "part", "part": "lid"}, {"by": "box", "min": [...], "max": [...]}, combined with and / or / not / grow / shrink; edges: border (of a face selection), sharp (over an angle), between_parts, loop (round an axis at a height or ratio). This evaluates the document up to `node` and runs the query on the mesh that node receives (its merged children, or the mesh a primitive made; in the node's own space, before its transform), then answers: how many faces (or edges) matched out of how many, their total area (or length), their bounds and how many belong to each part. An empty selection returns a warning that says why (what the mesh spans, the parts that exist, how close the nearest face was). Without `faces` / `edges` the node's own selection is used, so model.select on an edit node tells what it will edit. Because a query is evaluated on every build, it keeps meaning the same faces when the model below changes. Example: {"path":"assets/models/crate.model.json","node":"body","faces":{"by":"normal","direction":"top"}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
+| `document` | object | no | The document itself, as JSON, instead of a file. |
+| `node` | string | yes | The node whose mesh is selected on, by id or JSON pointer. |
+| `faces` | object | no | A face query, e.g. {"by": "normal", "direction": "top"}. model.info {} lists them. |
+| `edges` | object | no | An edge query, e.g. {"by": "sharp", "angle": 60}. |
 
 ## `music.arpeggio` (modifies state)
 

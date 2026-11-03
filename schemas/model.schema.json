@@ -4383,6 +4383,809 @@
         }
       }
     },
+    "extrude_faces": {
+      "type": "object",
+      "description": "Pushes the faces a selection chooses out of the surface (or into it) and joins them to what is left with walls: a button on a panel, a window sill, a handle, a step, a socket sunk into a wall. Each vertex moves along the average of the selected faces' normals around it (or along `direction`). The faces keep their part; the walls and the moved faces take `newPart` / `newMaterial`, or the part they grew from. A selection that matches nothing leaves the model as it is, with a warning that says why.",
+      "required": [
+        "op",
+        "faces"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "extrude_faces",
+          "description": "Always \"extrude_faces\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "faces": {
+          "$ref": "#/$defs/face_selection",
+          "description": "The faces to push out. A selection is a query by meaning, never an index: {\"by\": \"normal\", \"direction\": \"top\"}, {\"by\": \"part\", \"part\": \"lid\"}, {\"by\": \"top\", \"axis\": \"y\"}, a `box` / `sphere` / `halfspace` region, combined with `and` / `or` / `not` / `grow` / `shrink` (model.info lists them all). It is evaluated on the mesh below this node every time the document is evaluated, so it keeps choosing the same faces when a box gets more segments or a primitive changes size. model.select tries a query and says what it matched."
+        },
+        "distance": {
+          "type": "number",
+          "minimum": -1000.0,
+          "maximum": 1000.0,
+          "description": "How far to push, in metres: positive outwards (along the normals, or along `direction`), negative into the model. 0 changes nothing.",
+          "default": 0.1
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "top",
+                "bottom",
+                "front",
+                "back",
+                "left",
+                "right"
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Push every selected vertex along this direction instead of along the faces' normals: top, bottom, front, back, left, right or [x, y, z]. In the space of this node's children."
+        },
+        "newPart": {
+          "type": "string",
+          "description": "Name of the part the extruded faces (the moved faces and the walls) become. Left out: they keep the part of the face they came from."
+        },
+        "newMaterial": {
+          "type": "string",
+          "description": "A key of the document's `materials` for the extruded faces (the moved faces and the walls). Left out: they keep the material of the face they came from."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          },
+          "description": "The nodes to edit; they are merged into one mesh first."
+        }
+      }
+    },
+    "inset_faces": {
+      "type": "object",
+      "description": "Shrinks the faces a selection chooses inside their own border and fills the gap with a ring of new faces: the first step of a panel, a window, a button or a frame (follow it with extrude_faces on the same selection for a raised panel). The inner faces keep their part; the ring takes `newPart` / `newMaterial`, or the part it grew from.",
+      "required": [
+        "op",
+        "faces"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "inset_faces",
+          "description": "Always \"inset_faces\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "faces": {
+          "$ref": "#/$defs/face_selection",
+          "description": "The faces to shrink inside their border. A selection is a query by meaning, never an index: {\"by\": \"normal\", \"direction\": \"top\"}, {\"by\": \"part\", \"part\": \"lid\"}, {\"by\": \"top\", \"axis\": \"y\"}, a `box` / `sphere` / `halfspace` region, combined with `and` / `or` / `not` / `grow` / `shrink` (model.info lists them all). It is evaluated on the mesh below this node every time the document is evaluated, so it keeps choosing the same faces when a box gets more segments or a primitive changes size. model.select tries a query and says what it matched."
+        },
+        "thickness": {
+          "type": "number",
+          "minimum": 0.0001,
+          "maximum": 1000.0,
+          "description": "How far the border moves inwards, in metres, measured in the faces' plane. Wider than the faces can give fails with a message that says how wide it can be.",
+          "default": 0.05
+        },
+        "depth": {
+          "type": "number",
+          "minimum": -1000.0,
+          "maximum": 1000.0,
+          "description": "How far the inner faces move along their normals, in metres: positive raises them, negative sinks them (a recess). 0 keeps them flat with the surface.",
+          "default": 0.0
+        },
+        "newPart": {
+          "type": "string",
+          "description": "Name of the part the ring of new faces between the border and the inner faces become. Left out: they keep the part of the face they came from."
+        },
+        "newMaterial": {
+          "type": "string",
+          "description": "A key of the document's `materials` for the ring of new faces between the border and the inner faces. Left out: they keep the material of the face they came from."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          },
+          "description": "The nodes to edit; they are merged into one mesh first."
+        }
+      }
+    },
+    "loop_cut": {
+      "type": "object",
+      "description": "Cuts a ring of new edges round the mesh at a height: every face the plane crosses is split along it, with no change of shape. Use it to give a plain box a seam to bevel, bend or select (loop_cut, then bevel_edges on {\"by\": \"loop\"}). The plane is perpendicular to `axis`: at a coordinate (`at`), at a fraction of the mesh's extent along it (`ratio`), or `count` evenly spaced planes. Parts, uvs and colours are carried, the new faces take the part of the face they split.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "loop_cut",
+          "description": "Always \"loop_cut\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "axis": {
+          "type": "string",
+          "enum": [
+            "x",
+            "y",
+            "z"
+          ],
+          "description": "The axis the ring goes round; the cutting plane is perpendicular to it.",
+          "default": "y"
+        },
+        "at": {
+          "type": "number",
+          "minimum": -1000.0,
+          "maximum": 1000.0,
+          "description": "Coordinate of the plane along `axis`, in the space of this node's children, in metres. Give this, `ratio`, or neither."
+        },
+        "ratio": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Where the plane is, from 0 (the lowest vertex along `axis`) to 1 (the highest): 0.5 is the middle. Stays in the same place when the model below changes size."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Number of evenly spaced cuts between the lowest and highest point (1: in the middle; 3: at 25%, 50% and 75%). Not with `at` or `ratio`."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          },
+          "description": "The nodes to cut; they are merged into one mesh first."
+        }
+      }
+    },
+    "bevel_edges": {
+      "type": "object",
+      "description": "Rounds or chamfers only the edges a selection chooses (bevel does every sharp edge): the rim of a lid, the border of a top face, the seam between two parts. Same result as `bevel` on those edges: a strip of `segments` rows replaces each edge, the big faces stay flat. An edge that is flat, open, or shared by more than two faces is left alone, with a warning.",
+      "required": [
+        "op",
+        "edges"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "bevel_edges",
+          "description": "Always \"bevel_edges\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "edges": {
+          "$ref": "#/$defs/edge_selection",
+          "description": "The edges to bevel. A selection of edges is a query by meaning: {\"by\": \"border\", \"faces\": {\"by\": \"normal\", \"direction\": \"top\"}} (the rim of the top), {\"by\": \"sharp\", \"angle\": 60}, {\"by\": \"between_parts\", \"a\": \"lid\", \"b\": \"body\"}, {\"by\": \"loop\", \"axis\": \"y\", \"ratio\": 0.5}, combined with `and` / `or` / `not` (model.info lists them all). Evaluated on the mesh below this node every time the document is evaluated."
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0.0001,
+          "maximum": 1000.0,
+          "description": "How far the bevel reaches from the edge along each face, in metres. Too wide for the faces fails with a message that says how wide it can be.",
+          "default": 0.05
+        },
+        "segments": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "description": "Rows of the strip: 1 is a flat chamfer, 2 or 3 a soft round.",
+          "default": 2
+        },
+        "roundness": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "0: straight chamfer rows with flat shading. 1: a round profile with the normals blending between the two faces.",
+          "default": 1.0
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          },
+          "description": "The nodes to bevel; they are merged into one mesh first."
+        }
+      }
+    },
+    "delete_faces": {
+      "type": "object",
+      "description": "Removes the faces a selection chooses: open the top of a box, cut a doorway out of a wall, take the front off a shell. The hole is left open (the surface is no longer closed); a later `solidify` gives it thickness.",
+      "required": [
+        "op",
+        "faces"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "delete_faces",
+          "description": "Always \"delete_faces\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "faces": {
+          "$ref": "#/$defs/face_selection",
+          "description": "The faces to remove. A selection is a query by meaning, never an index: {\"by\": \"normal\", \"direction\": \"top\"}, {\"by\": \"part\", \"part\": \"lid\"}, {\"by\": \"top\", \"axis\": \"y\"}, a `box` / `sphere` / `halfspace` region, combined with `and` / `or` / `not` / `grow` / `shrink` (model.info lists them all). It is evaluated on the mesh below this node every time the document is evaluated, so it keeps choosing the same faces when a box gets more segments or a primitive changes size. model.select tries a query and says what it matched."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          },
+          "description": "The nodes to edit; they are merged into one mesh first."
+        }
+      }
+    },
+    "assign_faces": {
+      "type": "object",
+      "description": "Moves the faces a selection chooses into another part and/or material without changing the shape: paint the top of a box as \"lid\", give the front of a wall a window material. The faces keep their geometry and uvs; the part appears as its own submesh.",
+      "required": [
+        "op",
+        "faces"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "assign_faces",
+          "description": "Always \"assign_faces\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "faces": {
+          "$ref": "#/$defs/face_selection",
+          "description": "The faces to move. A selection is a query by meaning, never an index: {\"by\": \"normal\", \"direction\": \"top\"}, {\"by\": \"part\", \"part\": \"lid\"}, {\"by\": \"top\", \"axis\": \"y\"}, a `box` / `sphere` / `halfspace` region, combined with `and` / `or` / `not` / `grow` / `shrink` (model.info lists them all). It is evaluated on the mesh below this node every time the document is evaluated, so it keeps choosing the same faces when a box gets more segments or a primitive changes size. model.select tries a query and says what it matched."
+        },
+        "toPart": {
+          "type": "string",
+          "description": "The part the faces join. Left out: they keep their part. Give this, `toMaterial` or both."
+        },
+        "toMaterial": {
+          "type": "string",
+          "description": "A key of the document's `materials` the faces get. Left out: they keep their material."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          },
+          "description": "The nodes to edit; they are merged into one mesh first."
+        }
+      }
+    },
     "sdf_sphere": {
       "type": "object",
       "description": "A ball, as a shape of an `sdf` node. Its transform (`position`, `rotation`, `scale`) places it in the sdf; `part`, `material` and `color` give it its look and name the part its surface becomes.",
@@ -5788,6 +6591,655 @@
         }
       }
     },
+    "face_selection": {
+      "description": "A choice of faces by meaning, evaluated on the mesh at this point of the tree (never indices): `by` says how, the other fields depend on it. \"all\": Every face. \"part\": The faces of one or more parts (the `part` names of the nodes that made them; \"\" is the faces of nodes that name no part). A face keeps its part through extrusions and modifiers. \"normal\": The faces that point in a direction: the angle between the face's normal and `direction` is at most `tolerance`. {\"by\": \"normal\", \"direction\": \"top\"} picks the upward-facing faces of a box. \"top\": The highest faces along an axis: the faces whose centre is within `within` of the highest face centre. The cap of a cylinder, the top row of a wall, the faces around a sphere's pole. Unlike `normal` it picks by position, so it finds the top of a part whatever way its faces point; give `of` to look only among some faces (the top of the part \"body\"). \"bottom\": The lowest faces along an axis: the faces whose centre is within `within` of the lowest face centre. The cap of a cylinder, the top row of a wall, the faces around a sphere's pole. Unlike `normal` it picks by position, so it finds the bottom of a part whatever way its faces point; give `of` to look only among some faces (the bottom of the part \"body\"). \"box\": The faces inside an axis-aligned box. \"sphere\": The faces inside a ball. \"halfspace\": The faces on one side of a plane: the side `normal` points to. {\"by\": \"halfspace\", \"point\": [0, 0.5, 0], \"normal\": [0, 1, 0]} is everything above y = 0.5. \"and\": The faces that every query in `of` chooses. \"or\": The faces that any query in `of` chooses. \"not\": Every face that `of` does not choose. \"grow\": The faces `of` chooses plus the faces that share an edge with them, `steps` times. \"shrink\": The faces `of` chooses minus the ones on its border (the faces with an edge shared with a face that is not chosen), `steps` times. ",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Every face.",
+          "required": [
+            "by"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "all"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The faces of one or more parts (the `part` names of the nodes that made them; \"\" is the faces of nodes that name no part). A face keeps its part through extrusions and modifiers.",
+          "required": [
+            "by"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "part"
+            },
+            "part": {
+              "type": "string",
+              "description": "The part name, e.g. \"lid\"."
+            },
+            "parts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "description": "Several part names; the faces of any of them."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The faces that point in a direction: the angle between the face's normal and `direction` is at most `tolerance`. {\"by\": \"normal\", \"direction\": \"top\"} picks the upward-facing faces of a box.",
+          "required": [
+            "by",
+            "direction"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "normal"
+            },
+            "direction": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "top",
+                    "bottom",
+                    "front",
+                    "back",
+                    "left",
+                    "right"
+                  ]
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                }
+              ],
+              "description": "Where the faces point: top (+Y), bottom (-Y), front (+Z), back (-Z), left (-X), right (+X), or a vector [x, y, z] (any length above 0)."
+            },
+            "tolerance": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 180.0,
+              "description": "Degrees of difference allowed. 30 takes the top of a dome and its slopes; 1 takes only faces that are exactly flat towards the direction.",
+              "default": 30
+            },
+            "space": {
+              "type": "string",
+              "enum": [
+                "node",
+                "model"
+              ],
+              "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+              "default": "node"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The highest faces along an axis: the faces whose centre is within `within` of the highest face centre. The cap of a cylinder, the top row of a wall, the faces around a sphere's pole. Unlike `normal` it picks by position, so it finds the top of a part whatever way its faces point; give `of` to look only among some faces (the top of the part \"body\").",
+          "required": [
+            "by"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "top"
+            },
+            "axis": {
+              "type": "string",
+              "enum": [
+                "x",
+                "y",
+                "z"
+              ],
+              "description": "The axis the top is measured along (the faces at the largest coordinate of it). y by default: up.",
+              "default": "y"
+            },
+            "within": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1000.0,
+              "description": "Metres from the extreme within which faces count. Left out: 0.01% of the size of the faces looked at, which takes exactly the flat cap and nothing below it."
+            },
+            "of": {
+              "$ref": "#/$defs/face_selection",
+              "description": "Look only among the faces this query chooses. Left out: all faces."
+            },
+            "space": {
+              "type": "string",
+              "enum": [
+                "node",
+                "model"
+              ],
+              "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+              "default": "node"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The lowest faces along an axis: the faces whose centre is within `within` of the lowest face centre. The cap of a cylinder, the top row of a wall, the faces around a sphere's pole. Unlike `normal` it picks by position, so it finds the bottom of a part whatever way its faces point; give `of` to look only among some faces (the bottom of the part \"body\").",
+          "required": [
+            "by"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "bottom"
+            },
+            "axis": {
+              "type": "string",
+              "enum": [
+                "x",
+                "y",
+                "z"
+              ],
+              "description": "The axis the bottom is measured along (the faces at the smallest coordinate of it). y by default: down.",
+              "default": "y"
+            },
+            "within": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1000.0,
+              "description": "Metres from the extreme within which faces count. Left out: 0.01% of the size of the faces looked at, which takes exactly the flat cap and nothing below it."
+            },
+            "of": {
+              "$ref": "#/$defs/face_selection",
+              "description": "Look only among the faces this query chooses. Left out: all faces."
+            },
+            "space": {
+              "type": "string",
+              "enum": [
+                "node",
+                "model"
+              ],
+              "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+              "default": "node"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The faces inside an axis-aligned box.",
+          "required": [
+            "by",
+            "min",
+            "max"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "box"
+            },
+            "min": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": -1000.0,
+                "maximum": 1000.0
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "One corner of the box, [x, y, z] in metres."
+            },
+            "max": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": -1000.0,
+                "maximum": 1000.0
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "The opposite corner, each number at least that of `min`."
+            },
+            "contain": {
+              "type": "string",
+              "enum": [
+                "center",
+                "all",
+                "any"
+              ],
+              "description": "When a face is inside the shape: \"center\" its centre is, \"all\" all three corners are, \"any\" at least one corner is.",
+              "default": "center"
+            },
+            "space": {
+              "type": "string",
+              "enum": [
+                "node",
+                "model"
+              ],
+              "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+              "default": "node"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The faces inside a ball.",
+          "required": [
+            "by",
+            "center",
+            "radius"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "sphere"
+            },
+            "center": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": -1000.0,
+                "maximum": 1000.0
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "The centre, [x, y, z] in metres."
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0.0001,
+              "maximum": 1000.0,
+              "description": "The radius in metres."
+            },
+            "contain": {
+              "type": "string",
+              "enum": [
+                "center",
+                "all",
+                "any"
+              ],
+              "description": "When a face is inside the shape: \"center\" its centre is, \"all\" all three corners are, \"any\" at least one corner is.",
+              "default": "center"
+            },
+            "space": {
+              "type": "string",
+              "enum": [
+                "node",
+                "model"
+              ],
+              "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+              "default": "node"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The faces on one side of a plane: the side `normal` points to. {\"by\": \"halfspace\", \"point\": [0, 0.5, 0], \"normal\": [0, 1, 0]} is everything above y = 0.5.",
+          "required": [
+            "by",
+            "point",
+            "normal"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "halfspace"
+            },
+            "point": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": -1000.0,
+                "maximum": 1000.0
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "A point on the plane, [x, y, z] in metres."
+            },
+            "normal": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": -1000.0,
+                "maximum": 1000.0
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "Which side is chosen, [x, y, z] (any length above 0)."
+            },
+            "contain": {
+              "type": "string",
+              "enum": [
+                "center",
+                "all",
+                "any"
+              ],
+              "description": "When a face is inside the shape: \"center\" its centre is, \"all\" all three corners are, \"any\" at least one corner is.",
+              "default": "center"
+            },
+            "space": {
+              "type": "string",
+              "enum": [
+                "node",
+                "model"
+              ],
+              "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+              "default": "node"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The faces that every query in `of` chooses.",
+          "required": [
+            "by",
+            "of"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "and"
+            },
+            "of": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/face_selection"
+              },
+              "description": "The queries, at least one."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The faces that any query in `of` chooses.",
+          "required": [
+            "by",
+            "of"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "or"
+            },
+            "of": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/face_selection"
+              },
+              "description": "The queries, at least one."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "Every face that `of` does not choose.",
+          "required": [
+            "by",
+            "of"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "not"
+            },
+            "of": {
+              "$ref": "#/$defs/face_selection",
+              "description": "The query to invert."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The faces `of` chooses plus the faces that share an edge with them, `steps` times.",
+          "required": [
+            "by",
+            "of"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "grow"
+            },
+            "of": {
+              "$ref": "#/$defs/face_selection",
+              "description": "The query to grow."
+            },
+            "steps": {
+              "type": "integer",
+              "minimum": 1.0,
+              "maximum": 16.0,
+              "description": "Rings of neighbours to add.",
+              "default": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The faces `of` chooses minus the ones on its border (the faces with an edge shared with a face that is not chosen), `steps` times.",
+          "required": [
+            "by",
+            "of"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "shrink"
+            },
+            "of": {
+              "$ref": "#/$defs/face_selection",
+              "description": "The query to shrink."
+            },
+            "steps": {
+              "type": "integer",
+              "minimum": 1.0,
+              "maximum": 16.0,
+              "description": "Rings to take off.",
+              "default": 1
+            }
+          }
+        }
+      ]
+    },
+    "edge_selection": {
+      "description": "A choice of edges by meaning, evaluated on the mesh at this point of the tree (never indices): `by` says how, the other fields depend on it. \"all\": Every edge. \"border\": The edges around a group of faces: edges with a chosen face on one side and a face that is not chosen (or nothing: the open edge of a surface) on the other. Bevel the border of the top faces to round the rim of a lid. \"sharp\": The edges where the two faces turn by more than `angle` degrees (the corners of a box, not the seams of a smooth sphere). Edges with one face or more than two are never sharp. \"between_parts\": The edges where one part meets another: the seam between the lid and the box. With `a` and `b` only the seam between those two; with `a` alone every seam of that part; with neither every seam of the model. \"loop\": The edges that lie in the plane perpendicular to `axis` at a height: the ring round a vase at 40% of its height. Use it after `loop_cut` (which makes such a ring) or on a mesh that already has one. `at` is a coordinate, `ratio` a fraction of the mesh's extent along the axis. \"and\": The edges that every query in `of` chooses. \"or\": The edges that any query in `of` chooses. \"not\": Every edge that `of` does not choose. ",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Every edge.",
+          "required": [
+            "by"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "all"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The edges around a group of faces: edges with a chosen face on one side and a face that is not chosen (or nothing: the open edge of a surface) on the other. Bevel the border of the top faces to round the rim of a lid.",
+          "required": [
+            "by",
+            "faces"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "border"
+            },
+            "faces": {
+              "$ref": "#/$defs/face_selection",
+              "description": "The face query whose border is taken."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The edges where the two faces turn by more than `angle` degrees (the corners of a box, not the seams of a smooth sphere). Edges with one face or more than two are never sharp.",
+          "required": [
+            "by"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "sharp"
+            },
+            "angle": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 180.0,
+              "description": "Degrees. 30 leaves the gently curved parts alone; 80 takes only the corners of a box.",
+              "default": 30
+            },
+            "faces": {
+              "$ref": "#/$defs/face_selection",
+              "description": "Only edges that touch a face this query chooses. Left out: the whole mesh."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The edges where one part meets another: the seam between the lid and the box. With `a` and `b` only the seam between those two; with `a` alone every seam of that part; with neither every seam of the model.",
+          "required": [
+            "by"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "between_parts"
+            },
+            "a": {
+              "type": "string",
+              "description": "A part name (\"\" is the faces of nodes that name no part)."
+            },
+            "b": {
+              "type": "string",
+              "description": "The other part name."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The edges that lie in the plane perpendicular to `axis` at a height: the ring round a vase at 40% of its height. Use it after `loop_cut` (which makes such a ring) or on a mesh that already has one. `at` is a coordinate, `ratio` a fraction of the mesh's extent along the axis.",
+          "required": [
+            "by"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "loop"
+            },
+            "axis": {
+              "type": "string",
+              "enum": [
+                "x",
+                "y",
+                "z"
+              ],
+              "description": "The axis the ring goes round; the plane is perpendicular to it.",
+              "default": "y"
+            },
+            "at": {
+              "type": "number",
+              "minimum": -1000.0,
+              "maximum": 1000.0,
+              "description": "The coordinate of the plane along the axis, in metres. Give this or `ratio`."
+            },
+            "ratio": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Where the plane is, from 0 (the lowest vertex) to 1 (the highest) of the mesh at this point of the tree. 0.5 when neither is given."
+            },
+            "tolerance": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1000.0,
+              "description": "Metres from the plane within which an edge counts as lying in it. Left out: 0.01% of the mesh's extent along the axis."
+            },
+            "space": {
+              "type": "string",
+              "enum": [
+                "node",
+                "model"
+              ],
+              "description": "Where the numbers of this query are measured. \"node\": the space of the edit node's children (before the node's own position, rotation and scale). \"model\": the model's space, through the transforms of this node and of the groups and modifiers above it (a mirror or array above does not count).",
+              "default": "node"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The edges that every query in `of` chooses.",
+          "required": [
+            "by",
+            "of"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "and"
+            },
+            "of": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/edge_selection"
+              },
+              "description": "The queries, at least one."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The edges that any query in `of` chooses.",
+          "required": [
+            "by",
+            "of"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "or"
+            },
+            "of": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/edge_selection"
+              },
+              "description": "The queries, at least one."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "Every edge that `of` does not choose.",
+          "required": [
+            "by",
+            "of"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "const": "not"
+            },
+            "of": {
+              "$ref": "#/$defs/edge_selection",
+              "description": "The query to invert."
+            }
+          }
+        }
+      ]
+    },
     "node": {
       "description": "One operation of the tree: a primitive, a modifier (wraps its `children`) or a group. `op` says which.",
       "oneOf": [
@@ -5877,6 +7329,24 @@
         },
         {
           "$ref": "#/$defs/shade"
+        },
+        {
+          "$ref": "#/$defs/extrude_faces"
+        },
+        {
+          "$ref": "#/$defs/inset_faces"
+        },
+        {
+          "$ref": "#/$defs/loop_cut"
+        },
+        {
+          "$ref": "#/$defs/bevel_edges"
+        },
+        {
+          "$ref": "#/$defs/delete_faces"
+        },
+        {
+          "$ref": "#/$defs/assign_faces"
         },
         {
           "$ref": "#/$defs/sdf_sphere"

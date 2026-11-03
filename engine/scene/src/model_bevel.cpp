@@ -115,7 +115,7 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
         if (!edges.regular(i)) continue;
         const Vec3 a = fn[edges.uses[edges.edges[i].first].tri], b = fn[edges.uses[edges.edges[i].first + 1].tri];
         if (length_sq(a) < 0.5f || length_sq(b) < 0.5f) continue;
-        if (dot(a, b) < cosA) {
+        if (dot(a, b) < cosA && (!p.edgeFilter || p.edgeFilter(s.pos[edges.edges[i].lo], s.pos[edges.edges[i].hi]))) {
             bev[i] = 1;
             ++bevCount;
         }
