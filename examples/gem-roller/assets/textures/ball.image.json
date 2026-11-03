@@ -1,0 +1,84 @@
+{
+  "format": "factoria.image/1",
+  "width": 64,
+  "height": 64,
+  "layers": [
+    {
+      "kind": "fill",
+      "name": "cream",
+      "color": "#fae6c8"
+    },
+    {
+      "kind": "fill",
+      "name": "orange 0",
+      "color": "#f05a3c",
+      "x": 0,
+      "y": 0,
+      "width": 16,
+      "height": 16
+    },
+    {
+      "kind": "fill",
+      "name": "orange 1",
+      "color": "#f05a3c",
+      "x": 32,
+      "y": 0,
+      "width": 16,
+      "height": 16
+    },
+    {
+      "kind": "fill",
+      "name": "orange 2",
+      "color": "#f05a3c",
+      "x": 16,
+      "y": 16,
+      "width": 16,
+      "height": 16
+    },
+    {
+      "kind": "fill",
+      "name": "orange 3",
+      "color": "#f05a3c",
+      "x": 48,
+      "y": 16,
+      "width": 16,
+      "height": 16
+    },
+    {
+      "kind": "fill",
+      "name": "orange 4",
+      "color": "#f05a3c",
+      "x": 0,
+      "y": 32,
+      "width": 16,
+      "height": 16
+    },
+    {
+      "kind": "fill",
+      "name": "orange 5",
+      "color": "#f05a3c",
+      "x": 32,
+      "y": 32,
+      "width": 16,
+      "height": 16
+    },
+    {
+      "kind": "fill",
+      "name": "orange 6",
+      "color": "#f05a3c",
+      "x": 16,
+      "y": 48,
+      "width": 16,
+      "height": 16
+    },
+    {
+      "kind": "fill",
+      "name": "orange 7",
+      "color": "#f05a3c",
+      "x": 48,
+      "y": 48,
+      "width": 16,
+      "height": 16
+    }
+  ]
+}

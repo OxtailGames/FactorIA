@@ -6009,6 +6009,49 @@ void Editor::at_build_tools_script() {
             ImageModel& m = *image_.model;
             at_check(m.last_composite_ms() >= 0.0 && m.composites() > 0, "the panel measured its composites");
             FA_INFO("autotest", "image panel: {} composites, last {:.2f} ms", m.composites(), m.last_composite_ms());
+        });
+
+        // ---- a picture from the (fake) image provider: Inpaint selection... adds a provider layer, masked by the selection
+        step(2, [this] {
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                atSavedConfig_ = aiConfig_;
+                aiConfig_ = ai::default_config();
+                aiConfig_.assets["image"] = ai::AssetRoute{"fake", "", ""};
+            }
+            image_.providerChecked = ~std::uint64_t(0);
+            showImage_ = true;
+            ImageModel& m = *image_.model;
+            image_.layersBefore = int(m.layer_rows().size());
+            image_edited(m.select_rect(4, 4, 12, 12, SelectOp::Replace));
+        });
+        wait_until([this] { return at_visible("img:provider:inpaint") && image_.noInpaint.empty(); });
+        step(2, [this, is] {
+            at_check(image_.noInpaint.empty() && image_.noGenerate.empty(), "with a provider that can inpaint, both provider actions are on");
+            image_.providerUndo = undo_depth();
+            image_.providerPrompt = "a round window";   // before the popup: the text box keeps its own copy while it has the focus
+        });
+        click_widget("img:provider:inpaint");
+        wait_until([this] { return at_visible("img:provider:prompt") && at_visible("img:provider:go"); });
+        click_widget("img:provider:go");
+        wait_until([this] { return !image_.job && image_.model->layer_rows().size() == std::size_t(image_.layersBefore + 1); });
+        step(3, [this] {
+            ImageModel& m = *image_.model;
+            const ImageLayer* L = m.layer(m.selected_layer());
+            at_check(L && L->kind == ImageLayerKind::Provider && L->provenance.value("provider", "") == "fake",
+                     "Inpaint selection... added a provider layer whose provenance names the provider");
+            at_check(L && L->provenance.value("prompt", "") == "a round window", "...and the prompt");
+            at_check(L && L->masks.size() == 1, "...masked by the selection");
+            at_check(undo_depth() == image_.providerUndo + 1, "...as ONE undo step");
+            at_check(image_.providerError.empty(), "...with no error shown");
+        });
+        step(2, [this] { undo(); });
+        step(3, [this] {
+            at_check(image_.model->layer_rows().size() == std::size_t(image_.layersBefore), "Undo took the provider layer away again");
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (atSavedConfig_) aiConfig_ = std::move(*atSavedConfig_);
+            atSavedConfig_.reset();
+            image_.providerChecked = ~std::uint64_t(0);
             showImage_ = false;
         });
     }

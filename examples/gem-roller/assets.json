@@ -1,0 +1,55 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/textures/ball.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/textures/ball.image.json",
+        "notes": "Composited from the image document 'assets/textures/ball.image.json' (9 layers), 64x64.",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/textures/ball.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/textures/ball.image.json",
+              "sha256": "3226979c6f4d643b66f66c2ce388a95fdd1f385b3275d670ca45c44aa02921d1"
+            }
+          ]
+        }
+      }
+    },
+    "assets/textures/tile.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "kind": "image",
+        "provider": "factoria image.bake",
+        "license": "CC0-1.0",
+        "author": "factoria",
+        "source": "assets/textures/tile.image.json",
+        "notes": "Composited from the image document 'assets/textures/tile.image.json' (5 layers), 64x64.",
+        "date": "2026-11-03",
+        "recipe": {
+          "command": "image.bake",
+          "args": {
+            "path": "assets/textures/tile.image.json"
+          },
+          "inputs": [
+            {
+              "path": "assets/textures/tile.image.json",
+              "sha256": "55127ce69c3b1bf3eea3ff40a0482e3bd4fc3e4b090f3d59d2c9dc58b4175b74"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

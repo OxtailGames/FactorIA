@@ -162,6 +162,9 @@ public:
     bool paintable(const std::string& path, std::string* why = nullptr) const;
 
     ImageEditOutcome add_layer(const std::string& kind);          // above the selected layer (inside its group), selects it
+    // Adds the provider layer a provider-made picture became (image.layer.add_provider, `addArgs` from ai::store_image_edit) on top, as
+    // ONE undo step, and selects it. The layer's PNG is already written.
+    ImageEditOutcome add_provider_layer(const std::string& label, Json addArgs);
     ImageEditOutcome duplicate_layer(const std::string& path);
     ImageEditOutcome remove_layer(const std::string& path);
     ImageEditOutcome rename_layer(const std::string& path, const std::string& name);
