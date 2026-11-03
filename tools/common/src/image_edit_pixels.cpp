@@ -285,6 +285,7 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         if (const auto taken = layer_names(d.json); !nameArg.empty() && std::find(taken.begin(), taken.end(), name) != taken.end())
             arg_error(cmd, "/name", "a layer named '" + name + "' already exists.", "Pick another name.");
         const std::string path = add_pixels_layer(projectDir, d.rel, d.json, &ref, name, p.img, p.x, p.y, cmd, w.kind == "provider");
+        if (FrameScope* fs = FrameScope::current()) fs->confine_new_layer(d.json, path);
         extra["newLayer"] = Json::object({{"index", path}, {"name", name}});
     } else if (type == "cut") {
         allowed({});
@@ -299,6 +300,7 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         for (const std::string& s : w.warnings) warnings.push_back(s);
         const bool ai = w.kind == "provider";
         const std::string path = add_pixels_layer(projectDir, d.rel, d.json, &ref, name, p.img, p.x, p.y, cmd, ai);
+        if (FrameScope* fs = FrameScope::current()) fs->confine_new_layer(d.json, path);
         extra["newLayer"] = Json::object({{"index", path}, {"name", name}});
     } else if (type == "fill") {
         allowed({"color", "opacity"});
@@ -472,6 +474,7 @@ Json image_paint(const std::string& projectDir, const Json& a) {
             empty.height = H;
             empty.rgba.assign(std::size_t(W) * H * 4, 0);
             const std::string idx = add_pixels_layer(projectDir, d.rel, d.json, nullptr, name, empty, 0, 0, cmd, false);
+            if (FrameScope* fs = FrameScope::current()) fs->confine_new_layer(d.json, idx);
             ref = find_layer(d.json, Json(idx), cmd);
             extra["createdLayer"] = Json::object({{"index", idx}, {"name", name}});
         } else {

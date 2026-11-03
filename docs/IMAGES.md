@@ -288,6 +288,10 @@ in `.factoria/selections/<document path>/<name>.png`, so it survives between cal
 `image.edit` and `image.paint` use it by name; the name `all` is the whole canvas and needs no file. A selection made for another
 canvas size is refused with a message that says so.
 
+In an animated document `image.select` takes **`frame`** (default 0) like the editing commands: a colour, alpha or layer
+selection reads the picture of that frame (a layer selection, that layer's cel in it). The stored selection is still one mask of
+the canvas per document and name, the same for every frame: select on the frame where the shape is, then edit any frame inside it.
+
 ```json
 {"command": "image.select", "args": {"path": "assets/art/hero.image.json", "name": "cape", "by": "color", "at": [20, 30],
   "contiguous": true, "tolerance": 20, "then": [{"grow": 1}, {"feather": 1}]}}
@@ -576,7 +580,10 @@ touches a layer of the document that has no cels.
 frame: the layer's cel for it is changed and the other frames keep what they show (the picture is copied on write, so a cel
 shared with another frame by a hold or a `link` becomes its own). On a document that is a still, without `frame`, they behave
 as they always did. Their result then has `frame` and `frames`, and their `$image` is that frame, not the sheet. A layer that
-`image.edit` copies or cuts into, or `create: true` makes, is a new layer with the same picture in every frame.
+`image.edit` copies or cuts into, or `create: true` makes, shows its picture only in the `frame` you gave (it is empty in the
+others, so the cut piece or the new effect is not drawn over every frame); without `frame` it is the same picture in every frame,
+as in a still. `image.select` takes `frame` too: its colour, alpha and layer selections read that frame, and the stored selection
+stays one mask per document.
 
 `image.info` lists `animation` (frames with their durations and tags, and the `sheet` the bake will write) and, for a layer
 with cels, `celFrames`: the frames where it changes.
@@ -658,8 +665,12 @@ otherwise the layers are pixels layers and the result says why. A file with one 
 `frames`. The PNG is baked from the document, so the sheet and its clips follow every edit you make with the `image.*`
 commands. `flat: true` keeps the old import (one PNG sheet and its clips, no document), see [ASSETS.md](ASSETS.md), "Aseprite".
 
-A frame or cel you remove leaves its PNG in `<document>.layers/` (and an edited cel makes a new file); nothing deletes a file the
-document no longer reads, so remove them by hand if the folder matters.
+A cel picture nothing reads any more is deleted in the same save as the change that left it behind (`image.frame.remove`,
+`image.frame.cel` with `clear`, a cel painted or edited again, `image.layer.remove`, converting a layer...), and the result
+lists the paths in `removedFiles` (the file and its `assets.json` entry go). Only a PNG directly inside the document's own
+`<document>.layers/` folder is a candidate, only in a document that is or was an animation, and it stays when anything else
+still names it: another frame, layer or `link` of the document, or any other image document of the project. A file you put
+somewhere else and pointed a cel at is never deleted.
 
 ## Validation
 

@@ -550,3 +550,193 @@ TEST_CASE("image.layer.convert refuses a layer with cels, and says to convert be
     CHECK(error_of(r).find("different pictures") != std::string::npos);
     CHECK(error_of(r).find("/layer") != std::string::npos);
 }
+
+// ---- image.select with `frame`, orphan cel pictures, and new layers confined to one frame -----------------------------------------
+
+namespace {
+
+const Json kFullStroke = Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#ff0000", "hardness": 1})");
+
+// A 4x4 document with a pixels layer "body" (a red square in frame 0; its file is assets/art/a.layers/body.png) and three frames.
+void make_body(const AssetsProject& p, int frames = 3) {
+    p.ok("image.create", {{"path", kDoc}, {"width", 4}, {"height", 4}});
+    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"create", true}, {"strokes", Json::array({kFullStroke})}});
+    p.ok("image.frame.add", {{"path", kDoc}, {"count", frames - 1}});
+}
+
+bool exists(const AssetsProject& p, const std::string& rel) { return std::filesystem::exists(p.file(rel)); }
+
+bool listed(const Json& files, const std::string& rel) {
+    if (!files.is_array()) return false;
+    return std::find(files.begin(), files.end(), Json(rel)) != files.end();
+}
+
+Rgba export_pixel(const AssetsProject& p, const std::string& layer, int frame) {
+    p.ok("image.export", {{"path", kDoc}, {"out", "assets/art/out.png"}, {"layer", layer}, {"frame", frame}, {"overwrite", true}});
+    return get(read_png(p.file("assets/art/out.png")), 1, 1);
+}
+
+}  // namespace
+
+TEST_CASE("image.select takes a frame: color, alpha and layer selections read that frame's picture") {
+    AssetsProject p;
+    make_dot(p, 3);   // the dot is at (frame, 0)
+    for (int f = 0; f < 3; ++f) {
+        Json r = p.ok("image.select", {{"path", kDoc}, {"name", "dot"}, {"by", "alpha"}, {"frame", f}});
+        CHECK(r["selected"] == 1);
+        CHECK(r["region"]["x"] == f);
+        CHECK(r["region"]["y"] == 0);
+    }
+    Json byLayer = p.ok("image.select", {{"path", kDoc}, {"name", "layerdot"}, {"by", "layer"}, {"layer", "dot"}, {"frame", 2}});
+    CHECK(byLayer["region"]["x"] == 2);
+    Json byColor = p.ok("image.select", {{"path", kDoc}, {"name", "red"}, {"by", "color"}, {"color", "#ff0000"}, {"tolerance", 0}, {"frame", 1}});
+    CHECK(byColor["selected"] == 1);
+    CHECK(byColor["region"]["x"] == 1);
+    // without `frame` it is frame 0, as before; the stored selection is one per document and name, whatever the frame
+    Json plain = p.ok("image.select", {{"path", kDoc}, {"name", "dot"}, {"by", "alpha"}});
+    CHECK(plain["region"]["x"] == 0);
+    CHECK(plain["selections"].size() == 3);
+    // a frame that does not exist teaches
+    CommandResult bad = p.call("image.select", {{"path", kDoc}, {"by", "alpha"}, {"frame", 7}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(error_of(bad).find("/frame") != std::string::npos);
+    CHECK(error_of(bad).find("0 to 2") != std::string::npos);
+    // the selection is usable on any frame: edit frame 2 inside the selection made on frame 2
+    p.ok("image.select", {{"path", kDoc}, {"name", "here"}, {"by", "alpha"}, {"frame", 2}});
+    CHECK(p.ok("image.select", {{"path", kDoc}, {"name", "here"}, {"then", Json::array({Json{{"grow", 1}}})}})["selected"].get<int>() > 1);
+}
+
+TEST_CASE("image.select with a frame on a pixels layer leaves no file behind") {
+    AssetsProject p;
+    make_body(p);
+    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 2}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 2, "color": "#00ff00", "hardness": 1})")})}});
+    const std::string before = read_all(p.file(kDoc));
+    p.ok("image.select", {{"path", kDoc}, {"by", "layer"}, {"layer", "body"}, {"frame", 2}});
+    p.ok("image.select", {{"path", kDoc}, {"by", "color"}, {"color", "#00ff00"}, {"layer", "body"}, {"frame", 2}, {"tolerance", 0}});
+    CHECK(read_all(p.file(kDoc)) == before);   // a selection never edits the document
+    int pngs = 0;
+    for (const auto& e : std::filesystem::directory_iterator(p.file("assets/art/a.layers"))) pngs += e.path().extension() == ".png" ? 1 : 0;
+    CHECK(pngs == 2);   // body.png and the cel painted in frame 2; the selection's projections were removed
+}
+
+TEST_CASE("orphan cel pictures are deleted in the same save, and the result names them") {
+    AssetsProject p;
+    make_body(p);
+    CHECK(exists(p, "assets/art/a.layers/body.png"));
+    // frames 1 and 2 get cels of their own
+    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#00ff00", "hardness": 1})")})}});
+    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 2}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#0000ff", "hardness": 1})")})}});
+    const Json doc = read_doc(p);
+    const std::string cel1 = doc["layers"][0]["cels"][0]["source"], cel2 = doc["layers"][0]["cels"][1]["source"];
+    REQUIRE(exists(p, cel1));
+    REQUIRE(exists(p, cel2));
+
+    // a cel replaced: painting frame 1 again makes a new file and the old one goes
+    Json r = p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#ffff00", "hardness": 1})")})}});
+    REQUIRE(r.contains("removedFiles"));
+    CHECK(listed(r["removedFiles"], cel1));
+    CHECK_FALSE(exists(p, cel1));
+    CHECK(exists(p, cel2));
+    const Json doc2 = read_doc(p);
+    REQUIRE(doc2["layers"][0]["cels"][0]["frame"] == 1);
+    const std::string newCel1 = doc2["layers"][0]["cels"][0]["source"];
+    CHECK(newCel1 != cel1);
+    CHECK(exists(p, newCel1));
+    CHECK(p.manifest()["assets"].contains(cel1) == false);
+    CHECK(p.manifest()["assets"].contains(newCel1));
+    CHECK(p.ok("image.info", {{"path", kDoc}})["bake"]["state"] == "fresh");
+
+    // image.frame.cel clear: the frame shows nothing, its picture goes
+    r = p.ok("image.frame.cel", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"clear", true}});
+    CHECK(listed(r["removedFiles"], newCel1));
+    CHECK_FALSE(exists(p, newCel1));
+
+    // image.frame.remove: the removed frame's picture goes, the others stay
+    r = p.ok("image.frame.remove", {{"path", kDoc}, {"frame", 2}});
+    CHECK(listed(r["removedFiles"], cel2));
+    CHECK_FALSE(exists(p, cel2));
+    CHECK(exists(p, "assets/art/a.layers/body.png"));
+    // nothing to delete: no `removedFiles`
+    CHECK_FALSE(p.ok("image.frame.set", {{"path", kDoc}, {"frame", 0}, {"duration", 90}}).contains("removedFiles"));
+}
+
+TEST_CASE("orphan cel pictures: a file another document or the document itself still reads stays") {
+    AssetsProject p;
+    make_body(p);
+    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#00ff00", "hardness": 1})")})}});
+    const std::string cel1 = read_doc(p)["layers"][0]["cels"][0]["source"];
+    // another document draws that picture
+    write_all(p.file("assets/art/other.image.json"),
+              Json{{"width", 4}, {"height", 4}, {"layers", Json::array({Json{{"kind", "pixels"}, {"source", cel1}}})}}.dump(2));
+    // a user file that is not in the layers folder, used as a cel
+    put_png(p, "mine.png", kBlue);
+    Json doc = read_doc(p);
+    doc["layers"][0]["cels"].push_back(Json{{"frame", 2}, {"source", "assets/art/mine.png"}});
+    write_all(p.file(kDoc), doc.dump(2));
+
+    Json r = p.ok("image.frame.cel", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"clear", true}});
+    CHECK_FALSE(r.contains("removedFiles"));
+    CHECK(exists(p, cel1));
+    r = p.ok("image.frame.remove", {{"path", kDoc}, {"frame", 2}});
+    CHECK_FALSE(r.contains("removedFiles"));
+    CHECK(exists(p, "assets/art/mine.png"));
+    // the same picture used twice in the document (a link) stays while one frame shows it
+    doc = read_doc(p);
+    CHECK(doc["layers"][0].contains("source"));
+    CHECK(exists(p, doc["layers"][0]["source"]));
+}
+
+TEST_CASE("a still image document never loses a layer picture") {
+    AssetsProject p;
+    p.ok("image.create", {{"path", kDoc}, {"width", 4}, {"height", 4}});
+    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"create", true}, {"strokes", Json::array({kFullStroke})}});
+    p.ok("image.layer.remove", {{"path", kDoc}, {"layer", "body"}});
+    CHECK(exists(p, "assets/art/a.layers/body.png"));
+}
+
+TEST_CASE("image.edit copy and cut and create: true make a layer that shows in the given frame only") {
+    AssetsProject p;
+    make_body(p);
+    // copy in frame 1: the new layer has the picture in frame 1 and nothing in frames 0 and 2
+    Json r = p.ok("image.edit", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"selection", "all"}, {"action", {{"type", "copy"}}}, {"name", "dup"}});
+    CHECK(r["newLayer"]["name"] == "dup");
+    CHECK(export_pixel(p, "dup", 1) == kRed);
+    CHECK(export_pixel(p, "dup", 0).a == 0);
+    CHECK(export_pixel(p, "dup", 2).a == 0);
+    const Json doc = read_doc(p);
+    CHECK(doc["layers"][1]["name"] == "dup");
+    CHECK(doc["layers"][1]["cels"][0]["frame"] == 1);
+    CHECK_FALSE(doc["layers"][1].contains("source"));   // empty in frame 0
+
+    // cut in frame 2: frame 2's body is gone, the cut layer shows only there
+    p.ok("image.edit", {{"path", kDoc}, {"layer", "body"}, {"frame", 2}, {"selection", "all"}, {"action", {{"type", "cut"}}}, {"name", "piece"}});
+    CHECK(export_pixel(p, "piece", 2) == kRed);
+    CHECK(export_pixel(p, "piece", 1).a == 0);
+    CHECK(export_pixel(p, "body", 2).a == 0);
+    CHECK(export_pixel(p, "body", 1) == kRed);
+
+    // create: true with a frame: painted there, empty elsewhere
+    p.ok("image.paint", {{"path", kDoc}, {"layer", "fx"}, {"create", true}, {"frame", 1}, {"strokes", Json::array({kFullStroke})}});
+    CHECK(export_pixel(p, "fx", 1) == kRed);
+    CHECK(export_pixel(p, "fx", 0).a == 0);
+    CHECK(export_pixel(p, "fx", 2).a == 0);
+    // an indexed layer (image.pixel needs a palette in the document)
+    Json withPalette = read_doc(p);
+    withPalette["palette"] = Json::array({"#000000", "#ff0000"});
+    write_all(p.file(kDoc), withPalette.dump(2));
+    p.ok("image.pixel", {{"path", kDoc}, {"layer", "marks"}, {"create", true}, {"frame", 2}, {"pixels", Json::array({Json::array({1, 1, 1})})}});
+    const Json marks = read_doc(p)["layers"].back();
+    CHECK(marks["kind"] == "indexed");
+    CHECK_FALSE(marks.contains("rows"));   // empty in frame 0
+    REQUIRE(marks.contains("cels"));
+    CHECK(marks["cels"].size() == 1);
+    CHECK(marks["cels"][0]["frame"] == 2);
+}
+
+TEST_CASE("image.edit copy without a frame keeps showing the new layer in every frame") {
+    AssetsProject p;
+    make_body(p);
+    p.ok("image.edit", {{"path", kDoc}, {"layer", "body"}, {"selection", "all"}, {"action", {{"type", "copy"}}}, {"name", "dup"}});
+    for (int f = 0; f < 3; ++f) CHECK(export_pixel(p, "dup", f) == kRed);
+    CHECK_FALSE(read_doc(p)["layers"][1].contains("cels"));
+}

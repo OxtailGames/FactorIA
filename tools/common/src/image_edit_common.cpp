@@ -311,10 +311,15 @@ Json commit_document(const std::string& projectDir, const std::string& rel, cons
     FrameScope* fs = FrameScope::current();
     // in a frame, the layers the command opened are folded back into their cels first
     const Json doc = fs ? fs->folded(docIn) : docIn;
+    Json oldDoc;   // the document as it was on disk, for the pictures nothing reads any more
+    if (auto oldPath = resolve_project_path(projectDir, rel); oldPath.ok())
+        if (auto text = tooling_detail::read_file(*oldPath)) oldDoc = Json::parse(*text, nullptr, false);
     auto r = save_image_document(projectDir, rel, doc, bake);
     if (!r.ok()) fail("invalid_argument", r.error().message, r.error().hint);
     if (fs) fs->record_files(command);
+    const std::vector<std::string> pruned = oldDoc.is_object() ? prune_orphan_cels(projectDir, rel, oldDoc, doc) : std::vector<std::string>();
     Json out = bake_result_json(projectDir, *r);
+    if (!pruned.empty()) out["removedFiles"] = pruned;
     // the picture of the frame (the bake of an animated document is the whole sheet)
     const bool animated = r->sheet.is_object();
     std::optional<Image> after;

@@ -144,6 +144,7 @@ Target open_target(const std::string& projectDir, DocFile& d, const Json& a, con
             const std::string name = a["layer"].get<std::string>();
             d.json["layers"].push_back(Json::object({{"kind", "indexed"}, {"name", name}}));
             const std::string idx = std::to_string(d.json["layers"].size() - 1);
+            if (FrameScope* fs = FrameScope::current()) fs->confine_new_layer(d.json, idx);
             t.ref = find_layer(d.json, Json(idx), cmd);
             t.extra["createdLayer"] = Json::object({{"index", idx}, {"name", name}});
         } else {
