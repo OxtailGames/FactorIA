@@ -31,6 +31,9 @@ struct AssetRequest {
     double seconds = 0;                       // sound, music: length; 0 = the provider's choice
     std::optional<i64> seed;
     std::vector<ReferenceImage> references;   // image: pictures the result should follow
+    // image, inpainting (asset_can_inpaint): the picture to repaint and where. Both are PNGs of the same size (width x height);
+    // `editMask` is grey, white = repaint, black = keep, grey = partly. Empty = a plain generation.
+    std::string editImage, editMask;
 };
 
 struct AssetResult {
@@ -54,6 +57,10 @@ Result<AssetTarget> resolve_asset_target(const AiConfig& cfg, MediaKind kind, co
 
 // The model a provider uses for `kind` when none is set ("gpt-image-1", "eleven_text_to_sound_v2"...); "" when it has none to name.
 std::string asset_default_model(const ProviderConfig& provider, MediaKind kind);
+
+// Whether `provider` can repaint part of a picture (AssetRequest::editImage and editMask): the OpenAI image edits endpoint, the fake
+// provider, and an asset-command provider whose argv has both {input} and {mask}. Others make a new picture only.
+bool asset_can_inpaint(const ProviderConfig& provider);
 
 // A plain-text answer to "why can I not make a `kind` asset, and what would let me": the providers that can make it (with
 // whether their key is set in `env`), the ones that cannot and why, the keys that would enable a real provider, and the

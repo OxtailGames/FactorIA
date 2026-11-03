@@ -177,8 +177,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.frame.remove`](commands/assets.md#imageframeremove-modifies-state): Remove one frame of an animated image document; later frames and tags move down. _Not released yet._
 - [`image.frame.set`](commands/assets.md#imageframeset-modifies-state): Set how long frames show, in milliseconds. _Not released yet._
 - [`image.frame.sheet`](commands/assets.md#imageframesheet-modifies-state): Choose how many frames the baked sprite sheet has per row. _Not released yet._
+- [`image.generate_layer`](commands/assets.md#imagegenerate_layer-modifies-state): Generate a picture with the image provider and add it to an image document as a `provider` layer, optionally masked by a selection. _Not released yet._
 - [`image.info`](commands/assets.md#imageinfo): Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections. _Not released yet._
+- [`image.inpaint`](commands/assets.md#imageinpaint-modifies-state): Repaint the selected part of an image document with the image provider and add the result as a masked `provider` layer. _Not released yet._
 - [`image.layer.add`](commands/assets.md#imagelayeradd-modifies-state): Add a layer to an image document (at the top, or at an index, or inside a group) and bake the picture. _Not released yet._
+- [`image.layer.add_provider`](commands/assets.md#imagelayeradd_provider-modifies-state): Add a PNG an image provider made to an image document as a `provider` layer, with its provenance and an optional mask from a stored selection. _Not released yet._
 - [`image.layer.convert`](commands/assets.md#imagelayerconvert-modifies-state): Turn a layer into an indexed pixel-art layer (quantized to the palette, optional dither) or an indexed layer back into a pixels layer. _Not released yet._
 - [`image.layer.move`](commands/assets.md#imagelayermove-modifies-state): Move a layer to another position in its list, or into another group (or back to the top level), and bake. _Not released yet._
 - [`image.layer.remove`](commands/assets.md#imagelayerremove-modifies-state): Remove a layer (and the children of a group) from an image document and bake. _Not released yet._
