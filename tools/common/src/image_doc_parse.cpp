@@ -8,6 +8,7 @@
 #include "assets_internal.h"
 #include "fa/core/strings.h"
 #include "fa/render/builtin_fonts.h"
+#include "fa/tooling/image_tileset.h"
 #include "fa/tooling/project_fs.h"
 #include "fa/tooling/style_guide.h"
 #include "image_doc_internal.h"
@@ -287,6 +288,7 @@ struct Parser {
         for (const Json& l : layers) {
             if (!l.is_object()) continue;
             if (l.value("kind", std::string()) == "indexed") return true;
+            if (l.value("kind", std::string()) == "tileset" && l.contains("parts") && l["parts"].dump().find("\"rows\"") != std::string::npos) return true;
             if (l.contains("layers") && has_indexed_layer(l["layers"])) return true;
         }
         return false;
@@ -478,6 +480,125 @@ struct Parser {
         outHeight = int(it->size());
     }
 
+    // `tile`: tile mode (docs/IMAGES.md, "Tiles"). true, or {"width", "height"} of one tile (default: the canvas, so the whole picture is one tile).
+    void parse_tile(const Json& json, ImageDocument& doc) {
+        auto it = json.find("tile");
+        if (it == json.end()) return;
+        const std::string hint = "Example: \"tile\": true (the canvas is one tile that repeats) or \"tile\": {\"width\": 16, \"height\": 16} (the canvas is a sheet of 16 x 16 tiles). Remove the key for a picture that does not repeat.";
+        if (it->is_boolean()) {
+            doc.tile.enabled = it->get<bool>();
+        } else if (it->is_object()) {
+            doc.tile.enabled = true;
+            unknown_keys(*it, "/tile", {"width", "height"}, "the tile settings");
+            get_int(*it, "/tile", "width", doc.tile.width, 1, kImageDocMaxSide, "`width` is one tile's width in pixels; it must divide the canvas width.");
+            get_int(*it, "/tile", "height", doc.tile.height, 1, kImageDocMaxSide, "`height` is one tile's height in pixels; it must divide the canvas height.");
+        } else {
+            add("/tile", "`tile` must be true or {width, height}, got " + describe_json_value(*it) + ".", hint);
+            return;
+        }
+        if (!doc.tile.enabled) {
+            doc.tile = {};
+            return;
+        }
+        if (doc.tile.width == 0) doc.tile.width = canvasW;
+        if (doc.tile.height == 0) doc.tile.height = canvasH;
+        if (doc.tile.width > 0 && canvasW > 0 && (doc.tile.width > canvasW || canvasW % doc.tile.width))
+            add("/tile/width", std::format("The tile is {} pixels wide but the canvas is {}: the tile width must divide the canvas width.", doc.tile.width, canvasW),
+                std::format("Use a width that fits a whole number of times, such as {}. A canvas of 128 holds 8 tiles of 16.", canvasW % 2 == 0 ? canvasW / 2 : canvasW));
+        if (doc.tile.height > 0 && canvasH > 0 && (doc.tile.height > canvasH || canvasH % doc.tile.height))
+            add("/tile/height", std::format("The tile is {} pixels high but the canvas is {}: the tile height must divide the canvas height.", doc.tile.height, canvasH),
+                std::format("Use a height that fits a whole number of times, such as {}.", canvasH % 2 == 0 ? canvasH / 2 : canvasH));
+    }
+
+    // One picture of a tileset part: a PNG path, {"source"}, {"rows"} or {"color"}.
+    void parse_tileset_part(const Json& v, const std::string& pointer, TilesetPart& out) {
+        out.pointer = pointer;
+        const std::string hint = "A part picture is one tile: {\"source\": \"assets/tiles/grass.png\"}, {\"rows\": [\"1111\", ...]} (text rows of the document's palette) or {\"color\": \"#3a7a2a\"}. A list of them gives variants.";
+        if (v.is_string()) {
+            out.source = v.get<std::string>();
+            const std::size_t slash = pointer.rfind('/');
+            project_file(pointer.substr(0, slash), pointer.substr(slash + 1), out.source, {".png"}, "a PNG");
+            return;
+        }
+        if (!v.is_object()) {
+            add(pointer, "A tileset part must be a PNG path, an object {source | rows | color} or a list of those, got " + describe_json_value(v) + ".", hint);
+            return;
+        }
+        unknown_keys(v, pointer, {"source", "rows", "color"}, "a tileset part");
+        const int kinds = int(v.contains("source")) + int(v.contains("rows")) + int(v.contains("color"));
+        if (kinds != 1) {
+            add(pointer, kinds == 0 ? "A tileset part needs `source`, `rows` or `color`." : "A tileset part has exactly one of `source`, `rows` and `color`.", hint);
+            return;
+        }
+        if (v.contains("source")) {
+            if (get_string(v, pointer, "source", out.source)) project_file(pointer, "source", out.source, {".png"}, "a PNG");
+        } else if (v.contains("rows")) {
+            int w = 0, h = 0;
+            parse_rows(v["rows"], pointer + "/rows", out.rows, w, h);
+        } else {
+            Color c;
+            if (get_color(v, pointer, "color", c)) out.color = c;
+        }
+    }
+
+    // A `tileset` layer: the 16 or 47 tiles of an autotile set, built from a few parts (fa/tooling/image_tileset.h).
+    void parse_tileset(const Json& j, const std::string& pointer, ImageLayer& layer) {
+        TilesetSpec& t = layer.tileset;
+        const std::string example = "Example: {\"kind\": \"tileset\", \"mode\": \"blob47\", \"tileWidth\": 16, \"tileHeight\": 16, \"parts\": {\"inside\": {\"source\": \"assets/tiles/grass.png\"}, \"edge\": {...}, \"corner\": {...}, \"innerCorner\": {...}}}.";
+        if (get_string(j, pointer, "mode", t.mode) && t.mode != "basic16" && t.mode != "blob47")
+            add(pointer + "/mode", "Unknown tileset mode '" + t.mode + "'.", did_you_mean(t.mode, std::vector<std::string>{"basic16", "blob47"}) + " basic16 is the 16-tile set (4 neighbours), blob47 the 47-tile set (8 neighbours).");
+        get_string(j, pointer, "terrain", t.terrain);
+        const std::string sizeHint = "The size of one tile in pixels, an even number from 2 to 512 (it is split into four quadrants). Example: \"tileWidth\": 16, \"tileHeight\": 16.";
+        if (!j.contains("tileWidth") && !j.contains("tileHeight")) add(pointer, "A tileset needs `tileWidth` and `tileHeight`: the size of one tile.", sizeHint + " " + example);
+        get_int(j, pointer, "tileWidth", t.tileWidth, 2, 512, sizeHint);
+        get_int(j, pointer, "tileHeight", t.tileHeight, 2, 512, sizeHint);
+        if (t.tileWidth == 0) t.tileWidth = t.tileHeight;       // only one given: square tiles
+        if (t.tileHeight == 0) t.tileHeight = t.tileWidth;
+        if (t.tileWidth % 2) add(pointer + "/tileWidth", std::format("`tileWidth` is {}: a tile is cut into four quadrants, so its sides must be even.", t.tileWidth), sizeHint);
+        if (t.tileHeight % 2) add(pointer + "/tileHeight", std::format("`tileHeight` is {}: a tile is cut into four quadrants, so its sides must be even.", t.tileHeight), sizeHint);
+        get_int(j, pointer, "columns", t.columns, 1, 64, "`columns` is how many tiles a row of the baked sheet holds (default 4 for basic16, 8 for blob47).");
+        get_int(j, pointer, "variations", t.variations, 1, 8, "`variations` is how many pictures each of the tiles gets (1 to 8); the others pick other variants of the parts by `seed`.");
+        if (auto it = j.find("seed"); it != j.end()) {
+            if (!it->is_number_integer()) add(pointer + "/seed", "`seed` must be a whole number, got " + describe_json_value(*it) + ".", "Example: \"seed\": 7. The same seed always picks the same variants.");
+            else t.seed = it->get<long long>();
+        }
+        auto parts = j.find("parts");
+        if (parts == j.end() || !parts->is_object()) {
+            add(parts == j.end() ? pointer : pointer + "/parts", "A tileset needs `parts`: an object with the pictures it is built from.", example);
+            return;
+        }
+        const auto& names = tileset_part_names();
+        for (const std::string& name : names) {
+            auto it = parts->find(name);
+            if (it == parts->end()) continue;
+            std::vector<TilesetPart> variants;
+            const std::string pp = pointer + "/parts/" + name;
+            if (it->is_array()) {
+                if (it->empty()) add(pp, "A list of variants is empty.", "List at least one picture, or give the part as one picture.");
+                for (std::size_t i = 0; i < it->size(); ++i) {
+                    TilesetPart part;
+                    parse_tileset_part((*it)[i], pp + "/" + std::to_string(i), part);
+                    variants.push_back(std::move(part));
+                }
+            } else {
+                TilesetPart part;
+                parse_tileset_part(*it, pp, part);
+                variants.push_back(std::move(part));
+            }
+            t.parts.emplace_back(name, std::move(variants));
+        }
+        unknown_keys(*parts, pointer + "/parts", names, "the parts of a tileset");
+        if (t.mode == "basic16" || t.mode == "blob47") {
+            std::vector<std::string> missing;
+            for (const std::string& need : tileset_required_parts(t.mode, t.tileWidth == t.tileHeight))
+                if (!parts->contains(need)) missing.push_back(need);
+            if (!missing.empty())
+                add(pointer + "/parts", "A " + t.mode + " tileset needs the part" + std::string(missing.size() == 1 ? " " : "s ") + join(missing, ", ") + ".",
+                    "The minimal set: inside (a flat tile of the terrain), edge (its top edge), corner (its top-left outer corner)" + std::string(t.mode == "blob47" ? ", innerCorner (an inside tile with the top-left corner cut out)" : "") +
+                        (t.tileWidth != t.tileHeight ? ", edgeLeft (its left edge: a tile that is not square cannot be turned)" : "") + ". The other orientations are made by flipping. Run image.tileset.info for the drawing of each part.");
+        }
+    }
+
     // The `cels` of a pixels or indexed layer: what it shows from each frame after the first on (docs/IMAGES.md, "Frames and tags").
     void parse_cels(const Json& j, const std::string& pointer, ImageLayer& layer) {
         auto it = j.find("cels");
@@ -661,6 +782,7 @@ struct Parser {
             case ImageLayerKind::Group: extend({"layers"}); break;
             case ImageLayerKind::Adjustment: break;
             case ImageLayerKind::Indexed: extend({"rows", "width", "height", "ai", "cels"}); break;
+            case ImageLayerKind::Tileset: extend({"mode", "terrain", "tileWidth", "tileHeight", "columns", "variations", "seed", "parts"}); break;
         }
         unknown_keys(j, pointer, allowed, "a " + kind + " layer");
 
@@ -780,6 +902,7 @@ struct Parser {
                 break;
             }
             case ImageLayerKind::Indexed: parse_indexed(j, pointer, layer); parse_cels(j, pointer, layer); break;
+            case ImageLayerKind::Tileset: parse_tileset(j, pointer, layer); break;
             case ImageLayerKind::Adjustment:
                 if (layer.adjustments.empty() && !issues_at(pointer + "/adjustments"))
                     add(pointer + "/adjustments", "An adjustment layer needs `adjustments`: the colour operations it applies to everything below it.", "Example: {\"kind\": \"adjustment\", \"adjustments\": [{\"type\": \"invert\"}]}.");
@@ -818,7 +941,7 @@ Result<ImageDocument> parse_image_document(const Json& json, const std::string& 
     if (!json.is_object()) {
         p.add("", "An image document must be a JSON object, got " + describe_json_value(json) + ".", "Start from " + exampleDoc);
     } else {
-        p.unknown_keys(json, "", {"$schema", "format", "width", "height", "background", "output", "description", "palette", "ramps", "frames", "tags", "sheet", "layers"}, "an image document");
+        p.unknown_keys(json, "", {"$schema", "format", "width", "height", "background", "output", "description", "palette", "ramps", "tile", "frames", "tags", "sheet", "layers"}, "an image document");
         if (auto it = json.find("format"); it != json.end() && (!it->is_string() || it->get<std::string>() != kImageDocFormat))
             p.add("/format", "Unknown format " + describe_json_value(*it) + ".", std::string("Write \"format\": \"") + kImageDocFormat + "\" (or leave it out).");
         for (const char* key : {"width", "height"}) {
@@ -844,6 +967,7 @@ Result<ImageDocument> parse_image_document(const Json& json, const std::string& 
         }
         p.parse_palette(json);
         doc.palette = p.palette;
+        p.parse_tile(json, doc);
         p.parse_animation(json, doc);
         auto layers = json.find("layers");
         if (layers == json.end() || !layers->is_array())

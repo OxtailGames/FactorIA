@@ -24,6 +24,10 @@ Finish pixel art with the palette-exact helpers (docs_read {"name":"images"}, "P
 or selective sel-out), image_pixel_shade (bands from the style's light), image_pixel_dither, image_pixel_cleanup (orphans, doubles, jaggies),
 image_pixel_rotate (RotSprite) and image_pixel_scale; image_to_pixel_art turns a painted layer or a PNG into an indexed layer. All take
 `frames: "all"` and a stored `selection`.
+A texture or wall that repeats is drawn in tile mode (image_tile_set: edits wrap around the tile edges) and checked with image_tile_check
+(3 x 3 preview, bad seams in red). An autotile ground, wall or water (the 16 or 47 tiles) is not drawn tile by tile: image_tileset_build
+makes it from four parts (inside, edge, corner, innerCorner), bakes the sheet, writes the Tilemap rules and takes `variations` + `seed`;
+image_tileset_check compares every pair of tiles that touch. docs_read {"name":"images"}, "Tiles".
 A character that moves is built in parts (child Sprites with pivots at the joints, bones where a limb bends, IK for feet) and
 animated with the anim.* commands, then judged with anim_filmstrip and anim_check: docs_read {"name":"ai-guide","heading":"9.25.2"}.
 

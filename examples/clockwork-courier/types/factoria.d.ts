@@ -4228,6 +4228,26 @@ declare module "factoria" {
      */
     cellToWorld(col: number, row: number): Vec2;
     /**
+     * Autotile: sets the cells (a list of [col, row] pairs or {col, row} objects, row 0 = TOP row) to the terrain `terrain` of Tilemap.terrains and re-tiles them and the 8 cells around each one, so painting grass next to water draws the shore. Only cells that already belong to a terrain are re-tiled: tiles you placed by hand stay. The tile of a cell is picked from the terrain's variations by column, row and seed, so the same painting looks the same every run. Returns the number of cells `painted`, the cells that were `outside` the map (skipped), `changed` (how many cells got another tile) and `changes` (each cell's `from` and `to` tile value). Throws an Error that names the terrains of the map (did-you-mean) when `terrain` is not one, or that points at the invalid rule. Example: `map.tilemap.paintTerrain("grass", [[3, 4], [4, 4], [5, 4]])`.
+     * @since unreleased
+     */
+    paintTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
+    /**
+     * Empties the cells (-1) and re-tiles the cells next to them, as paintTerrain does for painting: removing a lake cell turns its neighbours into shore. `terrain` names the rules used to re-tile (the terrain being removed). Same result as paintTerrain.
+     * @since unreleased
+     */
+    eraseTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
+    /**
+     * Recomputes the tile of every cell that belongs to a terrain from the cells around it (after writing tiles with setTile or changing Tilemap.terrains). Cells that belong to no terrain are not touched. Throws when the map has no terrains.
+     * @since unreleased
+     */
+    retile(): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] };
+    /**
+     * The name of the terrain the tile at column col, row row belongs to (its tile index is one of the terrain's tiles), or null for an empty cell, a cell outside the map or a tile that is no terrain's.
+     * @since unreleased
+     */
+    terrainAt(col: number, row: number): string | null;
+    /**
      * Map width in tiles.
      * @since 0.3.0
      */
@@ -5589,6 +5609,11 @@ declare module "factoria" {
      * List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A flipped or rotated copy of a solid tile is still solid. Empty = nothing collides. Returns a plain-object COPY; assign a new value to write.
      */
     solidTiles: any;
+    /**
+     * Autotile rules: an array of terrains that tilemap.paint_terrain (scripts: entity.tilemap.paintTerrain) paints, choosing for every cell the edge, corner or inside tile that fits the cells around it. A terrain is {"name": "grass", "mode": "blob47", "first": 0}. mode: "basic16" looks at the 4 neighbours (16 tiles, slot = N*1 + E*2 + S*4 + W*8) and "blob47" at the 8 (47 tiles; a diagonal counts only when both cells next to it are in the terrain; the slots are the 47 reduced masks N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 in ascending order, `factoria call image.tileset.info` prints them). The tiles come as "first": the tileset index of slot 0, the rest follow; or "tiles": one entry per slot, each a tile index or an array of tile indices that are variations of that look (one is picked from the cell's column, row and the terrain's "seed", the same every time). A cell belongs to the terrain whose tiles contain its tile index, so two terrains cannot share a tile. Optional: "seed" (integer, default 0), "joins" (names of terrains whose cells count as neighbours, e.g. a path that meets the grass), "outside": "terrain" (the map edge counts as this terrain, so no border is drawn there; default "empty"). image.tileset.build writes the terrain of a tileset it bakes; tilemap.set_terrains sets them from a rules file. Empty = no rules. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    terrains: any;
     /**
      * Tint multiplied with the tileset.
      */
@@ -8595,7 +8620,7 @@ declare module "factoria" {
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd" };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };

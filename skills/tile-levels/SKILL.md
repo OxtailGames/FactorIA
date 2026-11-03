@@ -1,6 +1,6 @@
 ---
 name: tile-levels
-description: ASCII tile maps with scene.import_ascii, camera bounds. Read before making a level.
+description: ASCII tile maps with scene.import_ascii, autotile terrains, camera bounds. Read before making a level.
 ---
 
 # Tile levels
@@ -16,6 +16,16 @@ the base scene's prefab entities, so editing a prefab changes every level withou
 legend: `"legendFrom": "levels/legend.json"` (merged under the map's own `legend`).
 `Tilemap.columns` is optional (0 = derived from the tileset image width): leave it out. Guide section 9.8. Do not place
 tile objects by hand or write a level generator.
+
+## Autotile terrains
+
+A ground, wall or water that must join its neighbours (edges, corners) is a TERRAIN: `Tilemap.terrains` holds the rules (which
+tile for each combination of neighbours) and you paint the terrain, not tile numbers. Make the tileset and its rules with
+`image.tileset.build` (a sheet of 16 or 47 tiles from four parts, with `variations` and a `seed`; docs_read {"name":"images"},
+"Tiles"), check it with `image.tileset.check`, then on the map: `tilemap.set_terrains {"id":"map","path":"assets/art/ground.terrains.json"}`,
+`tilemap.paint_terrain {"id":"map","terrain":"ground","rect":{"col":2,"row":1,"width":7,"height":5}}` (`"erase": true` to remove;
+it re-tiles the cells around it) and `tilemap.retile` after you write `tiles` by hand. A game script paints
+with `entity.tilemap.paintTerrain("ground", [[col, row]])` and `eraseTerrain`, `retile`, `terrainAt` (SCRIPTING.md, "Autotile"). Guide section 9.8.
 
 ## Camera and area limits
 

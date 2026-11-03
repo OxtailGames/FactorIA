@@ -5,6 +5,7 @@
 #include <format>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/image_tile.h"
 #include "fa/tooling/style_guide.h"
 #include "image_edit.h"
 #include "image_frames.h"
@@ -133,6 +134,24 @@ std::size_t draw_patch(Work& w, const Patch& p) {
             const std::uint8_t* s = &p.img.rgba[(std::size_t(y) * p.img.width + x) * 4];
             if (!s[3]) continue;
             const int bx = p.x + x - w.ox, by = p.y + y - w.oy;
+            if (bx < 0 || by < 0 || bx >= w.img.width || by >= w.img.height) {
+                ++dropped;
+                continue;
+            }
+            over_pixel(&w.img.rgba[(std::size_t(by) * w.img.width + bx) * 4], s[0], s[1], s[2], s[3] / 255.0);
+        }
+    return dropped;
+}
+
+// Tile mode: the patch drawn `p.x - fromX` to the right and `p.y - fromY` down, each pixel wrapping inside the tile cell it came from.
+std::size_t draw_patch_wrapped(Work& w, const Patch& p, int fromX, int fromY, const TileGrid& tiles) {
+    std::size_t dropped = 0;
+    for (int y = 0; y < p.img.height; ++y)
+        for (int x = 0; x < p.img.width; ++x) {
+            const std::uint8_t* s = &p.img.rgba[(std::size_t(y) * p.img.width + x) * 4];
+            if (!s[3]) continue;
+            const int cellX = tiles.cell_x(fromX + x), cellY = tiles.cell_y(fromY + y);
+            const int bx = tiles.wrap_x(p.x + x, cellX) - w.ox, by = tiles.wrap_y(p.y + y, cellY) - w.oy;
             if (bx < 0 || by < 0 || bx >= w.img.width || by >= w.img.height) {
                 ++dropped;
                 continue;
@@ -380,16 +399,19 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         Work w = open_work(projectDir, d.json, ref, cmd, true, true);
         Patch p = extract(w, sel);
         if (!act.contains("copy") || act["copy"] != true) erase_selected(w, sel);
+        const int fromX = p.x, fromY = p.y;
         p.x += int(dx);
         p.y += int(dy);
-        const std::size_t dropped = draw_patch(w, p);
+        const TileGrid tiles = tile_grid_of(d.json);
+        const std::size_t dropped = tiles.on ? draw_patch_wrapped(w, p, fromX, fromY, tiles) : draw_patch(w, p);
         if (dropped) warnings.push_back(std::format("{} moved pixels fell outside the {} and were dropped.", dropped, w.fixedRect ? "layer's box (a layer with masks keeps its box)" : "canvas"));
         commit_work(projectDir, d.rel, d.json, ref, w, cmd);
         for (const std::string& s : w.warnings) warnings.push_back(s);
         if (!act.contains("moveSelection") || act["moveSelection"] != false) {
             Mask moved(W, H);
             for (int y = 0; y < H; ++y)
-                for (int x = 0; x < W; ++x) moved.ref(x, y) = sel.at(x - int(dx), y - int(dy));
+                for (int x = 0; x < W; ++x)
+                    moved.ref(x, y) = tiles.on ? sel.at(tiles.wrap_x(x - int(dx), tiles.cell_x(x)), tiles.wrap_y(y - int(dy), tiles.cell_y(y))) : sel.at(x - int(dx), y - int(dy));
             if (a["selection"].get<std::string>() != "all") {
                 save_selection(projectDir, d.rel, a["selection"].get<std::string>(), moved);
                 extra["selectionMoved"] = true;
@@ -426,6 +448,8 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         erase_selected(w, sel);
         Patch t = transform_patch(p, sx, sy, rot, fh, fv, pvx, pvy, filter == "nearest");
         const std::size_t dropped = draw_patch(w, t);
+        if (tile_grid_of(d.json).on)
+            warnings.push_back("Tile mode is on but a transform does not wrap around the tile edges: check the seams with image.tile.check afterwards.");
         if (dropped) warnings.push_back(std::format("{} transformed pixels fell outside the {} and were dropped.", dropped, w.fixedRect ? "layer's box (a layer with masks keeps its box)" : "canvas"));
         commit_work(projectDir, d.rel, d.json, ref, w, cmd);
         for (const std::string& s : w.warnings) warnings.push_back(s);
@@ -487,6 +511,7 @@ Json image_paint(const std::string& projectDir, const Json& a) {
     }
     extra["layer"] = layer_summary(ref);
     Work w = open_work(projectDir, d.json, ref, cmd, true, true);
+    const TileGrid tiles = tile_grid_of(d.json);
 
     std::size_t stamped = 0;
     for (std::size_t si = 0; si < a["strokes"].size(); ++si) {
@@ -517,9 +542,11 @@ Json image_paint(const std::string& projectDir, const Json& a) {
         // the stroke's coverage: the largest value any stamp gives a pixel, so a stroke does not darken where it overlaps itself
         std::vector<float> cov(std::size_t(w.img.width) * w.img.height, 0.0f);
         const double r = size / 2, inner = r * hardness;
-        auto stamp = [&](double cx, double cy) {
-            const int x0 = std::max(0, int(std::floor(cx - r - 1 - w.ox))), x1 = std::min(w.img.width - 1, int(std::ceil(cx + r + 1 - w.ox)));
-            const int y0 = std::max(0, int(std::floor(cy - r - 1 - w.oy))), y1 = std::min(w.img.height - 1, int(std::ceil(cy + r + 1 - w.oy)));
+        // tile mode: the stroke wraps inside the tile that holds its first point, so a stamp is drawn once per copy of the tile that reaches it
+        const int cellX = tiles.on ? tiles.cell_x(int(std::floor(pts[0].first))) : 0, cellY = tiles.on ? tiles.cell_y(int(std::floor(pts[0].second))) : 0;
+        auto stamp_one = [&](double cx, double cy, int clipX0, int clipY0, int clipX1, int clipY1) {   // clip: work-buffer pixels [x0, x1] x [y0, y1]
+            const int x0 = std::max(clipX0, int(std::floor(cx - r - 1 - w.ox))), x1 = std::min(clipX1, int(std::ceil(cx + r + 1 - w.ox)));
+            const int y0 = std::max(clipY0, int(std::floor(cy - r - 1 - w.oy))), y1 = std::min(clipY1, int(std::ceil(cy + r + 1 - w.oy)));
             for (int y = y0; y <= y1; ++y)
                 for (int x = x0; x <= x1; ++x) {
                     const double dist = std::hypot(w.ox + x + 0.5 - cx, w.oy + y + 0.5 - cy);
@@ -531,7 +558,19 @@ Json image_paint(const std::string& projectDir, const Json& a) {
                     float& slot = cov[std::size_t(y) * w.img.width + x];
                     if (c > slot) slot = float(c);
                 }
+        };
+        auto stamp = [&](double cx, double cy) {
             ++stamped;
+            if (!tiles.on) return stamp_one(cx, cy, 0, 0, w.img.width - 1, w.img.height - 1);
+            // the centre moves into the cell, then every copy of the cell around it is tried: a brush wider than a tile touches several
+            const double fx = std::fmod(cx - cellX, double(tiles.tw)), fy = std::fmod(cy - cellY, double(tiles.th));
+            cx = cellX + (fx < 0 ? fx + tiles.tw : fx);
+            cy = cellY + (fy < 0 ? fy + tiles.th : fy);
+            const int clipX0 = std::max(0, cellX - w.ox), clipY0 = std::max(0, cellY - w.oy);
+            const int clipX1 = std::min(w.img.width - 1, cellX + tiles.tw - 1 - w.ox), clipY1 = std::min(w.img.height - 1, cellY + tiles.th - 1 - w.oy);
+            const int nx = int(std::ceil((r + 1) / tiles.tw)), ny = int(std::ceil((r + 1) / tiles.th));
+            for (int j = -ny; j <= ny; ++j)
+                for (int i = -nx; i <= nx; ++i) stamp_one(cx + i * tiles.tw, cy + j * tiles.th, clipX0, clipY0, clipX1, clipY1);
         };
         stamp(pts[0].first, pts[0].second);
         double carry = 0;

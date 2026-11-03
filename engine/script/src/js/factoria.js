@@ -628,7 +628,31 @@
       const w = N.tileCellToWorld(this.$h, col, row);
       return vec2(w[0], w[1]);
     }
+    // Autotile (Tilemap.terrains): sets the cells to a terrain and re-tiles them and the cells around them. `cells` is a list
+    // of [col, row] pairs or {col, row} objects. Returns {painted, outside, changed, changes: [{col, row, from, to}]}.
+    paintTerrain(terrain, cells) { return N.tilePaintTerrain(this.$h, terrainName(terrain, "paintTerrain"), terrainCells(cells, "paintTerrain"), 0); }
+    // The same with the cells emptied (-1); the cells next to them are re-tiled.
+    eraseTerrain(terrain, cells) { return N.tilePaintTerrain(this.$h, terrainName(terrain, "eraseTerrain"), terrainCells(cells, "eraseTerrain"), 1); }
+    // Re-tiles every cell that belongs to a terrain (after writing tiles by hand or changing the rules).
+    retile() { return N.tileRetile(this.$h); }
+    // The name of the terrain the tile at (col, row) belongs to, or null.
+    terrainAt(col, row) {
+      if (typeof col !== "number" || typeof row !== "number") throw new Error(`tilemap.terrainAt(col, row) expects two cell numbers, got ${inspect(col)}, ${inspect(row)}`);
+      return N.tileTerrainAt(this.$h, col, row);
+    }
   }
+  const terrainName = (t, fn) => {
+    if (typeof t !== "string" || !t) throw new Error(`tilemap.${fn}(terrain, cells) expects the name of a terrain of Tilemap.terrains first, got ${inspect(t)}`);
+    return t;
+  };
+  const terrainCells = (cells, fn) => {
+    if (!Array.isArray(cells)) throw new Error(`tilemap.${fn}(terrain, cells) expects a list of cells, [[col, row], ...] or [{col, row}, ...], got ${inspect(cells)}`);
+    return cells.map((c, i) => {
+      if (Array.isArray(c) && c.length === 2 && typeof c[0] === "number" && typeof c[1] === "number") return [c[0], c[1]];
+      if (c && typeof c.col === "number" && typeof c.row === "number") return [c.col, c.row];
+      throw new Error(`tilemap.${fn}: cells[${i}] is ${inspect(c)}, not a [col, row] pair or a {col, row} object`);
+    });
+  };
 
   // ========================================================================================================== video
   // entity.video: a Video component (an .mpg on a UI rectangle). The component holds the state and the engine advances it with

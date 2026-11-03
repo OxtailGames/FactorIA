@@ -48,6 +48,7 @@ void register_image_commands(CommandRegistry& registry, const std::string& proje
     imgedit::register_pixel_commands(registry, projectDir);
     imgedit::register_indexed_commands(registry, projectDir);
     imgedit::register_pixel_helper_commands(registry, projectDir);
+    imgedit::register_tile_commands(registry, projectDir);
     imgedit::register_frame_commands(registry, projectDir);
     {
         CommandInfo info;
