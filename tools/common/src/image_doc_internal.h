@@ -10,12 +10,14 @@
 //   image_doc_commands.cpp the image.* commands
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
 #include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/tooling/image_doc.h"
+#include "fa/tooling/style_guide.h"
 
 namespace fa::imgdoc {
 
@@ -56,11 +58,20 @@ void composite_pixel(ImageBlend mode, const float* b, const float* s, float* out
 // ---- ops (image_doc_ops.cpp) -----------------------------------------------------------------------------------------
 
 // Checks one entry of an `adjustments` or `effects` list; every problem goes to `issues` (pointer = the entry's).
-void check_op(bool effect, const Json& op, const std::string& pointer, std::vector<ImageIssue>& issues);
+// `projectDir` ("" = do not check files) is where a normal map named by an operation must exist.
+void check_op(bool effect, const Json& op, const std::string& pointer, std::vector<ImageIssue>& issues, const std::string& projectDir = "");
+
+// What an operation may need from the renderer: a project picture (a normal map), the project's style, and a way to fail with
+// the pointer of the layer being drawn. `fail` must throw.
+struct OpEnv {
+    std::function<const Image&(const std::string& rel)> image;
+    std::function<const StyleGuide&()> style;
+    std::function<void(const std::string& message, const std::string& hint)> fail;
+};
 // Colour operations on a raster, in place (alpha is kept). Entries were checked by check_op.
-void apply_adjustments(const std::vector<Json>& list, Raster& raster);
-// Footprint operations on a raster (may grow it). M52.2 adds shadows and outlines here.
-void apply_effects(const std::vector<Json>& list, Raster& raster);
+void apply_adjustments(const std::vector<Json>& list, Raster& raster, const OpEnv& env);
+// Footprint operations on a raster (may grow it; the origin ox, oy moves so the pixels stay where they were).
+void apply_effects(const std::vector<Json>& list, Raster& raster, const OpEnv& env);
 
 // ---- vector (image_doc_vector.cpp) -----------------------------------------------------------------------------------
 
