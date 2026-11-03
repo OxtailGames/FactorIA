@@ -9,6 +9,15 @@ void check_model_documents(const std::string& projectDir, std::vector<Validation
     for (const std::string& rel : list_model_documents(projectDir)) {
         const ModelBakeStatus status = model_bake_status(projectDir, rel);
         const std::string bake = "factoria call model.bake '" + Json::object({{"path", rel}}).dump() + "'";
+        // a uv section that cannot make good uvs: what the build measured, as warnings (the same words as `model.uv`)
+        if (status.state != ModelBakeState::Broken) {
+            ProjectRootGuard root(projectDir);
+            if (auto doc = load_model_doc(rel); doc.ok() && doc->uv) {
+                if (auto build = evaluate_model(*doc, model_project_eval_options(projectDir)); build.ok() && build->uv)
+                    for (const std::string& w : build->uv->warnings)
+                        warnings.push_back({rel, "/uv", w, "factoria call model.uv '" + Json::object({{"path", rel}}).dump() + "' measures it and draws the layout."});
+            }
+        }
         switch (status.state) {
             case ModelBakeState::Broken: {
                 // every issue of the document with its pointer

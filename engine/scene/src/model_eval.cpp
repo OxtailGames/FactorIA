@@ -537,6 +537,30 @@ Result<ModelBuild> evaluate_model(const ModelDoc& doc, const ModelEvalOptions& o
     if (mesh.vertex_count() > (1u << 20) || mesh.indices.size() > (6u << 20))
         return make_error(std::format("the model has {} vertices and {} triangles, more than a mesh can hold ({} vertices)", mesh.vertex_count(), mesh.triangle_count(), 1u << 20),
                           "Lower `segments` on the round primitives, or use fewer nodes.");
+
+    // The `uv` section replaces every node's own uvs (a primitive's, an sdf's box default) once the model is complete: the settings see the
+    // whole merged mesh and the part of each triangle.
+    if (doc.uv) {
+        std::vector<std::string> partNames;
+        for (const auto& g : eval.groups) partNames.push_back(g.part);
+        ModelUvOptions uvOptions;
+        uvOptions.defaultTexelsPerMeter = options.defaultTexelsPerMeter;
+        auto made = model_uv_apply(mesh, partNames, *doc.uv, uvOptions);
+        if (!made) return make_error("uv: " + made.error().message, made.error().hint);
+        mesh = std::move(made->mesh);
+        for (const auto& [name, settings] : doc.uv->parts) {
+            if (std::find(partNames.begin(), partNames.end(), name) == partNames.end()) {
+                std::vector<std::string> named;
+                for (const std::string& n : partNames)
+                    if (!n.empty()) named.push_back(n);
+                build.warnings.push_back(std::format("uv.parts names \"{}\", which no node makes: it has no effect. {}", name, named.empty() ? "No node names a part (set `part` on a node)." : did_you_mean(name, named)));
+            }
+        }
+        for (const std::string& w : made->report.warnings) build.warnings.push_back("uv: " + w);
+        build.uv = std::move(made->report);
+        if (mesh.vertex_count() > (1u << 20))
+            return make_error(std::format("uv: cutting the model into uv pieces made {} vertices, more than a mesh can hold ({})", mesh.vertex_count(), 1u << 20), "Use fewer cuts (`seams`: \"few\") or lower `segments`.");
+    }
     build.stats = model_mesh_stats(mesh);
 
     // The triangles of each (part, material) next to each other, in the order the groups were first used; the order inside a group is the
