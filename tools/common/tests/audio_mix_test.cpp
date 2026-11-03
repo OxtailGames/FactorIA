@@ -192,7 +192,7 @@ TEST_CASE("assets.check_mix: loudness against a target per bus, the spread witho
     CHECK(r.result["targetSource"] == "targets argument");
 
     // style.audio of assets.json is the default target; a sound no scene plays is on the unknown bus.
-    p.write("assets.json", R"({"format":"factoria.assets/1","style":{"audio":{"loudnessLufs":-14,"toleranceLu":1}},"assets":{}})");
+    p.write("assets.json", R"({"format":"factoria.assets/1","style":{"audio":{"loudnessLufs":{"default":-14},"toleranceLu":1}},"assets":{}})");
     p.write("scripts/s.js", "");
     r = p.mix({{"includeOk", true}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());

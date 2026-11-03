@@ -129,8 +129,8 @@ settings steer the generation of images; the others are rules that `assets.check
   `value` is the HSV brightness of the darkest and the lightest pixels (the 1st and the 99th percentile of the visible
   pixels, so a stray pixel does not count); `saturation` is the mean HSV saturation of the visible pixels.
 - `audio` is `{"loudnessLufs": {"<bus>": <LUFS>}, "toleranceLu"}`: the integrated loudness each mixer bus aims at (-70
-  to 0) and how far a sound may be from it (0.5 to 24 LU, default 3). It is parsed and checked here; `assets.check_mix`
-  is the reader that compares sounds with it.
+  to 0) and how far a sound may be from it (0.5 to 24 LU, default 3); a bus named `default` covers the buses not listed.
+  `assets.check_mix` is the reader that compares sounds with it.
 - `ignore` is a list of project-relative files, and folders (end the path with `/`), that the style rules skip: UI,
   effects and art that is meant to differ. `assets.check_art` still measures them; it just does not judge them against
   the style rules, and `factoria validate` stays silent about them.
@@ -232,8 +232,8 @@ Masking compares the long-term level of each octave band (31 Hz to 16 kHz) of th
 silent, with that of the music, both as played; it does not know the volumes a script gives the voices.
 
 Loudness targets, in the order they are looked for: the `targets` argument (`{"music": -16, "sfx": {"lufs": -14,
-"toleranceLu": 2}, "default": -16}`; a number uses a tolerance of 3 LU), then `style.audio.loudnessLufs` (a number, or one
-per bus) and `style.audio.toleranceLu` in `assets.json`, then the spread rule. The hints are concrete: a `targetLufs` to
+"toleranceLu": 2}, "default": -16}`; a number uses a tolerance of 3 LU), then `style.audio.loudnessLufs` (one per
+bus, `default` for the rest) and `style.audio.toleranceLu` in `assets.json`, then the spread rule. The hints are concrete: a `targetLufs` to
 set under the sound's `import`, a fade length in samples, `assets.generate_loop` for a seamless loop, ducking the music
 bus for a masked effect, a level to cut for a true peak.
 
