@@ -20,6 +20,7 @@
 #include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/tooling/image_doc.h"
+#include "fa/tooling/image_paint.h"
 
 namespace fa::imgedit {
 
@@ -96,13 +97,9 @@ Image render_layer_alone(const std::string& projectDir, const Json& layerJson, i
 // ---- masks and selections -----------------------------------------------------------------------------------------
 
 // A selection: coverage 0..255 per pixel of the canvas (255 = fully selected).
-struct Mask {
-    int w = 0, h = 0;
-    std::vector<std::uint8_t> v;
+struct Mask : ImageSelection {
     Mask() = default;
-    Mask(int width, int height, std::uint8_t fill = 0) : w(width), h(height), v(std::size_t(width) * height, fill) {}
-    std::uint8_t at(int x, int y) const { return x < 0 || y < 0 || x >= w || y >= h ? 0 : v[std::size_t(y) * w + x]; }
-    std::uint8_t& ref(int x, int y) { return v[std::size_t(y) * w + x]; }
+    Mask(int width, int height, std::uint8_t fill = 0) : ImageSelection(width, height, fill) {}
     std::size_t count(int threshold = 128) const;      // pixels with coverage >= threshold
     Region bounds() const;                              // the box of the pixels with coverage > 0
 };

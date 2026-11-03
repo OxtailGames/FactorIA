@@ -60,6 +60,7 @@
 #include "export_job.h"
 #include "feedback_share_ui.h"
 #include "gizmo_model.h"
+#include "image_ui.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "inspector_model.h"
@@ -328,6 +329,39 @@ public:
     bool anim_recording() const { return anim_.recording && showAnimation_; }
     AnimUi anim_;
     bool lastEditRecorded_ = false;  // the last edit_command wrote a clip key instead of a field
+    // Image panel (image_panel.cpp, image_canvas.cpp; View > Image, or a double click on a *.image.json in the Project panel): the layered
+    // image document as a canvas with brushes, selections and a transform, a layer list with an inspector, adjustments and effects, a
+    // palette bar and a frame strip. The rules are in image_model.h: every edit it keeps is an image.* command, so the Console and the
+    // AI make the same calls, and its undo steps are entries of the same stack as the scene's (`{"$image": {"step": id}}`).
+    ImageModel& image_ensure_model();                      // makes the panel's model on first use
+    void draw_image_panel();
+    void draw_image_toolbar(ImageModel& m);
+    void draw_image_tools(ImageModel& m);
+    void draw_image_options(ImageModel& m);
+    void draw_image_canvas(ImageModel& m, ImVec2 size);
+    void draw_image_palette(ImageModel& m);
+    void draw_image_frames(ImageModel& m);
+    void draw_image_side(ImageModel& m);
+    void draw_image_layers(ImageModel& m);
+    void draw_image_layer_inspector(ImageModel& m);
+    void draw_image_operations(ImageModel& m, const ImageLayer& layer, bool effect);
+    void image_canvas_input(ImageModel& m, bool hovered, bool editable);
+    void image_draw_selection(ImageModel& m, ImDrawList* dl);
+    void image_draw_transform(ImageModel& m, ImDrawList* dl, bool editable);
+    void image_update_textures(ImageModel& m);
+    void image_fit();
+    ImVec2 image_to_screen(float x, float y) const;
+    ImVec2 image_from_screen(ImVec2 p) const;
+    bool open_image_document(const std::string& rel);     // opens (or switches to) the document in the panel; false and a toast on failure
+    void image_edited(const ImageEditOutcome& out);       // after an edit: the undo entry, the Project panel, a toast for an error
+    void image_apply_undo(const Json& entry, bool forward);
+    void image_collect_steps();                           // drops the undo steps no stack entry points to
+    void image_close_document();
+    void image_release_textures();
+    void image_save();
+    Vec2 image_screen_pos(float x, float y) const { auto p = image_to_screen(x, y); return Vec2{p.x, p.y}; }   // the autotest drives the canvas
+    ImageUi image_;
+    bool showImage_ = false;
     // Bone tools (bone_tools.cpp; View > Bone tools): draw a bone chain by clicking, bind a sprite to bones, the weight colours of
     // the selected bone and a brush to paint them, IK targets as handles. They call bones.create, skin.bind, skin.auto_weights,
     // skin.set_weights and scene.set_component through edit_command.
