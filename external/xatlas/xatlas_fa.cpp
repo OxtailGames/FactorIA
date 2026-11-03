@@ -20,4 +20,8 @@ inline float fa_atan2f(float y, float x) { return fa::det::atan2(y, x); }
 #define acosf fa_acosf
 #define atan2f fa_atan2f
 
+// Upstream asserts only check its own invariants; they would abort a game on a malformed mesh, and some name variables that exist
+// only in debug builds.
+#define XA_DEBUG_ASSERT(exp) ((void)0)
+
 #include "xatlas.cpp"
