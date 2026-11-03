@@ -524,3 +524,170 @@ TEST_CASE("model schema: schemas/model.schema.json is the schema the catalog bui
     broken["nodes"][0]["sise"] = 1;
     CHECK_FALSE(validate_json(*schema, broken).empty());
 }
+
+// ---- model.uv ---------------------------------------------------------------------------------------------------
+
+namespace {
+
+const char* kCrate = R"({"format": "factoria.model/1", "doc": "a crate with a barrel on it",
+    "materials": {"wood": {"color": [0.55, 0.35, 0.2, 1]}},
+    "nodes": [
+        {"op": "box", "id": "crate", "size": [1, 1, 1], "part": "crate", "material": "wood"},
+        {"op": "cylinder", "id": "barrel", "radius": 0.3, "height": 0.8, "position": [0, 0.9, 0], "part": "barrel", "material": "wood"}]})";
+const char* kCratePath = "assets/models/crate.model.json";
+
+}  // namespace
+
+TEST_CASE("model.uv: a document with no uv section is measured on the primitives' own uvs and nothing is written") {
+    AssetsProject p;
+    write_all(p.file(kCratePath), kCrate);
+    const std::string before = read_all(p.file(kCratePath));
+    const Json r = p.ok("model.uv", {{"path", kCratePath}});
+    CHECK(r["changed"] == false);
+    CHECK(r["uv"].is_null());
+    CHECK(r["source"].get<std::string>().find("primitives' own uvs") != std::string::npos);
+    CHECK(r["report"]["triangles"].get<int>() > 0);
+    CHECK(r["report"]["parts"].size() == 2);
+    CHECK(read_all(p.file(kCratePath)) == before);
+    CHECK_FALSE(p.exists("assets/models/crate.glb"));  // an unchanged document is not baked by a measurement
+    REQUIRE(r.contains("$image"));
+    CHECK(r["$image"]["mimeType"] == "image/png");
+    CHECK(r["$image"]["temporary"] == true);
+    CHECK(std::filesystem::exists(r["$image"]["path"].get<std::string>()));
+    CHECK(read_all(r["$image"]["path"].get<std::string>()).substr(1, 3) == "PNG");
+    CHECK_FALSE(p.ok("model.uv", {{"path", kCratePath}, {"picture", false}}).contains("$image"));
+}
+
+TEST_CASE("model.uv: set writes the section, bakes the .glb with the uvs and measures them; set merges, replace replaces, clear removes") {
+    AssetsProject p;
+    write_all(p.file(kCratePath), kCrate);
+    const Json r = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"method", "unwrap"}, {"texelsPerUnit", 256}}}});
+    CHECK(r["changed"] == true);
+    CHECK(r["uv"]["method"] == "unwrap");
+    CHECK(r["uv"]["texelsPerUnit"] == 256);
+    CHECK(r["bake"]["state"] == "baked");
+    CHECK(p.exists("assets/models/crate.glb"));
+    CHECK(r["report"]["texelsPerUnit"] == 256);
+    CHECK(r["report"]["overlap"].get<double>() < 0.001);
+    CHECK(r["report"]["flippedTriangles"] == 0);
+    CHECK(r["report"]["utilization"].get<double>() > 0.2);
+    CHECK(r["report"]["texelsPerMeter"]["mean"].get<double>() > 200);
+    CHECK(r["report"]["texelsPerMeter"]["mean"].get<double>() < 300);
+    CHECK(r["report"]["textureSize"].get<int>() >= 512);
+    const Json saved = parse_json(read_all(p.file(kCratePath)), "doc").value();
+    CHECK(saved["uv"]["method"] == "unwrap");
+    CHECK(saved["nodes"].size() == 2);  // the rest of the document is untouched
+
+    // a merge keeps what is not named; a null removes a field; a part merges field by field
+    const Json m = p.ok("model.uv", {{"path", kCratePath},
+                                      {"set", {{"seams", "many"}, {"parts", {{"barrel", {{"method", "cylinder"}, {"axis", "y"}}}}}}},
+                                      {"picture", false}});
+    CHECK(m["uv"]["method"] == "unwrap");
+    CHECK(m["uv"]["texelsPerUnit"] == 256);
+    CHECK(m["uv"]["seams"] == "many");
+    CHECK(m["uv"]["parts"]["barrel"]["method"] == "cylinder");
+    bool cylinder = false;
+    for (const Json& part : m["report"]["parts"]) cylinder = cylinder || (part["part"] == "barrel" && part["method"] == "cylinder");
+    CHECK(cylinder);
+    const Json n = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"texelsPerUnit", nullptr}, {"parts", {{"barrel", {{"axis", nullptr}}}}}}}, {"picture", false}});
+    CHECK_FALSE(n["uv"].contains("texelsPerUnit"));
+    CHECK(n["uv"]["parts"]["barrel"]["method"] == "cylinder");
+    CHECK_FALSE(n["uv"]["parts"]["barrel"].contains("axis"));
+    const Json same = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"seams", "many"}}}, {"picture", false}});
+    CHECK(same["changed"] == false);
+
+    const Json rep = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"method", "box"}}}, {"replace", true}, {"picture", false}});
+    CHECK(rep["uv"]["method"] == "box");
+    CHECK(rep["uv"]["seams"] == "balanced");  // the settings come back with their defaults filled in
+    CHECK_FALSE(rep["uv"].contains("parts"));
+
+    const Json cleared = p.ok("model.uv", {{"path", kCratePath}, {"clear", true}, {"picture", false}});
+    CHECK(cleared["changed"] == true);
+    CHECK(cleared["uv"].is_null());
+    CHECK_FALSE(parse_json(read_all(p.file(kCratePath)), "doc").value().contains("uv"));
+}
+
+TEST_CASE("model.uv: bake false leaves the .glb stale; the tile layout and a mistake that writes nothing and teaches") {
+    AssetsProject p;
+    write_all(p.file(kCratePath), kCrate);
+    p.ok("model.bake", {});
+    const std::string glb = read_all(p.file("assets/models/crate.glb"));
+    const Json r = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"layout", "tile"}, {"texelsPerUnit", 64}, {"textureSize", 512}}}, {"bake", false}, {"picture", false}});
+    CHECK(r["report"]["layout"] == "tile");
+    CHECK(r["bake"]["state"] == "stale");
+    CHECK(read_all(p.file("assets/models/crate.glb")) == glb);
+    CHECK(p.ok("model.uv", {{"path", kCratePath}, {"set", {{"method", "box"}}}, {"picture", false}})["bake"]["state"] == "baked");
+
+    const std::string before = read_all(p.file(kCratePath));
+    CommandResult bad = p.call("model.uv", {{"path", kCratePath}, {"set", {{"method", "unwarp"}, {"padding", 99}, {"parts", {{"barell", {{"method", "box"}}}}}}}});
+    CHECK_FALSE(bad.ok);
+    CHECK(bad.error["code"] == "invalid_document");
+    const Json issues = bad.error["data"]["issues"];
+    REQUIRE(issues.size() >= 2);
+    CHECK(issues[0]["pointer"].get<std::string>().rfind("/uv/", 0) == 0);
+    CHECK(read_all(p.file(kCratePath)) == before);
+
+    // a tile layout cannot unwrap: the evaluation says so
+    CommandResult tileUnwrap = p.call("model.uv", {{"path", kCratePath}, {"set", {{"layout", "tile"}, {"method", "unwrap"}}}});
+    CHECK_FALSE(tileUnwrap.ok);
+    CHECK(tileUnwrap.error.dump().find("cannot use") != std::string::npos);
+    CHECK(tileUnwrap.error.dump().find("Nothing was written.") != std::string::npos);
+
+    CHECK_FALSE(p.call("model.uv", {{"path", kCratePath}, {"set", {{"method", "box"}}}, {"clear", true}}).ok);
+    CHECK_FALSE(p.call("model.uv", {{"path", kCratePath}, {"replace", true}}).ok);
+    CHECK_FALSE(p.call("model.uv", {{"path", "assets/models/nope.model.json"}}).ok);
+    CHECK_FALSE(p.call("model.uv", {{"path", "assets/models/crate.glb"}}).ok);
+    CHECK_FALSE(p.call("model.uv", {{"path", kCratePath}, {"colour", 1}}).ok);
+
+    // an unknown part name is a warning of the build, not an error
+    const Json warn = p.ok("model.uv", {{"path", kCratePath}, {"set", {{"parts", {{"barell", {{"method", "box"}}}}}}}, {"picture", false}});
+    bool did = false;
+    for (const Json& w : warn["warnings"]) did = did || w.get<std::string>().find("barrel") != std::string::npos;
+    CHECK(did);
+}
+
+TEST_CASE("model.uv: the texel density comes from assets.json style.texelsPerUnit and the .glb goes stale when the style changes it") {
+    AssetsProject p;
+    auto set_style = [&](const Json& density) {
+        Json m = p.exists("assets.json") ? p.manifest() : Json({{"format", "factoria.assets/1"}});
+        if (density.is_null()) m.erase("style");
+        else m["style"] = Json::object({{"texelsPerUnit", density}});
+        write_all(p.file("assets.json"), m.dump(2) + "\n");
+    };
+    auto glb_state = [&]() {
+        const Json r = p.ok("assets.regenerate", {{"path", "assets/models/crate.glb"}, {"dryRun", true}});
+        return r["wouldRun"].empty() ? Json(false) : r["wouldRun"][0]["stale"];
+    };
+    write_all(p.file(kCratePath), kCrate);
+    p.ok("model.bake", {});  // creates the manifest
+    set_style(64);
+    p.ok("model.uv", {{"path", kCratePath}, {"set", {{"method", "unwrap"}}}, {"picture", false}});
+    const Json r = p.ok("model.uv", {{"path", kCratePath}, {"picture", false}});
+    CHECK(r["report"]["texelsPerUnit"] == 64);
+    CHECK(r["report"]["texelsPerMeter"]["mean"].get<double>() < 80);
+    CHECK(r["styleTexelsPerUnit"] == 64);
+    CHECK(glb_state() == false);
+    set_style(128);
+    CHECK(glb_state() == true);
+    p.ok("assets.regenerate", {{"stale", true}});
+    CHECK(glb_state() == false);
+    CHECK(p.ok("model.uv", {{"path", kCratePath}, {"picture", false}})["report"]["texelsPerMeter"]["mean"].get<double>() > 110);
+    // a density of the section's own does not depend on the style
+    p.ok("model.uv", {{"path", kCratePath}, {"set", {{"texelsPerUnit", 200}}}, {"picture", false}});
+    set_style(32);
+    CHECK(glb_state() == false);
+    CHECK(p.ok("model.uv", {{"path", kCratePath}, {"picture", false}})["report"]["texelsPerMeter"]["mean"].get<double>() > 170);
+}
+
+TEST_CASE("model.create and model.edit: the uv section can be given with the document and replaced through the document operation") {
+    AssetsProject p;
+    const Json r = p.ok("model.create", {{"path", "assets/models/box.model.json"}, {"nodes", Json::array({{{"op", "box"}}})}, {"uv", {{"method", "unwrap"}, {"texelsPerUnit", 64}}}});
+    CHECK(r["measurements"]["uv"]["layout"] == "atlas");
+    CHECK(r["measurements"]["uv"]["charts"].get<int>() >= 1);
+    CHECK(parse_json(read_all(p.file("assets/models/box.model.json")), "doc").value()["uv"]["texelsPerUnit"] == 64);
+    const Json info = p.ok("model.info", {{"path", "assets/models/box.model.json"}});
+    CHECK(info["measurements"]["uv"]["layout"] == "atlas");
+    const Json edited = p.ok("model.edit", {{"path", "assets/models/box.model.json"}, {"op", "document"}, {"uv", {{"layout", "tile"}}}});
+    CHECK(edited["measurements"]["uv"]["layout"] == "tile");
+    CHECK(p.ok("model.edit", {{"path", "assets/models/box.model.json"}, {"op", "document"}, {"uv", nullptr}})["measurements"].contains("uv") == false);
+}

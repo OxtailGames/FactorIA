@@ -3927,6 +3927,7 @@ Writes `path` (*.model.json under assets/) with the format, the `nodes` (a list 
 | `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
 | `nodes` | array | no | The tree, in order. Each node is {"op": ..., fields}; groups and modifiers hold `children`. |
 | `materials` | object | no | Named materials the nodes refer to with `material`: {name: {color, texture, metallic, roughness, emissive, doubleSided, blend}}. |
+| `uv` | object | no | The uv section: how the model gets its UVs ({method, layout, texelsPerUnit, ...}; docs/MODELING.md, "UVs"). model.uv changes it field by field. |
 | `output` | object | no | {path: where to bake, under assets/, ending in .glb}. |
 | `doc` | string | no | A note on what the model is for. |
 | `overwrite` | boolean | no | Replace the document when it exists (and the .glb when nothing baked it). Default false. |
@@ -3952,6 +3953,7 @@ Add, change, remove or move one node of a model document by its id (or JSON poin
 | `doc` | string | no | document: the new note. |
 | `output` | object | no | document: the new output settings ({path}); null removes them. |
 | `materials` | object | no | document: the new materials table; null removes it. |
+| `uv` | any | no | document: the new uv section, whole; null removes it. model.uv changes single fields. |
 | `bake` | boolean | no | Bake the .glb after writing. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
 
@@ -3968,6 +3970,24 @@ A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a t
 | `path` | string | no | The model document, project-relative, under assets/, ending in .model.json. |
 | `document` | object | no | The document itself, as JSON, to check before writing it to a file (format is filled in). |
 | `evaluate` | boolean | no | Build the mesh in memory for the measurements. Turn it off to only check the document. Default true. |
+
+### `model.uv` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Give a model document UVs (automatic unwrap, or box, cylinder, sphere and planar projections per part, packed into one texture at the style's texel density) and measure them; returns the UV layout picture.
+
+The `uv` section of a model document replaces the primitives' own uvs: `layout` "atlas" (default) packs every piece into one texture painted for this model, "tile" gives world-scale uvs that continue across the model and repeat. `method` is "unwrap" (xatlas cuts the surface into pieces and flattens each with little stretch; atlas default), or a projection: "box" (each face on the axis plane it looks at; tile default), "cylinder" and "sphere" (around `axis`), "planar" (along `axis`); `parts` overrides method, axis and texelsPerUnit per part name, so a wheel can be a cylinder and a body unwrapped. `texelsPerUnit` is texels per metre (default the project's assets.json style.texelsPerUnit, else 128); `textureSize` 0 picks the smallest power of two the pieces fit in, a fixed size the pieces do not fit lowers the density (a warning says so); `padding` empties texels around each piece; `seams` few, balanced or many; `rotate` lets the packer turn pieces. The same spec works on sdf organic shapes, whose default box uvs it replaces. With `set` the fields are merged into the section (a null value removes a field; `parts` merges part by part), `replace: true` puts `set` in place of the section, `clear: true` removes it; the document is checked as a whole and a mistake returns every issue with its JSON pointer and writes nothing. Then the .glb is baked again (unless bake is false). The result measures the uvs: texels per metre (mean, min, max, per part), stretch (1 = none, 2 = a texture drawn twice as long one way as the other), seams, mirrored triangles, how full the texture is, overlap and uvs outside 0..1, with warnings that say what to change; with no `set` or `clear` it only measures (a document with no uv section is measured on its primitives' own uvs). Unless picture is false it returns the layout (`$image`): the texture square with every triangle at its uvs, a colour per part, mirrored triangles red. Example: {"path":"assets/models/crate.model.json","set":{"method":"unwrap","texelsPerUnit":256,"parts":{"wheel":{"method":"cylinder","axis":"x"}}}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `set` | object | no | Fields of the uv section to change: layout, method, axis, texelsPerUnit, textureSize, padding, seams, rotate, parts. A null value removes a field; parts merges part by part (a null part is removed). |
+| `replace` | boolean | no | Put `set` in place of the whole section instead of merging it. Default false. |
+| `clear` | boolean | no | Remove the uv section: the model keeps its primitives' own uvs. Default false. |
+| `bake` | boolean | no | Bake the .glb again after a change. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
+| `picture` | boolean | no | Return the UV layout picture ($image). Default true. |
 
 ### `music.arpeggio` (modifies state)
 

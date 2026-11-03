@@ -53,7 +53,7 @@
           },
           "texture": {
             "type": "string",
-            "description": "A project image used as the base colour texture, e.g. \"assets/textures/wood.png\". The model's uvs are per primitive (docs/MODELING.md)."
+            "description": "A project image used as the base colour texture, e.g. \"assets/textures/wood.png\". The model's uvs are the primitives' own unless the document has a `uv` section (docs/MODELING.md)."
           },
           "metallic": {
             "type": "number",
@@ -84,6 +84,112 @@
             "type": "boolean",
             "description": "Alpha-blended (glass); the alpha of `color` and of vertex colours shows. Default false."
           }
+        }
+      }
+    },
+    "uv": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "UV coordinates for the whole model: automatic unwrapping or box / cylinder / sphere / planar projections per part, packing of the pieces into one texture at the style's texel density. Without it every primitive keeps its own uvs. docs/MODELING.md, \"UVs\"; `model.uv` edits and measures it.",
+      "properties": {
+        "layout": {
+          "type": "string",
+          "enum": [
+            "atlas",
+            "tile"
+          ],
+          "default": "atlas",
+          "description": "\"atlas\": every piece packed into one texture painted for this model. \"tile\": world-scale uvs (texels per metre / textureSize) that continue across the model and repeat; needs a projection."
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "unwrap",
+            "box",
+            "cylinder",
+            "sphere",
+            "planar"
+          ],
+          "description": "How the parts get their uvs. Default \"unwrap\" for an atlas (xatlas cuts the surface into pieces and flattens each), \"box\" for tile."
+        },
+        "axis": {
+          "type": "string",
+          "enum": [
+            "x",
+            "y",
+            "z"
+          ],
+          "description": "cylinder, sphere: the axis of the shape; planar: the direction looked along. Default y."
+        },
+        "texelsPerUnit": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 16384,
+          "description": "Texels of texture per metre of surface. Left out: the project's style guide texelsPerUnit, else 128."
+        },
+        "textureSize": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096,
+          "description": "Side in texels of the square texture the uvs are made for. 0 (default): the smallest power of two the pieces fit in at the density, at most 4096. A fixed size the pieces do not fit lowers the density (a warning says so)."
+        },
+        "padding": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32,
+          "default": 2,
+          "description": "Empty texels around each piece (atlas)."
+        },
+        "seams": {
+          "type": "string",
+          "enum": [
+            "few",
+            "balanced",
+            "many"
+          ],
+          "default": "balanced",
+          "description": "unwrap: how freely the surface is cut. \"few\": fewer, bigger pieces and shorter seams; \"many\": more, smaller pieces."
+        },
+        "rotate": {
+          "type": "boolean",
+          "description": "atlas: let the packer turn pieces to fit more. Default true when every part is unwrapped, false when a part is projected (so projected pieces stay upright)."
+        },
+        "parts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "What one part overrides; a field left out inherits the `uv` section's.",
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "unwrap",
+                  "box",
+                  "cylinder",
+                  "sphere",
+                  "planar"
+                ],
+                "description": "How this part gets its uvs."
+              },
+              "axis": {
+                "type": "string",
+                "enum": [
+                  "x",
+                  "y",
+                  "z"
+                ],
+                "description": "cylinder, sphere: the axis of the shape; planar: the direction looked along."
+              },
+              "texelsPerUnit": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 16384,
+                "description": "Texels of texture per metre of surface. Left out: the project's style guide texelsPerUnit, else 128."
+              }
+            }
+          },
+          "description": "By part name (\"\" for the nodes that name no part): the method, axis and density of that part."
         }
       }
     },
