@@ -41,3 +41,7 @@ then listen to the preview.
    the style's loudness and a limiter keeps it under the ceiling. `music_mix {path}` shows what every track, bus and the master did
    (peak, LUFS, limiter reduction) without writing a file, and `music_check {path, render: true}` judges that mastered loudness.
    Fix a muddy or buried track with its fader, a pan and an eq cut before touching the notes.
+7. For a game, `music_render {path}` writes the whole song with its loop points and, when the song has `layers` (`music_edit` `set_layers`), one stem
+   per layer (`theme.stem.base.wav`) that add up to the mix; the loop points are in `assets.json`, so `audio.music` loops the song and the stems line up.
+   `music_import_midi {path}` (or `assets_import` of a `.mid`) turns a MIDI file into a song to edit; `music_export_midi {path}` writes one. A stale render is
+   made again with `assets_regenerate {stale: true}`.

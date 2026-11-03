@@ -678,7 +678,7 @@ factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.
 ## Recipes: make an asset again
 
 The offline makers (`assets.rasterize_svg`, `assets.draw_icon`, `assets.draw_capsules`, `assets.generate_texture`,
-`assets.synth_sound`, `assets.generate_loop`, `assets.pack_atlas`, `assets.slice_sheet` and `image.bake`, which draws a
+`assets.synth_sound`, `assets.generate_loop`, `music.preview`, `music.render`, `assets.pack_atlas`, `assets.slice_sheet` and `image.bake`, which draws a
 layered `*.image.json`, see [IMAGES.md](IMAGES.md)) write a `recipe` inside the
 asset's `provenance`:
 
@@ -692,6 +692,10 @@ asset's `provenance`:
 `args` are the arguments that give the same bytes again: paths normalised and relative to the project, the seed written out
 even when you left it at its default, a font named as the engine resolved it. `inputs` are the project files the command
 read, each with the sha256 it had. Files that are only given inline (`svg` text, a built-in font) are inside `args`.
+A recipe may also carry `context`: a setting that is not a file but changes the bytes. `music.preview` and `music.render` write
+`context.styleMusicLufs` (the style guide's music loudness, or null) when the song's master loudness follows the style, and the asset is
+stale when `style.audio.loudnessLufs.music` changes. `music.render` makes a group (the whole song and its stems) with one recipe; regenerating any
+of them renders the group once (docs/MUSIC.md, "Rendering a song for a game").
 
 - `assets.regenerate {"path": "assets/art/coin.png"}` runs the recipe again through the command registry with
   `overwrite: true` and reports per file `pixels changed`, `bytes changed (same pixels)`, `unchanged` or `created`, the
@@ -923,7 +927,11 @@ the page it came from as `sourceUrl` so the credits keep it. The websites the AI
 ```
 assets.import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"Ana Lopez"}
 assets.import {"source":"C:/art/crate.obj","path":"assets/models/crate/","license":"CC0"}
+assets.import {"source":"C:/music/tune.mid","license":"CC0"}
 ```
+
+A `.mid` or `.midi` becomes a song document (`assets/music/tune.song.json`), not a copy of the file: `music.import_midi` has the same import with its options
+(`quantize`, `soundfont`) and docs/MUSIC.md, "MIDI", has the rules.
 
 | Argument | Meaning |
 |---|---|
