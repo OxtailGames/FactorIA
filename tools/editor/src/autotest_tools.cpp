@@ -6383,6 +6383,8 @@ void Editor::at_build_tools_script() {
         wait_until([this] { return sound_.player->playing() && sound_.player->position() > sound_.sel0 + 0.003; });
         step(2, [this] { at_check(sound_.player->position() >= sound_.sel0 - 0.01 && sound_.player->position() <= sound_.sel1 + 0.05, "Play with a selection starts at its start"); });
         click_widget("snd:play");
+        // On a loaded machine the selection may have played out before that click, which then starts it again: let it end.
+        wait_until([this] { return !sound_.player->playing(); });
         click_widget("snd:fit");
         step(2, [this] { at_check(std::abs(sound_.viewLen - sound_.shownSeconds) < 1e-6, "Fit shows the whole sound again"); });
 

@@ -403,7 +403,11 @@ void Editor::draw_sound_transport(SoundModel& m) {
     ImGui::SameLine(0, 18);
     SoundRenderPtr r = m.current();
     const double pos = playing ? u.player->position() : u.cursor;
+    // The readout keeps a fixed width so the buttons after it stay put while the playhead's digits change.
+    const float readoutX = ImGui::GetCursorPosX();
     ImGui::TextDisabled("%s / %s", seconds_text(pos).c_str(), r ? seconds_text(r->seconds).c_str() : "-");
+    ImGui::SameLine(readoutX + ImGui::CalcTextSize("00:00.0 / 00:00.0").x);
+    ImGui::Dummy(ImVec2(0, 0));
     if (u.hasSelection) {
         ImGui::SameLine();
         ImGui::TextDisabled("  selection %s - %s", seconds_text(std::min(u.sel0, u.sel1)).c_str(), seconds_text(std::max(u.sel0, u.sel1)).c_str());
