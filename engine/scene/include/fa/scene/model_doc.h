@@ -95,6 +95,7 @@ struct ModelNode {
 struct ModelDoc {
     std::string doc;
     std::string outputPath;  // where bake writes the .glb (project-relative); "" = next to the document
+    Json gameReady;          // the "gameReady" object, checked and with its defaults filled in (null = the document has none); read it with parse_game_ready (model_game_ready.h)
     std::vector<std::pair<std::string, MeshMaterial>> materials;  // in document order; the key is the material's name
     std::vector<ModelNode> nodes;
 };
