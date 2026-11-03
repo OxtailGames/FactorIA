@@ -4565,6 +4565,269 @@ Stop what is being said by ui.speak and drop the queued lines.
 
 The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being said or the system has no speech. Example: ui.stop_speaking {}
 
+## assets
+
+### `vector.align` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Align SVG elements to each other, the canvas or a key element.
+
+Moves the picked elements (shapes or whole groups) so their bounds line up: horizontal left/center/right and/or vertical top/middle/bottom, relative to the selection's bounds, the canvas (the viewBox) or a key element that stays put. Elements are moved by their own transform attribute, so ids, groups and styles stay as they are; parent transforms are honoured. Returns a preview as `$image`. Example: {"source": "assets/art/ui.svg", "elements": ["a", "b", "c"], "vertical": "middle", "to": "key", "key": "a"}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | yes | The elements to move: SVG ids or selectors. A group moves as one piece (it is measured as the union of its shapes). Selectors: #id, .class, tag, [attr=value], g > path, :nth-child(2), lists with commas. |
+| `bounds` | string ["visual","geometry"] | no | What is measured: "visual" (default) includes half the stroke width, "geometry" only the outline of the shapes. |
+| `horizontal` | string ["left","center","right"] | no | Align the left edges, the centres or the right edges. |
+| `vertical` | string ["top","middle","bottom"] | no | Align the top edges, the middles or the bottom edges. |
+| `to` | string ["selection","canvas","key"] | no | What to align to: the bounds of the selection (default with two or more elements), the canvas (default with one element) or the `key` element. |
+| `key` | string | no | With to "key" (implied when given): the element the others align to; it does not move. |
+
+### `vector.boolean` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Union, subtract, intersect or exclude SVG shapes into one path.
+
+Combines the picked shapes with a path boolean (Clipper2, integer-exact) and writes the result as ONE <path> whose curves are cubic Beziers again (the polygon the operation computes is refitted). The first shape keeps its id, style, transform and place in the drawing and takes the new outline; the others are removed (keepInputs: true keeps them). `union` merges all; `subtract` removes the later shapes from the first; `intersect` keeps what all cover; `exclude` keeps what an odd number of them cover. Transforms of the shapes and their groups are honoured: each shape is measured in the drawing space and the result is written back in the first shape's own space. fill-rule is read per shape. Returns a rasterized preview as `$image`. Example: {"source": "assets/art/badge.svg", "op": "subtract", "elements": ["disc", "hole"]}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | yes | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Selectors: #id, .class, tag, [attr=value], g > path, path:first-child, :nth-child(2), lists with commas. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
+| `op` | string ["union","subtract","intersect","exclude"] | yes | The path operation. |
+| `keepInputs` | boolean | no | Keep the other shapes instead of removing them (the result still goes into the first). Default false. |
+
+### `vector.distribute` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Space SVG elements evenly along an axis.
+
+Moves the picked elements along `axis` so the gaps between them (by: "gaps", default) or their centres (by: "centers") are equal; the first and the last stay put. With `spacing` the gap is fixed instead and the first element stays. Elements are ordered by position, and moved by their own transform attribute. Returns a preview as `$image`. Example: {"source": "assets/art/row.svg", "elements": ["i1", "i2", "i3", "i4"], "axis": "horizontal"}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | yes | The elements to move: SVG ids or selectors. A group moves as one piece (it is measured as the union of its shapes). Selectors: #id, .class, tag, [attr=value], g > path, :nth-child(2), lists with commas. |
+| `bounds` | string ["visual","geometry"] | no | What is measured: "visual" (default) includes half the stroke width, "geometry" only the outline of the shapes. |
+| `axis` | string ["horizontal","vertical"] | yes | The direction to spread along. |
+| `by` | string ["gaps","centers"] | no | Equal gaps between the elements' edges (default) or equal distance between their centres. |
+| `spacing` | number | no | A fixed gap between neighbouring elements, in drawing units (negative overlaps). The first element stays; the rest follow. |
+
+### `vector.info`
+
+Not released yet (on main after 0.14.1).
+
+List the shapes and groups of an SVG with ids, bounds and node counts.
+
+Reads an SVG and lists its drawable elements: id, tag, bounds in the drawing space (viewBox units), node count, fill, stroke and transform, plus the canvas. Use it to find the ids the other vector.* commands take. Changes nothing. Example: {"source": "assets/art/badge.svg"}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | no | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Default: every shape in the drawing. |
+
+### `vector.offset` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Grow or shrink SVG shapes by a distance (offset path, inset).
+
+Offsets the outline of each picked shape by `distance` drawing units (positive grows, negative insets) with round, miter, bevel or square corners, and writes it back as a <path> (curves refitted as Beziers). Each shape keeps its id, style and transform; copy: true leaves the original and adds the offset shape after it (id <id>-offset). Holes grow the opposite way, as in any offset. Distances are in the drawing space (viewBox units), whatever the shape's transform. Returns a preview as `$image`. Example: {"source": "assets/art/badge.svg", "elements": ["disc"], "distance": -3, "join": "round", "copy": true}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | yes | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Selectors: #id, .class, tag, [attr=value], g > path, path:first-child, :nth-child(2), lists with commas. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
+| `distance` | number | yes | How far to move the outline, in drawing units. Positive grows the shape, negative shrinks it. Not 0. |
+| `join` | string ["round","miter","bevel","square"] | no | The corner shape of a grown outline: round (default), miter (sharp, up to miterLimit), bevel (cut) or square. |
+| `miterLimit` | number | no | With join "miter": the longest miter, as a multiple of the distance, before the corner is squared off. Default 4. |
+| `copy` | boolean | no | Add the offset shape after the original instead of replacing it. Default false. |
+
+### `vector.repeat` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Repeat an SVG element in a grid or around a circle.
+
+Adds copies of one element (a shape or a group): mode "grid" lays out `columns` x `rows` with `spacing` between their bounds; mode "radial" puts `count` copies (the original included) around `center` (or `radius` away) over `sweep` degrees, turned to follow the circle unless orient is false. `rotation` turns each copy a little more than the last, about its own centre. Copies are placed with a transform attribute and get ids <id>-2, <id>-3... (ids inside a copied group get the same suffix); they follow the original in the drawing. Angles are in degrees, clockwise on screen, 0 pointing right. Returns a preview as `$image`. Example: {"source": "assets/art/flower.svg", "element": "petal", "mode": "radial", "count": 8, "center": [50, 50]}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `element` | string | yes | The element to repeat: an SVG id or a selector that matches exactly one element (a shape or a group). |
+| `mode` | string ["grid","radial"] | yes | grid: columns x rows. radial: copies around a centre. |
+| `columns` | integer | no | Grid: copies per row, the original included. Default 1. |
+| `rows` | integer | no | Grid: number of rows, the original included. Default 1. |
+| `spacing` | any | no | Grid: the gap between neighbouring copies' bounds, a number or [x, y], in drawing units. Default 0 (touching). |
+| `count` | integer | no | Radial: how many elements in total, the original included. |
+| `center` | array | no | Radial: the point [x, y] the copies turn around, in drawing units. |
+| `radius` | number | no | Radial, without `center`: the circle's radius; the centre is put that far below the element. |
+| `sweep` | number | no | Radial: the angle the copies cover, 1 to 360 degrees. Default 360. |
+| `orient` | boolean | no | Radial: turn each copy to follow the circle (default). false keeps every copy upright. Default true. |
+| `rotation` | number | no | Degrees each copy turns more than the previous one, about its own centre. Default 0. |
+| `bounds` | string ["visual","geometry"] | no | What a copy's size is measured with: "visual" (default) includes the stroke. |
+
+### `vector.simplify` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Reduce the nodes of SVG paths within a tolerance.
+
+Rewrites each picked shape (default: every shape) with fewer nodes: a path with curves is refitted from its outline as few cubic Beziers as `tolerance` allows, a path of straight lines loses the vertices within `tolerance` of the line between their neighbours. Corners stay corners. A shape that cannot lose nodes is left as it is (listed in `unchanged`), so a rect or circle is not turned into a path for nothing. Returns a preview as `$image`. Example: {"source": "assets/art/tree.svg", "tolerance": 0.4}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | no | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Default: every shape in the drawing. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
+
+### `vector.smooth` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Round the corners of SVG paths into smooth Bezier curves.
+
+Gives every node that is not a sharp corner smooth handles, so a polygon or a rough hand-drawn path becomes a flowing curve through the same nodes. `smoothness` 0 keeps the segments straight, 1 is the usual round curve. Nodes that turn more than `cornerAngle` stay sharp. Applies to the picked shapes (default: every shape). Returns a preview as `$image`. Example: {"source": "assets/art/blob.svg", "elements": ["blob"], "smoothness": 0.8}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | no | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Default: every shape in the drawing. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
+| `smoothness` | number | no | 0 to 1: how round the curves are. Default 1. |
+
+### `vector.stroke_to_path` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Turn the stroke of SVG shapes into a filled outline path.
+
+Converts the stroke of each picked shape (its stroke-width, linecap, linejoin, miterlimit, dasharray and dashoffset, read with inheritance, or the overrides given here) into a filled <path> outline, with SVG's own cap, join and dash rules. A shape with no fill becomes the outline (fill = its stroke colour, stroke none). A filled shape keeps its fill and id, and the outline is added after it with the id <id>-stroke. Stroke widths are in the shape's own space, so a scaled shape keeps its look. Returns a preview as `$image`. Example: {"source": "assets/art/logo.svg", "elements": ["swoosh"], "cap": "round"}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | yes | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Selectors: #id, .class, tag, [attr=value], g > path, path:first-child, :nth-child(2), lists with commas. |
+| `tolerance` | number | no | The largest distance, in drawing units (viewBox units), between the result and the exact outline. Default: 1/4000 of the drawing's longer side (1/500 for vector.simplify). |
+| `curves` | boolean | no | Return curves as cubic Beziers fitted to the result (the default). false keeps the polygon the operation computed. Default true. |
+| `cornerAngle` | number | no | Degrees of direction change (1 to 89) above which a vertex stays a sharp corner instead of being smoothed into a curve. Default 28. |
+| `width` | number | no | Stroke width to use instead of the shape's stroke-width, in the shape's own units. |
+| `cap` | string ["butt","round","square"] | no | Line caps of open paths. Default: the shape's stroke-linecap. |
+| `join` | string ["miter","round","bevel"] | no | Corner joins. Default: the shape's stroke-linejoin. |
+| `miterLimit` | number | no | Miter limit (a miter longer than this times the width becomes a bevel). Default: stroke-miterlimit, else 4. |
+| `dashes` | array | no | Dash pattern: on, off, on, off... lengths in the shape's units. [] makes the stroke solid. Default: the shape's stroke-dasharray. |
+| `dashOffset` | number | no | Where in the dash pattern the line starts. Default: the shape's stroke-dashoffset. |
+| `color` | string | no | A CSS colour to use for shapes that have no stroke (the outline's fill). Shapes with a stroke keep its colour. |
+
+### `vector.style` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Apply the project's style guide to an SVG: outline and palette.
+
+Applies assets.json `style` to the SVG: `outline` puts the guide's outline colour and width (pixels of the SVG's declared size) as a stroke on every filled shape; `palette` snaps every fill, stroke and gradient stop colour to the nearest colour of the guide's palette. With neither argument it applies both, whichever the guide defines; one of them asked for alone applies only that one (outline: true = just the outline), and one switched off alone applies the other (outline: false = just the palette). Pass {"outline": {"width": 2, "color": "#101018"}} or {"palette": ["#101018", "#e8e0d0"]} to use values other than the guide's. Applies to the picked elements (default: the whole drawing). Returns a preview as `$image`. Example: {"source": "assets/art/crest.svg"}. Docs: docs.read VECTOR.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | no | A project-relative .svg file to edit (e.g. "assets/art/crest.svg"). It is rewritten in place, or to `out`. Give exactly one of `source`, `svg` and `document`. |
+| `svg` | string | no | The SVG as text instead of a file. Nothing is written (unless `out`): the edited SVG comes back in the result's `svg`. |
+| `document` | string | no | A project-relative *.image.json document whose svg layer to edit (see `layer`). Only the layer's SVG changes; the document is saved and baked like image.layer.set does. |
+| `layer` | any | no | With `document`: the svg layer to edit, by name or index path ("1", "1/0"). Optional when the document has exactly one svg layer. An svg layer with `source` rewrites that .svg file. |
+| `out` | string | no | Write the result to this project-relative .svg file instead of changing `source` (or, with `svg`, also write it). An existing file needs overwrite: true. |
+| `overwrite` | boolean | no | Replace `out` when it already exists. Default false. |
+| `dryRun` | boolean | no | Compute and preview the result without writing anything. Default false. |
+| `previewSize` | integer | no | The longer side of the preview picture returned as `$image`, in pixels. Default 512. |
+| `bake` | boolean | no | With `document`: also bake the document's PNG (like image.layer.set). Default true. |
+| `elements` | any | no | The shapes to work on: an SVG id, a selector, or a list of them. A group stands for the shapes in it. Default: every shape in the drawing. |
+| `outline` | any | no | true: the guide's outline. An object {"width", "color"}: that outline. false: none. Width is in pixels of the SVG's declared size. |
+| `palette` | any | no | true: snap to the guide's palette. A list of colours: snap to those. false: leave colours. |
+
 
 ## Scripting API (TypeScript declarations)
 

@@ -19,6 +19,16 @@ target_include_directories(fa_ext_drlibs SYSTEM INTERFACE ${FA_EXT}/dr_libs)
 add_library(fa_ext_nanosvg INTERFACE)
 target_include_directories(fa_ext_nanosvg SYSTEM INTERFACE ${FA_EXT}/nanosvg)
 
+# Clipper2 (polygon booleans and offsetting; fa_tooling only). Doubles, no Z coordinate; the library throws on bad input and
+# every call in tools/common/src/vector_clip.cpp catches it.
+add_library(fa_ext_clipper2 STATIC
+    ${FA_EXT}/clipper2/src/clipper.engine.cpp
+    ${FA_EXT}/clipper2/src/clipper.offset.cpp
+    ${FA_EXT}/clipper2/src/clipper.rectclip.cpp
+    ${FA_EXT}/clipper2/src/clipper.triangulation.cpp)
+target_include_directories(fa_ext_clipper2 SYSTEM PUBLIC ${FA_EXT}/clipper2/include)
+set_target_properties(fa_ext_clipper2 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
 add_library(fa_ext_qoa INTERFACE)
 target_include_directories(fa_ext_qoa SYSTEM INTERFACE ${FA_EXT}/qoa)
 

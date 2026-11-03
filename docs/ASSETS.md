@@ -117,6 +117,8 @@ settings steer the generation of images; the others are rules that `assets.check
   palette (at most 256; more is an error that is raised before the provider is called). This is the right tool for pixel
   art and a poor one for painted art. It is also a rule: the share of pixels that are far from every palette colour.
 - `style: false` in a call skips the prompt, the references and the palette lock for that call.
+- `vector.style` applies `outline` and `palette` to an SVG you wrote (a stroke on every filled shape, colours snapped to the palette):
+  [VECTOR.md](VECTOR.md).
 - `outline` is `{"color", "width"}`: the colour of the line around a sprite's silhouette and its thickness in texture
   pixels (default 1, 0.5 to 64). `color` is required.
 - `lightDirection` is where the light comes from, as a name (`right`, `upper-right`, `top`, `upper-left`, `left`,
@@ -311,6 +313,9 @@ an anti-aliased PNG at `path` on the CPU (nanosvg, vendored in `external/nanosvg
 assets.rasterize_svg {"path":"assets/art/crest.png","width":256,"svg":"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M50 6 L90 22 V52 C90 76 70 90 50 96 C30 90 10 76 10 52 V22 Z' fill='#8b1e1e' stroke='#e8c66a' stroke-width='4'/><circle cx='50' cy='48' r='14' fill='#e8c66a'/></svg>"}
 ```
 
+- **Editing it afterwards.** The `vector.*` commands edit the SVG file (or an svg layer of an image document) instead of making you
+  rewrite it: path booleans, offset and inset, stroke to outline, simplify and smooth, align, distribute, repeat and the
+  `style` of `assets.json` (see "House style": outline width and colour, palette snapping), each returning a preview picture ([VECTOR.md](VECTOR.md)).
 - **Size.** The SVG is fitted inside `width` x `height`, aspect kept and centred; with only one of them the other follows
   the SVG's proportions; with neither, the size the SVG declares. Up to 4096. `background` puts it over a colour
   (transparent by default).

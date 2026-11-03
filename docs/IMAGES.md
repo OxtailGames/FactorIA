@@ -70,7 +70,9 @@ The kinds and the fields they add:
   `tileable`, ... `width` / `height` default to the canvas). It is the same generator, so the pixels are those the command
   writes for the same arguments. Run `docs.commands` on `assets.generate_texture` for the presets.
 - **`svg`**: `svg` (the SVG text) or `source` (an `.svg` of the project), rasterized with the engine's SVG rasterizer and
-  fitted inside `width` x `height` (default the canvas) keeping its aspect ratio.
+  fitted inside `width` x `height` (default the canvas) keeping its aspect ratio. The `vector.*` commands edit the SVG of an svg layer
+  in place (`{"document": "assets/art/hero.image.json", "layer": "crest"}`): boolean operations, offsets, strokes to outlines,
+  alignment, repeats and the project style, keeping its ids and transforms and baking the document ([VECTOR.md](VECTOR.md)).
 - **`text`**: `text` (`\n` starts a new line), `font` (default the engine's DejaVu Sans; `"builtin:pixel"` and the other
   built-in fonts, or a `.ttf` / `.otf` of the project), `size` (the em height in pixels), `color`, `align` (`left`, `center`
   or `right` of the layer's `x`) and `lineHeight` (in ems, default 1.2). `y` is the top of the first line.
