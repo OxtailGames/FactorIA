@@ -16,6 +16,8 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         {"nanosvg", "https://github.com/memononen/nanosvg", "zlib", "external/nanosvg/LICENSE", "SVG rasterizer of assets.rasterize_svg", false},
         {"Clipper2", "https://github.com/AngusJohnson/Clipper2", "BSL-1.0", "external/clipper2/LICENSE",
          "Polygon clipping and offsetting of the vector.* commands (path booleans, offset, stroke to path)", false},
+        {"Manifold", "https://github.com/elalish/manifold", "Apache-2.0", "external/manifold/LICENSE",
+         "Solid booleans (union, difference, intersection) of the boolean modifier of model documents", false},
         {"Basis Universal", "https://github.com/BinomialLLC/basis_universal", "Apache-2.0", "external/basis_universal/LICENSE",
          "GPU texture compression: games decode KTX2 textures, `factoria export` encodes them", true},
         // Parts of the Basis Universal encoder, which only the developer tools contain.

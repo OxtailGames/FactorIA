@@ -194,8 +194,30 @@ TEST_CASE("project.validate: a model document with mistakes is an error per issu
 TEST_CASE("model.info: with no arguments lists the operations; with a document checks and measures it, and reports every issue of a broken one") {
     AssetsProject p;
     const Json catalog = p.ok("model.info", {});
-    REQUIRE(catalog["operations"].size() == 13);
+    REQUIRE(catalog["operations"].size() == 30);
     CHECK(catalog["operations"][0]["op"] == "box");
+    // the modifiers are in the catalogue with their children, ranges and defaults
+    const Json* array = nullptr;
+    const Json* lathe = nullptr;
+    for (const Json& op : catalog["operations"]) {
+        if (op["op"] == "array") array = &op;
+        if (op["op"] == "lathe") lathe = &op;
+    }
+    REQUIRE(array);
+    CHECK((*array)["kind"] == "modifier");
+    bool countOk = false, childrenOk = false;
+    for (const Json& f : (*array)["fields"]) {
+        if (f["key"] == "count") countOk = f["min"] == 1 && f["max"] == 4096 && f["default"] == 2;
+        if (f["key"] == "children") childrenOk = f.contains("doc");
+    }
+    CHECK(countOk);
+    CHECK(childrenOk);
+    REQUIRE(lathe);
+    CHECK((*lathe)["kind"] == "primitive");
+    bool profileOk = false;
+    for (const Json& f : (*lathe)["fields"])
+        if (f["key"] == "profile") profileOk = f["type"] == "points2" && f["minItems"] == 2 && f["maxItems"] == 256 && f["required"] == true;
+    CHECK(profileOk);
     CHECK(catalog["operations"][0]["fields"][0].contains("doc"));
     CHECK(catalog["commonFields"].size() > 8);
 
@@ -275,6 +297,58 @@ TEST_CASE("model.edit: add, set, remove, move and document change one node by id
     CHECK(doc["materials"]["wood"]["color"][0] == 1);
 }
 
+TEST_CASE("model.create, model.edit and model.bake: modifiers wrap children, take edits by id and bake a closed .glb") {
+    AssetsProject p;
+    const std::string path = "assets/models/gear.model.json";
+    const Json created = p.ok("model.create", {{"path", path},
+                                               {"nodes", Json::array({{{"op", "boolean"}, {"id", "cut"}, {"mode", "difference"},
+                                                                       {"children", Json::array({{{"op", "cylinder"}, {"id", "disc"}, {"radius", 1}, {"height", 0.3}},
+                                                                                                 {{"op", "cylinder"}, {"id", "bore"}, {"radius", 0.3}, {"height", 1}}})}}})}});
+    CHECK(created["nodeCount"] == 3);
+    CHECK(created["tree"][0]["op"] == "boolean");
+    CHECK(created["measurements"]["closed"] == true);
+    const double bored = created["measurements"]["volume"].get<double>();
+
+    // edit a child by id: the whole document is checked and the .glb baked again
+    p.ok("model.edit", {{"path", path}, {"op", "set"}, {"target", "bore"}, {"values", {{"radius", 0.5}}}});
+    const Json after = p.ok("model.info", {{"path", path}});
+    CHECK(after["measurements"]["volume"].get<double>() < bored);
+    CHECK(after["measurements"]["closed"] == true);
+
+    // add into a modifier, and wrap an existing node by adding a modifier on top
+    const Json add = p.ok("model.edit", {{"path", path}, {"op", "add"}, {"parent", "cut"}, {"node", {{"op", "box"}, {"size", {0.1, 0.1, 1}}, {"position", {0.8, 0, 0}}}}});
+    CHECK(add["edit"]["pointer"] == "/nodes/0/children/2");
+    p.ok("model.edit", {{"path", path}, {"op", "add"}, {"node", {{"op", "radial_array"}, {"id", "ring"}, {"count", 3}, {"children", Json::array({{{"op", "sphere"}, {"position", {2, 0, 0}}}})}}}});
+    const Json built = p.ok("model.info", {{"path", path}});
+    CHECK(built["valid"] == true);
+    CHECK(built["measurements"]["closed"] == true);
+
+    // mistakes in a modifier come back with the pointer and did-you-mean, and nothing is written
+    const std::string before = read_all(p.file(path));
+    auto bad = p.call("model.edit", {{"path", path}, {"op", "set"}, {"target", "ring"}, {"values", {{"count", 0}, {"axiss", "y"}}}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("/nodes/1/count") != std::string::npos);
+    CHECK(bad.error.dump().find("axis") != std::string::npos);
+    CHECK(read_all(p.file(path)) == before);
+
+    // a boolean of something that is not a solid: the document is valid and kept, the bake says which operand and why
+    const Json open = p.ok("model.edit", {{"path", path}, {"op", "add"}, {"parent", "cut"}, {"node", {{"op", "grid"}, {"id", "sheet"}}}});
+    CHECK(open["bake"]["state"] == "failed");
+    CHECK(open["bake"]["message"].get<std::string>().find("not a closed solid") != std::string::npos);
+    CHECK(open["bake"]["message"].get<std::string>().find("/nodes/0/children/3") != std::string::npos);
+    p.ok("model.edit", {{"path", path}, {"op", "remove"}, {"target", "sheet"}});
+
+    // a primitive is not a place to add children
+    auto notParent = p.call("model.edit", {{"path", path}, {"op", "add"}, {"parent", "disc"}, {"node", {{"op", "box"}}}});
+    CHECK_FALSE(notParent.ok);
+
+    // the bake is the same twice
+    p.ok("model.bake", {{"path", path}, {"force", true}});
+    const std::string glb = read_all(p.file("assets/models/gear.glb"));
+    p.ok("model.bake", {{"path", path}, {"force", true}});
+    CHECK(read_all(p.file("assets/models/gear.glb")) == glb);
+}
+
 TEST_CASE("model.edit: a bad edit writes nothing and teaches; an unknown id suggests the ones that exist") {
     AssetsProject p;
     write_all(p.file("assets/models/door.model.json"), kDoor);
@@ -340,7 +414,9 @@ TEST_CASE("model schema: schemas/model.schema.json is the schema the catalog bui
     REQUIRE(sample.ok());
     CHECK(validate_json(*schema, *sample).empty());
     Json nested = *parse_json(R"({"format": "factoria.model/1", "nodes": [{"op": "group", "position": [1, 0, 0], "children": [
-        {"op": "stairs", "steps": 5}, {"op": "arch"}, {"op": "pipe"}, {"op": "text", "text": "A"}]}]})", "nested");
+        {"op": "stairs", "steps": 5}, {"op": "arch"}, {"op": "pipe"}, {"op": "text", "text": "A"},
+        {"op": "mirror", "axis": "x", "children": [{"op": "lathe", "profile": [[0.2, 0], [0.4, 1]]}]},
+        {"op": "boolean", "mode": "intersection", "children": [{"op": "box"}, {"op": "sphere"}]}]}]})", "nested");
     CHECK(validate_json(*schema, nested).empty());
     Json broken = *sample;
     broken["nodes"][0]["op"] = "cube";
