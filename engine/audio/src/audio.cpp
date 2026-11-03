@@ -5,6 +5,7 @@
 // allocation except when the recorder grows. Clips are decoded OUTSIDE the lock; a streamed clip is decoded inside it,
 // a few thousand frames at a time, into buffers its voice allocated when it started.
 #include "fa/audio/audio.h"
+#include "fa/audio/sfx.h"
 
 #include <algorithm>
 #include <atomic>
@@ -144,6 +145,8 @@ struct EntityAudio {
     VoiceId voice = 0;
     bool started = false;
     std::uint64_t seen = 0;
+    int lastVariant = 0;       // AudioSource.variants: the variant played last (1-based), never picked twice in a row
+    std::uint32_t plays = 0;   // how many plays picked a variant: part of the pick's seed
 };
 
 // Import settings come from a file people edit: read them without assuming their types.
@@ -1768,7 +1771,20 @@ void Audio::update(World& world, float dt) {
                 p.pitch = src->pitch;
                 p.pan = pan;
                 p.loop = src->loop;
-                ea.voice = im.start(src->clip, p, ea.id);
+                std::string clip = src->clip;
+                if (src->variants >= 2) {
+                    // The world RNG's state (not a draw: gameplay's random numbers are untouched), the entity's id and the play
+                    // count seed a private generator, so a run with the same seed hears the same takes.
+                    std::uint64_t h = 1469598103934665603ull;
+                    for (char c : ea.id) h = (h ^ std::uint8_t(c)) * 1099511628211ull;
+                    Rng pick(world.rng().state() ^ h ^ (std::uint64_t(++ea.plays) * 0x9E3779B97F4A7C15ull));
+                    const int count = std::min<int>(src->variants, 64);
+                    int variant = ea.lastVariant >= 1 && ea.lastVariant <= count ? pick.range_int(1, count - 1) : pick.range_int(1, count);
+                    if (ea.lastVariant >= 1 && ea.lastVariant <= count && variant >= ea.lastVariant) ++variant;
+                    ea.lastVariant = variant;
+                    clip = sfx_variant_path(src->clip, variant, count);
+                }
+                ea.voice = im.start(clip, p, ea.id);
                 ea.clip = src->clip;
                 if (ea.voice == 0) src->playing = false;  // load failed (already logged)
             }

@@ -496,3 +496,192 @@ TEST_CASE("sfx: stretching a patch scales its times and keeps its pitch") {
     REQUIRE(again.ok());
     CHECK(again->samples == before->samples);
 }
+
+// ---- macros and variations (M55.2) ---------------------------------------------------------------------------------------------
+
+namespace {
+
+SfxPatch patch_of(const std::string& text) {
+    auto json = parse_json(text);
+    REQUIRE_MESSAGE(json.ok(), (json.ok() ? "" : json.error().to_string()));
+    auto patch = parse_sfx(*json, "test");
+    REQUIRE_MESSAGE(patch.ok(), (patch.ok() ? "" : patch.error().to_string()));
+    return *patch;
+}
+
+// A saw with a filter, a noise puff and a short decay: something every macro can move.
+const char* kMacroPatch = R"({"format": "factoria.sfx/1", "length": 0.3, "tail": 0.1, "seed": 3,
+    "layers": [{"oscillators": [{"wave": "saw"}], "pitch": {"freq": 220}, "amp": {"attack": 0.002, "decay": 0.2, "sustain": 0.4, "release": 0.05},
+                "filter": {"mode": "lowpass", "cutoff": 1500, "resonance": 1}},
+               {"length": 0.05, "gain": 0.3, "oscillators": [{"wave": "noise", "color": "pink"}], "amp": {"attack": 0, "decay": 0.05, "sustain": 0, "release": 0}}]})";
+
+SfxAudio render_macro(const std::map<std::string, double>& macros, const char* text = kMacroPatch) {
+    const SfxPatch patch = patch_of(text);
+    SfxRenderOptions o;
+    o.macros = macros;
+    auto a = render_sfx(patch, o);
+    REQUIRE_MESSAGE(a.ok(), (a.ok() ? "" : a.error().to_string()));
+    return *a;
+}
+
+// Share of the energy below 300 Hz (a one-pole low-pass is enough to compare two renders).
+double low_share(const SfxAudio& a) {
+    const double k = 1.0 - std::exp(-2.0 * kPi * 300.0 / a.sampleRate);
+    double lp = 0.0, low = 0.0, all = 0.0;
+    for (float s : a.samples) {
+        lp += k * (double(s) - lp);
+        low += lp * lp;
+        all += double(s) * double(s);
+    }
+    return all > 0.0 ? low / all : 0.0;
+}
+
+}  // namespace
+
+TEST_CASE("sfx macros: a patch with no macros renders exactly as before, and each knob moves its property in the right direction") {
+    const SfxAudio flat = render_macro({});
+    CHECK(render_macro({{"brightness", 0.0}, {"weight", 0.0}}).samples == flat.samples);
+
+    const double centroid = sfx_centroid_hz(flat);
+    CHECK(centroid > 200.0);
+    // brightness: the spectral centroid goes up with the knob and down against it
+    const double bright = sfx_centroid_hz(render_macro({{"brightness", 0.6}})), dull = sfx_centroid_hz(render_macro({{"brightness", -0.6}}));
+    CHECK(bright > centroid * 1.15);
+    CHECK(dull < centroid * 0.85);
+    // ... also for a sound with no filter to open
+    const char* bare = R"({"format": "factoria.sfx/1", "length": 0.3, "layers": [{"oscillators": [{"wave": "sine"}], "pitch": {"freq": 440}, "amp": {"sustain": 1, "release": 0.02}}]})";
+    CHECK(sfx_centroid_hz(render_macro({{"brightness", 0.8}}, bare)) > sfx_centroid_hz(render_macro({}, bare)) * 1.3);
+
+    // tail: a longer file for +, none left for -
+    CHECK(render_macro({{"tail", 0.7}}).seconds() > flat.seconds() + 0.1);
+    CHECK(render_macro({{"tail", -1.0}}).seconds() < flat.seconds());
+    // attack: slower rise for +, faster for -
+    const char* soft = R"({"format": "factoria.sfx/1", "length": 0.4, "layers": [{"oscillators": [{"wave": "saw"}], "pitch": {"freq": 220}, "amp": {"attack": 0.02, "sustain": 1, "release": 0.05}}]})";
+    const double rise = sfx_rise_seconds(render_macro({}, soft));
+    CHECK(sfx_rise_seconds(render_macro({{"attack", 0.5}}, soft)) > rise + 0.02);
+    CHECK(sfx_rise_seconds(render_macro({{"attack", -1.0}}, soft)) < rise);
+    // weight: darker and with more of its energy below 300 Hz; the opposite turns it thin
+    const SfxAudio heavy = render_macro({{"weight", 0.8}}), light = render_macro({{"weight", -0.8}});
+    CHECK(sfx_centroid_hz(heavy) < centroid);
+    CHECK(low_share(heavy) > low_share(flat));
+    CHECK(sfx_centroid_hz(light) > centroid);
+    CHECK(low_share(light) < low_share(flat));
+    // pitch: +1 is an octave up
+    CHECK(crossings_hz(render_macro({{"pitch", 1.0}}, bare), 0.05, 0.25) == doctest::Approx(880.0).epsilon(0.02));
+    // grit adds harmonics; the knob is clamped to its range
+    CHECK(sfx_centroid_hz(render_macro({{"grit", 1.0}}, bare)) > sfx_centroid_hz(render_macro({}, bare)) * 1.3);
+    CHECK(render_macro({{"brightness", 5.0}}).samples == render_macro({{"brightness", 1.0}}).samples);
+    // deterministic
+    CHECK(render_macro({{"weight", 0.4}, {"tail", 0.2}}).samples == render_macro({{"weight", 0.4}, {"tail", 0.2}}).samples);
+}
+
+TEST_CASE("sfx macros: values declared in the patch are the render's setting, options replace them, and mistakes name the fix") {
+    const SfxPatch declared = patch_of(R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "saw"}]}], "macros": {"brightness": 0.5, "weight": {"value": -0.2, "strength": 2, "doc": "light"}}})");
+    CHECK(declared.macro_value("brightness") == 0.5);
+    CHECK(declared.macro_value("weight") == -0.2);
+    CHECK(declared.macroDefs[1].strength == 2.0);
+    CHECK(declared.macro_value("pitch") == 0.0);
+    const SfxPatch plain = patch_of(R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "saw"}]}]})");
+    SfxPatch withB = plain;
+    withB.macroDefs.push_back({"brightness", 0.5, 1.0, "", {}, true});
+    auto a = render_sfx(withB), b = render_sfx(plain);
+    REQUIRE((a.ok() && b.ok()));
+    CHECK(a->samples != b->samples);
+    SfxRenderOptions off;
+    off.macros["brightness"] = 0.0;
+    auto c = render_sfx(withB, off);
+    REQUIRE(c.ok());
+    CHECK(c->samples == b->samples);
+
+    std::vector<SfxIssue> issues;
+    auto json = parse_json(R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "saw"}]}], "macros": {"brightnes": 0.5, "weight": 3, "snap": {"value": 0}, "tail": "long"}})");
+    REQUIRE(json.ok());
+    CHECK_FALSE(parse_sfx(*json, "t", &issues).ok());
+    REQUIRE(issues.size() == 4);
+    CHECK(issues[0].pointer == "/macros/brightnes");
+    CHECK(issues[0].hint.find("brightness") != std::string::npos);
+    CHECK(issues[1].pointer == "/macros/weight");
+}
+
+TEST_CASE("sfx macros: binds set numbers of the patch by pointer, linear or on a log scale") {
+    const char* text = R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "saw"}], "filter": {"mode": "lowpass", "cutoff": 1000}, "amp": {"attack": 0.01}}],
+        "macros": {"open": {"value": 0, "binds": [{"path": "/layers/0/filter/cutoff", "min": 250, "max": 4000, "curve": "exp"}, {"path": "/layers/0/amp/attack", "min": 0.1, "max": 0}]}}})";
+    auto json = parse_json(text);
+    REQUIRE(json.ok());
+    const SfxPatch patch = patch_of(text);
+    REQUIRE(patch.macroDefs.size() == 1);
+    auto bound = sfx_apply_macro_binds(*json, patch, {});
+    REQUIRE(bound.ok());
+    CHECK((*bound)["layers"][0]["filter"]["cutoff"].get<double>() == doctest::Approx(1000.0).epsilon(1e-9));  // 250 * 16^0.5
+    CHECK((*bound)["layers"][0]["amp"]["attack"].get<double>() == doctest::Approx(0.05));
+    auto up = sfx_apply_macro_binds(*json, patch, {{"open", 1.0}});
+    REQUIRE(up.ok());
+    CHECK((*up)["layers"][0]["filter"]["cutoff"].get<double>() == doctest::Approx(4000.0));
+    CHECK((*up)["layers"][0]["amp"]["attack"].get<double>() == doctest::Approx(0.0).epsilon(1e-9));
+    Json missing = *json;
+    missing["macros"]["open"]["binds"][0]["path"] = "/layers/0/filter/nothing";
+    const SfxPatch p2 = patch_of(missing.dump());
+    CHECK_FALSE(sfx_apply_macro_binds(missing, p2, {}).ok());
+    // a custom macro without binds is an error
+    auto bad = parse_json(R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "saw"}]}], "macros": {"snap": {"value": 0.5}}})");
+    REQUIRE(bad.ok());
+    CHECK_FALSE(parse_sfx(*bad, "t").ok());
+}
+
+TEST_CASE("sfx variations: N distinct, deterministic takes inside the declared spread") {
+    const char* text = R"({"format": "factoria.sfx/1", "length": 0.3, "tail": 0.1, "seed": 2,
+        "variations": {"count": 8, "seed": 5, "spread": {"pitch": 60, "length": 0.2, "gain": 2, "filter": 0.5}},
+        "layers": [{"oscillators": [{"wave": "saw"}, {"wave": "noise", "color": "pink", "gain": 0.3}], "pitch": {"freq": 220}, "amp": {"attack": 0.002, "decay": 0.1, "sustain": 0.6, "release": 0.05},
+                    "filter": {"mode": "lowpass", "cutoff": 1500}}], "master": {"normalize": {"mode": "lufs", "target": -24, "ceilingDb": -1}}})";
+    const SfxPatch patch = patch_of(text);
+    REQUIRE(patch.variations.count == 8);
+    auto base = render_sfx(patch);
+    REQUIRE(base.ok());
+    std::set<std::vector<float>> seen;
+    for (int i = 0; i < 8; ++i) {
+        SfxRenderOptions o;
+        o.variant = i;
+        auto a = render_sfx(patch, o), again = render_sfx(patch, o);
+        REQUIRE((a.ok() && again.ok()));
+        CHECK(a->samples == again->samples);  // deterministic
+        CHECK(a->samples != base->samples);
+        seen.insert(a->samples);
+        const SfxVariantParams v = sfx_variant_params(patch.variations, i);
+        CHECK(std::fabs(v.pitchCents) <= 60.0);
+        CHECK(v.lengthScale >= 0.8 - 1e-12);
+        CHECK(v.lengthScale <= 1.2 + 1e-12);
+        CHECK(std::fabs(v.gainDb) <= 2.0);
+        CHECK(std::fabs(v.filterOctaves) <= 0.5);
+        // the measured length and loudness follow the offsets, so they stay in the spread
+        CHECK(a->seconds() == doctest::Approx(0.3 * v.lengthScale + 0.1).epsilon(0.01));
+        CHECK(std::fabs(a->lufs - base->lufs) < 2.0 + 1.5);
+    }
+    CHECK(seen.size() == 8);  // all distinct
+    // the offsets are not all the same either
+    CHECK(sfx_variant_params(patch.variations, 0).pitchCents != sfx_variant_params(patch.variations, 1).pitchCents);
+    // another variation seed, another set
+    SfxVariations other = patch.variations;
+    other.seed = 6;
+    CHECK(sfx_variant_params(other, 0).pitchCents != sfx_variant_params(patch.variations, 0).pitchCents);
+    // errors
+    SfxRenderOptions bad;
+    bad.variant = 8;
+    CHECK_FALSE(render_sfx(patch, bad).ok());
+    const SfxPatch none = patch_of(kMacroPatch);
+    bad.variant = 0;
+    CHECK_FALSE(render_sfx(none, bad).ok());
+}
+
+TEST_CASE("sfx variations: the file names of baked variants") {
+    CHECK(sfx_variant_path("assets/sfx/step.wav", 3, 8) == "assets/sfx/step_03.wav");
+    CHECK(sfx_variant_path("assets/sfx/step.ogg", 12, 12) == "assets/sfx/step_12.ogg");
+    CHECK(sfx_variant_path("assets/sfx/step.wav", 7, 120) == "assets/sfx/step_007.wav");
+    CHECK(sfx_variant_path("assets/a.b/step", 1, 4) == "assets/a.b/step_01");
+    auto json = parse_json(R"({"format": "factoria.sfx/1", "layers": [{"oscillators": [{"wave": "sine"}]}], "variations": {"count": 1, "spread": {"pich": 3}}})");
+    REQUIRE(json.ok());
+    std::vector<SfxIssue> issues;
+    CHECK_FALSE(parse_sfx(*json, "t", &issues).ok());
+    REQUIRE(issues.size() == 2);
+    CHECK(issues[0].pointer == "/variations/count");
+    CHECK(issues[1].hint.find("pitch") != std::string::npos);
+}

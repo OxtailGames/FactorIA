@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "fa/audio/audio.h"
+#include "fa/audio/sfx.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -2716,6 +2717,12 @@ NATIVE(audioPlay) {
     }
     return JS_NewInt32(ctx, static_cast<int32_t>(voice));
 }
+NATIVE(audioVariantPath) {  // (path, variant 1-based, count) -> the file name of that baked variant (sfx_variant_path)
+    SETUP;
+    const std::string path = arg_str(ctx, argc, argv, 0);
+    const std::string out = sfx_variant_path(path, static_cast<int>(arg_num(ctx, argc, argv, 1, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2, 2)));
+    return JS_NewStringLen(ctx, out.data(), out.size());
+}
 NATIVE(audioStop) {
     SETUP;
     const VoiceId voice = static_cast<VoiceId>(arg_num(ctx, argc, argv, 0));
@@ -3958,7 +3965,7 @@ const Reg kRegs[] = {
     R(inPlayerLastPressed, 1), R(inPlayerData, 2), R(inKeySchemes, 1),
     R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowMonitors, 0), R(windowSet, 3),
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(inTestRun, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
-    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 11), R(audioStop, 1), R(audioActiveVoices, 0), R(audioTakeEnded, 0),
+    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 11), R(audioVariantPath, 3), R(audioStop, 1), R(audioActiveVoices, 0), R(audioTakeEnded, 0),
     R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
     R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
     R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),

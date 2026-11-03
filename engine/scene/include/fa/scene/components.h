@@ -998,6 +998,7 @@ struct NavLink3D {
 // ---------------------------------------------------------------- audio ---
 struct AudioSource {
     std::string clip;                 // asset path (.wav, .ogg, .mp3)
+    std::int32_t variants = 0;        // 0 or 1: play `clip`; 2..64: each play picks one of clip_01 ... clip_NN (sfx.bake of a patch with `variations`)
     float volume = 1.0f;              // 0..1
     float pitch = 1.0f;               // playback rate multiplier
     bool loop = false;

@@ -118,7 +118,139 @@
     },
     "macros": {
       "type": "object",
-      "description": "Reserved for sound families (M55.2): named controls that move several parameters. Kept and ignored by the renderer today."
+      "description": "Named knobs from -1 to 1 that move several parameters by meaning (docs/SOUND.md, \"Macros\"). Built in: attack, brightness, weight, tail, pitch, grit; the value is the setting the patch renders with (0 = as written). A macro is a number, or an object {value, strength, doc, binds}; a macro of your own needs binds that set numbers of the patch by JSON pointer.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1,
+                "default": 0,
+                "description": "The macro's setting."
+              },
+              "strength": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 3,
+                "default": 1,
+                "description": "Built-in macros: how far the knob moves things (2 = twice as far)."
+              },
+              "doc": {
+                "type": "string",
+                "description": "What the macro does in this patch."
+              },
+              "binds": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "description": "Numbers of the patch the macro sets: at -1 the number is `min`, at +1 it is `max`.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "min",
+                    "max"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "description": "JSON pointer of a number of the patch, e.g. /layers/0/filter/cutoff."
+                    },
+                    "min": {
+                      "type": "number",
+                      "description": "The value at macro -1."
+                    },
+                    "max": {
+                      "type": "number",
+                      "description": "The value at macro +1."
+                    },
+                    "curve": {
+                      "enum": [
+                        "linear",
+                        "exp"
+                      ],
+                      "default": "linear",
+                      "description": "exp interpolates on a log scale (cutoffs, times); min and max must be above 0."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "variations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count"
+      ],
+      "description": "N takes of the patch for sounds that must not repeat (footsteps, hits). sfx.bake writes name_01.wav ... name_NN.wav; an AudioSource with `variants` picks one per play.",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 64,
+          "description": "How many variants."
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Another seed gives another set of offsets."
+        },
+        "spread": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The largest offset of a variant in either direction.",
+          "properties": {
+            "pitch": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1200,
+              "default": 25,
+              "description": "Cents."
+            },
+            "length": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.9,
+              "default": 0.05,
+              "description": "Share of the length."
+            },
+            "gain": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 12,
+              "default": 1,
+              "description": "dB after normalization."
+            },
+            "filter": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 4,
+              "default": 0.15,
+              "description": "Octaves on every filter cutoff."
+            },
+            "noise": {
+              "type": "boolean",
+              "default": true,
+              "description": "Each variant takes another take of the noise."
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

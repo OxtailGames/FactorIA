@@ -1,4 +1,4 @@
-// sfx.render, sfx.bake, sfx.preset and sfx.info: sound patches (`*.sfx.json`, docs/SOUND.md) as project files. The synthesizer is
+// sfx.render, sfx.bake, sfx.tweak, sfx.family, sfx.preset and sfx.info: sound patches (`*.sfx.json`, docs/SOUND.md) as project files. The synthesizer is
 // fa_audio's (fa/audio/sfx.h); this file reads patches from the project, bakes them into WAV or OGG files next to them with a
 // recipe in assets.json (so a changed patch makes its sound stale and assets.regenerate renders it again), and shows the result
 // as the picture of assets.spectrogram. assets.synth_sound (assets_synth.cpp) renders the presets through the same functions.
@@ -94,6 +94,7 @@ LoadedPatch load_patch(const std::string& projectDir, const std::string& rel) {
 struct RenderArgs {
     SfxRenderOptions options;
     std::uint64_t seed = 0;
+    int variant = 0;  // 1-based, 0 = the patch itself
 };
 
 RenderArgs render_args(const char* command, const Json& a) {
@@ -122,7 +123,54 @@ RenderArgs render_args(const char* command, const Json& a) {
             fail("invalid_argument", std::string(command) + ": `" + key + "` must be a number of seconds from " + (std::string(key) == "length" ? "0.001" : "0") + " to 30.", std::string("It replaces the patch's own ") + key + " for this render.");
         (std::string(key) == "length" ? r.options.length : r.options.tail) = v;
     }
+    if (a.contains("macros")) {
+        if (!a["macros"].is_object()) fail("invalid_argument", std::string(command) + ": `macros` must be an object such as {\"brightness\": 0.3}.", "Macro name to a value from -1 to 1; these replace the values the patch declares for this render.");
+        for (auto it = a["macros"].begin(); it != a["macros"].end(); ++it) {
+            if (!it.value().is_number() || it.value().get<double>() < -1.0 || it.value().get<double>() > 1.0)
+                fail("invalid_argument", std::string(command) + ": macro `" + it.key() + "` must be a number from -1 to 1.", "0 leaves the patch as written; -1 and +1 are the ends of the knob.");
+            r.options.macros[it.key()] = it.value().get<double>();
+        }
+    }
+    if (a.contains("variant")) {
+        if (!a["variant"].is_number_integer() || a["variant"].get<long long>() < 1 || a["variant"].get<long long>() > 64)
+            fail("invalid_argument", std::string(command) + ": `variant` must be a whole number from 1 to 64.", "Variants are numbered from 1: variant 3 of a patch with variations is name_03.wav.");
+        r.variant = a["variant"].get<int>();
+        r.options.variant = r.variant - 1;
+    }
     return r;
+}
+
+// The patch as this render sees it: the macro binds applied for the declared values replaced by the arguments'. Checks that the
+// macro names and the variant exist.
+SfxPatch effective_patch(const LoadedPatch& loaded, const RenderArgs& args, const char* command) {
+    std::vector<std::string> known;
+    for (const SfxMacroInfo& m : sfx_macros()) known.push_back(m.name);
+    for (const SfxMacroDef& d : loaded.patch.macroDefs)
+        if (std::find(known.begin(), known.end(), d.name) == known.end()) known.push_back(d.name);
+    for (const auto& [name, value] : args.options.macros)
+        if (std::find(known.begin(), known.end(), name) == known.end())
+            fail("invalid_argument", std::string(command) + ": unknown macro '" + name + "'.", did_you_mean(name, known) + " Macros: " + join(known, ", ") + ".");
+    if (args.variant > 0) {
+        if (loaded.patch.variations.count <= 0)
+            fail("invalid_argument", std::string(command) + ": " + loaded.rel + " declares no variations.", "Add \"variations\": {\"count\": 6} to the patch (docs/SOUND.md, \"Variations\").");
+        if (args.variant > loaded.patch.variations.count)
+            fail("invalid_argument", std::string(command) + ": variant " + std::to_string(args.variant) + " does not exist: " + loaded.rel + " has " + std::to_string(loaded.patch.variations.count) + ".", "Variants are numbered 1 to " + std::to_string(loaded.patch.variations.count) + ".");
+    }
+    bool binds = false;
+    for (const SfxMacroDef& d : loaded.patch.macroDefs) binds = binds || !d.binds.empty();
+    if (!binds) return loaded.patch;
+    auto bound = sfx_apply_macro_binds(loaded.json, loaded.patch, args.options.macros);
+    if (!bound.ok()) fail("invalid_patch", loaded.rel + ": " + bound.error().message, bound.error().hint);
+    std::vector<SfxIssue> issues;
+    auto patch = parse_sfx(*bound, loaded.rel, &issues);
+    if (!patch.ok()) throw CommandError("invalid_patch", patch.error().message, "A macro bind moves a number outside its range: " + patch.error().hint, Json::object({{"issues", issues_json(issues)}}));
+    return std::move(*patch);
+}
+
+// Where a render goes by default: the patch's path with .wav, or name_NN.wav for variant NN.
+std::string out_for(const LoadedPatch& loaded, const RenderArgs& args) {
+    const std::string base = default_out(loaded.rel);
+    return args.variant > 0 ? sfx_variant_path(base, args.variant, loaded.patch.variations.count) : base;
 }
 
 // ---- baking ----
@@ -160,7 +208,8 @@ Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const
         fail("exists", "'" + *norm + "' already exists and was not made by sfx.render.", "Pass overwrite: true to replace it, or choose another `out`.");
     require_usable_manifest(projectDir);
 
-    auto audio = render_sfx(loaded.patch, args.options);
+    const SfxPatch patch = effective_patch(loaded, args, kRender);
+    auto audio = render_sfx(patch, args.options);
     if (!audio.ok()) fail("failed", loaded.rel + ": " + audio.error().message, audio.error().hint);
     std::vector<std::uint8_t> bytes = sfx_wav_bytes(*audio);
     if (ext == ".ogg") {
@@ -172,7 +221,7 @@ Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const
     if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), &err)) fail("failed", err);
 
     Json recipe = make_recipe(projectDir, kRender, recipeArgs, {loaded.rel});
-    const std::string notes = std::format("sound patch {}, {:.2f} s, seed {}", loaded.rel, audio->seconds(), args.seed);
+    const std::string notes = std::format("sound patch {}{}, {:.2f} s, seed {}", loaded.rel, args.variant > 0 ? std::format(" variant {}", args.variant) : std::string(), audio->seconds(), args.seed);
     Json provenance = Json::object({{"origin", "original"}, {"ai", false}, {"kind", "sound"}, {"provider", "factoria sfx.render"}, {"seed", args.seed},
                                     {"license", "CC0-1.0"}, {"author", "factoria"}, {"notes", notes}, {"date", assets::today()}, {"recipe", recipe}});
     {
@@ -192,40 +241,113 @@ Baked bake_patch(const std::string& projectDir, const LoadedPatch& loaded, const
 }
 
 Json measurements_json(const SfxAudio& audio) {
-    return Json::object({{"lufs", round_to(audio.lufs, 1)}, {"peakDb", round_to(audio.peakDb, 1)}, {"seconds", round_to(audio.seconds(), 3)}, {"sampleRate", audio.sampleRate}});
+    return Json::object({{"lufs", round_to(audio.lufs, 1)}, {"peakDb", round_to(audio.peakDb, 1)}, {"seconds", round_to(audio.seconds(), 3)}, {"sampleRate", audio.sampleRate},
+                         {"centroidHz", round_to(sfx_centroid_hz(audio), 0)}, {"riseSeconds", round_to(sfx_rise_seconds(audio), 3)}});
+}
+
+std::string file_stem(const std::string& path) {
+    std::string name = path.substr(path.find_last_of('/') == std::string::npos ? 0 : path.find_last_of('/') + 1);
+    const std::size_t dot = name.find_last_of('.');
+    return dot == std::string::npos ? name : name.substr(0, dot);
+}
+
+audio_mix::SheetRow sheet_row(const std::string& label, const SfxAudio& audio) {
+    audio_mix::SheetRow row;
+    row.label = label;
+    row.note = std::format("{:.1f} LUFS  {:.2f} s  {:.0f} Hz", audio.lufs, audio.seconds(), sfx_centroid_hz(audio));
+    row.samples = audio.samples;
+    row.rate = audio.sampleRate;
+    return row;
 }
 
 // ---- sfx.render ----
 
-Json sfx_render_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys(kRender, a, "", {"path", "out", "seed", "freq", "note", "length", "tail", "picture", "pictureOut", "width", "height", "overwrite"});
-    const std::string rel = patch_path(tooling_detail::arg_string(a, "path", true));
-    const std::string outArg = tooling_detail::arg_string(a, "out", false);
-    const std::string out = outArg.empty() ? default_out(rel) : outArg;
-    const RenderArgs args = render_args(kRender, a);
-    const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
-    const LoadedPatch loaded = load_patch(projectDir, rel);
-    Baked baked = bake_patch(projectDir, loaded, out, args, recipe_args(a, {{"path", rel}, {"out", outArg.empty() ? Json() : Json(out)}, {"picture", Json()}, {"pictureOut", Json()}, {"width", Json()}, {"height", Json()}}), overwrite);
+// Renders `loaded` in memory with `args` (checks the variant and macro names too): the numbers of a take without writing it.
+SfxAudio render_in_memory(const LoadedPatch& loaded, const RenderArgs& args, const char* command) {
+    const SfxPatch patch = effective_patch(loaded, args, command);
+    auto audio = render_sfx(patch, args.options);
+    if (!audio.ok()) fail("failed", loaded.rel + ": " + audio.error().message, audio.error().hint);
+    return std::move(*audio);
+}
 
-    Json result = Json::object({{"patch", rel}, {"path", baked.out}, {"bytes", baked.bytes}, {"seed", args.seed}, {"measurements", measurements_json(baked.audio)}, {"provenance", baked.provenance}});
-    Json steps = Json::array();
-    if (tooling_detail::arg_bool(a, "picture", true)) {
-        Json picArgs = Json::object({{"path", baked.out}});
+// The picture of a result: the spectrogram of one file, or the contact sheet of `rows`.
+void add_picture(const std::string& projectDir, const Json& a, Json& result, const std::string& soundPath, const std::string& title, const std::vector<audio_mix::SheetRow>& rows) {
+    Json pic;
+    if (rows.empty()) {
+        Json picArgs = Json::object({{"path", soundPath}});
         for (const char* key : {"width", "height"})
             if (a.contains(key)) picArgs[key] = a[key];
         if (a.contains("pictureOut")) picArgs["out"] = a["pictureOut"];
-        Json pic = audio_mix::spectrogram_picture(projectDir, picArgs);
-        if (pic.contains("$image")) {
-            result["$image"] = pic["$image"];
-            pic.erase("$image");
-        }
+        pic = audio_mix::spectrogram_picture(projectDir, picArgs);
+        if (pic.contains("$image")) result["$image"] = pic["$image"];
+        pic.erase("$image");
         pic.erase("nextSteps");
         pic.erase("path");
         result["analysis"] = pic;  // the numbers of the file as written: integratedLufs, truePeakDb, clippedSamples, dominantBand...
+        return;
+    }
+    pic = audio_mix::spectrogram_sheet(projectDir, title, rows, a.value("width", 1000), a.value("pictureOut", std::string()));
+    if (pic.contains("$image")) result["$image"] = pic["$image"];
+    if (pic.contains("picture")) result["picture"] = pic["picture"];
+}
+
+Json loudness_json(const std::vector<double>& lufs) {
+    if (lufs.empty()) return Json::object();
+    const auto [lo, hi] = std::minmax_element(lufs.begin(), lufs.end());
+    return Json::object({{"minLufs", round_to(*lo, 1)}, {"maxLufs", round_to(*hi, 1)}, {"spreadLu", round_to(*hi - *lo, 1)}});
+}
+
+Json sfx_render_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys(kRender, a, "", {"path", "out", "seed", "freq", "note", "length", "tail", "macros", "variant", "variants", "picture", "pictureOut", "width", "height", "overwrite"});
+    const std::string rel = patch_path(tooling_detail::arg_string(a, "path", true));
+    const std::string outArg = tooling_detail::arg_string(a, "out", false);
+    RenderArgs args = render_args(kRender, a);
+    const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
+    const bool all = tooling_detail::arg_bool(a, "variants", false);
+    const LoadedPatch loaded = load_patch(projectDir, rel);
+    const bool wantPicture = tooling_detail::arg_bool(a, "picture", true);
+    const Json picKeys = Json::object({{"picture", nullptr}, {"pictureOut", nullptr}, {"width", nullptr}, {"height", nullptr}});
+
+    if (all) {
+        if (!outArg.empty() || a.contains("variant"))
+            fail("invalid_argument", "sfx.render: `variants: true` renders every variant to its own name_NN file, so it takes neither `out` nor `variant`.", "Render one variant with {\"variant\": 3}, or all of them with {\"variants\": true}.");
+        const int count = loaded.patch.variations.count;
+        if (count <= 0) fail("invalid_argument", "sfx.render: " + rel + " declares no variations.", "Add \"variations\": {\"count\": 6} to the patch (docs/SOUND.md, \"Variations\").");
+        Json items = Json::array();
+        std::vector<audio_mix::SheetRow> rows;
+        std::vector<double> lufs;
+        for (int n = 1; n <= count; ++n) {
+            RenderArgs va = args;
+            va.variant = n;
+            va.options.variant = n - 1;
+            const std::string out = out_for(loaded, va);
+            Json ra = recipe_args(a, {{"path", rel}, {"out", out}, {"variants", Json()}, {"variant", n}, {"picture", Json()}, {"pictureOut", Json()}, {"width", Json()}, {"height", Json()}});
+            const Baked b = bake_patch(projectDir, loaded, out, va, ra, overwrite);
+            items.push_back(Json::object({{"variant", n}, {"path", b.out}, {"bytes", b.bytes}, {"measurements", measurements_json(b.audio)}}));
+            rows.push_back(sheet_row(file_stem(b.out), b.audio));
+            lufs.push_back(b.audio.lufs);
+        }
+        Json result = Json::object({{"patch", rel}, {"count", count}, {"seed", args.seed}, {"variants", items}, {"loudness", loudness_json(lufs)}});
+        if (wantPicture) add_picture(projectDir, a, result, "", rel + ": " + std::to_string(count) + " variants", rows);
+        result["nextSteps"] = Json::array({"Each row of the picture is one variant: they should sound alike but not the same. Widen or narrow `variations.spread` in " + rel + " and render again.",
+                                           "Play one per call: AudioSource {\"clip\": \"" + default_out(rel) + "\", \"variants\": " + std::to_string(count) + "} or audio.play(\"" + default_out(rel) + "\", {variants: " + std::to_string(count) + "})."});
+        return result;
+    }
+
+    const std::string out = outArg.empty() ? out_for(loaded, args) : outArg;
+    Baked baked = bake_patch(projectDir, loaded, out, args, recipe_args(a, {{"path", rel}, {"out", outArg.empty() && args.variant == 0 ? Json() : Json(out)}, {"variants", Json()}, {"picture", Json()}, {"pictureOut", Json()}, {"width", Json()}, {"height", Json()}}), overwrite);
+
+    Json result = Json::object({{"patch", rel}, {"path", baked.out}, {"bytes", baked.bytes}, {"seed", args.seed}, {"measurements", measurements_json(baked.audio)}, {"provenance", baked.provenance}});
+    if (args.variant > 0) result["variant"] = args.variant;
+    Json steps = Json::array();
+    if (wantPicture) {
+        add_picture(projectDir, a, result, baked.out, "", {});
         steps.push_back("Read the picture: waveform on top, spectrogram (log frequency) in the middle, loudness at the bottom. Change a number in " + rel + " and call sfx.render again.");
     }
     if (baked.audio.peakDb > -0.5) steps.push_back("It peaks at " + std::format("{:.1f}", baked.audio.peakDb) + " dBFS: lower a layer `gain` or the master `normalize` target.");
     steps.push_back("Play it: audio.play(\"" + baked.out + "\") in a script, or an AudioSource \"clip\". Same patch, same seed, same bytes.");
+    if (loaded.patch.variations.count > 0 && args.variant == 0)
+        steps.push_back(rel + " declares " + std::to_string(loaded.patch.variations.count) + " variations: {\"variants\": true} renders them all and shows one row per variant; sfx.bake writes them with the sound.");
     steps.push_back("After editing the patch, sfx.bake renders every patch whose sound is missing or out of date.");
     result["nextSteps"] = steps;
     return result;
@@ -234,8 +356,10 @@ Json sfx_render_command(const std::string& projectDir, const Json& a) {
 // ---- sfx.bake ----
 
 Json sfx_bake_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("sfx.bake", a, "", {"force", "dryRun"});
+    check_arg_keys("sfx.bake", a, "", {"force", "dryRun", "macros"});
     const bool force = tooling_detail::arg_bool(a, "force", false), dryRun = tooling_detail::arg_bool(a, "dryRun", false);
+    // `macros` here are for the render of every patch that is baked in this call; they are kept in the recipe.
+    if (a.contains("macros")) render_args("sfx.bake", Json::object({{"macros", a["macros"]}}));
     Json baked = Json::array(), unchanged = Json::array(), skipped = Json::array(), failed = Json::array();
     const std::vector<std::string> patches = list_patches(projectDir);
     std::string manifestText = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile).value_or(std::string());
@@ -243,39 +367,61 @@ Json sfx_bake_command(const std::string& projectDir, const Json& a) {
     if (!manifestText.empty())
         if (auto parsed = parse_json(manifestText, assets::kManifestFile); parsed.ok() && parsed->is_object() && parsed->contains("assets") && (*parsed)["assets"].is_object()) entries = (*parsed)["assets"];
     for (const std::string& rel : patches) {
-        const std::string out = default_out(rel);
-        std::error_code ec;
-        const bool exists = stdfs::exists(project_file(projectDir, out), ec);
-        const Json entry = entries.contains(out) ? entries[out] : Json();
-        const Json recipe = recipe_of(entry);
-        const bool ours = recipe.is_object() && recipe.value("command", std::string()) == kRender;
-        std::string reason;
-        if (!exists) reason = "missing";
-        else if (!ours) {
-            skipped.push_back(Json::object({{"patch", rel}, {"out", out}, {"reason", "'" + out + "' exists and was not made by sfx.render; render it yourself with overwrite: true to replace it"}}));
-            continue;
-        } else if (force) reason = "forced";
-        else if (check_recipe(projectDir, recipe).stale()) reason = "stale";
-        if (reason.empty()) {
-            unchanged.push_back(rel);
-            continue;
-        }
-        if (dryRun) {
-            baked.push_back(Json::object({{"patch", rel}, {"out", out}, {"reason", reason}}));
-            continue;
-        }
+        // The sound of the patch, then one file per declared variation (name_01.wav ...).
+        const std::string baseOut = default_out(rel);
+        int count = 0;
         try {
-            const LoadedPatch loaded = load_patch(projectDir, rel);
-            // An existing recipe keeps its own arguments (seed, note, a .ogg out): the bake renders what it recorded.
-            Json recipeArgs = ours ? recipe["args"] : Json::object({{"path", rel}});
-            const RenderArgs args = render_args(kRender, recipeArgs);
-            const std::string target = ours ? recipeArgs.value("out", out) : out;
-            const Baked b = bake_patch(projectDir, loaded, target, args, recipeArgs, true);
-            baked.push_back(Json::object({{"patch", rel}, {"out", b.out}, {"reason", reason}, {"measurements", measurements_json(b.audio)}}));
-        } catch (const CommandError& e) {
-            Json f = Json::object({{"patch", rel}, {"error", Json::object({{"code", e.code}, {"message", e.what()}, {"hint", e.hint}})}});
-            if (e.data.is_object() && e.data.contains("issues")) f["error"]["issues"] = e.data["issues"];
-            failed.push_back(f);
+            count = load_patch(projectDir, rel).patch.variations.count;
+        } catch (const CommandError&) {  // a patch with mistakes is reported below, when its sound needs rendering
+        }
+        std::vector<std::pair<std::string, int>> targets = {{baseOut, 0}};
+        for (int n = 1; n <= count; ++n) targets.push_back({sfx_variant_path(baseOut, n, count), n});
+        const Json baseRecipe = entries.contains(baseOut) ? recipe_of(entries[baseOut]) : Json();
+        const bool baseOurs = baseRecipe.is_object() && baseRecipe.value("command", std::string()) == kRender;
+        for (const auto& [out, variant] : targets) {
+            std::error_code ec;
+            const bool exists = stdfs::exists(project_file(projectDir, out), ec);
+            const Json entry = entries.contains(out) ? entries[out] : Json();
+            const Json recipe = recipe_of(entry);
+            const bool ours = recipe.is_object() && recipe.value("command", std::string()) == kRender;
+            std::string reason;
+            if (!exists) reason = "missing";
+            else if (!ours) {
+                skipped.push_back(Json::object({{"patch", rel}, {"out", out}, {"reason", "'" + out + "' exists and was not made by sfx.render; render it yourself with overwrite: true to replace it"}}));
+                continue;
+            } else if (force || a.contains("macros")) reason = "forced";
+            else if (check_recipe(projectDir, recipe).stale()) reason = "stale";
+            if (reason.empty()) {
+                unchanged.push_back(out);
+                continue;
+            }
+            if (dryRun) {
+                baked.push_back(Json::object({{"patch", rel}, {"out", out}, {"reason", reason}}));
+                continue;
+            }
+            try {
+                const LoadedPatch loaded = load_patch(projectDir, rel);
+                // An existing recipe keeps its own arguments (seed, note, an .ogg `out`): the bake renders what it recorded. A variant that has
+                // none starts from the sound's own arguments.
+                Json recipeArgs = ours ? recipe["args"] : (variant > 0 && baseOurs ? baseRecipe["args"] : Json::object({{"path", rel}}));
+                if (!ours && variant > 0) {
+                    recipeArgs.erase("macros");
+                    if (baseOurs && baseRecipe["args"].contains("macros")) recipeArgs["macros"] = baseRecipe["args"]["macros"];
+                    recipeArgs["out"] = out;
+                    recipeArgs["variant"] = variant;
+                }
+                if (a.contains("macros")) recipeArgs["macros"] = a["macros"];
+                const RenderArgs args = render_args(kRender, recipeArgs);
+                const std::string target = ours ? recipeArgs.value("out", out) : out;
+                const Baked b = bake_patch(projectDir, loaded, target, args, recipeArgs, true);
+                Json item = Json::object({{"patch", rel}, {"out", b.out}, {"reason", reason}, {"measurements", measurements_json(b.audio)}});
+                if (variant > 0) item["variant"] = variant;
+                baked.push_back(item);
+            } catch (const CommandError& e) {
+                Json f = Json::object({{"patch", rel}, {"out", out}, {"error", Json::object({{"code", e.code}, {"message", e.what()}, {"hint", e.hint}})}});
+                if (e.data.is_object() && e.data.contains("issues")) f["error"]["issues"] = e.data["issues"];
+                failed.push_back(f);
+            }
         }
     }
     Json result = Json::object({{dryRun ? "wouldBake" : "baked", baked}, {"count", baked.size()}, {"unchanged", unchanged}});
@@ -286,6 +432,244 @@ Json sfx_bake_command(const std::string& projectDir, const Json& a) {
     if (patches.empty()) steps.push_back("There are no sound patches yet: sfx.preset {\"name\":\"coin\",\"path\":\"assets/audio/coin.sfx.json\"} writes one.");
     if (!failed.empty()) steps.push_back("Fix the patches in `failed` (each issue has its JSON pointer and a hint) and call sfx.bake again.");
     steps.push_back("sfx.render {\"path\":...} renders one patch and shows its spectrogram.");
+    result["nextSteps"] = steps;
+    return result;
+}
+
+// ---- sfx.tweak ----
+
+// The macro names a patch answers to: the built-in knobs and the custom ones it declares.
+std::vector<std::string> macro_names(const SfxPatch& patch) {
+    std::vector<std::string> names;
+    for (const SfxMacroInfo& m : sfx_macros()) names.push_back(m.name);
+    for (const SfxMacroDef& d : patch.macroDefs)
+        if (std::find(names.begin(), names.end(), d.name) == names.end()) names.push_back(d.name);
+    return names;
+}
+
+void set_macro_value(Json& patchJson, const std::string& name, double value) {
+    if (!patchJson.contains("macros") || !patchJson["macros"].is_object()) patchJson["macros"] = Json::object();
+    Json& slot = patchJson["macros"][name];
+    if (slot.is_object()) slot["value"] = value;
+    else slot = value;
+}
+
+Json sfx_tweak_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("sfx.tweak", a, "", {"path", "macros", "absolute", "render", "seed", "picture", "pictureOut", "width", "height"});
+    const std::string rel = patch_path(tooling_detail::arg_string(a, "path", true));
+    if (!a.contains("macros") || !a["macros"].is_object() || a["macros"].empty())
+        fail("invalid_argument", "sfx.tweak: `macros` must say what to turn, e.g. {\"brightness\": 0.2, \"tail\": -0.3}.",
+             "Each value is added to the macro the patch declares (so +0.2 is a little brighter than now); with absolute: true it is the new value itself. Macros: " + join([] { std::vector<std::string> n; for (const SfxMacroInfo& m : sfx_macros()) n.push_back(m.name); return n; }(), ", ") + ".");
+    const bool absolute = tooling_detail::arg_bool(a, "absolute", false);
+    const LoadedPatch loaded = load_patch(projectDir, rel);
+    const std::vector<std::string> known = macro_names(loaded.patch);
+    Json json = loaded.json;
+    Json changes = Json::object();
+    for (auto it = a["macros"].begin(); it != a["macros"].end(); ++it) {
+        if (std::find(known.begin(), known.end(), it.key()) == known.end())
+            fail("invalid_argument", "sfx.tweak: unknown macro '" + it.key() + "'.", did_you_mean(it.key(), known) + " Macros: " + join(known, ", ") + ".");
+        if (!it.value().is_number() || !std::isfinite(it.value().get<double>()))
+            fail("invalid_argument", "sfx.tweak: macro `" + it.key() + "` must be a number.", absolute ? "The new value, from -1 to 1." : "How much to add, e.g. +0.2.");
+        const double before = loaded.patch.macro_value(it.key());
+        const double after = round_to(std::clamp(absolute ? it.value().get<double>() : before + it.value().get<double>(), -1.0, 1.0), 3);
+        set_macro_value(json, it.key(), after);
+        changes[it.key()] = Json::object({{"before", round_to(before, 3)}, {"after", after}});
+    }
+    std::vector<SfxIssue> issues;
+    auto patch = parse_sfx(json, rel, &issues);
+    if (!patch.ok()) throw CommandError("invalid_patch", patch.error().message, patch.error().hint, Json::object({{"issues", issues_json(issues)}}));
+    RenderArgs plain = render_args("sfx.tweak", a.contains("seed") ? Json::object({{"seed", a["seed"]}}) : Json::object());
+    std::optional<Json> beforeMeasure;
+    if (tooling_detail::arg_bool(a, "render", true)) beforeMeasure = measurements_json(render_in_memory(loaded, plain, "sfx.tweak"));
+    std::string err;
+    if (!tooling_detail::write_file(project_file(projectDir, rel), json.dump(2) + "\n", &err)) fail("failed", err);
+
+    Json result = Json::object({{"patch", rel}, {"macros", changes}});
+    if (!tooling_detail::arg_bool(a, "render", true)) {
+        result["nextSteps"] = Json::array({"The patch is changed; sfx.render {\"path\":\"" + rel + "\"} renders it, sfx.bake renders every sound that is now out of date."});
+        return result;
+    }
+    // Render again: the sound, then its variants, with the picture of whichever shows the change.
+    Json renderArgs = Json::object({{"path", rel}, {"overwrite", false}});
+    for (const char* key : {"seed", "picture", "pictureOut", "width", "height"})
+        if (a.contains(key)) renderArgs[key] = a[key];
+    const bool variants = patch->variations.count > 0;
+    if (variants) renderArgs["picture"] = false;
+    Json rendered = sfx_render_command(projectDir, renderArgs);
+    result["path"] = rendered["path"];
+    result["measurementsBefore"] = *beforeMeasure;
+    result["measurements"] = rendered["measurements"];
+    if (rendered.contains("analysis")) result["analysis"] = rendered["analysis"];
+    if (rendered.contains("$image")) result["$image"] = rendered["$image"];
+    if (variants) {
+        Json va = renderArgs;
+        va["variants"] = true;
+        va["picture"] = a.value("picture", true);
+        va.erase("overwrite");
+        Json all = sfx_render_command(projectDir, va);
+        result["variants"] = all["variants"];
+        result["loudness"] = all["loudness"];
+        if (all.contains("$image")) result["$image"] = all["$image"];
+    }
+    result["nextSteps"] = Json::array({"Compare measurementsBefore and measurements (centroidHz is the brightness, riseSeconds the attack, seconds the length), then turn the macro again if it is not enough.",
+                                       "The numbers are saved in the patch's `macros`; edit " + rel + " by hand to change what a macro does (docs/SOUND.md, \"Macros\")."});
+    return result;
+}
+
+// ---- sfx.family ----
+
+// One interface sound of a family: how its patch differs from the base. The loudness is not here: every member takes the base's
+// normalization, so they sit at the same level.
+struct FamilyRole {
+    const char* name;
+    const char* what;
+    double length, tail;
+    std::vector<std::pair<const char*, double>> macros;  // added to the base's declared macros
+    std::vector<double> arpeggio;                         // semitone steps, empty = keep the base's pitch movement
+    double arpeggioRate;
+    double sweepSemitones, sweepTime;                     // 0 = no slide
+};
+
+const std::vector<FamilyRole>& family_roles() {
+    static const std::vector<FamilyRole> roles = {
+        {"click", "a press: short and dry", 0.035, 0.03, {{"brightness", 0.3}, {"tail", -0.5}}, {}, 0, 0, 0},
+        {"hover", "the pointer arrives on a control: soft, high and brief", 0.05, 0.05, {{"pitch", 0.25}, {"brightness", 0.1}, {"weight", -0.3}}, {}, 0, 0, 0},
+        {"confirm", "an action went through: two notes up", 0.13, 0.12, {{"brightness", 0.2}}, {0, 7}, 12, 0, 0},
+        {"cancel", "an action was backed out of: two notes down", 0.13, 0.1, {{"pitch", -0.15}, {"brightness", -0.2}}, {0, -5}, 12, 0, 0},
+        {"error", "something is not allowed: low, buzzy and sliding down", 0.2, 0.1, {{"pitch", -0.3}, {"weight", 0.3}, {"grit", 0.5}}, {}, 0, -3, 0.15},
+        {"open", "a panel opens: a rising slide", 0.14, 0.16, {{"brightness", 0.3}, {"attack", 0.2}}, {}, 0, 7, 0.14},
+        {"close", "a panel closes: a falling slide", 0.12, 0.12, {{"brightness", -0.2}}, {}, 0, -7, 0.12},
+        {"notify", "something happened elsewhere: three rising notes with a tail", 0.2, 0.25, {{"brightness", 0.1}, {"tail", 0.3}}, {0, 5, 9}, 10, 0, 0},
+    };
+    return roles;
+}
+
+bool layer_is_pitched(const Json& layer) {
+    if (!layer.contains("pitch") || !layer["pitch"].is_object() || !layer.contains("oscillators") || !layer["oscillators"].is_array()) return false;
+    for (const Json& o : layer["oscillators"])
+        if (o.is_object() && o.value("wave", std::string("sine")) != "noise") return true;
+    return false;
+}
+
+// `base` with the role's differences, as a patch of its own.
+Json family_member(const Json& base, const FamilyRole& role, const std::string& baseRel) {
+    Json j = base;
+    j["doc"] = std::string(role.name) + ": " + role.what + ". Member of the family of " + baseRel + (base.contains("doc") && base["doc"].is_string() && !base["doc"].get<std::string>().empty() ? " (" + base["doc"].get<std::string>() + ")" : std::string());
+    j["length"] = role.length;
+    j["tail"] = role.tail;
+    if (j.contains("layers") && j["layers"].is_array()) {
+        for (Json& layer : j["layers"]) {
+            if (!layer.is_object()) continue;
+            if (layer.contains("length") && layer["length"].is_number() && layer["length"].get<double>() > role.length) layer["length"] = role.length;
+            if (layer.contains("start") && layer["start"].is_number() && layer["start"].get<double>() >= role.length) layer["start"] = round_to(role.length * 0.5, 4);
+            if (!layer_is_pitched(layer)) continue;
+            Json& pitch = layer["pitch"];
+            if (!role.arpeggio.empty()) {
+                pitch.erase("sweep");
+                pitch["arpeggio"] = Json::object({{"steps", role.arpeggio}, {"rate", role.arpeggioRate}, {"mode", "once"}});
+            } else if (role.sweepSemitones != 0.0) {
+                pitch.erase("arpeggio");
+                pitch["sweep"] = Json::object({{"semitones", role.sweepSemitones}, {"time", role.sweepTime}, {"curve", 1.0}});
+            }
+        }
+    }
+    // The role's knobs are turned from where the base has them.
+    SfxPatch parsed;
+    {
+        std::vector<SfxIssue> ignore;
+        if (auto p = parse_sfx(base, baseRel, &ignore); p.ok()) parsed = std::move(*p);
+    }
+    for (const auto& [name, delta] : role.macros) set_macro_value(j, name, round_to(std::clamp(parsed.macro_value(name) + delta, -1.0, 1.0), 3));
+    // Same loudness target and ceiling for every member.
+    Json normalize = base.contains("master") && base["master"].is_object() && base["master"].contains("normalize") ? base["master"]["normalize"] : Json::object({{"mode", "lufs"}, {"target", -18}, {"ceilingDb", -1}});
+    if (!j.contains("master") || !j["master"].is_object()) j["master"] = Json::object();
+    j["master"]["normalize"] = normalize;
+    return j;
+}
+
+Json sfx_family_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("sfx.family", a, "", {"from", "names", "preset", "out", "overwrite", "render", "picture", "pictureOut", "width", "height"});
+    const std::string baseRel = patch_path(tooling_detail::arg_string(a, "from", true), "from");
+    std::vector<std::string> roleNames;
+    for (const FamilyRole& r : family_roles()) roleNames.push_back(r.name);
+    if (int(a.contains("names")) + int(a.contains("preset")) != 1)
+        fail("invalid_argument", "sfx.family: give exactly one of `names` and `preset`.", "{\"preset\":\"ui\"} makes " + join(roleNames, ", ") + "; {\"names\":[\"click\",\"confirm\"]} makes only those.");
+    std::vector<std::string> names;
+    if (a.contains("preset")) {
+        if (!a["preset"].is_string() || a["preset"].get<std::string>() != "ui") fail("invalid_argument", "sfx.family: unknown preset " + a["preset"].dump() + ".", "The only preset is \"ui\": " + join(roleNames, ", ") + ".");
+        names = roleNames;
+    } else {
+        if (!a["names"].is_array() || a["names"].empty()) fail("invalid_argument", "sfx.family: `names` must be a list of sound names.", "Names: " + join(roleNames, ", ") + ".");
+        for (const Json& n : a["names"]) {
+            const std::string name = n.is_string() ? to_lower(n.get<std::string>()) : std::string();
+            if (std::find(roleNames.begin(), roleNames.end(), name) == roleNames.end())
+                fail("invalid_argument", "sfx.family: unknown sound " + n.dump() + ".", did_you_mean(name, roleNames) + " Names: " + join(roleNames, ", ") + ".");
+            if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+        }
+    }
+    const LoadedPatch loaded = load_patch(projectDir, baseRel);
+    std::string dir = tooling_detail::arg_string(a, "out", false);
+    if (dir.empty()) dir = baseRel.substr(0, baseRel.size() - std::string(kSuffix).size()) + "_family";
+    while (!dir.empty() && dir.back() == '/') dir.pop_back();
+    const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
+    const bool render = tooling_detail::arg_bool(a, "render", true);
+
+    struct Member { std::string name, rel, text; Json json; SfxPatch patch; };
+    std::vector<Member> members;
+    for (const std::string& name : names) {
+        const FamilyRole* role = nullptr;
+        for (const FamilyRole& r : family_roles())
+            if (name == r.name) role = &r;
+        Member m;
+        m.name = name;
+        m.rel = patch_path(dir + "/" + name + kSuffix, "out");
+        m.json = family_member(loaded.json, *role, baseRel);
+        std::vector<SfxIssue> issues;
+        auto p = parse_sfx(m.json, m.rel, &issues);
+        if (!p.ok()) throw CommandError("invalid_patch", "The " + name + " of the family is not a valid patch: " + p.error().message, "The base patch " + baseRel + " does not fit this sound (" + p.error().hint + "). Fix the base or leave this name out.", Json::object({{"issues", issues_json(issues)}}));
+        m.patch = std::move(*p);
+        m.text = m.json.dump(2) + "\n";
+        members.push_back(std::move(m));
+    }
+    std::vector<std::string> clash;
+    for (const Member& m : members) {
+        std::error_code ec;
+        if (stdfs::exists(project_file(projectDir, m.rel), ec)) clash.push_back(m.rel);
+    }
+    if (!overwrite && !clash.empty()) fail("exists", "sfx.family: " + join(clash, ", ") + " already exist.", "Pass overwrite: true to replace them, or choose another `out` directory.");
+    for (const Member& m : members) {
+        std::string err;
+        if (!tooling_detail::write_file(project_file(projectDir, m.rel), m.text, &err)) fail("failed", err);
+    }
+
+    Json items = Json::array();
+    std::vector<audio_mix::SheetRow> rows;
+    std::vector<double> lufs;
+    for (const Member& m : members) {
+        LoadedPatch lp{m.rel, m.text, m.json, m.patch};
+        Json item = Json::object({{"patch", m.rel}});
+        RenderArgs plain;
+        if (render) {
+            const Baked b = bake_patch(projectDir, lp, default_out(m.rel), plain, Json::object({{"path", m.rel}}), overwrite);
+            item["path"] = b.out;
+            item["measurements"] = measurements_json(b.audio);
+            rows.push_back(sheet_row(m.name, b.audio));
+            lufs.push_back(b.audio.lufs);
+        } else {
+            const SfxAudio audio = render_in_memory(lp, plain, "sfx.family");
+            item["measurements"] = measurements_json(audio);
+            rows.push_back(sheet_row(m.name, audio));
+            lufs.push_back(audio.lufs);
+        }
+        items.push_back(item);
+    }
+    Json result = Json::object({{"from", baseRel}, {"out", dir}, {"count", items.size()}, {"sounds", items}, {"loudness", loudness_json(lufs)}});
+    Json steps = Json::array();
+    if (tooling_detail::arg_bool(a, "picture", true)) add_picture(projectDir, a, result, "", baseRel + ": family", rows);
+    const double spread = result["loudness"].value("spreadLu", 0.0);
+    if (spread > 3.0) steps.push_back("The sounds span " + std::format("{:.1f}", spread) + " LU: the very short ones hit the peak ceiling before the loudness target. Raise `ceilingDb` in the base's master.normalize (or use a longer base) and make the family again with overwrite: true.");
+    steps.push_back("Each member is a patch of its own (copied from " + baseRel + "): edit it, or turn its knobs with sfx.tweak {\"path\":\"" + dir + "/click.sfx.json\",\"macros\":{\"brightness\":0.2}}.");
+    steps.push_back("Play them: audio.play(\"" + dir + "/click.wav\"). " + (render ? "" : "Nothing was rendered: sfx.bake renders them. ") + "Editing the base does not change the members; make the family again with overwrite: true.");
     result["nextSteps"] = steps;
     return result;
 }
@@ -422,7 +806,27 @@ Json sfx_info_command(const std::string& projectDir, const Json& a) {
     auto audio = render_sfx(*patch, args.options);
     if (audio.ok()) result["measurements"] = measurements_json(*audio);
     else result["renderError"] = audio.error().message;
-    if (!patch->macros.is_null() && !patch->macros.empty()) result["hasMacros"] = true;
+    {
+        // The knobs: every built-in macro with the value the patch declares (0 = as written), and the custom ones with what they bind.
+        Json macros = Json::object();
+        for (const SfxMacroInfo& m : sfx_macros()) macros[m.name] = Json::object({{"value", round_to(patch->macro_value(m.name), 3)}, {"what", m.what}});
+        for (const SfxMacroDef& d : patch->macroDefs)
+            if (!d.builtin) macros[d.name] = Json::object({{"value", round_to(d.value, 3)}, {"what", d.doc.empty() ? "custom macro" : d.doc}, {"binds", d.binds.size()}});
+        result["macros"] = macros;
+    }
+    if (patch->variations.count > 0) {
+        Json v = Json::object({{"count", patch->variations.count}, {"seed", patch->variations.seed}});
+        if (!rel.empty()) {
+            Json files = Json::array();
+            for (int n = 1; n <= patch->variations.count; ++n) {
+                const std::string path = sfx_variant_path(default_out(rel), n, patch->variations.count);
+                std::error_code ec;
+                files.push_back(Json::object({{"variant", n}, {"path", path}, {"exists", stdfs::exists(project_file(projectDir, path), ec)}}));
+            }
+            v["files"] = files;
+        }
+        result["variations"] = v;
+    }
     result["nextSteps"] = Json::array({"sfx.render renders it to a WAV and shows its spectrogram; sfx.bake renders every patch that is missing its sound or out of date."});
     return result;
 }
@@ -452,7 +856,10 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
             "(default -18 LUFS, peak under -1 dBFS). The file gets provenance and a recipe in assets.json whose input is the patch, so project.validate warns when the patch changed after the sound "
             "was made and assets.regenerate renders it again. A patch with mistakes fails with `invalid_patch` and every problem in data.issues (JSON pointer, what is wrong, how to fix it). "
             "The result has measurements (lufs, peakDb, seconds), the numbers of the file as written (`analysis`, from assets.spectrogram) and the picture (`$image`): waveform, spectrogram and loudness curve. "
-            "Options that change one render without editing the patch: `seed` (another take of the noise), `freq` or `note` (transpose so the patch's base pitch becomes this), `length`, `tail`. "
+            "Options that change one render without editing the patch: `seed` (another take of the noise), `freq` or `note` (transpose so the patch's base pitch becomes this), `length`, `tail`, and `macros` "
+            "(meaning knobs from -1 to 1: attack, brightness, weight, tail, pitch, grit, plus the patch's own; they replace the values the patch declares). A patch that declares `variations` renders one take with "
+            "`variant` (1-based; the file is name_NN.wav) or all of them with `variants: true`, which returns the measurements of each and one picture with a row per variant. "
+            "The measurements also have centroidHz (the brightness) and riseSeconds (the attack). "
             "An existing file that sfx.render did not make is an `exists` error unless overwrite is true. Example: {\"path\":\"assets/audio/coin.sfx.json\"}";
         info.inputSchema = Json::object({{"type", "object"},
                                          {"required", Json::array({"path"})},
@@ -464,6 +871,9 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                                              {"note", str("The same as freq as a note name: \"C4\" (middle C), \"A4\" (440 Hz), \"C#3\", \"Bb2\".")},
                                                              {"length", number("Seconds the sound is held, replacing the patch's `length` for this render.", 0.001, 30)},
                                                              {"tail", number("Seconds after the length for releases, echoes and reverb, replacing the patch's `tail`.", 0, 30)},
+                                                             {"macros", Json::object({{"type", "object"}, {"additionalProperties", number("Knob position.", -1, 1)}, {"description", "Macro values for this render, e.g. {\"brightness\": 0.3, \"tail\": -0.5}: attack, brightness, weight, tail, pitch, grit or a macro the patch declares. Replaces the patch's declared value; kept in the recipe."}})},
+                                                             {"variant", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", 64}, {"description", "Render this variation (1-based) of a patch that declares `variations`; the default out is name_NN.wav."}})},
+                                                             {"variants", boolean("Render every variation of the patch to name_01.wav, name_02.wav... and return one picture with a row per variant. Takes neither `out` nor `variant`.", false)},
                                                              {"picture", boolean("Return the spectrogram picture (`$image`) of the sound. Turn it off when rendering many.", true)},
                                                              {"pictureOut", str("Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot.")},
                                                              {"width", Json::object({{"type", "integer"}, {"minimum", 400}, {"maximum", 2400}, {"description", "Width of the picture in pixels (default 1000)."}})},
@@ -480,13 +890,67 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
         info.description =
             "Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's path with .wav) does not exist, or was made by sfx.render from a patch that has changed since (the "
             "recipe's input hash differs: the same check project.validate does). Sounds that are up to date are left alone, a file at that path that sfx.render did not make is skipped and reported, "
-            "and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, an .ogg `out`). "
+            "and a patch with mistakes is listed in `failed` with its issues while the others are still baked. An existing recipe keeps its own arguments (seed, note, macros, an .ogg `out`). "
+            "A patch with `variations` is baked with all its takes (name_01.wav ... each with a recipe of its own). `macros` replaces the macro values of every render in this call (it forces them and is kept in the recipes). "
             "No pictures are returned; use sfx.render for one patch. Example: {\"dryRun\":true} lists what would be rendered.";
         info.inputSchema = Json::object({{"type", "object"},
                                          {"additionalProperties", false},
                                          {"properties", obj({{"force", boolean("Render every patch again, even when its sound is up to date.", false)},
+                                                             {"macros", Json::object({{"type", "object"}, {"additionalProperties", number("Knob position.", -1, 1)}, {"description", "Macro values for every sound rendered by this call, e.g. {\"weight\": 0.4}. Forces the render and is kept in the recipes."}})},
                                                              {"dryRun", boolean("List what would be rendered and why, and write nothing.", false)}})}});
         registry.add(info, [projectDir](const Json& args) { return sfx_bake_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "sfx.tweak";
+        info.category = "assets";
+        info.readOnly = false;
+        info.summary = "Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch.";
+        info.description =
+            "`macros` is {name: amount}: attack, brightness, weight, tail, pitch, grit (each from -1 to 1; 0 is the patch as written) or a macro the patch declares. Each amount is ADDED to the value "
+            "the patch declares now (+0.2 brighter than it is), or is the new value when `absolute` is true; the result is clamped to -1..1 and written to the patch's `macros` (the file is rewritten with the "
+            "same keys in the same order). Then the sound (and its variations) is rendered again and the result compares the measurements before and after: centroidHz rises with brightness, seconds with tail, "
+            "riseSeconds with a slower attack. An unknown macro is an error with a 'did you mean'. Example: {\"path\":\"assets/audio/coin.sfx.json\",\"macros\":{\"brightness\":0.2}}";
+        info.inputSchema = Json::object({{"type", "object"},
+                                         {"required", Json::array({"path", "macros"})},
+                                         {"additionalProperties", false},
+                                         {"properties", obj({{"path", str("The sound patch, project-relative, ending in .sfx.json.")},
+                                                             {"macros", Json::object({{"type", "object"}, {"additionalProperties", number("Amount to add (or the new value with absolute).", -2, 2)}, {"description", "Macro name to amount, e.g. {\"brightness\": 0.2, \"tail\": -0.3}."}})},
+                                                             {"absolute", boolean("Set the macros to these values instead of adding to the declared ones.", false)},
+                                                             {"render", boolean("Render the sound again and compare the measurements. Turn it off to only edit the patch.", true)},
+                                                             {"seed", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "Seed of the renders (default 0)."}})},
+                                                             {"picture", boolean("Return the spectrogram picture (`$image`).", true)},
+                                                             {"pictureOut", str("Also keep the picture's PNG at this project path (ends in .png).")},
+                                                             {"width", Json::object({{"type", "integer"}, {"minimum", 400}, {"maximum", 2400}, {"description", "Width of the picture in pixels."}})},
+                                                             {"height", Json::object({{"type", "integer"}, {"minimum", 280}, {"maximum", 1600}, {"description", "Height of the picture in pixels."}})}})}});
+        registry.add(info, [projectDir](const Json& args) { return sfx_tweak_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "sfx.family";
+        info.category = "assets";
+        info.readOnly = false;
+        info.summary = "Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch.";
+        info.description =
+            "Writes one patch per sound into the `out` directory (default: the base's path without .sfx.json plus _family), each a COPY of the base patch `from` with what that role changes: its length and tail, "
+            "macros (brighter for a hover, heavier and gritty for an error), an arpeggio (confirm goes up, cancel down) or a pitch slide (open up, close down). They share the base's oscillators, filters, effects and "
+            "master.normalize, so they share timbre and loudness; being copies they stand alone (editing the base later does not change them; make the family again with overwrite: true). Names: click, hover, "
+            "confirm, cancel, error, open, close, notify; `preset: \"ui\"` makes all eight. Unless `render` is false each is baked to name.wav with a recipe (so sfx.bake keeps them current). The result lists the "
+            "measurements of each (lufs, peakDb, seconds, centroidHz), the spread of loudness in LU, and one picture with a row per sound. "
+            "Example: {\"from\":\"assets/audio/ui.sfx.json\",\"preset\":\"ui\"}";
+        info.inputSchema = Json::object({{"type", "object"},
+                                         {"required", Json::array({"from"})},
+                                         {"additionalProperties", false},
+                                         {"properties", obj({{"from", str("The base patch, project-relative, ending in .sfx.json: the timbre every sound shares.")},
+                                                             {"names", Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}, {"description", "Which sounds to make: click, hover, confirm, cancel, error, open, close, notify."}})},
+                                                             {"preset", str("\"ui\": make all eight sounds. Give this or `names`.")},
+                                                             {"out", str("Directory under assets/ for the patches (and their sounds). Default: the base's path without .sfx.json plus _family.")},
+                                                             {"overwrite", boolean("Replace patches and sounds that exist.", false)},
+                                                             {"render", boolean("Bake each sound to a WAV too (default); false writes only the patches and measures them in memory.", true)},
+                                                             {"picture", boolean("Return the contact sheet (`$image`): one row per sound.", true)},
+                                                             {"pictureOut", str("Also keep the sheet's PNG at this project path (ends in .png).")},
+                                                             {"width", Json::object({{"type", "integer"}, {"minimum", 400}, {"maximum", 2400}, {"description", "Width of the picture in pixels (default 1000)."}})}})}});
+        registry.add(info, [projectDir](const Json& args) { return sfx_family_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
         CommandInfo info;
@@ -515,7 +979,8 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
         info.description =
             "Reads a sound patch from `path`, or takes it inline as `patch` (JSON) or by `preset` name, and checks it against the format (docs/SOUND.md). A patch with mistakes returns valid false and "
             "ALL its issues, each with the JSON pointer, what is wrong and how to fix it, so one call is enough to repair it. A valid patch returns its layers (oscillators, start, pitch), its "
-            "effects, the base pitch (rootHz), whether its baked sound exists and is stale, and the loudness, peak and length it renders to (it is rendered in memory; nothing is written). "
+            "effects, the base pitch (rootHz), its macros (the declared values) and variations (count and the files they bake to), whether its baked sound exists and is stale, and the loudness, peak, length, "
+            "brightness (centroidHz) and attack (riseSeconds) it renders to (it is rendered in memory; nothing is written). "
             "Example: {\"path\":\"assets/audio/coin.sfx.json\"}";
         info.inputSchema = Json::object({{"type", "object"},
                                          {"additionalProperties", false},
