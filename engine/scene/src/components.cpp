@@ -885,6 +885,20 @@ void register_builtin_components(TypeRegistry& r) {
         .field("solidTiles", &Tilemap::solidTiles,
                "List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A "
                "flipped or rotated copy of a solid tile is still solid. Empty = nothing collides.")
+        .field("terrains", &Tilemap::terrains,
+               "Autotile rules: an array of terrains that tilemap.paint_terrain (scripts: entity.tilemap.paintTerrain) paints, "
+               "choosing for every cell the edge, corner or inside tile that fits the cells around it. A terrain is "
+               "{\"name\": \"grass\", \"mode\": \"blob47\", \"first\": 0}. mode: \"basic16\" looks at the 4 neighbours "
+               "(16 tiles, slot = N*1 + E*2 + S*4 + W*8) and \"blob47\" at the 8 (47 tiles; a diagonal counts only when both "
+               "cells next to it are in the terrain; the slots are the 47 reduced masks N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 "
+               "in ascending order, `factoria call image.tileset.info` prints them). The tiles come as \"first\": the tileset "
+               "index of slot 0, the rest follow; or \"tiles\": one entry per slot, each a tile index or an array of tile "
+               "indices that are variations of that look (one is picked from the cell's column, row and the terrain's \"seed\", "
+               "the same every time). A cell belongs to the terrain whose tiles contain its tile index, so two terrains cannot "
+               "share a tile. Optional: \"seed\" (integer, default 0), \"joins\" (names of terrains whose cells count as "
+               "neighbours, e.g. a path that meets the grass), \"outside\": \"terrain\" (the map edge counts as this terrain, "
+               "so no border is drawn there; default \"empty\"). image.tileset.build writes the terrain of a tileset it bakes; "
+               "tilemap.set_terrains sets them from a rules file. Empty = no rules.")
         .field("color", &Tilemap::color, "Tint multiplied with the tileset.")
         .field("layer", &Tilemap::layer, "Draw order. Defaults below sprites (-10).")
         .field("lit", &Tilemap::lit,

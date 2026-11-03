@@ -166,10 +166,63 @@ int placed_diff(const IndexGrid& a, int ax, int ay, const IndexGrid& b, int bx, 
     return n;
 }
 
+// Merges the counts a helper wrote for one tile cell into the totals of the frame: whole numbers add, lists join, the rest is kept.
+void merge_detail(Json& total, const Json& part) {
+    for (auto it = part.begin(); it != part.end(); ++it) {
+        const std::string& k = it.key();
+        if (k == "changedPixelsNote") continue;
+        if (!total.contains(k)) total[k] = it.value();
+        else if (it.value().is_number_integer() && total[k].is_number_integer()) total[k] = total[k].get<long long>() + it.value().get<long long>();
+        else if (it.value().is_array() && total[k].is_array()) {
+            for (const Json& e : it.value())
+                if (total[k].size() < 100) total[k].push_back(e);
+        } else total[k] = it.value();
+    }
+}
+
+// Tile mode: runs `body` once per tile cell, on a 3 x 3 block of that cell's own pixels (the neighbours of an edge pixel are the pixels
+// on the opposite side of the cell), and keeps only the middle block. The helper therefore sees a shape that crosses an edge whole.
+void run_tiled(FrameWork& w, const std::function<void(FrameWork&, const std::vector<std::string>&)>& body) {
+    Target& t = w.t;
+    const TileGrid& g = t.tile;
+    Json total = Json::object();
+    std::set<std::string> warned(t.warnings.begin(), t.warnings.end());
+    const IndexGrid source = t.grid;
+    for (int cy = t.oy; cy < t.oy + source.h; cy += g.th)
+        for (int cx = t.ox; cx < t.ox + source.w; cx += g.tw) {
+            Target pt = t;
+            pt.tile = TileGrid();
+            pt.warnings.clear();
+            pt.ox = cx - g.tw;
+            pt.oy = cy - g.th;
+            pt.grid = IndexGrid(g.tw * 3, g.th * 3);
+            PixelMask mask(pt.grid.v.size(), 0);
+            for (int y = 0; y < g.th * 3; ++y)
+                for (int x = 0; x < g.tw * 3; ++x) {
+                    const int sx = cx - t.ox + x % g.tw, sy = cy - t.oy + y % g.th;
+                    pt.grid.v[std::size_t(y) * pt.grid.w + x] = source.at(sx, sy) == -2 ? -1 : source.at(sx, sy);
+                    const bool middle = x >= g.tw && x < g.tw * 2 && y >= g.th && y < g.th * 2;
+                    mask[std::size_t(y) * pt.grid.w + x] = middle && (w.mask.empty() || w.mask[std::size_t(sy) * source.w + sx]) ? 1 : 0;
+                }
+            Json detail = Json::object();
+            FrameWork inner{w.frame, pt, mask, detail};
+            body(inner, {});
+            for (int y = 0; y < g.th; ++y)
+                for (int x = 0; x < g.tw; ++x)
+                    t.grid.v[std::size_t(cy - t.oy + y) * source.w + (cx - t.ox + x)] = pt.grid.v[std::size_t(y + g.th) * pt.grid.w + (x + g.tw)];
+            for (const std::string& m : pt.warnings)
+                if (warned.insert(m).second) t.warnings.push_back(m);
+            merge_detail(total, detail);
+        }
+    if (total.contains("changedPixels") && total.value("pixelsChanged", 0) > int(total["changedPixels"].size()))
+        total["changedPixelsNote"] = std::format("the first {} of {} changed pixels (canvas [x, y])", total["changedPixels"].size(), total.value("pixelsChanged", 0));
+    for (auto it = total.begin(); it != total.end(); ++it) w.detail[it.key()] = it.value();
+}
+
 // Runs `body` on every requested frame of the layer `a.layer` of the document, then saves once and builds the result.
 // `keys` are the arguments the command takes besides the common ones.
 Json run_helper(const std::string& projectDir, const Json& a, const char* cmd, std::vector<std::string> keys, bool needsLayer,
-                const std::function<void(FrameWork&, const std::vector<std::string>& selectionNames)>& body, const std::function<void(Json&)>& finishExtra = {}) {
+                const std::function<void(FrameWork&, const std::vector<std::string>& selectionNames)>& body, const std::function<void(Json&)>& finishExtra = {}, bool tileAware = true) {
     keys.insert(keys.end(), {"path", "layer", "selection", "scale", "bake", "frame", "frames", "onion"});
     check_arg_keys(cmd, a, "", keys);
     (void)needsLayer;
@@ -204,7 +257,12 @@ Json run_helper(const std::string& projectDir, const Json& a, const char* cmd, s
         const PixelMask mask = grid_mask(sel ? &*sel : nullptr, t);
         Json detail = Json::object();
         FrameWork work{f, t, mask, detail};
-        body(work, {});
+        if (t.tile.on && tileAware) run_tiled(work, body);
+        else {
+            if (t.tile.on)
+                t.warnings.push_back("Tile mode is on but this helper does not wrap around the tile edges: check the seams with image.tile.check afterwards, or draw the result with image.pixel / image.draw.");
+            body(work, {});
+        }
         for (const std::string& w : t.warnings) warnings.push_back(frames.size() > 1 ? std::format("frame {}: {}", f, w) : w);
         store_grid(t);
         extra["layer"] = layer_summary(t.ref);
@@ -530,7 +588,7 @@ Json image_pixel_rotate(const std::string& projectDir, const Json& a) {
         [&](Json& extra) {
             extra["angle"] = angle;
             extra["method"] = method;
-        });
+        }, false);
 }
 
 Json image_pixel_scale(const std::string& projectDir, const Json& a) {
@@ -609,7 +667,7 @@ Json image_pixel_scale(const std::string& projectDir, const Json& a) {
             w.detail["size"] = Json::object({{"width", out.w}, {"height", out.h}});
             w.detail["from"] = Json::object({{"width", l.pic.w}, {"height", l.pic.h}});
             w.detail["method"] = used;
-        });
+        }, {}, false);
 }
 
 // ===================================================================================================================================

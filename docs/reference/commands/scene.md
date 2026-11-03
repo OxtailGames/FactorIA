@@ -269,6 +269,49 @@ Returns {id, col, row, x, y} for the Tilemap on entity `id`: the world position 
 | `col` | integer | yes | Tile column, 0 = leftmost. |
 | `row` | integer | yes | Tile row, 0 = TOP row. |
 
+## `tilemap.paint_terrain` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Paint (or erase) a terrain on a Tilemap's cells and re-tile the cells around them with its autotile rules.
+
+Sets the cells to the terrain `terrain` of the Tilemap on entity `id` (rules in Tilemap.terrains) and re-tiles them and the 8 cells around each one, so the edge, corner and inside tiles line up: paint a lake and the shore appears. Name the cells with `cells` ([[col, row], ...], row 0 = TOP row) and/or `rect` ({col, row, width, height}). `erase` true empties the cells instead (-1) and re-tiles what was next to them. Cells outside the map are skipped and counted in `outside`. Only cells that already belong to a terrain are re-tiled: tiles you placed by hand stay. A terrain cell's tile is picked from the terrain's variations by column, row and seed, so the same painting always looks the same. Changes the RUNNING world only (scene.save keeps it); the script form is `entity.tilemap.paintTerrain(terrain, cells)`. Returns {id, painted, outside, changed, changes: [{col, row, from, to}] (the first 200), changesTruncated}. Example: tilemap.paint_terrain {"id":"map","terrain":"grass","rect":{"col":2,"row":2,"width":5,"height":3}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `terrain` | string | yes | Name of a terrain in Tilemap.terrains. |
+| `cells` | array | no | Cells to paint: [col, row] pairs (or {col, row} objects), row 0 = TOP row. |
+| `rect` | object | no | A block of cells to paint: {col, row, width, height}. |
+| `erase` | boolean | no | Empty the cells (-1) instead of painting the terrain, and re-tile their neighbours. Default false. |
+
+## `tilemap.retile` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Re-tile every terrain cell of a Tilemap from its neighbours.
+
+Recomputes the tile of every cell that belongs to a terrain of the Tilemap on entity `id` from the cells around it, with the terrain's rules (Tilemap.terrains). Use it after writing `tiles` by hand, after tilemap.set_terrains with new rules, or after resizing the map. Cells that belong to no terrain are not touched. Changes the RUNNING world only. Returns {id, changed, changes (the first 200), changesTruncated}. Example: tilemap.retile {"id":"map"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+
+## `tilemap.set_terrains` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Set a Tilemap's autotile rules from a list or a rules file (as image.tileset.build writes them).
+
+Replaces Tilemap.terrains of the entity `id` with `terrains` (an array of terrain objects) or with the `terrains` of the rules file `path` (a JSON file {"format": "factoria.terrains/1", "terrains": [...]}, such as the .terrains.json that image.tileset.build writes next to the tileset). The rules are checked first: a bad rule changes nothing and the error names its JSON pointer and the fix. `retile` true also re-tiles the map with the new rules. Changes the RUNNING world only (scene.save keeps it). Returns {id, terrains: [names], retiled}. Example: tilemap.set_terrains {"id":"map","path":"assets/art/ground.terrains.json","retile":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
+| `terrains` | array | no | Terrain objects: {name, mode: basic16\|blob47, first \| tiles, seed?, joins?, outside?}. See the Tilemap component's `terrains` field. |
+| `path` | string | no | Project-relative path of a rules file ({format, terrains}). Instead of `terrains`. |
+| `retile` | boolean | no | Re-tile every terrain cell with the new rules. Default false. |
+
 ## `tilemap.set_tile` (modifies state)
 
 Since 0.3.0.
@@ -283,4 +326,16 @@ Writes tile `tile` (a tileset index plus optional flip flags, or -1 for empty) a
 | `col` | integer | yes | Tile column, 0 = leftmost. |
 | `row` | integer | yes | Tile row, 0 = TOP row. |
 | `tile` | integer | yes | Tileset index (plus optional flip flags, see Tilemap.tiles), or -1 to empty the cell. |
+
+## `tilemap.terrains`
+
+Not released yet (on main after 0.14.1).
+
+The autotile rules of a Tilemap: its terrains, their slots and how many cells belong to each.
+
+Reads Tilemap.terrains of the entity `id` and returns {id, valid, issues, terrains: [{name, mode, seed, tiles (the count), slots: [{slot, mask, tiles}], cells (how many map cells belong to it)}]}. `mask` is the neighbour mask the slot draws (N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128). `issues` lists every problem of the rules with its JSON pointer and the fix. Example: tilemap.terrains {"id":"map"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity that has the Tilemap. |
 

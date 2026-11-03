@@ -9,6 +9,7 @@
 //   image_psd.cpp            the layers of a Photoshop file, for assets.import
 //   image_frames.cpp         the timeline of an animated document and FrameScope (a command working on one frame)
 //   image_frame_commands.cpp image.frame.* and image.tag.*
+//   image_tile_commands.cpp  image.tile.* and image.tileset.* (tile mode, the seam check, autotile sets)
 #pragma once
 
 #include <cstdint>
@@ -157,6 +158,7 @@ void register_select_commands(CommandRegistry& registry, const std::string& proj
 void register_pixel_commands(CommandRegistry& registry, const std::string& projectDir);   // image_edit_pixels.cpp
 void register_indexed_commands(CommandRegistry& registry, const std::string& projectDir);  // image_indexed.cpp
 void register_pixel_helper_commands(CommandRegistry& registry, const std::string& projectDir);  // image_pixel_helpers.cpp
+void register_tile_commands(CommandRegistry& registry, const std::string& projectDir);          // image_tile_commands.cpp
 
 // ---- PSD (image_psd.cpp) ------------------------------------------------------------------------------------------
 

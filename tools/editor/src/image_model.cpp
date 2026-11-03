@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/image_tile.h"
 #include "fa/tooling/project_fs.h"
 #include "inspector_model.h"
 
@@ -506,14 +507,17 @@ void ImageModel::update_live() {
             b.opacity = L.brush.opacity;
             b.color = L.brush.color;
             b.erase = L.erase;
-            paint_image_stroke(L.work, L.base.ox, L.base.oy, L.points, b, L.sel ? &*L.sel : nullptr);
+            const TileGrid tiles = tile_grid_of(json_);
+            paint_image_stroke(L.work, L.base.ox, L.base.oy, L.points, b, L.sel ? &*L.sel : nullptr, &tiles);
         }
     } else if (L.kind == Live::Kind::Move && !L.wholeLayer) {
         L.work = L.erased;
         ImagePatch p = L.patch;
         p.x += L.moveDx;
         p.y += L.moveDy;
-        image_patch_draw(L.work, L.base.ox, L.base.oy, p);
+        const TileGrid tiles = tile_grid_of(json_);
+        if (tiles.on) image_patch_draw_wrapped(L.work, L.base.ox, L.base.oy, p, L.patch.x, L.patch.y, tiles);
+        else image_patch_draw(L.work, L.base.ox, L.base.oy, p);
     } else if (L.kind == Live::Kind::Transform) {
         L.work = L.erased;
         ImagePatch p = L.patch;

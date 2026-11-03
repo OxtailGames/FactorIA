@@ -19,6 +19,8 @@
 
 namespace fa {
 
+struct TileGrid;   // fa/tooling/image_tile.h
+
 // A selection: coverage 0..255 for each pixel of the canvas (255 = fully selected). Outside the canvas nothing is selected.
 struct ImageSelection {
     int w = 0, h = 0;
@@ -55,9 +57,10 @@ struct ImageBrush {
 };
 // Paints one stroke along the polyline `points` (canvas pixels; one point is a dab): a stamp at the first point, one every `spacing`
 // of arc length, one at the last point. A pixel keeps the largest coverage any stamp gave it. `selection` (when given) limits where it
-// paints. Returns how many stamps were made. This is image.paint's algorithm.
+// paints. Returns how many stamps were made. This is image.paint's algorithm. With `tiles` (a tile grid that is on) the stroke wraps
+// around the edges of the tile that holds its first point.
 std::size_t paint_image_stroke(Image& img, int originX, int originY, const std::vector<std::pair<double, double>>& points,
-                               const ImageBrush& brush, const ImageSelection* selection);
+                               const ImageBrush& brush, const ImageSelection* selection, const TileGrid* tiles = nullptr);
 
 // ---- patches: the selected pixels of a layer, to move, transform or copy ------------------------------------------------
 
@@ -70,6 +73,9 @@ ImagePatch image_patch_extract(const Image& img, int originX, int originY, const
 void image_patch_erase(Image& img, int originX, int originY, const ImageSelection& selection);
 // Draws the patch over the buffer; returns how many visible pixels fell outside it.
 std::size_t image_patch_draw(Image& img, int originX, int originY, const ImagePatch& patch);
+// Tile mode: the patch that was cut at (fromX, fromY) and now sits at patch.x / patch.y, each pixel wrapping around the edges of the
+// tile it came from; returns how many visible pixels fell outside the buffer.
+std::size_t image_patch_draw_wrapped(Image& img, int originX, int originY, const ImagePatch& patch, int fromX, int fromY, const TileGrid& tiles);
 
 struct ImageTransform {
     double scaleX = 1, scaleY = 1;

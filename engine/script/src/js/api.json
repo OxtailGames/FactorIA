@@ -4174,6 +4174,22 @@
        "doc": "The WORLD position of the centre of cell (col, row) (0-based, row 0 = TOP row), by the entity's transform and the map's `projection`: the middle of the square, or of the diamond. The cell may lie outside the map. `cellAt(cellToWorld(c, r))` is `{ col: c, row: r }` for a cell inside the map."
       },
       {
+       "sig": "paintTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] }",
+       "doc": "Autotile: sets the cells (a list of [col, row] pairs or {col, row} objects, row 0 = TOP row) to the terrain `terrain` of Tilemap.terrains and re-tiles them and the 8 cells around each one, so painting grass next to water draws the shore. Only cells that already belong to a terrain are re-tiled: tiles you placed by hand stay. The tile of a cell is picked from the terrain's variations by column, row and seed, so the same painting looks the same every run. Returns the number of cells `painted`, the cells that were `outside` the map (skipped), `changed` (how many cells got another tile) and `changes` (each cell's `from` and `to` tile value). Throws an Error that names the terrains of the map (did-you-mean) when `terrain` is not one, or that points at the invalid rule. Example: `map.tilemap.paintTerrain(\"grass\", [[3, 4], [4, 4], [5, 4]])`."
+      },
+      {
+       "sig": "eraseTerrain(terrain: string, cells: ({ col: number; row: number } | [number, number])[]): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] }",
+       "doc": "Empties the cells (-1) and re-tiles the cells next to them, as paintTerrain does for painting: removing a lake cell turns its neighbours into shore. `terrain` names the rules used to re-tile (the terrain being removed). Same result as paintTerrain."
+      },
+      {
+       "sig": "retile(): { painted: number; outside: number; changed: number; changes: { col: number; row: number; from: number; to: number }[] }",
+       "doc": "Recomputes the tile of every cell that belongs to a terrain from the cells around it (after writing tiles with setTile or changing Tilemap.terrains). Cells that belong to no terrain are not touched. Throws when the map has no terrains."
+      },
+      {
+       "sig": "terrainAt(col: number, row: number): string | null",
+       "doc": "The name of the terrain the tile at column col, row row belongs to (its tile index is one of the terrain's tiles), or null for an empty cell, a cell outside the map or a tile that is no terrain's."
+      },
+      {
        "sig": "readonly width: number",
        "doc": "Map width in tiles."
       },
