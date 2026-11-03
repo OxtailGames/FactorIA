@@ -22,6 +22,18 @@ struct SongChordStep {
 // lasts `beatsPerChord` beats (0 = one bar). Fails with the chord that is wrong and a "did you mean".
 Result<std::vector<SongChordStep>> song_parse_progression(std::string_view text, const SongMeter& meter, double beatsPerChord = 0);
 
+// A progression written as Roman numerals in a key, turned into chord names: "i VI III VII" in A minor is "Am F C G". Numerals are
+// I to VII (upper case = major, lower case = minor, `dim` or a degree sign = diminished), `b` or `#` before them lowers or raises the
+// degree ("bVII"), a suffix is kept ("V7", "iim7", "Isus4", "vi*2" holds two bars). The degrees are those of `mode`'s scale (seven notes).
+Result<std::string> song_roman_progression(std::string_view text, int keyRootPitchClass, std::string_view mode);
+
+struct SongPadOptions {
+    int octave = 3;                   // root octave of the chords
+    int velocity = 80;
+};
+// The progression as sustained chords by name with bar lines: "(Am@3):1 | (F@3) | ...". A chord longer than a bar is tied across.
+Result<std::string> song_chord_pad(const std::vector<SongChordStep>& progression, const SongMeter& meter, const SongPadOptions& options);
+
 struct SongArpeggioOptions {
     std::string direction = "up";     // up, down, updown, downup, random
     int octaves = 1;                  // 1 to 4: the chord is repeated this many octaves up before the pattern turns

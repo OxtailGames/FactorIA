@@ -1,8 +1,8 @@
 // The instruments a song can name without a file (M56.1): a handful of pitched sounds and a small drum kit, each an ordinary sound
 // patch (sfx.h, docs/SOUND.md) so an AI can read one with `music.instrument`, copy it to a `.sfx.json`, change a number and point a
 // track at the copy. They are the preview's voices (song_preview.h); the real instruments, the mixer and SF2 of M56.2 replace or
-// extend this list. Every patch is calibrated so one note at velocity 100 peaks around -12 dBFS, so tracks at volume 1 add up to a
-// sensible level without a limiter.
+// extend this list. Every pitched patch is calibrated so its C4 note at velocity 100 peaks about -12 dBFS, so tracks at volume 1 add up
+// to a sensible level without a limiter; the kit lanes sit at levels of their own.
 #pragma once
 
 #include <optional>

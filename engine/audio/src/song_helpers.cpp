@@ -110,6 +110,70 @@ Result<std::vector<SongChordStep>> song_parse_progression(std::string_view text,
     return out;
 }
 
+Result<std::string> song_roman_progression(std::string_view text, int keyRoot, std::string_view mode) {
+    auto scale = song_scale_pitch_classes(((keyRoot % 12) + 12) % 12, mode);
+    if (!scale) return make_error("unknown mode \"" + std::string(mode) + "\"", "Modes: major, minor, dorian, phrygian, lydian, mixolydian, locrian.");
+    if (scale->size() != 7) return make_error("the mode \"" + std::string(mode) + "\" has " + std::to_string(scale->size()) + " notes, so Roman numerals do not apply", "Write the chords by name: \"Am F C G\".");
+    const bool flats = song_prefers_flats(keyRoot, mode);
+    std::string out;
+    std::size_t i = 0;
+    int count = 0;
+    while (i < text.size()) {
+        while (i < text.size() && (std::isspace(static_cast<unsigned char>(text[i])) || text[i] == '|' || text[i] == ',')) ++i;
+        if (i >= text.size()) break;
+        std::size_t j = i;
+        while (j < text.size() && !std::isspace(static_cast<unsigned char>(text[j])) && text[j] != '|' && text[j] != ',') ++j;
+        const std::string word(text.substr(i, j - i));
+        i = j;
+        std::string body = word, repeat;
+        if (const std::size_t star = body.find('*'); star != std::string::npos) {
+            repeat = body.substr(star);
+            body.resize(star);
+        }
+        std::size_t p = 0;
+        int shift = 0;
+        if (p < body.size() && (body[p] == 'b' || body[p] == '#')) {
+            shift = body[p] == 'b' ? -1 : 1;
+            ++p;
+        }
+        const std::size_t numStart = p;
+        while (p < body.size() && std::string_view("ivIV").find(body[p]) != std::string_view::npos) ++p;
+        const std::string numeral = body.substr(numStart, p - numStart);
+        static const char* const kNumerals[] = {"i", "ii", "iii", "iv", "v", "vi", "vii"};
+        int degree = -1;
+        std::string lower = numeral;
+        for (char& ch : lower) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        for (int d = 0; d < 7; ++d)
+            if (lower == kNumerals[d]) degree = d;
+        if (degree < 0)
+            return make_error("`" + word + "` is not a Roman numeral chord", "Write I to VII (upper case major, lower case minor), e.g. \"i VI III VII\"; \"bVII\" lowers the degree, \"V7\" adds a seventh.");
+        const bool minor = std::islower(static_cast<unsigned char>(numeral[0])) != 0;
+        std::string suffix = body.substr(p);
+        std::string quality = minor ? "m" : "";
+        if (suffix.rfind("\xC2\xB0", 0) == 0) { suffix = "dim" + suffix.substr(2); quality = ""; }       // the degree sign
+        else if (suffix.rfind("dim", 0) == 0) quality = "";
+        else if (minor && suffix.rfind("maj", 0) == 0) quality = "m";                                      // "imaj7" is a minor-major seventh
+        const int pc = (((*scale)[std::size_t(degree)] + shift) % 12 + 12) % 12;
+        const std::string name = song_pitch_class_name(pc, flats || shift < 0) + quality + suffix;
+        auto chord = song_parse_chord(name);
+        if (!chord) return make_error("`" + word + "` (the chord " + name + "): " + chord.error().message, chord.error().hint);
+        if (!out.empty()) out += ' ';
+        out += name + repeat;
+        ++count;
+    }
+    if (count == 0) return make_error("the chord progression is empty", "Write Roman numerals separated by spaces: \"i VI III VII\".");
+    return out;
+}
+
+Result<std::string> song_chord_pad(const std::vector<SongChordStep>& progression, const SongMeter& meter, const SongPadOptions& o) {
+    if (o.octave < 0 || o.octave > 7) return make_error("octave must be 0 to 7, got " + std::to_string(o.octave), "The root octave of the chords; 3 is a normal pad register.");
+    if (o.velocity < 1 || o.velocity > 127) return make_error("velocity must be 1 to 127", "");
+    TextWriter w{meter};
+    w.lastVel = 90;
+    for (const SongChordStep& step : progression) w.put("(" + step.chord.name + "@" + std::to_string(o.octave) + ")", step.ticks, o.velocity, false, false);
+    return w.finish();
+}
+
 // ---- arpeggio -----------------------------------------------------------------------------------------------------------------
 
 Result<std::string> song_arpeggio(const std::vector<SongChordStep>& progression, const SongMeter& meter, const SongArpeggioOptions& o) {
