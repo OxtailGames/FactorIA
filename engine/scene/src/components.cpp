@@ -999,7 +999,14 @@ void register_builtin_components(TypeRegistry& r) {
                "`color` still multiplies the result, so `color` stays the tint of the whole model. Materials not named keep "
                "their own colour. Names come from the model (the sub-mesh keeps its material name from import); `factoria "
                "validate` checks them and suggests the right one for a typo. Ignored by built-in shapes. Entities that differ "
-               "only in materialColors are drawn in separate batches.");
+               "only in materialColors are drawn in separate batches.")
+        .field("lods", &MeshRenderer::lods,
+               "Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: "
+               "[{\"mesh\": \"assets/models/lamp.lod1.glb\", \"distance\": 12}, {\"mesh\": \"assets/models/lamp.lod2.glb\", \"distance\": 30}]. "
+               "From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; "
+               "farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a "
+               "model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is "
+               "ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show.");
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "

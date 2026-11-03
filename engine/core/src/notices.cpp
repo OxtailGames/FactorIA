@@ -20,6 +20,10 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
          "Solid booleans (union, difference, intersection) of the boolean modifier of model documents", false},
         {"xatlas", "https://github.com/jpcy/xatlas", "MIT", "external/xatlas/LICENSE",
          "Automatic UV unwrapping and packing of model documents' `uv` section (includes parts of thekla_atlas and Fast-BVH, both MIT)", false},
+        {"meshoptimizer", "https://github.com/zeux/meshoptimizer", "MIT", "external/meshoptimizer/LICENSE.md",
+         "Mesh simplification for the level-of-detail meshes of model documents", false},
+        {"V-HACD", "https://github.com/kmammou/v-hacd", "BSD-3-Clause", "external/vhacd/LICENSE",
+         "Convex decomposition of the collider of model documents", false},
         {"Basis Universal", "https://github.com/BinomialLLC/basis_universal", "Apache-2.0", "external/basis_universal/LICENSE",
          "GPU texture compression: games decode KTX2 textures, `factoria export` encodes them", true},
         // Parts of the Basis Universal encoder, which only the developer tools contain.

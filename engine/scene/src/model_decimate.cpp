@@ -1,360 +1,174 @@
-// Quadric error decimation (model_decimate.h).
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <queue>
-
+// Mesh simplification on top of meshoptimizer (model_decimate.h).
 #include "fa/scene/model_decimate.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <map>
+
+#include "meshoptimizer.h"
 
 namespace fa {
 
 namespace {
 
-struct D3 {
-    double x = 0, y = 0, z = 0;
+struct PosKey {
+    std::uint32_t x, y, z;
+    bool operator<(const PosKey& o) const { return x != o.x ? x < o.x : y != o.y ? y < o.y : z < o.z; }
 };
-D3 operator+(D3 a, D3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
-D3 operator-(D3 a, D3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
-D3 operator*(D3 a, double s) { return {a.x * s, a.y * s, a.z * s}; }
-double dot3(D3 a, D3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-D3 cross3(D3 a, D3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
-double len3(D3 a) { return std::sqrt(dot3(a, a)); }
+PosKey key_of(const Vec3& p) {
+    PosKey k;
+    const float v[3] = {p.x + 0.0f, p.y + 0.0f, p.z + 0.0f};  // -0 and +0 are one position
+    std::memcpy(&k.x, &v[0], 4);
+    std::memcpy(&k.y, &v[1], 4);
+    std::memcpy(&k.z, &v[2], 4);
+    return k;
+}
 
-// The sum of squared distances to a set of planes, as a symmetric 4x4 matrix: [a b; b c] with the upper triangle in c[10].
-struct Quadric {
-    double c[10] = {};
-    double area = 0;  // the weight of the face planes (not of the boundary planes): what the error is averaged over
-    void add_plane(D3 n, double d, double w) {
-        c[0] += w * n.x * n.x;
-        c[1] += w * n.x * n.y;
-        c[2] += w * n.x * n.z;
-        c[3] += w * n.x * d;
-        c[4] += w * n.y * n.y;
-        c[5] += w * n.y * n.z;
-        c[6] += w * n.y * d;
-        c[7] += w * n.z * n.z;
-        c[8] += w * n.z * d;
-        c[9] += w * d * d;
-    }
-    Quadric operator+(const Quadric& o) const {
-        Quadric r;
-        for (int i = 0; i < 10; ++i) r.c[i] = c[i] + o.c[i];
-        r.area = area + o.area;
-        return r;
-    }
-    double eval(D3 v) const {
-        return c[0] * v.x * v.x + 2 * c[1] * v.x * v.y + 2 * c[2] * v.x * v.z + 2 * c[3] * v.x + c[4] * v.y * v.y + 2 * c[5] * v.y * v.z + 2 * c[6] * v.y +
-               c[7] * v.z * v.z + 2 * c[8] * v.z + c[9];
-    }
-    // The point that minimises the error, when the 3x3 part is well conditioned.
-    bool optimum(D3& out) const {
-        const double a = c[0], b = c[1], cc = c[2], d = c[4], e = c[5], f = c[7];
-        const double det = a * (d * f - e * e) - b * (b * f - e * cc) + cc * (b * e - d * cc);
-        const double scale = (a + d + f) / 3.0;
-        if (std::fabs(det) <= 1.0e-9 * scale * scale * scale) return false;
-        const double bx = -c[3], by = -c[6], bz = -c[8];
-        out.x = (bx * (d * f - e * e) - b * (by * f - e * bz) + cc * (by * e - d * bz)) / det;
-        out.y = (a * (by * f - e * bz) - bx * (b * f - e * cc) + cc * (b * bz - by * cc)) / det;
-        out.z = (a * (d * bz - by * e) - b * (b * bz - by * cc) + bx * (b * e - d * cc)) / det;
-        return true;
-    }
-};
 
-struct Entry {
-    double cost;       // the quadric error: what the limit is checked against
-    double key;        // what orders the heap: the cost plus a small length term, so equal costs (flat regions) go shortest edge first
-    std::uint32_t a, b, va, vb;
-    D3 pos;
-    bool operator<(const Entry& o) const {  // priority_queue pops the greatest: make the cheapest the greatest
-        if (key != o.key) return key > o.key;
-        if (a != o.a) return a > o.a;
-        return b > o.b;
-    }
-};
+// Edges used by more than two triangles, counting by position (a seam between parts is one edge).
+std::size_t non_manifold_edges(const std::vector<Vec3>& positions, const std::vector<std::uint32_t>& indices) {
+    std::map<std::pair<PosKey, PosKey>, std::uint32_t> uses;
+    for (std::size_t i = 0; i + 2 < indices.size(); i += 3)
+        for (int k = 0; k < 3; ++k) {
+            PosKey a = key_of(positions[indices[i + std::size_t(k)]]), b = key_of(positions[indices[i + std::size_t((k + 1) % 3)]]);
+            if (b < a) std::swap(a, b);
+            ++uses[{a, b}];
+        }
+    std::size_t bad = 0;
+    for (const auto& [edge, n] : uses) bad += n > 2 ? 1 : 0;
+    return bad;
+}
 
-struct Decimator {
-    std::vector<D3> p;
-    std::vector<Quadric> q;
-    std::vector<char> onBoundary, vdead;
-    std::vector<std::uint32_t> ver;
-    std::vector<std::array<std::uint32_t, 3>> tri;
-    std::vector<char> tdead;
-    std::vector<std::uint32_t> part;
-    std::vector<std::vector<std::uint32_t>> vt;
-    std::priority_queue<Entry> heap;
+ModelSimplifyResult simplify_once(const std::vector<Vec3>& positions, const std::vector<float>& attributes, std::size_t attributeStride,
+                                  const std::vector<float>& weights, const std::vector<std::uint32_t>& indicesIn,
+                                  const std::vector<std::uint32_t>& triPartsIn, const ModelSimplifyParams& params, bool lockSeams) {
+    ModelSimplifyResult out;
+    const std::size_t triCount = indicesIn.size() / 3;
+    std::vector<std::uint32_t> parts = triPartsIn;
+    if (parts.size() != triCount) parts.assign(triCount, 0);
+    const bool haveAttr = attributeStride > 0 && attributes.size() >= positions.size() * attributeStride && weights.size() >= attributeStride;
 
-    D3 tri_normal(std::uint32_t t) const {
-        const auto& v = tri[t];
-        return cross3(p[v[1]] - p[v[0]], p[v[2]] - p[v[0]]);
-    }
-
-    // The best position for collapsing a and b into one vertex, and its cost.
-    bool candidate(std::uint32_t a, std::uint32_t b, D3& pos, double& cost) const {
-        const Quadric sum = q[a] + q[b];
-        auto pick = [&](std::initializer_list<D3> options) {
-            double best = 1e300;
-            for (const D3& o : options) {
-                const double c = sum.eval(o);
-                if (c < best) {
-                    best = c;
-                    pos = o;
-                }
+    // Every part gets its own copy of each vertex it uses. Copies at one position are a seam to meshoptimizer: it collapses along the seam
+    // moving all copies together, so a part boundary may shorten along itself but never opens a crack, and a collapse never joins two parts.
+    std::vector<std::uint32_t> keep;  // copy -> input vertex
+    std::vector<std::uint32_t> copyPart;
+    std::vector<std::uint32_t> idx(indicesIn.size());
+    {
+        std::map<std::pair<std::uint32_t, std::uint32_t>, std::uint32_t> copies;
+        for (std::size_t i = 0; i < indicesIn.size(); ++i) {
+            const std::uint32_t part = parts[i / 3];
+            auto [it, fresh] = copies.emplace(std::make_pair(indicesIn[i], part), std::uint32_t(keep.size()));
+            if (fresh) {
+                keep.push_back(indicesIn[i]);
+                copyPart.push_back(part);
             }
-            cost = std::max(best, 0.0);
-        };
-        if (onBoundary[a] && onBoundary[b]) {
-            pick({p[a], p[b], (p[a] + p[b]) * 0.5});
-        } else if (onBoundary[a]) {
-            pos = p[a];
-            cost = std::max(sum.eval(pos), 0.0);
-        } else if (onBoundary[b]) {
-            pos = p[b];
-            cost = std::max(sum.eval(pos), 0.0);
-        } else {
-            D3 opt;
-            const D3 mid = (p[a] + p[b]) * 0.5;
-            const double edge = len3(p[a] - p[b]);
-            if (sum.optimum(opt) && len3(opt - mid) <= 2.0 * edge + 1.0e-12) {
-                pos = opt;
-                cost = std::max(sum.eval(pos), 0.0);
-            } else {
-                pick({p[a], p[b], mid});
+            idx[i] = it->second;
+        }
+    }
+    const std::size_t vcount = keep.size();
+    std::vector<float> flat(vcount * 3);
+    std::vector<float> attr;
+    if (haveAttr) attr.resize(vcount * attributeStride);
+    for (std::size_t i = 0; i < vcount; ++i) {
+        const Vec3& p = positions[keep[i]];
+        flat[i * 3] = p.x;
+        flat[i * 3 + 1] = p.y;
+        flat[i * 3 + 2] = p.z;
+        if (haveAttr)
+            std::copy(attributes.begin() + std::ptrdiff_t(keep[i] * attributeStride), attributes.begin() + std::ptrdiff_t((keep[i] + 1) * attributeStride),
+                      attr.begin() + std::ptrdiff_t(i * attributeStride));
+    }
+
+    // lockSeams: a vertex whose position is used by two parts does not move, so a part boundary stays exactly as it was
+    std::vector<unsigned char> locked;
+    if (lockSeams) {
+        std::map<PosKey, std::uint32_t> firstPart;
+        std::map<PosKey, bool> shared;
+        for (std::size_t i = 0; i < vcount; ++i) {
+            const PosKey k = key_of({flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2]});
+            auto [it, fresh] = firstPart.emplace(k, copyPart[i]);
+            if (!fresh && it->second != copyPart[i]) shared[k] = true;
+        }
+        locked.assign(vcount, 0);
+        for (std::size_t i = 0; i < vcount; ++i)
+            if (shared.count(key_of({flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2]}))) locked[i] = 1;
+    }
+
+    unsigned int options = meshopt_SimplifyErrorAbsolute;
+    if (params.lockBorder) options |= meshopt_SimplifyLockBorder;
+    const float maxError = params.maxError > 0 ? float(params.maxError) : 1e30f;
+    const std::size_t targetIdx = params.targetTriangles > 0 ? params.targetTriangles * 3 : 0;
+    float err = 0;
+    const std::size_t n = meshopt_simplifyWithUpdate(idx.data(), idx.size(), flat.data(), vcount, 12, haveAttr ? attr.data() : nullptr,
+                                                     attributeStride * sizeof(float), haveAttr ? weights.data() : nullptr,
+                                                     haveAttr ? attributeStride : 0, lockSeams ? locked.data() : nullptr, targetIdx, maxError, options, &err);
+    idx.resize(n);
+    out.error = err;
+    out.limitedByError = params.targetTriangles > 0 && n / 3 > params.targetTriangles && params.maxError > 0;
+
+    // Compact: parts in increasing id (triangles in input order inside a part), vertices in order of first use.
+    std::vector<std::uint32_t> order(n / 3);
+    for (std::size_t t = 0; t < order.size(); ++t) order[t] = std::uint32_t(t);
+    std::stable_sort(order.begin(), order.end(), [&](std::uint32_t x, std::uint32_t y) { return copyPart[idx[x * 3]] < copyPart[idx[y * 3]]; });
+    std::vector<std::uint32_t> remap(vcount, 0xFFFFFFFFu);
+    for (std::uint32_t t : order) {
+        for (int k = 0; k < 3; ++k) {
+            const std::uint32_t v = idx[t * 3 + std::uint32_t(k)];
+            if (remap[v] == 0xFFFFFFFFu) {
+                remap[v] = std::uint32_t(out.keep.size());
+                out.keep.push_back(keep[v]);
+                out.positions.push_back({flat[v * 3], flat[v * 3 + 1], flat[v * 3 + 2]});
+                if (haveAttr)
+                    out.attributes.insert(out.attributes.end(), attr.begin() + std::ptrdiff_t(v * attributeStride),
+                                          attr.begin() + std::ptrdiff_t((v + 1) * attributeStride));
             }
+            out.indices.push_back(remap[v]);
         }
-        return true;
+        out.triParts.push_back(copyPart[idx[t * 3]]);
     }
-
-    void push_edge(std::uint32_t a, std::uint32_t b) {
-        if (a > b) std::swap(a, b);
-        Entry e;
-        e.a = a;
-        e.b = b;
-        e.va = ver[a];
-        e.vb = ver[b];
-        candidate(a, b, e.pos, e.cost);
-        // Without it the many collapses that cost exactly nothing (a flat region) would all happen in index order and pile every vertex of the
-        // region into the first one: a star with thousands of triangles that makes each next collapse slower and the triangles thin. The term is
-        // small (a collapse of an edge of length L ranks like an error of 0.3% of L) so real error still decides between different shapes.
-        const double len2 = dot3(p[a] - p[b], p[a] - p[b]);
-        e.key = e.cost + 1.0e-5 * (q[a].area + q[b].area) * len2;
-        heap.push(e);
-    }
-
-    static bool has(const std::array<std::uint32_t, 3>& t, std::uint32_t v) { return t[0] == v || t[1] == v || t[2] == v; }
-
-    // Scratch lists for one collapse.
-    std::vector<std::uint32_t> shared, onlyA, onlyB, nbrA, nbrB, merged;
-
-    static void add_others(std::vector<std::uint32_t>& out, const std::array<std::uint32_t, 3>& t, std::uint32_t x, std::uint32_t y) {
-        for (std::uint32_t v : t)
-            if (v != x && v != y) out.push_back(v);
-    }
-
-    // Collapses the edge when that is safe; false when it is not (nothing is changed).
-    bool collapse(const Entry& e, std::size_t& alive) {
-        const std::uint32_t a = e.a, b = e.b;
-        shared.clear();
-        onlyA.clear();
-        onlyB.clear();
-        for (std::uint32_t t : vt[a]) {
-            if (tdead[t]) continue;
-            (has(tri[t], b) ? shared : onlyA).push_back(t);
-        }
-        for (std::uint32_t t : vt[b])
-            if (!tdead[t] && !has(tri[t], a)) onlyB.push_back(t);
-        if (shared.size() != 2) return false;
-        // Boundaries: two boundary vertices may only merge along a boundary edge.
-        if (onBoundary[a] && onBoundary[b] && part[shared[0]] == part[shared[1]]) return false;
-        // The link condition: a and b may have only the two opposite vertices of the edge in common.
-        nbrA.clear();
-        nbrB.clear();
-        for (std::uint32_t t : onlyA) add_others(nbrA, tri[t], a, b);
-        for (std::uint32_t t : shared) {
-            add_others(nbrA, tri[t], a, b);
-            add_others(nbrB, tri[t], a, b);
-        }
-        for (std::uint32_t t : onlyB) add_others(nbrB, tri[t], a, b);
-        std::sort(nbrA.begin(), nbrA.end());
-        nbrA.erase(std::unique(nbrA.begin(), nbrA.end()), nbrA.end());
-        std::sort(nbrB.begin(), nbrB.end());
-        nbrB.erase(std::unique(nbrB.begin(), nbrB.end()), nbrB.end());
-        std::size_t common = 0;
-        for (std::size_t i = 0, j = 0; i < nbrA.size() && j < nbrB.size();) {
-            if (nbrA[i] == nbrB[j]) {
-                ++common;
-                ++i;
-                ++j;
-            } else if (nbrA[i] < nbrB[j]) {
-                ++i;
-            } else {
-                ++j;
-            }
-        }
-        if (common != 2) return false;
-        merged.clear();
-        std::set_union(nbrA.begin(), nbrA.end(), nbrB.begin(), nbrB.end(), std::back_inserter(merged));
-        if (merged.size() < 3) return false;  // would flatten a tetrahedron into a double-sided sheet
-        // No triangle may flip or collapse.
-        auto flips = [&](std::uint32_t t, std::uint32_t moved) {
-            const D3 no = tri_normal(t);
-            const auto saved = p[moved];
-            p[moved] = e.pos;
-            const D3 nn = tri_normal(t);
-            p[moved] = saved;
-            const double lo = len3(no), ln = len3(nn);
-            if (lo < 1.0e-20) return false;
-            return dot3(no, nn) <= 0.1 * lo * ln;
-        };
-        for (std::uint32_t t : onlyA)
-            if (flips(t, a)) return false;
-        for (std::uint32_t t : onlyB)
-            if (flips(t, b)) return false;
-
-        // do it: b disappears into a
-        for (std::uint32_t t : shared) tdead[t] = 1;
-        alive -= 2;
-        for (std::uint32_t t : onlyB)
-            for (std::uint32_t& v : tri[t])
-                if (v == b) v = a;
-        p[a] = e.pos;
-        q[a] = q[a] + q[b];
-        onBoundary[a] = onBoundary[a] || onBoundary[b];
-        ++ver[a];
-        vdead[b] = 1;
-        vt[a].clear();
-        vt[a].insert(vt[a].end(), onlyA.begin(), onlyA.end());
-        vt[a].insert(vt[a].end(), onlyB.begin(), onlyB.end());
-        vt[b].clear();
-        for (std::uint32_t n : merged) {
-            std::erase_if(vt[n], [&](std::uint32_t t) { return tdead[t] != 0; });
-            push_edge(a, n);
-        }
-        return true;
-    }
-};
+    return out;
+}
 
 }  // namespace
 
-ModelDecimateStats model_decimate(std::vector<Vec3>& positions, std::vector<std::uint32_t>& indices, std::vector<std::uint32_t>& triParts, const ModelDecimateParams& params) {
+ModelSimplifyResult model_simplify(const std::vector<Vec3>& positions, const std::vector<float>& attributes, std::size_t attributeStride,
+                                   const std::vector<float>& weights, const std::vector<std::uint32_t>& indices,
+                                   const std::vector<std::uint32_t>& triParts, const ModelSimplifyParams& params) {
+    ModelSimplifyResult out = simplify_once(positions, attributes, attributeStride, weights, indices, triParts, params, false);
+    // Where several parts meet, meshoptimizer can leave an edge shared by three triangles. A mesh that had none must not get one: try again
+    // with the part boundaries locked, and keep the input when even that is not clean.
+    const std::size_t before = non_manifold_edges(positions, indices);
+    if (non_manifold_edges(out.positions, out.indices) <= before) return out;
+    out = simplify_once(positions, attributes, attributeStride, weights, indices, triParts, params, true);
+    if (non_manifold_edges(out.positions, out.indices) <= before) return out;
+    const std::size_t triangles = indices.size() / 3;
+    ModelSimplifyResult same;
+    same.indices = indices;
+    same.triParts = triParts.size() == triangles ? triParts : std::vector<std::uint32_t>(triangles, 0);
+    same.positions = positions;
+    same.attributes = attributes;
+    same.keep.resize(positions.size());
+    for (std::size_t i = 0; i < positions.size(); ++i) same.keep[i] = std::uint32_t(i);
+    return same;
+}
+
+ModelDecimateStats model_decimate(std::vector<Vec3>& positions, std::vector<std::uint32_t>& indices, std::vector<std::uint32_t>& triParts,
+                                  const ModelDecimateParams& params) {
     ModelDecimateStats stats;
-    const std::size_t triCount = indices.size() / 3;
-    stats.trianglesBefore = stats.trianglesAfter = triCount;
-    if (triCount < 4 || (params.targetTriangles == 0 && params.maxError <= 0)) return stats;
-
-    Decimator d;
-    const std::size_t vcount = positions.size();
-    d.p.resize(vcount);
-    for (std::size_t i = 0; i < vcount; ++i) d.p[i] = {positions[i].x, positions[i].y, positions[i].z};
-    d.q.resize(vcount);
-    d.onBoundary.assign(vcount, 0);
-    d.vdead.assign(vcount, 0);
-    d.ver.assign(vcount, 0);
-    d.vt.resize(vcount);
-    d.tri.resize(triCount);
-    d.tdead.assign(triCount, 0);
-    d.part.resize(triCount);
-    for (std::size_t t = 0; t < triCount; ++t) {
-        d.tri[t] = {indices[t * 3], indices[t * 3 + 1], indices[t * 3 + 2]};
-        d.part[t] = triParts.size() == triCount ? triParts[t] : 0;
-        for (std::uint32_t v : d.tri[t]) d.vt[v].push_back(std::uint32_t(t));
-    }
-
-    // face quadrics
-    for (std::size_t t = 0; t < triCount; ++t) {
-        const D3 n = d.tri_normal(std::uint32_t(t));
-        const double l = len3(n);
-        if (l < 1.0e-30) continue;
-        const D3 u = n * (1.0 / l);
-        const double area = 0.5 * l, off = -dot3(u, d.p[d.tri[t][0]]);
-        for (std::uint32_t v : d.tri[t]) {
-            d.q[v].add_plane(u, off, area);
-            d.q[v].area += area;
-        }
-    }
-
-    // boundaries: edges with one face (a border), more than two, or two faces of different parts
-    struct EdgeRef {
-        std::uint32_t lo, hi, tri;
-        bool operator<(const EdgeRef& o) const { return lo != o.lo ? lo < o.lo : hi != o.hi ? hi < o.hi : tri < o.tri; }
-    };
-    std::vector<EdgeRef> edges;
-    edges.reserve(triCount * 3);
-    for (std::size_t t = 0; t < triCount; ++t)
-        for (int k = 0; k < 3; ++k) {
-            std::uint32_t u = d.tri[t][std::size_t(k)], v = d.tri[t][std::size_t((k + 1) % 3)];
-            if (u > v) std::swap(u, v);
-            edges.push_back({u, v, std::uint32_t(t)});
-        }
-    std::sort(edges.begin(), edges.end());
-    std::vector<std::pair<std::uint32_t, std::uint32_t>> unique;
-    for (std::size_t i = 0; i < edges.size();) {
-        std::size_t j = i;
-        while (j < edges.size() && edges[j].lo == edges[i].lo && edges[j].hi == edges[i].hi) ++j;
-        unique.emplace_back(edges[i].lo, edges[i].hi);
-        const std::size_t n = j - i;
-        bool boundary = n != 2;
-        if (n == 2 && d.part[edges[i].tri] != d.part[edges[i + 1].tri]) boundary = true;
-        if (boundary) {
-            const std::uint32_t lo = edges[i].lo, hi = edges[i].hi;
-            d.onBoundary[lo] = d.onBoundary[hi] = 1;
-            const D3 ev = d.p[hi] - d.p[lo];
-            const double el = len3(ev);
-            for (std::size_t k = i; k < j && el > 1.0e-30; ++k) {
-                const D3 fn = d.tri_normal(edges[k].tri);
-                const D3 pn = cross3(ev, fn);
-                const double pl = len3(pn);
-                if (pl < 1.0e-30) continue;
-                const D3 u = pn * (1.0 / pl);
-                const double w = 100.0 * el * el;  // a boundary moving sideways costs like many faces
-                d.q[lo].add_plane(u, -dot3(u, d.p[lo]), w);
-                d.q[hi].add_plane(u, -dot3(u, d.p[lo]), w);
-            }
-        }
-        i = j;
-    }
-    edges = {};
-
-    for (const auto& [u, v] : unique) d.push_edge(u, v);
-
-    std::size_t alive = triCount;
-    const std::size_t target = params.targetTriangles;
-    while (!d.heap.empty() && (target == 0 || alive > target)) {
-        const Entry e = d.heap.top();
-        d.heap.pop();
-        if (d.vdead[e.a] || d.vdead[e.b] || d.ver[e.a] != e.va || d.ver[e.b] != e.vb) continue;
-        const double areaSum = d.q[e.a].area + d.q[e.b].area;
-        const double err = areaSum > 0 ? std::sqrt(e.cost / areaSum) : 0.0;
-        if (params.maxError > 0 && err > params.maxError) continue;
-        if (!d.collapse(e, alive)) continue;
-        ++stats.collapses;
-        stats.maxErrorReached = std::max(stats.maxErrorReached, err);
-    }
-
-    // compact
-    std::vector<std::uint32_t> remap(vcount, 0xFFFFFFFFu);
-    std::vector<Vec3> outPos;
-    std::vector<std::uint32_t> outIdx, outParts;
-    for (std::size_t t = 0; t < triCount; ++t) {
-        if (d.tdead[t]) continue;
-        for (std::uint32_t v : d.tri[t]) {
-            if (remap[v] == 0xFFFFFFFFu) remap[v] = std::uint32_t(vcount);  // placeholder: numbered below in vertex order
-        }
-    }
-    std::uint32_t next = 0;
-    for (std::size_t v = 0; v < vcount; ++v)
-        if (remap[v] != 0xFFFFFFFFu) {
-            remap[v] = next++;
-            outPos.push_back({float(d.p[v].x), float(d.p[v].y), float(d.p[v].z)});
-        }
-    for (std::size_t t = 0; t < triCount; ++t) {
-        if (d.tdead[t]) continue;
-        for (std::uint32_t v : d.tri[t]) outIdx.push_back(remap[v]);
-        outParts.push_back(d.part[t]);
-    }
-    positions = std::move(outPos);
-    indices = std::move(outIdx);
-    if (triParts.size() == triCount) triParts = std::move(outParts);
+    stats.trianglesBefore = indices.size() / 3;
+    ModelSimplifyParams sp;
+    sp.targetTriangles = params.targetTriangles;
+    sp.maxError = params.maxError;
+    sp.lockBorder = true;
+    const bool hadParts = triParts.size() == stats.trianglesBefore;
+    ModelSimplifyResult r = model_simplify(positions, {}, 0, {}, indices, triParts, sp);
+    positions = std::move(r.positions);
+    indices = std::move(r.indices);
+    if (hadParts) triParts = std::move(r.triParts);
     stats.trianglesAfter = indices.size() / 3;
+    stats.collapses = stats.trianglesBefore - stats.trianglesAfter;
+    stats.maxErrorReached = r.error;
     return stats;
 }
 
