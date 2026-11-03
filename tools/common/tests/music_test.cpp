@@ -7,8 +7,10 @@
 
 #include "asset_test_helpers.h"
 #include "fa/audio/analysis.h"
+#include "fa/core/json_schema.h"
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/validate.h"
+#include "fa_test_paths.h"
 
 using namespace fa;
 using namespace fa::testing;
@@ -494,4 +496,38 @@ TEST_CASE("project.validate: a broken song is an error with its pointer and colu
     for (const ValidationIssue& w : report.warnings)
         if (w.file == kSong && w.message.find("off_key") != std::string::npos) sawWarning = w.pointer == "/tracks/bass/patterns/line" && !w.hint.empty();
     CHECK(sawWarning);
+}
+
+TEST_CASE("song schema: the document music.create writes passes it, an unknown key, a bad mode and a bad kit lane do not") {
+    namespace stdfs = std::filesystem;
+    auto schema = parse_json(read_all(stdfs::path(FA_REPO_ROOT) / "schemas" / "song.schema.json"), "song.schema.json");
+    REQUIRE(schema.ok());
+    AssetsProject p;
+    make_song(p, {{"style", "funk"}});
+    Json doc = song_file(p);
+    CHECK(validate_json(*schema, doc).empty());
+    // every key the parser knows is a property of the schema
+    for (const char* key : {"format", "doc", "tempo", "meter", "key", "mode", "swing", "swingGrid", "seed", "volume", "tracks", "sections", "automation"})
+        CHECK((*schema)["properties"].contains(key));
+    const Json& trackProps = (*schema)["properties"]["tracks"]["additionalProperties"]["properties"];
+    for (const char* key : {"instrument", "volume", "pan", "transpose", "swing", "range", "kit", "patterns", "automation"}) CHECK(trackProps.contains(key));
+    const Json& sectionProps = (*schema)["properties"]["sections"]["items"]["properties"];
+    for (const char* key : {"name", "kind", "repeat", "bars", "mute", "play"}) CHECK(sectionProps.contains(key));
+
+    Json extra = doc;
+    extra["tempoo"] = 100;
+    CHECK_FALSE(validate_json(*schema, extra).empty());
+    Json mode = doc;
+    mode["mode"] = "lydain";
+    CHECK_FALSE(validate_json(*schema, mode).empty());
+    Json kit = doc;
+    kit["tracks"]["drums"]["kit"] = {{"kick", "kick.wav"}};
+    CHECK_FALSE(validate_json(*schema, kit).empty());
+    Json arrangement = doc;
+    arrangement["sections"][0]["play"]["drums"] = Json::array({{{"pattern", "a"}, {"repeat", 0}}});
+    CHECK_FALSE(validate_json(*schema, arrangement).empty());
+    Json rich = {{"format", "factoria.song/1"}, {"tempo", 90}, {"meter", "3/4"}, {"swing", 0.3},
+                 {"tracks", {{"lead", {{"instrument", "bell"}, {"range", Json::array({"C4", 84})}, {"patterns", {{"a", {{"notes", "C4:4 E4 G4"}, {"bars", 2}}}}}, {"automation", Json::array({{{"param", "pan"}, {"points", Json::array({Json::array({0, -1}), Json::array({8, 1})})}, {"curve", "smooth"}}})}}}}},
+                 {"sections", Json::array({{{"name", "loop"}, {"kind", "loop"}, {"play", {{"lead", Json::array({"a", {{"rest", 1}}, {{"pattern", "a"}, {"repeat", 2}}})}}}}})}};
+    CHECK(validate_json(*schema, rich).empty());
 }

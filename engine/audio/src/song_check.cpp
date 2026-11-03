@@ -160,7 +160,7 @@ void rule_clash(Reporter& r) {
                 if (x->pitch > y->pitch) std::swap(x, y);
                 const int d = y->pitch - x->pitch;
                 const char* kind = nullptr;
-                if (d == 1 || d == 13) kind = "minor second";
+                if (d == 1 || d == 13) kind = d == 1 ? "minor second" : "minor ninth";
                 else if (d % 12 == 6 && d <= 18) kind = "tritone";
                 if (!kind) continue;
                 const SongTrack& tx = song.tracks[std::size_t(x->track)];
@@ -170,10 +170,9 @@ void rule_clash(Reporter& r) {
                 SongCheckIssue i;
                 i.rule = "clash";
                 i.severity = "warning";
-                i.track = ty.name;
-                const bool same = x->track == y->track;
-                i.message = std::format("{} {} ({}, pattern `{}`) and {} ({}, pattern `{}`) sound together on a strong beat: a {}", same ? "in track" : "tracks", same ? tx.name : tx.name + "/" + ty.name,
-                                        note_name(song, x->pitch), x->pattern, note_name(song, y->pitch), ty.name, y->pattern, kind);
+                i.track = song.tracks[std::size_t(later->track)].name;
+                i.message = std::format("{} (track `{}`, pattern `{}`) and {} (track `{}`, pattern `{}`) sound together on a strong beat: a {}", note_name(song, x->pitch), tx.name, x->pattern,
+                                        note_name(song, y->pitch), ty.name, y->pattern, kind);
                 i.hint = std::string("Move one of them a step to a note that belongs to the chord, shorten it so it ends before the strong beat, or make it a passing tone on an off-beat.") +
                          (std::string(kind) == "tritone" ? " A tritone is fine inside a dominant 7th chord; write that chord by name so its notes are skipped." : "");
                 r.add("clash|" + tx.name + "|" + ty.name + "|" + std::to_string(x->pitch) + "|" + std::to_string(y->pitch), std::move(i), later, t);
