@@ -605,6 +605,9 @@ export default class Hero extends Behaviour {
 
 ## Example: a character built in parts (Sky Hopper)
 
+(To get the parts, joints, hierarchy and `Bone2D`s from one SVG with no hand work, see `vector.to_rig` in
+[VECTOR.md](VECTOR.md), "Characters in parts": it writes the atlas and the prefab, and a wave clip for it is the worked example there.)
+
 `examples/sky-hopper` draws its hero and its crawler this way. Nothing here is a skinned 3D model or a drawn sprite sheet:
 the art is SVG parts, the motion is data.
 

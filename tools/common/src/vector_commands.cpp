@@ -1172,6 +1172,7 @@ void register_vector_commands(CommandRegistry& registry, const std::string& proj
             return fa::vec::run(projectDir, args, name.c_str(), props, ro, [fn](fa::vec::Ctx& c) { return fn(c); });
         });
     }
+    register_vector_rig_command(registry, projectDir);
 }
 
 }  // namespace fa::assets_detail

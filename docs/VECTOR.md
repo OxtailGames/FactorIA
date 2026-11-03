@@ -3,7 +3,7 @@
 SVG is the document. You write it (`assets.rasterize_svg` draws it, see [ASSETS.md](ASSETS.md)); these commands edit it:
 combine shapes, grow or shrink them, turn strokes into outlines, tidy paths, line elements up, repeat them and apply the project's
 style. A second group **builds** shapes the way AIs draw badly by hand (stars, gears, speech bubbles, smooth blobs, mirrored halves, text as
-outlines, shading from the light). Each command reads an SVG, changes it, **writes it back keeping its ids, groups, transforms and styles**, and returns a
+outlines, shading from the light), and `vector.to_rig` turns a character drawn in named groups into something that animates in parts. Each command reads an SVG, changes it, **writes it back keeping its ids, groups, transforms and styles**, and returns a
 rasterized preview of the result as `$image`, so you look at the picture after every step.
 
 ```text
@@ -22,6 +22,7 @@ vector.blob          add a smooth blob or curve through or around a few points
 vector.mirror        mirror a shape across an axis and weld the halves (or add the copy)
 vector.text_to_path  text as path outlines, with the engine's own fonts
 vector.shade         shadow and highlight bands from the light direction
+vector.to_rig        a character drawn in named groups becomes part pictures, joints and a Bone2D prefab
 ```
 
 ## Where the SVG comes from
@@ -281,6 +282,139 @@ For each solid shape adds two bands right after it, with its transform: `<id>-sh
 
 On a red disc (`#cc3333`) lit from the upper left: `orb-shadow` is `#a70000` along the lower right, `orb-highlight` `#f1645d` along the upper left.
 
+## Characters in parts
+
+`vector.to_rig` makes an illustrated character animate with no other step: every named group of the SVG is a **part**, drawn alone,
+trimmed and packed into one atlas, with a **joint** (the pivot it turns about) and a prefab that has one entity per part, in the
+hierarchy of the drawing, with a `Sprite` (region, size, pivot, layer) and a `Bone2D`. Rotating a part (`Transform.rotation.z`, in a clip)
+turns it and everything under it about its joint. Write the SVG with this in mind:
+
+```svg
+<svg viewBox="0 0 200 300" width="200" height="300">
+  <g id="leg_r">...</g> <g id="leg_l">...</g>             <!-- drawn first = behind -->
+  <g id="arm_upper_r">...</g> <g id="arm_lower_r">...</g>
+  <g id="torso">...                                       <!-- a group in a group is a child part -->
+    <g id="head"><circle .../><circle id="head-pivot" cx="100" cy="76" r="2"/></g>
+  </g>
+  <g id="arm_upper_l">...</g> <g id="arm_lower_l">...</g>
+</svg>
+```
+
+`{"source": "assets/art/hero.svg", "pixelsPerUnit": 4}` writes `assets/art/hero_parts.png` (the atlas) and `prefabs/hero.prefab.json`.
+
+**What is a part.** Every group with an id (`<g id="arm_upper_l">`). Ids an editor makes up (`g1234`, `path-12`, `layer1`), ids that
+start with `_` and Inkscape layers do not count; a shape with an id outside every group is a part too. `parts` names them yourself (ids
+or selectors). A group's own shapes are the picture of the part; the shapes of a part nested inside belong to that child. The part's
+name in the prefab is its id. Shapes that belong to no part are left out of the rig and the result says so; a part that draws
+nothing is a joint with no picture (a child of it still hangs from it). A part is one sprite, so it is drawn at the place of its first
+shape: do not draw another part between two of its shapes (a warning says when you do).
+
+**Pictures: one atlas, or one file each.** `layout: "atlas"` (default) packs the parts into one PNG (`atlas`, default
+`assets/art/<name>_parts.png`) and each `Sprite` has a `region` in it: one texture, so one draw call for the whole character.
+`layout: "files"` writes `assets/art/<name>_parts/<part>.png` instead (`atlas` is then the folder), for a character you edit part by
+part in another program. Each picture is trimmed to the ink of its part and padded by `padding` pixels (2, or 1 for pixel art) of
+transparent pixels, so filtering does not bleed into a neighbour. `scale` is the pixels drawn per drawing unit (default: the SVG's size over its
+viewBox); `pixelsPerUnit` is how many of those pixels are one world unit (default: the style's `texelsPerUnit`, else `scale`).
+`pixelArt` (default: the style's) is written to every `Sprite.pixelArt`.
+
+**Joints, in this order.** (1) `pivots` `{"part": [x, y]}`, in drawing units; (2) a marker: any shape with the id `<part>-pivot`
+(or `<part>_pivot`) anywhere in the SVG, whose centre is the joint (it is not drawn and not part of any picture); (3) a
+`data-pivot="x y"` attribute on the group; (4) the **overlap** with the nearest ancestor that has a picture: the centre of where
+the two pictures cover each other, moved to the end of the part that is nearer when the part is long (an arm's joint is its
+shoulder end, a forearm's its elbow end); (5) the top centre of the part. The result says which one each part used
+(`pivotFrom`: `pivots`, `marker`, `data-pivot`, `overlap` or `default`) and the picture shows a red cross at each joint: where one
+is off, put a `<part>-pivot` shape there.
+
+**Hierarchy, in this order.** Nesting in the SVG; then `data-parent="<part>"` on a group and `parents` `{"part": "parent"}` (`""` makes
+a part a child of the rig's root); then, unless `naming: false`, the names: `arm_lower_l` hangs from `arm_upper_l` (an `upper` word
+is replaced by `lower`, with `_`, `-`, `.` or space between the words), and when exactly one of `root`, `body`, `torso`, `trunk`,
+`hips`, `pelvis` or `chest` is left with no parent, the other parts with none hang from it. `parentFrom` says why. A part that would
+hang from its own descendant is an error.
+
+**Draw order.** `Sprite.layer` follows the order of the SVG (the part whose first shape comes first is the furthest back), starting at
+`layer` (default 0), one per part. A part is also drawn in front of its parent only if the SVG draws it later: there is no rule
+that a child is on top.
+
+**Bones.** Each part gets a `Bone2D` whose `length` is the distance from its joint to the farthest child joint (a part with no
+children: twice the distance to the middle of its picture, at least half of its longer side). `data-min-angle` / `data-max-angle`
+on a group set `Bone2D.minAngle` / `maxAngle` in degrees. These bones are the joint skeleton of the rig, at rest rotation 0 (the
+parts are placed by their positions); a skeleton made for IK (`IK2D`, a chain pointing along +X) is `bones.create`'s job. Use the
+rig's entities directly: clips rotate `Transform.rotation.z` by the path of names (`"torso/arm_upper_r/arm_lower_r"`).
+
+**Coordinates.** The prefab's root is at the **bottom centre** of the drawing (`origin`: `"bottom-center"`, `"center"`, `"top-left"`
+or a point `[x, y]` in the drawing), so the feet stand on the root. The drawing's y points down and the engine's up: the prefab's
+y is flipped. Each part's `Transform.position` is its joint, relative to its parent's, in world units
+(pixels / `pixelsPerUnit`); `Sprite.pivot` is the joint inside the picture (0 to 1, from the bottom-left), so the picture hangs
+from the joint and turns about it.
+
+**The rest pose is the SVG.** The command draws the SVG whole, puts the prefab's sprites back together on the CPU from what it wrote
+(region, size, pivot, position, layer) and compares: `restPose` `{matches, maxDifference, differingPixels, tolerance}` (the
+largest difference of any pixel, premultiplied, of 255; `matches` is a difference of at most 8, the rounding of the edges). The
+`$image` is the SVG on the left and the rig at rest on the right, a cross at each joint. A mismatch has a warning that names the usual causes:
+a shape outside every part, a part drawn around another one, a mask or clip shared across parts.
+
+**Running it again.** The prefab is **updated in place**, not rebuilt: entities keep their names and everything you added (an
+`Animator` on the root, colliders, scripts, children that are not parts); only `Transform.position`, `Sprite` and
+`Bone2D.length` (and the limits, when the SVG gives them) are rewritten, so clips that name the parts by path keep working. A part
+that is new in the SVG is added (`added`). A part that is in the prefab (it draws this rig's picture) and no longer in the SVG
+(`removed`) stays, drawing its stale region, and a warning names it, suggests the closest new name (a renamed group) and lists the
+clips that have tracks on it. `prune: true` removes those entities (their own children move up one level). A prefab that exists and
+draws none of this rig's pictures is not touched without `overwrite: true`; a picture this command did not make is not replaced
+without it either. `dryRun: true` does everything and writes nothing.
+
+**It goes stale like any recipe.** The atlas (or each part picture) records a recipe in `assets.json` with the SVG as its input, so
+`assets.regenerate {"stale": true}` redraws the rig when the SVG changes and `factoria validate` warns until then.
+
+### A worked example
+
+A character with eight parts (`assets/art/hero.svg`, 200 x 300), the head marked with `head-pivot`, everything else guessed:
+
+```text
+vector.to_rig {"source": "assets/art/hero.svg", "pixelsPerUnit": 4}
+
+part          parent       joint (drawing)   from      position (local)   bone
+leg_r         torso        [106, 180]        overlap   [1.5, 30.0]        25.0
+leg_l         torso        [81, 180]         overlap   [-4.75, 30.0]      25.0
+arm_upper_r   torso        [137, 85]         overlap   [9.25, 53.75]      10.0
+arm_lower_r   arm_upper_r  [136, 125]        overlap   [9.0, 43.75]       12.5
+torso         (root)       [100, 80]         default   [0.0, 55.0]        25.4
+head          torso        [100, 76]         marker    [0.0, 56.0]        13.0
+arm_upper_l   torso        [63, 85]          overlap   [-9.25, 53.75]     10.0
+arm_lower_l   arm_upper_l  [63, 125]         overlap   [-9.25, 43.75]     12.5
+atlas 250 x 169, restPose {"matches": true, "maxDifference": 1, "differingPixels": 0}
+```
+
+(The positions of the table are world units from the rig's origin, as the result lists them; in the prefab each is relative to its
+parent.) The prefab, abridged:
+
+```json
+{ "format": "factoria.prefab/1",
+  "entity": { "name": "hero", "components": { "Transform": { "position": [0, 0, 0] } },
+    "children": [ { "name": "torso",
+      "components": { "Transform": { "position": [0.0, 55.0, 0] },
+        "Sprite": { "texture": "assets/art/hero_parts.png", "region": [0, 0, 68, 114], "size": [17.0, 28.5], "pivot": [0.5, 0.9825], "layer": 4, "pixelArt": false },
+        "Bone2D": { "length": 25.4472 } },
+      "children": [ { "name": "arm_upper_r", "components": { "Transform": { "position": [9.25, -1.25, 0] }, "...": "..." },
+                      "children": [ { "name": "arm_lower_r", "...": "..." } ] }, "..." ] } ] } }
+```
+
+To animate it, put an `Animator` on the root entity of the prefab (`"Animator": {"clips": {"wave": "anim/hero_wave.anim.json"}, "clip": "wave"}`)
+and write the clip with `anim.create_clip`; this one lifts the right arm at the shoulder and bends the forearm back and forth, and
+`anim.check {"entity": "hero", "clip": "wave"}` finds nothing to fix:
+
+```json
+{ "format": "factoria.anim/1", "duration": 1.2, "loop": true,
+  "doc": "Waves the right arm: the shoulder lifts the arm, the elbow bends it back and forth.",
+  "tracks": [
+    { "path": "torso/arm_upper_r", "component": "Transform", "field": "rotation.z",
+      "keys": [ { "t": 0, "value": 0 }, { "t": 0.3, "value": 150, "interp": "sineInOut" }, { "t": 0.9, "value": 150 }, { "t": 1.2, "value": 0, "interp": "sineInOut" } ] },
+    { "path": "torso/arm_upper_r/arm_lower_r", "component": "Transform", "field": "rotation.z",
+      "keys": [ { "t": 0, "value": 0 }, { "t": 0.3, "value": 0 }, { "t": 0.5, "value": -25, "interp": "sineInOut" }, { "t": 0.7, "value": 25, "interp": "sineInOut" },
+                { "t": 0.9, "value": 0, "interp": "sineInOut" }, { "t": 1.2, "value": 0 } ] } ] }
+```
+
+See [ANIMATION.md](ANIMATION.md) for clips, the Animator and `anim.filmstrip` (the poses as one picture).
+
 ## Errors
 
 Every error names the argument (a JSON pointer such as `/elements/1`), what is wrong and how to fix it:
@@ -291,7 +425,7 @@ Every error names the argument (a JSON pointer such as `/elements/1`), what is w
 | `not_found` | an id or selector matches nothing, or the `source`/`document` does not exist; lists the ids and suggests the closest |
 | `invalid_argument` | a wrong, missing or unknown argument (an unknown name gets a "did you mean"), one shape for a boolean, `vector.stroke_to_path` on shapes with no stroke, an `align` with nothing to do |
 | `empty_result` | the operation leaves nothing (the shapes do not overlap, an inset removed the shape) |
-| `exists` | `out` exists and `overwrite` is not true, or the `id` of a shape to add is already in the SVG |
+| `exists` | `out` exists and `overwrite` is not true, or the `id` of a shape to add is already in the SVG; `vector.to_rig`: a picture it did not make, or a prefab that draws none of its pictures |
 
 ## A workflow
 
@@ -301,7 +435,8 @@ Every error names the argument (a JSON pointer such as `/elements/1`), what is w
 4. Build the parts you would draw badly by hand: `vector.shape` (a gear, a star, a bubble), `vector.blob` (a cloud), `vector.mirror` (half a
    face), `vector.text_to_path` (a title); then `vector.shade` them from the style's light. `vector.align` / `vector.distribute` /
    `vector.repeat` the parts into a layout; `vector.style` last, so the outline and palette are the project's.
-5. Look at each `$image`; `assets.rasterize_svg` the final `.svg` to its PNG (or keep it as an svg layer of a `*.image.json`), then
+5. A character drawn in named groups: `vector.to_rig` (see "Characters in parts"), then animate the prefab.
+6. Look at each `$image`; `assets.rasterize_svg` the final `.svg` to its PNG (or keep it as an svg layer of a `*.image.json`), then
    `assets.check_art` it.
 
 ## For code that builds on this
