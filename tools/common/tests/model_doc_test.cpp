@@ -524,3 +524,51 @@ TEST_CASE("model schema: schemas/model.schema.json is the schema the catalog bui
     broken["nodes"][0]["sise"] = 1;
     CHECK_FALSE(validate_json(*schema, broken).empty());
 }
+
+TEST_CASE("model.game_ready: settings go into the document, the bake writes LODs, the collider and a prefab, and fewer LODs remove the old files") {
+    AssetsProject p;
+    write_all(p.file("assets/models/ball.model.json"),
+              R"({"format": "factoria.model/1", "nodes": [{"op": "sphere", "id": "s", "radius": 0.5, "position": [0, 2, 0], "part": "ball"}]})");
+    // no settings: a report, nothing written
+    const Json report = p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"}});
+    CHECK(report.contains("report"));
+    CHECK_FALSE(p.exists("assets/models/ball.glb"));
+
+    const Json r = p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"}, {"origin", "bottom_center"},
+                                             {"lods", Json::array({{{"ratio", 0.5}}, {{"ratio", 0.2}}})}, {"collider", {{"shape", "convex"}}}});
+    CHECK(r["gameReady"].contains("lods"));
+    CHECK(r["extras"].size() == 4);
+    for (const char* f : {"ball.glb", "ball.lod1.glb", "ball.lod2.glb", "ball.collider.glb", "ball.prefab.json"}) CHECK(p.exists(std::string("assets/models/") + f));
+    const Json prefab = parse_json(read_all(p.file("assets/models/ball.prefab.json")), "prefab").value();
+    CHECK(prefab["format"] == "factoria.prefab/1");
+    CHECK(prefab["entity"]["components"]["MeshRenderer"]["lods"].size() == 2);
+    CHECK(prefab["entity"]["components"]["Collider3D"]["shape"] == "convex");
+    const Json doc = parse_json(read_all(p.file("assets/models/ball.model.json")), "doc").value();
+    CHECK(doc["gameReady"]["origin"] == "bottom_center");
+    CHECK(p.manifest()["assets"].contains("assets/models/ball.lod2.glb"));
+    CHECK(model_bake_status(p.dir, "assets/models/ball.model.json").state == ModelBakeState::Fresh);
+
+    // a LOD file that is gone makes the document's bake missing
+    std::filesystem::remove(p.file("assets/models/ball.lod1.glb"));
+    CHECK(model_bake_status(p.dir, "assets/models/ball.model.json").state == ModelBakeState::Missing);
+    p.ok("model.bake", {{"path", "assets/models/ball.model.json"}});
+    CHECK(p.exists("assets/models/ball.lod1.glb"));
+
+    // one LOD less: its file and manifest entry go
+    p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"}, {"lods", Json::array({{{"ratio", 0.5}}})}});
+    CHECK_FALSE(p.exists("assets/models/ball.lod2.glb"));
+    CHECK_FALSE(p.manifest()["assets"].contains("assets/models/ball.lod2.glb"));
+    // the same settings, the same bytes
+    const std::string lod1 = read_all(p.file("assets/models/ball.lod1.glb"));
+    p.ok("model.bake", {{"path", "assets/models/ball.model.json"}, {"force", true}});
+    CHECK(read_all(p.file("assets/models/ball.lod1.glb")) == lod1);
+
+    // a bad setting teaches and writes nothing
+    const std::string before = read_all(p.file("assets/models/ball.model.json"));
+    CHECK_FALSE(p.call("model.game_ready", {{"path", "assets/models/ball.model.json"}, {"collider", {{"shape", "convx"}}}}).ok);
+    CHECK(read_all(p.file("assets/models/ball.model.json")) == before);
+    // clear
+    p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"}, {"clear", true}});
+    CHECK_FALSE(p.exists("assets/models/ball.lod1.glb"));
+    CHECK_FALSE(p.exists("assets/models/ball.prefab.json"));
+}

@@ -1613,7 +1613,7 @@ Not released yet (on main after 0.14.1).
 
 Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it.
 
-`op` is one of: add (insert `node`, an object, into the group or modifier `parent` at `index`, default the end of the top level; a node without an id gets one), set (change the fields of `target` with `values`; a null value removes a field, back to its default), remove (delete `target` and everything below it), move (take `target` to the group or modifier `parent`, or the top level, at `index`), document (change `materials`, `output` or `doc`; `materials` replaces the whole table). `target` and `parent` are a node id (stable when the tree changes) or a JSON pointer such as /nodes/1/children/0. The result document is checked as a whole before anything is written, so a bad value returns every issue with its JSON pointer and writes nothing; the file keeps the other nodes as written. Then the .glb is baked again (unless bake is false) and the measurements tell what the edit did. Example: {"path":"assets/models/door.model.json","op":"set","target":"knob","values":{"radius":0.07}}
+`op` is one of: add (insert `node`, an object, into the group or modifier `parent` at `index`, default the end of the top level; a node without an id gets one), set (change the fields of `target` with `values`; a null value removes a field, back to its default), remove (delete `target` and everything below it), move (take `target` to the group or modifier `parent`, or the top level, at `index`), document (change `materials`, `output`, `gameReady` or `doc`; `materials` replaces the whole table). `target` and `parent` are a node id (stable when the tree changes) or a JSON pointer such as /nodes/1/children/0. The result document is checked as a whole before anything is written, so a bad value returns every issue with its JSON pointer and writes nothing; the file keeps the other nodes as written. Then the .glb is baked again (unless bake is false) and the measurements tell what the edit did. Example: {"path":"assets/models/door.model.json","op":"set","target":"knob","values":{"radius":0.07}}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1627,7 +1627,28 @@ Add, change, remove or move one node of a model document by its id (or JSON poin
 | `doc` | string | no | document: the new note. |
 | `output` | object | no | document: the new output settings ({path}); null removes them. |
 | `materials` | object | no | document: the new materials table; null removes it. |
+| `gameReady` | object | no | document: the whole game-ready settings object (model.game_ready changes single settings); null removes it. |
 | `bake` | boolean | no | Bake the .glb after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
+
+## `model.game_ready` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document.
+
+Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, "Game-ready models"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material (fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, maxVertices, resolution}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; `clear` removes them all). The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings. Example: {"path":"assets/models/tree.model.json","origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"convex"}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. |
+| `origin` | string ["keep","center","bottom","bottom_center"] | no | Where the model's origin sits. |
+| `merge` | boolean | no | Join submeshes with the same material and weld identical vertices (left out: unchanged). |
+| `lods` | array | no | LOD1.. as {ratio, triangles, error, distance}; replaces the list. |
+| `collider` | object | no | {shape: none\|box\|sphere\|capsule\|convex\|decomposed, maxHulls, maxVertices, resolution}. |
+| `platforms` | array | no | Budgets to check: desktop, mobile, web. |
+| `clear` | boolean | no | Remove every game-ready setting first. Default false. |
+| `bake` | boolean | no | Bake after writing. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
 
 ## `model.info`

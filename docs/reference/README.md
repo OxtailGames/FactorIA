@@ -212,6 +212,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`model.bake`](commands/assets.md#modelbake-modifies-state): Build model documents into .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Not released yet._
 - [`model.create`](commands/assets.md#modelcreate-modifies-state): Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb. _Not released yet._
 - [`model.edit`](commands/assets.md#modeledit-modifies-state): Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it. _Not released yet._
+- [`model.game_ready`](commands/assets.md#modelgame_ready-modifies-state): Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document. _Not released yet._
 - [`model.info`](commands/assets.md#modelinfo): Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields. _Not released yet._
 - [`music.arpeggio`](commands/assets.md#musicarpeggio-modifies-state): Make an arpeggio over a chord progression as note text, and optionally put it in a song. _Not released yet._
 - [`music.bassline`](commands/assets.md#musicbassline-modifies-state): Make a bassline over a chord progression as note text, and optionally put it in a song. _Not released yet._

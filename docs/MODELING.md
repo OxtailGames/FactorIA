@@ -441,6 +441,54 @@ reference to a name that is not in `materials` is an error that lists the names 
 `color` writes vertex colours (`COLOR_0`), which a viewer multiplies with the material's colour. When only some nodes have a
 colour, the vertices of the others are white.
 
+## Game-ready models
+
+A model that looks right still has to be cheap and solid in a game. The `gameReady` object of a document says how, and every bake
+derives the files from it again, so changing the tree changes the LODs and the collider with it. `model.game_ready` edits it.
+
+```json
+{"format": "factoria.model/1",
+ "gameReady": {"origin": "bottom_center", "merge": true,
+               "lods": [{"ratio": 0.5}, {"ratio": 0.15}],
+               "collider": {"shape": "convex"}},
+ "nodes": [ ... ]}
+```
+
+| Setting | Meaning |
+|---|---|
+| `origin` | `keep` (default), `center` (bounding box middle at 0,0,0), `bottom` (lowest point at y = 0) or `bottom_center`. The model, its LODs and its collider all move together. |
+| `merge` | Submeshes with the same material become one (fewer draw calls; its part name is the parts joined with `+`), identical vertices are welded and triangles are ordered for the GPU cache. The surface does not change. |
+| `lods` | Up to 4 lower-detail copies. Each is `{ratio, triangles, error, distance}`: `ratio` keeps that fraction of the triangles, `triangles` at most that many (with both, the smaller), `error` the most any collapse may move the surface in metres (alone, it decides how far to go). `distance` is the camera distance in metres from which the game draws it; left out it is the model's largest dimension times 4, 8, 16, 32 for LOD1..4. |
+| `collider` | `shape`: `none`, `box`, `sphere`, `capsule` (stands on Y), `convex` (hull), `decomposed` (several convex pieces of a concave model). `maxVertices` (4..256, default 32) limits each hull; `decomposed` also takes `maxHulls` (default 8) and `resolution` (voxels, default 100000). |
+| `platforms` | The budgets the report checks; default all of `desktop`, `mobile`, `web`. |
+
+Budgets per model on screen: desktop 100000 triangles and 16 draw calls (submeshes), mobile 20000 and 8, web 40000 and 10.
+`model.game_ready` with no setting measures and writes nothing: the triangles, vertices, error and switch distance of every
+LOD, for each platform whether the full mesh fits, which LOD is the first that does (`firstFittingLod`, -1 if none) and whether
+the submeshes fit, the collider (its volume against the model's: a `volumeRatio` far above 1 means things bump into empty
+space) and the `warnings`. A bake returns the same report as `gameReady`.
+
+**What a bake writes**, next to the `.glb` and all recorded in `assets.json` with the same recipe: `<name>.lod1.glb`... for the
+LODs; `<name>.collider.glb` for a `convex` hull (`<name>.collider1.glb`... for a `decomposed` one); and `<name>.prefab.json`
+(`factoria.prefab/1`) when there is an LOD or a collider: one entity with a `MeshRenderer` whose `lods` lists
+`[{mesh, distance}]` and a `Collider3D` (`box`, `sphere` and `capsule` with their numbers and `offset`, `convex` with its hull
+`.glb`). A body cannot be several colliders, so a decomposition becomes one static child entity per piece, each a convex
+`Collider3D`. Drop the prefab in a scene to use it. A file the last bake made and this one does not (fewer LODs, another
+collider) is deleted. A document whose LOD or collider file is missing is `missing` for `model.info`.
+
+At runtime `MeshRenderer.lods` is `[{mesh, distance}]`: the renderer draws the entry with the greatest `distance` not above the
+camera's distance to the entity, and `mesh` below the first. A scene can set it by hand for any model.
+
+The operations (origin, merge, LOD, collider fit) work on any mesh, not only a document's: an `sdf` node's result is a mesh like
+another, so the settings apply to it in the same way. LODs use meshoptimizer, the one simplifier the engine has (the `sdf`
+mesher uses it too); each submesh is simplified on its own with its border locked, so parts stay apart and no crack opens
+between them, and normals, uvs and colours weigh in the error so seams and colour edges survive. A decomposition uses V-HACD
+on one thread. Everything is serial, so a document gives the same LODs, hulls and bytes on every platform (the tests pin
+triangle counts and hashes).
+
+Limits: the capsule is always along Y (the report warns when the model is wider than tall); a decomposition that finds no
+pieces falls back to the convex hull and says so; a LOD never removes a submesh entirely.
+
 ## Determinism
 
 The same document gives the same mesh and the same `.glb` bytes on every platform. The kernel builds with `+ - * /`, `sqrt`
@@ -454,7 +502,8 @@ a `text` node: an engine font is data the binary ships; a project `.ttf` is a fi
 | `model.info {}` | The catalog: operations with their fields (type, range, default, doc), and the fields every node takes. |
 | `model.info {path}` (or `{document}`) | Checks a document, returns the tree (pointer, op, id, part, material), where it bakes to, whether the `.glb` is fresh, and (unless `evaluate` is false) measurements: vertices, triangles, bounds and size, closed surface, volume, and the triangles and bounds of each part. A document with mistakes returns `valid: false` and ALL its issues. |
 | `model.create {path, nodes?, materials?, output?, doc?, overwrite?, bake?}` | Writes a document (default: one box), gives the nodes ids, bakes it. |
-| `model.edit {path, op, ...}` | `add` (`node`, `parent?`, `index?`), `set` (`target`, `values`; a null value removes a field), `remove` (`target`), `move` (`target`, `parent?`, `index?`), `document` (`doc`, `output`, `materials`). `target` and `parent` are a node id or a JSON pointer such as `/nodes/1/children/0`. The whole document is checked before anything is written. Then it bakes again. |
+| `model.edit {path, op, ...}` | `add` (`node`, `parent?`, `index?`), `set` (`target`, `values`; a null value removes a field), `remove` (`target`), `move` (`target`, `parent?`, `index?`), `document` (`doc`, `output`, `materials`, `gameReady`). `target` and `parent` are a node id or a JSON pointer such as `/nodes/1/children/0`. The whole document is checked before anything is written. Then it bakes again. |
+| `model.game_ready {path, origin?, merge?, lods?, collider?, platforms?, clear?, bake?}` | Sets the game-ready settings of a document (each value given replaces that setting; null removes it; `clear` removes all), then bakes the `.glb`, LODs, collider and prefab. With no setting it only reports the budget check. See Game-ready models. |
 | `model.bake {path?, force?, dryRun?, overwrite?}` | Builds the documents whose `.glb` is missing or stale (one with `path`; `force` also the fresh ones). Writes the `.glb` the way `mesh.save` writes a mesh, with provenance and a recipe in `assets.json`. |
 
 `assets.regenerate` rebuilds a stale model, `project.validate` lists documents that do not load (an error per issue) or were
