@@ -5037,6 +5037,23 @@ Finds every assets/**/*.sfx.json and renders the ones whose sound (the patch's p
 | `macros` | object | no | Macro values for every sound rendered by this call, e.g. {"weight": 0.4}. Forces the render and is kept in the recipes. |
 | `dryRun` | boolean | no | List what would be rendered and why, and write nothing. Default false. |
 
+### `sfx.edit` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Change one field of a sound patch by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid patch.
+
+Edits `*.sfx.json` the way a hand edit would, but checked: the patch is parsed again after the change and, when it would be invalid, nothing is written and the error lists the issues with their pointers. op `set` writes `value` at `pointer` (an existing object's field, new or old); `remove` deletes the field or array element at `pointer`; `add` inserts `value` into the array at `pointer` (at `index`, default the end); `move` takes element `index` of the array at `pointer` to place `to`. Nothing is rendered: call sfx.render or sfx.bake afterwards. Example: {"path":"assets/audio/coin.sfx.json","op":"set","pointer":"/oscillators/0/wave","value":"square"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The sound patch, project-relative, ending in .sfx.json. |
+| `op` | string ["set","remove","add","move"] | yes | What to do. |
+| `pointer` | string | yes | JSON pointer into the patch, e.g. /oscillators/0/wave or /effects. |
+| `value` | any | no | The new value (set) or the element to insert (add). Any JSON. |
+| `index` | integer | no | add: where to insert; move: the element to move. |
+| `to` | integer | no | move: the element's new place. |
+
 ### `sfx.family` (modifies state)
 
 Not released yet (on main after 0.14.1).
