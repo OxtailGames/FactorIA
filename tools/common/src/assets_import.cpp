@@ -656,6 +656,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     register_synth_sound_command(registry, projectDir);
     register_sfx_commands(registry, projectDir);
     register_audio_doc_commands(registry, projectDir);
+    register_model_commands(registry, projectDir);
     register_music_commands(registry, projectDir);
     register_texture_command(registry, projectDir);
     register_svg_command(registry, projectDir);

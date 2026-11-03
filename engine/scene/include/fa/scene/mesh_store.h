@@ -43,6 +43,7 @@ struct MeshSubmesh {
     MeshMaterial material;
     std::uint32_t start = 0;  // first index, a multiple of 3
     std::uint32_t count = 0;  // number of indices, a multiple of 3
+    std::string part;         // the part of a model this run is (model documents, fa/scene/model_doc.h); "" = none. Saved in the .glb as the primitive's extras {"part"}
 };
 
 constexpr std::uint32_t kSubmeshToEnd = 0xFFFFFFFFu;  // MeshSubmesh::count in an input: up to the end of the index list

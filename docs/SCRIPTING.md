@@ -1273,6 +1273,9 @@ a flat list or lists of triples), `mesh.update {id, ...}`, `mesh.destroy {id}`, 
 `mesh.info {id}`. They act on the scene that is loaded in the process that runs them (a mesh lives only as long as that process and scene), and you set the field with
 `scene.set_component {"id": "...", "component": "MeshRenderer", "fields": {"mesh": "mesh:1"}}`.
 
+A model written as data (`*.model.json`, docs/MODELING.md) is baked to a `.glb` by `model.bake` through the same writer as
+`mesh.save`: each part of the model is one primitive of the file with the part's name in its `extras.part`.
+
 After an `await` (`scene.preload`, `http.fetch`, a timer) the scene may have changed, and the meshes of the old one are
 released: compare `scene.generation` with the value you kept before you use a mesh you made or build a new one.
 

@@ -119,6 +119,7 @@ void register_contact_sheet_command(CommandRegistry& registry, const std::string
 void register_preview_scene_command(CommandRegistry& registry, const std::string& projectDir);  // assets.preview_in_scene
 void register_music_commands(CommandRegistry& registry, const std::string& projectDir);  // music.* (assets_music.cpp, assets_music_edit.cpp, docs/MUSIC.md)
 void register_audio_doc_commands(CommandRegistry& registry, const std::string& projectDir);  // audio.info, audio.render, audio.bake, audio.create, audio.edit (assets_audio_doc.cpp)
+void register_model_commands(CommandRegistry& registry, const std::string& projectDir);  // model.info, model.bake, model.create, model.edit (assets_model.cpp)
 void register_audio_commands(CommandRegistry& registry, const std::string& projectDir);  // assets.generate_loop, assets.convert_audio
 void register_subset_font_command(CommandRegistry& registry, const std::string& projectDir);
 void register_image_commands(CommandRegistry& registry, const std::string& projectDir);  // image.bake, image.save (image_doc_commands.cpp)
@@ -183,6 +184,9 @@ void check_image_documents(const std::string& projectDir, std::vector<Validation
 // project.validate: every *.audio.json that does not load (or would overwrite its own source) is an error with its JSON pointer and fix; one never
 // baked, or whose sound assets.json does not record as its bake, is a warning with the audio.bake command. (A stale bake is check_recipes' warning.)
 void check_audio_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
+// project.validate: every *.model.json that does not load is an error (file, JSON pointer, fix); one never baked, or whose .glb assets.json does not record as its
+// bake, is a warning with the model.bake command. (A stale bake is check_recipes' warning.)
+void check_model_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors, std::vector<ValidationIssue>& warnings);
 // project.validate: every *.song.json that does not parse is an error (file, JSON pointer, line and column inside note text, fix), so is an
 // instrument or drum-kit file it names that is missing or not a sound patch; the findings of the music checks that need no render (off-key
 // notes, clashes, mud, a track that never plays...) are warnings (docs/MUSIC.md).
