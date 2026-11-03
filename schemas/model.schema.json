@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factoria.dev/schemas/model.schema.json",
   "title": "FactorIA model document (*.model.json)",
-  "description": "A 3D model as a tree of operations (primitives, modifiers, groups, transforms) with named parts, materials and vertex colours. `model.bake` evaluates it and writes the .glb next to it; the same bytes on every platform. Errors name the file and the JSON pointer; docs/MODELING.md explains the format and `model.info {}` lists the operations.",
+  "description": "A 3D model as a tree of operations (primitives, modifiers, organic `sdf` shapes, groups, transforms) with named parts, materials and vertex colours. `model.bake` evaluates it and writes the .glb next to it; the same bytes on every platform. Errors name the file and the JSON pointer; docs/MODELING.md explains the format and `model.info {}` lists the operations.",
   "type": "object",
   "required": [
     "format",
@@ -4383,6 +4383,1301 @@
         }
       }
     },
+    "sdf_sphere": {
+      "type": "object",
+      "description": "A ball, as a shape of an `sdf` node. Its transform (`position`, `rotation`, `scale`) places it in the sdf; `part`, `material` and `color` give it its look and name the part its surface becomes.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sdf_sphere",
+          "description": "Always \"sdf_sphere\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "radius": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Radius in metres.",
+          "default": 0.5
+        },
+        "blend": {
+          "type": "string",
+          "enum": [
+            "union",
+            "subtract",
+            "intersect"
+          ],
+          "description": "How this joins the shapes before it in its sdf (the first shape of a group starts it and ignores this): \"union\" adds it, \"subtract\" cuts it out of what is there, \"intersect\" keeps only what both have.",
+          "default": "union"
+        },
+        "smooth": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "description": "Blend distance in metres: 0 is a hard edge; above 0 the two surfaces melt into each other over about this distance (a union fills the crease, a subtraction rounds the cut). The quadratic smooth min/max.",
+          "default": 0.0
+        }
+      }
+    },
+    "sdf_capsule": {
+      "type": "object",
+      "description": "A capsule or, with a different `radiusTop`, a round cone (a ball at each end and the smooth hull between them): a limb, a tail, a horn, a trunk. Upright, centred between the two balls' centres; `height` is tip to tip.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sdf_capsule",
+          "description": "Always \"sdf_capsule\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "radius": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Radius of the bottom ball, in metres.",
+          "default": 0.5
+        },
+        "radiusTop": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Radius of the top ball. Left out: the same as `radius`."
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0.002,
+          "maximum": 1000.0,
+          "description": "Tip to tip along Y, in metres. At least twice the larger radius (equal: a ball).",
+          "default": 2.0
+        },
+        "blend": {
+          "type": "string",
+          "enum": [
+            "union",
+            "subtract",
+            "intersect"
+          ],
+          "description": "How this joins the shapes before it in its sdf (the first shape of a group starts it and ignores this): \"union\" adds it, \"subtract\" cuts it out of what is there, \"intersect\" keeps only what both have.",
+          "default": "union"
+        },
+        "smooth": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "description": "Blend distance in metres: 0 is a hard edge; above 0 the two surfaces melt into each other over about this distance (a union fills the crease, a subtraction rounds the cut). The quadratic smooth min/max.",
+          "default": 0.0
+        }
+      }
+    },
+    "sdf_ellipsoid": {
+      "type": "object",
+      "description": "A stretched ball with one radius per axis: a body, a head, a pebble. Its distance is an approximation (exact on the surface), which only matters for the width of a smooth blend next to it.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sdf_ellipsoid",
+          "description": "Always \"sdf_ellipsoid\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "radii": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 1000.0
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.001,
+                "maximum": 1000.0
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Radius along X, Y and Z in metres: one number for a ball, or [x, y, z].",
+          "default": [
+            0.6,
+            0.4,
+            0.4
+          ]
+        },
+        "blend": {
+          "type": "string",
+          "enum": [
+            "union",
+            "subtract",
+            "intersect"
+          ],
+          "description": "How this joins the shapes before it in its sdf (the first shape of a group starts it and ignores this): \"union\" adds it, \"subtract\" cuts it out of what is there, \"intersect\" keeps only what both have.",
+          "default": "union"
+        },
+        "smooth": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "description": "Blend distance in metres: 0 is a hard edge; above 0 the two surfaces melt into each other over about this distance (a union fills the crease, a subtraction rounds the cut). The quadratic smooth min/max.",
+          "default": 0.0
+        }
+      }
+    },
+    "sdf_box": {
+      "type": "object",
+      "description": "A box with optionally rounded edges, centred on its origin.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sdf_box",
+          "description": "Always \"sdf_box\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "size": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 1000.0
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.001,
+                "maximum": 1000.0
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Width, height and depth in metres: one number for a cube, or [x, y, z].",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "round": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1000.0,
+          "description": "Radius of the rounded edges and corners in metres; at most half the smallest side (that is a pill or a ball).",
+          "default": 0.0
+        },
+        "blend": {
+          "type": "string",
+          "enum": [
+            "union",
+            "subtract",
+            "intersect"
+          ],
+          "description": "How this joins the shapes before it in its sdf (the first shape of a group starts it and ignores this): \"union\" adds it, \"subtract\" cuts it out of what is there, \"intersect\" keeps only what both have.",
+          "default": "union"
+        },
+        "smooth": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "description": "Blend distance in metres: 0 is a hard edge; above 0 the two surfaces melt into each other over about this distance (a union fills the crease, a subtraction rounds the cut). The quadratic smooth min/max.",
+          "default": 0.0
+        }
+      }
+    },
+    "sdf_cylinder": {
+      "type": "object",
+      "description": "An upright cylinder with optionally rounded edges, centred on its origin: a trunk, a post, a mushroom stem.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sdf_cylinder",
+          "description": "Always \"sdf_cylinder\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "radius": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Radius in metres.",
+          "default": 0.5
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Height along Y in metres.",
+          "default": 1.0
+        },
+        "round": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1000.0,
+          "description": "Radius of the rounded rims in metres; at most the radius and half the height.",
+          "default": 0.0
+        },
+        "blend": {
+          "type": "string",
+          "enum": [
+            "union",
+            "subtract",
+            "intersect"
+          ],
+          "description": "How this joins the shapes before it in its sdf (the first shape of a group starts it and ignores this): \"union\" adds it, \"subtract\" cuts it out of what is there, \"intersect\" keeps only what both have.",
+          "default": "union"
+        },
+        "smooth": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "description": "Blend distance in metres: 0 is a hard edge; above 0 the two surfaces melt into each other over about this distance (a union fills the crease, a subtraction rounds the cut). The quadratic smooth min/max.",
+          "default": 0.0
+        }
+      }
+    },
+    "sdf_cone": {
+      "type": "object",
+      "description": "A cone, point up (a frustum when `radiusTop` is above 0), centred on its origin: a spike, a roof, a conifer.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sdf_cone",
+          "description": "Always \"sdf_cone\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "radius": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Radius of the base in metres.",
+          "default": 0.5
+        },
+        "radiusTop": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1000.0,
+          "description": "Radius of the top: 0 is a sharp point, above 0 cuts the tip off.",
+          "default": 0.0
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Height along Y in metres.",
+          "default": 1.0
+        },
+        "blend": {
+          "type": "string",
+          "enum": [
+            "union",
+            "subtract",
+            "intersect"
+          ],
+          "description": "How this joins the shapes before it in its sdf (the first shape of a group starts it and ignores this): \"union\" adds it, \"subtract\" cuts it out of what is there, \"intersect\" keeps only what both have.",
+          "default": "union"
+        },
+        "smooth": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "description": "Blend distance in metres: 0 is a hard edge; above 0 the two surfaces melt into each other over about this distance (a union fills the crease, a subtraction rounds the cut). The quadratic smooth min/max.",
+          "default": 0.0
+        }
+      }
+    },
+    "sdf_torus": {
+      "type": "object",
+      "description": "A ring lying flat in XZ with its hole along Y, centred on its origin: a handle, a loop, a rim.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sdf_torus",
+          "description": "Always \"sdf_torus\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "radius": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Radius of the ring: from the centre to the middle of the tube, in metres.",
+          "default": 0.5
+        },
+        "tube": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Radius of the tube, in metres. At most `radius`.",
+          "default": 0.15
+        },
+        "blend": {
+          "type": "string",
+          "enum": [
+            "union",
+            "subtract",
+            "intersect"
+          ],
+          "description": "How this joins the shapes before it in its sdf (the first shape of a group starts it and ignores this): \"union\" adds it, \"subtract\" cuts it out of what is there, \"intersect\" keeps only what both have.",
+          "default": "union"
+        },
+        "smooth": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "description": "Blend distance in metres: 0 is a hard edge; above 0 the two surfaces melt into each other over about this distance (a union fills the crease, a subtraction rounds the cut). The quadratic smooth min/max.",
+          "default": 0.0
+        }
+      }
+    },
+    "sdf_group": {
+      "type": "object",
+      "description": "Several shapes of an `sdf` node treated as one: they are joined in order, the group is placed by its own transform, and then it joins the shapes before it with its own `blend` and `smooth`, like a single shape. How a creature is built: a body group, a head group, subtract the eyes' sockets from the head only. `mirror` repeats it across a plane.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sdf_group",
+          "description": "Always \"sdf_group\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "mirror": {
+          "type": "string",
+          "enum": [
+            "none",
+            "x",
+            "y",
+            "z"
+          ],
+          "description": "Repeats what is on the positive side of a plane through the group's origin on the other side (a symmetric creature: model one side): \"x\", \"y\" or \"z\" is the axis the plane is perpendicular to. The shapes should sit on the positive side; \"none\" leaves them as they are.",
+          "default": "none"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          },
+          "description": "The shapes (`sdf_sphere`, `sdf_capsule`... and more `sdf_group`s), joined in order: the first starts the shape, each next one is added to, cut from or intersected with what came before according to its own `blend` and `smooth`."
+        },
+        "blend": {
+          "type": "string",
+          "enum": [
+            "union",
+            "subtract",
+            "intersect"
+          ],
+          "description": "How this joins the shapes before it in its sdf (the first shape of a group starts it and ignores this): \"union\" adds it, \"subtract\" cuts it out of what is there, \"intersect\" keeps only what both have.",
+          "default": "union"
+        },
+        "smooth": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "description": "Blend distance in metres: 0 is a hard edge; above 0 the two surfaces melt into each other over about this distance (a union fills the crease, a subtraction rounds the cut). The quadratic smooth min/max.",
+          "default": 0.0
+        }
+      }
+    },
+    "sdf": {
+      "type": "object",
+      "description": "Organic shapes by signed distance fields instead of triangles: its `children` (`sdf_sphere`, `sdf_capsule`, `sdf_ellipsoid`, `sdf_box`, `sdf_cylinder`, `sdf_cone`, `sdf_torus`, `sdf_group`) describe a solid, joined in order with union, subtraction or intersection and a blend distance that melts them into each other (a creature, a rock, a tree, a mushroom, a prop that looks grown rather than assembled). The solid is meshed on a grid (marching tetrahedra: always a closed manifold surface), decimated with a quadric error metric that keeps the part boundaries, and given smooth normals from the field. The result is an ordinary mesh node: `align` and the transform place it, modifiers can wrap it and a boolean can take it as an operand. Each shape's `part`, `material` and `color` are kept: a triangle belongs to the part of the shape that owns the surface there, a vertex colour melts across a smooth blend.",
+      "required": [
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sdf",
+          "description": "Always \"sdf\" for this node."
+        },
+        "id": {
+          "type": "string",
+          "description": "A name for this node that stays the same when the tree changes: model.edit finds nodes by it. Letters, digits, `_`, `-` and `.`, at most 64 characters, unique in the document."
+        },
+        "note": {
+          "type": "string",
+          "description": "A comment for the next person (or AI) reading the document; it has no effect."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false leaves the node (and everything below it) out without deleting it.",
+          "default": true
+        },
+        "part": {
+          "type": "string",
+          "description": "The part of the model this node and the nodes below it belong to (\"door\", \"left_wheel\"). Parts become submeshes of the baked .glb, named in the primitive's extras, so tools and scripts can find them. Left out: the part of the group above, else none."
+        },
+        "material": {
+          "type": "string",
+          "description": "A key of the document's `materials`. Left out: the material of the group above, else the default (white). Nodes with the same part and material share a submesh."
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minItems": 3,
+              "maxItems": 4
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+            }
+          ],
+          "description": "Vertex colour, [r, g, b] or [r, g, b, a] in 0..1, or \"#rrggbb\" / \"#rrggbbaa\". Multiplies the material's colour when drawn. Left out: the colour of the group above, else none."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Where the node's origin goes, [x, y, z] in metres, relative to the group above.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Rotation in degrees, [pitch (X), yaw (Y), roll (Z)], applied roll first, then pitch, then yaw.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          ],
+          "description": "Scale: one number, or [x, y, z]. A negative entry mirrors the node (the triangles are turned so they still face out). Never 0.",
+          "default": [
+            1,
+            1,
+            1
+          ]
+        },
+        "align": {
+          "type": "string",
+          "enum": [
+            "center",
+            "bottom",
+            "top"
+          ],
+          "description": "Where the primitive sits against its origin, along Y, before `position` moves it: \"center\" (its bounding box is centred; text keeps its baseline at 0), \"bottom\" (it stands on y = 0) or \"top\" (it hangs from y = 0).",
+          "default": "center"
+        },
+        "voxelSize": {
+          "type": "number",
+          "minimum": 0.0005,
+          "maximum": 10.0,
+          "description": "Size of a sampling cell in metres: smaller is more detailed and slower; a feature thinner than a cell can vanish. Left out: `quality` decides."
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "normal",
+            "fine",
+            "ultra"
+          ],
+          "description": "Cells along the longest side of the shape when `voxelSize` is left out: \"draft\" 40, \"normal\" 96, \"fine\" 160, \"ultra\" 200. A request that would sample too many points (12 million, or 300 million shape evaluations) is an error that says the voxel size that fits.",
+          "default": "normal"
+        },
+        "targetTriangles": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 1000000,
+          "description": "Decimate down to about this many triangles. Left out: only `maxError` limits the decimation."
+        },
+        "maxError": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Largest error decimation may introduce, in metres (root mean square distance of a merged vertex from the planes it replaced). 0: no decimation. Left out: a quarter of a cell when there is no `targetTriangles`, else no limit."
+        },
+        "noiseAmplitude": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 10.0,
+          "description": "Roughness: seeded value noise of about this size in metres moves the surface along its normal (rock, bark, hide). 0: smooth.",
+          "default": 0.0
+        },
+        "noiseFrequency": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1000.0,
+          "description": "Noise features per metre (3 = a bump about every 0.3 m).",
+          "default": 3.0
+        },
+        "noiseOctaves": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6,
+          "description": "Layers of noise: each doubles the frequency and halves the amplitude.",
+          "default": 1
+        },
+        "noiseSeed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2000000000,
+          "description": "Chooses the noise pattern; change it for another rock.",
+          "default": 0
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          },
+          "description": "The shapes, joined in order (see `sdf_group`). At least one enabled shape; a shape's own transform, part, material and colour apply to it."
+        }
+      }
+    },
     "group": {
       "type": "object",
       "description": "Several nodes treated as one: the group's transform applies to all of them, and its part, material and colour are inherited by the ones that do not name their own.",
@@ -4582,6 +5877,33 @@
         },
         {
           "$ref": "#/$defs/shade"
+        },
+        {
+          "$ref": "#/$defs/sdf_sphere"
+        },
+        {
+          "$ref": "#/$defs/sdf_capsule"
+        },
+        {
+          "$ref": "#/$defs/sdf_ellipsoid"
+        },
+        {
+          "$ref": "#/$defs/sdf_box"
+        },
+        {
+          "$ref": "#/$defs/sdf_cylinder"
+        },
+        {
+          "$ref": "#/$defs/sdf_cone"
+        },
+        {
+          "$ref": "#/$defs/sdf_torus"
+        },
+        {
+          "$ref": "#/$defs/sdf_group"
+        },
+        {
+          "$ref": "#/$defs/sdf"
         },
         {
           "$ref": "#/$defs/group"
