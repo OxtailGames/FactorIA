@@ -1358,6 +1358,242 @@ Takes `source` (a layer of the document of any kind: a pixels layer, a painted, 
 | `frame` | integer | no | Which frame of an animated document whose cel receives the pixel art (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
 | `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
+## `music.arpeggio` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Make an arpeggio over a chord progression as note text, and optionally put it in a song.
+
+Spells the chords of `progression` one note after another, in a direction (up, down, updown, downup, random), over 1 to 4 octaves, at a rate, with the first note of each beat accented. Returns the note text. With `path` it also writes the text as a pattern (default track "arp", pattern "arp", instrument pluck; created when missing), and with `section` adds it to what the track plays there; meter, key and mode come from the song. Example: {"progression":"Am F C G","direction":"updown","octaves":2,"path":"assets/music/theme.song.json","section":"loop"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Write the pattern into this song (a `path` under assets/ ending in .song.json): the track is created if it does not exist. |
+| `track` | string | no | Track the pattern goes in (created with `instrument` when it does not exist). |
+| `pattern` | string | no | Name of the pattern. |
+| `section` | string | no | Also add the pattern to the end of what the track plays in this section, so it sounds. |
+| `progression` | string | yes | Chord names or Roman numerals (in `key`/`mode`); *N holds a chord N bars. |
+| `instrument` | string | no | Instrument of the track when it is created. Default pluck. |
+| `key` | string | no | Key for Roman numerals. Default C, or the song's. |
+| `mode` | string | no | Scale for Roman numerals. Default major, or the song's. |
+| `meter` | string | no | Meter. Default 4/4, or the song's. |
+| `direction` | string | no | up, down, updown, downup or random. Default up. |
+| `octaves` | integer | no | Octaves the chord is stacked over, 1 to 4. Default 1. |
+| `rate` | integer | no | Note value of a step: 4, 8, 16 or 32. Default 16. |
+| `triplet` | boolean | no | Steps are triplets of the rate. Default false. |
+| `octave` | integer | no | Octave of the chords' roots. Default 3. |
+| `velocity` | integer | no | Note velocity 1 to 127. Default 90. |
+| `accent` | boolean | no | Accent the first note of every beat. Default true. |
+| `staccato` | boolean | no | Short notes. Default false. |
+| `seed` | integer | no | Direction random: the same seed gives the same notes. |
+| `picture` | boolean | no | Return the piano-roll picture (`$image`) of the song after the change. Default false. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+| `fromBar` | integer | no | First bar shown in the picture (default 1). |
+| `bars` | integer | no | Number of bars shown (default: to the end). |
+
+## `music.bassline` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Make a bassline over a chord progression as note text, and optionally put it in a song.
+
+A bass part from the progression: root (a note per beat on the root), root_fifth, octave (eighths jumping an octave) or walking (stepwise toward the next chord). Returns the note text. With `path` it writes it as a pattern (default track "bass", pattern "bass", instrument bass; created when missing) and, with `section`, plays it there. Example: {"progression":"i VI III VII","key":"A","mode":"minor","style":"walking"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Write the pattern into this song (a `path` under assets/ ending in .song.json): the track is created if it does not exist. |
+| `track` | string | no | Track the pattern goes in (created with `instrument` when it does not exist). |
+| `pattern` | string | no | Name of the pattern. |
+| `section` | string | no | Also add the pattern to the end of what the track plays in this section, so it sounds. |
+| `progression` | string | yes | Chord names or Roman numerals (in `key`/`mode`); *N holds a chord N bars. |
+| `instrument` | string | no | Instrument of the track when it is created. Default bass. |
+| `key` | string | no | Key for Roman numerals. Default C, or the song's. |
+| `mode` | string | no | Scale for Roman numerals. Default major, or the song's. |
+| `meter` | string | no | Meter. Default 4/4, or the song's. |
+| `style` | string | no | root, root_fifth, octave or walking. Default root_fifth. |
+| `octave` | integer | no | Octave of C for the bass. Default 2. |
+| `rate` | integer | no | Note value: 4 or 8; 0 = the style's own. |
+| `velocity` | integer | no | Note velocity 1 to 127. Default 100. |
+| `picture` | boolean | no | Return the piano-roll picture (`$image`) of the song after the change. Default false. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+| `fromBar` | integer | no | First bar shown in the picture (default 1). |
+| `bars` | integer | no | Number of bars shown (default: to the end). |
+
+## `music.check`
+
+Not released yet (on main after 0.14.1).
+
+Find what is wrong in a song before listening: notes outside the key or the instrument's range, clashes, mud, silent tracks, loudness.
+
+Runs the music checks on a song (`path` or inline `song`). Rules: off_key (a note outside the song's key and mode that is not a passing tone), range (a note outside the instrument's range or the track's `range`), clash (a minor second or a tritone sounding together on a strong beat), mud (close low notes under C3), structure (a track that never plays, an empty section, an unused pattern) and loudness (the song is rendered: peak over 0 dBFS is an error, under -1 dBFS a warning, and an integrated loudness more than 3 LU from the target a warning). Without `rules` every rule that needs no render runs; `render: true` adds loudness. The target is `targetLufs`, else style.audio.loudnessLufs.music of assets.json when the style guide says it. Every finding has the rule, severity, a message, a fix (`hint`), the track, pattern, section, bar and position, and for a note the pointer, line, column and token in the note text; equal findings are reported once with a `count`. `ok` is true when there is no error and no warning. A song with mistakes fails like music.info. Example: {"path":"assets/music/theme.song.json","render":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `song` | object | no | The song itself, as JSON, to check before writing it to a file. |
+| `rules` | array | no | Which rules to run (default: every rule that needs no render). Naming loudness renders the song. |
+| `render` | boolean | no | Also run the loudness rule: render the song and measure it. Default false. |
+| `targetLufs` | number | no | Integrated loudness the music should have (LUFS, -70 to 0). Default: style.audio.loudnessLufs.music of assets.json, if set. |
+
+## `music.chord`
+
+Not released yet (on main after 0.14.1).
+
+Spell a chord by name, or a chord progression in a key: notes, MIDI numbers and the note text to paste.
+
+With `name` ("Am7", "Cmaj7/G", "F#dim", "Dsus4") it returns the chord's notes at `octave`, their MIDI numbers, the interval list and the two ways to write it in note text. With `progression` (names, or Roman numerals in `key` and `mode`, or those of the song at `path`) it returns every chord and `pad`, the progression as sustained chords. With no arguments it lists the chord qualities the notation knows. Example: {"progression":"i VI III VII","key":"A","mode":"minor"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | no | One chord: root, quality, optional /bass. Omit to list qualities. |
+| `progression` | string | no | Chord names or Roman numerals; *N holds a chord N bars. |
+| `path` | string | no | Read meter, key and mode from this song. |
+| `key` | string | no | Key for Roman numerals. Default C, or the song's. |
+| `mode` | string | no | Scale for Roman numerals. Default major, or the song's. |
+| `meter` | string | no | Meter such as "4/4". Default 4/4, or the song's. |
+| `octave` | integer | no | Octave of the chord's root (C4 is middle C). Default 3. |
+
+## `music.create` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Write a new song document: pad, bass, drums and an arpeggio over a chord progression, with intro, loop and outro.
+
+Makes a complete, valid starting song at `path` (assets/..., ending in .song.json): a pad playing the chords, a bassline, a drum groove in a style and (unless arpeggio is false) a plucked arpeggio; sections intro, loop (twice) and outro. It is a starting point to change with music.edit, not a finished piece. `progression` is chord names ("Am F C G") or Roman numerals in the key ("i VI III VII"; `*2` holds a chord two bars). Defaults: tempo from the drum style's usual range, 4/4, key A minor, progression "i VI III VII" (minor) or "I V vi IV" (major), style rock (waltz in 3/4), bass root_fifth. Fails with `exists` when the file is there unless overwrite is true. Returns the song's summary and a piano-roll picture (`$image`). Example: {"path":"assets/music/theme.song.json","key":"D","mode":"dorian","tempo":96,"style":"funk"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `picture` | boolean | no | Return the piano-roll picture (`$image`) of the new song. Default true. |
+| `tempo` | number | no | Quarter notes per minute, 20 to 400. Default: the middle of the drum style's usual range. |
+| `meter` | string | no | Meter such as "4/4", "3/4" or "6/8". Default 4/4. |
+| `key` | string | no | Key, a note name such as "A", "F#" or "Bb". Default A. |
+| `mode` | string | no | Scale: major, minor, dorian, phrygian, lydian, mixolydian, ... (music.scale lists them). Default minor. |
+| `progression` | string | no | Chords by name ("Am F C G", "Am7 \| Fmaj7") or Roman numerals in the key ("i VI III VII"); *N holds a chord N bars. Default: the usual four chords of the mode. |
+| `style` | string | no | Drum style (music.drums lists them): rock, funk, waltz, ... Default rock, or waltz in 3/4. |
+| `bassStyle` | string | no | Bassline style: root, root_fifth, octave or walking. Default root_fifth. |
+| `arpeggio` | boolean | no | Add a plucked arpeggio track. Default true. |
+| `swing` | number | no | Swing from 0 (straight) to 1 (triplet feel). |
+| `doc` | string | no | A sentence about the song, stored in the document. |
+| `seed` | integer | no | The song's seed (the take of random hits and arpeggios). |
+| `overwrite` | boolean | no | Replace the file when it exists. Default false. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+| `fromBar` | integer | no | First bar shown in the picture (default 1). |
+| `bars` | integer | no | Number of bars shown (default: to the end). |
+
+## `music.drums` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Make a drum pattern in a style (rock, funk, waltz, ...), and optionally put it in a song.
+
+Without `style` it lists the styles and the kit's lanes. With one it returns a drum pattern ({"grid": {lane: steps}, "step": "16"}) of `bars` bars, with a tom fill on the last beat if `fill` is set. With `path` it writes it as a pattern (default track "drums", pattern "groove", instrument kit; created when missing) and with `section` plays it there; the meter comes from the song. A style written for 4/4 fails in 3/4 and says so. Example: {"style":"funk","bars":2,"fill":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Write the pattern into this song (a `path` under assets/ ending in .song.json): the track is created if it does not exist. |
+| `track` | string | no | Track the pattern goes in (created with `instrument` when it does not exist). |
+| `pattern` | string | no | Name of the pattern. |
+| `section` | string | no | Also add the pattern to the end of what the track plays in this section, so it sounds. |
+| `style` | string | no | Style name. Omit to list the styles. |
+| `bars` | integer | no | Bars in the pattern. Default 1. |
+| `fill` | boolean | no | Make the last beat of the last bar a tom fill. Default false. |
+| `meter` | string | no | Meter. Default 4/4, or the song's. |
+| `picture` | boolean | no | Return the piano-roll picture (`$image`) of the song after the change. Default false. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+| `fromBar` | integer | no | First bar shown in the picture (default 1). |
+
+## `music.edit` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Change a song document: tempo, tracks, patterns, sections, the arrangement, mutes and automation, checked before anything is written.
+
+Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song (otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). Each op is an object with `op` and its fields: set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, transpose, swing, range, kit, patterns, automation, play}; set_track {track, name (renames and updates the sections), instrument, volume, pan, transpose, swing, range, kit, automation} (null removes); remove_track {track} (and every mention in the sections); set_pattern {track, pattern, notes | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} ("a a b*2 rest", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} (no points removes the lane). `play` in add_track and set_pattern is {section: entries} to place the pattern at once. Note text is in docs/MUSIC.md. Returns the song's summary and what each op did. Example: {"path":"assets/music/theme.song.json","ops":[{"op":"set_pattern","track":"bass","pattern":"line","notes":"A2:8 A2 E3 A2 | G2:8 G2 D3 G2"},{"op":"mute","section":"intro","tracks":["drums"]}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `ops` | array | yes | The operations, applied in order. |
+| `picture` | boolean | no | Return the piano-roll picture (`$image`) of the song after the change. Default false. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+| `fromBar` | integer | no | First bar shown in the picture (default 1). |
+| `bars` | integer | no | Number of bars shown (default: to the end). |
+
+## `music.info`
+
+Not released yet (on main after 0.14.1).
+
+Check a song document and say what it holds: structure, bars, seconds, a summary per section, and a piano-roll picture.
+
+Reads a song (`*.song.json`, format factoria.song/1, docs/MUSIC.md and schemas/song.schema.json) from `path`, or takes it inline as `song`, and checks it. A song with mistakes fails with `invalid_song` and EVERY problem in data.issues (JSON pointer, line and column inside note text, what is wrong and how to fix it), so one call is enough to repair it. A valid song returns tempo, meter, key, mode, swing, the length in bars and seconds, the structure ("intro (4 bars) > loop (8 bars) x2 > outro (4 bars)"), each track (instrument, patterns and their bars, notes played, the range they cover, the sections they play in) and each section (kind, bars, repeats, what every track plays, where it starts in bars and seconds, notes per bar and per track), and where its preview WAV is and whether it is stale. Unless `picture` is false it also returns a piano roll (`$image`): the sections on top, one colour per track, brighter = louder, drum lanes below; `fromBar` and `bars` zoom on a part. Example: {"path":"assets/music/theme.song.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `song` | object | no | The song itself, as JSON, to check before writing it to a file (format is filled in). |
+| `picture` | boolean | no | Return the piano-roll picture (`$image`). Default true. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). Default: a temporary screenshot. |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+| `fromBar` | integer | no | First bar shown in the picture (default 1). |
+| `bars` | integer | no | Number of bars shown (default: to the end). |
+
+## `music.instrument` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+List the built-in song instruments, drum lanes and sfx presets, or show (and copy into the project) the patch behind one.
+
+Without `name` it lists what a track's `instrument` can be: the built-in pitched instruments (with their note range), the drum kit's lanes ("kit:kick"), the sfx presets and the .sfx.json patches in the project. With `name` it returns that instrument's patch (the JSON of a .sfx.json, docs/SOUND.md; a bare lane name like "kick" works) and, with `path`, writes it to a .sfx.json under assets/ so you can change the numbers and point a track at the copy. A pitched patch is played once per note, re-pitched to the note. Example: {"name":"pluck","path":"assets/audio/my_pluck.sfx.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | no | A built-in instrument ("pluck") or drum lane ("kit:kick" or "kick"). Omit to list them all. |
+| `path` | string | no | Write the patch here (a .sfx.json under assets/). |
+| `overwrite` | boolean | no | Replace the file at `path` when it exists. Default false. |
+
+## `music.preview` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram.
+
+Renders the song at `path` with the preview voices: every note of the arrangement is played by its track's instrument at the note's pitch (a built-in instrument, a preset, or your own .sfx.json patch), with the track's volume, pan, swing and automation lanes and the song's master lanes. The result is a stereo 16-bit WAV at `out` (default: the song's path with .preview.wav; a path ending in .ogg encodes Ogg Vorbis). No provider, no key, no other program: the same song, options and seed give the same bytes on every platform. The file gets provenance and a recipe in assets.json whose inputs are the song and every patch it read, so project.validate warns when they changed after the preview was made and assets.regenerate renders it again. `fromBar` and `bars` render a part, `solo` and `mute` choose tracks, `seed` is another take of the instruments' noise, `sampleRate` 22050, 32000, 44100 (default) or 48000. A song longer than 180 s needs a range. An existing file that music.preview did not make is an `exists` error unless overwrite is true. The result has the measurements (lufs, peakDb), the numbers of the file as written (`analysis`) and the spectrogram picture (`$image`). This is the preview, not the in-game player: the same notes will be played by the instruments and mixer of the next music milestones. Example: {"path":"assets/music/theme.song.json","fromBar":5,"bars":4,"solo":["lead"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The song, project-relative, under assets/ and ending in .song.json, e.g. "assets/music/theme.song.json". |
+| `out` | string | no | Where to write the sound: .wav or .ogg under assets/. Default: the song's path with .preview.wav. |
+| `fromBar` | integer | no | First bar rendered, counted from 1 (default 1). Notes that start earlier are not played. |
+| `bars` | integer | no | Number of bars rendered from `fromBar` (default: to the end). |
+| `solo` | array | no | Render only these tracks. |
+| `mute` | array | no | Leave these tracks out. |
+| `seed` | integer | no | Added to the song's seed: another take of the instruments' noise. The same seed always gives the same file. Default 0. |
+| `sampleRate` | integer [22050,32000,44100,48000] | no | Sample rate of the file. Default 44100. |
+| `overwrite` | boolean | no | Replace the file when it exists and was not made by music.preview (one made by it is always replaced). Default false. |
+| `picture` | boolean | no | Return the spectrogram picture (`$image`) of the preview. Default true. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+| `height` | integer | no | Height of the picture in pixels (default 640). |
+
+## `music.scale`
+
+Not released yet (on main after 0.14.1).
+
+Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals).
+
+With `key` and `mode` returns the scale's notes, intervals, and the triads and seventh chords on every degree labelled with Roman numerals (the same names a progression accepts). With no arguments it lists every scale the notation knows. Example: {"key":"D","mode":"dorian"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | no | Tonic, a note name such as "A" or "Bb". Default C. |
+| `mode` | string | no | Scale name: major, minor, dorian, ... Default major. |
+
 ## `sfx.bake` (modifies state)
 
 Not released yet (on main after 0.14.1).
