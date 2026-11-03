@@ -72,6 +72,14 @@ stop_burners() {
     for p in ${BURNERS[@]+"${BURNERS[@]}"}; do kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done
     BURNERS=()
 }
+RESTORE_LIMIT=()  # <build dir> <seconds>: the example-test limit the stress pass doubled, put back however the script ends
+restore_limit() {
+    [ ${#RESTORE_LIMIT[@]} -eq 2 ] || return 0
+    cmake -DFA_EXAMPLE_TEST_TIMEOUT="${RESTORE_LIMIT[1]}" "${RESTORE_LIMIT[0]}" >/dev/null 2>&1
+    local rc=$?
+    RESTORE_LIMIT=()
+    return $rc
+}
 cleanup() {
     trap '' INT TERM
     stop_burners
@@ -80,6 +88,7 @@ cleanup() {
     for c in $kids; do kill_tree "$c"; done
     sleep 1
     for c in $kids; do kill_tree "$c" KILL; done   # whatever ignored TERM
+    restore_limit
     rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -283,7 +292,19 @@ if [ $DO_STRESS = 1 ]; then
                 record SKIP "stress: editor autotests" 0 "no display and no xvfb-run"
             else run_step stress-editor stress_ctest "$DEBUG_DIR" "$EDITOR_RE"; fi
         fi
-        [ -n "$EXAMPLE_RE" ] && run_step stress-examples stress_ctest "$RELEASE_DIR" "$EXAMPLE_RE"
+        if [ -n "$EXAMPLE_RE" ]; then
+            # The burners take half of every core, so a game runs about twice as long by the wall clock that ctest's
+            # TIMEOUT counts (larkspur-lodge: 150 s idle, over 300 s here, 165 s on GitHub's runner): the example tests
+            # get twice their limit for this pass, which looks for waits and budgets that break, not the total run time.
+            limit="$(sed -n 's/^FA_EXAMPLE_TEST_TIMEOUT:STRING=//p' "$RELEASE_DIR/CMakeCache.txt" 2>/dev/null)"
+            if [ -n "$limit" ]; then
+                RESTORE_LIMIT=("$RELEASE_DIR" "$limit")
+                cmake -DFA_EXAMPLE_TEST_TIMEOUT=$((limit * 2)) "$RELEASE_DIR" >/dev/null 2>&1 \
+                    && echo "example tests may run $((limit * 2)) s in the stress pass (FA_EXAMPLE_TEST_TIMEOUT $limit, doubled)"
+            fi
+            run_step stress-examples stress_ctest "$RELEASE_DIR" "$EXAMPLE_RE"
+            restore_limit || { echo "could not put FA_EXAMPLE_TEST_TIMEOUT back to $limit in $RELEASE_DIR"; FAILED=1; }
+        fi
         stop_burners
     fi
 fi
