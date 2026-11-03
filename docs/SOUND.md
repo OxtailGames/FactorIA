@@ -181,6 +181,7 @@ The output is clamped to -1..1; the WAV is 16-bit mono.
 | `sfx.render {path, out?, seed?, freq?, note?, length?, tail?, macros?, variant?, variants?, picture?, pictureOut?, width?, height?, overwrite?}` | Renders the patch to a mono 16-bit WAV (or Ogg Vorbis when `out` ends in `.ogg`). Returns `measurements` (`lufs`, `peakDb`, `seconds`, `centroidHz`, `riseSeconds`), `analysis` (the numbers of `assets.spectrogram` for the file as written) and the spectrogram picture (`$image`). |
 | `sfx.bake {force?, dryRun?, macros?}` | Renders every patch of the project whose sound is missing or stale, and every variation of a patch that declares them. Leaves up-to-date sounds and files it did not make alone; lists patches with problems in `failed`. |
 | `sfx.tweak {path, macros, absolute?, render?, seed?, picture?}` | Turns macros by meaning, writes them to the patch and renders again; returns the measurements before and after. |
+| `sfx.edit {path, op, pointer, value?, index?, to?}` | Changes one field of a patch by JSON pointer: `set` a value, `remove` a field or array item, `add` an item to an array (at `index`, or the end) or `move` an array item to `to`. The patch is written only when the result still parses, so a mistake leaves the file as it was. The Sound panel's inspector runs it. |
 | `sfx.family {from, names \| preset, out?, overwrite?, render?, picture?}` | Writes a set of interface sounds from one base patch and shows them in one picture. |
 
 `seed`, `freq` / `note`, `length` and `tail` change one render without editing the patch: `seed` is added to the patch's seed
@@ -434,6 +435,15 @@ audio.create {"path":"assets/audio/wind_loop.audio.json","source":"assets/audio/
 audio.render {"path":"assets/audio/wind_loop.audio.json","stopAfter":0}
 -> the chain up to the trim: 0.585 s, before the seam
 ```
+
+## The Sound panel
+
+The editor's Sound panel (View > Sound, or a double click on a patch, an audio document or a recording in the Project panel) edits
+the documents of this page: a waveform and a spectrogram of what the renderer makes, a knob for every macro, an inspector for every
+field of the format (read from `schemas/sfx.schema.json`, so its tooltips are the descriptions above), presets, the variations side by
+side with level-matched A/B listening, and the step chain of an audio document with draggable loop points. Each edit is one of the
+commands above (`sfx.tweak`, `sfx.edit`, `sfx.preset`, `sfx.family`, `audio.edit`, `audio.create`) and one step of the editor's Undo; **Save + bake**
+runs `sfx.render` or `audio.bake`. See [EDITOR.md](EDITOR.md), "Sound panel".
 
 ## For engine developers
 

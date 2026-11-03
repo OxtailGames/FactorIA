@@ -390,3 +390,31 @@ TEST_CASE("sfx.family: a set of interface sounds from one base that share its ti
     const Json bad = failed_call(p, "sfx.family", {{"from", "assets/audio/ui.sfx.json"}, {"names", Json::array({"clik"})}});
     CHECK(bad["error"]["hint"].get<std::string>().find("click") != std::string::npos);
 }
+
+TEST_CASE("sfx.edit: set, add, move and remove by JSON pointer, written only when the patch still parses") {
+    AssetsProject p;
+    write_all(p.file("assets/audio/base.sfx.json"), kBase);
+    const std::string file = "assets/audio/base.sfx.json";
+    auto layers = [&]() { return parse_json(read_all(p.file(file)), "t").value()["layers"]; };
+    const std::size_t oscBefore = layers()[0]["oscillators"].size();
+
+    p.ok("sfx.edit", {{"path", file}, {"op", "set"}, {"pointer", "/length"}, {"value", 0.4}});
+    CHECK(parse_json(read_all(p.file(file)), "t").value()["length"] == 0.4);
+
+    p.ok("sfx.edit", {{"path", file}, {"op", "add"}, {"pointer", "/layers/0/oscillators"}, {"value", {{"wave", "sine"}, {"gain", 0.2}}}, {"index", 0}});
+    CHECK(layers()[0]["oscillators"].size() == oscBefore + 1);
+    CHECK(layers()[0]["oscillators"][0]["wave"] == "sine");
+
+    p.ok("sfx.edit", {{"path", file}, {"op", "move"}, {"pointer", "/layers/0/oscillators"}, {"index", 0}, {"to", 1}});
+    CHECK(layers()[0]["oscillators"][1]["wave"] == "sine");
+
+    p.ok("sfx.edit", {{"path", file}, {"op", "remove"}, {"pointer", "/layers/0/oscillators/1"}});
+    CHECK(layers()[0]["oscillators"].size() == oscBefore);
+
+    const std::string before = read_all(p.file(file));
+    const Json bad = failed_call(p, "sfx.edit", {{"path", file}, {"op", "set"}, {"pointer", "/layers/0/oscillators/0/wave"}, {"value", "sinee"}});
+    CHECK(bad.contains("error"));
+    CHECK(read_all(p.file(file)) == before);
+    const Json op = failed_call(p, "sfx.edit", {{"path", file}, {"op", "swap"}, {"pointer", "/length"}});
+    CHECK(op["error"]["code"] == "invalid_arguments");
+}

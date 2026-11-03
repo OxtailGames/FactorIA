@@ -1,0 +1,67 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "A blast: a sine that drops from 90 to 35 Hz under a burst of noise whose filter closes.",
+  "length": 0.5,
+  "layers": [
+    {
+      "name": "boom",
+      "gain": 0.8,
+      "pitch": {
+        "freq": 90,
+        "sweep": {
+          "to": 35
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "sine"
+        }
+      ],
+      "amp": {
+        "attack": 0.003,
+        "decay": 0.4986,
+        "sustain": 0,
+        "curve": 2
+      }
+    },
+    {
+      "name": "debris",
+      "oscillators": [
+        {
+          "wave": "noise",
+          "color": "white"
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 500,
+        "env": {
+          "amount": 2.5,
+          "decay": 1.0,
+          "sustain": 0
+        }
+      },
+      "amp": {
+        "attack": 0.003,
+        "decay": 0.4986,
+        "sustain": 0,
+        "curve": 2
+      }
+    }
+  ],
+  "master": {
+    "effects": [
+      {
+        "type": "distortion",
+        "mode": "soft",
+        "drive": 1.8
+      }
+    ],
+    "normalize": {
+      "mode": "lufs",
+      "target": -18,
+      "ceilingDb": -2
+    }
+  },
+  "sampleRate": 22050
+}

@@ -1,0 +1,46 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "A refusal: a low square buzz chopped into pulses.",
+  "length": 0.9,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 130,
+        "sweep": {
+          "to": 110
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "square"
+        },
+        {
+          "wave": "noise",
+          "gain": 0.08
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 3500
+      },
+      "tremolo": {
+        "rate": 11,
+        "depth": 0.9
+      },
+      "amp": {
+        "attack": 0.003,
+        "decay": 0.8932,
+        "sustain": 0,
+        "curve": 0.5
+      }
+    }
+  ],
+  "sampleRate": 22050,
+  "master": {
+    "normalize": {
+      "mode": "lufs",
+      "target": -9,
+      "ceilingDb": -2
+    }
+  }
+}

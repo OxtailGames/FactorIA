@@ -62,6 +62,7 @@
 #include "gizmo_model.h"
 #include "image_ui.h"
 #include "vector_ui.h"
+#include "sound_ui.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "inspector_model.h"
@@ -394,6 +395,38 @@ public:
     Vec2 vector_screen_pos(double x, double y) const { auto p = vector_to_screen(VecPoint{x, y}); return Vec2{p.x, p.y}; }   // the autotest drives the canvas
     VectorUi vector_;
     bool showVector_ = false;
+    // Sound panel (sound_panel.cpp; View > Sound, or a double click on a *.sfx.json, *.audio.json, .wav or .ogg in the Project panel): a sound
+    // patch, an audio document or a plain sound file as a waveform and spectrogram with measurements, macro knobs, an inspector, the step chain
+    // of a document with draggable loop points, variants and an A/B at the same loudness. The rules are in sound_model.h: every edit it keeps
+    // is a command call (sfx.tweak, sfx.edit, audio.edit, ...), so the Console and an AI make the same edit.
+    SoundModel& sound_ensure_model();                      // makes the panel's model and player on first use
+    void draw_sound_panel();
+    void draw_sound_toolbar(SoundModel& m);
+    void draw_sound_transport(SoundModel& m);
+    void draw_sound_wave(SoundModel& m);
+    void draw_sound_spectrogram(const SoundRender& r);
+    void draw_sound_measures(SoundModel& m);
+    void draw_sound_macros(SoundModel& m);
+    void draw_sound_fields(SoundModel& m, const std::string& pointer, bool top);
+    void draw_sound_json_field(SoundModel& m, const SoundField& f, float width);
+    void draw_sound_chain(SoundModel& m);
+    void draw_sound_step_fields(SoundModel& m, const SoundChainStep& s);
+    void draw_sound_ab(SoundModel& m);
+    void draw_sound_variants(SoundModel& m);
+    void draw_sound_presets(SoundModel& m);
+    void sound_play_clip(SoundRenderPtr clip, double gainDb, int heard, const std::string& name);
+    void sound_toggle_play();
+    void sound_play_slot(int which);                      // 1 = A, 2 = B
+    bool open_sound_document(const std::string& rel);     // *.sfx.json, *.audio.json, .wav, .ogg; false and a toast on failure
+    void sound_edited(const SoundEditOutcome& out);       // after an edit: the undo entry, a toast for an error
+    void sound_apply_undo(const Json& entry, bool forward);
+    void sound_collect_steps();                           // drops the undo steps no stack entry points to
+    void sound_close_document();
+    void sound_release_textures();
+    void sound_save();
+    Vec2 sound_screen_pos(double seconds, double yFraction) const;   // the autotest drives the waveform
+    SoundUi sound_;
+    bool showSound_ = false;
     // Bone tools (bone_tools.cpp; View > Bone tools): draw a bone chain by clicking, bind a sprite to bones, the weight colours of
     // the selected bone and a brush to paint them, IK targets as handles. They call bones.create, skin.bind, skin.auto_weights,
     // skin.set_weights and scene.set_component through edit_command.
