@@ -442,6 +442,26 @@
       "effort": "small",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-11-03",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude",
+        "model": "sonnet-5.5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "assets.check_mix judges raw source recordings of an audio document and a crossfaded loop still warns on loop_seam_slope",
+      "missing": "After turning assets/music/loop.wav into an audio document (loop step, 0.25 to 2 s crossfade) the mix check still reports loop_seam_slope (8.4x to 9.5x, threshold 8) on the baked file, and it reports click_start (fail) on the untouched source recording assets/source/music_loop.wav, which the game never plays.",
+      "workaround": "Kept the 0.25 s crossfade; left the warning. The source stays next to the document so the bake can be repeated.",
+      "workaroundFiles": [
+        "assets/music/loop.audio.json"
+      ],
+      "suggestion": "Skip sounds that are only the source of an audio document (or mark them in assets.json), and judge loop_seam_slope across the crossfade the loop step made.",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

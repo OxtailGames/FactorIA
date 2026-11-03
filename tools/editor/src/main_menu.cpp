@@ -112,6 +112,8 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "Paint and edit an image document (*.image.json): layers, brushes, selections, transform, adjustments and effects; Save bakes the PNG"));
     view.push_back(with(toggle("Vector", showVector_), "menu:vector",
                         "Draw and edit an SVG (*.svg): pen, node editing, shape tools, boolean buttons, layers and an inspector; every edit is a vector.* command"));
+    view.push_back(with(toggle("Sound", showSound_), "menu:sound",
+                        "Look at and edit a sound: waveform, spectrogram, loudness, macro knobs, a patch inspector, the step chain of an audio document with loop points, variants and an A/B at the same loudness; every edit is a sfx.* or audio.* command"));
     view.push_back(with(toggle("Bone tools", showBoneTools_), "menu:bonetools",
                         "Draw a bone chain by clicking in the viewport, bind a sprite to bones, paint weights and drag IK targets"));
     view.push_back(menu::separator());

@@ -1,0 +1,42 @@
+{
+  "format": "factoria.sfx/1",
+  "doc": "An impact: a square thump that drops from 220 to 60 Hz with a burst of noise on top.",
+  "length": 0.1,
+  "layers": [
+    {
+      "pitch": {
+        "freq": 220,
+        "sweep": {
+          "to": 60
+        }
+      },
+      "oscillators": [
+        {
+          "wave": "square"
+        },
+        {
+          "wave": "noise",
+          "gain": 0.65
+        }
+      ],
+      "filter": {
+        "mode": "lowpass",
+        "cutoff": 4000
+      },
+      "amp": {
+        "attack": 0.003,
+        "decay": 0.0994,
+        "sustain": 0,
+        "curve": 2.5
+      }
+    }
+  ],
+  "sampleRate": 22050,
+  "master": {
+    "normalize": {
+      "mode": "lufs",
+      "target": -17,
+      "ceilingDb": -2
+    }
+  }
+}

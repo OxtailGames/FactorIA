@@ -971,6 +971,7 @@
     "setup.install": "0.1.4",
     "setup.status": "0.1.4",
     "sfx.bake": "unreleased",
+    "sfx.edit": "unreleased",
     "sfx.family": "unreleased",
     "sfx.info": "unreleased",
     "sfx.preset": "unreleased",
