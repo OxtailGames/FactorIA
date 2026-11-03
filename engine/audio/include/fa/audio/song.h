@@ -280,6 +280,28 @@ bool song_parse_note_text(std::string_view text, const std::string& pointer, con
 bool song_parse_drum_grid(const Json& pattern, const std::string& pointer, const SongMeter& meter, const std::map<std::string, std::string>& kit,
                           SongPattern& out, std::vector<SongIssue>& issues);
 
+// ---- notes <-> text (song_write.cpp) --------------------------------------------------------------------------------------------
+// One note of a pitched pattern as an editor sees it: where it starts and how long it is (ticks from the start of the pattern), its
+// pitch (MIDI) and how it is played. `velocity` is the final one (it already includes the accent's boost).
+struct SongRollNote {
+    std::int64_t tick = 0;
+    std::int64_t duration = kSongPpq;
+    int pitch = 60;
+    int velocity = 90;
+    bool accent = false;
+    bool staccato = false;
+    bool operator==(const SongRollNote& o) const {
+        return tick == o.tick && duration == o.duration && pitch == o.pitch && velocity == o.velocity && accent == o.accent && staccato == o.staccato;
+    }
+};
+// The notes a pitched pattern plays, sorted by start and pitch: a chord is one note per pitch.
+std::vector<SongRollNote> song_roll_notes(const SongPattern& pattern);
+// Note text for `notes` in a pattern of `bars` bars of `meter`, the inverse of song_parse_note_text: notes that overlap go in voices (`&`), notes
+// that start and end together are written as a chord, a note longer than the notation's durations or crossing a bar line is tied, and the pattern
+// is padded with rests to its length. Starts and ends are rounded to 40 ticks (a 64th-note triplet), the finest step the text can say. Fails,
+// saying which note, for a pitch outside 0..127, a velocity outside 1..127, a note that starts outside the pattern or has no length.
+Result<std::string> song_write_note_text(const std::vector<SongRollNote>& notes, const SongMeter& meter, int bars);
+
 // The drum lanes of the built-in kit, in the order the docs list them.
 struct SongDrumLane {
     std::string name;

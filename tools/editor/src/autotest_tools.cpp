@@ -570,11 +570,15 @@ void Editor::at_build_tools_script() {
             if (showAnimation_ || anim_.posed) anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
             anim_ = AnimUi{};
             bone_ = BoneUi{};
-            showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = false;
+            showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = false;
             sound_close_document();   // section K3: the Sound panel, its sound and its playback are not carried over
             sound_release_textures();
             if (sound_.player) sound_.player->stop();
             sound_ = SoundUi{};
+            music_close_document();   // section M3: the Music panel, its song and its playback are not carried over
+            music_.preview.reset();
+            music_.model.reset();
+            music_ = MusicUi{};
             vector_release_textures();
             vector_ = VectorUi{};   // section J2: the Vector panel, its drawing and its tools are not carried over
             image_release_textures();   // section I2: the Image panel, its document and its tools are not carried over
@@ -6671,6 +6675,231 @@ void Editor::at_build_tools_script() {
             FA_INFO("autotest", "sound panel: last render {:.1f} ms", sound_.model->last_render_ms());
             showSound_ = false;
             sound_close_document();
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            project_files_changed();
+        });
+    }
+
+    section("M3");
+    // The Music panel (docs/EDITOR.md, "Music panel"): a layered song opens; a note is drawn on the piano roll, moved and deleted with the
+    // mouse (each ONE music.edit, one undo step) and Undo/Redo walk them through the editor's stack; a drum hit is a click on the grid; a
+    // section's repeat is raised and a track muted in the Mixer; Play moves the playhead on the null device, the intensity buttons fade
+    // the top layer in and out, Play section loops a section; Save bakes the mix and the layers' stems. Every wait counts frames or state.
+    {
+        struct Ms {
+            size_t undo = 0;
+            size_t notes = 0;
+            int pitch = 0;
+            double position = 0;
+            int renders = 0;
+        };
+        auto ms = std::make_shared<Ms>();
+        const std::string dir = "assets/at-music";
+        const std::string song = dir + "/t.song.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        auto settled = [this] { return music_.model && music_.model->is_open() && music_.model->valid() && !music_.model->busy() && music_.model->source_is_fresh(); };
+        auto run = [this](const std::string& name, const Json& args) {
+            const CommandResult r = engine_->commands().call(name, args);
+            after_command(name, args, r);
+            at_check(r.ok, name + " worked: " + (r.ok ? std::string() : command_error_text(r.error)));
+        };
+        // The note of the roll's track/pattern that starts near `tick` at `pitch`, or null.
+        auto note_at = [this](std::int64_t tick, int pitch) -> std::optional<SongRollNote> {
+            for (const SongRollNote& n : music_.model->notes(music_.track, music_.pattern))
+                if (n.pitch == pitch && std::llabs(n.tick - tick) <= 40) return n;
+            return std::nullopt;
+        };
+        auto section_repeat = [this](const std::string& name) {
+            for (const SongSection& sec : music_.model->doc()->sections)
+                if (sec.name == name) return sec.repeat;
+            return -1;
+        };
+        step(2, [this, song, run] {
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/assets/at-music", ec);   // a leftover of an earlier run
+            run("music.create", Json::object({{"path", song}, {"picture", false}}));
+            Json layers = Json::object();
+            layers["base"] = Json::array({"drums", "bass"});
+            layers["lift"] = Json::object({{"tracks", Json::array({"pad"})}, {"intensity", 0.5}});
+            layers["top"] = Json::object({{"tracks", Json::array({"arp"})}, {"intensity", 0.9}});
+            Json op = Json::object({{"op", "set_layers"}, {"layers", layers}});
+            run("music.edit", Json::object({{"path", song}, {"ops", Json::array({op})}}));
+            open_music_document(song);
+        });
+        wait_until([this, settled] { return at_visible("mus:roll") && at_visible("mus:play") && settled(); });
+        step(3, [this, ms] {
+            MusicModel& m = *music_.model;
+            at_check(m.valid() && !m.pitched_tracks().empty() && !m.drum_tracks().empty(), "the panel opened the song with its pitched and drum tracks");
+            at_check(m.source() && m.source()->layered && m.source()->stems.size() == 3, "...rendered it for playing, as three layers");
+            at_check(!music_.track.empty() && !music_.pattern.empty() && !music_.model->notes(music_.track, music_.pattern).empty(), "...and the roll shows the notes of " + music_.track + "/" + music_.pattern);
+            at_check(at_visible("mus:save") && at_visible("mus:intensity") && at_visible("mus:tab_mixer") && at_visible("mus:velocity_lane"), "...with its transport, tabs and Save");
+            ms->undo = undo_depth();
+            ms->notes = music_.model->notes(music_.track, music_.pattern).size();
+            ms->pitch = music_.pitchTop - 3;   // a row above the chords
+        });
+        snap("editor_music_panel.png");
+
+        // ---- a note: drawn with a drag, moved, deleted
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1200, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, music_screen_pos(1200, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1500, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1700, ms->pitch)); });
+        step(3, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, music_screen_pos(1700, ms->pitch)); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] {
+            const auto n = note_at(960, ms->pitch);
+            at_check(n.has_value() && n->duration == 960, "a drag on the empty roll drew a note one beat long");
+            at_check(music_.model->notes(music_.track, music_.pattern).size() == ms->notes + 1 && undo_depth() == ms->undo + 1, "...as one undo step");
+        });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1440, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, music_screen_pos(1440, ms->pitch)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(1900, ms->pitch + 1)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(2400, ms->pitch + 2)); });
+        step(3, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, music_screen_pos(2400, ms->pitch + 2)); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] {
+            const auto n = note_at(1920, ms->pitch + 2);
+            at_check(n.has_value() && n->duration == 960 && !note_at(960, ms->pitch), "dragging the note moved it a beat later and two semitones up");
+            at_check(music_.model->notes(music_.track, music_.pattern).size() == ms->notes + 1 && undo_depth() == ms->undo + 2, "...as one undo step");
+        });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_screen_pos(2200, ms->pitch + 2)); });
+        step(2, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, music_screen_pos(2200, ms->pitch + 2), 1); });
+        step(3, [this, ms] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, music_screen_pos(2200, ms->pitch + 2), 1); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] {
+            at_check(!note_at(1920, ms->pitch + 2) && music_.model->notes(music_.track, music_.pattern).size() == ms->notes, "a right click deleted the note");
+            at_check(undo_depth() == ms->undo + 3, "...as one undo step");
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] { at_check(note_at(1920, ms->pitch + 2).has_value() && undo_depth() == ms->undo + 2, "Undo brought the note back"); });
+        step(2, [this] { undo(); });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ms] {
+            at_check(music_.model->notes(music_.track, music_.pattern).size() == ms->notes && undo_depth() == ms->undo, "two more Undos took the drawn note out again");
+        });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        step(3, [this, ms, note_at] { at_check(note_at(960, ms->pitch).has_value() && undo_depth() == ms->undo + 1, "Redo drew it again"); });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+
+        // ---- the drum grid
+        click_widget("mus:tab_drums");
+        wait_until([this] { return at_visible("mus:drumgrid") && !music_.gridLanes.empty(); });
+        step(2, [this, ms] {
+            ms->undo = undo_depth();
+            const auto g = music_drum_grid(*music_.model->pattern(music_.drumTrack, music_.drumPattern));
+            at_check(g.has_value() && g->at("snare", 1, music_.model->doc()->meter) == '.', "the drum grid shows the groove with an empty snare cell");
+        });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, music_drum_cell_pos("snare", 1)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, music_drum_cell_pos("snare", 1)); });
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, music_drum_cell_pos("snare", 1)); });
+        wait_until(settled);
+        step(3, [this, ms] {
+            const auto g = music_drum_grid(*music_.model->pattern(music_.drumTrack, music_.drumPattern));
+            at_check(g.has_value() && g->at("snare", 1, music_.model->doc()->meter) == 'x', "a click on the grid put a snare hit on step 2");
+            at_check(undo_depth() == ms->undo + 1, "...as one undo step");
+        });
+
+        // ---- the arrangement: a section repeats once more
+        click_widget("mus:tab_arrangement");
+        wait_until([this] { return at_visible("mus:repeat_plus:loop"); });
+        step(2, [this, ms, section_repeat] {
+            ms->undo = undo_depth();
+            ms->renders = section_repeat("loop");
+        });
+        click_widget("mus:repeat_plus:loop");
+        wait_until(settled);
+        step(3, [this, ms, section_repeat] {
+            at_check(section_repeat("loop") == ms->renders + 1, "the + button raised the loop section's repeat");
+            at_check(undo_depth() == ms->undo + 1, "...as one undo step");
+            const SongTimeline* tl = music_.model->timeline();
+            at_check(tl && tl->spans.size() >= 4, "...and the timeline has one more pass");
+        });
+
+        // ---- the mixer: a track muted
+        click_widget("mus:tab_mixer");
+        wait_until([this] { return at_visible("mus:mute:arp"); });
+        step(2, [this, ms] { ms->undo = undo_depth(); });
+        click_widget("mus:mute:arp");
+        wait_until(settled);
+        step(3, [this, ms] {
+            const SongTrack* t = music_.model->track("arp");
+            at_check(t && t->mute && undo_depth() == ms->undo + 1, "the M button muted the arp track as one undo step");
+        });
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this] {
+            const SongTrack* t = music_.model->track("arp");
+            at_check(t && !t->mute, "Undo unmuted it");
+        });
+
+        // ---- play: the playhead moves; the intensity fades the top layer
+        click_widget("mus:play");
+        wait_until([this] { return music_.preview && music_.preview->playing() && music_.preview->position_frames() > 0.25 * kMusicRate; });
+        step(2, [this, ms] {
+            ms->position = music_.preview->position_frames();
+            at_check(music_.preview->where().section >= 0 && music_.preview->where().bar >= 1, "Play started the song and the playhead is in a section");
+        });
+        wait_until([this, ms] { return music_.preview->position_frames() > ms->position + 0.25 * kMusicRate; });
+        step(2, [this] {
+            const std::vector<float> g = music_.preview->stem_gains();
+            at_check(g.size() == 3 && g[0] > 0.95f && g[2] < 0.05f, "...the playhead went on, with the base layer in and the top layer out at intensity 0");
+        });
+        click_widget("mus:int_1");
+        wait_until([this] { const auto g = music_.preview->stem_gains(); return g.size() == 3 && g[2] > 0.95f; });
+        step(2, [this] { at_check(music_.preview->intensity() > 0.99f, "the Intense button faded the top layer in"); });
+        snap("editor_music_playing.png");
+        click_widget("mus:int_0");
+        wait_until([this] { const auto g = music_.preview->stem_gains(); return g.size() == 3 && g[2] < 0.05f && g[1] < 0.05f; });
+        step(2, [this] { at_check(music_.preview->intensity() < 0.01f, "the Calm button faded the layers out again"); });
+        click_widget("mus:play");
+        step(3, [this] { at_check(!music_.preview->playing(), "Stop stopped it"); });
+        // a section, looped
+        step(2, [this] {
+            music_.section = 1;
+            music_.loopSection = true;
+        });
+        click_widget("mus:play_section");
+        wait_until([this] { return music_.preview->playing() && music_.preview->position_frames() > 0.1 * kMusicRate; });
+        step(2, [this] {
+            at_check(music_.preview->where().section == 1, "Play section started at the selected section");
+            at_check(music_.preview->loop_section() == 1, "...and Loop keeps it looping");
+        });
+        click_widget("mus:play");
+        step(3, [this] {
+            at_check(!music_.preview->playing(), "Stop stopped the section");
+            music_.loopSection = false;
+        });
+
+        // ---- Save bakes the mix and the layers
+        click_widget("mus:save");
+        step(10, [this] {
+            const std::string out = music_.model->baked_path();
+            at_check(!out.empty() && stdfs::exists(projectDir_ + "/" + out), "Save baked the song's mix: " + out);
+            int wavs = 0;
+            std::error_code ec;
+            for (const auto& e : stdfs::directory_iterator(projectDir_ + "/assets/at-music", ec))
+                if (e.path().extension() == ".wav") ++wavs;
+            at_check(wavs >= 4, "...and one stem per layer (" + std::to_string(wavs) + " wav files)");
+        });
+        step(2, [this, dir] {
+            FA_INFO("autotest", "music panel: last render {:.1f} ms", music_.model->last_render_ms());
+            showMusic_ = false;
+            music_close_document();
             std::error_code ec;
             stdfs::remove_all(projectDir_ + "/" + dir, ec);
             project_files_changed();

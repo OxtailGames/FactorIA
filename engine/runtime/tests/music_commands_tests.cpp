@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <fstream>
 
+#include "fa/audio/music_player.h"
+#include "fa/audio/song.h"
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
 
@@ -152,5 +154,101 @@ TEST_CASE("audio.music: a call that cannot be made says why") {
     r = c.call("audio.music", Json::parse(R"({"entity":"theme","action":"crossfadeTo","song":"music/nope.song.json"})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["message"].get<std::string>().find("does not exist") != std::string::npos);
+    e.shutdown();
+}
+
+TEST_CASE("hot reload: a song edited on disk reaches the player that plays it (also in the editor's assets-only mode)") {
+    TempProject p("hotsong");
+    {   // songs live under assets/, which is what the watcher looks at
+        std::string scene = kScene;
+        const std::string from = "music/test.song.json";
+        scene.replace(scene.find(from), from.size(), "assets/music/test.song.json");
+        stdfs::create_directories(p.dir / "assets/music");
+        std::ofstream(p.dir / "scenes/main.scene.json", std::ios::binary) << scene;
+        std::ofstream(p.dir / "assets/music/test.song.json", std::ios::binary) << kSong;
+    }
+    Engine e;
+    std::string err;
+    EngineConfig c = cfg(p);
+    c.hotReloadAssets = true;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    e.step(240);  // the watch snapshot is taken, and 4 s of music play
+    auto tempo = [&] {
+        auto r = e.commands().call("audio.music_state", Json::parse(R"({"entity":"theme"})"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        return r.result["players"][0]["tempo"].get<double>();
+    };
+    CHECK(tempo() == doctest::Approx(120.0));
+    Json song = Json::parse(kSong);
+    song["tempo"] = 90;
+    const stdfs::path file = p.dir / "assets/music/test.song.json";
+    std::ofstream(file, std::ios::binary) << song.dump();
+    stdfs::last_write_time(file, stdfs::file_time_type::clock::now() + std::chrono::seconds(30));  // never the same stamp twice
+    e.step(60 * 8);   // the watcher polls every 0.25 s; the crossfade waits for the next beat
+    CHECK(tempo() == doctest::Approx(90.0));
+    e.shutdown();
+}
+
+TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: stems on a pretended phone, live again after game.setDevice()") {
+    TempProject p("device");
+    // The stems music.render would leave, and the assets.json entry that tells where they are.
+    {
+        const stdfs::path before = fs::project_root();
+        fs::set_project_root(p.dir);
+        auto song = load_song("music/test.song.json");
+        REQUIRE(bool(song));
+        auto tl = expand_song(*song);
+        REQUIRE(bool(tl));
+        auto live = music_render_source(*song, *tl, "music/test.song.json");
+        REQUIRE(bool(live));
+        Json stems = Json::array();
+        for (const MusicStem& st : (*live)->stems) {
+            const std::string file = "assets/music/test_" + st.name + ".wav";
+            std::vector<std::uint8_t> b;
+            auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(v >> (8 * i))); };
+            auto u16 = [&](std::uint16_t v) { b.push_back(std::uint8_t(v)); b.push_back(std::uint8_t(v >> 8)); };
+            auto tag = [&](const char* t) { for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(t[i])); };
+            tag("RIFF"); u32(std::uint32_t(36 + st.pcm.size() * 2)); tag("WAVE"); tag("fmt "); u32(16); u16(1); u16(2); u32(kMusicRate);
+            u32(kMusicRate * 4); u16(4); u16(16); tag("data"); u32(std::uint32_t(st.pcm.size() * 2));
+            for (std::int16_t v : st.pcm) u16(std::uint16_t(std::int32_t(std::lround(double(v) * double(st.scale)))));
+            stdfs::create_directories(p.dir / "assets/music");
+            std::ofstream(p.dir / file, std::ios::binary).write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+            stems.push_back(Json::object({{"path", file}, {"name", st.name}, {"intensity", st.threshold}}));
+        }
+        Json assets = Json::object({{"format", "factoria.assets/1"},
+                                    {"assets", Json::object({{"assets/music/test.wav", Json::object({{"import", Json::object({{"music", Json::object({{"role", "mix"}, {"song", "music/test.song.json"}, {"stems", stems}})}})}})}})}});
+        std::ofstream(p.dir / "assets.json", std::ios::binary) << assets.dump();
+        fs::set_project_root(before);
+    }
+    // The player of the scene says "live"; make it "auto".
+    {
+        std::string scene = kScene;
+        const std::string live = "\"mode\": \"live\", ";
+        scene.erase(scene.find(live), live.size());
+        std::ofstream(p.dir / "scenes/main.scene.json", std::ios::binary) << scene;
+    }
+    stdfs::create_directories(p.dir / "tests");
+    std::ofstream(p.dir / "tests/device.test.js", std::ios::binary) << R"(
+import { test, expect, game } from "factoria:test";
+import { world } from "factoria";
+const mode = () => world.find('theme').music.status.mode;
+test('auto follows the pretended device', () => {
+  game.step(30);
+  expect(mode()).toBe('live');   // a headless run reports a desktop
+  game.setDevice({ formFactor: 'phone', tier: 'low' });
+  game.step(240);
+  expect(mode()).toBe('stems');
+  game.setDevice({});
+  game.step(240);
+  expect(mode()).toBe('live');
+});
+)";
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    TestReport rep = e.scripts().run_tests({"tests/device.test.js"});
+    INFO(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 1);
     e.shutdown();
 }

@@ -347,9 +347,10 @@ void Engine::Impl::poll_hot_reload(bool force) {
     }
     watched = std::move(now);
     for (const std::string& p : changed) {
+        const bool songAsset = ends_with(p, ".song.json");
         const bool renderAsset = ends_with(p, ".material.json") ||
             has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"});
-        if (assetsOnly && !renderAsset) continue;  // scripts, scenes and locales belong to the host
+        if (assetsOnly && !renderAsset && !songAsset && !has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"})) continue;  // scripts, scenes and locales belong to the host
         if (starts_with(p, "locales/") && has_ext(p, {".json"})) {
             if (i18n.enabled()) {
                 FA_INFO("hotreload", "String table {} changed on disk, reloading the tables", p);
@@ -359,6 +360,9 @@ void Engine::Impl::poll_hot_reload(bool force) {
             FA_INFO("hotreload", "Reloading script {}", p);
             if (starts_with(p, "tools/")) scripts.reload_tools();
             else scripts.reload_module(p);
+        } else if (songAsset) {
+            FA_INFO("hotreload", "Song {} changed on disk, the players that play it crossfade to the new version", p);
+            audio.reload_song(p);
         } else if (p.size() > 11 && ends_with(p, ".scene.json")) {
             if (p == currentScene) {
                 FA_INFO("hotreload", "Scene {} changed on disk, reloading", p);
@@ -613,17 +617,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         I.startupProblems.push_back("audio: " + aerr);
     }
     I.audio.set_clock(&I.world);  // play log entries carry the frame/time scripts see
-    {
-        // MusicPlayer.mode "auto" chooses between live synthesis and stems for this device (docs/MUSIC.md).
-        const Json device = device_info();
-        MusicDeviceProfile music;
-        music.formFactor = device.value("formFactor", std::string("desktop"));
-        music.tier = device.value("tier", std::string("high"));
-#if defined(__EMSCRIPTEN__)
-        music.web = true;
-#endif
-        I.audio.set_music_device(music);
-    }
+    device_overridden(device_info());  // MusicPlayer.mode "auto" chooses between live synthesis and stems for this device (docs/MUSIC.md)
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
     PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);
@@ -1098,6 +1092,16 @@ std::string Engine::set_render_scale(double scale) {
     if (!I.renderer) return ScriptHost::set_render_scale(scale);  // no graphics: remembered, nothing to resize
     std::string err;
     return hold_render_scale(scale, &err) ? std::string() : err;
+}
+
+void Engine::device_overridden(const Json& device) {
+    MusicDeviceProfile music;
+    music.formFactor = device.value("formFactor", std::string("desktop"));
+    music.tier = device.value("tier", std::string("high"));
+#if defined(__EMSCRIPTEN__)
+    music.web = true;
+#endif
+    impl_->audio.set_music_device(music);
 }
 
 Json Engine::device_info() const {

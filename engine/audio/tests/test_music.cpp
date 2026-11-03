@@ -620,3 +620,136 @@ TEST_CASE("music player: an unknown song or section is an error that says what t
     CHECK_FALSE(r.ok());
     CHECK(r.error().message.find("MusicPlayer") != std::string::npos);
 }
+
+// ---- hot reload, the device a test pretends to run on, the style loudness ---------------------------------------------------------------
+
+namespace {
+// RMS of the loudest stem of a source, in the units of the song (the stem scale undone).
+double source_rms(const MusicSource& src) {
+    double best = 0.0;
+    for (const MusicStem& st : src.stems) {
+        double sum = 0.0;
+        for (std::int16_t v : st.pcm) sum += double(v) * st.scale * double(v) * st.scale;
+        best = std::max(best, st.pcm.empty() ? 0.0 : std::sqrt(sum / double(st.pcm.size())));
+    }
+    return best;
+}
+}  // namespace
+
+TEST_CASE("music player: a song edited on disk is fetched again and the player crossfades to it in the section that sounds") {
+    PlayerFx fx;
+    fx.step(2.5);  // in "main" (bar 2)
+    REQUIRE(fx.mp().section == "main");
+    CHECK(fx.mp().tempo == doctest::Approx(120.0f));
+    CHECK(fx.events("music.ready").size() == 1);
+
+    // The song, edited: another tempo, and the section "main" is now called "verse" (it no longer exists).
+    Json edited = demo_json();
+    edited["tempo"] = 90;
+    edited["sections"][1]["name"] = "verse";
+    REQUIRE(fs::write_text("music/test.song.json", edited.dump()).ok());
+    fx.world.events().game.clear();
+    fx.audio.reload_song("music/test.song.json");
+    fx.step(6.0);
+    CHECK(fx.mp().playing);
+    CHECK(fx.mp().tempo == doctest::Approx(90.0f));   // the running game hears the new version
+    CHECK(fx.events("music.ready").size() == 1);      // announced again for the new render
+    CHECK(fx.events("music.crossfade").size() == 1);
+    CHECK(fx.audio.music_status(fx.world, fx.e).heads == 1);
+    CHECK(fx.audio.music_status(fx.world, fx.e).error.empty());
+    const auto names = fx.audio.music_status(fx.world, fx.e).sections;
+    CHECK(std::find(names.begin(), names.end(), "verse") != names.end());
+
+    // Edited again while it plays, now without any change of structure: the same section carries on.
+    fx.step(0.1);
+    edited["tempo"] = 100;
+    REQUIRE(fs::write_text("music/test.song.json", edited.dump()).ok());
+    fx.audio.reload_song("./music/test.song.json");   // any spelling of the path
+    fx.step(8.0);
+    CHECK(fx.mp().tempo == doctest::Approx(100.0f));
+}
+
+TEST_CASE("music player: a song that is not playing is read again from disk on the next play after a reload") {
+    PlayerFx fx;
+    fx.step(0.5);
+    fx.mp().playing = false;
+    fx.step(1.0);
+    CHECK_FALSE(fx.mp().playing);
+    Json edited = demo_json();
+    edited["tempo"] = 90;
+    REQUIRE(fs::write_text("music/test.song.json", edited.dump()).ok());
+    fx.audio.reload_song("music/test.song.json");
+    REQUIRE(fx.audio.music_play(fx.world, fx.e).ok());
+    fx.step(0.5);
+    CHECK(fx.mp().playing);
+    CHECK(fx.mp().tempo == doctest::Approx(90.0f));
+}
+
+TEST_CASE("music player: a device change makes an `auto` player pick live or stems again; live and stems players stay") {
+    PlayerFx fx;
+    // Render the stems of the demo song to files, the way music.render leaves them, and describe them in assets.json.
+    SongDoc song = parsed(demo_json());
+    auto live = music_render_source(song, timeline_of(song), "music/test.song.json");
+    REQUIRE(bool(live));
+    Json stems = Json::array();
+    for (std::size_t i = 0; i < (*live)->stems.size(); ++i) {
+        const MusicStem& st = (*live)->stems[i];
+        std::vector<float> samples(st.pcm.size());
+        for (std::size_t k = 0; k < samples.size(); ++k) samples[k] = float(st.pcm[k]) * st.scale;
+        const std::string file = "assets/music/test_" + st.name + ".wav";
+        audio_test::write_file(fx.dir / file, audio_test::wav_bytes(samples, 2, kMusicRate));
+        stems.push_back(Json::object({{"path", file}, {"name", st.name}, {"intensity", st.threshold}}));
+    }
+    REQUIRE(stems.size() >= 2);
+    fx.write_assets(Json::object({{"format", "factoria.assets/1"},
+                                  {"assets", Json::object({{"assets/music/test.wav", Json::object({{"import", Json::object({{"music", Json::object({{"role", "mix"}, {"song", "music/test.song.json"}, {"stems", stems}})}})}})}})}})
+                        .dump());
+    fx.step(0.5);
+    REQUIRE(fx.mp().activeMode == "live");   // a desktop: auto is live
+    fx.world.events().game.clear();
+
+    MusicDeviceProfile phone;
+    phone.formFactor = "phone";
+    phone.tier = "medium";
+    fx.audio.set_music_device(phone);
+    fx.step(3.0);
+    CHECK(fx.mp().activeMode == "stems");
+    CHECK(fx.mp().playing);
+    CHECK(fx.events("music.crossfade").size() == 1);
+
+    // A player that asked for live is not moved by the device; a second change to the same profile does nothing.
+    fx.mp().mode = MusicMode::Live;
+    fx.audio.set_music_device(phone);
+    fx.world.events().game.clear();
+    fx.step(1.0);
+    CHECK(fx.events("music.crossfade").empty());
+    MusicDeviceProfile desktop;
+    fx.mp().mode = MusicMode::Auto;
+    fx.audio.set_music_device(desktop);
+    fx.step(3.0);
+    CHECK(fx.mp().activeMode == "live");
+}
+
+TEST_CASE("music: a live render brings a `loudness: style` master to the style guide's music level") {
+    audio_test::Fixture fx;
+    Json j = demo_json();
+    j["mixer"]["master"] = Json::object({{"loudness", "style"}, {"limiter", false}});
+    REQUIRE(fs::write_text("music/loud.song.json", j.dump()).ok());
+    auto level = [&](double lufs, const char* master) {
+        Json song = j;
+        song["mixer"]["master"]["loudness"] = master;
+        REQUIRE(fs::write_text("music/loud.song.json", song.dump()).ok());
+        fx.write_assets(Json::object({{"format", "factoria.assets/1"},
+                                      {"style", Json::object({{"audio", Json::object({{"loudnessLufs", Json::object({{"music", lufs}})}})}})}})
+                            .dump());
+        std::string note;
+        auto src = music_load_source("music/loud.song.json", MusicMode::Live, MusicStemPlan{}, &note);
+        REQUIRE(bool(src));
+        return source_rms(**src);
+    };
+    const double quiet = level(-30.0, "style");
+    const double loud = level(-9.0, "style");   // (the manifest is re-read when its size changes: -9.0 is shorter than -30.0)
+    CHECK(loud / quiet == doctest::Approx(std::pow(10.0, 21.0 / 20.0)).epsilon(0.1));   // 21 LU apart
+    // A master that is not on "style" ignores the guide.
+    CHECK(level(-30.0, "off") == doctest::Approx(level(-9.0, "off")));
+}

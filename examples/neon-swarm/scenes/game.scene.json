@@ -2,9 +2,7 @@
   "format": "factoria.scene/1",
   "settings": {
     "gravity2D": [0.0, 0.0],
-    "gravity3D": [0.0, -9.81, 0.0],
-    "music": "assets/music/loop.wav",
-    "musicVolume": 0.35
+    "gravity3D": [0.0, -9.81, 0.0]
   },
   "entities": [
     {
@@ -135,6 +133,21 @@
       "components": {
         "Script": {
           "path": "scripts/game.js"
+        }
+      }
+    },
+    {
+      "id": "score",
+      "name": "Score",
+      "components": {
+        "MusicPlayer": {
+          "song": "assets/music/score.song.json",
+          "volume": 0.5,
+          "intensity": 0.05,
+          "startSection": "calm",
+          "quantize": "bar",
+          "layerQuantize": "beat",
+          "layerFade": 1.0
         }
       }
     },
