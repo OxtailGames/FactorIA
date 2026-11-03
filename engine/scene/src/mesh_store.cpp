@@ -529,7 +529,9 @@ Json mesh_info_json(const MeshStore::Entry& e) {
         if (s.material.emissive.r + s.material.emissive.g + s.material.emissive.b > 0) m["emissive"] = to_json(s.material.emissive);
         if (s.material.doubleSided) m["doubleSided"] = true;
         if (s.material.blend) m["blend"] = true;
-        subs.push_back(Json::object({{"material", m}, {"start", s.start}, {"count", s.count}}));
+        Json sub = Json::object({{"material", m}, {"start", s.start}, {"count", s.count}});
+        if (!s.part.empty()) sub["part"] = s.part;
+        subs.push_back(sub);
     }
     return Json::object({{"id", e.id},
                          {"version", e.version},
@@ -657,7 +659,9 @@ Result<std::vector<std::uint8_t>> mesh_to_glb(const MeshData& d, const std::stri
             seenIndex.push_back(mat);
         }
         const int acc = add_accessor(indexView, std::size_t(sm.start) * 4, 5125, sm.count, "SCALAR");
-        primitives.push_back({{"attributes", attributes}, {"indices", acc}, {"material", mat}, {"mode", 4}});
+        Json prim = {{"attributes", attributes}, {"indices", acc}, {"material", mat}, {"mode", 4}};
+        if (!sm.part.empty()) prim["extras"] = {{"part", sm.part}};
+        primitives.push_back(prim);
     }
 
     Json root = {{"asset", {{"version", "2.0"}, {"generator", "FactorIA mesh.save"}}},

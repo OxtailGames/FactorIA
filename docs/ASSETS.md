@@ -13,6 +13,8 @@ call (MCP tool, `factoria call`, editor console):
    `assets.generate_loop`, `assets.draw_icon`. Pictures made of layers (a gradient, a texture, an SVG, text and a
    provider's picture, with blend modes and masks) are written as a `*.image.json` document and baked to a PNG:
    [IMAGES.md](IMAGES.md).
+   A 3D model (primitives, groups and transforms, with named parts and materials) is written as a `*.model.json`
+   document and baked to a `.glb`: [MODELING.md](MODELING.md).
 
 Whatever the way, `assets.json` at the project root records where each asset came from (provenance) and how the engine
 and `factoria export` treat it (import settings).
@@ -679,7 +681,8 @@ factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.
 
 The offline makers (`assets.rasterize_svg`, `assets.draw_icon`, `assets.draw_capsules`, `assets.generate_texture`,
 `assets.synth_sound`, `assets.generate_loop`, `music.preview`, `music.render`, `assets.pack_atlas`, `assets.slice_sheet` and `image.bake`, which draws a
-layered `*.image.json`, see [IMAGES.md](IMAGES.md)) write a `recipe` inside the
+layered `*.image.json`, see [IMAGES.md](IMAGES.md), and `model.bake`, which builds a `*.model.json` into a `.glb`, see
+[MODELING.md](MODELING.md)) write a `recipe` inside the
 asset's `provenance`:
 
 ```json
@@ -1170,6 +1173,9 @@ with warnings still runs and exports):
   (see "Recipes: make an asset again"); the hint holds the `assets.regenerate` call.
 - **Image documents.** A `*.image.json` that does not load is an error with the JSON pointer and the fix; one never baked, or
   whose PNG `assets.json` does not record as its bake, is a warning with the `image.bake` call ([IMAGES.md](IMAGES.md)).
+- **Model documents.** A `*.model.json` that does not load is an error per issue, each with its JSON pointer and the fix;
+  one never baked, or whose `.glb` `assets.json` does not record as its bake, is a warning with the `model.bake` call
+  ([MODELING.md](MODELING.md)).
 - **Weight.** One shipped file over 20 MB, with a hint by kind (convert audio to OGG, compress a texture). The total of
   the shipped files against the limit of each store the game targets: Google Play's 500 MB for the base module of an app
   (`android`), and for `ios` 200 MB, above which an iPhone asks the player before downloading over cellular data, and 4 GB,
