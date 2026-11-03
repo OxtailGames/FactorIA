@@ -850,6 +850,35 @@ Validates `document` (the layered image document as JSON: canvas width and heigh
 | `path` | string | yes | Where to write the document, project-relative, ending in .image.json. |
 | `document` | object | yes | The image document: {"width", "height", "background"?, "output"?, "layers": [...]}. See docs.read IMAGES for the layer kinds. |
 | `bake` | boolean | no | Also draw the PNG. False only checks and writes the document. Default true. |
+
+## `image.select` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint.
+
+Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color (pixels within `tolerance` 0..255 of `color`, or of the pixel at `at`; `contiguous: true` only the connected area around `at`), alpha (pixels whose alpha is at least `threshold`), rect or ellipse (x, y, width, height; anti-aliased), polygon (`points` [[x,y],...]), layer (the layer's shape: its alpha after its masks and effects, soft edges kept) or all. color and alpha read the flattened picture, or only `layer` when it is given. `then` reshapes the new selection with steps in order: [{"grow":2},{"shrink":1},{"feather":1.5},{"invert":true}] (pixels; grow and shrink use a round brush and make a hard edge; feather is a blur of sigma pixels/2). `mode` combines the result with the stored selection of the same `name`: replace (default), add, subtract or intersect. Without `by`, `then` reshapes the stored selection; `clear: true` deletes it. PERSISTENCE: the selection is saved as a grey PNG of the canvas at .factoria/selections/<document path>/<name>.png (white = selected) and stays until replaced or cleared; later calls use it by name (the name "all" is the whole canvas without a file). Changing the canvas size makes old selections unusable (they say so). The result has `selected` (pixels), `coverage`, the bounding box as `region` {x,y,width,height} and the picture with the selection marked as `$image`. Example: {"path":"assets/art/hero.image.json","name":"cape","by":"color","at":[20,30],"contiguous":true,"tolerance":20,"then":[{"grow":1}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `name` | string | no | The selection's name (1-40 letters, digits, - or _). Reusing a name replaces it, or combines with it when mode is not replace. Default "selection". |
+| `by` | string ["color","alpha","rect","ellipse","polygon","layer","all"] | no | How to select. Omit it to reshape the stored selection with `then`. |
+| `mode` | string ["replace","add","subtract","intersect"] | no | How the new shape combines with the stored selection of the same name. Default "replace". |
+| `then` | array | no | Steps applied to the new shape, in order: {"grow":px}, {"shrink":px}, {"feather":px}, {"invert":true}. |
+| `clear` | boolean | no | Delete the stored selection `name`. Default false. |
+| `color` | any | no | by color: the colour to select ("#rrggbb", a CSS name, [r,g,b,a]). |
+| `at` | array | no | by color: [x, y] canvas pixel whose colour is taken when `color` is not given, and where a contiguous selection starts. |
+| `tolerance` | number | no | by color: the largest difference of any channel (r, g, b, a; 0..255) that still matches. Default 16. |
+| `contiguous` | boolean | no | by color: select only the connected area (4-neighbours) around `at`. Default false. |
+| `threshold` | number | no | by alpha: the least alpha (0..255) that is selected. Default 1. |
+| `layer` | any | no | by layer: the layer (name or index path). For color and alpha: read only this layer instead of the flattened picture. |
+| `x` | number | no | rect / ellipse: left of the box, canvas pixels. |
+| `y` | number | no | rect / ellipse: top of the box. |
+| `width` | number | no | rect / ellipse: width of the box. |
+| `height` | number | no | rect / ellipse: height of the box. |
+| `points` | array | no | polygon: the corners [[x,y],...], at least three. |
+
 ## `sfx.bake` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -914,32 +943,4 @@ Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `height` | integer | no | Height of the picture in pixels (default 640). |
 | `overwrite` | boolean | no | Replace the sound when it exists and was not made by sfx.render (a sound made by it is always replaced). Default false. |
-
-## `image.select` (modifies state)
-
-Not released yet (on main after 0.14.1).
-
-Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint.
-
-Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color (pixels within `tolerance` 0..255 of `color`, or of the pixel at `at`; `contiguous: true` only the connected area around `at`), alpha (pixels whose alpha is at least `threshold`), rect or ellipse (x, y, width, height; anti-aliased), polygon (`points` [[x,y],...]), layer (the layer's shape: its alpha after its masks and effects, soft edges kept) or all. color and alpha read the flattened picture, or only `layer` when it is given. `then` reshapes the new selection with steps in order: [{"grow":2},{"shrink":1},{"feather":1.5},{"invert":true}] (pixels; grow and shrink use a round brush and make a hard edge; feather is a blur of sigma pixels/2). `mode` combines the result with the stored selection of the same `name`: replace (default), add, subtract or intersect. Without `by`, `then` reshapes the stored selection; `clear: true` deletes it. PERSISTENCE: the selection is saved as a grey PNG of the canvas at .factoria/selections/<document path>/<name>.png (white = selected) and stays until replaced or cleared; later calls use it by name (the name "all" is the whole canvas without a file). Changing the canvas size makes old selections unusable (they say so). The result has `selected` (pixels), `coverage`, the bounding box as `region` {x,y,width,height} and the picture with the selection marked as `$image`. Example: {"path":"assets/art/hero.image.json","name":"cape","by":"color","at":[20,30],"contiguous":true,"tolerance":20,"then":[{"grow":1}]}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `path` | string | yes | The image document, project-relative, ending in .image.json. |
-| `name` | string | no | The selection's name (1-40 letters, digits, - or _). Reusing a name replaces it, or combines with it when mode is not replace. Default "selection". |
-| `by` | string ["color","alpha","rect","ellipse","polygon","layer","all"] | no | How to select. Omit it to reshape the stored selection with `then`. |
-| `mode` | string ["replace","add","subtract","intersect"] | no | How the new shape combines with the stored selection of the same name. Default "replace". |
-| `then` | array | no | Steps applied to the new shape, in order: {"grow":px}, {"shrink":px}, {"feather":px}, {"invert":true}. |
-| `clear` | boolean | no | Delete the stored selection `name`. Default false. |
-| `color` | any | no | by color: the colour to select ("#rrggbb", a CSS name, [r,g,b,a]). |
-| `at` | array | no | by color: [x, y] canvas pixel whose colour is taken when `color` is not given, and where a contiguous selection starts. |
-| `tolerance` | number | no | by color: the largest difference of any channel (r, g, b, a; 0..255) that still matches. Default 16. |
-| `contiguous` | boolean | no | by color: select only the connected area (4-neighbours) around `at`. Default false. |
-| `threshold` | number | no | by alpha: the least alpha (0..255) that is selected. Default 1. |
-| `layer` | any | no | by layer: the layer (name or index path). For color and alpha: read only this layer instead of the flattened picture. |
-| `x` | number | no | rect / ellipse: left of the box, canvas pixels. |
-| `y` | number | no | rect / ellipse: top of the box. |
-| `width` | number | no | rect / ellipse: width of the box. |
-| `height` | number | no | rect / ellipse: height of the box. |
-| `points` | array | no | polygon: the corners [[x,y],...], at least three. |
 
