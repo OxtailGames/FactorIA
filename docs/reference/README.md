@@ -183,6 +183,16 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`sfx.preset`](commands/assets.md#sfxpreset-modifies-state): List the sound presets, return one as an editable patch, or write it to a *.sfx.json file. _Not released yet._
 - [`sfx.render`](commands/assets.md#sfxrender-modifies-state): Render a sound patch (*.sfx.json) to a WAV or OGG next to it and see its spectrogram: the engine's own synthesizer, offline and deterministic. _Not released yet._
 - [`sfx.tweak`](commands/assets.md#sfxtweak-modifies-state): Turn a patch's macros by meaning (brighter, longer tail, heavier) and write the change back to the patch. _Not released yet._
+- [`vector.align`](commands/assets.md#vectoralign-modifies-state): Align SVG elements to each other, the canvas or a key element. _Not released yet._
+- [`vector.boolean`](commands/assets.md#vectorboolean-modifies-state): Union, subtract, intersect or exclude SVG shapes into one path. _Not released yet._
+- [`vector.distribute`](commands/assets.md#vectordistribute-modifies-state): Space SVG elements evenly along an axis. _Not released yet._
+- [`vector.info`](commands/assets.md#vectorinfo): List the shapes and groups of an SVG with ids, bounds and node counts. _Not released yet._
+- [`vector.offset`](commands/assets.md#vectoroffset-modifies-state): Grow or shrink SVG shapes by a distance (offset path, inset). _Not released yet._
+- [`vector.repeat`](commands/assets.md#vectorrepeat-modifies-state): Repeat an SVG element in a grid or around a circle. _Not released yet._
+- [`vector.simplify`](commands/assets.md#vectorsimplify-modifies-state): Reduce the nodes of SVG paths within a tolerance. _Not released yet._
+- [`vector.smooth`](commands/assets.md#vectorsmooth-modifies-state): Round the corners of SVG paths into smooth Bezier curves. _Not released yet._
+- [`vector.stroke_to_path`](commands/assets.md#vectorstroke_to_path-modifies-state): Turn the stroke of SVG shapes into a filled outline path. _Not released yet._
+- [`vector.style`](commands/assets.md#vectorstyle-modifies-state): Apply the project's style guide to an SVG: outline and palette. _Not released yet._
 
 ### [audio](commands/audio.md)
 
