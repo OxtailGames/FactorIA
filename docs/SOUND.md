@@ -80,7 +80,8 @@ key is an error that names the file, the JSON pointer (`/layers/1/filter/cutoff`
 | `gain` | Linear gain of the mix of the layers before the master effects (default 1). |
 | `layers` (required) | 1 to 16 layers. |
 | `master` | `effects` (up to 8) applied to the mix of all layers, and `normalize`. |
-| `macros` | Reserved for sound families (M55.2). Kept in the file, ignored by the renderer today. |
+| `macros` | Knobs by meaning (attack, brightness, weight, tail, pitch, grit, or your own). See "Macros". |
+| `variations` | N takes of the sound that differ a little, for sounds that play often. See "Variations". |
 
 ### Layers
 
@@ -172,8 +173,10 @@ The output is clamped to -1..1; the WAV is 16-bit mono.
 |---|---|
 | `sfx.preset {name?, path?, overwrite?}` | Lists the presets, returns one, or writes it to `path` (under `assets/`, ending in `.sfx.json`). |
 | `sfx.info {path \| patch \| preset, seed?}` | Validates a patch and returns all its problems (pointer, message, fix) or its layers, effects, base pitch, whether its baked sound exists or is stale, and the loudness, peak and length it renders to. Writes nothing. |
-| `sfx.render {path, out?, seed?, freq?, note?, length?, tail?, picture?, pictureOut?, width?, height?, overwrite?}` | Renders the patch to a mono 16-bit WAV (or Ogg Vorbis when `out` ends in `.ogg`). Returns `measurements` (`lufs`, `peakDb`, `seconds`), `analysis` (the numbers of `assets.spectrogram` for the file as written) and the spectrogram picture (`$image`). |
-| `sfx.bake {force?, dryRun?}` | Renders every patch of the project whose sound is missing or stale. Leaves up-to-date sounds and files it did not make alone; lists patches with problems in `failed`. |
+| `sfx.render {path, out?, seed?, freq?, note?, length?, tail?, macros?, variant?, variants?, picture?, pictureOut?, width?, height?, overwrite?}` | Renders the patch to a mono 16-bit WAV (or Ogg Vorbis when `out` ends in `.ogg`). Returns `measurements` (`lufs`, `peakDb`, `seconds`, `centroidHz`, `riseSeconds`), `analysis` (the numbers of `assets.spectrogram` for the file as written) and the spectrogram picture (`$image`). |
+| `sfx.bake {force?, dryRun?, macros?}` | Renders every patch of the project whose sound is missing or stale, and every variation of a patch that declares them. Leaves up-to-date sounds and files it did not make alone; lists patches with problems in `failed`. |
+| `sfx.tweak {path, macros, absolute?, render?, seed?, picture?}` | Turns macros by meaning, writes them to the patch and renders again; returns the measurements before and after. |
+| `sfx.family {from, names \| preset, out?, overwrite?, render?, picture?}` | Writes a set of interface sounds from one base patch and shows them in one picture. |
 
 `seed`, `freq` / `note`, `length` and `tail` change one render without editing the patch: `seed` is added to the patch's seed
 (another take of the noise), `freq` or `note` transposes the patch so its base pitch (the pitch of its first pitched layer)
@@ -191,6 +194,82 @@ pipeline:
 - `sfx.bake` renders every patch whose sound is missing or stale, so a project can be rebuilt after editing patches.
 
 A WAV at the output path that `sfx.render` did not make is never replaced unless `overwrite` is true.
+
+## Macros
+
+A macro is a knob that moves several numbers of the patch at once, so a sound is changed by what it should be (brighter, longer)
+and not by which cutoff to edit. The value goes from -1 to 1; 0 leaves the patch as written, so a patch without macros renders the
+same bytes as before. The six built-in knobs work on any patch:
+
+| Macro | Turned up | What it moves |
+|---|---|---|
+| `attack` | slower rise | every layer's `amp.attack` (each +0.25 doubles the attack time, each -0.25 halves it) |
+| `brightness` | brighter | filter cutoffs, FM `index`, and an added treble stage (a lowpass when turned down, an exciter above 1.5 kHz when turned up) so a patch without filters changes too |
+| `weight` | heavier, lower, with more low energy | transposes down (up to 5 semitones), lowers cutoffs and adds a low-frequency body |
+| `tail` | longer | the patch `tail`, layer `amp.release` and reverb `decay` |
+| `pitch` | higher | transposes up to one octave each way |
+| `grit` | dirtier | adds soft distortion (turned up) or takes distortion and bitcrush away (turned down) |
+
+Declare the starting position in the patch; a number, or an object with a strength and a doc:
+
+```json
+"macros": {
+  "brightness": 0.2,
+  "weight": { "value": 0, "strength": 1.5, "doc": "The thump of the hit." },
+  "sparkle": { "value": 0, "doc": "More shimmer.",
+               "binds": [ { "path": "/layers/1/gain", "min": 0.1, "max": 0.8 },
+                          { "path": "/master/effects/0/mix", "min": 0.05, "max": 0.4, "curve": "exp" } ] }
+}
+```
+
+`strength` (0 to 3) scales a built-in knob. A custom macro (any other name, lower case) must have `binds`: each bind sets the number
+at the JSON pointer `path` to `min` at -1 and `max` at +1 (`curve` `linear` or `exp`); a bind that points at nothing is an
+error. `sfx.render {macros: {brightness: 0.5}}` replaces the declared values for one render (kept in the recipe), and
+`sfx.tweak` adds to them and writes the result into the patch. An unknown macro name is an error with a "did you mean".
+
+`sfx.tweak {path, macros: {brightness: 0.2, tail: -0.3}}` is the loop for an AI: say what should change by meaning, read
+`measurementsBefore` against `measurements` (`centroidHz` is the brightness, `riseSeconds` the time to reach 90% of the peak,
+`seconds` the length) and the picture, and turn again.
+
+## Variations
+
+A sound that plays a hundred times a minute (a footstep, a hit) should not be the same file each time. Declare takes in the patch:
+
+```json
+"variations": { "count": 6, "seed": 1, "spread": { "pitch": 25, "length": 0.05, "gain": 1, "filter": 0.15, "noise": true } }
+```
+
+`count` is 2 to 64. Variant `n` draws its offsets from `seed` and `n` only, within `spread`: `pitch` cents (default 25), `length` as a
+fraction of the sound (0.05), `gain` in dB (1), `filter` in octaves of cutoff (0.15) and `noise` (default true) to give it another
+noise take. The same patch always draws the same variants.
+
+- **Files.** `sfx.bake` (and `sfx.render {variants: true}`, which also returns one picture with a row per variant) writes
+  `name_01.wav`, `name_02.wav` ... next to the patch (`name_001` from 100 variants). `sfx.render {variant: 3}` renders one. Each variant file
+  has its own recipe, so a changed patch makes all of them stale together. `sfx.bake` writes `name.wav` too: the patch as written, without any
+  spread.
+- **In a scene.** `AudioSource.variants` (0 or 1 = one clip, 2 to 64) with `clip` `assets/audio/step.wav` plays `step_01.wav` to `step_NN.wav`, one
+  per play, never the same twice in a row. The pick comes from a generator seeded from the world's random state, the entity and
+  how many times it has played, so a seeded run picks the same variants, and gameplay random numbers are not used up.
+- **In a script.** `audio.play("assets/audio/step.wav", {variants: 6})` picks with the world's seeded random numbers and avoids the last pick
+  of that path; `audio.variantPath(path, n, count)` returns the file name of variant `n` (1-based).
+
+## Families
+
+`sfx.family {from, preset: "ui"}` makes the sounds of an interface from one base patch: `click`, `hover`, `confirm`, `cancel`, `error`,
+`open`, `close`, `notify` (or `names: ["click", "confirm"]`). The patches are written to `out` (default: the base's path without
+`.sfx.json` plus `_family`) as `click.sfx.json` ... and baked to `click.wav` ... with recipes.
+
+Each member is a **copy** of the base with what its role changes, not a reference: it stands alone, and the base can be edited or deleted afterwards. The cost is
+that editing the base does not change the members; run `sfx.family` again with `overwrite: true` to pass it on. What changes: the
+length and tail, macro values added to the base's own (a hover is higher and brighter, an error lower, heavier and gritty), an
+arpeggio (confirm up, cancel down, notify three notes) or a pitch slide (open up, close down, error down). Layer lengths are clamped to the
+new length. Oscillators, filters, effects and variations are the base's, and the base's `master.normalize` goes to all of them,
+so they share timbre and loudness; the result reports the loudness spread in LU. A base whose sound is shorter than the
+members never reaches the loudness target through the peak ceiling: give it sustain.
+
+Measurements are in every result: `lufs`, `peakDb`, `seconds`, `sampleRate`, and the character of the sound as `centroidHz` (the
+spectral centroid, a brightness number) and `riseSeconds`. Families and variants return a contact sheet: one row per sound, a
+waveform over a spectrogram, all on the same time scale so they compare at a glance.
 
 ## Determinism
 

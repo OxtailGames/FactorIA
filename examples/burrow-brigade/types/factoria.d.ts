@@ -938,6 +938,11 @@ declare module "factoria" {
      */
     bus?: string;
     /**
+     * The clip has this many baked variants (2..64): play one of path_01 ... path_NN instead of `path` itself ("assets/sfx/step.wav" plays assets/sfx/step_03.wav), picked with the world RNG (seeded per run, so a replay hears the same takes) and never the one played last for that path. sfx.bake writes the variants of a sound patch that declares `variations`. Example: audio.play("assets/sfx/step.wav", { variants: 6 }).
+     * @since unreleased
+     */
+    variants?: number;
+    /**
      * A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language.
      * @since 0.2.0
      */
@@ -1014,6 +1019,11 @@ declare module "factoria" {
      * Plays a clip, returns a voice id. With caption / captionKey the sound also shows a subtitle on the Captions component for as long as it plays (docs/TEXT.md, "Captions").
      */
     play(path: string, opts?: PlayOptions): number;
+    /**
+     * The file name of baked variant `variant` (1..count) of a clip: variantPath("assets/sfx/step.wav", 3, 8) is "assets/sfx/step_03.wav". The naming sfx.bake uses for a sound patch with `variations`: two digits, three from 100 variants. Throws for a count outside 2..64 or a variant outside 1..count.
+     * @since unreleased
+     */
+    variantPath(path: string, variant: number, count: number): string;
     stop(voice: number): void;
     /**
      * The sounds that play now, oldest first: { id, path, bus, volume, pitch, pan, loop, music, source }. `volume` is the voice volume it is moving to; `music` is true for the music and its layers; `source` is the entity id of an AudioSource, "" for scripts. Use it to count or limit voices on a bus, e.g. audio.activeVoices().filter((v) => v.bus === "ambience").length.
@@ -6507,6 +6517,11 @@ declare module "factoria" {
      */
     clip: string;
     /**
+     * Number of baked variants of `clip` (0 = just the clip). With 2 to 64 every play picks one of clip_01 ... clip_NN ("assets/sfx/step.wav" plays assets/sfx/step_03.wav; sfx.bake writes them for a sound patch with `variations`), at random but never the one that played last on this entity, and the same on every run with the same seed: it reads the world RNG without consuming it.
+     * @since unreleased
+     */
+    variants: number;
+    /**
      * Loudness multiplier, 0 (silent) to 1 (full).
      */
     volume: number;
@@ -8594,7 +8609,7 @@ declare module "factoria" {
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
-    AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
+    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number; zoom?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };

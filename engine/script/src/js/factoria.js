@@ -1332,8 +1332,19 @@
     }
   }
 
+  // The last variant played per clip, so that the same take is not heard twice in a row (audio.play(path, { variants })).
+  const lastVariant = new Map();
+
   const audio = {
-    // play(path, { volume, pitch, pan, loop, bus, caption, captionKey, speaker, captionSeconds }) -> voice id. A caption (plain
+    // variantPath(path, variant, count) -> the file name of baked variant `variant` (1..count) of `path`: "assets/sfx/step.wav", 3, 8 ->
+    // "assets/sfx/step_03.wav". The naming of sfx.bake for a patch with `variations`.
+    variantPath(path, variant, count) {
+      if (typeof path !== "string") throw new Error(`audio.variantPath(path, variant, count): path is a clip path such as "assets/sfx/step.wav", but got ${inspect(path)}`);
+      if (!Number.isInteger(count) || count < 2 || count > 64) throw new Error(`audio.variantPath(path, variant, count): count is the number of variants, a whole number from 2 to 64, but got ${inspect(count)}`);
+      if (!Number.isInteger(variant) || variant < 1 || variant > count) throw new Error(`audio.variantPath(${inspect(path)}, variant, ${count}): variant is a whole number from 1 to ${count}, but got ${inspect(variant)}`);
+      return N.audioVariantPath(path, variant, count);
+    },
+    // play(path, { volume, pitch, pan, loop, bus, variants, caption, captionKey, speaker, captionSeconds }) -> voice id. A caption (plain
     // text, or a localization key that follows a language change) shows on the Captions component while the sound plays and goes
     // when it ends or is stopped; `speaker` is a name shown before the line; `captionSeconds` shows it for that long instead.
     // A looping sound never ends, so with `loop` a caption needs captionSeconds.
@@ -1350,6 +1361,17 @@
         throw new Error(`audio.play(${inspect(path)}, { loop: true, caption }): a looping sound never ends, so its caption would never go. Add captionSeconds: 5 (how long it shows), or play the sound without a caption`);
       if (o.onEnded !== undefined && typeof o.onEnded !== "function")
         throw new Error(`audio.play(path, { onEnded }): onEnded must be a function, e.g. { onEnded: (id) => console.log("done", id) }, but got ${inspect(o.onEnded)}`);
+      if (o.variants !== undefined) {
+        const n = o.variants;
+        if (!Number.isInteger(n) || n < 2 || n > 64) throw new Error(`audio.play(path, { variants }): variants is the number of baked variants of the clip, a whole number from 2 to 64 (sfx.bake writes name_01.wav ... for a patch with "variations"), but got ${inspect(n)}`);
+        // The world RNG picks (seeded per run, so a replay hears the same takes); never the one played last.
+        const last = lastVariant.get(path) ?? 0;
+        let pick;
+        if (last > 0 && last <= n) { pick = N.rngInt(1, n - 1); if (pick >= last) pick++; }
+        else pick = N.rngInt(1, n);
+        lastVariant.set(path, pick);
+        path = N.audioVariantPath(path, pick, n);
+      }
       const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded);
       if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
       return id;
