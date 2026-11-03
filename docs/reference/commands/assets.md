@@ -79,6 +79,20 @@ Plays a prefab (`prefab`) or an entity of a scene with its children (`scene` + `
 | `author` | string | no | Who gets the credit in the provenance record. |
 | `license` | string | no | License of the sheet for the provenance record. Default "CC0-1.0". |
 
+## `assets.check_mix`
+
+Not released yet (on main after 0.14.1).
+
+Measure every sound of the project together: loudness per bus, music masking effects, clicks, loop seams, clipping, true peak; each finding has a fix.
+
+Listens for what a game's mix gets wrong. Measures the sounds of the project (the set assets.analyze_audio uses without `path`: everything under assets/ and every sound a scene or prefab names), or `paths`, as they play (with the gain import "normalize" applies). Each finding has `sound`, `rule`, `value`, `threshold`, `unit`, `verdict` (ok, warn, fail), a `message` and a `hint` that names the fix; ok findings are left out unless `includeOk` is true. Rules: loudness_target / loudness_spread (loudness of each sound against the target of its bus, or, with no target, against the median of the sounds of its bus: warn beyond 6 LU, fail beyond 12; the bus comes from AudioSource (sfx), SceneSettings.music and audio.music (music) and audio.play("path", {bus}) in scripts, with the parents of factoria.json audio.buses; a sound no scene or script plays with a literal path is on the "unknown bus"); music_masking (the octave bands where an effect has its main energy, against the loudest music there: warn when the music is as loud or louder, fail 6 dB louder); click_start and click_end (the first/last sample or a jump of the first/last step: warn above -40 dBFS, fail above -26); loop_seam_jump and loop_seam_slope (for sounds played looping: the step and the change of slope from the last sample to the first, as multiples of the sound's usual step and curvature); clipping (samples flattened at full scale, counted); true_peak (4x oversampled, as played: warn above -1 dBTP, fail above 0). Loudness targets: the `targets` argument ({"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}), else style.audio.loudnessLufs and toleranceLu in assets.json, else the spread rule. Returns {verdict, summary, findings, sounds (one row of numbers per sound), targets, nextSteps}. Deterministic and read-only: it writes nothing (run assets.analyze_audio first to keep the loudness records, so later runs do not measure again). Example: {"targets":{"music":-16,"sfx":-14}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `paths` | array | no | Project-relative sound files to check. Omit for every sound of the project. |
+| `targets` | object | no | Loudness targets in LUFS per bus: {"music": -16, "sfx": {"lufs": -14, "toleranceLu": 2}, "default": -16}. A number uses a tolerance of 3 LU. Omit to use style.audio in assets.json. |
+| `includeOk` | boolean | no | Also list the checks that passed. Default false. |
+
 ## `assets.convert_audio` (modifies state)
 
 Since 0.3.0.
@@ -528,6 +542,23 @@ background "auto" first makes a solid background transparent (the four corners m
 | `align` | string ["center","bottom"] | no | auto only: where a sprite sits in its cell. center (default), or bottom: centred horizontally with feet on the cell's bottom edge, for characters standing on the ground. |
 | `background` | string ["none","auto"] | no | auto: first make the solid background (the four corners the same opaque colour) transparent. Default none. |
 | `out` | string | no | PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place. |
+
+## `assets.spectrogram`
+
+Not released yet (on main after 0.14.1).
+
+See a sound: a picture of its waveform, spectrogram (log frequency) and loudness curve, with the clipped samples and the loop seam marked.
+
+Decodes the sound at `path` (.wav, .ogg, .mp3, .qoa) and returns one picture, like assets.preview_sheet does for a sprite sheet: the waveform on top (mid, or each channel; red columns are samples at full scale), a spectrogram in the middle (short-time Fourier transform of the mid channel, 20 Hz to 20 kHz on a logarithmic axis, brighter = louder, with a dB scale) and the loudness curve at the bottom (momentary 400 ms in blue, short-term 3 s in orange, the integrated value dashed, the loudest momentary value marked). When the sound is played looping (an AudioSource with loop, SceneSettings.music, audio.music, or audio.play with loop: true; or `loop: true` here) magenta dashed lines mark the loop seam and the title gives its jump and slope. Axes are labelled with the engine's built-in font. The result carries the numbers: integratedLufs, truePeakDb (4x oversampled), samplePeakDb, momentaryMaxLufs, shortTermMaxLufs, seconds, clippedSamples (samples flattened at full scale), dominantBand (the loudest octave band) and loopSeam. It reuses the sound's fresh `analysis` record for the integrated loudness and writes nothing unless `out` is given. The picture is a temporary screenshot in .factoria/screenshots; with `out` the PNG is kept at that project path. Example: {"path":"assets/music/theme.ogg","width":1200}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative sound file, e.g. assets/sfx/jump.wav. |
+| `width` | integer | no | Width of the picture in pixels. Default 1000. |
+| `height` | integer | no | Height of the picture in pixels. Default 640. |
+| `out` | string | no | Also keep the PNG at this project-relative path (must end in .png). Without it the picture is a temporary screenshot. |
+| `loop` | boolean | no | Mark the loop seam. Default: whether the project plays the sound looping (scenes, prefabs and scripts). |
+| `channels` | string ["mid","each"] | no | "mid": one waveform of the average of the channels; "each": one lane per channel of a stereo sound. Default "mid". |
 
 ## `assets.subset_font` (modifies state)
 

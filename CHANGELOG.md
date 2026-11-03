@@ -2,6 +2,12 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+### Changes
+
+- **For game authors (M51.4, ears):** `assets.spectrogram {path, width?, height?, out?}` returns a picture of a sound (waveform, log-frequency spectrogram and loudness curve with the integrated value and the loudest momentary one, clipped samples marked in red, the loop seam marked for a looping sound) with the numbers beside it (LUFS, true peak, clipped samples, dominant octave band). `assets.check_mix {paths?, targets?}` measures every sound of the project together and lists findings with `sound`, `rule`, `value`, `threshold`, `verdict` and a `hint` that names the fix: loudness against a target per bus (or the spread inside a bus), music masking the bands where an effect has its energy, clicks at the start or end, loop seams, clipping and true peak above -1 dBTP. (docs/ASSETS.md, "Hear what you made")
+
 ## 0.14.1
 
 FactorIA 0.14.1 makes the test runs of game authors and engine developers stop failing on a busy machine. Script time limits (a `factoria test` test, `script.eval`, callbacks, tools and module loads) now count the CPU time the script spends, with a wall-clock cap eight times larger for a script blocked forever, so a build running next to the tests no longer fails a test that passes alone. The example games' tests run on optimized builds only, and `scripts/test-all.sh` is the one command that runs everything before a push.
