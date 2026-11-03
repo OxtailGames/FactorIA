@@ -136,7 +136,7 @@
     },
     "style": {
       "type": "object",
-      "description": "House style that assets.generate_image applies to every image, so generated art stays consistent.",
+      "description": "House style of the project. `prompt`, `references` and `palette` steer assets.generate_image; the other keys are rules that assets.check_art, assets.check_mix and project.validate measure (only the rules that are set are checked).",
       "additionalProperties": false,
       "properties": {
         "prompt": {
@@ -144,16 +144,134 @@
           "description": "Text appended to every image prompt, e.g. \"16-bit pixel art, black outline, flat shading\"."
         },
         "palette": {
-          "description": "Palette lock: generated images are reduced to these colours. Either a list of colours (\"#rrggbb\" or a colour name) or the path of an image whose pixels are the palette.",
+          "description": "The colours of the style. Generated images are reduced to them, and the art checks measure how far an asset is from them. Either a list of colours (\"#rrggbb\" or a colour name) or the path of an image whose pixels are the palette.",
           "oneOf": [
-            { "type": "array", "items": { "type": "string" }, "minItems": 2 },
-            { "type": "string" }
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2
+            },
+            {
+              "type": "string"
+            }
           ]
         },
         "references": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Project-relative images passed to the provider as style references with every image request (providers that accept them)."
+        },
+        "outline": {
+          "type": "object",
+          "description": "The line around a sprite's silhouette: assets.check_art and project.validate warn about a sprite whose edge pixels are not this colour, or whose line is not this thick. Example: {\"color\": \"#1a1c2c\", \"width\": 1}.",
+          "required": [
+            "color"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "type": "string",
+              "description": "Colour of the line: \"#rrggbb\" or a colour name."
+            },
+            "width": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 64,
+              "description": "Thickness of the line in texture pixels (default 1)."
+            }
+          }
+        },
+        "lightDirection": {
+          "description": "Where the light comes from: a name (right, upper-right, top, upper-left, left, lower-left, bottom, lower-right) or degrees towards the light, counter-clockwise from the right (0 = right, 90 = top, 135 = upper-left). assets.check_art compares it with how the shading of a sprite leans.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "texelsPerUnit": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 4096,
+          "description": "Texture pixels per world unit: the pixel density of the art. project.validate compares it with the size each Sprite draws its texture at (texture pixels divided by Sprite size times scale)."
+        },
+        "pixelArt": {
+          "type": "boolean",
+          "description": "The art is pixel art: hard edges (no partially transparent edge pixels), few colours, and with a palette every pixel exactly on it."
+        },
+        "value": {
+          "type": "object",
+          "description": "Allowed brightness (HSV value, 0 black to 1 white) of an asset's darkest and lightest pixels (the 1st and 99th percentile of its visible pixels). Example: {\"min\": 0.1, \"max\": 0.95}.",
+          "additionalProperties": false,
+          "properties": {
+            "min": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Lowest allowed value, 0 to 1."
+            },
+            "max": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Highest allowed value, 0 to 1."
+            }
+          }
+        },
+        "saturation": {
+          "type": "object",
+          "description": "Allowed mean saturation (HSV, 0 grey to 1 pure colour) of an asset's visible pixels. Example: {\"min\": 0.2, \"max\": 0.7}.",
+          "additionalProperties": false,
+          "properties": {
+            "min": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Lowest allowed value, 0 to 1."
+            },
+            "max": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Highest allowed value, 0 to 1."
+            }
+          }
+        },
+        "audio": {
+          "type": "object",
+          "description": "Loudness targets of the sounds, read by assets.check_mix. Example: {\"loudnessLufs\": {\"music\": -18, \"sfx\": -14}, \"toleranceLu\": 3}.",
+          "additionalProperties": false,
+          "properties": {
+            "loudnessLufs": {
+              "type": "object",
+              "description": "Integrated loudness (LUFS, -70 to 0) the sounds of each mixer bus aim at, by bus name: sfx, music, ui, master or a bus of factoria.json audio.buses.",
+              "additionalProperties": {
+                "type": "number",
+                "minimum": -70,
+                "maximum": 0
+              }
+            },
+            "toleranceLu": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 24,
+              "description": "How many LU a sound may be away from its bus target before assets.check_mix warns (default 3)."
+            }
+          }
+        },
+        "ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Project-relative files, or folders ending in a slash, that the art checks of project.validate skip (UI, effects, photos). assets.check_art still checks a file you name."
         }
       }
     },
