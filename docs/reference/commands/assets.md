@@ -79,6 +79,25 @@ Plays a prefab (`prefab`) or an entity of a scene with its children (`scene` + `
 | `author` | string | no | Who gets the credit in the provenance record. |
 | `license` | string | no | License of the sheet for the provenance record. Default "CC0-1.0". |
 
+## `assets.contact_sheet`
+
+Not released yet (on main after 0.14.1).
+
+Look at a set of images (or .glb models) side by side at their on-screen size, over light, dark and camera-colour backgrounds and in greyscale, labelled with their file names.
+
+Draws one picture (returned to you as an image) with a column for each picture of `paths` (and for each of `sizes`) and a row for each background, so you can judge a set of assets the way the player meets them: small, on the real ground, in black and white. `backgrounds` default to a light colour, a dark colour and the clear colour of the first primary camera of the project's main scene (when it has one); the last row is the same pictures in greyscale over mid-grey (`greyscale: false` leaves it out). `sizes` are pixels of the longest side of each picture as the player sees it (Sprite.size on screen times the render scale): [32, 64] draws every picture twice, shrunk with averaging or grown with hard pixels; without `sizes` each picture is drawn at its native size (at most 512). PNG, JPG, BMP and TGA files are drawn as they are; a sprite sheet (one with a `sheet` entry in assets.json) shows its first frame, or all frames with `allFrames: true`. A .glb model is drawn as a thumbnail by the engine's renderer (a studio light, turned three quarters, transparent around it), which needs a graphics device (Metal, Direct3D 11 or OpenGL; without one the command fails with no_gpu, and you can leave the models out); a model in the real scene, with its lighting, is assets.preview_in_scene. Each column is labelled with the file name and its size in the font that comes with the engine. A line holds `columns` cells (default 8), then the sheet continues below. Nothing is written unless `path` is given: then the PNG is also saved there (an existing file is not replaced without `overwrite: true`). The same inputs give the same picture. Example: {"paths":["assets/hero.png","assets/slime.png"],"sizes":[32,64]}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `paths` | array | yes | Project-relative paths of the pictures (PNG, JPG, BMP, TGA) and .glb models to show, in this order. A sprite sheet shows its first frame (see allFrames). |
+| `backgrounds` | array | no | Colours ("#rrggbb", a name, or [r, g, b] in 0..1) to draw the pictures over, one row each. Default: a light one, a dark one and the clear colour of the main camera. |
+| `sizes` | array | no | Longest side in pixels of each picture as the player sees it; one column per picture and size. Default: the native size of each picture. |
+| `greyscale` | boolean | no | Add a last row with the pictures in greyscale over mid-grey, to judge their value structure. Default true. |
+| `columns` | integer | no | Cells per line; more wrap to a new block of rows below. Default 8. |
+| `allFrames` | boolean | no | A sprite sheet shows all its frames (a column each) instead of the first. Default false. |
+| `path` | string | no | Also save the picture as a PNG at this project-relative path (ending in .png). Without it nothing is written. |
+| `overwrite` | boolean | no | With `path`: replace the file when it exists. Default false. |
+
 ## `assets.convert_audio` (modifies state)
 
 Since 0.3.0.
@@ -406,6 +425,27 @@ Packing again is stable: a frame whose size did not change keeps its rectangle (
 | `table` | string | no | Project-relative .json for the frame table. Default: out with the .json extension. |
 | `maxSize` | integer | no | Largest side of the page in pixels. Default 2048 (what every phone samples); 4096 is fine on desktop. Frames that do not fit are an error. |
 | `padding` | integer | no | Pixels of the frame's own edge repeated around each frame. Default 2. |
+
+## `assets.preview_in_scene`
+
+Not released yet (on main after 0.14.1).
+
+See an asset inside a scene of the game: it is placed (a PNG as a Sprite, a .glb as a MeshRenderer) in a private run of the scene and captured at phone and desktop resolutions.
+
+Starts the scene `scene` in a second, headless engine, steps `steps` frames (default 2) so its scripts start, puts a temporary entity with the asset in the world and captures the view once per resolution. The result is ONE image with the screens side by side, each labelled with its name and size, plus `screens` (each with its position in the picture and, for a 2D camera, whether the asset is in view). The scene file is never changed and the temporary entity exists only in that engine, so nothing needs cleaning up. Where: `at` [x, y(, z)] in world units; or `entity` (an id or name in the scene) with `placement` "beside" (default: to the right of it, using the size of its Sprite or Shape2D, 64 when it has none) or "replace" (at its position, the entity hidden for the picture); `offset` [x, y] moves it from there. Without either, the middle of the view: the camera's position for a 2D scene, a few meters in front of the camera for a 3D one. `center: true` also moves a 2D camera onto the asset (a script that moves the camera can undo it). How big: `size` is in world units like Sprite.size: a number is the longest side (the proportions of the picture are kept), [w, h] sets both; without it the sprite is drawn at its size in pixels. A .glb takes one number, its largest dimension in meters, or its own size. A sprite sheet is placed as its first frame (from its `sheet` entry). `resolutions` are "phone" (540x1170, upright), "tablet" (1024x768), "desktop" (1280x720) or "WxH"; default phone and desktop. The run uses the resolution as the design resolution of the game, so the world a camera shows follows the shape of the screen the way the game's scale mode does on a device: a camera with a fixed orthoSize shows the same height on both. Needs a GPU (Metal, Direct3D 11 or OpenGL; headless Linux needs Mesa's EGL); without one it fails with no_gpu. A process has one graphics device: when this one already uses it (the editor, an MCP session with graphics) the work runs in a child `factoria call` process. The same inputs give the same pixels on the same GPU. Example: {"path":"assets/slime.png","scene":"scenes/main.scene.json","entity":"player","size":48}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative path of the asset: a PNG/JPG (placed as a Sprite) or a .glb (placed as a MeshRenderer). |
+| `scene` | string | yes | Project-relative path of the scene to place it in, e.g. scenes/main.scene.json. The file is read, never written. |
+| `at` | array | no | World position [x, y] or [x, y, z] for the asset. Not with `entity`. |
+| `entity` | string | no | Id (or name) of an entity of the scene: the asset goes next to it, or in its place (see `placement`). Not with `at`. |
+| `placement` | string ["beside","replace"] | no | With `entity`: beside = to the right of the entity; replace = at its position, with the entity hidden in the picture. |
+| `offset` | array | no | [x, y] in world units added to the position. |
+| `size` | any | no | Sprite: a number (longest side) or [width, height], in world units like Sprite.size; default the size in pixels. Model: its largest dimension in meters; default its own size. |
+| `resolutions` | array | no | "phone" (540x1170), "tablet" (1024x768), "desktop" (1280x720) or "WxH". Default ["phone", "desktop"]. |
+| `steps` | integer | no | Frames the scene runs before the asset is placed. Default 2. |
+| `center` | boolean | no | 2D scenes: move the camera onto the asset so it is in view at every resolution. Default false. |
 
 ## `assets.preview_sheet`
 

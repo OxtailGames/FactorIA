@@ -2,6 +2,15 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+M51 gives the AI eyes on the art it makes. `assets.contact_sheet` puts a set of pictures (and `.glb` thumbnails) side by side at their on-screen size over light, dark and camera-colour backgrounds and in greyscale, and `assets.preview_in_scene` shows one new PNG or model inside a running scene at phone and desktop resolutions without touching the scene file.
+
+### Changes
+
+- **For game authors:** `assets.contact_sheet {paths, backgrounds?, sizes?, greyscale?, columns?, allFrames?, path?, overwrite?}` returns a labelled picture (`$image`) and writes a PNG only when `path` is given. (docs/ASSETS.md)
+- **For game authors:** `assets.preview_in_scene {path, scene, at? | entity?, placement?, offset?, size?, resolutions?, steps?, center?}` places a Sprite or MeshRenderer in a copy of the scene and returns screenshots at the resolutions asked (default phone and desktop); the scene file is unchanged and no entity is left. (docs/ASSETS.md)
+
 ## 0.14.1
 
 FactorIA 0.14.1 makes the test runs of game authors and engine developers stop failing on a busy machine. Script time limits (a `factoria test` test, `script.eval`, callbacks, tools and module loads) now count the CPU time the script spends, with a wall-clock cap eight times larger for a script blocked forever, so a build running next to the tests no longer fails a test that passes alone. The example games' tests run on optimized builds only, and `scripts/test-all.sh` is the one command that runs everything before a push.
