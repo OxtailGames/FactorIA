@@ -786,6 +786,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
         registry.add(info, [projectDir](const Json& args) { return model_edit_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     register_model_uv_command(registry, projectDir);
+    register_model_eyes_commands(registry, projectDir);
     {
         CommandInfo info;
         info.name = "model.game_ready";

@@ -63,6 +63,7 @@
 #include "image_ui.h"
 #include "vector_ui.h"
 #include "sound_ui.h"
+#include "modeler_ui.h"
 #include "music_ui.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
@@ -457,6 +458,25 @@ public:
     Vec2 music_drum_cell_pos(const std::string& lane, int step) const;          // ...and the drum grid
     MusicUi music_;
     bool showMusic_ = false;
+    // Model panel (modeler_panel.cpp; View > Model, or a double click on a *.model.json in the Project panel): a model document as its operation
+    // tree, the picked node's parameters as sliders and a live view of the mesh it evaluates to, with the picked part highlighted. The rules are
+    // in modeler_model.h: every edit it keeps is a model.edit call, so the Console and an AI make the same edit; Save bakes (model.bake).
+    ModelerModel& modeler_ensure_model();                   // makes the panel's model on first use
+    void draw_modeler_panel();
+    void draw_modeler_toolbar(ModelerModel& m);
+    void draw_modeler_tree(ModelerModel& m);
+    void draw_modeler_viewport(ModelerModel& m);
+    void draw_modeler_params(ModelerModel& m);
+    bool open_model_document(const std::string& rel);       // *.model.json; false and a toast on failure
+    void modeler_edited(const ModelerEditOutcome& out);     // after an edit: the undo entry, a toast for an error
+    void modeler_apply_undo(const Json& entry, bool forward);
+    void modeler_collect_steps();                           // drops the undo steps no stack entry points to
+    void modeler_close_document();
+    void modeler_release_textures();
+    void modeler_save();
+    Vec2 modeler_screen_pos(float fx, float fy) const;      // the autotest drives the viewport: a point as fractions of the picture
+    ModelerUi modeler_;
+    bool showModeler_ = false;
     // Bone tools (bone_tools.cpp; View > Bone tools): draw a bone chain by clicking, bind a sprite to bones, the weight colours of
     // the selected bone and a brush to paint them, IK targets as handles. They call bones.create, skin.bind, skin.auto_weights,
     // skin.set_weights and scene.set_component through edit_command.
