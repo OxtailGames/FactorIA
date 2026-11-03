@@ -960,7 +960,17 @@
     "ui.set_text_scale": "0.2.0",
     "ui.speak": "0.2.0",
     "ui.state": "0.1.6",
-    "ui.stop_speaking": "0.2.0"
+    "ui.stop_speaking": "0.2.0",
+    "vector.align": "unreleased",
+    "vector.boolean": "unreleased",
+    "vector.distribute": "unreleased",
+    "vector.info": "unreleased",
+    "vector.offset": "unreleased",
+    "vector.repeat": "unreleased",
+    "vector.simplify": "unreleased",
+    "vector.smooth": "unreleased",
+    "vector.stroke_to_path": "unreleased",
+    "vector.style": "unreleased"
   },
   "script": {
     "ActiveVoice": "0.3.0",
