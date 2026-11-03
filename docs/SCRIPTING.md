@@ -585,6 +585,8 @@ bus that ducks reads the other bus after its own effects and volume when that bu
 the ducked bus's parent, for example), and as the sum of its voices and its children before its own effects when it is nearer
 the master.
 
+A sound with baked variations (`sfx.bake` writes `step_01.wav` ... `step_06.wav` for a patch that declares `variations`, docs/SOUND.md) plays one take per call: `audio.play("assets/audio/step.wav", { variants: 6 })` picks with the world's seeded random numbers (a replay hears the same takes) and never the same take twice in a row; `audio.variantPath(path, n, count)` returns the file of take `n` (1-based). The `AudioSource.variants` field does the same for a source in a scene.
+
 **Snapshots** name a whole mixer state so a script does not juggle buses one by one. They live in factoria.json:
 
 ```json

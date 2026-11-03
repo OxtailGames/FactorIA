@@ -90,6 +90,95 @@ struct Parser {
         return false;
     }
 
+    // ---- macros and variations ----------------------------------------------------------------------------------
+
+    void macros(const Json& j, std::vector<SfxMacroDef>& out) {
+        std::vector<std::string> builtin;
+        for (const SfxMacroInfo& m : sfx_macros()) builtin.push_back(m.name);
+        const std::string example = "{\"brightness\": 0.3} or {\"brightness\": {\"value\": 0.3, \"strength\": 1.5}}";
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            const std::string name = it.key();
+            const std::string pointer = "/macros/" + name;
+            SfxMacroDef def;
+            def.name = name;
+            def.builtin = std::find(builtin.begin(), builtin.end(), name) != builtin.end();
+            const Json& v = it.value();
+            const std::string valueHint = "A macro value runs from -1 to 1; 0 leaves the patch as written.";
+            if (v.is_number()) {
+                const double d = v.get<double>();
+                if (!(d >= -1.0 && d <= 1.0)) p_err_range(pointer, name, d, valueHint);
+                else def.value = d;
+            } else if (v.is_object()) {
+                unknown_keys(v, pointer, {"value", "strength", "doc", "binds"}, "a macro");
+                number(v, pointer, "value", def.value, -1.0, 1.0, "", valueHint);
+                number(v, pointer, "strength", def.strength, 0.0, 3.0, "", "How far the built-in macro moves things: 1 is the default, 2 twice as far.");
+                if (auto d = v.find("doc"); d != v.end() && d->is_string()) def.doc = d->get<std::string>();
+                if (auto b = v.find("binds"); b != v.end()) binds(*b, pointer + "/binds", def.binds);
+                if (!def.builtin && def.binds.empty())
+                    err(pointer, "the macro `" + name + "` is not a built-in macro and binds nothing",
+                        "Built-in macros: " + join_names(builtin) + ". A macro of your own needs \"binds\": [{\"path\": \"/layers/0/filter/cutoff\", \"min\": 400, \"max\": 4000, \"curve\": \"exp\"}].");
+            } else {
+                err(pointer, "a macro must be a number or an object, got " + describe_json_value(v), "Write " + example + ".");
+                continue;
+            }
+            if (v.is_number() && !def.builtin)
+                err(pointer, "unknown macro `" + name + "`", did_you_mean(name, builtin) + " Built-in macros: " + join_names(builtin) + ". A macro of your own is an object with \"binds\".");
+            out.push_back(std::move(def));
+        }
+    }
+    void p_err_range(const std::string& pointer, const std::string& name, double d, const std::string& hint) {
+        err(pointer, std::format("macro {} is {}, outside -1 to 1", name, d), hint);
+    }
+
+    void binds(const Json& j, const std::string& pointer, std::vector<SfxMacroBind>& out) {
+        if (!j.is_array() || j.empty() || j.size() > 16) {
+            err(pointer, "binds must be an array of 1 to 16 entries, got " + describe_json_value(j), "Write [{\"path\": \"/layers/0/filter/cutoff\", \"min\": 400, \"max\": 4000}].");
+            return;
+        }
+        for (std::size_t i = 0; i < j.size(); ++i) {
+            const std::string at = pointer + "/" + std::to_string(i);
+            const Json& b = j[i];
+            if (!object(b, at, "a bind", "{\"path\": \"/layers/0/filter/cutoff\", \"min\": 400, \"max\": 4000}")) continue;
+            unknown_keys(b, at, {"path", "min", "max", "curve"}, "a bind");
+            SfxMacroBind bind;
+            if (auto pt = b.find("path"); pt == b.end() || !pt->is_string() || pt->get<std::string>().empty() || pt->get<std::string>()[0] != '/')
+                err(at + "/path", "path must be a JSON pointer such as \"/layers/0/filter/cutoff\"", "It names the number of this patch that the macro sets.");
+            else bind.pointer = pt->get<std::string>();
+            for (const char* key : {"min", "max"}) {
+                auto m = b.find(key);
+                if (m == b.end() || !m->is_number()) err(at + "/" + key, std::string("`") + key + "` is required and must be a number", std::string("It is the value the number takes with the macro at ") + (std::string(key) == "min" ? "-1." : "+1."));
+                else (std::string(key) == "min" ? bind.atMin : bind.atMax) = m->get<double>();
+            }
+            const int curve = choice(b, at, "curve", {"linear", "exp"}, " \"exp\" interpolates on a log scale: for cutoffs and times.");
+            bind.exponential = curve == 1;
+            if (bind.exponential && !(bind.atMin > 0.0 && bind.atMax > 0.0)) err(at, "an \"exp\" bind needs min and max above 0", "Use \"curve\": \"linear\" or positive numbers.");
+            out.push_back(std::move(bind));
+        }
+    }
+
+    void variations(const Json& j, SfxVariations& v) {
+        const std::string example = "{\"count\": 6, \"seed\": 1, \"spread\": {\"pitch\": 40}}";
+        if (!object(j, "/variations", "variations", example)) return;
+        unknown_keys(j, "/variations", {"count", "seed", "spread"}, "variations");
+        if (auto c = j.find("count"); c == j.end() || !c->is_number_integer() || c->get<long long>() < 2 || c->get<long long>() > 64)
+            err("/variations/count", "count is required, a whole number from 2 to 64, got " + (c == j.end() ? std::string("nothing") : describe_json_value(*c)),
+                "How many takes sfx.bake makes (name_01.wav, name_02.wav, ...); 4 to 8 is enough for footsteps and hits.");
+        else v.count = c->get<int>();
+        if (auto sd = j.find("seed"); sd != j.end()) {
+            if (!sd->is_number_integer() || sd->get<long long>() < 0) err("/variations/seed", "seed must be a whole number, 0 or more, got " + describe_json_value(*sd), "Another seed gives another set of offsets.");
+            else v.seed = sd->get<std::uint64_t>();
+        }
+        if (auto sp = j.find("spread"); sp != j.end() && object(*sp, "/variations/spread", "spread", "{\"pitch\": 40, \"length\": 0.1, \"gain\": 1.5, \"filter\": 0.3}")) {
+            unknown_keys(*sp, "/variations/spread", {"pitch", "length", "gain", "filter", "noise"}, "spread");
+            const std::string at = "/variations/spread";
+            number(*sp, at, "pitch", v.pitchCents, 0.0, 1200.0, " (cents)", "The largest pitch offset of a variant, up or down: 25 is subtle, 100 is a semitone.");
+            number(*sp, at, "length", v.lengthFraction, 0.0, 0.9, " (a share of the length)", "The largest change of the length: 0.1 is 10 percent longer or shorter.");
+            number(*sp, at, "gain", v.gainDb, 0.0, 12.0, " (dB)", "The largest loudness offset after normalization, up or down.");
+            number(*sp, at, "filter", v.filterOctaves, 0.0, 4.0, " (octaves)", "The largest shift of every filter cutoff, up or down: 0.3 is a little brighter or duller.");
+            boolean(*sp, at, "noise", v.noise);
+        }
+    }
+
     // ---- pieces -------------------------------------------------------------------------------------------------
 
     void envelope(const Json& j, const std::string& pointer, SfxEnvelope& env, bool withAmount, double* amount, const char* amountUnit) {
@@ -422,7 +511,7 @@ Result<SfxPatch> parse_sfx(const Json& json, std::string_view fileView, std::vec
               "Start from {\"format\": \"factoria.sfx/1\", \"length\": 0.3, \"layers\": [{\"oscillators\": [{\"wave\": \"sine\"}]}]} (schemas/sfx.schema.json; sfx.preset gives a full patch).");
         return fail();
     }
-    p.unknown_keys(json, "", {"$schema", "format", "doc", "sampleRate", "length", "tail", "seed", "fadeOut", "gain", "layers", "master", "macros"}, "the patch");
+    p.unknown_keys(json, "", {"$schema", "format", "doc", "sampleRate", "length", "tail", "seed", "fadeOut", "gain", "layers", "master", "macros", "variations"}, "the patch");
     if (auto it = json.find("format"); it == json.end() || !it->is_string() || it->get<std::string>() != "factoria.sfx/1")
         p.err("/format", it == json.end() ? "missing `format`" : "format is " + describe_json_value(*it) + ", expected \"factoria.sfx/1\"", "Add \"format\": \"factoria.sfx/1\" at the top of the file.");
     if (auto it = json.find("doc"); it != json.end() && it->is_string()) patch.doc = it->get<std::string>();
@@ -459,9 +548,13 @@ Result<SfxPatch> parse_sfx(const Json& json, std::string_view fileView, std::vec
         if (auto n = it->find("normalize"); n != it->end()) p.normalize(*n, "/master/normalize", patch.normalize);
     }
     if (auto it = json.find("macros"); it != json.end()) {
-        if (!it->is_object()) p.err("/macros", "macros must be an object, got " + describe_json_value(*it), "Macros are reserved for the next release; leave them out or write {}.");
-        else patch.macros = *it;
+        if (!it->is_object()) p.err("/macros", "macros must be an object, got " + describe_json_value(*it), "Write {\"brightness\": 0.3}: macro name to a value from -1 to 1 (docs/SOUND.md, \"Macros\").");
+        else {
+            patch.macros = *it;
+            p.macros(*it, patch.macroDefs);
+        }
     }
+    if (auto it = json.find("variations"); it != json.end()) p.variations(*it, patch.variations);
     if (!p.issues.empty()) return fail();
     if (issuesOut) issuesOut->clear();
     return patch;

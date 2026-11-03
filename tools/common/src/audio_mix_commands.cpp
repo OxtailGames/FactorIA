@@ -836,6 +836,93 @@ Json spectrogram_command(const std::string& projectDir, const Json& args) {
 
 Json audio_mix::spectrogram_picture(const std::string& projectDir, const Json& args) { return spectrogram_command(projectDir, args); }
 
+Json audio_mix::spectrogram_sheet(const std::string& projectDir, const std::string& title, const std::vector<SheetRow>& rows, int widthArg, const std::string& outRel) {
+    if (rows.empty()) throw CommandError("invalid_argument", "A contact sheet needs at least one sound.", "Give it the sounds to compare.");
+    std::filesystem::path outFile;
+    if (!outRel.empty()) {
+        if (to_lower(fs::extension(outRel)) != ".png") throw CommandError("invalid_argument", "'out' must end in .png.", "Example: \"out\": \"assets/src/sound/sheet.png\".");
+        outFile = assets_detail::project_file(projectDir, outRel);
+    }
+    const int width = std::clamp(widthArg, 400, 2400);
+    const int n = int(rows.size());
+    const int left = 200, right = 56, top = 24, bottom = 26, gap = 6;
+    const int plotW = width - left - right;
+    const int rowH = std::clamp(1500 / n, 44, 120);
+    const int height = top + n * (rowH + gap) + bottom;
+    const Rgb bg{18, 18, 24}, axis{150, 150, 165}, grid{255, 255, 255}, wave{80, 200, 190};
+    Canvas cv(width, height, bg);
+    cv.text(title, left, 5, 12, {235, 235, 240});
+
+    double longest = 0.05;
+    for (const SheetRow& r : rows) longest = std::max(longest, double(r.samples.size()) / std::max(1, r.rate));
+    std::vector<am::Spectrogram> specs;
+    float ceiling = -30.0f;
+    for (const SheetRow& r : rows) {
+        DecodedAudio a;
+        a.channels = 1;
+        a.rate = r.rate;
+        a.samples = r.samples;
+        const double seconds = double(r.samples.size()) / std::max(1, r.rate);
+        const int columns = std::max(4, int(std::lround(plotW * seconds / longest)));
+        const int specH = rowH - rowH * 28 / 100;
+        specs.push_back(am::spectrogram(a, columns, specH));
+        ceiling = std::max(ceiling, specs.back().maxDb);
+    }
+    const double range = 80.0;
+    for (int i = 0; i < n; ++i) {
+        const SheetRow& r = rows[std::size_t(i)];
+        const int y0 = top + i * (rowH + gap);
+        const int waveH = rowH * 28 / 100, specH = rowH - waveH;
+        const double seconds = double(r.samples.size()) / std::max(1, r.rate);
+        const int w = std::max(4, int(std::lround(plotW * seconds / longest)));
+        cv.text(r.label, 8, y0 + 2, 12, {235, 235, 240});
+        cv.text(r.note, 8, y0 + 18, 10, axis);
+        cv.rect(left, y0, left + plotW - 1, y0 + rowH - 1, {10, 10, 14});
+        const int cy = y0 + waveH / 2;
+        const double half = waveH / 2.0 - 1.0;
+        cv.hline(left, left + w - 1, cy, axis, 0.3);
+        const std::size_t frames = r.samples.size();
+        for (int c = 0; c < w; ++c) {
+            const std::size_t a = std::size_t(double(c) * double(frames) / w), b = std::max(a + 1, std::min(frames, std::size_t(double(c + 1) * double(frames) / w)));
+            float lo = 0, hi = 0;
+            for (std::size_t k = a; k < b; ++k) {
+                lo = std::min(lo, r.samples[k]);
+                hi = std::max(hi, r.samples[k]);
+            }
+            const int ya = cy - int(std::lround(std::min(1.0f, hi) * half)), yb = cy - int(std::lround(std::max(-1.0f, lo) * half));
+            cv.vline(left + c, ya, std::max(ya, yb), wave);
+        }
+        const am::Spectrogram& sp = specs[std::size_t(i)];
+        for (int row = 0; row < sp.rows && row < specH; ++row)
+            for (int c = 0; c < sp.columns && c < plotW; ++c)
+                cv.blend(left + c, y0 + waveH + row, magma((sp.db[std::size_t(row) * std::size_t(sp.columns) + std::size_t(c)] - (ceiling - range)) / range), 1.0);
+    }
+    // shared time axis
+    double step = 0.01;
+    for (double s : {0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0}) {
+        step = s;
+        if (longest / s <= 10.0) break;
+    }
+    for (double t = 0; t <= longest + 1e-9; t += step) {
+        const int x = left + int(std::lround(t / longest * (plotW - 1)));
+        cv.vline(x, top, top + n * (rowH + gap) - gap - 1, grid, 0.08);
+        cv.text(time_text(t, step), x, top + n * (rowH + gap), 11, axis, t == 0 ? 0 : 1);
+    }
+    cv.text(std::format("spectrogram 20 Hz - 20 kHz (log), {:.0f} dB range", range), width - 8, 5, 10, axis, 2);
+
+    const std::vector<std::uint8_t> png = encode_png(cv.img);
+    const bool keep = !outRel.empty();
+    const std::filesystem::path file = keep ? outFile : next_picture_file(projectDir);
+    std::string err;
+    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err)) throw CommandError("failed", err);
+    Json image = Json::object({{"path", file.string()}, {"mimeType", "image/png"}});
+    if (!keep) image["temporary"] = true;
+    Json result = Json::object({{"picture", Json::object({{"width", width}, {"height", height}, {"rows", n}})}});
+    if (keep) result["out"] = outRel;
+    result["$image"] = image;
+    return result;
+}
+
 void register_audio_mix_commands(CommandRegistry& registry, const std::string& projectDir) {
     {
         CommandInfo info;

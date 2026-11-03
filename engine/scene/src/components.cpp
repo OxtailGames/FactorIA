@@ -1426,6 +1426,8 @@ void register_builtin_components(TypeRegistry& r) {
                        "from a script to trigger it.",
                        "Audio")
         .asset_field("clip", &AudioSource::clip, "audio", "Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa).")
+        .field("variants", &AudioSource::variants,
+               "Number of baked variants of `clip` (0 = just the clip). With 2 to 64 every play picks one of clip_01 ... clip_NN (\"assets/sfx/step.wav\" plays assets/sfx/step_03.wav; sfx.bake writes them for a sound patch with `variations`), at random but never the one that played last on this entity, and the same on every run with the same seed: it reads the world RNG without consuming it.").range(0, 64)
         .field("volume", &AudioSource::volume, "Loudness multiplier, 0 (silent) to 1 (full).").range(0, 1)
         .field("pitch", &AudioSource::pitch, "Playback speed multiplier; 2 = one octave higher and twice as fast.").range(0.05f, 8)
         .field("loop", &AudioSource::loop, "Restart the clip when it ends.")

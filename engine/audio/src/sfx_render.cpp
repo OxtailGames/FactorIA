@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <format>
 #include <numeric>
 
 #include "fa/audio/sfx.h"
+#include "sfx_macros.h"
 #include "sfx_math.h"
 
 namespace fa {
@@ -431,16 +433,42 @@ void measure(const std::vector<double>& samples, int rate, double& lufs, double&
 
 }  // namespace
 
-Result<SfxAudio> render_sfx(const SfxPatch& patch, const SfxRenderOptions& options) {
-    const double length = options.length >= 0.0 ? options.length : patch.length;
+Result<SfxAudio> render_sfx(const SfxPatch& base, const SfxRenderOptions& options) {
+    // Macros and variants change a copy of the patch; a patch without them is rendered as it is, bit for bit as before.
+    const sfx_detail::MacroValues macros = sfx_detail::effective_macros(base, options.macros);
+    const bool hasVariant = options.variant >= 0;
+    if (hasVariant && (base.variations.count <= 0 || options.variant >= base.variations.count))
+        return make_error(base.variations.count <= 0 ? "the patch declares no variations" : std::format("variant {} does not exist: the patch has {}", options.variant + 1, base.variations.count),
+                          "Declare \"variations\": {\"count\": 6} in the patch; variants are numbered from 1.");
+    SfxPatch work;
+    const SfxPatch* use = &base;
+    double macroTranspose = 1.0, velocity = options.velocity;
+    sfx_detail::Tilt tilt;
+    std::uint64_t variantSeed = 0;
+    double lengthScale = 1.0;
+    if (macros.any() || hasVariant) {
+        work = base;
+        use = &work;
+        sfx_detail::apply_macros(work, macros, macroTranspose, tilt);
+        if (hasVariant) {
+            const SfxVariantParams v = sfx_variant_params(base.variations, options.variant);
+            sfx_detail::apply_variant(work, v);
+            macroTranspose *= exp2(v.pitchCents / 1200.0);
+            velocity *= db_to_gain(v.gainDb);
+            variantSeed = v.seedOffset;
+            lengthScale = v.lengthScale;
+        }
+    }
+    const SfxPatch& patch = *use;
+    const double length = (options.length >= 0.0 ? options.length : patch.length) * lengthScale;
     const double tail = options.tail >= 0.0 ? options.tail : patch.tail;
     if (!(length + tail > 0.0) || length + tail > kSfxMaxSeconds)
         return make_error("a sound of " + std::to_string(length + tail) + " seconds cannot be rendered", "A sound patch is 0.001 to 30 seconds long (length + tail).");
     if (patch.layers.empty()) return make_error("the patch has no layers", "Add at least one layer with an oscillator; sfx.preset gives a full example.");
     const int rate = patch.sampleRate;
     const std::size_t total = std::max<std::size_t>(1, std::size_t(std::lround((length + tail) * double(rate))));
-    const std::uint64_t seed = patch.seed + options.seed;
-    const double transpose = options.freqHz > 0.0 ? options.freqHz / patch.root_hz() : 1.0;
+    const std::uint64_t seed = patch.seed + options.seed + variantSeed;
+    const double transpose = (options.freqHz > 0.0 ? options.freqHz / patch.root_hz() : 1.0) * macroTranspose;
 
     std::vector<double> mix(total, 0.0);
     for (std::size_t i = 0; i < patch.layers.size(); ++i) {
@@ -450,6 +478,7 @@ Result<SfxAudio> render_sfx(const SfxPatch& patch, const SfxRenderOptions& optio
     if (patch.gain != 1.0)
         for (double& s : mix) s *= patch.gain;
     apply_effects(mix, patch.effects, rate);
+    if (tilt.any()) sfx_detail::apply_tilt(mix, tilt, rate);
 
     const std::size_t fade = std::min(total, std::size_t(std::lround(patch.fadeOut * double(rate))));
     for (std::size_t i = 0; i < fade; ++i) mix[total - 1 - i] *= double(i) / double(fade);
@@ -464,7 +493,7 @@ Result<SfxAudio> render_sfx(const SfxPatch& patch, const SfxRenderOptions& optio
         if (norm.mode == SfxNormalizeMode::Peak) gainDb = std::clamp(norm.target - peakDb, -60.0, 60.0);
         else gainDb = std::min(std::clamp(norm.target - lufs, -24.0, 24.0), norm.ceilingDb - peakDb);
     }
-    gainDb += gain_to_db(std::max(options.velocity, 1e-6)) * (options.velocity == 1.0 ? 0.0 : 1.0);
+    gainDb += gain_to_db(std::max(velocity, 1e-6)) * (velocity == 1.0 ? 0.0 : 1.0);
     const double gain = db_to_gain(gainDb);
 
     SfxAudio audio;
