@@ -34,6 +34,12 @@ void collect_providers(const std::vector<ImageLayer>& layers, std::vector<const 
     }
 }
 
+bool has_ai_indexed(const std::vector<ImageLayer>& layers) {
+    for (const ImageLayer& l : layers)
+        if ((l.kind == ImageLayerKind::Indexed && l.ai) || (l.kind == ImageLayerKind::Group && has_ai_indexed(l.children))) return true;
+    return false;
+}
+
 std::string normalized(const std::string& rel) {
     auto norm = fs::normalize_checked(rel);
     return norm.ok() && !norm->empty() ? *norm : rel;
@@ -128,7 +134,7 @@ Result<ImageBakeResult> bake_image_document(const std::string& projectDir, const
     // who made the pieces: AI-made sources make the baked picture AI-made, and their licenses travel
     std::vector<const ImageLayer*> providers;
     collect_providers(doc->layers, providers);
-    result.ai = !providers.empty();
+    result.ai = !providers.empty() || has_ai_indexed(doc->layers);
     std::set<std::string> licenses, aiSources;
     for (const std::string& input : render->inputs) {
         const Json entry = manifest_entry(projectDir, input);

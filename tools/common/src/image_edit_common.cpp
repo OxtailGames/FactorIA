@@ -315,12 +315,15 @@ Json commit_document(const std::string& projectDir, const std::string& rel, cons
     return out;
 }
 
-Image render_layer_alone(const std::string& projectDir, const Json& layerJson, int width, int height, int offX, int offY, std::vector<std::string>* warnings) {
+Image render_layer_alone(const std::string& projectDir, const Json& layerJson, int width, int height, int offX, int offY, std::vector<std::string>* warnings, const Json* docJson) {
     Json layer = layerJson;
     for (const char* k : {"visible", "opacity", "blend", "clip"}) layer.erase(k);
     layer["x"] = int_or(layerJson, "x", 0) + offX;
     layer["y"] = int_or(layerJson, "y", 0) + offY;
     Json doc = Json::object({{"format", kImageDocFormat}, {"width", width}, {"height", height}, {"layers", Json::array({layer})}});
+    if (docJson)
+        for (const char* k : {"palette", "ramps"})
+            if (docJson->contains(k)) doc[k] = (*docJson)[k];
     auto parsed = parse_image_document(doc, "layer", projectDir);
     if (!parsed.ok()) fail("invalid_argument", parsed.error().message, parsed.error().hint);
     auto render = composite_image_document(*parsed, {projectDir});
@@ -596,6 +599,9 @@ Work open_work(const std::string& projectDir, Json& doc, const LayerRef& ref, co
     if (w.kind == "group")
         assets_detail::arg_error(command, "/layer", label + " is a group, and a group has no pixels of its own to edit.",
                                  "Edit a layer inside it (" + describe_layers(doc, 12) + "), or select with image.select by:\"layer\" and use a layer of the group.");
+    if (w.kind == "indexed")
+        assets_detail::arg_error(command, "/layer", label + " is an indexed pixel-art layer: it is locked to the palette, and this command would blend colours that are not in it.",
+                                 "Draw on it with image.pixel and image.draw, or turn it into a pixels layer first: image.layer.convert {\"layer\":\"" + (L.value("name", std::string()).empty() ? ref.indexPath : L.value("name", std::string())) + "\",\"to\":\"pixels\"}.");
     if (w.kind == "adjustment")
         assets_detail::arg_error(command, "/layer", label + " is an adjustment layer: it has no pixels, it changes the layers below it.",
                                  "Change it with image.layer.set (its `adjustments`), or edit a pixels layer.");
