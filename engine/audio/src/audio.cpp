@@ -94,6 +94,9 @@ struct Clip {
     int srcChannels = 0;
     int srcRate = 0;
     float gain = 1.0f;         // loudness normalization (the `normalize` import setting)
+    // Loop points (the `loopStart` / `loopEnd` import settings, in seconds): a looping voice plays loopStart..loopEnd over and over
+    // after the first pass. In 44100 Hz frames; loopEnd 0 = no loop points (the whole clip loops).
+    std::size_t loopStart = 0, loopEnd = 0;
 };
 
 // A voice fed by the game instead of reading a clip: a video's sound (open_pcm_voice / push_pcm). Interleaved stereo float
@@ -374,7 +377,10 @@ struct Audio::Impl {
         clip->srcChannels = decoder->channels();
         clip->srcRate = decoder->rate();
         const double toMixRate = double(kRate) / double(decoder->rate());
-        const bool streams = clip_streams(mode, mode == "auto" ? double(decoder->frames()) / double(decoder->rate()) : 0.0);
+        const double loopStartSeconds = setting_number(settings, "loopStart", 0.0), loopEndSeconds = setting_number(settings, "loopEnd", 0.0);
+        const bool loopPoints = loopEndSeconds > loopStartSeconds && loopStartSeconds >= 0.0;
+        // Loop points need the whole clip in memory (a streamed clip rewinds to its start): they win over `stream`.
+        const bool streams = !loopPoints && clip_streams(mode, mode == "auto" ? double(decoder->frames()) / double(decoder->rate()) : 0.0);
         if (streams && decoder->frames() > 0) {
             clip->encoded = bytes;
             clip->ext = ext;
@@ -396,6 +402,16 @@ struct Audio::Impl {
         if (clip->frames == 0) {
             *err = "Audio clip '" + path + "' contains no audio samples";
             return nullptr;
+        }
+        if (loopPoints) {
+            const std::size_t ls = std::size_t(std::llround(loopStartSeconds * double(kRate))), le = std::min(clip->frames, std::size_t(std::llround(loopEndSeconds * double(kRate))));
+            if (le > ls + 1) {
+                clip->loopStart = ls;
+                clip->loopEnd = le;
+            } else {
+                FA_WARN("audio", "'{}': loopStart {} and loopEnd {} leave nothing to loop inside the {:.3f} s clip, so the whole clip loops", clip->path, loopStartSeconds, loopEndSeconds,
+                        double(clip->frames) / double(kRate));
+            }
         }
         normalize(*clip, settings, *bytes, ext);
         return clip;
@@ -707,14 +723,17 @@ struct Audio::Impl {
                 if (stream) {
                     if (!stream->at(v.pos, l, r)) { v.dead = true; break; }
                 } else {
-                    if (v.pos >= n) {
-                        if (v.loop) v.pos = std::fmod(v.pos, n);
-                        else { v.dead = true; break; }
+                    // With loop points the first pass runs to loopEnd and every later one wraps inside loopStart..loopEnd.
+                    const double loopEnd = c.loopEnd > 0 ? double(c.loopEnd) : n, loopStart = double(c.loopStart);
+                    if (v.pos >= loopEnd) {
+                        if (v.loop) v.pos = loopStart + std::fmod(v.pos - loopStart, loopEnd - loopStart);
+                        else if (v.pos >= n) { v.dead = true; break; }
                     }
                     std::size_t i0 = std::size_t(v.pos);
                     if (i0 >= c.frames) i0 = c.frames - 1;
                     std::size_t i1 = i0 + 1;
-                    if (i1 >= c.frames) i1 = v.loop ? 0 : i0;
+                    if (v.loop && i1 >= std::size_t(loopEnd)) i1 = c.loopStart;
+                    else if (i1 >= c.frames) i1 = i0;
                     const float t = float(v.pos - double(i0));
                     const float* d = c.data.data();
                     l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * t;

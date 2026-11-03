@@ -249,6 +249,12 @@ double sfx_rise_seconds(const SfxAudio& audio);
 // tremolo speed, filter cutoffs, FM) stay, so a stretched sound keeps its character. `factor` must be above 0.
 void stretch_sfx(SfxPatch& patch, double factor);
 
+// The synth's own building blocks, for the audio documents (audio_doc.h) that run the same effects and the same loudness measure:
+// `effects` (filter, distortion, bitcrush, delay, reverb) in order over one channel of samples in place, and the BS.1770 integrated
+// loudness (-70 for silence) and sample peak (linear) of one channel (played on both sides) or two (left and right), all the same length.
+void sfx_run_effects(std::vector<double>& buf, const std::vector<SfxEffect>& effects, int rate);
+void sfx_measure_loudness(const std::vector<std::vector<double>>& channels, int rate, double& lufs, double& peak);
+
 // A 16-bit PCM mono WAV file of the audio.
 std::vector<std::uint8_t> sfx_wav_bytes(const SfxAudio& audio);
 
