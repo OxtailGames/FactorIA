@@ -411,7 +411,7 @@ Copies or converts `source` (an absolute path on this machine, or relative to th
 - .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf: copied as they are (images are checked to decode).
 - .gltf and .glb: copied with the .bin buffers and images their uris point at, which must sit next to the model or below it (a missing buffer is an error, a missing image a warning). An identical file already there is shared; a DIFFERENT image with the same name is kept and the result warns (kits ship different Textures/colormap.png files: import each kit into its own folder with `path`, or pass overwrite), and a DIFFERENT buffer is an `exists` error. project.validate reports a model whose texture or buffer is missing.
 - .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the `sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips (set SpriteAnimator.mode to play them that way); the result says so. The result lists the Sprite and SpriteAnimator settings that play it.
-- .psd: the merged image becomes a PNG (layers are flattened).
+- .psd: the layers become an image document (<name>.image.json, one PNG per layer in <name>.layers/; names, opacity, visibility, blend modes, clipping, groups and layer masks are kept) and the PNG is baked from it; a file whose layers cannot be read imports its merged image as a PNG with a warning.
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
 - .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
 - .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that command. A source with no audio track gives a silent video (the result warns). The result has width, height, fps and duration and the Video component that plays it. An .mpg or .mpeg is checked to be MPEG-1 and copied.
@@ -693,6 +693,150 @@ Composites the layers of the image document at `path` (project-relative, ending 
 | `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. "assets/art/hero.image.json". |
 | `onlyIfNeeded` | boolean | no | Skip the drawing when the PNG already matches the document and every file it reads (what the export does). Default false. |
 
+## `image.create` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Make a new layered image document (*.image.json) with a canvas size, a background and optional first layers, and bake its PNG.
+
+Writes a new image document at `path` (project-relative, ends in .image.json) with a width x height canvas (1..4096), an optional `background` colour and optional `layers` (bottom first; docs.read IMAGES lists the kinds), then bakes the PNG next to it. Refuses to replace an existing file unless overwrite is true. The result has the picture as `$image`, the changed `region` {x,y,width,height} (the whole canvas for a new document) and next steps. Example: {"path":"assets/art/hero.image.json","width":64,"height":64,"background":"#00000000","layers":[{"kind":"fill","name":"sky","color":"#203040"}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the document, project-relative, ending in .image.json. |
+| `width` | integer | yes | Canvas width in pixels. |
+| `height` | integer | yes | Canvas height in pixels. |
+| `background` | any | no | A colour the canvas starts with: "#rrggbb", "#rrggbbaa", a CSS name or [r,g,b,a]. Without it the canvas starts transparent. |
+| `layers` | array | no | The first layers, bottom first, each an object with `kind` (see docs.read IMAGES). Default none. |
+| `description` | string | no | A sentence for people and AIs about the picture. |
+| `overwrite` | boolean | no | Replace the document when it already exists. Default false. |
+| `bake` | boolean | no | Also draw the PNG. Default true. |
+
+## `image.edit` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer.
+
+Applies `action` to the pixels of `layer` inside the stored `selection` (made with image.select; "all" is the whole canvas). Actions: fill {color, opacity?}; recolor {hueShift degrees, saturation -1..1, value -1..1} or {from, to, tolerance?, keepShading?}; move {dx, dy, copy?} (whole pixels; the selection moves along unless moveSelection is false); transform {scale number or [sx,sy], rotate degrees clockwise, flipH, flipV, filter nearest|bilinear, pivot [x,y]} (the selected pixels are lifted, transformed around the pivot - default their middle - and put back; the default filter is nearest when the project's style guide says pixelArt, else bilinear); delete (the selected pixels become transparent); copy and cut {name?} (the selected pixels become a new pixels layer above `layer`; cut also clears them). POLICY FOR OTHER LAYER KINDS: a pixels layer's PNG is edited in place (an AI-generated image keeps that mark, the edit is added to its provenance). A shape, gradient, text or other non-pixel layer is first rasterized: it becomes a pixels layer (its masks, adjustments and effects are baked into the pixels, its blend, opacity and visibility stay) with a new PNG in <document>.layers/ and a warning says so. Groups and adjustment layers cannot be edited this way. A layer with masks keeps its box (the masks are in its own pixels), so pixels moved outside it are dropped (a warning counts them); other layers grow to hold what you move into the canvas. Result: the baked document plus `region` {x,y,width,height} of the changed pixels, `changed` and the picture as `$image`. Example: {"path":"assets/art/hero.image.json","selection":"cape","layer":"hero","action":{"type":"recolor","hueShift":120}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `selection` | string | yes | The stored selection to act on (image.select), or "all". |
+| `layer` | any | yes | The layer to change: its name or an index path like "1/0". |
+| `action` | object | yes | What to do. type: fill, recolor, move, transform, delete, copy, cut. See the command description for each action's fields. |
+| `name` | string | no | copy / cut: the new layer's name (default: '<layer> copy' / '<layer> cut'). |
+| `bake` | boolean | no | Bake the document to its PNG after the edit. Default true. |
+
+## `image.export` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Write the flattened picture of a document, or one layer or group of it, to a PNG, optionally scaled or trimmed.
+
+Draws the document at `path` (or only `layer`, by name or index path, with its masks, adjustments and effects but at full opacity and normal blend; the offsets of the groups around it count) and writes a PNG to `out`. `scale` resizes (0.01..16) with `filter` nearest (pixel art) or bilinear; the default filter is nearest when assets.json style.pixelArt is true, else bilinear. `trim` crops to the pixels that show. The PNG is a plain copy, not baked from the document. Refuses to replace an existing file unless overwrite is true. Example: {"path":"assets/art/hero.image.json","out":"assets/art/hero-x2.png","scale":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document. |
+| `out` | string | yes | The PNG to write, project-relative, ending in .png. |
+| `scale` | number | no | Size factor of the result. Default 1. |
+| `layer` | any | no | Export only this layer or group (name or index path) instead of the whole picture. |
+| `trim` | boolean | no | Crop to the pixels that are not transparent. Default false. |
+| `filter` | string ["nearest","bilinear"] | no | How scale resamples. Default: nearest for pixel-art projects, else bilinear. |
+| `overwrite` | boolean | no | Replace `out` when it exists. Default false. |
+
+## `image.info`
+
+Not released yet (on main after 0.14.1).
+
+Describe a layered image document: its layers as a tree with index paths, sizes, bake status, the files it reads and its stored selections.
+
+Reads the document at `path` and returns {document, width, height, background, valid, problems?, layers: [{index, pointer, name, kind, visible, opacity, blend, x, y, size?, source?, masks?, adjustments?, effects?, children?}], inputs, bake: {state, path, reason}, selections, $image}. `index` is the index path other image.* commands take in `layer` ("1/0"); names work too. `bake.state` is fresh, missing, stale, unrecorded or broken. `$image` is the baked PNG when it exists. Read-only. Example: {"path":"assets/art/hero.image.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative. |
+
+## `image.layer.add` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Add a layer to an image document (at the top, or at an index, or inside a group) and bake the picture.
+
+Adds the `layer` object (its `kind` and fields as docs.read IMAGES describes) to the document at `path`: on top of the root list by default, at `index` (0 = the bottom) of the list, or inside the group `parent`. A layer without `name` gets one from its kind ("fill", "fill 2"); names must be distinct because they address layers. The document is checked completely (a problem names the JSON pointer, nothing is written) and baked. The result has the picture as `$image`, the changed `region`, and `layer` {index, pointer, name, kind} of the new layer. Example: {"path":"assets/art/hero.image.json","layer":{"kind":"text","text":"Hi","size":16,"x":4,"y":4}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. |
+| `layer` | object | yes | The layer: {kind, name?, visible?, opacity?, blend?, x?, y?, clip?, masks?, ...fields of its kind}. |
+| `parent` | any | no | A group (name or index path) to add the layer into. Default: the top level. |
+| `index` | integer | no | Position in the list, 0 = the bottom. Default: the top. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
+## `image.layer.move` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Move a layer to another position in its list, or into another group (or back to the top level), and bake.
+
+`index` is the layer's position in its list afterwards (0 = the bottom, so a higher index is drawn over more layers); without it the layer goes to the top of the list. `parent` moves it into that group (a name or index path; "" is the top level). The layer keeps its own x, y: moving it between groups with different offsets moves it on the canvas. A layer cannot move into its own children. The result has the picture as `$image` and the changed `region`. Example: {"path":"assets/art/hero.image.json","layer":"glow","index":0}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. |
+| `layer` | any | yes | A layer: its name ('sky') or its index path ('1' is the second layer from the bottom, '1/0' the first child of the group at 1). Index paths count from the bottom, like the document. |
+| `index` | integer | no | Position afterwards, 0 = the bottom. Default: the top. |
+| `parent` | any | no | Group to move into (name or index path), or "" for the top level. Default: stay in the same list. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
+## `image.layer.remove` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Remove a layer (and the children of a group) from an image document and bake.
+
+Deletes the layer addressed by name or index path. Its PNG stays on disk. Warns when the layer above was clipped to it. The result has the picture as `$image`, the changed `region` and `removed` {index, pointer, name, kind}. Example: {"path":"assets/art/hero.image.json","layer":"1/0"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. |
+| `layer` | any | yes | A layer: its name ('sky') or its index path ('1' is the second layer from the bottom, '1/0' the first child of the group at 1). Index paths count from the bottom, like the document. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
+## `image.layer.set` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Change fields of one layer (name, visible, opacity, blend, x, y, clip, masks, adjustments, effects, its kind's fields) and bake.
+
+Merges `set` into the layer: a field you give replaces the old one (objects such as `gradient` merge key by key; arrays such as `masks` are replaced whole), null removes a field. The `kind` cannot change. The layer is addressed by name or index path; a wrong name gets a did-you-mean and the layer list. The document is checked completely before anything is written. The result has the picture as `$image` and the changed `region`. Example: {"path":"assets/art/hero.image.json","layer":"shadow","set":{"opacity":0.4,"blend":"multiply"}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json, e.g. 'assets/art/hero.image.json'. |
+| `layer` | any | yes | A layer: its name ('sky') or its index path ('1' is the second layer from the bottom, '1/0' the first child of the group at 1). Index paths count from the bottom, like the document. |
+| `set` | object | yes | The fields to change, e.g. {"opacity":0.5,"visible":false}. null removes a field. |
+| `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
+
+## `image.paint` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked.
+
+Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spacing?} stamps a round brush of diameter `size` along the polyline: one stamp at the first point, then one every `spacing` pixels (default a fifth of the size, at least 1) of arc length, and one at the last point. A pixel gets the largest coverage any stamp of the stroke gives it, so a stroke does not darken where it crosses itself; `opacity` then scales the whole stroke, `hardness` 1 is a hard edge (half a pixel anti-aliased) and lower values fade from hardness*radius to the edge. `erase: true` lowers the alpha instead of painting. Strokes apply in order and the same input always gives the same pixels (no randomness, no pressure). `layer` is a name or an index path; an unknown name with `create: true` makes a new empty pixels layer at the top of the document. A non-pixel layer is rasterized first, as in image.edit (a warning says so). `selection` limits the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what is painted (a layer with masks keeps its box). Result: the baked document, `region`, `changed`, `stamps` and the picture as `$image`. Example: {"path":"assets/art/hero.image.json","layer":"paint","create":true,"strokes":[{"points":[[4,4],[40,20]],"size":3,"color":"#ff0000"}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `layer` | any | yes | The layer to paint on: its name or an index path like "1/0". |
+| `create` | boolean | no | When no layer has that name, create an empty pixels layer with it at the top. Default false. |
+| `selection` | string | no | A stored selection (image.select) that limits where the strokes paint. |
+| `strokes` | array | yes | The strokes, painted in order. |
+| `bake` | boolean | no | Bake the document to its PNG after painting. Default true. |
+
 ## `image.save` (modifies state)
 
 Not released yet (on main after 0.14.1).
@@ -770,4 +914,32 @@ Reads the sound patch at `path` (assets/.../name.sfx.json, format factoria.sfx/1
 | `width` | integer | no | Width of the picture in pixels (default 1000). |
 | `height` | integer | no | Height of the picture in pixels (default 640). |
 | `overwrite` | boolean | no | Replace the sound when it exists and was not made by sfx.render (a sound made by it is always replaced). Default false. |
+
+## `image.select` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Select part of an image document's canvas (by colour, alpha, rectangle, ellipse, polygon or a layer's shape) and store it by name for image.edit and image.paint.
+
+Builds a selection: a coverage (0..255) per canvas pixel. `by` picks how: color (pixels within `tolerance` 0..255 of `color`, or of the pixel at `at`; `contiguous: true` only the connected area around `at`), alpha (pixels whose alpha is at least `threshold`), rect or ellipse (x, y, width, height; anti-aliased), polygon (`points` [[x,y],...]), layer (the layer's shape: its alpha after its masks and effects, soft edges kept) or all. color and alpha read the flattened picture, or only `layer` when it is given. `then` reshapes the new selection with steps in order: [{"grow":2},{"shrink":1},{"feather":1.5},{"invert":true}] (pixels; grow and shrink use a round brush and make a hard edge; feather is a blur of sigma pixels/2). `mode` combines the result with the stored selection of the same `name`: replace (default), add, subtract or intersect. Without `by`, `then` reshapes the stored selection; `clear: true` deletes it. PERSISTENCE: the selection is saved as a grey PNG of the canvas at .factoria/selections/<document path>/<name>.png (white = selected) and stays until replaced or cleared; later calls use it by name (the name "all" is the whole canvas without a file). Changing the canvas size makes old selections unusable (they say so). The result has `selected` (pixels), `coverage`, the bounding box as `region` {x,y,width,height} and the picture with the selection marked as `$image`. Example: {"path":"assets/art/hero.image.json","name":"cape","by":"color","at":[20,30],"contiguous":true,"tolerance":20,"then":[{"grow":1}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. |
+| `name` | string | no | The selection's name (1-40 letters, digits, - or _). Reusing a name replaces it, or combines with it when mode is not replace. Default "selection". |
+| `by` | string ["color","alpha","rect","ellipse","polygon","layer","all"] | no | How to select. Omit it to reshape the stored selection with `then`. |
+| `mode` | string ["replace","add","subtract","intersect"] | no | How the new shape combines with the stored selection of the same name. Default "replace". |
+| `then` | array | no | Steps applied to the new shape, in order: {"grow":px}, {"shrink":px}, {"feather":px}, {"invert":true}. |
+| `clear` | boolean | no | Delete the stored selection `name`. Default false. |
+| `color` | any | no | by color: the colour to select ("#rrggbb", a CSS name, [r,g,b,a]). |
+| `at` | array | no | by color: [x, y] canvas pixel whose colour is taken when `color` is not given, and where a contiguous selection starts. |
+| `tolerance` | number | no | by color: the largest difference of any channel (r, g, b, a; 0..255) that still matches. Default 16. |
+| `contiguous` | boolean | no | by color: select only the connected area (4-neighbours) around `at`. Default false. |
+| `threshold` | number | no | by alpha: the least alpha (0..255) that is selected. Default 1. |
+| `layer` | any | no | by layer: the layer (name or index path). For color and alpha: read only this layer instead of the flattened picture. |
+| `x` | number | no | rect / ellipse: left of the box, canvas pixels. |
+| `y` | number | no | rect / ellipse: top of the box. |
+| `width` | number | no | rect / ellipse: width of the box. |
+| `height` | number | no | rect / ellipse: height of the box. |
+| `points` | array | no | polygon: the corners [[x,y],...], at least three. |
 
