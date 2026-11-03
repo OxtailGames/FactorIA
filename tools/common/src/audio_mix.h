@@ -7,7 +7,10 @@
 #include <cstddef>
 #include <vector>
 
+#include <string>
+
 #include "fa/audio/analysis.h"
+#include "fa/core/json.h"
 
 namespace fa::audio_mix {
 
@@ -52,5 +55,9 @@ Spectrogram spectrogram(const DecodedAudio& audio, int columns, int rows);
 
 // The octave band that holds `hz`.
 int band_of(double hz);
+
+// What assets.spectrogram returns for a call with these arguments ({"path", "width", "height", "out", "loop", "channels"}): the
+// measurements and the `$image` picture. Throws CommandError. For commands that make a sound and show it (sfx.render).
+Json spectrogram_picture(const std::string& projectDir, const Json& args);
 
 }  // namespace fa::audio_mix

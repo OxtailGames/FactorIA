@@ -258,6 +258,11 @@ assets.synth_sound {"path":"assets/audio/dog_bark.wav","preset":"bark","seed":3}
 the preset and the seed. These are synthesizer sounds: fine for a game's feedback, not a replacement for recorded or
 composed audio.
 
+Each preset is a sound patch (`*.sfx.json`, docs/SOUND.md) that ships in the engine: `sfx.preset {"name":"bark"}` returns it,
+`sfx.preset {"name":"bark","path":"assets/audio/bark.sfx.json"}` writes it, and `sfx.render {"path":"assets/audio/bark.sfx.json"}`
+renders your edited version (layers, envelopes, pitch sweeps, filters, FM, effects), with the loudness numbers and a spectrogram.
+Use `assets.synth_sound` for a preset as it is, and a patch when you want to design the sound.
+
 ### Materials without a provider: assets.generate_texture
 
 With no image provider (`assets.generate_image` fails with `no_provider`), `assets.generate_texture` paints a material
