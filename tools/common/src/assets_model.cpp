@@ -8,6 +8,7 @@
 #include "assets_internal.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
+#include "fa/scene/model_select.h"
 #include "fa/tooling/model_bake.h"
 #include "fa/tooling/project_fs.h"
 #include "util.h"
@@ -101,6 +102,20 @@ Loaded document_arg(const char* command, const std::string& projectDir, const Js
 
 Json bake_json(const ModelBakeStatus& s) { return Json::object({{"state", model_bake_state_name(s.state)}, {"output", s.output}, {"reason", s.reason}}); }
 
+// What a selection matched (model.select, and the edit nodes in model.info's measurements).
+Json selection_json(const ModelSelectionReport& r) {
+    Json parts = Json::array();
+    for (const auto& [name, count] : r.parts) parts.push_back(Json::object({{"part", name}, {"count", count}}));
+    Json out = Json::object({{"select", r.select}, {"matched", r.matched}, {"total", r.total}});
+    if (!r.pointer.empty()) out["pointer"] = r.pointer;
+    if (!r.op.empty()) out["op"] = r.op;
+    out[r.select == "faces" ? "area" : "length"] = round_to(r.measure, 4);
+    if (r.matched > 0) out["bounds"] = Json::object({{"min", vec3_json(r.bmin)}, {"max", vec3_json(r.bmax)}, {"size", vec3_json(r.bmax - r.bmin)}});
+    out["parts"] = parts;
+    if (!r.warnings.empty()) out["warnings"] = r.warnings;
+    return out;
+}
+
 // What an evaluation measured.
 Json build_json(const ModelBuild& b) {
     Json parts = Json::array();
@@ -120,6 +135,11 @@ Json build_json(const ModelBuild& b) {
                              {"area", round_to(s.area, 4)},
                              {"parts", parts}});
     if (!b.warnings.empty()) out["warnings"] = b.warnings;
+    if (!b.edits.empty()) {
+        Json edits = Json::array();
+        for (const ModelSelectionReport& r : b.edits) edits.push_back(selection_json(r));
+        out["edits"] = edits;
+    }
     return out;
 }
 
@@ -168,6 +188,19 @@ Json op_catalog() {
     return list;
 }
 
+Json query_catalog() {
+    Json out = Json::object({{"faces", Json::array()}, {"edges", Json::array()}});
+    for (const ModelQueryInfo& q : model_queries()) {
+        Json fields = Json::array();
+        for (const ModelFieldInfo& f : q.fields) fields.push_back(field_json(f));
+        out[q.kind == ModelSelectKind::Faces ? "faces" : "edges"].push_back(Json::object({{"by", q.by}, {"doc", q.doc}, {"fields", fields}}));
+    }
+    Json names = Json::array();
+    for (const auto& [n, d] : model_named_directions()) names.push_back(Json::object({{"name", n}, {"vector", vec3_json(d)}}));
+    out["directions"] = names;
+    return out;
+}
+
 Json common_catalog() {
     Json list = Json::array();
     for (const ModelFieldInfo& f : model_common_fields()) list.push_back(field_json(f));
@@ -195,6 +228,9 @@ Json model_info_command(const std::string& projectDir, const Json& a) {
         return Json::object(
             {{"operations", op_catalog()},
              {"commonFields", common_catalog()},
+             {"selections", Json::object({{"doc", "The `faces` / `edges` fields of extrude_faces, inset_faces, bevel_edges, delete_faces and assign_faces are queries by meaning, never indices: {\"by\": <kind>, ...fields}. They are "
+                                                    "evaluated on the mesh below the node each time the document is evaluated. model.select tries one and reports what it matched."},
+                                          {"queries", query_catalog()}})},
              {"document", Json::object({{"format", kModelDocFormat}, {"fields", Json::array({"format", "doc", "output", "materials", "nodes"})}, {"maxNodes", kModelDocMaxNodes}, {"maxDepth", kModelDocMaxDepth}})},
              {"nextSteps", Json::array({"model.create {\"path\":\"assets/models/crate.model.json\",\"nodes\":[{\"op\":\"rounded_box\",\"size\":[1,1,1],\"radius\":0.08,\"part\":\"body\"}]} writes a document and bakes it to a .glb.",
                                         "model.info {\"path\":...} checks a document and measures what it builds."})}});
@@ -227,6 +263,71 @@ Json model_info_command(const std::string& projectDir, const Json& a) {
         result["inputs"] = inputs;
     }
     result["nextSteps"] = Json::array({"model.edit adds, changes, moves or removes a node by its id; model.bake writes the .glb (" + result["output"].get<std::string>() + ")."});
+    return result;
+}
+
+// ---- model.select ----
+
+Json model_select_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("model.select", a, "", {"path", "document", "node", "faces", "edges"});
+    bool inlineDoc = false;
+    const Loaded loaded = document_arg("model.select", projectDir, a, inlineDoc);
+    const std::string ref = tooling_detail::arg_string(a, "node", true);
+    std::string pointer, why;
+    Json jsonCopy = loaded.json;
+    if (!find_model_node(jsonCopy, ref, &pointer, &why))
+        fail("not_found", "model.select: `node` '" + ref + "': " + why, "Name the node whose mesh to select on by its id or a JSON pointer such as /nodes/0; model.info lists them.");
+    if (a.contains("faces") && a.contains("edges")) fail("invalid_argument", "model.select: give `faces` or `edges`, not both.", "Faces and edges are separate questions; call model.select twice.");
+    const ModelNode* target = nullptr;
+    std::vector<const ModelNode*> stack;
+    for (const ModelNode& n : loaded.doc.nodes) stack.push_back(&n);
+    while (!stack.empty()) {
+        const ModelNode* n = stack.back();
+        stack.pop_back();
+        if (n->pointer == pointer) target = n;
+        for (const ModelNode& c : n->children) stack.push_back(&c);
+    }
+    ModelSelectKind kind = ModelSelectKind::Faces;
+    Json query;
+    if (a.contains("faces")) query = a["faces"];
+    else if (a.contains("edges")) {
+        query = a["edges"];
+        kind = ModelSelectKind::Edges;
+    } else if (target && target->params.contains("faces")) query = target->params["faces"];
+    else if (target && target->params.contains("edges")) {
+        query = target->params["edges"];
+        kind = ModelSelectKind::Edges;
+    } else
+        fail("invalid_argument", "model.select: give `faces` or `edges`, the query to try.",
+             "Example: {\"path\":\"" + std::string(inlineDoc ? "..." : loaded.rel) + "\",\"node\":\"" + ref + "\",\"faces\":{\"by\":\"normal\",\"direction\":\"top\"}}. model.info {} lists the queries.");
+    std::vector<ModelIssue> issues;
+    check_model_selection(query, kind, kind == ModelSelectKind::Faces ? "/faces" : "/edges", issues);
+    if (!issues.empty()) {
+        const ModelIssue& first = issues.front();
+        throw CommandError("invalid_argument", "model.select: " + first.pointer + ": " + first.message, first.hint, Json::object({{"issues", issues_json(issues)}}));
+    }
+    ModelEvalOptions options = model_project_eval_options();
+    std::optional<ModelSelectionReport> report;
+    options.probe = [&](const ModelNode& n, const ModelMesh& input, const ModelEditContext& ctx) {
+        if (report || n.pointer != pointer) return;
+        report = model_select_report(input, query, kind, ctx);
+    };
+    {
+        ProjectRootGuard root(projectDir);
+        auto build = evaluate_model(loaded.doc, options);
+        if (!build.ok() && !report) fail("failed", (loaded.rel.empty() ? std::string() : loaded.rel + ": ") + build.error().message, build.error().hint);
+    }
+    if (!report)
+        fail("failed", "model.select: node '" + ref + "' (" + pointer + ") made no mesh to select on",
+             "The node is disabled, has no geometry under it, or is inside an sdf (whose shapes are not meshes). Pick a primitive, group or modifier that builds geometry.");
+    report->pointer = pointer;
+    report->op = target ? target->op : "";
+    Json result = selection_json(*report);
+    result["node"] = pointer;
+    result["query"] = query;
+    result["nextSteps"] = Json::array({report->matched == 0 ? "Nothing matched: read the warning, adjust the query and call model.select again before using it in an edit node."
+                                                           : "Use this query as the `" + std::string(kind == ModelSelectKind::Faces ? "faces" : "edges") +
+                                                                 "` of extrude_faces, inset_faces, bevel_edges, delete_faces or assign_faces with model.edit add."});
     return result;
 }
 
@@ -528,6 +629,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
         info.description =
             "A model document (`*.model.json`, docs/MODELING.md) is a 3D model written as a tree of operations: primitives (box, rounded_box, cylinder, cone, sphere, capsule, torus, grid, stairs, arch, pipe, text, lathe, sweep, loft), groups, "
             "modifiers that wrap their children and change the mesh they make (boolean, mirror, array, radial_array, bevel, subdivide, solidify, bend, twist, taper, noise, smooth, weld, shade), "
+            "edits on a selection chosen by meaning (extrude_faces, inset_faces, loop_cut, bevel_edges, delete_faces, assign_faces: see model.select and the \"selections\" of the catalog), "
             "and a transform, a part name, a material and a vertex colour on any node. With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, "
             "what is wrong and the fix; a valid one returns the tree (pointer, op, id, part, material per node), where it bakes to and whether that .glb is fresh or stale, and (unless evaluate is false) builds it in memory: "
             "vertices, triangles, bounds and size in metres, whether the surface is closed, volume, and the triangles and bounds of every part. With no argument it returns the catalog of operations with every field, its range, "
@@ -536,6 +638,27 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                          {"properties", obj({{"path", pathArg()}, {"document", object_arg("The document itself, as JSON, to check before writing it to a file (format is filled in).")},
                                                              {"evaluate", boolean("Build the mesh in memory for the measurements. Turn it off to only check the document.", true)}})}});
         registry.add(info, [projectDir](const Json& args) { return model_info_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "model.select";
+        info.category = "assets";
+        info.readOnly = true;
+        info.summary = "Try a selection of faces or edges chosen by meaning (normal direction, part, region, top/bottom, border, sharp, seam) on the mesh a node receives, and report what it matched.";
+        info.description =
+            "The edit operations extrude_faces, inset_faces, bevel_edges, delete_faces and assign_faces take a selection written as a query, never as indices: {\"by\": \"normal\", \"direction\": \"top\"}, {\"by\": \"part\", \"part\": \"lid\"}, "
+            "{\"by\": \"box\", \"min\": [...], \"max\": [...]}, combined with and / or / not / grow / shrink; edges: border (of a face selection), sharp (over an angle), between_parts, loop (round an axis at a height or ratio). "
+            "This evaluates the document up to `node` and runs the query on the mesh that node receives (its merged children, or the mesh a primitive made; in the node's own space, before its transform), then answers: how many faces (or edges) "
+            "matched out of how many, their total area (or length), their bounds and how many belong to each part. An empty selection returns a warning that says why (what the mesh spans, the parts that exist, how close the nearest face was). "
+            "Without `faces` / `edges` the node's own selection is used, so model.select on an edit node tells what it will edit. Because a query is evaluated on every build, it keeps meaning the same faces when the model below changes. "
+            "Example: {\"path\":\"assets/models/crate.model.json\",\"node\":\"body\",\"faces\":{\"by\":\"normal\",\"direction\":\"top\"}}";
+        info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"node"})}, {"additionalProperties", false},
+                                         {"properties", obj({{"path", pathArg()},
+                                                             {"document", object_arg("The document itself, as JSON, instead of a file.")},
+                                                             {"node", str("The node whose mesh is selected on, by id or JSON pointer.")},
+                                                             {"faces", Json::object({{"type", "object"}, {"description", "A face query, e.g. {\"by\": \"normal\", \"direction\": \"top\"}. model.info {} lists them."}})},
+                                                             {"edges", Json::object({{"type", "object"}, {"description", "An edge query, e.g. {\"by\": \"sharp\", \"angle\": 60}."}})}})}});
+        registry.add(info, [projectDir](const Json& args) { return model_select_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
         CommandInfo info;

@@ -427,6 +427,172 @@ shapes on the +Z side are written.
 Edit by id like any model: `model.edit {"path": "assets/models/rock.model.json", "op": "set", "target": "pit", "values": {"radius": 0.3}}`; to add a
 shape to an `sdf`, `{"op": "add", "parent": "rock", "node": {"op": "sdf_sphere", ...}}`.
 
+## Selections and edits
+
+Some edits work on PART of a surface: push a panel out of a wall, sink a recess, round the rim of a lid, open the top of a box,
+move the top faces into another part. For these the document does not name triangles (`face 17`): triangle numbers change as
+soon as a box gets more segments or a primitive changes size, and an index that meant "the top" yesterday means "a corner"
+today. A **selection is a query by meaning**, written in the node and evaluated on the mesh that reaches it every time the
+document is built:
+
+- `extrude_faces`, `inset_faces`, `delete_faces` and `assign_faces` take `faces`, a **face query**;
+- `bevel_edges` takes `edges`, an **edge query**;
+- `loop_cut` needs no selection: it cuts a ring at a height.
+
+Like a modifier, an edit node WRAPS its `children` (the mesh it works on is the merged mesh of the children), has the common
+fields (`id`, `part`, `position`...), and is edited by id. `model.info {}` lists every query with its fields under `selections`;
+`model.select` tries one and says what it matched (below). Every query below is checked when the document is read: a wrong
+field, an unknown `by`, a box with `min` above `max` or a zero direction is an error with its JSON pointer and a fix, with "did
+you mean" for names.
+
+### Face queries
+
+A query is an object with `by` and the fields that `by` takes.
+
+| `by` | Chooses | Fields (default) |
+|---|---|---|
+| `normal` | faces pointing in a direction | `direction` (`top`, `bottom`, `front`, `back`, `left`, `right`, or `[x, y, z]`), `tolerance` (30 degrees), `space` |
+| `part` | faces of a part (`""`: nodes with no part) | `part`, or `parts` (a list) |
+| `top` / `bottom` | the highest / lowest faces along an axis | `axis` (`y`), `within` (0.01% of the extent), `of` (look only among the faces this query chooses), `space` |
+| `box` | faces inside an axis-aligned box | `min`, `max`, `contain` (`center`; `all`, `any`), `space` |
+| `sphere` | faces inside a ball | `center`, `radius`, `contain`, `space` |
+| `halfspace` | faces on one side of a plane | `point`, `normal` (the side that is chosen), `contain`, `space` |
+| `all` | every face | |
+| `and` / `or` | faces that all / any of the queries in `of` choose | `of` (a list) |
+| `not` | every face that `of` does not choose | `of` |
+| `grow` / `shrink` | the faces plus (minus) the ring of neighbours that share an edge | `of`, `steps` (1) |
+
+Directions and distances are in the space of the edit node's children (before the node's own `position`, `rotation` and `scale`):
+a box 1 m wide is [-0.5, 0.5] whatever the node does. `"space": "model"` measures in the model's space instead, through the
+transforms of this node and of the groups above it (a `normal` query with `"direction": "top"` and `"space": "model"` picks the
+faces that point up in the finished model even when the group they are in is tilted). `top` / `bottom` choose by the position of the
+faces, not by where they point, so they find the cap of a cylinder and the top row of a wall; `normal` finds every face that points
+that way.
+
+### Edge queries
+
+| `by` | Chooses | Fields (default) |
+|---|---|---|
+| `border` | the edges around a group of faces (a chosen face on one side only) | `faces` (a face query) |
+| `sharp` | edges where the two faces turn by more than an angle | `angle` (30), `faces` (only edges that touch these faces) |
+| `between_parts` | the seam where one part meets another | `a`, `b` (both: that seam; one: every seam of that part; none: all seams) |
+| `loop` | the edges in the plane perpendicular to an axis at a height | `axis` (`y`), `at` (a coordinate) or `ratio` (0 to 1 of the extent along the axis; 0.5), `tolerance`, `space` |
+| `all`, `and`, `or`, `not` | as for faces | |
+
+### The edits
+
+| Op | What it does | Fields (default) |
+|---|---|---|
+| `extrude_faces` | Pushes the chosen faces out of the surface and joins them with walls. | `faces`, `distance` (0.1; negative sinks them), `direction` (the average of the faces' normals around each vertex), `newPart`, `newMaterial` |
+| `inset_faces` | Shrinks the chosen faces inside their border and fills the gap with a ring of faces; with a `depth` the ring slopes up or down to the inner faces. | `faces`, `thickness` (0.05), `depth` (0; raises or sinks the inner faces), `newPart`, `newMaterial` |
+| `loop_cut` | Splits every face the plane crosses along a ring of edges; the shape does not change. | `axis` (`y`), `at` or `ratio` or `count` (evenly spaced cuts, 1 to 64) |
+| `bevel_edges` | Rounds or chamfers only the chosen edges (like `bevel`, which does every sharp edge). | `edges`, `width` (0.05), `segments` (2), `roundness` (1) |
+| `delete_faces` | Removes the chosen faces; the hole is left open. | `faces` |
+| `assign_faces` | Moves the chosen faces to another part and/or material without changing the shape. | `faces`, `toPart`, `toMaterial` (at least one) |
+
+**Parts are kept.** Every face keeps the part of the face it came from. The walls of an extrusion and the ring of an inset
+are new faces: they take `newPart` / `newMaterial` (a part name of your choice, or a key of `materials`) or, left out, the
+part of the face they grew from. An extrusion gives its moved faces and its walls the same new part (the thing that was pushed
+out), an inset gives only the ring. `loop_cut` splits a face and both halves keep its part. `assign_faces` is how an existing
+surface changes part, and it is what lets `between_parts` find a seam.
+
+**Stable when the model changes.** The query, not the result, is stored. With a `box` of `segments` [1, 1, 1] or [8, 8, 8],
+`{"by": "normal", "direction": "top"}` chooses the faces of the top (2 or 128 triangles) and the extrusion moves exactly those;
+change the box's `size` and `loop_cut` with `ratio` stays at the same fraction of the height. Nothing refers to triangle numbers,
+and the result depends only on the geometry, so building twice gives the same bytes.
+
+**Empty selections teach.** A query that matches nothing does not fail the build (a parametric model should survive a tweak
+upstream): the edit leaves the mesh as it is and a warning says why: which part names exist and the closest one ("did you mean"),
+how many degrees the closest face is from the direction, the bounds the mesh spans when a box or sphere missed, the nearest height
+for a `loop`. An edit that cannot be built is an error that says how to fix it: an inset wider than the faces ("the most these faces
+allow is about 0.21"), a result with more than a million triangles.
+
+### Trying a selection: `model.select`
+
+`model.select {path, node, faces | edges}` evaluates the document up to the node (its id or JSON pointer) and runs the query on
+the mesh that node receives: the merged children of a group or modifier, or the mesh a primitive made. It answers how many faces
+(or edges) matched out of how many, their area (or length), their bounds and how many belong to each part, or the warning above.
+Without `faces` / `edges` it uses the node's own selection, so it tells what an edit node will edit. `model.info` lists the same
+numbers for every edit node under `measurements.edits`.
+
+```
+factoria call model.select '{"path":"assets/models/crate.model.json","node":"body","faces":{"by":"normal","direction":"top"}}'
+{"select": "faces", "matched": 2, "total": 12, "area": 1.0, "bounds": {"min": [-0.5, 0.5, -0.5], "max": [0.5, 0.5, 0.5], ...},
+ "parts": [{"part": "body", "count": 2}]}
+```
+
+### Examples
+
+A raised button on the top of a crate. The inset frames the top (its ring is the part `frame`, the inner faces stay `body`),
+then only the inner top faces, the ones that point up and are still `body`, are pushed out as the part `button`:
+
+```json
+{
+  "format": "factoria.model/1",
+  "doc": "A crate with a button raised from its top.",
+  "nodes": [
+    {"op": "extrude_faces", "id": "button", "distance": 0.1, "newPart": "button",
+     "faces": {"by": "and", "of": [{"by": "normal", "direction": "top"}, {"by": "part", "part": "body"}]},
+     "children": [
+       {"op": "inset_faces", "id": "frame", "thickness": 0.15, "newPart": "frame",
+        "faces": {"by": "normal", "direction": "top"},
+        "children": [{"op": "box", "id": "crate", "size": [1, 0.4, 1], "part": "body"}]}]}
+  ]
+}
+```
+
+A lid with a rounded rim. The top faces move to the part `lid`; the seam between the lid and the body is found by meaning and
+only it is bevelled:
+
+```json
+{
+  "format": "factoria.model/1",
+  "doc": "A box whose lid has a bevelled rim.",
+  "nodes": [
+    {"op": "bevel_edges", "id": "rim", "width": 0.04, "edges": {"by": "between_parts", "a": "lid", "b": "body"},
+     "children": [
+       {"op": "assign_faces", "id": "lid", "toPart": "lid", "faces": {"by": "normal", "direction": "top"},
+        "children": [{"op": "box", "size": [1, 0.5, 1], "part": "body"}]}]}
+  ]
+}
+```
+
+A belt round a barrel. `loop_cut` makes two rings at a third and two thirds of the height; the faces between them are chosen by
+a box and pushed out along their normals:
+
+```json
+{
+  "format": "factoria.model/1",
+  "doc": "A drum with a raised belt.",
+  "nodes": [
+    {"op": "extrude_faces", "id": "belt", "distance": 0.04, "newPart": "belt",
+     "faces": {"by": "box", "min": [-1, -0.17, -1], "max": [1, 0.17, 1], "contain": "all"},
+     "children": [{"op": "loop_cut", "id": "rings", "count": 2, "children": [{"op": "cylinder", "radius": 0.4, "height": 1, "part": "drum"}]}]}
+  ]
+}
+```
+
+A recess in a panel. `inset_faces` with a negative `depth` sinks the inner faces; the ring between the border and them slopes
+down to the new depth, so it is a tray with sloped sides (the ring takes the part `recess`):
+
+```json
+{
+  "format": "factoria.model/1",
+  "doc": "A panel with a recess.",
+  "nodes": [
+    {"op": "inset_faces", "id": "recess", "thickness": 0.1, "depth": -0.05, "newPart": "recess",
+     "faces": {"by": "and", "of": [{"by": "normal", "direction": "front"}, {"by": "box", "min": [-1, -1, 0], "max": [1, 1, 1], "contain": "all"}]},
+     "children": [{"op": "box", "size": [1, 1, 0.1], "part": "panel"}]}
+  ]
+}
+```
+
+Limits: an edit works on the triangles it is given, so a selection can only be as fine as the mesh (give the primitive more
+`segments`, or `loop_cut`, to get a face of the size you want). `extrude_faces` moves the vertices along the average of the
+selected normals, so on a curved selection the walls are not exactly `distance` thick; a negative `distance` on the whole outer
+surface of a solid (every top face of a box, with no inset first) leaves the old side faces in place and gives a surface that
+overlaps itself: sink a region with `inset_faces` first (a rim stays). `bevel_edges` leaves flat, open or shared edges alone and says so.
+
 ## Parts, materials and vertex colours
 
 A **part** is a labelled piece of the model. A node with `part` gives that name to itself and to every node below it that
@@ -453,6 +619,7 @@ a `text` node: an engine font is data the binary ships; a project `.ttf` is a fi
 |---|---|
 | `model.info {}` | The catalog: operations with their fields (type, range, default, doc), and the fields every node takes. |
 | `model.info {path}` (or `{document}`) | Checks a document, returns the tree (pointer, op, id, part, material), where it bakes to, whether the `.glb` is fresh, and (unless `evaluate` is false) measurements: vertices, triangles, bounds and size, closed surface, volume, and the triangles and bounds of each part. A document with mistakes returns `valid: false` and ALL its issues. |
+| `model.select {path, node, faces? | edges?}` | Tries a face or edge selection chosen by meaning on the mesh a node receives and reports how many matched, their area or length, bounds and parts, with a teaching warning when nothing matched. |
 | `model.create {path, nodes?, materials?, output?, doc?, overwrite?, bake?}` | Writes a document (default: one box), gives the nodes ids, bakes it. |
 | `model.edit {path, op, ...}` | `add` (`node`, `parent?`, `index?`), `set` (`target`, `values`; a null value removes a field), `remove` (`target`), `move` (`target`, `parent?`, `index?`), `document` (`doc`, `output`, `materials`). `target` and `parent` are a node id or a JSON pointer such as `/nodes/1/children/0`. The whole document is checked before anything is written. Then it bakes again. |
 | `model.bake {path?, force?, dryRun?, overwrite?}` | Builds the documents whose `.glb` is missing or stale (one with `path`; `force` also the fresh ones). Writes the `.glb` the way `mesh.save` writes a mesh, with provenance and a recipe in `assets.json`. |
