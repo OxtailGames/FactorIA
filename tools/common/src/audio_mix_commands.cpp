@@ -834,6 +834,8 @@ Json spectrogram_command(const std::string& projectDir, const Json& args) {
 
 }  // namespace
 
+Json audio_mix::spectrogram_picture(const std::string& projectDir, const Json& args) { return spectrogram_command(projectDir, args); }
+
 void register_audio_mix_commands(CommandRegistry& registry, const std::string& projectDir) {
     {
         CommandInfo info;
