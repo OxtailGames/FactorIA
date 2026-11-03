@@ -975,15 +975,20 @@
     "ui.state": "0.1.6",
     "ui.stop_speaking": "0.2.0",
     "vector.align": "unreleased",
+    "vector.blob": "unreleased",
     "vector.boolean": "unreleased",
     "vector.distribute": "unreleased",
     "vector.info": "unreleased",
+    "vector.mirror": "unreleased",
     "vector.offset": "unreleased",
     "vector.repeat": "unreleased",
+    "vector.shade": "unreleased",
+    "vector.shape": "unreleased",
     "vector.simplify": "unreleased",
     "vector.smooth": "unreleased",
     "vector.stroke_to_path": "unreleased",
-    "vector.style": "unreleased"
+    "vector.style": "unreleased",
+    "vector.text_to_path": "unreleased"
   },
   "script": {
     "ActiveVoice": "0.3.0",

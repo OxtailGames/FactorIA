@@ -56,4 +56,30 @@ struct TextBitmap {
 // breaks (a '\n' is dropped). Text with no ink (empty, spaces) gives an empty bitmap. An unreadable font is an error.
 Result<TextBitmap> rasterize_text(std::string_view utf8, const std::string& font, float pixelSize);
 
+// One line or more of text as vector outlines, for turning text into paths (vector.text_to_path): the glyphs the engine itself
+// would draw (HarfBuzz shaping: kerning, ligatures, joining scripts, right-to-left text), taken from the font and then the
+// built-in DejaVu Sans for the characters it lacks. Coordinates are in units of `size` (the em), y DOWN, the origin at the
+// start of the first line's baseline; a '\n' starts a new line below.
+struct TextOutlineCmd {
+    enum Kind : std::uint8_t { Move, Line, Quad, Cubic, Close } kind = Move;
+    float x = 0, y = 0;    // the end point (Move, Line, Quad, Cubic)
+    float cx = 0, cy = 0;  // Quad: its control point; Cubic: the first control point
+    float dx = 0, dy = 0;  // Cubic: the second control point
+};
+enum class TextAnchor { Start, Middle, End };
+struct TextOutline {
+    std::vector<TextOutlineCmd> cmds;
+    std::vector<float> lineWidths;   // the advance of each line, in the same units (letter spacing included)
+    float advance = 0;               // the widest line
+    float ascent = 0, descent = 0;   // of the first font: baseline up to the top, down to the bottom (positive)
+    float lineHeight = 0;            // the distance between two baselines (ascent + descent + the font's line gap) times lineSpacing
+    int glyphs = 0;                  // glyphs drawn (spaces and glyphs without ink included)
+    std::vector<char32_t> missing;   // visible characters no font has (at most 8)
+};
+// `font`: "" / "builtin", "builtin:pixel", the other built-in names, or a project .ttf / .otf read through fa::fs. `anchor`
+// places each line against the origin: its start, middle or end. `letterSpacing` is added after every glyph, in ems.
+// An unreadable font is an error.
+Result<TextOutline> outline_text(std::string_view utf8, const std::string& font, float size, TextAnchor anchor = TextAnchor::Start,
+                                 float letterSpacing = 0.0f, float lineSpacing = 1.0f);
+
 }  // namespace fa

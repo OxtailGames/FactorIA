@@ -717,3 +717,298 @@ TEST_CASE("vector.info: lists shapes with ids, bounds in the drawing space and n
     CHECK_FALSE(r.contains("changed"));
     CHECK_FALSE(r.contains("svg"));
 }
+
+// ---- shape builders (docs/VECTOR.md, "Shapes") -------------------------------------------------------------------------
+
+#include <algorithm>
+#include <regex>
+
+#include "fa/tooling/vector.h"
+
+namespace {
+
+// Every number of a path's `d`, in pairs: anchors and control points alike.
+std::vector<std::pair<double, double>> pairs_of(const std::string& d) {
+    std::vector<double> nums;
+    static const std::regex num("-?[0-9]+(\\.[0-9]+)?(e-?[0-9]+)?");
+    for (auto it = std::sregex_iterator(d.begin(), d.end(), num); it != std::sregex_iterator(); ++it) nums.push_back(std::stod(it->str()));
+    std::vector<std::pair<double, double>> out;
+    for (std::size_t i = 0; i + 1 < nums.size(); i += 2) out.push_back({nums[i], nums[i + 1]});
+    return out;
+}
+
+// The anchors only (the end point of each M, L and C), which is where a curve actually passes.
+std::vector<std::pair<double, double>> anchors_of(const std::string& d) {
+    std::vector<std::pair<double, double>> out;
+    std::size_t i = 0;
+    while (i < d.size()) {
+        const char ch = d[i];
+        if (ch == 'M' || ch == 'L' || ch == 'C') {
+            std::size_t j = i + 1;
+            while (j < d.size() && d[j] != 'M' && d[j] != 'L' && d[j] != 'C' && d[j] != 'Z') ++j;
+            const auto ps = pairs_of(d.substr(i + 1, j - i - 1));
+            if (!ps.empty()) out.push_back(ps.back());
+            i = j;
+        } else {
+            ++i;
+        }
+    }
+    return out;
+}
+
+double radius_of(std::pair<double, double> p, double cx, double cy) { return std::hypot(p.first - cx, p.second - cy); }
+
+// The d of the element with an id in a result svg.
+std::string d_of(const std::string& svg, const std::string& id) {
+    const std::size_t at = svg.find("id=\"" + id + "\"");
+    REQUIRE(at != std::string::npos);
+    const std::size_t d = svg.find(" d=\"", at);
+    REQUIRE(d != std::string::npos);
+    return svg.substr(d + 4, svg.find('"', d + 4) - d - 4);
+}
+
+}  // namespace
+
+TEST_CASE("vector shapes: a star has its points at the outer radius and its valleys at the inner one") {
+    VecStarSpec s;
+    s.center = {50, 50};
+    s.radius = 40;
+    s.points = 7;
+    s.innerRatio = 0.4;
+    const auto a = anchors_of(vector_star_path(s));
+    REQUIRE(a.size() == 14);
+    for (std::size_t i = 0; i < a.size(); ++i) CHECK(radius_of(a[i], 50, 50) == doctest::Approx(i % 2 == 0 ? 40.0 : 16.0).epsilon(0.001));
+    CHECK(a[0].first == doctest::Approx(50).epsilon(0.001));  // the first tip points up
+    CHECK(a[0].second == doctest::Approx(10).epsilon(0.001));
+    s.roundness = 1;
+    const std::string round = vector_star_path(s);
+    CHECK(contains(round, "C"));
+    for (const auto& p : pairs_of(round)) CHECK(radius_of(p, 50, 50) <= 40.01);  // rounding only cuts the tips
+}
+
+TEST_CASE("vector shapes: a gear has its teeth around the rim and a hole in the middle") {
+    VecGearSpec g;
+    g.center = {50, 50};
+    g.radius = 40;
+    g.teeth = 9;
+    g.depth = 0.25;
+    g.hole = 0.3;
+    const std::string d = vector_gear_path(g);
+    CHECK(std::count(d.begin(), d.end(), 'M') == 2);  // the rim and the hole
+    // the teeth: clusters of points on the outer half of the rim, by angle
+    std::vector<double> angles;
+    double maxR = 0;
+    for (const auto& p : anchors_of(d)) {
+        const double r = radius_of(p, 50, 50);
+        maxR = std::max(maxR, r);
+        if (r > 40 * (1 - 0.125) && r < 40 * 1.001) angles.push_back(std::atan2(p.second - 50, p.first - 50));
+    }
+    CHECK(maxR == doctest::Approx(40).epsilon(0.001));
+    std::sort(angles.begin(), angles.end());
+    REQUIRE(angles.size() == 18);  // two corners at the tip of each of the 9 teeth
+    const double pitch = 2 * 3.14159265358979 / 9;
+    for (std::size_t i = 0; i < angles.size(); i += 2) CHECK(angles[i + 1] - angles[i] == doctest::Approx(0.5 * pitch).epsilon(0.1));
+    double minR = 1e9;
+    for (const auto& p : anchors_of(d.substr(d.find('M', 1)))) minR = std::min(minR, radius_of(p, 50, 50));
+    CHECK(minR == doctest::Approx(12).epsilon(0.01));  // the hole
+}
+
+TEST_CASE("vector shapes: a polygon has its corners on the circle and rounding keeps it inside") {
+    VecPolygonSpec s;
+    s.center = {50, 50};
+    s.radius = 40;
+    s.sides = 5;
+    const auto a = anchors_of(vector_polygon_path(s));
+    REQUIRE(a.size() == 5);
+    for (const auto& p : a) CHECK(radius_of(p, 50, 50) == doctest::Approx(40).epsilon(0.001));
+    s.cornerRadius = 8;
+    const std::string d = vector_polygon_path(s);
+    CHECK(anchors_of(d).size() == 11);  // the start, then a line and a fillet per corner (the last fillet ends at the start)
+    for (const auto& p : pairs_of(d)) CHECK(radius_of(p, 50, 50) < 40.0);
+    // a fillet of radius r on a corner of angle 108 degrees cuts the corner at tan(36deg) * r from it, on the sides
+    const double cut = 8 / std::tan(108.0 / 2 * 3.14159265 / 180);
+    CHECK(std::hypot(a[0].first - anchors_of(d)[0].first, a[0].second - anchors_of(d)[0].second) == doctest::Approx(cut).epsilon(0.02));
+}
+
+TEST_CASE("vector shapes: an arrow runs from the tail to the tip, and a curved one bends to the side asked for") {
+    VecArrowSpec a;
+    a.from = {10, 50};
+    a.to = {90, 50};
+    a.shaftWidth = 8;
+    a.headLength = 20;
+    a.headWidth = 24;
+    const auto pts = anchors_of(vector_arrow_path(a));
+    REQUIRE(pts.size() == 7);
+    CHECK(std::any_of(pts.begin(), pts.end(), [](auto p) { return std::abs(p.first - 90) < 1e-6 && std::abs(p.second - 50) < 1e-6; }));
+    double minX = 1e9, minY = 1e9, maxY = -1e9;
+    for (const auto& p : pts) {
+        minX = std::min(minX, p.first);
+        minY = std::min(minY, p.second);
+        maxY = std::max(maxY, p.second);
+    }
+    CHECK(minX == doctest::Approx(10));
+    CHECK(minY == doctest::Approx(38));  // half the head width
+    CHECK(maxY == doctest::Approx(62));
+    a.curve = 0.2;  // positive = right of from -> to, which is DOWN on the screen for an arrow pointing right
+    double midY = 0;
+    for (const auto& p : pairs_of(vector_arrow_path(a))) midY = std::max(midY, p.second);
+    CHECK(midY > 62.5);
+}
+
+TEST_CASE("vector shapes: a speech bubble's tail points at its target, which must lie outside the box") {
+    VecBubbleSpec b;
+    b.center = {50, 40};
+    b.width = 70;
+    b.height = 40;
+    b.cornerRadius = 8;
+    b.tailTo = {30, 80};
+    b.tailRoundness = 0;
+    const auto a = anchors_of(vector_bubble_path(b));
+    CHECK(std::any_of(a.begin(), a.end(), [](auto p) { return std::abs(p.first - 30) < 0.01 && std::abs(p.second - 80) < 0.01; }));
+    double minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (const auto& p : pairs_of(vector_bubble_path(b))) {
+        minX = std::min(minX, p.first);
+        maxX = std::max(maxX, p.first);
+        minY = std::min(minY, p.second);
+        maxY = std::max(maxY, p.second);
+    }
+    CHECK(minX == doctest::Approx(15));
+    CHECK(maxX == doctest::Approx(85));
+    CHECK(minY == doctest::Approx(20));
+    CHECK(maxY == doctest::Approx(80));
+    AssetsProject p;
+    const CommandResult inside = p.call("vector.shape", Json{{"svg", svg_of("")}, {"kind", "bubble"}, {"center", Json::array({50, 40})}, {"tailTo", Json::array({50, 40})}});
+    REQUIRE_FALSE(inside.ok);
+    CHECK(contains(error_of(inside), "inside the box"));
+    const CommandResult wrong = p.call("vector.shape", Json{{"svg", svg_of("")}, {"kind", "star"}, {"teeth", 4}});
+    REQUIRE_FALSE(wrong.ok);
+    CHECK(contains(error_of(wrong), "gear"));
+}
+
+TEST_CASE("vector.shape: ids, parents, styles and a ribbon group, with the same bytes on a repeat") {
+    AssetsProject p;
+    const std::string svg = svg_of("<g id=\"layer\" transform=\"translate(10 0)\"><rect id=\"bg\" width=\"10\" height=\"10\"/></g>");
+    const Run r = run(p, "vector.shape", svg, {{"kind", "star"}, {"id", "s1"}, {"parent", "layer"}, {"center", Json::array({20, 50})}, {"radius", 15}, {"fill", "#ff0000"}, {"opacity", 0.5}});
+    CHECK(r.r["element"] == "s1");
+    CHECK(contains(r.svg, "fill=\"#ff0000\""));
+    CHECK(contains(r.svg, "opacity=\"0.5\""));
+    CHECK(r.svg.find("id=\"s1\"") < r.svg.find("</g>"));  // inside the group
+    check_bounds(bounds_of(p, r.svg, "s1"), {30 - 15 * 0.951057, 50 - 15, 2 * 15 * 0.951057, 15 + 15 * 0.809017}, 0.05);  // the group moves it by 10
+    CHECK(get(r.img, 30, 50).a > 100);  // half opaque
+    CHECK(empty(r, 5, 50));
+    const CommandResult dup = p.call("vector.shape", Json{{"svg", r.svg}, {"kind", "star"}, {"id", "s1"}});
+    REQUIRE_FALSE(dup.ok);
+    CHECK(contains(error_of(dup), "s1"));
+    const Run rib = run(p, "vector.shape", svg_of(""), {{"kind", "ribbon"}, {"fill", "#c62e36"}});
+    CHECK(rib.r["parts"].size() == 5);
+    CHECK(filled(rib, 50, 50));
+    CHECK(run(p, "vector.shape", svg_of(""), {{"kind", "ribbon"}, {"fill", "#c62e36"}}).svg == rib.svg);
+}
+
+TEST_CASE("vector.blob: through passes through the points, around stays inside their polygon, open curves get a stroke") {
+    AssetsProject p;
+    const Json pts = Json::array({Json::array({20, 50}), Json::array({50, 20}), Json::array({80, 50}), Json::array({50, 80})});
+    const Run through = run(p, "vector.blob", svg_of(""), {{"points", pts}, {"id", "b"}});
+    const auto a = anchors_of(d_of(through.svg, "b"));
+    for (const Json& pt : pts)
+        CHECK(std::any_of(a.begin(), a.end(), [&](auto q) { return std::hypot(q.first - pt[0].get<double>(), q.second - pt[1].get<double>()) < 0.05; }));
+    CHECK(filled(through, 50, 50));
+    const Run around = run(p, "vector.blob", svg_of(""), {{"points", pts}, {"id", "b"}, {"fit", "around"}});
+    // the diamond's inscribed curve: no point of it reaches the corners of the control polygon
+    for (const auto& q : anchors_of(d_of(around.svg, "b"))) CHECK(std::abs(q.first - 50) + std::abs(q.second - 50) < 30.0);
+    CHECK(filled(around, 50, 50));
+    CHECK(empty(around, 22, 22));
+    const Run open = run(p, "vector.blob", svg_of(""), {{"points", Json::array({Json::array({10, 80}), Json::array({50, 20}), Json::array({90, 80})})}, {"closed", false}, {"id", "c"}});
+    CHECK(contains(open.svg, "stroke="));
+    CHECK(contains(open.svg, "fill=\"none\""));
+    CHECK_FALSE(contains(d_of(open.svg, "c"), "Z"));
+    CHECK_FALSE(p.call("vector.blob", Json{{"svg", svg_of("")}, {"points", Json::array({Json::array({1, 1}), Json::array({2, 2})})}}).ok);
+}
+
+TEST_CASE("vector.mirror: the weld unions the shape with its reflection, the copy keeps the original") {
+    AssetsProject p;
+    const std::string half = svg_of("<path id=\"half\" d=\"M50 10 L80 30 L70 90 L50 90 Z\" fill=\"#333\"/>");
+    const Run w = run(p, "vector.mirror", half, {{"elements", "half"}, {"axis", "vertical"}, {"at", 50}});
+    CHECK(w.r["changed"] == true);
+    check_bounds(bounds_of(p, w.svg, "half"), {20, 10, 60, 80}, 0.1);
+    for (int y = 0; y < 100; y += 7)
+        for (int x = 0; x < 50; x += 3)
+            if (std::abs(x - 50) > 1.5) CHECK_MESSAGE(filled(w, x, y) == filled(w, 99 - x, y), "x " << x << " y " << y);
+    CHECK(filled(w, 50, 50));
+    CHECK(std::count(w.svg.begin(), w.svg.end(), 'M') == 1);  // one outline, no seam
+    const Run c = run(p, "vector.mirror", half, {{"elements", "half"}, {"axis", "vertical"}, {"weld", false}});
+    CHECK(contains(c.svg, "id=\"half-mirror\""));
+    CHECK(contains(c.svg, "id=\"half\""));
+    check_bounds(bounds_of(p, c.svg, "half-mirror"), {20, 10, 30, 80}, 0.1);
+    const Run h = run(p, "vector.mirror", half, {{"elements", "half"}, {"axis", "horizontal"}, {"at", "end"}});
+    check_bounds(bounds_of(p, h.svg, "half"), {50, 10, 30, 160}, 0.1);
+    CHECK_FALSE(p.call("vector.mirror", Json{{"svg", half}, {"elements", "half"}, {"axis", "diagonal"}}).ok);
+}
+
+TEST_CASE("vector.text_to_path: outlines with the engine's font, the advance grows with the text, existing <text> becomes a path") {
+    AssetsProject p;
+    double advI = 0, advII = 0;
+    int glyphs = 0;
+    const auto one = vector_text_path("i", "", 40, {10, 60}, "start", 0, 3, &advI, &glyphs);
+    REQUIRE(one.ok());
+    CHECK_FALSE(one.value().empty());
+    CHECK(glyphs == 1);
+    const auto two = vector_text_path("ii", "", 40, {10, 60}, "start", 0, 3, &advII, &glyphs);
+    REQUIRE(two.ok());
+    CHECK(glyphs == 2);
+    CHECK(advI > 5);
+    CHECK(advII == doctest::Approx(2 * advI).epsilon(0.01));
+    // an anchored text is placed by its middle
+    const Run r = run(p, "vector.text_to_path", svg_of(""), {{"text", "HI"}, {"size", 50}, {"at", Json::array({50, 70})}, {"anchor", "middle"}, {"id", "t"}, {"fill", "#000"}});
+    CHECK(r.r["glyphs"] == 2);
+    CHECK(r.r["advance"].get<double>() > 30);
+    const auto bb = bounds_of(p, r.svg, "t");
+    CHECK(bb[0] + bb[2] / 2 == doctest::Approx(50).epsilon(0.08));
+    CHECK(bb[1] + bb[3] <= 70.5);  // capitals sit on the baseline
+    CHECK(bb[3] > 25);
+    CHECK_FALSE(contains(r.svg, "<text"));
+    const Run conv = run(p, "vector.text_to_path", svg_of("<text id=\"label\" x=\"10\" y=\"60\" font-size=\"30\" fill=\"#123456\">Go</text>"), {{"elements", "label"}});
+    CHECK(conv.r["changed"] == true);
+    CHECK(contains(conv.svg, "<path id=\"label\""));
+    CHECK(contains(conv.svg, "#123456"));
+    CHECK_FALSE(contains(conv.svg, "<text"));
+    CHECK_FALSE(p.call("vector.text_to_path", Json{{"svg", svg_of("")}}).ok);
+}
+
+TEST_CASE("vector.shade: the shadow lands on the side away from the light, the highlight on the light's side, both inside the shape") {
+    AssetsProject p;
+    const std::string svg = svg_of("<circle id=\"orb\" cx=\"50\" cy=\"50\" r=\"40\" fill=\"#cc3333\"/>");
+    const Run r = run(p, "vector.shade", svg, {{"elements", "orb"}, {"light", "upper-left"}, {"depth", 10}});
+    CHECK(r.r["changed"] == true);
+    CHECK(contains(r.svg, "id=\"orb-shadow\""));
+    CHECK(contains(r.svg, "id=\"orb-highlight\""));
+    const Rgba base = get(r.img, 50, 50);
+    const Rgba shade = get(r.img, 78, 78);  // lower right, near the rim
+    const Rgba light = get(r.img, 22, 22);  // upper left
+    CHECK(shade.r < base.r);
+    CHECK(light.r > base.r);
+    CHECK(empty(r, 5, 5));  // nothing leaks outside the disc
+    CHECK(empty(r, 95, 95));
+    CHECK(empty(r, 5, 95));
+    // the other way round with the light from the lower right (315 degrees counter-clockwise from +x with y up)
+    const Run flip = run(p, "vector.shade", svg, {{"elements", "orb"}, {"light", 315}, {"depth", 10}});
+    CHECK(get(flip.img, 78, 78).r > get(flip.img, 50, 50).r);
+    CHECK(get(flip.img, 22, 22).r < get(flip.img, 50, 50).r);
+    // explicit colours
+    const Run c = run(p, "vector.shade", svg, {{"elements", "orb"}, {"shadowColour", "#000080"}, {"highlight", false}});
+    CHECK(contains(c.svg, "#000080"));
+    CHECK_FALSE(contains(c.svg, "orb-highlight"));
+    const CommandResult bad = p.call("vector.shade", Json{{"svg", svg}, {"elements", "orb"}, {"light", "upper-lef"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(contains(error_of(bad), "upper-left"));
+}
+
+TEST_CASE("vector.shade: the light direction defaults to the style guide's and the palette ramps colour the bands") {
+    AssetsProject p;
+    write_all(p.file("assets.json"), R"({"style":{"lightDirection":315,"palette":["#202020","#808080","#e0e0e0"]}})");
+    const std::string svg = svg_of("<circle id=\"orb\" cx=\"50\" cy=\"50\" r=\"40\" fill=\"#808080\"/>");
+    const Run r = run(p, "vector.shade", svg, {{"elements", "orb"}, {"depth", 10}});
+    CHECK(r.r["light"]["from"] == "style");
+    CHECK(get(r.img, 22, 22).r < get(r.img, 50, 50).r);  // the style's light is lower right: the upper left is the shade
+    CHECK(get(r.img, 78, 78).r > get(r.img, 50, 50).r);
+}
