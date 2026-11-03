@@ -18,6 +18,7 @@
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/ai_disclosure.h"
+#include "fa/tooling/audio_doc.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
@@ -873,6 +874,8 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     // Image documents are the source of their PNGs: bake the ones not baked (or stale) so that the game ships the picture.
     // Before anything is written to the output, so that a document that does not load leaves the previous export in place.
     if (auto baked = bake_image_documents_if_needed(p.dir); !baked.ok()) return baked.error();
+    // The same for audio documents: the shipped sound is what their chain renders.
+    if (auto baked = bake_audio_documents_if_needed(p.dir); !baked.ok()) return baked.error();
 
     std::error_code ec;
     stdfs::create_directories(os_path(plan.outParent), ec);

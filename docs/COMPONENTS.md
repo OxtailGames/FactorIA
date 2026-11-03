@@ -2256,6 +2256,21 @@ Good for placeholders and simple effects; for richer sounds import a CC0 kit (do
 | `seconds` | number | no | Length in seconds: the whole sound (envelopes, sweeps) is stretched to it. Default: the preset's own length. |
 | `overwrite` | boolean | no | Replace the file when it already exists. Default false. |
 
+### `audio.bake` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Render audio documents to WAV/OGG files next to them (only the missing or stale ones unless forced), with their recipe in assets.json.
+
+Without `path` this bakes every *.audio.json of the project whose sound is missing or out of date (its document or a file it reads changed: the recipe's hashes), like sfx.bake. With `path` it bakes that document. The sound goes to `output.path` of the document, else next to it as <name>.wav (or .ogg); assets.json records provenance (a CC0 license for synthesized sources; the license and author of the files it read otherwise) and the recipe, so assets.regenerate and project.validate know when it is stale. A `loop` step stores its points as the import settings loopStart/loopEnd of the output, which a looping AudioSource honours. A file that nothing baked is never replaced unless overwrite is true. `factoria export` bakes the stale documents first. Example: {} or {"path":"assets/audio/door.audio.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Bake only this document (project-relative, ending in .audio.json). Leave out for every document. |
+| `force` | boolean | no | Bake documents that are fresh too. Default false. |
+| `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
+| `overwrite` | boolean | no | Replace a file at the output that no audio document baked. Default false. |
+
 ## audio
 
 ### `audio.bus` (modifies state)
@@ -2275,6 +2290,67 @@ Buses are "sfx", "music", "ui", "master" (the master has no ducking) and the pro
 | `duck` | any | no | Ducking by another bus; null = off. |
 | `fade` | number | no | Seconds volume, lowpass and reverb take to move. Default 0. |
 
+## assets
+
+### `audio.create` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Write a new audio document (a source and a chain of steps) and bake it.
+
+Writes `path` (*.audio.json under assets/) with the format, `source` (a project WAV/OGG/MP3, an .sfx.json patch or another .audio.json), the `steps` (list of step objects; audio.info {} lists the types and fields) and the optional `seed`, `output` ({format wav|ogg, channels source|mono, quality, path}) and `doc` note. The document is checked first: a mistake returns every issue and writes nothing. Then it is baked (unless bake is false) and the result holds the measurements. Example: {"path":"assets/audio/door.audio.json","source":"assets/raw/door.wav","steps":[{"type":"trim","auto":true},{"type":"fade","out":0.05},{"type":"normalize","target":-3}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The audio document, project-relative, under assets/, ending in .audio.json. |
+| `source` | string | yes | The sound to start from: a project path ending in .wav/.ogg/.mp3/.qoa, .sfx.json or .audio.json. |
+| `steps` | array | no | The chain, in order. Each step is {"type": ..., fields}. |
+| `seed` | integer | no | Seed of the random steps. |
+| `output` | object | no | {format: wav\|ogg, channels: source\|mono, quality: 0..1 (ogg), path: where to bake}. |
+| `doc` | string | no | A note on what the sound is for. |
+| `overwrite` | boolean | no | Replace the document when it exists (and the baked sound when nothing baked it). Default false. |
+| `bake` | boolean | no | Bake the sound after writing. Default true. |
+
+### `audio.edit` (modifies state)
+
+Not released yet (on main after 0.14.1).
+
+Add, change, remove or move one step of an audio document (or change its source, seed or output), then bake it.
+
+`op` is one of: add (insert `step`, an object, at `index`, default the end), set (change the fields of step `index` with `values`; a null value removes a field), remove (delete step `index`), move (take step `index` to position `to`), document (change `source`, `seed` or `output`). The result document is checked as a whole before anything is written, so a bad value returns every issue with its JSON pointer and writes nothing; the file keeps the other steps as written. Then the sound is baked again (unless bake is false) and the measurements tell what the edit did. Example: {"path":"assets/audio/door.audio.json","op":"set","index":2,"values":{"target":-6}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The audio document, project-relative, under assets/, ending in .audio.json. |
+| `op` | string ["add","set","remove","move","document"] | yes | What to do. |
+| `index` | integer | no | The step to act on (add: where to insert it). |
+| `step` | object | no | add: the new step, {"type": ..., fields}. |
+| `values` | object | no | set: fields to change; null removes a field. |
+| `to` | integer | no | move: the new position. |
+| `source` | string | no | document: the new source. |
+| `seed` | integer | no | document: the new seed. |
+| `output` | object | no | document: the new output settings. |
+| `bake` | boolean | no | Bake the sound after writing. Default true. |
+| `picture` | boolean | no | Return the waveform/spectrogram picture after baking. Default false. |
+| `overwrite` | boolean | no | Replace a sound that no audio document baked. Default false. |
+
+### `audio.info`
+
+Not released yet (on main after 0.14.1).
+
+Check an audio document and say what its chain renders to; with no arguments, list the step types and their fields.
+
+An audio document (`*.audio.json`, docs/SOUND.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, compressor, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The audio document, project-relative, under assets/, ending in .audio.json. |
+| `document` | object | no | The document itself, as JSON, to check before writing it to a file (format is filled in). |
+| `seed` | integer | no | Render this take (replaces the document's seed). |
+| `render` | boolean | no | Render the chain in memory for the measurements. Turn it off to only check it. Default true. |
+
+## audio
+
 ### `audio.log`
 
 List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
@@ -2286,6 +2362,29 @@ Every play request is logged: audio.play and audio.music from scripts, AudioSour
 | `after` | integer | no | Only entries with seq greater than this. Default 0. |
 | `path` | string | no | Only this clip: a project-relative path or a file name like "jump.wav". |
 | `max` | integer | no | Return at most this many (the newest). Default 200. |
+
+## assets
+
+### `audio.render`
+
+Not released yet (on main after 0.14.1).
+
+Render an audio document in memory: measurements, what each step did, and a waveform/spectrogram picture. Writes nothing.
+
+Applies the chain of the document (`path`, or an inline `document`) and returns the measurements (seconds, integrated loudness in LUFS, peak in dBFS, centroidHz, loop points), the length and peak after every step, and a picture (`$image`): the source and the result, each as a waveform over a spectrogram with its numbers, on one time and level scale. `stopAfter` renders only steps 0..stopAfter to hear the chain up to a step; `seed` takes another take of the random steps. The same document and files always render the same samples. Example: {"path":"assets/audio/door.audio.json","stopAfter":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The audio document, project-relative, under assets/, ending in .audio.json. |
+| `document` | object | no | The document itself, as JSON, instead of `path`. |
+| `seed` | integer | no | Replaces the document's seed for this render. |
+| `stopAfter` | integer | no | Render only steps 0..stopAfter. |
+| `compare` | boolean | no | Show the unprocessed source above the result in the picture. Default true. |
+| `picture` | boolean | no | Return the picture (`$image`). Default true. |
+| `pictureOut` | string | no | Also keep the picture's PNG at this project path (ends in .png). |
+| `width` | integer | no | Width of the picture in pixels (default 1000). |
+
+## audio
 
 ### `audio.snapshot` (modifies state)
 

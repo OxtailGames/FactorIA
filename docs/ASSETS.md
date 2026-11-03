@@ -860,6 +860,7 @@ entry's `import` (one sound); the entry wins:
 | `stream` | `auto`, `always`, `never` | `auto` | Decode the sound a little at a time while it plays instead of whole when it loads. |
 | `normalize` | `true`, `false` | `false` | Play the sound at `targetLufs` so tracks and effects from different sources are equally loud. |
 | `targetLufs` | -60 to 0 | `-16` | The loudness `normalize` aims at (integrated LUFS). Music and voice: -16. Effects: -18 to -12. |
+| `loopStart`, `loopEnd` | seconds, 0 or more; `loopEnd` after `loopStart` | none | Where a looping sound wraps: from `loopEnd` playback jumps back to `loopStart`, so what comes before `loopStart` plays once. Without them the whole sound loops. A sound with loop points is decoded whole, never streamed. The `loop` step of an audio document writes them (docs/SOUND.md, "Audio documents"). |
 | `convert` | `none`, `qoa` | `none` | Export setting: ship WAV files as QOA (about 5 times smaller, cheap to decode). |
 
 ```json
