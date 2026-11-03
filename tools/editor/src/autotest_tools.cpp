@@ -570,7 +570,11 @@ void Editor::at_build_tools_script() {
             if (showAnimation_ || anim_.posed) anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
             anim_ = AnimUi{};
             bone_ = BoneUi{};
-            showAnimation_ = showBoneTools_ = showImage_ = showVector_ = false;
+            showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = false;
+            sound_close_document();   // section K3: the Sound panel, its sound and its playback are not carried over
+            sound_release_textures();
+            if (sound_.player) sound_.player->stop();
+            sound_ = SoundUi{};
             vector_release_textures();
             vector_ = VectorUi{};   // section J2: the Vector panel, its drawing and its tools are not carried over
             image_release_textures();   // section I2: the Image panel, its document and its tools are not carried over
@@ -6261,6 +6265,261 @@ void Editor::at_build_tools_script() {
             FA_INFO("autotest", "vector panel: scene read {:.2f} ms, last picture {:.2f} ms", vector_.model->last_scene_ms(), vector_.model->last_raster_ms());
             showVector_ = false;
             showImage_ = false;
+        });
+    }
+
+    section("K3");
+    // The Sound panel (docs/EDITOR.md, "Sound panel"): a coin patch opens; the brightness knob is dragged (ONE sfx.tweak, one undo step);
+    // Play moves the playhead on the null device; a drag on the waveform selects and zooms; the patch gets variations, two variants are
+    // compared A/B at the same loudness; an audio document over the baked coin gets a step, a reorder and a loop step whose end marker is
+    // dragged on the waveform; Undo/Redo walk the steps through the editor's own stack and Save bakes both sounds. Every wait counts frames.
+    {
+        struct Ks {
+            size_t undo = 0;
+            double centroid = 0;
+            double loopEnd = 0;
+            int steps = 0;
+            double position = 0;
+            std::string patchBefore;
+        };
+        auto ks = std::make_shared<Ks>();
+        const std::string dir = "assets/at-sound";
+        const std::string patch = dir + "/coin.sfx.json";
+        const std::string wav = dir + "/coin.wav";
+        const std::string doc = dir + "/coin.audio.json";
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto click_widget = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
+        };
+        auto settled = [this] { return sound_.model && sound_.model->is_open() && !sound_.model->busy() && sound_.model->current() && sound_.model->current_is_fresh(); };
+        auto read_text = [this](const std::string& rel) {
+            std::ifstream in(projectDir_ + "/" + rel, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        auto run = [this](const std::string& name, const Json& args) {
+            const CommandResult r = engine_->commands().call(name, args);
+            after_command(name, args, r);
+            at_check(r.ok, name + " worked: " + (r.ok ? std::string() : command_error_text(r.error)));
+        };
+        step(2, [this, ks, dir, patch, wav, doc, run] {
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);   // a leftover of an earlier run
+            run("sfx.preset", Json::object({{"name", "coin"}, {"path", patch}}));
+            run("sfx.render", Json::object({{"path", patch}, {"out", wav}, {"picture", false}, {"overwrite", true}}));
+            run("audio.create", Json::object({{"path", doc}, {"source", wav}, {"bake", false}, {"output", Json::object({{"format", "wav"}, {"path", dir + "/coin_loop.wav"}})}, {"steps", Json::array({Json::object({{"type", "gain"}, {"db", -3}})})}}));
+            ks->undo = undo_depth();
+            open_sound_document(patch);
+        });
+        wait_until([this, settled] { return at_visible("snd:wave") && at_visible("snd:play") && settled(); });
+        step(3, [this, ks] {
+            SoundModel& m = *sound_.model;
+            at_check(m.kind() == SoundKind::Patch && m.valid(), "the panel opened the coin patch");
+            at_check(m.current() && m.current()->lufs > -60 && m.current()->seconds > 0.05, "...rendered it and measured it");
+            at_check(sound_.waveW > 100 && sound_.waveH > 40, "...and the waveform is on screen");
+            at_check(at_visible("snd:knob:brightness") && at_visible("snd:save") && at_visible("snd:ab_a") && at_visible("snd:spectrogram"), "...with its knobs, A/B, Save and spectrogram");
+            at_check(at_visible("snd:field:/length"), "...and the inspector lists the patch's fields");
+            at_check(m.current() && m.current()->spectrogram.columns > 0 && sound_.specView != 0, "...the spectrogram has its texture");
+            ks->centroid = m.current() ? m.current()->centroidHz : 0.0;
+        });
+        snap("editor_sound_panel.png");
+
+        // ---- a knob: dragged up, let go: one sfx.tweak
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("snd:knob:brightness")); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("snd:knob:brightness")); });
+        step(2, [this] {
+            Vec2 p = at_widget("snd:knob:brightness");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{p.x, p.y - 12});
+        });
+        step(2, [this] {
+            Vec2 p = at_widget("snd:knob:brightness");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{p.x, p.y - 30});
+        });
+        step(2, [this] { at_check(sound_.model->macro_previewing(), "dragging the brightness knob previews it (nothing written yet)"); });
+        step(3, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, Vec2{at_widget("snd:knob:brightness").x, at_widget("snd:knob:brightness").y}); });
+        wait_until(settled);
+        step(3, [this, ks, patch, read_text] {
+            SoundModel& m = *sound_.model;
+            double v = 0;
+            for (const SoundMacro& k : m.macros())
+                if (k.name == "brightness") v = k.value;
+            at_check(v > 0.1, "letting go of the knob made brightness " + std::to_string(v));
+            at_check(read_text(patch).find("brightness") != std::string::npos, "...and wrote it into the patch file");
+            at_check(undo_depth() == ks->undo + 1, "...as ONE undo step of the editor's stack");
+            at_check(m.before() != nullptr, "...and the sound before the turn is kept for the A/B");
+            at_check(m.current() && m.current()->centroidHz > ks->centroid, "...the sound got brighter (centroid went up)");
+        });
+
+        // ---- play on the null device: the playhead moves; stop
+        click_widget("snd:play");
+        wait_until([this] { return sound_.player && sound_.player->playing() && sound_.player->position() > 0.005; });
+        step(2, [this, ks] {
+            at_check(sound_.player->playing() && sound_.heard == 3, "Play started the sound and the playhead is moving");
+            ks->position = sound_.player->position();
+        });
+        click_widget("snd:play");
+        step(3, [this] { at_check(!sound_.player->playing(), "Stop stopped it"); });
+
+        // ---- a drag on the waveform selects, To selection zooms
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(sound_.shownSeconds * 0.2, 0.5)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, sound_screen_pos(sound_.shownSeconds * 0.2, 0.5)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(sound_.shownSeconds * 0.4, 0.5)); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(sound_.shownSeconds * 0.6, 0.5)); });
+        step(3, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, sound_screen_pos(sound_.shownSeconds * 0.6, 0.5)); });
+        step(3, [this] {
+            at_check(sound_.hasSelection && std::abs(sound_.sel0 - sound_.shownSeconds * 0.2) < sound_.shownSeconds * 0.03 &&
+                         std::abs(sound_.sel1 - sound_.shownSeconds * 0.6) < sound_.shownSeconds * 0.03,
+                     "a drag on the waveform selected 20% to 60% of the sound");
+        });
+        click_widget("snd:zoom_selection");
+        step(3, [this] { at_check(sound_.viewLen < sound_.shownSeconds * 0.5 && std::abs(sound_.viewStart - sound_.sel0) < 0.01, "To selection zoomed to it"); });
+        click_widget("snd:play");
+        wait_until([this] { return sound_.player->playing() && sound_.player->position() > sound_.sel0 + 0.003; });
+        step(2, [this] { at_check(sound_.player->position() >= sound_.sel0 - 0.01 && sound_.player->position() <= sound_.sel1 + 0.05, "Play with a selection starts at its start"); });
+        click_widget("snd:play");
+        click_widget("snd:fit");
+        step(2, [this] { at_check(std::abs(sound_.viewLen - sound_.shownSeconds) < 1e-6, "Fit shows the whole sound again"); });
+
+        // ---- variations: added from the inspector, two variants compared A/B
+        step(2, [this] {
+            sound_edited(sound_.model->set_field("/variations", Json::object({{"count", 3}, {"seed", 7}, {"spread", Json::object({{"pitch", 60}, {"gain", 2}})}}), "Add variations"));
+        });
+        wait_until([this, settled] { return settled() && at_visible("snd:variant:2"); });
+        step(3, [this, ks] {
+            SoundModel& m = *sound_.model;
+            at_check(m.variations().count >= 2, "Adding variations wrote the variations object (" + std::to_string(m.variations().count) + " variants)");
+            at_check(undo_depth() == ks->undo + 2, "...as one undo step");
+        });
+        click_widget("snd:variant:1:a");
+        click_widget("snd:variant:2:b");
+        step(2, [this] {
+            at_check(sound_.slotA == SoundSlot{SoundSlotKind::Variant, 1} && sound_.slotB == SoundSlot{SoundSlotKind::Variant, 2}, "the variant rows set the A and B slots");
+        });
+        wait_until([this] { return sound_.model->slot(sound_.slotA) && sound_.model->slot(sound_.slotB); });
+        step(2, [this] { sound_.loopPlay = true; });   // a coin is short: loop it so the A/B has something to switch
+        click_widget("snd:ab_a");
+        wait_until([this] { return sound_.player->playing() && sound_.player->position() > 0.003; });
+        step(2, [this, ks] {
+            at_check(sound_.heard == 1, "Play A plays variant 1");
+            ks->position = sound_.player->position();
+        });
+        click_widget("snd:ab_b");
+        step(3, [this, ks] {
+            at_check(sound_.heard == 2 && sound_.player->playing(), "Play B switched to variant 2 without stopping");
+            at_check(sound_.player->position() + 0.2 >= ks->position, "...at the same place of the sound");
+            SoundRenderPtr a = sound_.model->slot(sound_.slotA), b = sound_.model->slot(sound_.slotB);
+            at_check(a && b, "...both variants are rendered");
+            if (a && b) {
+                const auto g = sound_level_match(a->lufs, b->lufs);
+                at_check(std::min(g.first, g.second) <= 0.0 && std::max(g.first, g.second) == 0.0, "...the louder one is played quieter and nothing is boosted");
+                at_check(std::abs((a->lufs + g.first) - (b->lufs + g.second)) < 0.05 || (a->lufs <= -69 || b->lufs <= -69), "...so A and B come out equally loud");
+            }
+        });
+        click_widget("snd:play");
+        step(2, [this] { at_check(!sound_.player->playing(), "Stop stopped the A/B"); });
+
+        // ---- undo / redo through the editor's stack
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ks] {
+            at_check(undo_depth() == ks->undo + 1 && sound_.model->variations().count == 0, "Undo took the variations out of the patch");
+        });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        step(3, [this, ks] {
+            at_check(undo_depth() == ks->undo + 2 && sound_.model->variations().count >= 2, "Redo put them back");
+        });
+        click_widget("snd:save");
+        step(10, [this, patch, read_text] {
+            at_check(!read_text("assets/at-sound/coin.wav").empty(), "Save baked the coin next to the patch");
+            at_check(stdfs::exists(projectDir_ + "/assets/at-sound/coin_01.wav") && stdfs::exists(projectDir_ + "/assets/at-sound/coin_03.wav"), "...and its three variants (coin_01.wav ...)");
+            (void)patch;
+        });
+
+        // ---- an audio document: the chain
+        step(2, [this, ks, doc] {
+            ks->undo = undo_depth();
+            open_sound_document(doc);
+        });
+        wait_until([this, settled] { return settled() && at_visible("snd:step:0") && at_visible("snd:step:add"); });
+        step(3, [this, ks] {
+            SoundModel& m = *sound_.model;
+            at_check(m.kind() == SoundKind::Document && m.chain().size() == 1 && m.chain()[0].type == "gain", "the audio document opened with its one step");
+            ks->steps = int(m.chain().size());
+            ks->loopEnd = m.current() ? m.current()->seconds : 0.0;
+        });
+        click_widget("snd:step:add");
+        wait_until([this, settled, ks] { return settled() && int(sound_.model->chain().size()) == ks->steps + 1; });
+        step(3, [this, ks] {
+            at_check(sound_.model->chain().back().type == "gain" && undo_depth() == ks->undo + 1, "Add step appended a gain step as one undo step");
+        });
+        click_widget("snd:step:1:up");
+        step(4, [this, ks] {
+            at_check(sound_.model->chain().size() == 2 && undo_depth() == ks->undo + 2, "the up button reordered the chain as one undo step");
+        });
+        click_widget("snd:step:0:enable");
+        wait_until(settled);
+        step(3, [this, ks] {
+            at_check(!sound_.model->chain()[0].enabled && undo_depth() == ks->undo + 3, "the checkbox skips a step");
+        });
+        // a loop step, then its end marker is dragged
+        step(2, [this] { sound_.newStepType = "loop"; });
+        click_widget("snd:step:add");
+        wait_until([this, settled] { return settled() && sound_.model->loop_step() >= 0 && sound_.model->loop_seconds() && at_visible("snd:loop_end"); });
+        step(3, [this, ks] {
+            const auto lp = sound_.model->loop_seconds();
+            at_check(lp.has_value(), "a loop step makes loop points that show on the waveform");
+            ks->loopEnd = lp ? lp->second : 0.0;
+        });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget("snd:loop_end")); });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget("snd:loop_end")); });
+        step(2, [this, ks] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(ks->loopEnd * 0.8, 0.5)); });
+        step(2, [this, ks] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, sound_screen_pos(ks->loopEnd * 0.6, 0.5)); });
+        step(2, [this, ks] {
+            auto lp = sound_.model->loop_seconds();
+            at_check(sound_.model->loop_previewing() && lp && std::abs(lp->second - ks->loopEnd * 0.6) < ks->loopEnd * 0.04, "dragging the loop end marker moves it on the waveform at once");
+        });
+        step(3, [this, ks] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, sound_screen_pos(ks->loopEnd * 0.6, 0.5)); });
+        wait_until(settled);
+        step(3, [this, ks, doc, read_text] {
+            auto lp = sound_.model->loop_seconds();
+            at_check(lp && std::abs(lp->second - ks->loopEnd * 0.6) < ks->loopEnd * 0.05, "letting go wrote the new loop end");
+            at_check(undo_depth() == ks->undo + 5, "...as one undo step");
+            at_check(read_text(doc).find("\"loop\"") != std::string::npos, "...into the document's loop step");
+        });
+        snap("editor_sound_loop.png");
+        step(2, [this] { undo(); });
+        wait_until(settled);
+        step(3, [this, ks] {
+            auto lp = sound_.model->loop_seconds();
+            at_check(lp && std::abs(lp->second - ks->loopEnd) < ks->loopEnd * 0.03, "Undo put the loop end back");
+        });
+        step(2, [this] { redo(); });
+        wait_until(settled);
+        click_widget("snd:save");
+        step(10, [this, doc] {
+            const std::string out = sound_.model->baked_path();
+            at_check(!out.empty() && stdfs::exists(projectDir_ + "/" + out), "Save baked the document's sound: " + out);
+            const std::string assets = [&] {
+                std::ifstream in(projectDir_ + "/assets.json", std::ios::binary);
+                return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            }();
+            at_check(assets.find("loopEnd") != std::string::npos, "...and wrote the loop points into assets.json");
+            (void)doc;
+        });
+        step(2, [this, dir] {
+            FA_INFO("autotest", "sound panel: last render {:.1f} ms", sound_.model->last_render_ms());
+            showSound_ = false;
+            sound_close_document();
+            std::error_code ec;
+            stdfs::remove_all(projectDir_ + "/" + dir, ec);
+            project_files_changed();
         });
     }
 

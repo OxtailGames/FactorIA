@@ -974,6 +974,18 @@ void Audio::push_pcm(VoiceId voice, const float* stereo, std::size_t frames) {
     }
 }
 
+double Audio::pcm_queued_frames(VoiceId voice) const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    const Voice* v = impl_->find_voice(voice);
+    if (!v || !v->pcm) return 0.0;
+    return std::max(0.0, double(v->pcm->frames()) - v->pcm->pos);
+}
+
+bool Audio::has_device() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->device;
+}
+
 void Audio::clear_pcm(VoiceId voice) {
     std::lock_guard<std::mutex> lk(impl_->mu);
     Voice* v = impl_->find_voice(voice);

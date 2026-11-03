@@ -107,6 +107,8 @@ public:
 
     // device=false -> null output (headless). sampleRate 44100 stereo float.
     bool init(bool device, std::string* error);
+    // True when init opened a real output device (a null device only mixes when advance_null_device is called).
+    bool has_device() const;
     void shutdown();
 
     // Preload (optional; play() loads on demand). Returns false + logs a
@@ -121,6 +123,9 @@ public:
     VoiceId open_pcm_voice(int sampleRate, const PlayParams& params, std::string_view path, std::string_view source);
     void push_pcm(VoiceId voice, const float* stereo, std::size_t frames);
     void clear_pcm(VoiceId voice);  // drops the samples that wait (after a seek)
+    // How many frames of a PCM voice's own rate still wait in its queue (the part of the last frame already played does not
+    // count); 0 for a voice that is not a PCM voice. The sound panel's playhead is what it pushed minus this.
+    double pcm_queued_frames(VoiceId voice) const;
     void set_voice_bus(VoiceId voice, std::string_view bus);
     void stop(VoiceId voice);
     void stop_all();  // every voice, music included (a persisted track too)

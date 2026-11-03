@@ -1,4 +1,4 @@
-// sfx.render, sfx.bake, sfx.tweak, sfx.family, sfx.preset and sfx.info: sound patches (`*.sfx.json`, docs/SOUND.md) as project files. The synthesizer is
+// sfx.render, sfx.bake, sfx.tweak, sfx.edit, sfx.family, sfx.preset and sfx.info: sound patches (`*.sfx.json`, docs/SOUND.md) as project files. The synthesizer is
 // fa_audio's (fa/audio/sfx.h); this file reads patches from the project, bakes them into WAV or OGG files next to them with a
 // recipe in assets.json (so a changed patch makes its sound stale and assets.regenerate renders it again), and shows the result
 // as the picture of assets.spectrogram. assets.synth_sound (assets_synth.cpp) renders the presets through the same functions.
@@ -516,6 +516,71 @@ Json sfx_tweak_command(const std::string& projectDir, const Json& a) {
     return result;
 }
 
+// ---- sfx.edit ----
+
+// Changes one field of a patch by its JSON pointer and writes the patch back when the result still parses (the sound panel's inspector).
+Json sfx_edit_command(const std::string& projectDir, const Json& a) {
+    check_arg_keys("sfx.edit", a, "", {"path", "op", "pointer", "value", "index", "to"});
+    const std::string rel = patch_path(tooling_detail::arg_string(a, "path", true));
+    const std::string op = tooling_detail::arg_string(a, "op", true);
+    if (op != "set" && op != "remove" && op != "add" && op != "move")
+        fail("invalid_argument", "sfx.edit: unknown op '" + op + "'.", "op is set, remove, add (insert into an array) or move (reorder an array).");
+    const std::string pointer = tooling_detail::arg_string(a, "pointer", true);
+    if (!pointer.empty() && pointer[0] != '/') fail("invalid_argument", "sfx.edit: `pointer` must be a JSON pointer such as /oscillators/0/wave.", "It starts with a slash; /macros/brightness is the brightness macro.");
+    const LoadedPatch loaded = load_patch(projectDir, rel);
+    Json json = loaded.json;
+    Json::json_pointer ptr;
+    try {
+        ptr = Json::json_pointer(pointer);
+    } catch (const std::exception& e) {
+        fail("invalid_argument", std::string("sfx.edit: bad pointer: ") + e.what(), "Use a JSON pointer such as /oscillators/0/wave.");
+    }
+    auto need_array = [&]() -> Json& {
+        if (!json.contains(ptr) || !json.at(ptr).is_array()) fail("invalid_argument", "sfx.edit: " + pointer + " is not an array in " + rel + ".", "Point at the array itself, e.g. /oscillators or /effects.");
+        return json.at(ptr);
+    };
+    try {
+        if (op == "set") {
+            if (!a.contains("value")) fail("invalid_argument", "sfx.edit: `set` needs a `value`.", "Use op remove to delete a field.");
+            if (pointer.empty()) fail("invalid_argument", "sfx.edit: set needs a pointer to a field.", "Example: /oscillators/0/wave.");
+            const Json::json_pointer parent = ptr.parent_pointer();
+            if (!json.contains(parent)) fail("invalid_argument", "sfx.edit: " + parent.to_string() + " does not exist in " + rel + ".", "Set the parent first, or point at an existing object.");
+            json[ptr] = a["value"];
+        } else if (op == "remove") {
+            if (pointer.empty() || !json.contains(ptr)) fail("not_found", "sfx.edit: " + pointer + " is not in " + rel + ".", "Nothing to remove there.");
+            const Json::json_pointer parent = ptr.parent_pointer();
+            Json& holder = json.at(parent);
+            if (holder.is_array()) holder.erase(holder.begin() + std::stoul(ptr.back()));
+            else holder.erase(ptr.back());
+        } else if (op == "add") {
+            Json& arr = need_array();
+            if (!a.contains("value")) fail("invalid_argument", "sfx.edit: `add` needs a `value` to insert.", "Example: {\"type\":\"sine\"} into /oscillators.");
+            const std::size_t at = a.contains("index") ? static_cast<std::size_t>(std::clamp<long long>(a["index"].get<long long>(), 0, static_cast<long long>(arr.size()))) : arr.size();
+            arr.insert(arr.begin() + static_cast<std::ptrdiff_t>(at), a["value"]);
+        } else {
+            Json& arr = need_array();
+            if (!a.contains("index") || !a.contains("to") || !a["index"].is_number_integer() || !a["to"].is_number_integer())
+                fail("invalid_argument", "sfx.edit: `move` needs integer `index` and `to`.", "index is the element to move, to its new place.");
+            const long long from = a["index"].get<long long>(), to = a["to"].get<long long>(), n = static_cast<long long>(arr.size());
+            if (from < 0 || from >= n || to < 0 || to >= n) fail("invalid_argument", "sfx.edit: index/to must be 0.." + std::to_string(n - 1) + ".", "The array has " + std::to_string(n) + " elements.");
+            Json item = arr[static_cast<std::size_t>(from)];
+            arr.erase(arr.begin() + from);
+            arr.insert(arr.begin() + to, item);
+        }
+    } catch (const CommandError&) {
+        throw;
+    } catch (const std::exception& e) {
+        fail("invalid_argument", std::string("sfx.edit: ") + e.what(), "Check the pointer and the value against schemas/sfx.schema.json.");
+    }
+    std::vector<SfxIssue> issues;
+    auto patch = parse_sfx(json, rel, &issues);
+    if (!patch.ok()) throw CommandError("invalid_patch", "sfx.edit: the patch would no longer be valid, so nothing was written. " + patch.error().message, patch.error().hint, Json::object({{"issues", issues_json(issues)}}));
+    std::string err;
+    if (!tooling_detail::write_file(project_file(projectDir, rel), json.dump(2) + "\n", &err)) fail("failed", err);
+    return Json::object({{"patch", rel},
+                         {"nextSteps", Json::array({"The patch is changed, not rendered: sfx.render {\"path\":\"" + rel + "\"} renders it, sfx.bake renders every sound that is out of date."})}});
+}
+
 // ---- sfx.family ----
 
 // One interface sound of a family: how its patch differs from the base. The loudness is not here: every member takes the base's
@@ -924,6 +989,28 @@ void register_sfx_commands(CommandRegistry& registry, const std::string& project
                                                              {"width", Json::object({{"type", "integer"}, {"minimum", 400}, {"maximum", 2400}, {"description", "Width of the picture in pixels."}})},
                                                              {"height", Json::object({{"type", "integer"}, {"minimum", 280}, {"maximum", 1600}, {"description", "Height of the picture in pixels."}})}})}});
         registry.add(info, [projectDir](const Json& args) { return sfx_tweak_command(projectDir, args.is_null() ? Json::object() : args); });
+    }
+    {
+        CommandInfo info;
+        info.name = "sfx.edit";
+        info.category = "assets";
+        info.readOnly = false;
+        info.summary = "Change one field of a sound patch by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid patch.";
+        info.description =
+            "Edits `*.sfx.json` the way a hand edit would, but checked: the patch is parsed again after the change and, when it would be invalid, nothing is written and the error lists the issues with their pointers. "
+            "op `set` writes `value` at `pointer` (an existing object's field, new or old); `remove` deletes the field or array element at `pointer`; `add` inserts `value` into the array at `pointer` "
+            "(at `index`, default the end); `move` takes element `index` of the array at `pointer` to place `to`. Nothing is rendered: call sfx.render or sfx.bake afterwards. "
+            "Example: {\"path\":\"assets/audio/coin.sfx.json\",\"op\":\"set\",\"pointer\":\"/oscillators/0/wave\",\"value\":\"square\"}";
+        info.inputSchema = Json::object({{"type", "object"},
+                                         {"required", Json::array({"path", "op", "pointer"})},
+                                         {"additionalProperties", false},
+                                         {"properties", obj({{"path", str("The sound patch, project-relative, ending in .sfx.json.")},
+                                                             {"op", Json::object({{"type", "string"}, {"enum", Json::array({"set", "remove", "add", "move"})}, {"description", "What to do."}})},
+                                                             {"pointer", str("JSON pointer into the patch, e.g. /oscillators/0/wave or /effects.")},
+                                                             {"value", Json::object({{"description", "The new value (set) or the element to insert (add). Any JSON."}})},
+                                                             {"index", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "add: where to insert; move: the element to move."}})},
+                                                             {"to", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "move: the element's new place."}})}})}});
+        registry.add(info, [projectDir](const Json& args) { return sfx_edit_command(projectDir, args.is_null() ? Json::object() : args); });
     }
     {
         CommandInfo info;

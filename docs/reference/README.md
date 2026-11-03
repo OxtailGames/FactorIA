@@ -222,6 +222,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`music.render`](commands/assets.md#musicrender-modifies-state): Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer. _Not released yet._
 - [`music.scale`](commands/assets.md#musicscale): Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals). _Not released yet._
 - [`sfx.bake`](commands/assets.md#sfxbake-modifies-state): Render every sound patch of the project whose WAV is missing or out of date. _Not released yet._
+- [`sfx.edit`](commands/assets.md#sfxedit-modifies-state): Change one field of a sound patch by JSON pointer (set, remove, add to an array, move inside an array); the result must still be a valid patch. _Not released yet._
 - [`sfx.family`](commands/assets.md#sfxfamily-modifies-state): Make a consistent set of interface sounds (click, hover, confirm, cancel, error, open, close, notify) from one base patch. _Not released yet._
 - [`sfx.info`](commands/assets.md#sfxinfo): Check a sound patch and say what it holds and how loud it renders, without writing anything. _Not released yet._
 - [`sfx.preset`](commands/assets.md#sfxpreset-modifies-state): List the sound presets, return one as an editable patch, or write it to a *.sfx.json file. _Not released yet._
